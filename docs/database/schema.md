@@ -35,7 +35,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
-| `inbound-mail.ts` | `inbound_mail_addresses`, `inbound_mail_messages` — the project mail inbox (migration 0101, ADR-0075) |
+| `inbound-mail.ts` | `inbound_mail_addresses`, `inbound_mail_messages` — the project mail inbox (migration 0102, ADR-0075) |
 
 ---
 
@@ -649,7 +649,7 @@ export const projectFolders = pgTable('project_folders', {
 
 ---
 
-## inbound_mail_addresses / inbound_mail_messages (migration 0101, ADR-0075)
+## inbound_mail_addresses / inbound_mail_messages (migration 0102, ADR-0075)
 
 The project mail inbox. A member mails files to `<slug>.<token>@<GRID_INBOUND_MAIL_DOMAIN>`
 and the attachments are filed into the project as if that member had uploaded them
@@ -891,7 +891,8 @@ LLM budgets and the usage ledger (ADR-0015).
   (`uniq_budget_policies_active`, COALESCE on subject) enforces one active
   policy per (org, scope, subject).
 - `llm_usage_events`: one row per LLM generation — org/user/project/
-  conversation/job attribution, `agent_group` (reserved), `requested_model`
+  conversation/job attribution, `agent_group` (the call's role, NULL for an
+  agent turn), `activity` (0101: `'ingest'` or NULL), `requested_model`
   vs served `model`, OpenRouter `generation_id`, token counts (incl. cached +
   reasoning), `cost_usd numeric(14,8)` exactly as OpenRouter reported,
   `cost_source`, `is_byok`, and `message_id` (migration 0098): the chat

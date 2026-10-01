@@ -484,7 +484,8 @@ def enrich_vlm_batch(
         futures = {}
 
         # Each task runs in a copy of this thread's context, so the ingest job's
-        # data-policy scope (`openrouter.data_policy_scope`) reaches the VLM call.
+        # data-policy scope (`openrouter.data_policy_scope`) and cost tracker
+        # (`_ingest_cost_scope`) both reach the VLM call.
         for record in image_records:
             fut = pool.submit(contextvars.copy_context().run, _enrich_one_image, record)
             futures[fut] = ("image", record)

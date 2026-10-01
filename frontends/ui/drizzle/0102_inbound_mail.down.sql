@@ -1,4 +1,4 @@
--- Reverse 0101: drop the project mail inbox tables.
+-- Reverse 0102: drop the project mail inbox tables.
 --
 -- Lossy only in bookkeeping and in mail not yet filed: the files the inbox
 -- filed are ordinary documents and stay where they are. What goes is every

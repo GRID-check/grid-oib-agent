@@ -41,6 +41,14 @@ a retry in the meantime dispatches again and finds the revived job through
 the owner's ``heartbeat`` refreshes fewer rows than it asked for, which is how
 the adapter learns to re-write its jobs within one beat rather than at its next
 status change.
+
+A JOB THE DURABLE QUEUE HOLDS IS WAITING, NOT LOST. A job queued in
+``ingest_job_queue`` is written PENDING by the replica that accepted it and
+then vouched for by nobody until a worker claims it, possibly long after that
+replica is gone. While its queue row exists (queued, claimed, or waiting to be
+claimed again) the row is never stale (``_stale_predicate``); the queue drops
+the row when the job finishes or has failed every attempt, and only then can
+the job read as interrupted.
 """
 
 from __future__ import annotations
@@ -57,6 +65,7 @@ from sqlalchemy import bindparam
 from sqlalchemy import inspect
 from sqlalchemy import text
 
+from . import ingest_queue
 from .document_metadata_store import DocumentMetadataStore
 from .schema import FileStatus
 from .schema import IngestionJobStatus
@@ -123,6 +132,8 @@ def _ensure_table(url: str) -> None:
             )
         )
         _add_missing_columns(conn, url)
+        # `_stale_predicate` reads the queue table, so it must exist too.
+        ingest_queue.ensure_table(url, conn)
         conn.commit()
     _initialized.add(url)
 
@@ -153,8 +164,9 @@ def _ago(url: str, seconds: int) -> str:
 def _stale_predicate(url: str) -> str:
     """SQL: this row's owner has stopped vouching for it. Built from constants only."""
     return (
-        f"((heartbeat_at IS NOT NULL AND heartbeat_at < {_ago(url, STALE_AFTER_SECONDS)}) "
-        f"OR (heartbeat_at IS NULL AND updated_at < {_ago(url, _LEGACY_STALE_AFTER_SECONDS)}))"
+        f"(((heartbeat_at IS NOT NULL AND heartbeat_at < {_ago(url, STALE_AFTER_SECONDS)}) "
+        f"OR (heartbeat_at IS NULL AND updated_at < {_ago(url, _LEGACY_STALE_AFTER_SECONDS)})) "
+        f"AND NOT EXISTS (SELECT 1 FROM {ingest_queue.TABLE} q WHERE q.job_id = ingest_jobs.job_id))"
     )
 
 

@@ -2,6 +2,8 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { EDGE_RATE_LIMIT, GOTENBERG, LANGFUSE, PORT } from "../constants";
+import { KEDA_NAMESPACE } from "./keda";
+import { CLUSTER_NAME as POSTGRES_CLUSTER } from "../data/postgres";
 
 /**
  * `app.kubernetes.io/name` of the Aspire dashboard. Referenced by rule 2 (which
@@ -346,10 +348,22 @@ export function installNetworkPolicies(
       })
     : undefined;
 
+  // 14. KEDA (its own namespace) reads the ingest queue's depth to scale the
+  //     ingest-worker tier (ADR-0076). Postgres only, and only when that tier
+  //     runs: the operator runs one COUNT(*) there and needs nothing else.
+  const kedaToPostgres = cfg.ingestWorker.enabled
+    ? mk("allow-keda-to-postgres", {
+        podSelector: { matchLabels: { "cnpg.io/cluster": POSTGRES_CLUSTER } },
+        policyTypes: ["Ingress"],
+        ingress: [{ from: [nsLabel(KEDA_NAMESPACE)], ports: [{ protocol: "TCP", port: 5432 }] }],
+      })
+    : undefined;
+
   return [
     deny,
     intra,
     cnpg,
+    ...(kedaToPostgres ? [kedaToPostgres] : []),
     edgeFrontend,
     edgeS3,
     edgeWeb,

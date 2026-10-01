@@ -409,10 +409,18 @@ export async function dispatchIngest(
       )
     : null
 
+  // Who the ingestion's model spend is booked to on the usage ledger, beside
+  // the organization: the document's project and the member who put it there.
+  // Read from the row rather than threaded through every caller; a failed read
+  // books the spend to the organization alone, never fails the dispatch.
+  const attribution = await findDocumentInOrg(documentId, organizationId).catch(() => null)
+
   const body = JSON.stringify({
     file_ref: presignedUrl,
     collection: collectionName,
     document_id: documentId,
+    project_id: attribution?.projectId ?? null,
+    user_id: attribution?.createdBy ?? null,
     thumbnail_upload_url: thumbnailUploadUrl,
     // A PDF of an office original (ADR-0070), for the thumbnail: the
     // backend cannot rasterise a .docx. Null for everything else and
@@ -2768,6 +2776,8 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     chunkCount: reconciled.chunkCount,
     contentTypes: reconciled.contentTypes,
     tags: reconciled.tags,
+    // The place in the ingest queue, null once the job is claimed or settled.
+    queueAhead: reconciled.queueAhead ?? null,
     // Whose hand wrote the bytes. Added because this payload is how the CHAT
     // resolves a document into the peek pane, and a report Piloti wrote that
     // opens beside the conversation without its „Von Piloti erstellt" byline is

@@ -356,7 +356,11 @@ export function FileListView({
                       hochgeladen"). `title` carries the full label for the states
                       that do get clipped, which are the transient ones. */}
                   {file.status && (
-                    <DocumentStatusBadge status={file.status} className="max-w-full truncate" />
+                    <DocumentStatusBadge
+                      status={file.status}
+                      queueAhead={file.queueAhead}
+                      className="max-w-full truncate"
+                    />
                   )}
                 </TableCell>
                 <TableCell className={cn('hidden sm:table-cell', CELL)}>

@@ -73,6 +73,7 @@ export function toDocumentWireRow(
     chunkCount: row.chunkCount ?? null,
     contentTypes: row.contentTypes ?? null,
     tags: row.tags ?? null,
+    queueAhead: row.queueAhead ?? null,
     assignees: row.assignees,
   }
 }

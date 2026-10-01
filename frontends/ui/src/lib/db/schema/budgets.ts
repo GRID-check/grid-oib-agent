@@ -88,6 +88,14 @@ export const budgetPolicies = pgTable(
 export const COST_SOURCES = ['usage_field', 'missing', 'generation_api', 'estimate'] as const
 export type CostSource = (typeof COST_SOURCES)[number]
 
+/**
+ * What kind of work a generation served (migration 0101, CHECK-enforced).
+ * NULL is everything interactive or unclassified: chat turns, their stages,
+ * research jobs and every row from before the column.
+ */
+export const USAGE_ACTIVITIES = ['ingest'] as const
+export type UsageActivity = (typeof USAGE_ACTIVITIES)[number]
+
 export const llmUsageEvents = pgTable(
   'llm_usage_events',
   {
@@ -106,8 +114,14 @@ export const llmUsageEvents = pgTable(
      * answer's details show the credits it cost. NULL for jobs and older rows.
      */
     messageId: text('message_id'),
-    /** Agent group (reserved — not populated by the v1 tracker). */
+    /**
+     * What the call was for, when it was not an agent's chat completion: the
+     * backend's usage role (`rerank`, `decision`, `ingest_vision`,
+     * `ingest_embedding`, …). NULL for an agent's own calls.
+     */
     agentGroup: text('agent_group'),
+    /** {@link USAGE_ACTIVITIES}: `ingest` for a document ingestion job's spend, else NULL. */
+    activity: text('activity').$type<UsageActivity>(),
     /** Model id the request asked for (post-override). */
     requestedModel: text('requested_model'),
     /** Model id OpenRouter actually served (from the response). */

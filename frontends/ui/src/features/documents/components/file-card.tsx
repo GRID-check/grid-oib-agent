@@ -336,6 +336,7 @@ export function FileCard({
             {showStatus && (
               <DocumentStatusBadge
                 status={file.status}
+                queueAhead={file.queueAhead}
                 // The 80% alpha is load-bearing: this badge floats over a document
                 // thumbnail, and with `backdrop-blur-sm` it frosts the image
                 // underneath instead of hiding it.

@@ -27,6 +27,8 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from dataclasses import field
 
+from aiq_agent.common.cost_tracking import USAGE_ROLE_INGEST_TRANSCRIPTION
+
 logger = logging.getLogger(__name__)
 
 #: Bumped whenever the prompt or the reply handling changes: it is part of the
@@ -103,7 +105,7 @@ def _transcribe_live(image_bytes: bytes, *, ocr_model: str, base_url: str, api_k
     from knowledge_layer.llamaindex import adapter as _adapter
 
     try:
-        client = _adapter._vlm_client(base_url, api_key)
+        client = _adapter._vlm_client(base_url, api_key, role=USAGE_ROLE_INGEST_TRANSCRIPTION)
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         reply = _adapter._vlm_chat_create(
             client,
@@ -231,7 +233,7 @@ def transcribe_pdf_pages(
             jobs = [(number, rendered[number]) for number in batch if number in rendered]
             # One copy of THIS thread's context per page, taken here rather than
             # in the pool thread, so the ingest job's data-policy scope
-            # (`openrouter.data_policy_scope`) reaches the call.
+            # (`openrouter.data_policy_scope`) and its cost tracker reach the call.
             contexts = [contextvars.copy_context() for _ in jobs]
             replies = pool.map(
                 lambda job, ctx: ctx.run(transcribe_image, job[1], model=model, base_url=base_url, api_key=api_key),

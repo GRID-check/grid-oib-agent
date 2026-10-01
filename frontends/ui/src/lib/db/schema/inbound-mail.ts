@@ -15,7 +15,7 @@ import {
 import { projects } from './projects'
 
 /**
- * The project mail inbox (migration 0101, ADR-0075).
+ * The project mail inbox (migration 0102, ADR-0075).
  *
  * Storage only: address minting and parsing live in `lib/inbound-mail/address`,
  * the lifecycle in `lib/inbound-mail/service`. Neither table holds content.
@@ -43,7 +43,7 @@ export const inboundMailAddresses = pgTable(
     /**
      * NOTE: the database also has `uniq_inbound_mail_addresses_active_project`,
      * UNIQUE (project_id) WHERE revoked_at IS NULL — one active address per
-     * project. Partial, so it lives only in migration 0101, the same
+     * project. Partial, so it lives only in migration 0102, the same
      * arrangement as `documents_conversation_idx`.
      */
     idProjectOrgKey: unique('inbound_mail_addresses_id_project_org_key').on(
@@ -87,7 +87,7 @@ export interface SkippedAttachment {
 
 /**
  * One delivery to an address: the drain's durable queue and the idempotency
- * record. Never the mail; see migration 0101 for what it holds and for how long.
+ * record. Never the mail; see migration 0102 for what it holds and for how long.
  */
 export const inboundMailMessages = pgTable(
   'inbound_mail_messages',
@@ -106,7 +106,7 @@ export const inboundMailMessages = pgTable(
      * NOTE: the database FK is COMPOSITE — `(folder_id, project_id)` ->
      * `project_folders (id, project_id)` with `ON DELETE SET NULL
      * ("folder_id")`. Drizzle cannot express a column-subset SET NULL, so it
-     * lives only in migration 0101, the arrangement `task_runs.definition_id`
+     * lives only in migration 0102, the arrangement `task_runs.definition_id`
      * has in 0086.
      */
     folderId: uuid('folder_id'),
@@ -137,7 +137,7 @@ export const inboundMailMessages = pgTable(
     receivedIdx: index('inbound_mail_messages_received_idx').on(table.receivedAt),
     // NOTE: `inbound_mail_messages_due_idx` (next_attempt_at WHERE queued) and
     // `inbound_mail_messages_processing_idx` (updated_at WHERE processing) are
-    // PARTIAL indexes; they live only in migration 0101.
+    // PARTIAL indexes; they live only in migration 0102.
     projectOrgFk: foreignKey({
       name: 'inbound_mail_messages_project_id_organization_id_fkey',
       columns: [table.projectId, table.organizationId],

@@ -64,6 +64,8 @@ interface SpendWindowDto {
   credits: number
   tokens: number
   events: number
+  /** Of the platform's cost, what document ingestion spent: VLM, OCR, embeddings. */
+  ingestCostUsd?: number
 }
 
 /** What OpenRouter charged the PLATFORM: everything that was not a tenant's own key. */
@@ -89,7 +91,7 @@ interface OverviewDto {
 
 const PAGE_SIZE = 10
 
-type SortKey = 'name' | 'projects' | 'day' | 'month' | 'revenue' | 'created'
+type SortKey = 'name' | 'projects' | 'day' | 'month' | 'ingest' | 'revenue' | 'created'
 type SortDirection = 'asc' | 'desc'
 
 /**
@@ -101,6 +103,7 @@ const INITIAL_DIRECTION: Record<SortKey, SortDirection> = {
   projects: 'desc',
   day: 'desc',
   month: 'desc',
+  ingest: 'desc',
   revenue: 'desc',
   created: 'desc',
 }
@@ -120,6 +123,8 @@ const compareBy = (
       return platformCost(a.day) - platformCost(b.day)
     case 'month':
       return platformCost(a.month) - platformCost(b.month)
+    case 'ingest':
+      return (a.month.ingestCostUsd ?? 0) - (b.month.ingestCostUsd ?? 0)
     case 'revenue':
       return a.month.priceUsd - b.month.priceUsd
     case 'created':
@@ -248,6 +253,12 @@ export const PlatformOverview: FC = () => {
   const safeOffset = offset < visible.length ? offset : 0
   const page = visible.slice(safeOffset, safeOffset + PAGE_SIZE)
 
+  // Ingestion is part of the cost above, not on top of it: say how much.
+  const ingestHint = (window: SpendWindowDto): string | undefined =>
+    (window.ingestCostUsd ?? 0) > 0
+      ? t('stats.ingestShare', { amount: usd(window.ingestCostUsd ?? 0, locale) })
+      : undefined
+
   const sortableColumn = (key: SortKey, label: string, className?: string): JSX.Element => (
     <SortableHead
       label={label}
@@ -289,6 +300,7 @@ export const PlatformOverview: FC = () => {
             icon={<Gauge className="size-4" aria-hidden />}
             label={t('stats.costToday')}
             value={usd(platformCost(totals.day), locale)}
+            hint={ingestHint(totals.day)}
           />
           <StatCard
             className="min-h-[7.25rem]"
@@ -304,9 +316,14 @@ export const PlatformOverview: FC = () => {
             }
             // Cost on tenants' own keys is theirs, not ours; say what was left out.
             hint={
-              totals.month.ownKeyCostUsd > 0
-                ? t('stats.ownKeyExcluded', { amount: usd(totals.month.ownKeyCostUsd, locale) })
-                : undefined
+              [
+                ingestHint(totals.month),
+                totals.month.ownKeyCostUsd > 0
+                  ? t('stats.ownKeyExcluded', { amount: usd(totals.month.ownKeyCostUsd, locale) })
+                  : undefined,
+              ]
+                .filter(Boolean)
+                .join(' · ') || undefined
             }
           />
           <StatCard
@@ -378,6 +395,7 @@ export const PlatformOverview: FC = () => {
                       {sortableColumn('projects', t('orgs.colProjects'), 'text-right')}
                       {sortableColumn('day', t('orgs.colToday'), 'text-right')}
                       {sortableColumn('month', t('orgs.colMonth'), 'text-right')}
+                      {sortableColumn('ingest', t('orgs.colIngest'), 'text-right')}
                       {sortableColumn('revenue', t('orgs.colRevenue'), 'text-right')}
                       {sortableColumn('created', t('orgs.colCreated'), 'text-right')}
                     </TableRow>
@@ -418,6 +436,9 @@ export const PlatformOverview: FC = () => {
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums">
                           {usd(platformCost(org.month), locale)}
+                        </TableCell>
+                        <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                          {usd(org.month.ingestCostUsd ?? 0, locale)}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums">
                           {usd(org.month.priceUsd, locale)}

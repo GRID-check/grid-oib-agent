@@ -176,8 +176,16 @@
     "de": "Eine Datei, die ein vorhandenes Dokument nur in anderer Schreibung trifft, wird zurückgehalten und neben ihm genannt, statt ein zweites Dokument zu werden. Bei einem in Piloti umbenannten Dokument nennt der Dialog beide Namen."
   },
   {
+    "en": "A file that was still waiting to be read when Piloti restarted is now read afterwards instead of showing as failed.",
+    "de": "Eine Datei, deren Einlesen beim Neustart von Piloti noch ausstand, wird nun nachträglich eingelesen, statt als fehlgeschlagen angezeigt zu werden."
+  },
+  {
     "en": "A file uploaded during the conversation opens from the answer's source right away, and referenced files Piloti cannot display, such as Word documents or spreadsheets, can be downloaded from there.",
     "de": "Eine während des Gesprächs hochgeladene Datei lässt sich sofort aus der Quellenangabe öffnen, und referenzierte Dateien, die Piloti nicht anzeigen kann, etwa Word-Dokumente oder Tabellen, lassen sich dort herunterladen."
+  },
+  {
+    "en": "A file waiting to be read shows how many of your office's uploads are ahead of it, for example \"Wartet · 3 Dateien davor\".",
+    "de": "Eine Datei, die noch eingelesen werden muss, zeigt an, wie viele Uploads Ihres Büros noch vor ihr an der Reihe sind, z. B. „Wartet · 3 Dateien davor“."
   },
   {
     "en": "A file whose name mentions an OIB-Richtlinie, such as your own commentary on it, is no longer merged with the Richtlinie into one source.",
@@ -398,6 +406,10 @@
   {
     "en": "A sheet that mixes a floor plan, a section, a chart and a photo has each part recognised and read on its own terms. Values read off a chart are stored with their meaning.",
     "de": "Ein Blatt, das Grundriss, Schnitt, Diagramm und Foto mischt, wird Teil für Teil erkannt und passend ausgewertet. Abgelesene Diagrammwerte werden mit ihrer Bedeutung gespeichert."
+  },
+  {
+    "en": "A short overload at the language model provider no longer ends your question with an error; Piloti waits a moment and tries again.",
+    "de": "Bei einer kurzzeitigen Überlastung des Sprachmodell-Anbieters erhalten Sie für Ihre Frage keine Fehlermeldung mehr: Piloti wartet kurz und versucht es erneut."
   },
   {
     "en": "A single source that does not answer in time no longer ends a deep research; the run carries on without it.",
@@ -688,6 +700,10 @@
     "de": "Wenn Sie jetzt eine vollständige Soll-Ist- oder Konformitätsprüfung anfordern, wird die gestufte Prüfung für dieses Projekt ausgeführt, statt die sechs Richtlinien manuell durchzugehen."
   },
   {
+    "en": "Assigning existing plans to a building under Projektgrundlagen no longer fails with an internal error when the project brief has not been saved yet. Plans for a building you have just added are shown as waiting and assigned when you save, and removing a building also removes its plan assignments.",
+    "de": "Das Zuweisen bestehender Pläne zu einem Gebäude unter Projektgrundlagen führt nicht mehr zu einem internen Fehler, wenn der Projektbrief noch nicht gespeichert wurde. Pläne für ein gerade hinzugefügtes Gebäude werden als wartend angezeigt und beim Speichern zugewiesen. Beim Entfernen eines Gebäudes werden auch die zugehörigen Planzuweisungen entfernt."
+  },
+  {
     "en": "Assigning someone to a file now says when it did not work, names the person and offers to try again. A refused assignment used to change nothing on screen, which read as success.",
     "de": "Wenn das Zuweisen einer Datei scheitert, sagt Piloti das jetzt, nennt die Person und bietet einen neuen Versuch an. Bisher änderte sich dann nichts, was wie ein Erfolg aussah."
   },
@@ -916,8 +932,16 @@
     "de": "Beim Ziehen einer Datei auf einen Ordner flackert nichts mehr, und der Upload-Hinweis erscheint nur noch für Dateien vom Rechner."
   },
   {
+    "en": "Dragging files into Dateien now uploads them even when they come straight from an email or a cloud-synced folder, where the drop used to do nothing.",
+    "de": "Das Ziehen von Dateien in Dateien lädt diese jetzt auch hoch, wenn sie direkt aus einer E-Mail oder einem cloud-synchronisierten Ordner stammen – zuvor blieb das Ablegen ohne Wirkung."
+  },
+  {
     "en": "Drawings never carry a measurement. A Schnitt, a Treppe, a Fluchtweg or ein Abstand still comes back as one of the fifteen technical schematics, where Piloti supplies the values and the drawing is computed from them, so the picture cannot disagree with its own numbers.",
     "de": "Zeichnungen enthalten niemals Maßangaben. Ein Schnitt, eine Treppe, ein Fluchtweg oder ein Abstand wird weiterhin als eines der fünfzehn technischen Schemata zurückgegeben. Dabei liefert Piloti die Werte und berechnet daraus die Zeichnung, sodass die Darstellung ihren eigenen Zahlen nicht widersprechen kann."
+  },
+  {
+    "en": "Dropping files on any other project page, such as Einstellungen, now opens Dateien and uploads them there, where the browser used to open the file in place of Piloti.",
+    "de": "Wenn Sie Dateien auf einer anderen Projektseite wie Einstellungen ablegen, öffnet sich jetzt die Seite Dateien und lädt die Dateien dort hoch, statt dass der Browser sie anstelle von Piloti öffnet."
   },
   {
     "en": "Each document state now has one name everywhere: Zitierbar, and Wird verarbeitet while a file is being read, instead of three different labels.",
@@ -1022,6 +1046,10 @@
   {
     "en": "Files now open the way a folder does anywhere else: click a folder to step into it, and a path at the top (\"All Files › Brandschutz\") shows exactly where you are and lets you click back out to any level above. Folders show up as cards right beside your files, at every level, not just at the top.",
     "de": "Dateien lassen sich jetzt wie überall sonst in Ordnern öffnen: Klicken Sie auf einen Ordner, um ihn zu öffnen. Der Pfad oben („Alle Dateien › Brandschutz“) zeigt genau, wo Sie sich befinden, und ermöglicht Ihnen, zu jeder übergeordneten Ebene zurückzukehren. Ordner werden auf jeder Ebene direkt neben Ihren Dateien als Karten angezeigt, nicht nur ganz oben."
+  },
+  {
+    "en": "Files you upload start being read right away, even while another office is importing a large folder, and a busy day brings more reading capacity instead of a longer wait.",
+    "de": "Dateien, die Sie uploaden, werden sofort eingelesen – auch während ein anderes Büro einen großen Ordner importiert. An stark ausgelasteten Tagen steht mehr Kapazität zum Einlesen zur Verfügung, statt dass sich die Wartezeit verlängert."
   },
   {
     "en": "Filing happens under your own name and your own permissions. Piloti files as the person who asked, so a document it puts into a project is one you could have put there yourself — and the trail says who asked for it.",
@@ -1218,6 +1246,10 @@
   {
     "en": "Keyword matching now ignores words that appear in nearly every document, so a search no longer spends part of its results on a term that matches everything. Answers cite more of the documents that actually differ on the question, and searches that used to run an extra pointless lookup return a little sooner.",
     "de": "Das Keyword-Matching ignoriert jetzt Wörter, die in fast jedem Dokument vorkommen. Dadurch belegt ein Begriff, der auf alles zutrifft, nicht mehr einen Teil der Suchergebnisse. Antworten zitieren mehr Dokumente, die zur Frage tatsächlich unterschiedliche Informationen enthalten. Suchen, die bisher eine zusätzliche unnötige Abfrage ausgelöst haben, liefern nun etwas schneller Ergebnisse."
+  },
+  {
+    "en": "Langfuse moves to 4.48.0 and its ClickHouse to 26.8 LTS. Langfuse 3.x still shipped a Next.js version with a remote code execution flaw that no 3.x release fixes.",
+    "de": "Langfuse wird auf 4.48.0 und ClickHouse auf 26.8 LTS aktualisiert. Langfuse 3.x enthält weiterhin eine Next.js-Version mit einer Schwachstelle zur Remote-Code-Ausführung, die in keinem 3.x-Release behoben wird."
   },
   {
     "en": "Laws in the RIS reader are shown in full. The text limit was shorter than the Bauordnung für Wien, so § 108 fell outside it.",
@@ -1594,6 +1626,10 @@
   {
     "en": "Reacting to an answer's cards no longer fails on answers whose stored content carries invisible control characters from an imported document. The update is saved as before, minus the one character the database cannot hold.",
     "de": "Reaktionen auf die Karten einer Antwort schlagen nicht mehr fehl, wenn der gespeicherte Inhalt unsichtbare Steuerzeichen aus einem importierten Dokument enthält. Das Update wird wie bisher gespeichert, abzüglich des einen Zeichens, das die Datenbank nicht speichern kann."
+  },
+  {
+    "en": "Reading and indexing an uploaded document now counts toward usage, booked to its project and to whoever uploaded it. Until now an office's spend left out everything an upload cost, though an upload in progress is still never stopped by a budget.",
+    "de": "Das Lesen und Indexieren eines hochgeladenen Dokuments zählt jetzt zur Nutzung und wird dem zugehörigen Projekt sowie der Person, die es hochgeladen hat, zugeordnet. Bisher waren Upload-Kosten nicht in den Ausgaben eines Büros enthalten; ein laufender Upload wird jedoch weiterhin nie durch ein Budget gestoppt."
   },
   {
     "en": "Reloading the page while Piloti is still answering now shows the answer once, instead of leaving the unfinished start above the complete answer.",

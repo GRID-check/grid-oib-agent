@@ -1,4 +1,4 @@
--- 0101: inbound_mail_addresses + inbound_mail_messages — the project mail inbox.
+-- 0102: inbound_mail_addresses + inbound_mail_messages — the project mail inbox.
 --
 -- ## Why
 --

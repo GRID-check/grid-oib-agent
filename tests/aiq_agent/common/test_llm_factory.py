@@ -325,3 +325,51 @@ async def test_a_non_openrouter_responses_client_is_untouched():
 
     payload = _sent_payload(llm, _turn_after_a_resp_id_answer())
     assert payload["previous_response_id"] == "resp_abc"
+
+
+# -- a rate limit that arrives inside the stream ------------------------------
+#
+# OpenRouter reports an upstream rate limit on the Responses path as an `error`
+# event mid-stream; langchain-openai turns it into a bare ValueError with no
+# status code and no "429" in it. NAT's default filters missed it, so the turn
+# ended on the generic error instead of waiting a moment (#826).
+
+_STREAMED_RATE_LIMIT = (
+    "ResponseError(code='rate_limit_exceeded', message='openai/gpt-6.1-sol is temporarily "
+    "rate-limited upstream. Please retry shortly')"
+)
+
+
+@pytest.mark.asyncio
+async def test_a_rate_limit_raised_inside_the_stream_is_retried():
+    from langchain_core.messages import AIMessage
+    from langchain_core.outputs import ChatGeneration
+    from langchain_core.outputs import ChatResult
+
+    llm = await _resolved_through_nat(base_url="https://openrouter.ai/api/v1", num_retries=2)
+    base = type(llm).__mro__[1]
+    original = base._agenerate
+    calls = []
+
+    async def _rate_limited_once(self, messages, stop=None, run_manager=None, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise ValueError(_STREAMED_RATE_LIMIT)
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content="Einen Meter."))])
+
+    base._agenerate = _rate_limited_once
+    try:
+        result = await llm.ainvoke(_messages())
+    finally:
+        base._agenerate = original
+
+    assert result.content == "Einen Meter."
+    assert len(calls) == 2
+
+
+def test_the_configured_retry_messages_survive_the_merge():
+    from aiq_agent.common.llm_factory import retry_messages
+
+    assert retry_messages(["Too Many Requests", "429"]) == ["Too Many Requests", "429", "rate_limit_exceeded"]
+    assert retry_messages(None) == ["rate_limit_exceeded"]
+    assert retry_messages(["rate_limit_exceeded"]) == ["rate_limit_exceeded"]

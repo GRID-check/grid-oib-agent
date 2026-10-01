@@ -147,6 +147,18 @@ export const PLATFORM_RESOURCES = {
     requests: { cpu: "50m", memory: "128Mi" },
     limits: { cpu: "500m", memory: "512Mi" },
   },
+  kedaOperator: {
+    requests: { cpu: "50m", memory: "128Mi" },
+    limits: { cpu: "500m", memory: "512Mi" },
+  },
+  kedaMetricServer: {
+    requests: { cpu: "50m", memory: "128Mi" },
+    limits: { cpu: "500m", memory: "512Mi" },
+  },
+  kedaWebhooks: {
+    requests: { cpu: "10m", memory: "64Mi" },
+    limits: { cpu: "200m", memory: "256Mi" },
+  },
   /** The generated Envoy data-plane fleet (per proxy replica). */
   envoyProxy: {
     requests: { cpu: "100m", memory: "128Mi" },

@@ -71,6 +71,9 @@ export const files: typeof en.files = {
     // und kein Fehler. Dasselbe Wort wie im Toast nach dem Lauf.
     stored: 'Abgelegt',
     unknown: 'Unbekannt',
+    // Nur die eigenen Uploads des Büros: Innerhalb eines Büros wird der Reihe
+    // nach gelesen, zwischen Büros fair abgewechselt (ADR-0076).
+    queuedAhead: '{count, plural, one {Wartet · # Datei davor} other {Wartet · # Dateien davor}}',
   },
   toast: {
     // Sobald die asynchrone Verarbeitung abgeschlossen ist und das Dokument

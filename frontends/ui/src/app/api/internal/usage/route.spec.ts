@@ -94,6 +94,34 @@ describe('POST /api/internal/usage', () => {
     expect(rows[0]).toMatchObject({ jobId: 'job-1', messageId: null })
   })
 
+  it('stamps an ingestion job\'s spend as ingest, and each call with what it was for', async () => {
+    await POST(
+      request({
+        organizationId: 'org_1',
+        projectId: 'proj-1',
+        jobId: 'ingest-job-1',
+        activity: 'ingest',
+        events: [{ ...VALID_EVENT, role: 'ingest_vision' }, VALID_EVENT],
+      })
+    )
+    const rows = vi.mocked(recordUsageEvents).mock.calls[0][0]
+    expect(rows[0]).toMatchObject({ activity: 'ingest', agentGroup: 'ingest_vision', jobId: 'ingest-job-1' })
+    expect(rows[1]).toMatchObject({ activity: 'ingest', agentGroup: null })
+  })
+
+  it('leaves a turn\'s spend unclassified', async () => {
+    await POST(request({ organizationId: 'org_1', events: [VALID_EVENT] }))
+    const rows = vi.mocked(recordUsageEvents).mock.calls[0][0]
+    expect(rows[0]).toMatchObject({ activity: null, agentGroup: null })
+  })
+
+  it('refuses an activity the ledger does not know, rather than storing it', async () => {
+    // The CHECK on the column would refuse it anyway, and with it the whole batch.
+    const res = await POST(request({ organizationId: 'org_1', activity: 'chat', events: [VALID_EVENT] }))
+    expect(res.status).toBe(400)
+    expect(recordUsageEvents).not.toHaveBeenCalled()
+  })
+
   it('skips events without an organization (anonymous mode)', async () => {
     const res = await POST(request({ organizationId: null, events: [VALID_EVENT] }))
     expect(res.status).toBe(202)

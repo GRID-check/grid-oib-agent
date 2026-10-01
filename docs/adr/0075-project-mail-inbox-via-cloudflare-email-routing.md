@@ -45,7 +45,7 @@ provider for DNS, and a Worker can hand the raw message to our own webhook
 without any storage in between. Project addresses live on the product's own
 domain, `piloti.at` (amended 2026-10-01, see
 [the amendment](#amendment-2026-10-01-project-addresses-on-pilotiat)), whose
-apex already runs Email Routing for `kontakt@piloti.at` (ADR-0076).
+apex already runs Email Routing for `kontakt@piloti.at` (ADR-0077).
 
 * **Transport.** The zone's catch-all routes every address on
   `GRID_INBOUND_MAIL_DOMAIN` that no literal rule claims to one Worker.
@@ -211,7 +211,7 @@ apex already runs Email Routing for `kontakt@piloti.at` (ADR-0076).
   the body. `stack-files.spec.ts`: one stack per inbound zone.
 * Nothing enforces that Cloudflare's "Email preview" stays off for
   `piloti.at`. It is an Email Sending setting, and `piloti.at` is onboarded
-  for sending for the contact form (ADR-0076). Cloudflare describes it as
+  for sending for the contact form (ADR-0077). Cloudflare describes it as
   covering messages sent while it is on; it does not describe it as covering
   mail received through Email Routing. It is a dashboard setting. The deploy
   guide says so; review is the only gate.

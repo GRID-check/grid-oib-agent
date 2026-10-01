@@ -130,17 +130,24 @@ export function useFileDragDrop({
       // its entries synchronously for that reason; it is called before any
       // await here and returns null when the browser exposes none, which is
       // the signal to use the list below exactly as this always did.
+      //
+      // That list is copied HERE, synchronously, for the same reason: once the
+      // drop event has finished the browser empties `dataTransfer.files`. Read
+      // after the traversal's awaits, it was empty whenever the traversal came
+      // back with nothing — an entry whose `file()` fails (an Outlook
+      // attachment, a OneDrive file that is only in the cloud, a Windows path
+      // past 260 characters) — and the drop did nothing, silently.
       const transfer = e.dataTransfer
+      const droppedFiles = Array.from(transfer.files)
       void (async () => {
         const tree = await readDroppedTree(transfer)
         if (tree) {
           onDrop(asPathStampedFiles(tree))
           return
         }
-        const files = Array.from(transfer.files)
-        if (files.length === 0) return
+        if (droppedFiles.length === 0) return
         // Validation happens in uploadFiles.
-        onDrop(files)
+        onDrop(droppedFiles)
       })()
     },
     [disabled, onDrop]

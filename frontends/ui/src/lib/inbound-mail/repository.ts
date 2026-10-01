@@ -1,5 +1,5 @@
 /**
- * SQL for the project mail inbox (migration 0101). No authorization here: the
+ * SQL for the project mail inbox (migration 0102). No authorization here: the
  * service decides who may ask, and row-level security is the backstop.
  *
  * Every function runs in whatever tenant scope its caller opened, with one

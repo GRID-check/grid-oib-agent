@@ -285,6 +285,29 @@ async def test_ingest_carries_document_id_into_job_config(app, mock_ingestor, no
     assert "document_id" not in mock_ingestor.submit_job.call_args[1]["config"]
 
 
+@pytest.mark.asyncio
+async def test_ingest_books_its_spend_to_the_documents_project_and_uploader(app, mock_ingestor, no_network):
+    """Project and uploader ride into the job config, where the job's cost tracker
+    reads them (`_ingest_cost_scope`); without an organization nothing is booked,
+    so neither is carried."""
+    body = {
+        "file_ref": "http://seaweedfs.test/bucket/plan.pdf",
+        "collection": "proj_1",
+        "project_id": "proj-1",
+        "user_id": "user_1",
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        booked = await client.post("/v1/ingest", json=body, headers={"x-grid-organization-id": "org_1"})
+    assert booked.status_code == 202
+    config = mock_ingestor.submit_job.call_args[1]["config"]
+    assert (config["organization_id"], config["project_id"], config["user_id"]) == ("org_1", "proj-1", "user_1")
+
+    anonymous = await _post_json(app, body)
+    assert anonymous.status_code == 202
+    config = mock_ingestor.submit_job.call_args[1]["config"]
+    assert "project_id" not in config and "user_id" not in config
+
+
 # --- DeferredObjectDownload: what the job runs ---
 
 
