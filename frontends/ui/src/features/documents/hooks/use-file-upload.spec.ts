@@ -599,6 +599,65 @@ describe('useFileUpload — durable document uploads', () => {
     expect((xhr.last().body as FormData).get('screeningRelease')).toBe('name')
   })
 
+  test('records where each file went and what the reader released, for a retry to repeat', async () => {
+    const { result } = renderUpload({ folderId: 'folder-here' })
+    const contract = new File(['x'], 'Architektenvertrag.pdf', { type: 'application/pdf' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([contract], {
+        folderIdFor: () => 'folder-vertraege',
+        folderPathFor: () => 'Verwaltung/Verträge',
+        screeningReleased: (file) => file === contract,
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-1'))
+      await pending
+    })
+
+    expect(mockDocumentsStoreState.addTrackedFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadIntent: { folderId: 'folder-vertraege', folderPath: 'Verwaltung/Verträge', screeningReleased: true },
+      })
+    )
+  })
+
+  test('retries a released file into its own folder, released again, not where the reader stands now', async () => {
+    const contract = new File(['x'], 'Architektenvertrag.pdf', { type: 'application/pdf' })
+    mockDocumentsStoreState.trackedFiles = [
+      {
+        id: 'failed-1',
+        file: contract,
+        fileName: contract.name,
+        fileSize: contract.size,
+        status: 'failed',
+        progress: 0,
+        collectionName: 'proj-collection',
+        uploadedAt: new Date().toISOString(),
+        uploadIntent: { folderId: 'folder-vertraege', folderPath: 'Verwaltung/Verträge', screeningReleased: true },
+      },
+    ]
+    const { result } = renderUpload({ folderId: 'folder-elsewhere' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.retryFile('failed-1')
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-1'))
+      await pending
+    })
+
+    expect(xhr.requests).toHaveLength(1)
+    const body = xhr.last().body as FormData
+    expect(body.get('screeningRelease')).toBe('name')
+    expect(body.get('folderId')).toBe('folder-vertraege')
+  })
+
   test('carries the server’s „unchanged" answer onto the row, so it is not shown as a new upload', async () => {
     const { result } = renderUpload()
 

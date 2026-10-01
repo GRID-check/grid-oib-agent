@@ -18,7 +18,7 @@ import { useDocumentsStore } from '../store'
 import { useAuth } from '@/adapters/auth'
 import { useAppConfig } from '@/shared/context'
 import { useLayoutStore } from '@/features/layout/store'
-import type { TrackedFile } from '../types'
+import type { TrackedFile, UploadIntent } from '../types'
 import { mapUploadResponseStatus } from '../utils'
 import { shouldEmitProgress } from '../lib/upload-progress'
 import { isJoblessIngesting } from '../lib/document-status-reads'
@@ -381,6 +381,14 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         clearError()
       }
 
+      // Per file when the caller filed the batch (a folder upload), otherwise
+      // the folder the reader is standing in. `undefined` defers; `null` is a
+      // deliberate "the project root".
+      const resolvedFolderId = (file: File): string | null => {
+        const target = options?.folderIdFor ? options.folderIdFor(file) : folderId
+        return (target === undefined ? folderId : target) ?? null
+      }
+
       // Paired by INDEX, not by filename: two files selected in one batch can
       // legitimately share a name (from different folders), and a name-keyed map
       // silently drops one of them.
@@ -396,6 +404,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           bytesUploaded: 0,
           collectionName: targetCollection,
           uploadedAt: new Date().toISOString(),
+          uploadIntent: {
+            folderId: resolvedFolderId(file),
+            folderPath: options?.folderPathFor?.(file) ?? null,
+            screeningReleased: options?.screeningReleased?.(file) === true,
+          },
         } satisfies TrackedFile as TrackedFile,
       }))
 
@@ -453,11 +466,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           }
           if (projectId) {
             formData.append('projectId', projectId)
-            // Per file when the caller filed the batch (a folder upload),
-            // otherwise the folder the reader is standing in. `undefined`
-            // defers; `null` is a deliberate "the project root".
-            const target = options?.folderIdFor ? options.folderIdFor(file) : folderId
-            const resolved = target === undefined ? folderId : target
+            const resolved = resolvedFolderId(file)
             if (resolved) formData.append('folderId', resolved)
           }
           formData.append('file', file)
@@ -707,6 +716,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
   // cap. One batch per row put every failed file in flight at once, straight
   // into the rate limit that had failed most of them.
   const pendingRetriesRef = useRef<{ files: File[]; done: Promise<void> } | null>(null)
+  const retryIntentsRef = useRef(new Map<File, UploadIntent>())
   const retryFile = useCallback(
     async (fileId: string) => {
       const file = trackedFiles.find((f) => f.id === fileId)
@@ -718,6 +728,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       }
 
       removeTrackedFile(fileId)
+      if (file.uploadIntent) retryIntentsRef.current.set(file.file, file.uploadIntent)
       const pending = pendingRetriesRef.current
       if (pending) {
         pending.files.push(file.file)
@@ -731,8 +742,22 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         // validation although each file passed on its own, after their rows
         // were already removed. There, retry one file at a time; the durable
         // shelves have no batch cap and keep the single capped batch.
-        if (shelf !== 'session') return uploadFiles(files)
-        for (const each of files) await uploadFiles([each])
+        // The same destination and release as the first attempt: a file the
+        // reader released, or filed into a folder of its upload, goes there
+        // again instead of being screened out or landing where they stand now.
+        const intents = retryIntentsRef.current
+        const intentOf = (each: File): UploadIntent | undefined => intents.get(each)
+        const retryOptions: UploadFilesOptions = {
+          folderIdFor: (each) => intentOf(each)?.folderId,
+          folderPathFor: (each) => intentOf(each)?.folderPath,
+          screeningReleased: (each) => intentOf(each)?.screeningReleased === true,
+        }
+        try {
+          if (shelf !== 'session') return await uploadFiles(files, retryOptions)
+          for (const each of files) await uploadFiles([each], retryOptions)
+        } finally {
+          for (const each of files) intents.delete(each)
+        }
       })
       pendingRetriesRef.current = { files, done }
       await done
