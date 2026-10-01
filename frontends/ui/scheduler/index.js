@@ -92,6 +92,7 @@ function createStreaks(config) {
   const escalateAfter = escalationTicks(config.pollMs)
   return {
     reconcile: createFailureStreak({ label: `${LOG} run reconcile`, escalateAfter }),
+    uploads: createFailureStreak({ label: `${LOG} upload sweep`, escalateAfter }),
     database: createFailureStreak({ label: `${LOG} schedule claim`, escalateAfter }),
   }
 }
@@ -112,7 +113,45 @@ function createStreaks(config) {
  * body (`describeFailedResponse`).
  */
 async function reconcileRuns(config, fetchImpl, streak) {
-  const url = `${config.frontendUrl}/api/internal/runs/reconcile`
+  return postInternalSweep(config, fetchImpl, streak, {
+    path: '/api/internal/runs/reconcile',
+    label: 'run reconcile',
+    describe: (counts) =>
+      counts.closed > 0 || counts.healed > 0 || counts.failed > 0
+        ? `checked ${counts.checked}, closed ${counts.closed}, ` +
+          `already closed ${counts.alreadyClosed}, waiting ${counts.waiting}, ` +
+          `healed ${counts.healed ?? 0}, failed ${counts.failed}`
+        : null,
+  })
+}
+
+/**
+ * One upload sweep: POST {frontendUrl}/api/internal/upload-batches/sweep
+ * (ADR-0077). Settles the uploads whose browser is gone, so their uploader is
+ * told when everything was read. Same posture as the run reconciler: the BFF
+ * does the work, this container supplies the clock, nothing throws, and it
+ * logs only when it settled something or failed.
+ */
+async function sweepUploads(config, fetchImpl, streak) {
+  return postInternalSweep(config, fetchImpl, streak, {
+    path: '/api/internal/upload-batches/sweep',
+    label: 'upload sweep',
+    describe: (counts) =>
+      counts.sealed > 0 || counts.completed > 0 || counts.failed > 0
+        ? `checked ${counts.checked}, sealed ${counts.sealed}, completed ${counts.completed}, failed ${counts.failed}`
+        : null,
+  })
+}
+
+/**
+ * POST one internal sweep with the internal token. A transport error, or a
+ * 404/502/503/504 (a rollout's old frontend pod, the BFF answering a database
+ * outage), goes to `streak` as transient; any other status is a real fault and
+ * logs at ERROR at once. No failure logs an HTML body. Returns the sweep's
+ * counts, or null.
+ */
+async function postInternalSweep(config, fetchImpl, streak, { path, label, describe }) {
+  const url = `${config.frontendUrl}${path}`
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), RECONCILE_TIMEOUT_MS)
   try {
@@ -126,7 +165,7 @@ async function reconcileRuns(config, fetchImpl, streak) {
       if (isTransientStatus(res.status)) {
         streak.failed(failure)
       } else {
-        console.error(`${LOG} run reconcile failed: ${failure.detail}`)
+        console.error(`${LOG} ${label} failed: ${failure.detail}`)
       }
       return null
     }
@@ -137,13 +176,8 @@ async function reconcileRuns(config, fetchImpl, streak) {
     } catch {
       /* non-JSON 200 — nothing to report */
     }
-    if (counts && (counts.closed > 0 || counts.healed > 0 || counts.failed > 0)) {
-      console.log(
-        `${LOG} run reconcile: checked ${counts.checked}, closed ${counts.closed}, ` +
-          `already closed ${counts.alreadyClosed}, waiting ${counts.waiting}, ` +
-          `healed ${counts.healed ?? 0}, failed ${counts.failed}`,
-      )
-    }
+    const line = counts ? describe(counts) : null
+    if (line) console.log(`${LOG} ${label}: ${line}`)
     return counts
   } catch (error) {
     streak.failed(describeTransportError(error))
@@ -220,6 +254,7 @@ async function fireOne(config, scheduleId, fetchImpl = fetch) {
 async function tick(sql, config, fetchImpl, streaks) {
   const fired = config.schedulesEnabled ? await fireDue(sql, config, streaks.database) : 0
   await reconcileRuns(config, fetchImpl, streaks.reconcile)
+  await sweepUploads(config, fetchImpl, streaks.uploads)
   return fired
 }
 
@@ -317,6 +352,7 @@ module.exports = {
   createStreaks,
   fireOne,
   reconcileRuns,
+  sweepUploads,
   tick,
   INTERNAL_TOKEN_HEADER,
 }

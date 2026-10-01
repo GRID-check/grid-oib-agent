@@ -401,6 +401,19 @@ export const collaboration = {
         title: '{actor} assigned {subject} to you',
         body: 'You are responsible for this file.',
       },
+      // ADR-0077: everything an upload brought in has been read. {subject}
+      // is where it went (a project name, "Büroablage" or "Chat").
+      uploadCompleted: {
+        title: 'Your upload has been read',
+        body: '{subject}: open the summary to see what arrived.',
+      },
+      // ADR-0077: the content check held files back.
+      documentQuarantined: {
+        titleOne: '1 file is waiting in quarantine',
+        titleMany: '{count} files are waiting in quarantine',
+        titleNone: 'Files in quarantine',
+        body: 'No model has read them. Release or delete them.',
+      },
       jobCompleted: {
         title: '"{subject}" is done',
         body: 'Piloti ran the job. The result is in the project under Automation.',

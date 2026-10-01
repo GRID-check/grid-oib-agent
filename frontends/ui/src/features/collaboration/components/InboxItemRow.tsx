@@ -44,6 +44,7 @@ import {
   HardDrive,
   Megaphone,
   MessageSquare,
+  ShieldAlert,
   UserPlus,
   type LucideIcon,
   AlertTriangle,
@@ -97,6 +98,7 @@ const ICONS: Record<(typeof INBOX_TYPE_PRESENTATION)[keyof typeof INBOX_TYPE_PRE
     'alert-triangle': AlertTriangle,
     clock: Clock,
     megaphone: Megaphone,
+    'shield-alert': ShieldAlert,
   }
 
 /** Dictionary root for the item-type entries. */

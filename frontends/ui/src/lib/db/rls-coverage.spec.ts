@@ -85,6 +85,9 @@ const BOUNDARY_MIGRATIONS = [
   // platform owners. Keyed directly by the organization it was written from,
   // secured exactly as `organization_instructions`.
   '0100_product_feedback.sql',
+  // Adds upload_batches — one upload gesture and when it was all read
+  // (ADR-0077). Keyed directly by its organization.
+  '0103_upload_batches.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

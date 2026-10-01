@@ -7,7 +7,13 @@ vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
 
+// What happens after a row comes to rest (its upload completes, a quarantine's
+// reviewers hear of it) is `upload-batches/settle`'s subject; here it is the
+// call reconciliation makes.
+vi.mock('@/lib/upload-batches/settle', () => ({ onDocumentsSettled: vi.fn().mockResolvedValue(undefined) }))
+
 import { getDb } from '@/lib/db'
+import { onDocumentsSettled } from '@/lib/upload-batches/settle'
 import { asDb } from '@/test-utils/db-fixtures'
 import {
   reconcileDocumentStatuses,
@@ -1106,5 +1112,44 @@ describe('reconcileDocumentStatuses — upload screening', () => {
     expect(result.status).toBe('failed')
     const written = db.set.mock.calls[0]?.[0] as Record<string, unknown>
     expect('screeningOutcome' in written).toBe(false)
+  })
+})
+
+describe('reconcileDocumentStatuses — settling uploads', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch)
+    mockFetch.mockReset()
+    clearCollectionFilesCache()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.clearAllMocks()
+  })
+
+  it('hands every row it brought to rest to the settle hook, with its new status', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(
+      batchResponse({
+        'job-1': { status: 'completed', file_details: [{ status: 'success' }] },
+        'job-2': { status: 'running' },
+      })
+    )
+
+    await reconcileDocumentStatuses(
+      [makeRow(), makeRow({ id: 'doc-2', metadata: { ingestJobId: 'job-2' } })],
+      'org-1'
+    )
+
+    expect(onDocumentsSettled).toHaveBeenCalledWith('org-1', [{ id: 'doc-1', status: 'completed' }])
+  })
+
+  it('does not call it when nothing came to rest', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(batchResponse({ 'job-1': { status: 'running' } }))
+
+    await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    expect(onDocumentsSettled).not.toHaveBeenCalled()
   })
 })

@@ -12,6 +12,7 @@
  * wiped the in-memory job registry) and terminal states are written back.
  */
 
+import { onDocumentsSettled } from '@/lib/upload-batches/settle'
 import { QUARANTINED_PREFIX } from '@/lib/upload-screening/quarantine'
 import type { DocumentScreeningOutcome } from '@/lib/db/schema/documents'
 import type { DocumentAuthor } from '@/lib/db/schema'
@@ -642,6 +643,16 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
         await setDocumentReconciledStatus(row.id, organizationId, resolution)
         resolutions.set(row.id, resolution)
       })
+    )
+  }
+
+  // Rows that came to rest settle their upload and tell a quarantine's
+  // reviewers (ADR-0077). Never throws; a miss is the sweep's to catch.
+  const settled = [...resolutions].filter(([, resolution]) => resolution.status !== 'pending')
+  if (settled.length > 0) {
+    await onDocumentsSettled(
+      organizationId,
+      settled.map(([id, resolution]) => ({ id, status: resolution.status }))
     )
   }
 

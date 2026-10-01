@@ -1043,6 +1043,23 @@ export async function markDocumentIngestFailed(
  * Resolve a folder's storage path, scoped to the project so a folder id from
  * another project can never redirect an upload.
  */
+/** Several folders' paths in one project, keyed by folder id; folders not in the project are absent. */
+export async function findFolderPathsInProject(
+  folderIds: readonly string[],
+  projectId: string,
+  organizationId: string,
+): Promise<Map<string, string>> {
+  if (folderIds.length === 0) return new Map()
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({ id: projectFolders.id, path: projectFolders.path })
+      .from(projectFolders)
+      .where(and(inArray(projectFolders.id, [...folderIds]), eq(projectFolders.projectId, projectId))),
+  )
+  return new Map(rows.map((row) => [row.id, row.path]))
+}
+
 export async function findFolderPathInProject(
   folderId: string,
   projectId: string,

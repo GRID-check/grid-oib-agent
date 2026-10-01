@@ -119,7 +119,8 @@ export async function canUserAccessProject(
  * bypass is checked first: it is a PERMISSION, not the role slug `admin`.
  */
 export async function userHoldsProjectPermission(
-  session: AuthorizedSession,
+  /** Only the organization is read, so a sweep with no session can ask too. */
+  session: Pick<AuthorizedSession, 'organizationId'>,
   projectId: string,
   targetUserId: string,
   permission: ProjectPermission

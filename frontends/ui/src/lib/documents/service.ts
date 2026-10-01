@@ -9,6 +9,7 @@
  */
 
 import { assertUploadNameAllowed, auditScreeningOverride, ingestScreeningFor } from '@/lib/upload-screening/service'
+import { acceptedUploadBatchId } from '@/lib/upload-batches/service'
 import 'server-only'
 import {
   GetObjectCommand,
@@ -817,6 +818,12 @@ export interface UploadDocumentInput {
    * override", so a client that never asks is screened.
    */
   screeningRelease?: boolean
+  /**
+   * The upload gesture this file belongs to (migration 0103), as the browser
+   * opened it. Recorded on the row when it is the uploader's own open batch
+   * for this project; anything else is ignored rather than refused.
+   */
+  uploadBatchId?: string | null
 }
 
 /** Longest origin path recorded. Deep office trees exist; unbounded text does not belong in a row. */
@@ -975,6 +982,7 @@ export async function uploadDocument(
   if (!project) throw new NotFoundError('Project not found')
 
   const collectionName = project.collectionName
+  const uploadBatchId = await acceptedUploadBatchId(session, input.uploadBatchId, { scope: 'project', projectId })
 
   /*
    * A RE-UPLOAD REPLACES; IT DOES NOT ACCUMULATE.
@@ -1139,6 +1147,7 @@ export async function uploadDocument(
         contentHash,
         folderId: folderId ?? null,
         createdBy: session.userId,
+        uploadBatchId,
       })
       // NOTHING is discarded here any more. The previous bytes are the previous
       // VERSION's bytes now (ADR-0054), and a superseded version whose object was
@@ -1165,6 +1174,7 @@ export async function uploadDocument(
         contentType: file.type || null,
         contentHash,
         originPath,
+        uploadBatchId,
         status: 'uploaded',
       })
     }

@@ -79,6 +79,8 @@ export async function admitReplacementOrDiscard(
     contentHash: string | null
     folderId: string | null
     createdBy: string
+    /** The upload gesture these bytes came in with (migration 0103), or null. */
+    uploadBatchId?: string | null
   },
 ): Promise<void> {
   try {

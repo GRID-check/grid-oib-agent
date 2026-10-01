@@ -250,6 +250,19 @@ export const collaboration: typeof en.collaboration = {
       },
       // Ein Hintergrundauftrag ist zu Ende. {subject} ist der Name des Auftrags.
       // Kein {actor}: die Arbeit hat Piloti getan, nicht eine Person.
+      // ADR-0077: alles, was ein Upload gebracht hat, ist gelesen. {subject}
+      // ist der Ort (Projektname, „Büroablage“ oder „Chat“).
+      uploadCompleted: {
+        title: 'Ihr Upload ist gelesen',
+        body: '{subject}: Öffnen Sie die Übersicht, um zu sehen, was angekommen ist.',
+      },
+      // ADR-0077: die Inhaltsprüfung hat Dateien zurückgehalten.
+      documentQuarantined: {
+        titleOne: '1 Datei wartet in der Quarantäne',
+        titleMany: '{count} Dateien warten in der Quarantäne',
+        titleNone: 'Dateien in der Quarantäne',
+        body: 'Kein Modell hat sie gelesen. Geben Sie sie frei oder löschen Sie sie.',
+      },
       jobCompleted: {
         title: '„{subject}" ist fertig',
         body: 'Piloti hat den Auftrag ausgeführt. Das Ergebnis liegt im Projekt unter Automatisierung.',

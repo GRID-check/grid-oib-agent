@@ -12,6 +12,7 @@ import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { uploadArchivDocument } from '@/lib/archiv/service'
 import { DOCUMENT_UPLOAD_LIMIT } from '@/lib/limits'
 import { readScreeningRelease } from '@/lib/upload-screening/service'
+import { readUploadBatchId } from '@/lib/upload-batches/service'
 
 export const POST = apiRoute(
   async ({ session, request }) => {
@@ -28,6 +29,7 @@ export const POST = apiRoute(
     return uploadArchivDocument(session, file, request, {
       screeningRelease: readScreeningRelease(formData.get('screeningRelease')),
       originPath: typeof originPath === 'string' ? originPath.slice(0, 1024) : null,
+      uploadBatchId: readUploadBatchId(formData.get('uploadBatchId')),
     })
   },
   { authz: { enforcedBy: 'uploadArchivDocument (canManageArchiv)' }, limits: { rule: DOCUMENT_UPLOAD_LIMIT } }
