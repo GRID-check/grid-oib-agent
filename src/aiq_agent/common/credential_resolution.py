@@ -32,11 +32,18 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
+from dataclasses import replace
+from typing import Any
 from urllib.parse import urlsplit
 
 from aiq_agent.common.config_validation import NIM_API_HOST
 from aiq_agent.common.config_validation import NIM_UNSUPPORTED_MESSAGE
+from aiq_agent.common.openrouter import NO_RETENTION_LIMITS
+from aiq_agent.common.openrouter import DataPolicy
+from aiq_agent.common.openrouter import data_policy_for
+from aiq_agent.common.openrouter import targets_openrouter
 
 logger = logging.getLogger(__name__)
 
@@ -105,12 +112,29 @@ class ResolvedCredential:
     ``""``). ``base_url``/``model`` are always populated (from env/defaults; a
     BYOK hit overrides ``base_url`` but never ``model``). ``api_key`` must never
     be logged.
+
+    ``data_policy`` is the organization's retention policy (``common/openrouter``).
+    Send every request body through :meth:`request_body` (or pass
+    :meth:`request_extra_body` as the OpenAI SDK's ``extra_body``): it applies the
+    policy when ``base_url`` is OpenRouter and is a copy otherwise.
     """
 
     api_key: str
     base_url: str
     model: str
     source: str
+    data_policy: DataPolicy = NO_RETENTION_LIMITS
+
+    def request_body(self, body: Mapping[str, Any]) -> dict[str, Any]:
+        """``body`` with this endpoint's data policy applied."""
+        if not targets_openrouter(self.base_url):
+            return dict(body)
+        return self.data_policy.apply(body)
+
+    def request_extra_body(self, extra_body: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+        """The OpenAI SDK ``extra_body`` for a call to this endpoint, or None when there is nothing to add."""
+        merged = self.request_body(extra_body or {})
+        return merged or None
 
 
 def _infer_provider_key_env(base_url: str) -> str | None:
@@ -137,6 +161,7 @@ def resolve_llm_credential(
     base_url_env: str | None = None,
     model_env: str | None = None,
     organization_id: str | None = None,
+    data_policy: DataPolicy | None = None,
 ) -> ResolvedCredential:
     """Resolve an LLM credential for a bespoke (non-NAT) call site.
 
@@ -148,7 +173,35 @@ def resolve_llm_credential(
     A BYOK hit (``organization_id`` given and the org has a credential) swaps
     ``api_key`` + ``base_url`` only — the model is left as resolved from
     env/defaults, matching the NAT model/credential separation (ADR-0022/0014).
+
+    ``data_policy`` defaults to the organization's (``openrouter.data_policy_for``,
+    fails closed). Pass one explicitly only for work that is not one
+    organization's: a cross-tenant pipeline carrying several tenants' text
+    passes ``ZERO_DATA_RETENTION``, since it cannot honour each tenant separately.
     """
+    resolved = _resolve(
+        primary_env=primary_env,
+        fallback_envs=fallback_envs,
+        default_base_url=default_base_url,
+        default_model=default_model,
+        base_url_env=base_url_env,
+        model_env=model_env,
+        organization_id=organization_id,
+    )
+    policy = data_policy if data_policy is not None else data_policy_for(organization_id)
+    return replace(resolved, data_policy=policy)
+
+
+def _resolve(
+    *,
+    primary_env: str,
+    fallback_envs: tuple[str, ...],
+    default_base_url: str,
+    default_model: str,
+    base_url_env: str | None,
+    model_env: str | None,
+    organization_id: str | None,
+) -> ResolvedCredential:
     base_url = (read_api_key_env(base_url_env) if base_url_env else "") or default_base_url
     base_url = base_url.rstrip("/")
     model = (read_api_key_env(model_env) if model_env else "") or default_model

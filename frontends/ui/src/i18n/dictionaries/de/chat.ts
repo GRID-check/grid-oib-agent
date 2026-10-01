@@ -1088,6 +1088,11 @@ export const chat: typeof en.chat = {
       message:
         'Ihre vorherige Anfrage wurde nicht abgeschlossen. Bitte senden Sie Ihre Nachricht erneut.',
     },
+    zdrRefused: {
+      title: 'Modell unter Zero Data Retention nicht verfügbar',
+      message:
+        'Die Zero-Data-Retention-Einstellung Ihrer Organisation erlaubt nur Modelle mit einem Zero-Data-Retention-Endpunkt, und das Modell für diese Aufgabe hat keinen. Eine Administratorin oder ein Administrator der Organisation muss unter Organisation → Modelle ein solches Modell wählen.',
+    },
     workflowError: {
       title: 'Anfrage fehlgeschlagen',
       message:

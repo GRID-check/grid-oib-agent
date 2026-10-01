@@ -18,14 +18,23 @@
 
 import 'server-only'
 import { getCached } from '@/lib/cache'
-import { resolveActiveCredentialForBackend, type ResolvedCredential } from '@/lib/llm-credentials/service'
+import {
+  getActiveCredentialProvider,
+  resolveActiveCredentialForBackend,
+  type ResolvedCredential,
+} from '@/lib/llm-credentials/service'
 import { MODEL_ID_PATTERN } from './agent-groups'
-import { fetchModelCatalog, fetchZdrModelIds, filterCatalogToZdr, type OpenRouterModel } from './openrouter'
+import { fetchModelCatalog, fetchZdrEndpoints, type OpenRouterModel, type ZdrIndex } from './openrouter'
 
 const BYOK_CATALOG_TTL_MS = 5 * 60 * 1000
 const BYOK_LIST_TIMEOUT_MS = 8_000
 
 export interface OrgModelCatalog {
+  /**
+   * The whole catalog, NOT narrowed to ZDR models: callers pass `zdr` to
+   * `searchModelsForGroup` / `validateOverrides`, which filter the picker and
+   * name a non-ZDR model as such (`not_zdr`) instead of "not in the catalog".
+   */
   models: OpenRouterModel[]
   /** Where the models come from — drives the UI hint and snapshot metadata. */
   source: 'openrouter' | 'byok'
@@ -37,12 +46,21 @@ export interface OrgModelCatalog {
    */
   validation: 'full' | 'listed'
   /**
-   * True when the Zero-Data-Retention filter was requested AND applied — the
-   * `models` list has been narrowed to models with a ZDR endpoint. False when
-   * ZDR was not requested, or could not be honoured for this catalog source
-   * (a BYOK provider-native listing OpenRouter cannot ZDR-filter).
+   * True when the Zero-Data-Retention filter was requested AND applies — `zdr`
+   * then holds the ZDR endpoint index every selection is checked against. False
+   * when ZDR was not requested, or cannot be honoured for this catalog source
+   * (see `zdrApplicable`).
    */
   zdrOnly: boolean
+  /**
+   * Whether Piloti can enforce zero data retention for this org's traffic at
+   * all. False for a BYOK key on a provider other than OpenRouter: those
+   * requests go straight to the org's own provider, whose retention is governed
+   * by the org's contract with it. The stored setting is left untouched.
+   */
+  zdrApplicable: boolean
+  /** The ZDR endpoint index when `zdrOnly`, else null. */
+  zdr: ZdrIndex | null
 }
 
 export interface OrgCatalogOptions {
@@ -87,14 +105,21 @@ async function fetchProviderModelList(credential: ResolvedCredential): Promise<s
 }
 
 /**
- * Restrict an OpenRouter-sourced catalog to Zero-Data-Retention models. Fails
- * CLOSED: a ZDR-list outage throws (callers surface 503) rather than falling
- * back to the unfiltered catalog, so a non-ZDR model is never offered while the
- * ZDR filter is on.
+ * Whether zero data retention through OpenRouter can apply to a credential:
+ * the platform key, or the org's own OpenRouter key. A key on any other
+ * provider sends traffic past OpenRouter, where `provider.zdr` means nothing.
  */
-async function applyZdrFilter(models: OpenRouterModel[]): Promise<OpenRouterModel[]> {
-  const zdrModelIds = await fetchZdrModelIds()
-  return filterCatalogToZdr(models, zdrModelIds)
+export function isZdrApplicableForCredential(credential: Pick<ResolvedCredential, 'provider'> | null): boolean {
+  return !credential || credential.provider === 'openrouter'
+}
+
+/**
+ * `isZdrApplicableForCredential` for an org: reads which provider its traffic
+ * goes to, without revealing the key or fetching any catalog.
+ */
+export async function isZdrApplicableForOrg(organizationId: string): Promise<boolean> {
+  const provider = await getActiveCredentialProvider(organizationId)
+  return isZdrApplicableForCredential(provider === null ? null : { provider })
 }
 
 /**
@@ -102,10 +127,12 @@ async function applyZdrFilter(models: OpenRouterModel[]): Promise<OpenRouterMode
  * (callers surface 503, same contract as `fetchModelCatalog`).
  *
  * With `zdrOnly`, OpenRouter-sourced catalogs (platform or a BYOK OpenRouter
- * key) are narrowed to models with a Zero-Data-Retention endpoint. A BYOK
- * provider-native listing (openai/azure/custom) cannot be ZDR-filtered through
- * OpenRouter, so the flag is reported as not-applied there — the org's own
- * provider contract governs retention for those keys.
+ * key) carry the ZDR endpoint index, and the ZDR list failing throws
+ * `ZdrListUnavailableError` rather than falling back to the unfiltered catalog,
+ * so a non-ZDR model is never offered or accepted while the policy is on. A
+ * BYOK provider-native listing (openai/azure/custom) cannot be ZDR-filtered
+ * through OpenRouter, so the flag is reported as not applicable there — the
+ * org's own provider contract governs retention for those keys.
  */
 export async function getCatalogForOrg(
   organizationId: string,
@@ -114,25 +141,20 @@ export async function getCatalogForOrg(
   const wantZdr = options.zdrOnly === true
   const credential = await resolveActiveCredentialForBackend(organizationId)
 
-  if (!credential) {
-    const models = await fetchModelCatalog()
+  // Spelled out rather than `isZdrApplicableForCredential(credential)` so the
+  // compiler narrows `credential` for the provider-native branch below.
+  if (!credential || credential.provider === 'openrouter') {
+    // No credential (platform key), or the org's own OpenRouter key: the same
+    // public catalog with full metadata — traffic just bills to the org key.
+    const [models, zdr] = await Promise.all([fetchModelCatalog(), wantZdr ? fetchZdrEndpoints() : null])
     return {
-      models: wantZdr ? await applyZdrFilter(models) : models,
-      source: 'openrouter',
-      provider: null,
+      models,
+      source: credential ? 'byok' : 'openrouter',
+      provider: credential ? 'openrouter' : null,
       validation: 'full',
       zdrOnly: wantZdr,
-    }
-  }
-  if (credential.provider === 'openrouter') {
-    // Same public catalog, full metadata — traffic just bills to the org key.
-    const models = await fetchModelCatalog()
-    return {
-      models: wantZdr ? await applyZdrFilter(models) : models,
-      source: 'byok',
-      provider: 'openrouter',
-      validation: 'full',
-      zdrOnly: wantZdr,
+      zdrApplicable: true,
+      zdr,
     }
   }
 
@@ -145,5 +167,7 @@ export async function getCatalogForOrg(
     validation: 'listed',
     // ZDR-via-OpenRouter does not apply to a provider-native listing.
     zdrOnly: false,
+    zdrApplicable: false,
+    zdr: null,
   }
 }

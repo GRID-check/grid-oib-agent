@@ -1079,6 +1079,11 @@ export const chat = {
       title: 'Response Interrupted',
       message: 'Your previous request was not completed. Please resend your message.',
     },
+    zdrRefused: {
+      title: 'Model not available under zero data retention',
+      message:
+        'Your organization’s zero-data-retention setting only allows models with a zero-data-retention endpoint, and the model for this task has none. An organization admin must choose one under Organization → Models.',
+    },
     workflowError: {
       title: 'Request Failed',
       message:

@@ -2,21 +2,26 @@
  * Org model configuration (runtime model per agent group).
  *
  * GET — `org:models:manage` holders only; the active version + agent-group
- *       registry.
+ *       registry, the org's zero-data-retention state (`zdrOnly`, on unless
+ *       the org opted out), whether Piloti can enforce it for this org's
+ *       credential (`zdrApplicable`), and — while it is in force — which
+ *       groups' effective models have no usable ZDR endpoint (`zdrCoverage`).
  * PUT — validates every chosen model against the live OpenRouter catalog +
- *       the group's capability requirements, then writes a new immutable
- *       version and activates it.
+ *       the group's capability requirements (+ a ZDR endpoint that serves the
+ *       group, while ZDR is in force), then writes a new immutable version and
+ *       activates it.
  */
 
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
-import { ServiceUnavailableError, UnprocessableError } from '@/lib/api/errors'
+import { UnprocessableError } from '@/lib/api/errors'
 import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { AGENT_GROUPS, AGENT_GROUP_IDS, MODEL_ID_PATTERN, isAgentGroupId } from '@/lib/model-config/agent-groups'
 import { getGroupDefaults } from '@/lib/model-config/backend-defaults'
-import { validateOverrides } from '@/lib/model-config/openrouter'
-import { getCatalogForOrg } from '@/lib/model-config/org-catalog'
+import { catalogUnavailableError, validateOverrides } from '@/lib/model-config/openrouter'
+import { getCatalogForOrg, isZdrApplicableForOrg } from '@/lib/model-config/org-catalog'
+import { getZdrCoverage, UNKNOWN_COVERAGE } from '@/lib/model-config/zdr-coverage'
 import { createAndActivateVersion, getOrgModelConfig } from '@/lib/model-config/service'
 import { isZdrOnlyForOrg } from '@/lib/organizations/service'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -32,25 +37,40 @@ export const GET = apiRoute(
       getGroupDefaults(),
       isZdrOnlyForOrg(session.organizationId),
     ])
-    // Where the picker's models come from (ADR-0022): the platform OpenRouter
-    // catalog, or — with a BYOK credential — the org's own provider. Best-
-    // effort: a catalog hiccup must not block rendering the config.
-    let catalogSource: { source: string; provider: string | null; validation: string } | null = null
-    try {
-      const catalog = await getCatalogForOrg(session.organizationId, { zdrOnly })
-      catalogSource = {
-        source: catalog.source,
-        provider: catalog.provider,
-        validation: catalog.validation,
+    // Best-effort and concurrent: none of these may keep the config from
+    // rendering. Where the picker's models come from (ADR-0022) — asked WITHOUT
+    // the ZDR filter, so a ZDR-list outage does not also hide it; whether ZDR
+    // can apply to this org's credential (read without revealing the key); and,
+    // while ZDR is on, which groups it blocks. A failure reads as unknown
+    // (`catalogSource`/`zdrApplicable` null, coverage `status: 'unknown'`).
+    const [catalog, applicable, coverage] = await Promise.allSettled([
+      getCatalogForOrg(session.organizationId),
+      isZdrApplicableForOrg(session.organizationId),
+      zdrOnly ? getZdrCoverage(session.organizationId) : Promise.resolve(null),
+    ])
+    for (const failed of [catalog, applicable, coverage]) {
+      if (failed.status === 'rejected') {
+        console.warn('[Model Config API] Part of the model configuration is unknown:', failed.reason)
       }
-    } catch (error) {
-      console.warn('[Model Config API] Could not resolve the org catalog source:', error)
     }
+    const catalogSource =
+      catalog.status === 'fulfilled'
+        ? { source: catalog.value.source, provider: catalog.value.provider, validation: catalog.value.validation }
+        : null
+    const zdrApplicable = applicable.status === 'fulfilled' ? applicable.value : null
+    const zdrCoverage =
+      !zdrOnly || zdrApplicable === false
+        ? null
+        : coverage.status === 'fulfilled'
+          ? coverage.value
+          : UNKNOWN_COVERAGE
     return {
       agentGroups: AGENT_GROUPS,
       defaults,
       catalogSource,
       zdrOnly,
+      zdrApplicable,
+      zdrCoverage,
       activeVersion: withoutRetiredGroups(config.activeVersion),
       updatedBy: config.updatedBy,
       updatedAt: config.updatedAt,
@@ -80,18 +100,19 @@ export const PUT = apiRoute(
     // never trusted. A catalog outage rejects the save (503) rather than
     // accepting unvalidated model ids. With a BYOK credential the catalog is
     // the ORG's provider listing (relaxed capability checks, ADR-0022).
-    // When the org enforces ZDR, the save is validated against the ZDR-filtered
-    // catalog — a non-ZDR model is rejected server-side, not just hidden.
+    // While the org enforces ZDR, every model must also have a ZDR endpoint
+    // that serves its group (`not_zdr` / `zdr_endpoint_lacks_capability`), and
+    // a ZDR-list outage rejects the save rather than skipping that check.
     const zdrOnly = await isZdrOnlyForOrg(session.organizationId)
     let catalog
     try {
       catalog = await getCatalogForOrg(session.organizationId, { zdrOnly })
     } catch (error) {
       console.error('[Model Config API] Model catalog unavailable:', error)
-      throw new ServiceUnavailableError('The model catalog is unavailable; try again later')
+      throw catalogUnavailableError(error)
     }
     const flat = Object.fromEntries(Object.entries(input.overrides).map(([g, v]) => [g, v.model]))
-    const validation = validateOverrides(catalog.models, flat, catalog.validation === 'full')
+    const validation = validateOverrides(catalog.models, flat, catalog.validation === 'full', catalog.zdr)
     if (!validation.ok) {
       throw new UnprocessableError('Model validation failed', validation.errors)
     }

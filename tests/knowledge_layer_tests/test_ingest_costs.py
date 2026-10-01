@@ -48,7 +48,7 @@ def test_run_ingestion_runs_inside_the_scope(monkeypatch):
     def body(self, job_id, file_paths, collection_name, config):
         seen.append(grid_cost_tracker_var.get())
 
-    monkeypatch.setattr(adapter.LlamaIndexIngestor, "_run_ingestion_tracked", body)
+    monkeypatch.setattr(adapter.LlamaIndexIngestor, "_ingest_job", body)
     ingestor = adapter.LlamaIndexIngestor.__new__(adapter.LlamaIndexIngestor)
     with patch("aiq_agent.common.cost_tracking._post_usage_events"):
         ingestor._run_ingestion("job-1", [], "proj_1", {"organization_id": "org_1"})

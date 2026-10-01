@@ -716,8 +716,12 @@ export const platform: typeof en.platform = {
     change: 'Ändern',
     clear: 'Zurück zur Workflow-Konfiguration',
     zdrWarning:
-      'Kein Zero-Data-Retention-Endpunkt — Organisationen mit dieser Richtlinie bleiben bei ihrem eigenen Modell.',
-    noZdr: 'Kein Zero-Data-Retention-Endpunkt',
+      'Kein Zero-Data-Retention-Endpunkt, der diese Aufgabe bedienen kann. Jede Organisation nutzt Zero Data Retention, sofern sie es nicht abgeschaltet hat; Organisationen ohne eigenes Modell erben diesen Standard, und ihre Anfragen für diese Aufgabe werden abgelehnt, bis er geändert wird.',
+    zdrUnknown:
+      'Die Zero-Data-Retention-Liste konnte nicht geladen werden; ob dieses Modell einen ZDR-Endpunkt hat, ist daher unbekannt.',
+    zdrListUnavailable:
+      'Die Zero-Data-Retention-Liste konnte nicht geladen werden; deshalb lässt sich kein Modell prüfen. Bis sie wieder erreichbar ist, wird nichts angeboten oder gespeichert.',
+    noZdrResults: 'Kein Modell mit Zero-Data-Retention-Endpunkt passt zu Ihrer Suche.',
     // Denkstufe je Bereich — der zweite Hebel derselben Zeile.
     effortPinnedBadge: 'Plattform-Stufe',
     effortInherit: 'Workflow-Konfig.',

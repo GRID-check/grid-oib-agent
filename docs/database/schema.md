@@ -749,7 +749,8 @@ LangGraph conversation checkpoint tables:
 The platform-controlled default model per agent group — the layer *under* every
 tenant's own configuration (ADR-0014, extended). Global: no `organization_id`,
 one row per `agent_group` (PK), carrying the catalog-validated `model`, a
-`model_snapshot` jsonb (catalog metadata + `_zdr.safe`), an optional `note`, and
+`model_snapshot` jsonb (catalog metadata at save time; older rows also carry an
+unread `_zdr.safe`), an optional `note`, and
 `updated_by`/`updated_by_email`. **No row = that group falls through to the
 workflow YAML for organizations without an org override of their own** (an org
 override still wins). A save replaces the whole set — groups omitted from the
@@ -766,8 +767,9 @@ first ask the backend which provider the deployment actually runs
 (`GET /v1/config/llm-defaults` → `baseUrls`) and skip any group not on the
 platform catalog's provider: a platform default replaces the model id but not the
 `base_url`, so an OpenRouter id written blindly into a Kimi or NVIDIA deployment
-would fail every request. It also validates against the live catalog, records
-`model_snapshot` (including `_zdr.safe`), invalidates the cache and emits
+would fail every request. It also validates against the live catalog and the
+zero-data-retention list (skipping the bootstrap when that list cannot be read),
+records `model_snapshot`, invalidates the cache and emits
 `platform.model_defaults.bootstrapped` — none of which SQL can do. Rows it writes
 carry `updated_by = 'system:bootstrap'`.
 

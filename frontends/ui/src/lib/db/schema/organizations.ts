@@ -56,3 +56,20 @@ export type NewOrganization = typeof organizations.$inferInsert
 export const PLATFORM_OWNED_SETTINGS = ['storageQuotaBytes'] as const
 
 export type PlatformOwnedSetting = (typeof PLATFORM_OWNED_SETTINGS)[number]
+
+/**
+ * Keys in the same bag that the TENANT owns but only one route may write,
+ * because that route carries a stronger gate than the generic settings save.
+ * Maps each key to where it is changed, which is also the refusal message.
+ *
+ * `zdrOnly` is the reason this exists: `PUT /api/organization/settings` merges
+ * the bag under `org:settings:manage`, so `{"settings":{"zdrOnly":false}}`
+ * switched zero data retention off without `org:models:manage`, without the
+ * model-configuration flag, without the confirmation, and could store a
+ * non-boolean. Enforced in `updateOrgSettings`, like the list above, so a new
+ * endpoint inherits the refusal.
+ */
+export const DEDICATED_ROUTE_SETTINGS = {
+  zdrOnly:
+    'zero data retention is switched through PUT /api/organization/model-config/zdr, which requires org:models:manage',
+} as const

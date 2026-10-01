@@ -970,6 +970,34 @@ def _resolve_embed_api_key(base_url: str, model: str) -> str:
     ).api_key
 
 
+def make_embed_model(*, base_url: str, model: str, api_key: str, **kwargs: Any):
+    """The embedding client. Every one in the process is built here.
+
+    Its HTTP clients pin every OpenRouter request to zero-data-retention
+    endpoints (``openrouter.PLATFORM_FIXED``): the embedding model is the
+    platform's, not an organization's choice, and document chunks and queries
+    of every tenant pass through it. ``NVIDIAEmbedding`` hard-codes its own
+    ``extra_body``, so the pin rides on the transport instead.
+    """
+    from llama_index.embeddings.nvidia import NVIDIAEmbedding
+
+    from aiq_agent.common.openrouter import pinned_async_http_client
+    from aiq_agent.common.openrouter import pinned_http_client
+
+    embed_model = NVIDIAEmbedding(
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+        http_client=pinned_http_client(),
+        async_http_client=pinned_async_http_client(),
+        **kwargs,
+    )
+    # Metered: llama-index calls the OpenAI SDK itself, so no callback sees an
+    # embedding; its usage lands in whatever tracker is active (ingest job or turn).
+    meter_openai_client(getattr(embed_model, "_client", None), role=USAGE_ROLE_EMBEDDING)
+    return embed_model
+
+
 def resolve_vlm_credential(organization_id: str | None = None):
     """Resolve the full VLM credential (key + base URL + model) — the single
     source of truth for the vision endpoint ingestion will call.
@@ -1948,6 +1976,29 @@ def _vlm_create_fairly(client, **request):
     raise AssertionError("unreachable")  # pragma: no cover
 
 
+def _vlm_client(base_url: str, api_key: str, *, role: str = USAGE_ROLE_INGEST_VISION):
+    """The vision client for one ingest call, under the ingest job's data policy and on its cost ledger.
+
+    The ingest job enters ``openrouter.data_policy_scope`` for its organization;
+    anything that reaches here without one (the base corpus sync, a thread that
+    lost the context) is pinned to zero-data-retention endpoints. Each call's
+    usage is recorded under ``role`` in the job's tracker (``_ingest_cost_scope``).
+    """
+    from aiq_agent.common.openrouter import openai_client
+    from aiq_agent.common.openrouter import scoped_data_policy
+
+    return meter_openai_client(
+        openai_client(
+            base_url=base_url,
+            api_key=api_key,
+            policy=scoped_data_policy(),
+            timeout=VLM_REQUEST_TIMEOUT_SECONDS,
+            max_retries=1,
+        ),
+        role=role,
+    )
+
+
 def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, temperature: float = 0.2) -> str:
     """One VLM chat completion with a single truncation retry.
 
@@ -2033,7 +2084,7 @@ def _analyze_image_with_vlm(
         Tuple of (content_type, caption) where content_type is "chart" or "image".
     """
     try:
-        from openai import OpenAI
+        import openai  # noqa: F401 - availability check; the client comes from _vlm_client
     except ImportError:
         logger.warning("openai package not installed. Install with: pip install openai")
         return ("image", "[Image - captioning unavailable]")
@@ -2077,16 +2128,7 @@ Provide a detailed, structured response."""
         # Encode image to base64
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-        # Metered: each call's usage lands on the job's cost ledger.
-        client = meter_openai_client(
-            OpenAI(
-                base_url=vlm_base_url,
-                api_key=api_key,
-                timeout=VLM_REQUEST_TIMEOUT_SECONDS,
-                max_retries=1,
-            ),
-            role=USAGE_ROLE_INGEST_VISION,
-        )
+        client = _vlm_client(vlm_base_url, api_key)
 
         caption = _vlm_chat_create(
             client,
@@ -2229,7 +2271,7 @@ def _analyze_drawing_page_with_vlm(
     registry = visual_domains.resolve_registry()
 
     try:
-        from openai import OpenAI
+        import openai  # noqa: F401 - availability check; the client comes from _vlm_client
     except ImportError:
         logger.warning("openai package not installed. Install with: pip install openai")
         return ("[Drawing - captioning unavailable]", {})
@@ -2240,16 +2282,7 @@ def _analyze_drawing_page_with_vlm(
 
     try:
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        # Metered: each call's usage lands on the job's cost ledger.
-        client = meter_openai_client(
-            OpenAI(
-                base_url=vlm_base_url,
-                api_key=api_key,
-                timeout=VLM_REQUEST_TIMEOUT_SECONDS,
-                max_retries=1,
-            ),
-            role=USAGE_ROLE_INGEST_VISION,
-        )
+        client = _vlm_client(vlm_base_url, api_key)
         reply = _vlm_chat_create(
             client,
             model=vlm_model,
@@ -2714,8 +2747,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         ensure_retrieval_dependencies()
 
         try:
-            from llama_index.embeddings.nvidia import NVIDIAEmbedding
-
             embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
             if not embed_api_key:
                 logger.error(
@@ -2723,7 +2754,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     "the provider key for AIQ_EMBED_BASE_URL) - ingestion/retrieval will fail."
                 )
 
-            self._embed_model = NVIDIAEmbedding(
+            self._embed_model = make_embed_model(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
                 api_key=embed_api_key,
@@ -2731,9 +2762,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 timeout=EMBED_TIMEOUT_SECONDS,
                 max_retries=EMBED_MAX_RETRIES,
             )
-            # The embeddings' usage reaches the ledger of whatever scope makes
-            # them: an ingestion job's (`activity = ingest`), or a chat turn's.
-            meter_openai_client(getattr(self._embed_model, "_client", None), role=USAGE_ROLE_EMBEDDING)
 
             # Ensure persist directory exists
             os.makedirs(self.persist_dir, exist_ok=True)
@@ -4163,26 +4191,38 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         collection_name: str,
         config: dict[str, Any],
     ):
-        """Background ingestion worker with optional multimodal extraction, on the cost ledger.
+        """Background ingestion worker, under the uploading organization's data policy and on the cost ledger.
+
+        The job runs detached, with no request to read an organization from, so
+        the policy is entered here from the org the job config names: every model
+        call the job makes on a model the organization chose (the ingest VLM,
+        page transcription) follows its zero-data-retention setting. A job with
+        no organization (the base corpus sync) is pinned anyway.
 
         Every model call the job makes (vision, transcription, summary, tags,
-        embeddings) is recorded under ``activity = ingest`` for the job's
+        embeddings) is also recorded under ``activity = ingest`` for the job's
         organization, and its project and uploader when the request named them.
-        Before this no tracker existed off the chat path, so ingestion was the
-        one spend the platform view never showed. No budget is enforced here:
-        a document half-read because a limit ran out mid-job is worse than the
-        overrun, and the spend still lands in the budgets it counts toward.
+        No budget is enforced here: a document half-read because a limit ran out
+        mid-job is worse than the overrun, and the spend still lands in the
+        budgets it counts toward.
         """
-        with _ingest_cost_scope(job_id, config):
-            return self._run_ingestion_tracked(job_id, file_paths, collection_name, config)
+        from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
+        from aiq_agent.common.openrouter import data_policy_for
+        from aiq_agent.common.openrouter import data_policy_scope
 
-    def _run_ingestion_tracked(
+        organization_id = config.get("organization_id")
+        policy = data_policy_for(organization_id) if organization_id else ZERO_DATA_RETENTION
+        with data_policy_scope(policy), _ingest_cost_scope(job_id, config):
+            self._ingest_job(job_id, file_paths, collection_name, config)
+
+    def _ingest_job(
         self,
         job_id: str,
         file_paths: list[str | Callable[[], str]],
         collection_name: str,
         config: dict[str, Any],
     ):
+        """Background ingestion worker with optional multimodal extraction."""
         from knowledge_layer.deferred_files import ORIGINAL_DOWNLOAD_FAILED
         from knowledge_layer.deferred_files import resolve_original
         from knowledge_layer.renditions import OFFICE_RENDITION_REQUIRED
@@ -5312,8 +5352,6 @@ class LlamaIndexRetriever(BaseRetriever):
         ensure_retrieval_dependencies()
 
         try:
-            from llama_index.embeddings.nvidia import NVIDIAEmbedding
-
             embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
             if not embed_api_key:
                 logger.error(
@@ -5321,7 +5359,7 @@ class LlamaIndexRetriever(BaseRetriever):
                     "the provider key for AIQ_EMBED_BASE_URL) - retrieval/ingestion will fail."
                 )
 
-            self._embed_model = NVIDIAEmbedding(
+            self._embed_model = make_embed_model(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
                 api_key=embed_api_key,
@@ -5331,9 +5369,6 @@ class LlamaIndexRetriever(BaseRetriever):
                 timeout=QUERY_EMBED_TIMEOUT_SECONDS,
                 max_retries=EMBED_MAX_RETRIES,
             )
-            # The embeddings' usage reaches the ledger of whatever scope makes
-            # them: an ingestion job's (`activity = ingest`), or a chat turn's.
-            meter_openai_client(getattr(self._embed_model, "_client", None), role=USAGE_ROLE_EMBEDDING)
             # Not installed as the process-wide `Settings.embed_model`: every
             # index this retriever builds is handed the model explicitly
             # (`_get_index`), and the global would put this 3 s query model

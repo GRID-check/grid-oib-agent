@@ -39,7 +39,6 @@ import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
 
 import yaml
 
@@ -47,7 +46,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-from aiq_agent.common import decisions  # noqa: E402
 from aiq_agent.common.decisions import choice  # noqa: E402
 from aiq_agent.common.decisions import decide_many  # noqa: E402
 
@@ -168,17 +166,16 @@ FLOORS = {
 
 async def main() -> int:
     ok = True
-    with patch.object(decisions, "_zdr_only_blocking", return_value=False):
-        for name, fn in (
-            ("tags", tags),
-            ("doc_class", doc_class),
-            ("causes", causes),
-        ):
-            result = await fn()
-            held = FLOORS[name](result)
-            ok = ok and held
-            print(f"{name}: {'ok' if held else 'BELOW FLOOR'}")
-            print(json.dumps(result, ensure_ascii=False, default=str))
+    for name, fn in (
+        ("tags", tags),
+        ("doc_class", doc_class),
+        ("causes", causes),
+    ):
+        result = await fn()
+        held = FLOORS[name](result)
+        ok = ok and held
+        print(f"{name}: {'ok' if held else 'BELOW FLOOR'}")
+        print(json.dumps(result, ensure_ascii=False, default=str))
     return 0 if ok else 1
 
 

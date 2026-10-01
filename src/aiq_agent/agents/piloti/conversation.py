@@ -39,8 +39,10 @@ from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common.canned_replies import GENERIC_ERROR_MESSAGE
 from aiq_agent.common.canned_replies import NO_SOURCES_MESSAGE
+from aiq_agent.common.canned_replies import ZDR_MODEL_REFUSED_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.job_admission import JobAdmissionError
+from aiq_agent.common.openrouter import is_data_policy_refusal
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.profiler import profiled_node
@@ -467,6 +469,10 @@ class ConversationGraph:
             logger.warning("Auth error in research: %s", exc)
             return _error_update(str(exc))
         except Exception as exc:  # noqa: BLE001 - the turn answers with an error rather than dying
+            if is_data_policy_refusal(exc):
+                # Retrying cannot help: the model has no ZDR endpoint (ADR-0074).
+                logger.warning("Research refused by the provider's data policy: %s", exc)
+                return _error_update(ZDR_MODEL_REFUSED_MESSAGE)
             logger.exception("Error in research: %s", exc)
             return _error_update(GENERIC_ERROR_MESSAGE)
 

@@ -39,6 +39,7 @@ Typical usage (inside ``_run_ingestion``)::
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import io
 import logging
@@ -50,9 +51,6 @@ from typing import Any
 
 from aiq_agent.common.cache import get_json
 from aiq_agent.common.cache import set_json
-
-# The job's cost tracker is a ContextVar; each vision call carries it into the pool.
-from aiq_agent.common.cost_tracking import submit_in_context
 
 from .pdfium_lock import detached_pil
 from .pdfium_lock import pdfium_lock
@@ -485,12 +483,15 @@ def enrich_vlm_batch(
     with ThreadPoolExecutor(max_workers=min(VLM_BATCH_WORKERS, total_tasks or 1)) as pool:
         futures = {}
 
+        # Each task runs in a copy of this thread's context, so the ingest job's
+        # data-policy scope (`openrouter.data_policy_scope`) and cost tracker
+        # (`_ingest_cost_scope`) both reach the VLM call.
         for record in image_records:
-            fut = submit_in_context(pool, _enrich_one_image, record)
+            fut = pool.submit(contextvars.copy_context().run, _enrich_one_image, record)
             futures[fut] = ("image", record)
 
         for page in drawing_pages:
-            fut = submit_in_context(pool, _enrich_one_drawing, page)
+            fut = pool.submit(contextvars.copy_context().run, _enrich_one_drawing, page)
             futures[fut] = ("drawing", page)
 
         for future in as_completed(futures):

@@ -20,8 +20,9 @@ export const platformModelDefaults = pgTable('platform_model_defaults', {
   /** Catalog-validated model id the group defaults to. */
   model: text('model').notNull(),
   /**
-   * Catalog metadata at save time plus `_zdr.safe` (does the model have a
-   * Zero-Data-Retention endpoint?). Audit only — never re-applied at runtime.
+   * Catalog metadata at save time. Audit only — never re-applied at runtime.
+   * Older rows may also carry `_zdr.safe`; nothing reads it any more; ZDR
+   * status is checked against the live list (a save refuses a non-ZDR model).
    */
   modelSnapshot: jsonb('model_snapshot'),
   /** Optional change note from the platform owner. */

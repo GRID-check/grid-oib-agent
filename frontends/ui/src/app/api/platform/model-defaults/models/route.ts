@@ -6,6 +6,11 @@
  * the org-aware catalog (`getCatalogForOrg`): a platform default is served to
  * every tenant, so it must come from the catalog they all share — a BYOK
  * tenant's provider-native listing is not a valid source for it.
+ *
+ * Only models with a zero-data-retention endpoint that serves the group are
+ * listed: every organization is ZDR unless it opted out, so a default without
+ * one would have its requests refused for all of them. A ZDR-list outage is a
+ * 503 (`details.reason: 'zdr_list_unavailable'`), never the unfiltered catalog.
  */
 
 import { NextResponse } from 'next/server'
@@ -13,9 +18,9 @@ import { platformApiRoute } from '@/lib/api/platform-handler'
 import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { getAgentGroup } from '@/lib/model-config/agent-groups'
 import {
-  baseModelId,
+  catalogUnavailableError,
   fetchModelCatalog,
-  fetchZdrModelIds,
+  fetchZdrEndpoints,
   searchModelsForGroup,
 } from '@/lib/model-config/openrouter'
 
@@ -35,30 +40,12 @@ export const GET = platformApiRoute(
       )
     }
 
-    let catalog
-    try {
-      catalog = await fetchModelCatalog()
-    } catch (error) {
-      console.error('[Platform Model Search] Model catalog unavailable:', error)
-      return NextResponse.json(
-        { error: 'The model catalog is unavailable', code: 'SERVICE_UNAVAILABLE' },
-        { status: 503 }
-      )
-    }
+    const [catalog, zdr] = await Promise.all([fetchModelCatalog(), fetchZdrEndpoints()]).catch((error: unknown) => {
+      console.error('[Platform Model Search] Model catalog or ZDR list unavailable:', error)
+      throw catalogUnavailableError(error)
+    })
 
-    // Advisory only — the owner may still pick a non-ZDR model; the flag tells
-    // them which choices Zero-Data-Retention tenants cannot inherit.
-    let zdrModelIds: Set<string> | null = null
-    try {
-      zdrModelIds = await fetchZdrModelIds()
-    } catch {
-      zdrModelIds = null
-    }
-
-    const models = searchModelsForGroup(catalog, groupId, query, 30, true).map((model) => ({
-      ...model,
-      zdrSafe: zdrModelIds ? zdrModelIds.has(baseModelId(model.id)) : null,
-    }))
+    const models = searchModelsForGroup(catalog, groupId, query, 30, true, zdr)
 
     return NextResponse.json({ group: group.id, models })
   },

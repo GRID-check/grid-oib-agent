@@ -20,6 +20,7 @@ same scan costs nothing and a prompt change never serves the old reply.
 from __future__ import annotations
 
 import base64
+import contextvars
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -27,8 +28,6 @@ from dataclasses import dataclass
 from dataclasses import field
 
 from aiq_agent.common.cost_tracking import USAGE_ROLE_INGEST_TRANSCRIPTION
-from aiq_agent.common.cost_tracking import meter_openai_client
-from aiq_agent.common.cost_tracking import submit_in_context
 
 logger = logging.getLogger(__name__)
 
@@ -106,17 +105,7 @@ def _transcribe_live(image_bytes: bytes, *, ocr_model: str, base_url: str, api_k
     from knowledge_layer.llamaindex import adapter as _adapter
 
     try:
-        from openai import OpenAI
-
-        client = meter_openai_client(
-            OpenAI(
-                base_url=base_url,
-                api_key=api_key,
-                timeout=_adapter.VLM_REQUEST_TIMEOUT_SECONDS,
-                max_retries=1,
-            ),
-            role=USAGE_ROLE_INGEST_TRANSCRIPTION,
-        )
+        client = _adapter._vlm_client(base_url, api_key, role=USAGE_ROLE_INGEST_TRANSCRIPTION)
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         reply = _adapter._vlm_chat_create(
             client,
@@ -242,13 +231,15 @@ def transcribe_pdf_pages(
             rendered = _processing.render_pdf_pages(pdf_path, batch, max_dim=max_dim)
             outcome.failed.extend(number for number in batch if number not in rendered)
             jobs = [(number, rendered[number]) for number in batch if number in rendered]
-            # Submitted in the caller's context so each call lands on the job's
-            # cost ledger; results are read back in page order, as `map` gave them.
-            futures = [
-                submit_in_context(pool, transcribe_image, image, model=model, base_url=base_url, api_key=api_key)
-                for _number, image in jobs
-            ]
-            replies = [future.result() for future in futures]
+            # One copy of THIS thread's context per page, taken here rather than
+            # in the pool thread, so the ingest job's data-policy scope
+            # (`openrouter.data_policy_scope`) and its cost tracker reach the call.
+            contexts = [contextvars.copy_context() for _ in jobs]
+            replies = pool.map(
+                lambda job, ctx: ctx.run(transcribe_image, job[1], model=model, base_url=base_url, api_key=api_key),
+                jobs,
+                contexts,
+            )
             for (number, _image), reply in zip(jobs, replies, strict=True):
                 _classify_reply(outcome, number, reply)
     if outcome.failed:
