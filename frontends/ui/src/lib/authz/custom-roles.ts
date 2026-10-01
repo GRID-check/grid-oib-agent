@@ -89,6 +89,26 @@ export async function organizationRoleSlugs(organizationId: string): Promise<Set
   return new Set((await listRolesFromWorkOS(organizationId)).map((role) => role.slug))
 }
 
+/** One permission a custom role may carry, and whether this editor may put it into one. */
+export interface AssignablePermissionView {
+  slug: string
+  /** False for a permission the editor does not hold: composing a role is granting. */
+  grantable: boolean
+}
+
+/**
+ * What the role editor offers, for a reader who may manage roles; null for
+ * anyone else. `grantable` is the same rule {@link assertGrantable} enforces, so
+ * the editor disables exactly the boxes a save would refuse.
+ */
+export function assignableRolePermissions(session: AuthorizedSession): AssignablePermissionView[] | null {
+  if (!hasPermission(session, ORG_PERMISSIONS.membersManage)) return null
+  return ASSIGNABLE_ROLE_PERMISSIONS.map((slug) => ({
+    slug,
+    grantable: hasPermission(session, slug as KnownPermission),
+  }))
+}
+
 function requireRoleManager(session: AuthorizedSession): void {
   if (!hasPermission(session, ORG_PERMISSIONS.membersManage)) throw new ForbiddenError()
 }
