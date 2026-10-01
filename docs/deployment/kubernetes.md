@@ -533,12 +533,12 @@ the committed stacks. A dev stack that wants the feature needs its own domain.
    refuses to plan without it, which on a CI-deployed stack turns a merge into
    a failed deploy.
 4. `pulumi up`. The stack output `inboundMailWorker` names the Worker.
-5. **Create the WorkOS feature flag `project-mail-inbox`, OFF, in each
-   environment** (WorkOS dashboard → Feature Flags;
-   [`workos-provisioning.md`](workos-provisioning.md) §6). This is a write to
-   the production WorkOS environment: agree it with the platform owner first.
-   Target an organization only after it has been told that its mail will pass
-   through Cloudflare. Its members see the address card after their next sign-in;
+5. **The WorkOS feature flag `project-mail-inbox`** exists, OFF for every
+   organization, in both environments (created 2026-10-01;
+   [`workos-provisioning.md`](workos-provisioning.md) §6). Switching it on for
+   an organization is a write to the production WorkOS environment: agree it
+   with the platform owner first, and target an organization only after it
+   has been told that its mail will pass through Cloudflare. Its members see the address card after their next sign-in;
    the webhook and the drain read the flag without a session, through a 30 s
    cache.
 6. **Launch gates.** Run both on staging before the first organization is
