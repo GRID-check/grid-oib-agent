@@ -38,6 +38,7 @@ import {
   CONVERSATION_LIST_LIMIT,
   MESSAGE_LIST_LIMIT,
   deleteConversationInOrg,
+  findConversationTenancy,
   findMessageInConversation,
   lastProjectActivityByUser,
   listMessagesForConversation,
@@ -337,5 +338,19 @@ describe('lastProjectActivityByUser', () => {
   it('asks nothing when there are no projects to ask about', async () => {
     expect(await lastProjectActivityByUser('org_1', 'user_me', [])).toEqual({})
     expect(captured).toHaveLength(0)
+  })
+})
+
+describe('findConversationTenancy — the probe sharing and the WebSocket gate stand on', () => {
+  it('queries an app-minted `s_` id: the column is text, so no uuid guard may answer null for it', async () => {
+    // The ids the app mints (`messages-store.ts`, `task-thread.ts`) are not
+    // uuids. A uuid guard here answered null for every real conversation: every
+    // share 404'd and the upgrade gate waved every conversation id through.
+    nextRows = [['org_1', null, 'private', 'user_me', null]]
+
+    const row = await findConversationTenancy('s_7d1e2c3b_0000_4000_8000_00000000000c')
+
+    expect(onlyQuery().params).toContain('s_7d1e2c3b_0000_4000_8000_00000000000c')
+    expect(row).toMatchObject({ organizationId: 'org_1', visibility: 'private', createdBy: 'user_me' })
   })
 })

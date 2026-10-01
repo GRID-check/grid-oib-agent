@@ -14,7 +14,6 @@
 import 'server-only'
 import { and, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { isUuid } from '@/lib/ids'
 import { stripJsonNullBytes } from '@/lib/text/jsonb'
 import {
   conversationReads,
@@ -299,8 +298,11 @@ export async function conversationIdsExisting(ids: readonly string[]): Promise<S
 export async function findConversationTenancy(
   conversationId: string,
 ): Promise<Pick<Conversation, 'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'deletedAt'> | null> {
-  // A non-uuid id cannot exist; binding it would throw 22P02 (see findProjectTenancy).
-  if (!isUuid(conversationId)) return null
+  // No uuid guard here, unlike `findProjectTenancy`: `conversations.id` is TEXT
+  // and every id the app mints is `s_<uuid with underscores>`, which `isUuid`
+  // rejects. The guard that stood here (#813) answered null for every real
+  // conversation, so sharing 404'd and the WebSocket conversation gate passed
+  // everything as "not created yet". A text column cannot throw 22P02.
   const db = getDb()
   const [row] = await db
     .select({
