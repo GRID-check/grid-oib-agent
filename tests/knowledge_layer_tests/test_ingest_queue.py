@@ -192,3 +192,48 @@ def test_racing_workers_never_claim_one_job_twice(db):
         claimed = [job for batch in pool.map(drain, [f"w{i}" for i in range(8)]) for job in batch]
 
     assert sorted(claimed) == sorted(f"j{i}" for i in range(60))
+
+
+def test_a_claim_that_raced_past_the_cap_puts_its_job_back(db):
+    """Two claims that each saw the lane under its cap: the one checked second gives its job back."""
+    _enqueue("a0", "org-a", "2026-09-30 10:00:00")
+    _enqueue("a1", "org-a", "2026-09-30 10:00:01")
+    # Both claimed as if racing: neither saw the other when it ranked the lane.
+    first = ingest_queue.claim_next("w1", **CLAIM)
+    second = ingest_queue.claim_next("w2", **CLAIM)
+    assert (first.job_id, second.job_id) == ("a0", "a1")
+
+    with _engine(db).connect() as conn:
+        row = conn.execute(
+            text("SELECT job_id, lane, payload, attempts, claimed_at FROM ingest_job_queue WHERE job_id = 'a1'")
+        ).first()
+        assert ingest_queue._release_over_cap(conn, db, row, {"cap": 1, "stale": 180, "worker": "w2"}) is True
+        kept = conn.execute(
+            text("SELECT job_id, lane, payload, attempts, claimed_at FROM ingest_job_queue WHERE job_id = 'a0'")
+        ).first()
+        assert ingest_queue._release_over_cap(conn, db, kept, {"cap": 1, "stale": 180, "worker": "w1"}) is False
+
+    assert ingest_queue.depth() == 1  # a1 is waiting again
+    again = ingest_queue.claim_next("w3", **CLAIM)
+    assert (again.job_id, again.attempts) == ("a1", 1)  # the given-back claim did not cost an attempt
+
+
+def test_racing_workers_never_exceed_the_cap(db):
+    if not db.startswith("postgres"):
+        pytest.skip("the race needs Postgres; SQLite backs a single process")
+    from concurrent.futures import ThreadPoolExecutor
+
+    for i in range(20):
+        ingest_queue.enqueue(f"a{i}", "org-a", "p")
+
+    def grab(worker: str) -> str | None:
+        claim = ingest_queue.claim_next(worker, per_lane_cap=2, **CLAIM)
+        return claim.job_id if claim else None
+
+    for _ in range(5):
+        with ThreadPoolExecutor(8) as pool:
+            list(pool.map(grab, [f"w{i}" for i in range(8)]))
+
+    with _engine(db).connect() as conn:
+        held = conn.execute(text("SELECT COUNT(*) FROM ingest_job_queue WHERE status = 'claimed'")).scalar()
+    assert held == 2

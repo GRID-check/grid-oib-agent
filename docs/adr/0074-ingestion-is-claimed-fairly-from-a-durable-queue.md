@@ -97,8 +97,12 @@ already give at this volume: a few claims per second.
 * Good, because KEDA also brings `external.metrics.k8s.io`, which the frontend's
   WS-connection scaling (kubernetes.md §6.5) was waiting on.
 * Bad, because KEDA is a new cluster component to upgrade and watch.
-* Bad, because the per-lane cap is soft: two claims racing can both see a lane
-  under it.
+* Neutral: the per-lane cap is hard, at a price. Two claims racing past it
+  both commit, then each checks again under a per-lane advisory lock and the
+  later check gives its job back. A worker that gives one back has spent a
+  claim round trip for nothing. (A check ranked by claim time let three
+  through a cap of two in the race test: transaction start order is not
+  commit order.)
 * Bad, because a worker that loses its claim mid-run cannot stop halfway. It
   finishes, so a file can be indexed twice. Re-indexing replaces a file's
   chunks, so the second run is the one that counts.

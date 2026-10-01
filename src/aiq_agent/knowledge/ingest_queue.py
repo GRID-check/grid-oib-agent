@@ -15,7 +15,9 @@ anywhere; among equals, the lane served longest ago (``ingest_lane_turns``);
 then the oldest job. So one organisation's thousand-document reindex takes
 every worker while it is alone, and the next organisation's upload takes the
 next worker that frees up, whatever the backlog ahead of it. The optional
-per-lane cap is soft: two claims racing can both see the lane under it.
+per-lane cap is hard: two claims racing past it both commit, then each checks
+again under a per-lane advisory lock, and a claim that finds the lane already
+holding its cap puts its job back (``_release_over_cap``).
 
 The payload is opaque here: ``aiq_api.jobs.ingest_dispatch`` writes it
 (encrypted, since it carries presigned URLs) and reads it back. This module
@@ -177,14 +179,14 @@ claimed AS (
     SET status = :claimed, claimed_by = :worker, claimed_at = NOW(), heartbeat_at = NOW(),
         attempts = q.attempts + 1
     FROM candidate WHERE q.job_id = candidate.job_id
-    RETURNING q.job_id, q.lane, q.payload, q.attempts
+    RETURNING q.job_id, q.lane, q.payload, q.attempts, q.claimed_at
 ),
 turn AS (
     INSERT INTO ingest_lane_turns (lane, last_claimed_at)
     SELECT lane, NOW() FROM claimed
     ON CONFLICT (lane) DO UPDATE SET last_claimed_at = EXCLUDED.last_claimed_at
 )
-SELECT job_id, lane, payload, attempts FROM claimed
+SELECT job_id, lane, payload, attempts, claimed_at FROM claimed
 """
 
 
@@ -210,7 +212,56 @@ def claim_next(worker: str, *, stale_seconds: int, max_attempts: int, per_lane_c
         else:
             row = _claim_sqlite(conn, params)
         conn.commit()
-    return Claim(job_id=row[0], lane=row[1], payload=row[2], attempts=row[3]) if row else None
+        if row is None:
+            return None
+        if params["cap"] and _release_over_cap(conn, url, row, params):
+            return None
+    return Claim(job_id=row[0], lane=row[1], payload=row[2], attempts=row[3])
+
+
+def _release_over_cap(conn, url: str, row, params: dict) -> bool:
+    """Put a claim back when its lane already holds ``cap`` other live claims; whether it did.
+
+    The claim query skips a lane at its cap, but two claims committing at once
+    each saw the lane one under it. So every claim, once committed, checks again
+    under a per-lane advisory lock, counting EVERY other live claim of the lane.
+    The checks run one at a time and each claim commits before its own check, so
+    the last check of a race sees all the others and the lane ends at most at
+    its cap. A claim given back costs no attempt; the next free worker takes it.
+    (Ranking by claim time instead let three of a cap of two through: a
+    transaction's start time is not its commit order.)
+    """
+    job_id, lane = row[0], row[1]
+    postgres = _is_postgres(url)
+    if postgres:
+        conn.execute(text("SELECT pg_advisory_xact_lock(hashtext(:lane))"), {"lane": f"ingest-cap:{lane}"})
+        fresh = "heartbeat_at >= NOW() - make_interval(secs => :stale)"
+    else:
+        fresh = "heartbeat_at >= :threshold"
+    threshold = (datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=params["stale"])).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+    others = conn.execute(
+        # `fresh` is a dialect-chosen literal, the rest module constants; values are bound.
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+        text(f"SELECT COUNT(*) FROM {TABLE} WHERE lane = :lane AND status = :claimed AND {fresh} AND job_id <> :id"),
+        {"lane": lane, "claimed": CLAIMED, "stale": params["stale"], "threshold": threshold, "id": job_id},
+    ).scalar()
+    if int(others or 0) < params["cap"]:
+        conn.commit()
+        return False
+    conn.execute(
+        # Only module constants are interpolated; values are bound.
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+        text(
+            f"UPDATE {TABLE} SET status = :queued, claimed_by = NULL, claimed_at = NULL, heartbeat_at = NULL, "
+            "attempts = attempts - 1 WHERE job_id = :id AND claimed_by = :worker"
+        ),
+        {"queued": QUEUED, "id": job_id, "worker": params["worker"]},
+    )
+    conn.commit()
+    logger.info("Ingest lane %s was at its cap of %d; job %s goes back to the queue", lane, params["cap"], job_id)
+    return True
 
 
 def _claim_sqlite(conn, params: dict):
@@ -258,7 +309,7 @@ def _claim_sqlite(conn, params: dict):
         ),
         {"lane": best[1], "now": stamp},
     )
-    return (best[0], best[1], best[2], best[3] + 1)
+    return (best[0], best[1], best[2], best[3] + 1, stamp)
 
 
 def heartbeat(job_id: str, worker: str) -> bool:

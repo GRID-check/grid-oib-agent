@@ -141,7 +141,7 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `GRID_ROLE` | No | `web` | What the backend container runs (`deploy/entrypoint.py`): `web` the API and chat, `worker` the DB-claimed research worker (ADR-0021), `ingest-worker` the ingest queue's worker (ADR-0074). Set by Pulumi per tier. |
 | `GRID_INGEST_QUEUE` | No | `on` | Put `/v1/ingest` jobs in the durable, fair Postgres queue (`ingest_job_queue`, ADR-0074) for any worker to claim, instead of the accepting process's memory. Needs `AIQ_SUMMARY_DB`/`NAT_JOB_STORE_DB_URL`; `off` restores in-process only. |
 | `GRID_INGEST_QUEUE_CLAIM` | No | `true` | Whether this process claims queued ingestion jobs. Pulumi sets `false` on the web tier while the ingest-worker tier runs, so ingestion stays off the chat pods; the ingest worker always claims. |
-| `GRID_INGEST_MAX_PER_ORG` | No | `0` | Most queued ingestion jobs one organisation may have running **across the whole fleet**; 0 for no cap (soft: racing claims can both pass it). Pulumi `ingestMaxPerOrg`. |
+| `GRID_INGEST_MAX_PER_ORG` | No | `0` | Most queued ingestion jobs one organisation may have running **across the whole fleet**; 0 for no cap. Hard: a claim that raced past the cap gives its job back. Pulumi `ingestMaxPerOrg`. |
 | `GRID_INGEST_CLAIM_STALE_SECONDS` | No | `180` | A claimed ingestion job whose worker has not beaten this long is claimed again. |
 | `GRID_INGEST_CLAIM_MAX_ATTEMPTS` | No | `3` | Claims of one ingestion job before it is given up and reads `failed: interrupted`. |
 | `GRID_INGEST_WORKER_DRAIN_SECONDS` | No | `600` | Ingest worker only: how long it finishes its claimed jobs after SIGTERM. Pulumi `ingestWorkerDrainSeconds`, also the pod's grace period. |
