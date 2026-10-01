@@ -95,6 +95,7 @@ from aiq_agent.common.wire_v2 import to_frame
 from aiq_agent.conversation_context import ContextOnlyMessage
 from aiq_agent.conversation_context import append_conversation_context
 from aiq_agent.conversation_context import format_context_turn
+from aiq_agent.knowledge.restricted_collections import restricted_collections_in
 from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_HEADER
 from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_SIG_HEADER
 from aiq_agent.project_context import GridRequestContext
@@ -115,6 +116,7 @@ from aiq_api.conversation_bus import ConversationBus
 from aiq_api.conversation_bus import Envelope
 from aiq_api.conversation_bus import get_bus
 from aiq_api.conversation_bus import is_multi_replica_bus
+from aiq_api.internal_api import conversation_confined_to
 from aiq_api.internal_api import post_internal_conversation_message
 from aiq_api.startup_banner import deployed_sha
 from aiq_api.workflow_stream import stream_workflow
@@ -127,6 +129,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 WS_POLICY_VIOLATION = 1008
+
+#: The socket's signed scope carries a restricted folder's collection and its
+#: conversation is no longer the asker's alone (ADR-0078). Any close but 4426
+#: makes the client reconnect, and the new upgrade is signed afresh.
+CLOSE_SCOPE_STALE = 4412
 
 #: How often a running turn says it is still running, in seconds. It travels on
 #: the event (``every_ms``), so the client's tolerance is a multiple of what the
@@ -249,6 +256,19 @@ def may_act_for(asker: str | None, actor: str | None, *, internal: bool) -> bool
     return internal or asker is None or actor == asker
 
 
+def _handshake_envelope(scope: Mapping[str, Any]) -> GridRequestContext | None:
+    """The verified ``X-Grid-Request-Context`` envelope of the upgrade, or None when absent or forged."""
+    headers: dict[str, str] = {}
+    for raw_name, raw_value in scope.get("headers", []) or []:
+        with contextlib.suppress(AttributeError, UnicodeDecodeError):
+            headers[raw_name.decode("latin-1").lower()] = raw_value.decode("latin-1")
+    return GridRequestContext.from_envelope(
+        headers.get(REQUEST_CONTEXT_ENVELOPE_HEADER),
+        headers.get(REQUEST_CONTEXT_ENVELOPE_SIG_HEADER),
+        os.environ.get("GRID_INTERNAL_API_TOKEN"),
+    )
+
+
 def handshake_conversation_binding(scope: Mapping[str, Any]) -> tuple[bool, str | None]:
     """The conversation the BFF authorized for this socket, read at the handshake.
 
@@ -260,15 +280,7 @@ def handshake_conversation_binding(scope: Mapping[str, Any]) -> tuple[bool, str 
     ``GridContextEnvelopeMiddleware`` closes an authenticated user's socket that
     arrives without a valid envelope.
     """
-    headers: dict[str, str] = {}
-    for raw_name, raw_value in scope.get("headers", []) or []:
-        with contextlib.suppress(AttributeError, UnicodeDecodeError):
-            headers[raw_name.decode("latin-1").lower()] = raw_value.decode("latin-1")
-    envelope = GridRequestContext.from_envelope(
-        headers.get(REQUEST_CONTEXT_ENVELOPE_HEADER),
-        headers.get(REQUEST_CONTEXT_ENVELOPE_SIG_HEADER),
-        os.environ.get("GRID_INTERNAL_API_TOKEN"),
-    )
+    envelope = _handshake_envelope(scope)
     if envelope is None:
         return False, None
     return True, envelope.conversation_id
@@ -994,7 +1006,14 @@ class ChatSocket:
         self.session_manager = session_manager
         self.registry = registry
         self.caller: dict[str, Any] = {}
-        self.envelope_present, self.bound = handshake_conversation_binding(socket.scope)
+        envelope = _handshake_envelope(socket.scope)
+        self.envelope_present = envelope is not None
+        self.bound = envelope.conversation_id if envelope is not None else None
+        #: The signed asker and organization, and whether the signed scope carries
+        #: a restricted folder's collection (ADR-0078). Fixed for the socket's life.
+        self.signed_user_id = envelope.user_id if envelope is not None else None
+        self.signed_org_id = envelope.organization_id if envelope is not None else None
+        self.restricted_scope = bool(envelope is not None and restricted_collections_in(envelope.collection_scope))
 
     @property
     def subject(self) -> str | None:
@@ -1096,6 +1115,7 @@ class ChatSocket:
             await self._ingest(message)
             return
         conversation_id = message.conversation_id
+        await self._require_confinement(conversation_id)
         if not await self.registry.claim_turn(conversation_id, message.message_id):
             # Running or ran, here or on another replica: the client attaches instead.
             await self._reject(message.model_dump(), "user_message", "duplicate_turn")
@@ -1118,6 +1138,35 @@ class ChatSocket:
         turn.task.add_done_callback(_log_unexpected_end)
         self.registry.start_turn(turn)
         await self.registry.supersede_elsewhere(conversation_id, message.message_id)
+
+    async def _require_confinement(self, conversation_id: str) -> None:
+        """Close the socket rather than run a turn that would put restricted content where others read it.
+
+        The BFF signs a restricted folder's collection into the scope only on a
+        conversation its asker alone can read (ADR-0078), and signs once per
+        socket. Sharing the thread afterwards does not touch the open socket, so
+        every turn on a socket with such a scope asks again. When the answer is
+        no (or cannot be had), the socket is closed before the turn is claimed:
+        the question stays unacknowledged, the client reconnects, the new upgrade
+        is signed a scope without the restricted collections, and the question
+        goes out again on it. A client that does not reconnect gets nothing.
+        """
+        if not self.restricted_scope:
+            return
+        confined = await conversation_confined_to(
+            conversation_id=conversation_id,
+            organization_id=self.signed_org_id,
+            user_id=self.signed_user_id,
+        )
+        if confined:
+            return
+        logger.warning(
+            "Conversation %s is no longer its asker's alone; closing the socket so its restricted scope is re-signed",
+            conversation_id,
+        )
+        with contextlib.suppress(Exception):
+            await self.socket.close(code=CLOSE_SCOPE_STALE)
+        raise WebSocketDisconnect(CLOSE_SCOPE_STALE)
 
     async def on_interaction_response(self, message: InteractionResponse) -> None:
         self.registry.set_socket(message.conversation_id, self.socket)

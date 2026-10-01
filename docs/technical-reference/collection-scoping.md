@@ -159,6 +159,23 @@ descriptor).
 The scope is signed into the envelope once per socket, so a withdrawn role or a
 newly restricted folder takes effect on the next connection.
 
+Whether the thread is still its asker's alone is not left to the socket's age.
+The owner can share it while the socket is open, and the next turn would then
+write restricted content into a thread others read and watch live. So before
+every turn on a socket whose signed scope carries a restricted collection, the
+chat socket (`aiq_api.chat_socket`, `_require_confinement`) asks the BFF
+(`POST /api/internal/conversations/[id]/confinement`, the same rule as the
+upgrade: `lib/conversations/confinement.ts`). On anything but a yes it closes
+the socket with `4412` before the turn is claimed; the client reconnects, the
+new upgrade is signed a scope without the restricted collections, and the
+unacknowledged question goes out again. A socket whose scope carries none asks
+nobody.
+
+A socket answers for one conversation only: the signed `conversationId`.
+A frame naming another is refused with `conversation_mismatch` before anything
+runs (`ChatSocket._admit`), so a restricted scope cannot be pointed at a
+different thread over the same socket.
+
 ## WebSocket Scope
 
 **File**: `frontends/ui/server.js` (lines 198–258)

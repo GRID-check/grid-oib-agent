@@ -4,7 +4,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { findConversationTenancy } from '@/lib/conversations/repository'
 import { requireResourceAccess } from '@/lib/sharing/access'
-import { countGrantsForResource } from '@/lib/sharing/repository'
+import { conversationConfinedTo, type ConversationTenancy } from '@/lib/conversations/confinement'
 import { getProjectFolderAccess } from '@/lib/authz/folder-access'
 import {
   computeCollectionScope,
@@ -30,8 +30,6 @@ export interface RequestContext {
    */
   interactiveChat?: boolean
 }
-
-type ConversationTenancy = NonNullable<Awaited<ReturnType<typeof findConversationTenancy>>>
 
 /**
  * Which shelf a retrieved chunk came from (ADR-0047, "The contract").
@@ -127,26 +125,6 @@ async function authorizeConversationScope(
 }
 
 /**
- * Whether the conversation is readable by this session alone, so an answer
- * drawn from a restricted folder reaches nobody else (ADR-0078).
- *
- * A conversation that does not exist yet is: the first message creates it
- * `private`, owned by whoever sent it. An existing one must be the caller's,
- * `private`, and carry no grant. Without this, sharing a thread FIRST and asking
- * the restricted question afterwards would walk around the share refusal
- * (`conversationDescriptor.confinedToOwner`).
- */
-async function conversationConfinedToCaller(
-  session: AuthorizedSession,
-  conversationId: string,
-  tenancy: ConversationTenancy | null
-): Promise<boolean> {
-  if (!tenancy) return true
-  if (tenancy.createdBy !== session.userId || tenancy.visibility !== 'private') return false
-  return (await countGrantsForResource('conversation', conversationId)) === 0
-}
-
-/**
  * The restricted-folder collections (ADR-0078) an interactive chat turn may
  * search: those `folder-access.ts` clears this session for, and only on a
  * conversation nobody else can read. Clearance is computed from the session
@@ -163,7 +141,10 @@ async function resolveRestrictedCollections(
   if (!conversationId) return []
   const access = await getProjectFolderAccess(session, projectId, projectCollection)
   if (access.clearedRestrictedCollections.length === 0) return []
-  if (!(await conversationConfinedToCaller(session, conversationId, tenancy))) return []
+  // Sharing the thread FIRST and asking the restricted question afterwards would
+  // otherwise walk around the share refusal (`conversationDescriptor.confinedToOwner`).
+  // Asked again on every turn, because the owner can share while this socket is open.
+  if (!(await conversationConfinedTo(session.userId, conversationId, tenancy))) return []
   return [...access.clearedRestrictedCollections]
 }
 

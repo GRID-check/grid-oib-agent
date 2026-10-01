@@ -199,3 +199,37 @@ async def post_internal_run_report(
     except Exception:  # noqa: BLE001 — the write happened; a missing id costs only the ledger's link
         message_id = None
     return message_id if isinstance(message_id, str) else ""
+
+
+#: The confinement check sits in front of a turn, so it gets one short attempt:
+#: a "no" closes the socket, and the client's reconnect is the retry.
+_CONFINEMENT_TIMEOUT_SECONDS = 5.0
+
+
+async def conversation_confined_to(*, conversation_id: str, organization_id: str | None, user_id: str | None) -> bool:
+    """Whether only ``user_id`` can read the conversation, as the BFF answers it now (ADR-0078).
+
+    ``POST /api/internal/conversations/{id}/confinement``. Fails CLOSED: anything
+    but an explicit ``{"confined": true}`` — no internal API, no organization or
+    asker to ask about, a transport error, a non-200, a body without the flag —
+    is ``False``. The caller withholds restricted content on ``False``, so a
+    broken check costs a reconnect, never a leak.
+    """
+    base_url = internal_base_url()
+    headers = internal_headers()
+    if not base_url or headers is None or not organization_id or not user_id:
+        logger.warning("Cannot check whether conversation %s is private: internal API or ids missing", conversation_id)
+        return False
+    url = f"{base_url.rstrip('/')}/api/internal/conversations/{conversation_id}/confinement"
+    try:
+        async with httpx.AsyncClient(timeout=_CONFINEMENT_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                url, json={"organizationId": organization_id, "userId": user_id}, headers=headers
+            )
+        confined = response.json().get("confined") if response.status_code == 200 else None
+    except Exception:  # noqa: BLE001 — any failure is a "no"; the reason is logged
+        logger.warning("Confinement check for conversation %s failed", conversation_id, exc_info=True)
+        return False
+    if confined is not True:
+        logger.info("Conversation %s is not confined to its asker (HTTP %s)", conversation_id, response.status_code)
+    return confined is True

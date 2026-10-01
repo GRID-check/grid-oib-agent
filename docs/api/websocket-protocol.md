@@ -48,6 +48,14 @@ ws://<host>/websocket?v=2&projectId=<uuid>&conversationId=<session_id>
   signed into the context envelope. A client message naming another
   conversation is refused with `rejected{conversation_mismatch}`; the socket
   stays open. To talk in another conversation, open a socket for it.
+- **A restricted scope is re-checked per turn (ADR-0078).** When the signed
+  scope carries a restricted folder's collection, every `user_message` first
+  asks the BFF whether the conversation is still its asker's alone. If it is
+  not (shared since the upgrade, or the check cannot be made), the server
+  closes the socket with **`4412`** before the turn is claimed. The client
+  treats it like any drop: it reconnects, the new upgrade is signed a scope
+  without the restricted collections, and the unacknowledged question is sent
+  again.
 - **Auth** is read at the handshake and every client message re-checks the
   token's `exp`; an expired one is refused with `rejected{auth_expired}`, and
   the client reconnects with a fresh token.
