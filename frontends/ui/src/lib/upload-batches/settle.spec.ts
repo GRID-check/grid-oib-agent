@@ -71,6 +71,18 @@ describe('settleUploadBatches', () => {
     ])
   })
 
+  it('names no place for the Büroablage or a chat: the payload is rendered in every language as it is', async () => {
+    vi.mocked(completeSettledBatches).mockResolvedValue([
+      batch({ id: 'batch-a', scope: 'archiv', projectId: null }),
+      batch({ id: 'batch-s', scope: 'session', projectId: null, conversationId: 'conv-1' }),
+    ])
+
+    await settleUploadBatches('org-1', ['batch-a', 'batch-s'])
+
+    const emitted = vi.mocked(emitInboxItems).mock.calls[0][0]
+    expect(emitted.map((item) => item.payload)).toEqual([{}, {}])
+  })
+
   it('emits nothing when no batch completed (another reader got there first)', async () => {
     await settleUploadBatches('org-1', ['batch-1'])
     expect(emitInboxItems).not.toHaveBeenCalled()

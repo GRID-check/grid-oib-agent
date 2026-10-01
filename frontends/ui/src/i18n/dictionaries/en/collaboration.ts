@@ -406,6 +406,7 @@ export const collaboration = {
       uploadCompleted: {
         title: 'Your upload has been read',
         body: '{subject}: open the summary to see what arrived.',
+        bodyNoSubject: 'Open the summary to see what arrived.',
       },
       // ADR-0077: the content check held files back.
       documentQuarantined: {

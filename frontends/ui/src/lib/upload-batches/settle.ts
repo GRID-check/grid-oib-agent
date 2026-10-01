@@ -53,14 +53,19 @@ export async function settleUploadBatches(organizationId: string, batchIds: read
 }
 
 /** Where an upload went, as the row's subject: the project's name, or the shelf. */
-async function placeOf(batch: UploadBatch): Promise<string> {
-  if (batch.scope === 'archiv') return 'Archiv'
-  if (batch.scope === 'session') return 'Chat'
-  const project = batch.projectId ? await findProjectInOrg(batch.projectId, batch.organizationId) : null
-  return project?.name ?? 'Projekt'
+/**
+ * The project's name, the one subject an upload has that is data rather than
+ * copy. The Büroablage and a chat get none: the payload is rendered verbatim,
+ * so a place name written here would reach every reader in this language.
+ */
+async function projectNameOf(batch: UploadBatch): Promise<string | null> {
+  if (batch.scope !== 'project' || !batch.projectId) return null
+  const project = await findProjectInOrg(batch.projectId, batch.organizationId)
+  return project?.name ?? null
 }
 
 async function completionEmission(batch: UploadBatch): Promise<InboxEmission> {
+  const subject = await projectNameOf(batch)
   return {
     organizationId: batch.organizationId,
     recipientUserId: batch.createdBy,
@@ -70,7 +75,7 @@ async function completionEmission(batch: UploadBatch): Promise<InboxEmission> {
     anchorId: batch.id,
     actorUserId: null,
     groupKey: inboxGroupKey('upload.completed', 'upload_batch', batch.id, batch.id),
-    payload: { subject: await placeOf(batch) },
+    payload: subject ? { subject } : {},
   }
 }
 
