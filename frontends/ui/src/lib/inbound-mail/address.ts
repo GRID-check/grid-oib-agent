@@ -21,7 +21,12 @@ const BASE32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567' // pragma: allowlist 
 /** 12 characters × 5 bits = 60 bits of `crypto.randomBytes`. */
 export const TOKEN_LENGTH = 12
 
-const TOKEN_PATTERN = /^[a-z2-7]{12}$/
+/**
+ * What a token looks like. The Email Worker routes on the same shape, so both
+ * are held to `tokenPattern` in `shared/inbound-address.json` (address.spec.ts
+ * and inbound-mail-worker.spec.ts).
+ */
+export const TOKEN_PATTERN = /^[a-z2-7]{12}$/
 
 /** The slug is at most this long, so the local part stays well under 64 octets. */
 export const SLUG_MAX_LENGTH = 30

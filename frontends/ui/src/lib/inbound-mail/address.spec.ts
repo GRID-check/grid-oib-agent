@@ -1,6 +1,8 @@
 /**
  * @vitest-environment node
  */
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   formatInboundAddress,
@@ -9,6 +11,7 @@ import {
   mintToken,
   parseInboundAddress,
   projectSlug,
+  TOKEN_PATTERN,
 } from './address'
 
 const DOMAIN = 'piloti-post.at'
@@ -143,5 +146,45 @@ describe('inboundMailDomain', () => {
     expect(inboundMailDomain({})).toBeNull()
     expect(inboundMailDomain({ GRID_INBOUND_MAIL_DOMAIN: '  ' })).toBeNull()
     expect(inboundMailDomain({ GRID_INBOUND_MAIL_DOMAIN: 'Piloti-Post.AT' })).toBe(DOMAIN)
+  })
+})
+
+/** The address contract the Email Worker routes on (see its `$comment`). */
+interface AddressContract {
+  tokenPattern: string
+  cases: { recipient: string; project: boolean; note?: string }[]
+}
+
+function loadAddressContract(): AddressContract {
+  let dir = process.cwd()
+  for (;;) {
+    const candidate = join(dir, 'shared', 'inbound-address.json')
+    if (existsSync(candidate)) return JSON.parse(readFileSync(candidate, 'utf8')) as AddressContract
+    const parent = dirname(dir)
+    if (parent === dir) throw new Error(`shared/inbound-address.json not found above ${process.cwd()}`)
+    dir = parent
+  }
+}
+
+describe('the address contract with the Email Worker (shared/inbound-address.json)', () => {
+  const contract = loadAddressContract()
+
+  it('uses the same token pattern', () => {
+    // The Worker refuses anything that fails this shape without asking the
+    // BFF, so a pattern changed on one side only drops or misroutes mail.
+    expect(TOKEN_PATTERN.source).toBe(contract.tokenPattern)
+  })
+
+  it.each(contract.cases)('parses $recipient as a project address: $project', ({ recipient, project }) => {
+    expect(parseInboundAddress(recipient, 'piloti.at').kind === 'token').toBe(project)
+  })
+
+  it('mints only addresses the Worker routes to the BFF', () => {
+    const pattern = new RegExp(contract.tokenPattern)
+    for (let i = 0; i < 200; i += 1) {
+      const address = formatInboundAddress(projectSlug('Wohnbau Hietzing Bauteil 2'), mintToken(), 'piloti.at')
+      const local = address.slice(0, address.lastIndexOf('@'))
+      expect(local.slice(local.lastIndexOf('.') + 1)).toMatch(pattern)
+    }
   })
 })

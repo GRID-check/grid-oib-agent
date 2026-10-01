@@ -4,9 +4,28 @@
  *
  * It does not parse. It streams the raw RFC 822 bytes to the BFF and turns the
  * BFF's answer into accept, reject or retry. Everything that decides anything
- * (address, sender, DKIM, membership, permissions, rate limits) lives in the
- * BFF, where it is tested and audited; see the webhook contract in
- * `frontends/ui/src/app/api/internal/inbound-mail/route.ts`.
+ * about a project (address, sender, DKIM, membership, permissions, rate
+ * limits) lives in the BFF, where it is tested and audited; see the webhook
+ * contract in `frontends/ui/src/app/api/internal/inbound-mail/route.ts`.
+ *
+ * ## The one thing it decides: is this a project address at all
+ *
+ * The catch-all it hangs off is the product domain's own (`piloti.at`), so it
+ * receives every address on that domain that no literal rule claimed first:
+ * project addresses, and also typos of `kontakt@`, `info@`, and whatever spam
+ * guesses. Cloudflare matches literal rules before the catch-all, so a named
+ * company address with its own rule never gets here. For the rest, the Worker
+ * checks the recipient's SHAPE, the same rule the BFF's parser applies
+ * (`parseInboundAddress` in `lib/inbound-mail/address.ts`), held in
+ * `shared/inbound-address.json` and run by both specs. A project-shaped
+ * address goes to the BFF as before. Anything else is refused here with
+ * `UNKNOWN_ADDRESS_TEXT`, without a request: the same answer an unrouted
+ * address on the domain got before the catch-all existed, and spam to random
+ * names never reaches the webhook or its edge rate-limit bucket.
+ *
+ * The shape is public, so splitting the two texts on it tells a prober
+ * nothing: whether a project-shaped address EXISTS is still answered only by
+ * the BFF, with `REJECT_TEXT` for every refusal.
  *
  * Dependency-free on purpose: `inbound-mail.ts` uploads this file verbatim as
  * the Worker's only module, so there is no bundler and nothing to import. It is
@@ -69,6 +88,14 @@
  * @property {string} INBOUND_MAIL_TOKEN Shared secret the BFF checks (`GRID_INBOUND_MAIL_TOKEN`).
  */
 
+/**
+ * A project token: 12 characters of lowercased RFC 4648 base32. Must equal
+ * `tokenPattern` in `shared/inbound-address.json` (the spec checks).
+ */
+export const TOKEN_PATTERN = "^[a-z2-7]{12}$";
+
+const TOKEN = new RegExp(TOKEN_PATTERN);
+
 /** The BFF route, relative to `BFF_URL`. Must equal `EDGE_RATE_LIMIT.paths.inboundMail`. */
 export const INBOUND_MAIL_PATH = "/api/internal/inbound-mail";
 
@@ -96,6 +123,41 @@ export const REJECT_TEXT =
   "Datenschutz: https://piloti.at/datenschutz/";
 
 /**
+ * The bounce for an address that is not a project address: a typo, a name
+ * nobody routed, a spammer's guess. Bilingual, because anyone may write to the
+ * domain; ASCII, for the reason `REJECT_TEXT` is.
+ */
+export const UNKNOWN_ADDRESS_TEXT =
+  "Unbekannte Adresse: Diese Nachricht wurde nicht zugestellt. / " +
+  "Unknown address: this message was not delivered.";
+
+/**
+ * Whether `recipient` has the shape of a project address. The rule of
+ * `parseInboundAddress` (lib/inbound-mail/address.ts), restated: ASCII
+ * lowercase, drop surrounding `<>` and quotes and a `+detail` subaddress, and
+ * test what follows the LAST dot (or the whole local part) against
+ * `TOKEN_PATTERN`. ASCII only: `K` (Kelvin) must not fold onto `k`. Not
+ * exported, for the reason `isExplicitReject` is not.
+ *
+ * @param {string} recipient
+ * @returns {boolean}
+ */
+function isProjectRecipient(recipient) {
+  const trimmed = recipient.trim().replace(/^<|>$/g, "");
+  const at = trimmed.lastIndexOf("@");
+  if (at === -1) return false;
+  let local = trimmed.slice(0, at);
+  if (local.length >= 2 && local.startsWith('"') && local.endsWith('"')) {
+    local = local.slice(1, -1);
+  }
+  const plus = local.indexOf("+");
+  if (plus !== -1) local = local.slice(0, plus);
+  local = local.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+  const dot = local.lastIndexOf(".");
+  return TOKEN.test(dot === -1 ? local : local.slice(dot + 1));
+}
+
+/**
  * Whether the BFF's answer is an explicit, permanent refusal. Not exported: a
  * Worker's module exports are its entrypoints, so this module exports only the
  * handler and plain constants.
@@ -114,6 +176,11 @@ function isExplicitReject(response) {
 /** @type {ExportedHandler<Env>} */
 export default {
   async email(message, env) {
+    if (!isProjectRecipient(message.to)) {
+      message.setReject(UNKNOWN_ADDRESS_TEXT);
+      return;
+    }
+
     // A network error rejects here and propagates: Cloudflare answers the
     // sending server with a temporary failure and it retries.
     const response = await fetch(new URL(INBOUND_MAIL_PATH, env.BFF_URL), {

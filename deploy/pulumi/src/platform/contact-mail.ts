@@ -1,7 +1,7 @@
 import * as cloudflare from "@pulumi/cloudflare";
-import * as pulumi from "@pulumi/pulumi";
+import type * as pulumi from "@pulumi/pulumi";
 import type { GridConfig } from "../config";
-import { assertSingleDmarc, checkedRoutingZone } from "./email-routing";
+import type { MailZone } from "./email-routing";
 
 /**
  * The company's contact address, e.g. `kontakt@piloti.at`: Cloudflare Email
@@ -14,20 +14,23 @@ import { assertSingleDmarc, checkedRoutingZone } from "./email-routing";
  * contact form through Cloudflare's Email Service to the same addresses
  * (`app/web.ts`).
  *
- * ## One literal rule, and no catch-all
+ * ## One literal rule; the catch-all is the inbox's
  *
- * Unlike the project mail inbox (`inbound-mail.ts`), which owns a zone of its
- * own and takes every address on it, this zone is the product's own domain.
- * Only the one address is routed. Every other address on the apex has no rule
- * and is refused by Cloudflare, as it was refused before (the apex had no MX).
- * The two modules never share a zone: `loadConfig` refuses an inbox zone that
- * is the app zone, and each has its own provider and resource names.
+ * This module routes exactly the one address. Email Routing on the zone (the
+ * provider, the guards, the enablement) is `installMailZones` in
+ * `email-routing.ts`, which the project mail inbox (`inbound-mail.ts`) shares
+ * when it lives on the same apex. Cloudflare matches this literal rule before
+ * the inbox's catch-all, so the contact address never reaches the inbox's
+ * Worker. Without the inbox, every other address on the apex has no rule and
+ * is refused by Cloudflare; with it, the Worker refuses every address that is
+ * not a project address with the same "unknown address" answer.
  *
  * ## The apex must not already receive mail elsewhere
  *
  * Enabling routing moves the apex's MX to Cloudflare, so a company mailbox
  * already delivered there would stop arriving. The preview refuses that
- * (`assertNoForeignMx` in `email-routing.ts`).
+ * (`assertNoForeignMx` in `email-routing.ts`), and refuses a `dnsZoneId` whose
+ * real name is not `dnsZoneName` (`assertZoneApex`).
  *
  * ## Destination addresses must be verified, once, by a person
  *
@@ -50,10 +53,11 @@ import { assertSingleDmarc, checkedRoutingZone } from "./email-routing";
  * `cf-bounce.<apex>` (MX, SPF, DKIM at `cf-bounce._domainkey`), which neither
  * the MX guard (apex only) nor the routing resources touch, and a `_dmarc`
  * record (`v=DMARC1; p=reject;`), which would sit beside `dnsDmarc`'s. The
- * preview refuses a zone with two (`assertSingleDmarc`). Its "Email preview"
- * keeps sent messages for about seven days and is on by default: it must be
- * switched off, since form messages are personal data. Neither is in the API
- * this program can reach.
+ * preview refuses a zone with two (`assertSingleDmarc`, run by
+ * `installMailZones` on the contact zone). Its "Email preview" keeps SENT
+ * messages for about seven days and is on by default: it must be switched
+ * off, since form messages are personal data. Neither is in the API this
+ * program can reach.
  *
  * ## Cloudflare API token scopes (the stack's `cloudflareApiToken`)
  *
@@ -69,26 +73,11 @@ import { assertSingleDmarc, checkedRoutingZone } from "./email-routing";
  */
 
 export interface ContactMail {
-  provider: cloudflare.Provider;
-  routing: cloudflare.EmailRoutingDns;
+  zone: MailZone;
   addresses: cloudflare.EmailRoutingAddress[];
   rule: cloudflare.EmailRoutingRule;
   /** The account that owns the app zone: the one the web pods send through. */
   accountId: pulumi.Output<string>;
-}
-
-/**
- * Refuse a zone whose real name is not the `dnsZoneName` the stack claims.
- * `loadConfig` has already checked the address against `dnsZoneName`; this
- * checks `dnsZoneName` against Cloudflare, so a `dnsZoneId` that names some
- * other zone cannot route mail there.
- */
-export function assertContactZone(domain: string, zoneId: string, zoneName: string): void {
-  if (zoneName === domain) return;
-  throw new Error(
-    `grid-oib:dnsZoneName is "${domain}" but zone ${zoneId} is "${zoneName}". ` +
-      "grid-oib:contactAddress would route mail on the wrong zone; fix dnsZoneId or dnsZoneName.",
-  );
 }
 
 /** A Pulumi name for a destination address, stable across reorderings of the list. */
@@ -96,70 +85,41 @@ function addressResourceName(address: string): string {
   return `contact-mail-destination-${address.replace(/[^a-z0-9]+/g, "-")}`;
 }
 
-export function installContactMail(cfg: GridConfig): ContactMail | undefined {
+/**
+ * The contact address on `zone` (from `installMailZones`), which is undefined
+ * exactly when the contact address is off.
+ */
+export function installContactMail(cfg: GridConfig, zone: MailZone | undefined): ContactMail | undefined {
   const contact = cfg.contact;
-  if (!contact.enabled) {
+  if (!contact.enabled || zone === undefined) {
     return undefined;
   }
-
-  // Its own provider, as the inbox has: the DNS module's exists only inside
-  // `installDns`, and a separate one keeps the two features' resources apart.
-  const provider = new cloudflare.Provider("cloudflare-contact-mail", {
-    apiToken: contact.apiToken,
-  });
-  const opts = { provider };
-
-  // Every resource takes its account or zone id from `checked`, so nothing is
-  // registered unless the zone is the one claimed and its apex receives no
-  // mail elsewhere.
-  const checked = checkedRoutingZone({
-    configKey: "contactAddress",
-    zoneId: contact.zoneId,
-    domain: contact.domain,
-    provider,
-    checkZoneName: (zoneName) => assertContactZone(contact.domain, contact.zoneId, zoneName),
-  });
-  // The contact address's sender domain is onboarded for Email Sending by hand
-  // (there is no provider resource for it), and that onboarding adds a
-  // `_dmarc` record of its own. Refuse a zone left with two, which would
-  // switch DMARC off for the product's domain (`assertSingleDmarc`).
-  const dmarc = cloudflare.getDnsRecordsOutput(
-    { zoneId: contact.zoneId, type: "TXT", name: { exact: `_dmarc.${contact.domain}` } },
-    opts,
-  );
-  const guarded = pulumi.all([checked, dmarc]).apply(([zone, records]) => {
-    assertSingleDmarc(contact.domain, contact.zoneId, records.results);
-    return zone;
-  });
-  const accountId = guarded.accountId;
-  const zoneId = guarded.zoneId;
-
-  // Enables Email Routing on the apex and adds (and locks) its MX and SPF
-  // records. The same resource the inbox uses, on a different zone.
-  const routing = new cloudflare.EmailRoutingDns(
-    "contact-mail-routing",
-    { zoneId, name: contact.domain },
-    opts,
-  );
+  const opts = { provider: zone.provider };
 
   // Creating one sends Cloudflare's verification mail to that inbox. Until
   // its owner clicks the link, nothing is forwarded to it (see the header).
+  // `zone.accountId` comes out of the guarded zone lookup, so nothing here is
+  // registered unless the zone, MX and DMARC guards passed.
   const addresses = contact.forwardTo.map(
     (email) =>
-      new cloudflare.EmailRoutingAddress(addressResourceName(email), { accountId, email }, opts),
+      new cloudflare.EmailRoutingAddress(
+        addressResourceName(email),
+        { accountId: zone.accountId, email },
+        opts,
+      ),
   );
 
   const rule = new cloudflare.EmailRoutingRule(
     "contact-mail-rule",
     {
-      zoneId,
+      zoneId: zone.zoneId,
       name: `Contact address (${contact.address})`,
       enabled: true,
       matchers: [{ type: "literal", field: "to", value: contact.address }],
       actions: [{ type: "forward", values: addresses.map((a) => a.email) }],
     },
-    { provider, dependsOn: [routing, ...addresses] },
+    { ...opts, dependsOn: [zone.routing, ...addresses] },
   );
 
-  return { provider, routing, addresses, rule, accountId };
+  return { zone, addresses, rule, accountId: zone.accountId };
 }

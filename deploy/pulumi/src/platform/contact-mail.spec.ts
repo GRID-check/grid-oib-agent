@@ -61,10 +61,12 @@ async function install(
   });
   const { loadConfig } = await import("../config");
   const { installContactMail } = await import("./contact-mail");
-  const result = installContactMail(loadConfig());
+  const { installMailZones } = await import("./email-routing");
+  const cfg = loadConfig();
+  const result = installContactMail(cfg, installMailZones(cfg).contact);
   if (result) {
     await Promise.all(
-      [result.routing.id, result.rule.id, ...result.addresses.map((a) => a.id)].map(
+      [result.zone.routing.id, result.rule.id, ...result.addresses.map((a) => a.id)].map(
         (id) => new Promise((resolve) => id.apply(resolve)),
       ),
     );
@@ -186,10 +188,12 @@ describe("the contact address on Cloudflare", () => {
     one("cloudflare:index/emailRoutingRule:EmailRoutingRule");
   });
 
-  it("uses a provider of its own, holding the stack's token, not the web pods' one", async () => {
+  it("uses the zone's provider, holding the stack's token, not the web pods' one", async () => {
     await install(contactStackConfig());
     const provider = RESOURCES.find(
-      (r) => r.type === "pulumi:providers:cloudflare" && r.name === "cloudflare-contact-mail",
+      (r) =>
+        r.type === "pulumi:providers:cloudflare" &&
+        r.name === `cloudflare-mail-${CONTACT_ZONE.replace(/[^a-z0-9]+/g, "-")}`,
     );
     expect(reveal(provider?.inputs.apiToken)).toEqual({ secret: true, value: "cf-token" }); // pragma: allowlist secret
   });
@@ -202,15 +206,17 @@ describe("the contact address on Cloudflare", () => {
 });
 
 describe("the contact zone check", () => {
+  const KEY = "grid-oib:contactAddress";
+
   it("accepts the zone whose real name is dnsZoneName", async () => {
-    const { assertContactZone } = await import("./contact-mail");
-    expect(() => assertContactZone(CONTACT_ZONE, CONTACT_ZONE_ID, CONTACT_ZONE)).not.toThrow();
+    const { assertZoneApex } = await import("./email-routing");
+    expect(() => assertZoneApex(KEY, CONTACT_ZONE, CONTACT_ZONE_ID, CONTACT_ZONE)).not.toThrow();
   });
 
   it("refuses a dnsZoneId that names another zone", async () => {
-    const { assertContactZone } = await import("./contact-mail");
-    expect(() => assertContactZone(CONTACT_ZONE, CONTACT_ZONE_ID, "other.example")).toThrow(
-      /route mail on the wrong zone/,
+    const { assertZoneApex } = await import("./email-routing");
+    expect(() => assertZoneApex(KEY, CONTACT_ZONE, CONTACT_ZONE_ID, "other.example")).toThrow(
+      /grid-oib:contactAddress route mail on .* but zone zone-app-1 is "other.example"/,
     );
   });
 });

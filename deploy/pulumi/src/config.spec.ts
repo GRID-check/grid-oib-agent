@@ -2,7 +2,12 @@ import { describe, it, expect } from "vitest";
 import * as pulumi from "@pulumi/pulumi";
 import { loadConfig } from "./config";
 import { baseStackConfig } from "./test-support/stack-config";
-import { CONTACT_ZONE_ID, contactStackConfig } from "./test-support/contact-config";
+import {
+  appZoneStackConfig,
+  CONTACT_ZONE,
+  CONTACT_ZONE_ID,
+  contactStackConfig,
+} from "./test-support/contact-config";
 
 // `new pulumi.Config()` (config.ts:873) namespaces every key by the PROJECT
 // name, which the runtime reads from the mock context. Without this the keys
@@ -55,6 +60,12 @@ function loadWith(values: Record<string, string>, omit: string[] = []): Error | 
   } catch (error) {
     return error as Error;
   }
+}
+
+/** `loadWith`, for a config that loads: the resolved values. */
+function loadValues(values: Record<string, string>) {
+  pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...values });
+  return loadConfig();
 }
 
 describe("tenant bucket prefix", () => {
@@ -332,16 +343,44 @@ describe("project mail inbox", () => {
     expect(error?.message).toMatch(/is not the apex of its zone/);
   });
 
-  it("accepts the DNS zone's own apex", () => {
+  it("accepts the app zone's own apex on the stack that owns the zone", () => {
     expect(
       loadWith({
+        ...appZoneStackConfig(),
         ...mail,
-        "grid-oib:inboundMailDomain": "example.test",
-        "grid-oib:inboundMailZoneId": "zone-dns-1",
-        "grid-oib:dnsZoneId": "zone-dns-1",
-        "grid-oib:dnsZoneName": "example.test",
+        "grid-oib:inboundMailDomain": CONTACT_ZONE,
+        "grid-oib:inboundMailZoneId": CONTACT_ZONE_ID,
       }),
     ).toBeNull();
+  });
+
+  it("takes the app zone when the domain is its apex and no zone is given", () => {
+    const values = {
+      ...appZoneStackConfig(),
+      "grid-oib:inboundMailDomain": CONTACT_ZONE,
+      "grid-oib:inboundMailToken": mail["grid-oib:inboundMailToken"],
+    };
+    expect(loadWith(values)).toBeNull();
+    expect(loadValues(values).inboundMail.zoneId).toBe(CONTACT_ZONE_ID);
+  });
+
+  it.each([
+    ["grid-oib:dnsZoneBaseline", "false"],
+    ["grid-oib:dnsEnabled", "false"],
+  ])("refuses the inbox on the app zone unless this stack owns it (%s=%s)", (key, value) => {
+    // The catch-all is one object per zone: a second stack's `up` would
+    // silently repoint it at its own Worker.
+    const error = loadWith({
+      ...appZoneStackConfig(),
+      ...mail,
+      "grid-oib:inboundMailDomain": CONTACT_ZONE,
+      "grid-oib:inboundMailZoneId": CONTACT_ZONE_ID,
+      // The apex-serving stack must itself be the baseline; serve a subdomain
+      // so that the only refusal left is the inbox's.
+      "grid-oib:baseDomain": `www2.${CONTACT_ZONE}`,
+      [key]: value,
+    });
+    expect(error?.message).toMatch(/inboundMailDomain on the app zone needs grid-oib:dnsEnabled/);
   });
 });
 
@@ -436,17 +475,16 @@ describe("contact address and form", () => {
     expect(loadWith(values)?.message).toMatch(/contactAddress needs grid-oib:dnsEnabled/);
   });
 
-  it("refuses the project mail inbox on the same zone", () => {
-    // Both features would own the zone's routing settings; deleting either
-    // would switch routing off for both, and the catch-all would answer for
-    // every address but the contact one.
-    const error = loadWith({
-      ...contact,
-      "grid-oib:inboundMailDomain": "example.test",
-      "grid-oib:inboundMailZoneId": CONTACT_ZONE_ID,
-      "grid-oib:inboundMailToken": "inbound-token", // pragma: allowlist secret
-    });
-    expect(error?.message).toMatch(/both route mail on zone zone-app-1/);
+  it("accepts the project mail inbox on the same zone, the production setup", () => {
+    // Cloudflare matches the contact rule before the inbox's catch-all, and
+    // `installMailZones` enables routing on the shared zone once.
+    expect(
+      loadWith({
+        ...contact,
+        "grid-oib:inboundMailDomain": "example.test",
+        "grid-oib:inboundMailToken": "inbound-token", // pragma: allowlist secret
+      }),
+    ).toBeNull();
   });
 
   it("accepts the project mail inbox on a zone of its own", () => {

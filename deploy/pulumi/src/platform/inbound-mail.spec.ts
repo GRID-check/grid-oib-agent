@@ -70,10 +70,12 @@ async function install(values: Record<string, string>, mx: typeof MX_RECORDS = [
   pulumi.runtime.setAllConfig(values);
   const { loadConfig } = await import("../config");
   const { installInboundMail } = await import("./inbound-mail");
-  const result = installInboundMail(loadConfig());
+  const { installMailZones } = await import("./email-routing");
+  const cfg = loadConfig();
+  const result = installInboundMail(cfg, installMailZones(cfg).inbound);
   if (result) {
     await Promise.all(
-      [result.script.id, result.routing.id, result.catchAll.id].map(
+      [result.script.id, result.zone.routing.id, result.catchAll.id].map(
         (id) => new Promise((resolve) => id.apply(resolve)),
       ),
     );
@@ -189,27 +191,29 @@ describe("inbound mail on Cloudflare", () => {
     one("cloudflare:index/emailRoutingCatchAll:EmailRoutingCatchAll");
   });
 
-  it("uses its own provider, holding the configured token", async () => {
+  it("uses the zone's provider, holding the configured token", async () => {
     await install(mailConfig());
     const provider = RESOURCES.find(
-      (r) => r.type === "pulumi:providers:cloudflare" && r.name === "cloudflare-inbound-mail",
+      (r) => r.type === "pulumi:providers:cloudflare" && r.name === "cloudflare-mail-post-example-test",
     );
     expect(reveal(provider?.inputs.apiToken)).toEqual({ secret: true, value: "cf-token" }); // pragma: allowlist secret
   });
 });
 
 describe("the zone apex check", () => {
+  const KEY = "grid-oib:inboundMailDomain";
+
   it("accepts the zone's own apex", async () => {
-    const { assertZoneApex } = await import("./inbound-mail");
-    expect(() => assertZoneApex(DOMAIN, ZONE_ID, DOMAIN)).not.toThrow();
+    const { assertZoneApex } = await import("./email-routing");
+    expect(() => assertZoneApex(KEY, DOMAIN, ZONE_ID, DOMAIN)).not.toThrow();
   });
 
   it("refuses a subdomain of the zone, because the catch-all would not cover it", async () => {
     // eingang.<zone> is the design that looks right and silently refuses every
     // project address: Cloudflare's catch-all exists only for the apex.
-    const { assertZoneApex } = await import("./inbound-mail");
-    expect(() => assertZoneApex(`eingang.${DOMAIN}`, ZONE_ID, DOMAIN)).toThrow(
-      /must be the zone's apex/,
+    const { assertZoneApex } = await import("./email-routing");
+    expect(() => assertZoneApex(KEY, `eingang.${DOMAIN}`, ZONE_ID, DOMAIN)).toThrow(
+      /grid-oib:inboundMailDomain.*must be the zone's apex/,
     );
   });
 });

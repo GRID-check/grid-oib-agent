@@ -12,7 +12,7 @@ import { assertNoForeignMx, assertSingleDmarc } from "./email-routing";
 
 const DOMAIN = "post.example.test";
 const ZONE_ID = "zone-mail-1";
-const KEY = "inboundMailDomain";
+const KEY = "grid-oib:inboundMailDomain";
 
 const mx = (content: string, name = DOMAIN) => ({ name, content });
 const CLOUDFLARE_MX = ["route1", "route2", "route3"].map((h) => mx(`${h}.mx.cloudflare.net`));

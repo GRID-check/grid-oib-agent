@@ -13,6 +13,8 @@
     "target": "es2022",
     "module": "es2022",
     "moduleResolution": "bundler",
+    // The spec imports `shared/inbound-address.json`, the address contract.
+    "resolveJsonModule": true,
     "lib": ["es2022"],
     "types": ["@cloudflare/workers-types"],
     "skipLibCheck": true,

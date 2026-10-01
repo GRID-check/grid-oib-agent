@@ -46,6 +46,7 @@ import { installErr2Issue } from "./src/platform/err2issue";
 import { installDns, managedRecordNames } from "./src/platform/dns";
 import { installInboundMail } from "./src/platform/inbound-mail";
 import { installContactMail } from "./src/platform/contact-mail";
+import { installMailZones } from "./src/platform/email-routing";
 import { installLangfuse } from "./src/platform/langfuse";
 import { LANGFUSE } from "./src/constants";
 
@@ -216,11 +217,15 @@ const backend = installBackend(wiring, cfg, secrets, [
 
 const frontend = installFrontend(wiring, cfg, secrets, [migrations, backend.service]);
 const workers = installWorkers(wiring, cfg, secrets, [migrations]);
+// Cloudflare Email Routing, once per zone that routes mail: the app zone for
+// the contact address and, normally, the project mail inbox too (both on the
+// product's own apex). Nothing in the cluster waits on it.
+const mailZones = installMailZones(cfg);
+
 // The contact address (`kontakt@<zone apex>`) at Cloudflare, created only
 // when `contactAddress` is set. Before the web tier because the contact form's
-// account id comes from its zone lookup; nothing in the cluster waits on the
-// routing itself.
-const contactMail = installContactMail(cfg);
+// account id comes from its zone lookup.
+const contactMail = installContactMail(cfg, mailZones.contact);
 
 // Landing site + blog (Astro, frontends/web) — static-first, no app secrets,
 // but it pulls from the same registry, so it gets the pull Secret too. With
@@ -343,7 +348,7 @@ const dns = installDns(cfg);
 // Cloudflare-only as well, for the same reason: a Worker posting to a frontend
 // that is not up yet gets a connection error, throws, and the sending MTA
 // retries. Created only when `inboundMailDomain` is set.
-const inboundMail = installInboundMail(cfg);
+const inboundMail = installInboundMail(cfg, mailZones.inbound);
 
 // ── Stack outputs ────────────────────────────────────────────────────────────
 export const appUrl = pulumi.interpolate`https://${cfg.ingress.appDomain}`;

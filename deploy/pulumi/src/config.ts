@@ -219,12 +219,13 @@ export interface GridConfig {
   inboundMail: {
     enabled: boolean;
     /**
-     * The address domain, and the APEX of the zone `zoneId` names. Not a
-     * subdomain of another zone: Cloudflare's catch-all only exists for a
+     * The address domain, and the APEX of the zone `zoneId` names: the app
+     * zone's own apex (the product domain, the recommended setup) or a domain
+     * of its own. Not a subdomain: Cloudflare's catch-all only exists for a
      * zone's apex (see the module header of `platform/inbound-mail.ts`).
      */
     domain: string;
-    /** Cloudflare zone whose apex is `domain`. */
+    /** Cloudflare zone whose apex is `domain`; `dns.zoneId` when `domain` is `dns.zoneName`. */
     zoneId: string;
     /** Shared secret between the Worker and the BFF (`x-grid-internal-token`). */
     token: pulumi.Output<string>;
@@ -2157,7 +2158,11 @@ export function loadConfig(): GridConfig {
   // Worker whose every delivery answers 503 (the sender retries for days, then
   // bounces), and a domain without the zone has nowhere to enable routing.
   const inboundMailDomain = (cfg.get("inboundMailDomain") ?? "").trim().toLowerCase().replace(/\.$/, "");
-  const inboundMailZoneId = cfg.get("inboundMailZoneId") ?? "";
+  // On the app zone's apex (the recommended setup: addresses on the product's
+  // own domain), the zone is the DNS zone and needs no second key.
+  const inboundMailZoneId =
+    cfg.get("inboundMailZoneId") ??
+    (inboundMailDomain !== "" && inboundMailDomain === dnsZoneName ? dnsZoneId : "");
   if (inboundMailDomain !== "") {
     requireSecretsTogether(
       cfg,
@@ -2168,7 +2173,8 @@ export function loadConfig(): GridConfig {
     if (inboundMailZoneId === "") {
       throw new Error(
         "grid-oib:inboundMailZoneId is required when grid-oib:inboundMailDomain is set: the " +
-          "Cloudflare zone (dashboard → the zone → Overview → API) whose apex is that domain.",
+          "Cloudflare zone (dashboard → the zone → Overview → API) whose apex is that domain. " +
+          "It may be left out when the domain is grid-oib:dnsZoneName.",
       );
     }
     if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(inboundMailDomain)) {
@@ -2186,8 +2192,20 @@ export function loadConfig(): GridConfig {
       throw new Error(
         `grid-oib:inboundMailDomain "${inboundMailDomain}" is not the apex of its zone ` +
           `("${dnsZoneName}"). Cloudflare Email Routing has no catch-all for subdomains, so ` +
-          "mail to project addresses there would be refused. Use a domain that is a zone apex " +
-          "of its own (see docs/deployment/kubernetes.md, \"Project mail inbox\").",
+          "mail to project addresses there would be refused. Use the zone's apex " +
+          `("${dnsZoneName}") or a domain that is a zone apex of its own (see ` +
+          "docs/deployment/kubernetes.md, \"Project mail inbox\").",
+      );
+    }
+    // On the app zone the catch-all is a zone-level object beside the apex's
+    // MX and `_dmarc`: it belongs to the one stack that owns the zone, as the
+    // contact address's routing does. A second stack would silently repoint
+    // the catch-all at its own Worker.
+    if (inboundMailZoneId === dnsZoneId && (!dnsEnabled || !dnsZoneBaseline)) {
+      throw new Error(
+        "grid-oib:inboundMailDomain on the app zone needs grid-oib:dnsEnabled and " +
+          "grid-oib:dnsZoneBaseline: the catch-all and the apex's mail routing are zone-level, " +
+          "and only the stack owning the zone may manage them.",
       );
     }
   }
@@ -2242,16 +2260,10 @@ export function loadConfig(): GridConfig {
           "behind it, and the contact address itself would loop.",
       );
     }
-    // Two stacks' worth of Email Routing on one zone: two resources owning the
-    // same routing settings, where deleting either turns routing off for both,
-    // and the inbox's catch-all would answer for every other address.
-    if (inboundMailDomain !== "" && inboundMailZoneId === dnsZoneId) {
-      throw new Error(
-        "grid-oib:contactAddress and grid-oib:inboundMailDomain both route mail on zone " +
-          `${dnsZoneId}. The project mail inbox needs a zone of its own (docs/deployment/` +
-          "kubernetes.md §3c); the contact address stays on the app zone.",
-      );
-    }
+    // The project mail inbox may share this zone: its catch-all takes only
+    // what no literal rule claims, and Cloudflare matches the contact rule
+    // first. `platform/email-routing.ts` (`installMailZones`) enables routing
+    // on a shared zone once, for both.
   }
 
   // ── err2issue (ADR-0031): same availability = flag AND capability rule ─────

@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import worker, { REJECT_TEXT, type Env } from "./inbound-mail-worker.js";
+import worker, {
+  REJECT_TEXT,
+  TOKEN_PATTERN,
+  UNKNOWN_ADDRESS_TEXT,
+  type Env,
+} from "./inbound-mail-worker.js";
+// An import, not `node:fs`: this spec is also checked against the Workers
+// runtime types (tsconfig.worker.json), which have no Node modules.
+import contract from "../../../../shared/inbound-address.json";
 
 /**
  * The Email Worker's whole job is a mapping: the BFF's answer to accept, reject
@@ -23,7 +31,7 @@ const CTX = {} as ExecutionContext;
 
 const RAW = new TextEncoder().encode("Subject: Plan\r\n\r\nbody");
 
-function fakeMessage() {
+function fakeMessage(to = "wohnbau.abcdefghijkl@eingang.example.test") {
   const setReject = vi.fn<(reason: string) => void>();
   const raw = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -33,7 +41,7 @@ function fakeMessage() {
   });
   const message: ForwardableEmailMessage = {
     from: "bounce@sender.example",
-    to: "wohnbau.abcdefghijkl@eingang.example.test",
+    to,
     raw,
     rawSize: RAW.byteLength,
     headers: new Headers(),
@@ -226,5 +234,53 @@ describe("inbound mail worker: the bounce text", () => {
       texts.push(setReject.mock.calls[0][0]);
     }
     expect(new Set(texts)).toEqual(new Set([REJECT_TEXT]));
+  });
+});
+
+/** The address contract both sides run (see its `$comment`). */
+interface AddressContract {
+  tokenPattern: string;
+  cases: { recipient: string; project: boolean; note?: string }[];
+}
+
+const CONTRACT: AddressContract = contract;
+
+describe("inbound mail worker: which recipients reach the BFF", () => {
+  it("uses the token pattern of shared/inbound-address.json", () => {
+    // The BFF's address.spec.ts checks its own pattern against the same file.
+    expect(TOKEN_PATTERN).toBe(CONTRACT.tokenPattern);
+  });
+
+  it.each(CONTRACT.cases.filter((c) => c.project))(
+    "streams a project address to the BFF: $recipient",
+    async ({ recipient }) => {
+      const fetchMock = stubFetch(respond(202));
+      const { message, setReject } = fakeMessage(recipient);
+      await deliver(message);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(setReject).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(CONTRACT.cases.filter((c) => !c.project))(
+    "refuses any other address itself, without a request: $recipient",
+    async ({ recipient }) => {
+      // The catch-all hands the Worker every unrouted address on the product
+      // domain. Only project addresses are the BFF's business; the rest get
+      // the answer an unrouted address always got, and spam never reaches the
+      // webhook's rate-limit bucket.
+      const fetchMock = stubFetch(respond(202));
+      const { message, setReject } = fakeMessage(recipient);
+      await expect(deliver(message)).resolves.toBeUndefined();
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(setReject).toHaveBeenCalledWith(UNKNOWN_ADDRESS_TEXT);
+      expect(message.raw.locked).toBe(false);
+    },
+  );
+
+  it("answers an unknown address in printable ASCII, under 300 characters", () => {
+    expect(UNKNOWN_ADDRESS_TEXT).toMatch(/^[\x20-\x7e]+$/);
+    expect(UNKNOWN_ADDRESS_TEXT.length).toBeLessThan(300);
+    expect(UNKNOWN_ADDRESS_TEXT).not.toBe(REJECT_TEXT);
   });
 });

@@ -8,7 +8,11 @@
 export const CONTACT_ZONE_ID = "zone-app-1";
 export const CONTACT_ZONE = "example.test";
 
-export function contactStackConfig(): Record<string, string> {
+/**
+ * A stack that manages the app zone and owns it, with nothing routing mail:
+ * what any mail feature on the app zone's apex builds on.
+ */
+export function appZoneStackConfig(): Record<string, string> {
   return {
     "grid-oib:dnsEnabled": "true",
     "grid-oib:dnsZoneId": CONTACT_ZONE_ID,
@@ -16,6 +20,12 @@ export function contactStackConfig(): Record<string, string> {
     "grid-oib:dnsZoneBaseline": "true",
     "grid-oib:loadBalancerIp": "203.0.113.10",
     "grid-oib:cloudflareApiToken": "cf-token", // pragma: allowlist secret
+  };
+}
+
+export function contactStackConfig(): Record<string, string> {
+  return {
+    ...appZoneStackConfig(),
     "grid-oib:contactAddress": `kontakt@${CONTACT_ZONE}`,
     "grid-oib:contactForwardTo": "mail@founder-one.example, mail@founder-two.example",
     "grid-oib:contactEmailToken": "cf-email-sending-token", // pragma: allowlist secret

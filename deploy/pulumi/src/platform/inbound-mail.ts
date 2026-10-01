@@ -3,21 +3,39 @@ import { join } from "node:path";
 import * as cloudflare from "@pulumi/cloudflare";
 import * as pulumi from "@pulumi/pulumi";
 import type { GridConfig } from "../config";
-import { checkedRoutingZone } from "./email-routing";
+import type { MailZone } from "./email-routing";
 
 /**
- * Project mail inbox: Cloudflare Email Routing for `inboundMailDomain`, and a
- * catch-all that hands every message to one Email Worker
- * (`inbound-mail-worker.js`), which streams it to the BFF.
+ * Project mail inbox: the catch-all of `inboundMailDomain`'s zone, handing
+ * every unclaimed address to one Email Worker (`inbound-mail-worker.js`),
+ * which streams project addresses to the BFF and refuses the rest.
  *
- * Created only when `inboundMailDomain` is set. Nothing here runs in the
- * cluster; the only in-cluster parts are the frontend's two env vars
- * (`app/config.ts`) and the edge rate-limit bucket (`app/httproutes.ts`).
+ * Created only when `inboundMailDomain` is set. Email Routing on the zone (the
+ * provider, the guards, the enablement) is `installMailZones` in
+ * `email-routing.ts`, shared with the contact address when both are on the
+ * product's own apex. Nothing here runs in the cluster; the only in-cluster
+ * parts are the frontend's two env vars (`app/config.ts`) and the edge
+ * rate-limit bucket (`app/httproutes.ts`).
  *
- * ## Why the domain must be a zone apex, not `eingang.<baseDomain>`
+ * ## The product's own apex, with the Worker as the router
  *
- * The obvious design is a subdomain of the zone the stack already lives in.
- * It does not work, and it fails without an error:
+ * Project addresses live on the product domain (`<slug>.<token>@piloti.at`).
+ * The zone's catch-all sends every address that no literal rule claims to the
+ * Worker. Cloudflare matches literal rules first, so `kontakt@`
+ * (`contact-mail.ts`) and any other company address given a rule never reach
+ * it. The Worker checks the recipient's shape against the address contract in
+ * `shared/inbound-address.json` and refuses everything that is not a project
+ * address itself, so typos and spam to random names get the "unknown
+ * address" answer they always got, without touching the BFF.
+ *
+ * The cost: the product domain's mail has to stay on Cloudflare Email Routing.
+ * Moving it to another provider means moving the inbox to a domain of its own
+ * (still supported: point `inboundMailDomain`/`inboundMailZoneId` at another
+ * zone's apex) and giving every project a new address.
+ *
+ * ## Why an apex, not `eingang.<baseDomain>`
+ *
+ * Cloudflare's catch-all exists only for a zone's apex:
  *
  *   - Cloudflare's Email Service docs, "Subdomains" (last updated 2026-09-25):
  *     "Once the records propagate, you can create literal routing rules for
@@ -32,35 +50,28 @@ import { checkedRoutingZone } from "./email-routing";
  *   - Deploying `*@<subdomain>` fails with 2062 "Unknown Email Routing domain"
  *     even with the subdomain enabled (cloudflare/workers-sdk#15521, opened
  *     2026-09-05, untriaged).
- *   - The blog post that announced subdomains (blog.cloudflare.com/
- *     email-routing-subdomains/) describes custom ADDRESSES on a subdomain,
- *     which are literal rules.
+ *   - A child zone for the subdomain ("subdomain setup") is Enterprise-only
+ *     (developers.cloudflare.com/dns/zone-setups/subdomain-setup/).
  *
- * Literal rules per project address do not scale either: 200 routing rules per
- * domain (Email Routing limits page), and the BFF would need a Cloudflare
- * credential to mint an address. A child zone for the subdomain ("subdomain
- * setup") is Enterprise-only (developers.cloudflare.com/dns/zone-setups/
- * subdomain-setup/, Availability: Enterprise).
- *
- * So `inboundMailDomain` must be the APEX of `inboundMailZoneId`: a domain of
- * its own (e.g. `piloti-post.at`), or the stack's own zone apex if nothing else
- * receives mail there (the MX guard below checks). `loadConfig` refuses the
- * subdomain-of-the-DNS-zone case statically; the zone lookup below refuses
- * every other mismatch at preview.
+ * Literal rules per project address do not scale (200 routing rules per
+ * domain, and the BFF would need a Cloudflare credential to mint an address),
+ * and plus-addressing (`projekt+<slug>.<token>@`) was rejected in ADR-0074.
+ * `loadConfig` refuses the subdomain-of-the-DNS-zone case statically; the zone
+ * lookup in `installMailZones` refuses every other mismatch at preview.
  *
  * ## The apex must not already receive mail elsewhere
  *
- * The catch-all takes EVERY address on the apex, so an apex that is the
- * company's own mail domain would have all of its mail captured. The preview
- * refuses an apex whose MX records point anywhere but Cloudflare
- * (`assertNoForeignMx` in `email-routing.ts`, which explains the rule).
+ * The catch-all takes every unclaimed address on the apex, so an apex whose
+ * MX point at another provider would have that provider's mail captured. The
+ * preview refuses it (`assertNoForeignMx` in `email-routing.ts`).
  *
  * ## One stack per inbound zone
  *
  * The catch-all is a singleton per zone. Two stacks pointed at the same zone do
  * not conflict in any way Cloudflare reports: the later `pulumi up` rewrites
  * the catch-all to its own Worker and every mail goes to that stack.
- * `stack-files.spec.ts` checks the committed stacks.
+ * `loadConfig` ties an inbox on the app zone to the stack that owns the zone
+ * (`dnsZoneBaseline`); `stack-files.spec.ts` checks the committed stacks.
  *
  * ## Cloudflare API token scopes (on `cloudflareApiToken`)
  *
@@ -82,9 +93,8 @@ const COMPATIBILITY_DATE = "2026-09-01";
 const WORKER_FILE = "inbound-mail-worker.js";
 
 export interface InboundMail {
-  provider: cloudflare.Provider;
+  zone: MailZone;
   script: cloudflare.WorkersScript;
-  routing: cloudflare.EmailRoutingDns;
   catchAll: cloudflare.EmailRoutingCatchAll;
 }
 
@@ -94,49 +104,24 @@ export function workerScriptName(stack: string): string {
 }
 
 /**
- * Refuse a domain that is not its zone's apex. Thrown inside the zone lookup,
- * so `pulumi preview` fails before the Worker or the catch-all exist.
+ * The inbox on `zone` (from `installMailZones`), which is undefined exactly
+ * when the inbox is off.
  */
-export function assertZoneApex(domain: string, zoneId: string, zoneName: string): void {
-  if (zoneName === domain) return;
-  throw new Error(
-    `grid-oib:inboundMailDomain is "${domain}" but zone ${zoneId} is "${zoneName}". The ` +
-      "domain must be the zone's apex: Cloudflare Email Routing has no catch-all for " +
-      "subdomains, so mail to project addresses would be refused.",
-  );
-}
-
-export function installInboundMail(cfg: GridConfig): InboundMail | undefined {
+export function installInboundMail(cfg: GridConfig, zone: MailZone | undefined): InboundMail | undefined {
   const mail = cfg.inboundMail;
-  if (!mail.enabled) {
+  if (!mail.enabled || zone === undefined) {
     return undefined;
   }
-
-  // Its own provider rather than the DNS module's: that one exists only while
-  // `dnsEnabled`, and the inbound zone need not be the DNS zone.
-  const provider = new cloudflare.Provider("cloudflare-inbound-mail", { apiToken: mail.apiToken });
-  const opts = { provider };
-
-  // The zone lookups are the guards (see the header): the domain is the
-  // zone's apex, and the apex receives no mail elsewhere. Every resource below
-  // takes its account id or zone id from `checked`, so none of them is
-  // registered unless both guards passed.
-  const checked = checkedRoutingZone({
-    configKey: "inboundMailDomain",
-    zoneId: mail.zoneId,
-    domain: mail.domain,
-    provider,
-    checkZoneName: (zoneName) => assertZoneApex(mail.domain, mail.zoneId, zoneName),
-  });
-  const accountId = checked.accountId;
-  const zoneId = checked.zoneId;
+  const opts = { provider: zone.provider };
 
   const appOrigin = `https://${cfg.ingress.appDomain}`;
   const scriptName = workerScriptName(pulumi.getStack());
+  // `zone.accountId` comes out of the guarded zone lookup, so the Worker is
+  // not registered unless the apex and MX guards passed.
   const script = new cloudflare.WorkersScript(
     "inbound-mail-worker",
     {
-      accountId,
+      accountId: zone.accountId,
       scriptName,
       mainModule: WORKER_FILE,
       content: readFileSync(join(__dirname, WORKER_FILE), "utf8"),
@@ -149,26 +134,17 @@ export function installInboundMail(cfg: GridConfig): InboundMail | undefined {
     opts,
   );
 
-  // Enables Email Routing on the apex and adds (and locks) its MX and SPF
-  // records. `email/routing/dns` rather than the older `email/routing/enable`
-  // (`EmailRoutingSettings`): same effect, and this one names the domain.
-  const routing = new cloudflare.EmailRoutingDns(
-    "inbound-mail-routing",
-    { zoneId, name: mail.domain },
-    opts,
-  );
-
   const catchAll = new cloudflare.EmailRoutingCatchAll(
     "inbound-mail-catch-all",
     {
-      zoneId,
+      zoneId: zone.zoneId,
       name: `Project mail inbox (${scriptName})`,
       enabled: true,
       matchers: [{ type: "all" }],
       actions: [{ type: "worker", values: [script.scriptName] }],
     },
-    { provider, dependsOn: [script, routing] },
+    { ...opts, dependsOn: [script, zone.routing] },
   );
 
-  return { provider, script, routing, catchAll };
+  return { zone, script, catchAll };
 }

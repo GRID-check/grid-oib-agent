@@ -69,14 +69,27 @@ describe("committed stack files", () => {
     }
   });
 
+  /**
+   * The zone a stack's inbox routes on, as `loadConfig` resolves it:
+   * `inboundMailZoneId`, or `dnsZoneId` when the domain is the app zone's apex.
+   */
+  function inboundZone(config: Record<string, unknown>): string | undefined {
+    const domain = str(config, "inboundMailDomain");
+    if (domain === undefined) return undefined;
+    return (
+      str(config, "inboundMailZoneId") ??
+      (domain === str(config, "dnsZoneName") ? str(config, "dnsZoneId") : undefined)
+    );
+  }
+
   it("give each project-mail zone at most one stack", () => {
     // The Email Routing catch-all is one object per zone. A second stack on the
     // same zone is no API error: its `up` repoints the catch-all at its own
     // Worker, and from then on every mail is filed by that stack's database.
     const owners = new Map<string, string[]>();
     for (const stack of stacks()) {
-      const zoneId = str(stack.config, "inboundMailZoneId");
-      if (str(stack.config, "inboundMailDomain") === undefined || zoneId === undefined) continue;
+      const zoneId = inboundZone(stack.config);
+      if (zoneId === undefined) continue;
       owners.set(zoneId, [...(owners.get(zoneId) ?? []), stack.file]);
     }
     for (const [zoneId, files] of owners) {
@@ -84,10 +97,12 @@ describe("committed stack files", () => {
     }
   });
 
-  it("keep every project-mail zone apart from every stack's contact address", () => {
-    // `loadConfig` refuses the inbox on this stack's own contact zone; only
-    // this can see a dev stack pointing its inbox at the zone where prod
-    // routes kontakt@. The inbox's catch-all would then own that zone's mail.
+  it("keep every project-mail zone apart from OTHER stacks' contact addresses", () => {
+    // The inbox may share its own stack's contact zone (the production setup:
+    // both on the product apex, one `installMailZones`). `loadConfig` cannot
+    // see a dev stack pointing its inbox at the zone where prod routes
+    // kontakt@: that stack would enable routing a second time and take the
+    // zone's catch-all over.
     const contactZones = new Map<string, string>();
     for (const stack of stacks()) {
       const zoneId = str(stack.config, "dnsZoneId");
@@ -95,13 +110,14 @@ describe("committed stack files", () => {
       contactZones.set(zoneId, stack.file);
     }
     for (const stack of stacks()) {
-      const zoneId = str(stack.config, "inboundMailZoneId");
-      if (str(stack.config, "inboundMailDomain") === undefined || zoneId === undefined) continue;
+      const zoneId = inboundZone(stack.config);
+      if (zoneId === undefined) continue;
+      const owner = contactZones.get(zoneId);
       expect(
-        contactZones.get(zoneId),
-        `${stack.file} puts the project mail inbox on zone ${zoneId}, where ` +
-          `${contactZones.get(zoneId)} routes its contact address`,
-      ).toBeUndefined();
+        owner === undefined || owner === stack.file,
+        `${stack.file} puts the project mail inbox on zone ${zoneId}, where ${owner} routes ` +
+          "its contact address",
+      ).toBe(true);
     }
   });
 });

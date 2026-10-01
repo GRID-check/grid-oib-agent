@@ -8,26 +8,24 @@ import {
 } from "./src/test-support/contact-config";
 
 /**
- * The whole program with the contact address AND the project mail inbox on,
- * in one Cloudflare account, each on its own zone.
+ * The whole program as production runs it: the contact address AND the
+ * project mail inbox on the product's own apex, one zone, one stack.
  *
  * A separate file for the reason `index-dns.spec.ts` gives: `index.ts` works at
  * module scope and Pulumi's runtime is process-global.
  *
- * What only the whole program shows is that the two Email Routing features do
- * not reach into each other: the inbox's catch-all stays on its zone, the
- * contact rule on the app zone, and each pod gets only its own credentials.
+ * What only the whole program shows: the zone's Email Routing is enabled once,
+ * by one provider, for both features (`installMailZones`); the contact rule and
+ * the inbox's catch-all sit side by side on it; and each pod gets only its own
+ * credentials. The inbox on a zone of its own is `index-inbound-mail.spec.ts`;
+ * the two shapes side by side, `src/platform/mail-zones.spec.ts`.
  */
 
 type Recorded = { type: string; name: string; inputs: Record<string, unknown> };
 const RESOURCES: Recorded[] = [];
 
-const INBOX_ZONE_ID = "zone-mail-1";
-const INBOX_DOMAIN = "post.example.org";
-
 const ZONES: Record<string, string> = {
   [CONTACT_ZONE_ID]: CONTACT_ZONE,
-  [INBOX_ZONE_ID]: INBOX_DOMAIN,
 };
 
 pulumi.runtime.setMocks(
@@ -42,7 +40,6 @@ pulumi.runtime.setMocks(
     call: (args: pulumi.runtime.MockCallArgs) => {
       if (args.token === "cloudflare:index/getZone:getZone") {
         const zoneId = String(args.inputs.zoneId);
-        // One account holds both zones, as it will in production.
         return { id: zoneId, name: ZONES[zoneId], account: { id: "account-1", name: "Grid" } };
       }
       if (args.token === "cloudflare:index/getDnsRecords:getDnsRecords") {
@@ -78,8 +75,8 @@ describe("the program with the contact address and the project mail inbox on", (
       "grid-oib:seaweedfsTopology": "single",
       "grid-oib:seaweedfsPerOrgBuckets": "false",
       "grid-oib:observabilityEnabled": "false",
-      "grid-oib:inboundMailDomain": INBOX_DOMAIN,
-      "grid-oib:inboundMailZoneId": INBOX_ZONE_ID,
+      // No inboundMailZoneId: on the app zone's apex it defaults to dnsZoneId.
+      "grid-oib:inboundMailDomain": CONTACT_ZONE,
       "grid-oib:inboundMailToken": "inbound-token", // pragma: allowlist secret
     });
     const stack = (await import("./index")) as Record<string, unknown>;
@@ -90,22 +87,24 @@ describe("the program with the contact address and the project mail inbox on", (
     );
   }, 120_000);
 
-  it("enables routing once per zone, each on its own apex", () => {
-    const routing = byType("cloudflare:index/emailRoutingDns:EmailRoutingDns").map((r) => [
-      r.inputs.zoneId,
-      r.inputs.name,
+  it("enables routing on the apex once, for both features", () => {
+    // Two enablements of one zone would each believe they owned it, and
+    // deleting either would switch routing off for both.
+    const routing = byType("cloudflare:index/emailRoutingDns:EmailRoutingDns");
+    expect(routing.map((r) => [r.inputs.zoneId, r.inputs.name])).toEqual([
+      [CONTACT_ZONE_ID, CONTACT_ZONE],
     ]);
-    expect(routing.sort()).toEqual(
-      [
-        [CONTACT_ZONE_ID, CONTACT_ZONE],
-        [INBOX_ZONE_ID, INBOX_DOMAIN],
-      ].sort(),
-    );
   });
 
-  it("keeps the catch-all on the inbox zone and the literal rule on the app zone", () => {
+  it("puts the contact rule and the inbox's catch-all side by side on the one zone", () => {
+    // Cloudflare matches the literal rule first, so kontakt@ never reaches the
+    // Worker; every other address on the apex does, and the Worker refuses all
+    // but project addresses.
     const catchAlls = byType("cloudflare:index/emailRoutingCatchAll:EmailRoutingCatchAll");
-    expect(catchAlls.map((r) => r.inputs.zoneId)).toEqual([INBOX_ZONE_ID]);
+    expect(catchAlls.map((r) => r.inputs.zoneId)).toEqual([CONTACT_ZONE_ID]);
+    expect(catchAlls[0].inputs.actions).toEqual([
+      { type: "worker", values: ["grid-inbound-mail-test"] },
+    ]);
     const rules = byType("cloudflare:index/emailRoutingRule:EmailRoutingRule");
     expect(rules.map((r) => r.inputs.zoneId)).toEqual([CONTACT_ZONE_ID]);
     expect(rules[0].inputs.matchers).toEqual([
@@ -113,11 +112,11 @@ describe("the program with the contact address and the project mail inbox on", (
     ]);
   });
 
-  it("gives each feature a provider of its own", () => {
+  it("uses one Cloudflare provider for the zone's mail", () => {
     const providers = byType("pulumi:providers:cloudflare").map((r) => r.name);
-    expect(providers).toEqual(
-      expect.arrayContaining(["cloudflare-inbound-mail", "cloudflare-contact-mail"]),
-    );
+    expect(providers.filter((name) => name.startsWith("cloudflare-mail-"))).toEqual([
+      `cloudflare-mail-${CONTACT_ZONE.replace(/[^a-z0-9]+/g, "-")}`,
+    ]);
   });
 
   it("gives the web pods the contact form's credentials and nothing of the inbox's", () => {
