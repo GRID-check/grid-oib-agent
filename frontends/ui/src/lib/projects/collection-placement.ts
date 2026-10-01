@@ -23,7 +23,7 @@
  */
 
 import 'server-only'
-import { and, eq } from 'drizzle-orm'
+import { and, asc, eq, inArray, ne, or } from 'drizzle-orm'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
@@ -54,8 +54,27 @@ interface PlacementRow {
   storageBucket: string | null
 }
 
-async function listPlacementRows(organizationId: string, projectId: string): Promise<PlacementRow[]> {
+/** Rows one placement looks at; a project with more misplaced rows than this settles over several calls. */
+export const PLACEMENT_BATCH = 1000
+
+/**
+ * The rows that can be in the wrong collection: those outside the project's own
+ * collection (filed under a restriction, or left there by one since lifted),
+ * and those filed under a restricted folder. Everything else is where it
+ * belongs by construction, so a project of ten thousand open documents is not
+ * read to move none.
+ */
+async function listPlacementRows(
+  organizationId: string,
+  projectId: string,
+  projectCollection: string,
+  restrictedSubtree: readonly string[]
+): Promise<PlacementRow[]> {
   const db = getDb()
+  const candidates = or(
+    ne(documents.collectionName, projectCollection),
+    ...(restrictedSubtree.length > 0 ? [inArray(documents.folderId, [...restrictedSubtree])] : [])
+  )
   return withTenant({ organizationId }, () =>
     db
       .select({
@@ -69,7 +88,16 @@ async function listPlacementRows(organizationId: string, projectId: string): Pro
         storageBucket: documents.storageBucket,
       })
       .from(documents)
-      .where(and(eq(documents.organizationId, organizationId), eq(documents.projectId, projectId), eq(documents.scope, 'project')))
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.projectId, projectId),
+          eq(documents.scope, 'project'),
+          candidates
+        )
+      )
+      .orderBy(asc(documents.id))
+      .limit(PLACEMENT_BATCH)
   )
 }
 
@@ -152,7 +180,10 @@ export async function placeProjectDocuments(organizationId: string, projectId: s
   // Placement does not depend on who asks: an all-seeing clearance reads only
   // the "which collection" half of the decision.
   const placement = computeFolderAccess(tree, { roles: [], seesEverything: true }, project.collectionName)
-  const rows = await listPlacementRows(organizationId, projectId)
+  const restrictedSubtree = tree
+    .filter((folder) => placement.collectionFor(folder.id) !== project.collectionName)
+    .map((folder) => folder.id)
+  const rows = await listPlacementRows(organizationId, projectId, project.collectionName, restrictedSubtree)
   const result: PlacementResult = { moved: 0, failed: [] }
   for (const row of rows) {
     const target = placement.collectionFor(row.folderId)

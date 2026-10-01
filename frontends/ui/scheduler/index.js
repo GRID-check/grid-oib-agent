@@ -93,6 +93,7 @@ function createStreaks(config) {
   return {
     reconcile: createFailureStreak({ label: `${LOG} run reconcile`, escalateAfter }),
     uploads: createFailureStreak({ label: `${LOG} upload sweep`, escalateAfter }),
+    placement: createFailureStreak({ label: `${LOG} folder placement sweep`, escalateAfter }),
     database: createFailureStreak({ label: `${LOG} schedule claim`, escalateAfter }),
   }
 }
@@ -139,6 +140,23 @@ async function sweepUploads(config, fetchImpl, streak) {
     describe: (counts) =>
       counts.sealed > 0 || counts.completed > 0 || counts.failed > 0
         ? `checked ${counts.checked}, sealed ${counts.sealed}, completed ${counts.completed}, failed ${counts.failed}`
+        : null,
+  })
+}
+
+/**
+ * Move the documents a backend outage left in the wrong retrieval collection
+ * (ADR-0078): a document under a restricted folder whose chunks could not be
+ * purged from the project's open collection is still findable there until it
+ * is placed again.
+ */
+async function sweepPlacement(config, fetchImpl, streak) {
+  return postInternalSweep(config, fetchImpl, streak, {
+    path: '/api/internal/folder-placement/sweep',
+    label: 'folder placement sweep',
+    describe: (counts) =>
+      counts.moved > 0 || counts.pending > 0 || counts.failed > 0
+        ? `checked ${counts.checked}, moved ${counts.moved}, still pending ${counts.pending}, failed ${counts.failed}`
         : null,
   })
 }
@@ -255,6 +273,7 @@ async function tick(sql, config, fetchImpl, streaks) {
   const fired = config.schedulesEnabled ? await fireDue(sql, config, streaks.database) : 0
   await reconcileRuns(config, fetchImpl, streaks.reconcile)
   await sweepUploads(config, fetchImpl, streaks.uploads)
+  await sweepPlacement(config, fetchImpl, streaks.placement)
   return fired
 }
 
@@ -353,6 +372,7 @@ module.exports = {
   fireOne,
   reconcileRuns,
   sweepUploads,
+  sweepPlacement,
   tick,
   INTERNAL_TOKEN_HEADER,
 }

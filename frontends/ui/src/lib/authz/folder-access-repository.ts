@@ -62,3 +62,21 @@ export async function listProjectDocumentCollections(organizationId: string, pro
   )
   return rows.map((row) => row.collectionName)
 }
+
+/**
+ * Projects, across every organization, that restrict at least one folder: what
+ * the placement sweep retries (`lib/projects/placement-sweep.ts`). Discovery
+ * only; each project is then placed inside its own tenant. The partial index
+ * makes this a scan of the restricted folders alone.
+ */
+export async function listProjectsWithRestrictedFolders(
+  limit: number
+): Promise<Array<{ organizationId: string; projectId: string }>> {
+  const db = getDb()
+  return db
+    .selectDistinct({ organizationId: projects.organizationId, projectId: projectFolders.projectId })
+    .from(projectFolders)
+    .innerJoin(projects, eq(projects.id, projectFolders.projectId))
+    .where(isNotNull(projectFolders.restrictedRoles))
+    .limit(limit)
+}
