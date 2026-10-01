@@ -49,6 +49,7 @@ import { agentDocumentFilename } from './agent-namespace'
 import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
 import { admitOrDiscard } from '@/lib/storage/admission'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { placementCollectionFor } from '@/lib/authz/folder-access'
 import { aiProvenanceMarking, markingIsInBytes, type AiProvenanceMarking } from '@/lib/ai-provenance'
 import { latinize } from '@/lib/text/latinize'
 import { FEATURE_FLAGS, isAgentAuthoredDocumentsEnabled } from '@/lib/authz/feature-flags'
@@ -612,7 +613,7 @@ export async function fileGeneratedDocument(
       // chunks until somebody publishes a version of it (ADR-0054), and the
       // safety comes from the dispatch that does not happen, never from this
       // string.
-      collectionName: project.collectionName,
+      collectionName: await placementCollectionFor(session.organizationId, projectId, project.collectionName, folder.id),
       fileSize: body.byteLength,
       contentType: rendered.contentType,
       // Terminal, and honest: the bytes are here and indexing was deliberately

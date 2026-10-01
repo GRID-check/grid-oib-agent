@@ -69,6 +69,18 @@ export function isRestrictedCollectionOf(projectCollection: string, collection: 
   return collection.startsWith(`${projectCollection}_r`) && /^[0-9a-f]{12}$/.test(collection.slice(projectCollection.length + 2))
 }
 
+/**
+ * The project collection a restricted collection belongs to, or null when
+ * `collection` is not shaped like one. The inverse of
+ * {@link restrictedCollectionName}, for a caller that holds only the name (the
+ * collection proxy); whether that project exists, and whether the session is
+ * cleared for the collection, is still the caller's to ask.
+ */
+export function restrictedCollectionBase(collection: string): string | null {
+  const match = /^(.+)_r[0-9a-f]{12}$/.exec(collection)
+  return match ? match[1] : null
+}
+
 const OPEN_ACCESS = (projectCollection: string): ProjectFolderAccess => ({
   hiddenFolderIds: new Set(),
   isVisible: () => true,
@@ -151,4 +163,57 @@ export async function getProjectFolderAccess(
   }
   const folders = await listProjectFolderTree(session.organizationId, projectId)
   return computeFolderAccess(folders, clearanceOf(session), projectCollection)
+}
+
+/**
+ * The folders of a project hidden from this session — what a listing excludes.
+ * Empty for a project that restricts nothing, at the cost of one probe.
+ */
+export async function getHiddenFolderIds(session: AuthorizedSession, projectId: string): Promise<string[]> {
+  if (!(await projectHasRestrictedFolders(session.organizationId, projectId))) return []
+  const folders = await listProjectFolderTree(session.organizationId, projectId)
+  // The collection name plays no part in which folders are hidden.
+  return [...computeFolderAccess(folders, clearanceOf(session), '').hiddenFolderIds]
+}
+
+/** Whether a row filed in `folderId` (null: the project root) is visible to this session. */
+export async function isFolderVisibleTo(
+  session: AuthorizedSession,
+  projectId: string,
+  folderId: string | null
+): Promise<boolean> {
+  return isFolderVisibleToClearance(session.organizationId, projectId, folderId, clearanceOf(session))
+}
+
+/**
+ * {@link isFolderVisibleTo} for someone who is not the session: a member the
+ * BFF is deciding about on its own (who to notify), from the roles WorkOS
+ * reports for their membership.
+ */
+export async function isFolderVisibleToClearance(
+  organizationId: string,
+  projectId: string,
+  folderId: string | null,
+  clearance: FolderClearance
+): Promise<boolean> {
+  if (folderId === null || clearance.seesEverything) return true
+  if (!(await projectHasRestrictedFolders(organizationId, projectId))) return true
+  const folders = await listProjectFolderTree(organizationId, projectId)
+  return computeFolderAccess(folders, clearance, '').isVisible(folderId)
+}
+
+/**
+ * The collection a document filed in `folderId` belongs in, whoever asks — for
+ * the writers that file on someone's behalf (a generated report) rather than
+ * reading as them.
+ */
+export async function placementCollectionFor(
+  organizationId: string,
+  projectId: string,
+  projectCollection: string,
+  folderId: string | null
+): Promise<string> {
+  if (folderId === null || !(await projectHasRestrictedFolders(organizationId, projectId))) return projectCollection
+  const folders = await listProjectFolderTree(organizationId, projectId)
+  return computeFolderAccess(folders, { roles: [], seesEverything: true }, projectCollection).collectionFor(folderId)
 }

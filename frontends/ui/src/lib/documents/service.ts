@@ -26,6 +26,7 @@ import {
   buildThumbnailStorageKey,
 } from '@/lib/s3'
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
+import { getHiddenFolderIds, getProjectFolderAccess } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -87,6 +88,7 @@ import {
   setDocumentIngestJob,
   setDocumentReconciledStatus,
   findLiveDocumentByFilename,
+  findProjectCollectionsHoldingFilename,
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
@@ -514,6 +516,7 @@ export async function listDocumentsPage(
   // `limit` is deliberately not passed: the repository's own default is the
   // page size, and a second copy of it here could drift from the real one.
   const page = await listProjectDocumentPage(projectId, session.organizationId, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
     authoredBy: options.authoredBy,
     // Archived documents have LEFT the working set, so they are absent unless
     // the caller says otherwise (ADR-0054).
@@ -567,7 +570,9 @@ export async function resolveProjectDocumentsByName(
   filenames: readonly string[]
 ): Promise<ListedDocument[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames)
+  const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+  })
   return toListedDocuments(session, rows)
 }
 
@@ -599,7 +604,11 @@ export async function probeProjectDocumentNames(
   names: readonly string[]
 ): Promise<DocumentNameMatchRow[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  return findProjectDocumentsByNames(projectId, session.organizationId, names)
+  // A name taken in a hidden folder is not reported: the upload refuses it
+  // without saying where (`assertNameFreeInProject`).
+  return findProjectDocumentsByNames(projectId, session.organizationId, names, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+  })
 }
 
 /**
@@ -788,14 +797,22 @@ export async function searchProjectDocuments(
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
 
-  const hits = await fetchSemanticHits(project.collectionName, query, topK)
+  // The project's own collection and every restricted one this reader is
+  // cleared for (ADR-0078); one ranking across them, cut to `topK`.
+  const access = await getProjectFolderAccess(session, projectId, project.collectionName)
+  const collections = [project.collectionName, ...access.clearedRestrictedCollections]
+  const hits = (await Promise.all(collections.map((collection) => fetchSemanticHits(collection, query, topK))))
+    .flat()
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK)
   if (hits.length === 0) return { hits: [] }
   // The canonical rows, hydrated exactly as the listing hydrates them, so a
   // semantic result is always a real, visible document with its live status.
   const rows = await findProjectDocumentsByFilenames(
     projectId,
     session.organizationId,
-    hits.map((hit) => hit.file_name)
+    hits.map((hit) => hit.file_name),
+    { hiddenFolderIds: [...access.hiddenFolderIds] }
   )
   return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows)) }
 }
@@ -946,6 +963,27 @@ export function assertFileSizeAllowed(sizeBytes: number, filename?: string): voi
 }
 
 /**
+ * One document per name in a project, whichever collection holds it
+ * (ADR-0078). A re-upload into the collection that already holds the name
+ * replaces it, as before; the same name filed under a different restriction is
+ * refused, because replacing it would move it across the boundary unseen. The
+ * message names no folder: the other one may be one this person cannot see.
+ */
+async function assertNameFreeElsewhereInProject(
+  organizationId: string,
+  projectId: string,
+  collectionName: string,
+  filename: string
+): Promise<void> {
+  const holders = await findProjectCollectionsHoldingFilename(organizationId, projectId, filename)
+  if (holders.some((holder) => holder !== collectionName)) {
+    throw new ConflictError(
+      `A document named "${filename}" already exists elsewhere in this project. Rename the file, or upload it where that document is filed.`
+    )
+  }
+}
+
+/**
  * Store an uploaded file in SeaweedFS, record it, and hand it to the backend for
  * ingestion. The ingest call is best-effort: the document is already durable
  * in SeaweedFS + Postgres, and status reads reconcile the outcome later.
@@ -966,6 +1004,17 @@ export async function uploadDocument(
   // refusal leaves no orphan object behind (ADR-0042).
   await assertWithinStorageQuota(session.organizationId, file.size)
 
+  const project = await findProjectInOrg(projectId, session.organizationId)
+  if (!project) throw new NotFoundError('Project not found')
+
+  // The folder decides the collection (ADR-0078): a restricted folder's
+  // documents live in its own. A folder this uploader is not cleared for does
+  // not exist for them, so this comes before anything reads its path: the name
+  // gate below would otherwise answer with the hidden folder's name.
+  const access = await getProjectFolderAccess(session, projectId, project.collectionName)
+  if (!access.isVisible(folderId)) throw new NotFoundError('Folder not found in project')
+  const collectionName = access.collectionFor(folderId)
+
   let folderPath: string | null = null
   if (folderId) {
     folderPath = await findFolderPathInProject(folderId, projectId, session.organizationId)
@@ -977,11 +1026,6 @@ export async function uploadDocument(
     { filename: file.name, originPath, folderPath },
     input.screeningRelease === true
   )
-
-  const project = await findProjectInOrg(projectId, session.organizationId)
-  if (!project) throw new NotFoundError('Project not found')
-
-  const collectionName = project.collectionName
   const uploadBatchId = await acceptedUploadBatchId(session, input.uploadBatchId, { scope: 'project', projectId })
 
   /*
@@ -1019,6 +1063,7 @@ export async function uploadDocument(
    * written before this line exist. See `./name-match`.
    */
   const filename = documentNameKey(file.name)
+  await assertNameFreeElsewhereInProject(session.organizationId, projectId, collectionName, filename)
 
   // Create the organization's bucket if this is its first upload (ADR-0043).
   // A no-op — not even a round trip — when per-org buckets are off. Done before

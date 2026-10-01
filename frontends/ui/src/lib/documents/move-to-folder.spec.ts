@@ -22,6 +22,24 @@
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
+vi.mock('@/lib/authz/folder-access', () => ({
+  getHiddenFolderIds: vi.fn(async () => []),
+  isFolderVisibleTo: vi.fn(async () => true),
+  placementCollectionFor: vi.fn(async (_org: string, _project: string, collection: string) => collection),
+  getProjectFolderAccess: vi.fn(async (_session: unknown, _project: string, collection: string) => ({
+    hiddenFolderIds: new Set<string>(),
+    isVisible: () => true,
+    collectionFor: () => collection,
+    clearedRestrictedCollections: [],
+    anyRestricted: false,
+  })),
+}))
+vi.mock('@/lib/projects/collection-placement', () => ({
+  placeProjectDocuments: vi.fn(async () => ({ moved: 0, failed: [] })),
+}))
+vi.mock('@/lib/projects/repository', () => ({
+  findProjectInOrg: vi.fn(async () => ({ id: 'proj-1', collectionName: 'proj_1' })),
+}))
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn().mockResolvedValue(undefined),
 }))
@@ -68,6 +86,8 @@ vi.mock('@/lib/db/schema', () => ({
   projectFolders: { id: 'folders.id', projectId: 'folders.project_id', path: 'folders.path' },
 }))
 
+import { getProjectFolderAccess, type ProjectFolderAccess } from '@/lib/authz/folder-access'
+import { placeProjectDocuments } from '@/lib/projects/collection-placement'
 import { moveDocumentToFolder } from './move-to-folder'
 
 const SESSION = { organizationId: 'org-1', userId: 'user-1' } as never
@@ -179,5 +199,50 @@ describe('moveDocumentToFolder', () => {
     // user is entitled to make.
     expect(result.ok).toBe(true)
     expect(db.updates[0].folderId).toBe('folder-1')
+  })
+})
+
+describe('moveDocumentToFolder across a restriction (ADR-0078)', () => {
+  const access = (overrides: Partial<ProjectFolderAccess>): ProjectFolderAccess => ({
+    hiddenFolderIds: new Set(),
+    isVisible: () => true,
+    collectionFor: () => 'proj_1',
+    clearedRestrictedCollections: [],
+    anyRestricted: true,
+    ...overrides,
+  })
+
+  it('does not move a document out of a folder the mover may not see', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(access({ isVisible: (id) => id !== 'f-hidden' }))
+    db.selects = [[{ ...DOCUMENT, folderId: 'f-hidden' }]]
+
+    const result = await moveDocumentToFolder({ documentId: 'doc-1', folderId: null }, SESSION)
+
+    expect(result).toEqual({ ok: false, error: 'Document not found.' })
+    expect(db.updates).toHaveLength(0)
+  })
+
+  it('does not move a document into a folder the mover may not see', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(access({ isVisible: (id) => id !== 'f-hidden' }))
+    // The folder exists in the project; only its restriction refuses the move.
+    db.selects = [[DOCUMENT], [{ id: 'f-hidden', path: 'Verwaltung/Honorare' }]]
+
+    const result = await moveDocumentToFolder({ documentId: 'doc-1', folderId: 'f-hidden' }, SESSION)
+
+    expect(result).toEqual({ ok: false, error: 'Folder not found in this project.' })
+    expect(db.updates).toHaveLength(0)
+  })
+
+  it('places the document into the restricted collection instead of mirroring the path', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(
+      access({ collectionFor: (id) => (id === 'f-locked' ? 'proj_1_r0123456789ab' : 'proj_1') })
+    )
+    db.selects = [[DOCUMENT], [{ id: 'f-locked', path: 'Verträge' }]]
+
+    const result = await moveDocumentToFolder({ documentId: 'doc-1', folderId: 'f-locked' }, SESSION)
+
+    expect(result.ok).toBe(true)
+    expect(placeProjectDocuments).toHaveBeenCalledWith('org-1', 'proj-1')
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

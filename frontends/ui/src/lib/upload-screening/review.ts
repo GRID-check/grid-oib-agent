@@ -18,6 +18,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
+import { isFolderVisibleTo } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { Document } from '@/lib/db/schema'
 import {
@@ -28,7 +29,7 @@ import {
 import { dispatchDocument, resolveDocumentFolderPath } from '@/lib/documents/service'
 import { parseQuarantine, type QuarantineVerdict } from './quarantine'
 
-type ReviewedDocument = Pick<Document, 'scope' | 'projectId'>
+type ReviewedDocument = Pick<Document, 'scope' | 'projectId' | 'folderId'>
 
 /** Whether this session may release or delete this quarantined document. Never throws. */
 export async function mayReviewQuarantine(session: AuthorizedSession, doc: ReviewedDocument): Promise<boolean> {
@@ -37,10 +38,12 @@ export async function mayReviewQuarantine(session: AuthorizedSession, doc: Revie
   if (doc.scope !== 'project' || !doc.projectId) return false
   try {
     await requireProjectAccess(session, doc.projectId, 'project:manage')
-    return true
   } catch {
     return false
   }
+  // A project admin who is not cleared for the document's folder does not
+  // review it: they could not see it anywhere else either (ADR-0078).
+  return isFolderVisibleTo(session, doc.projectId, doc.folderId).catch(() => false)
 }
 
 export interface ReleaseResult {
@@ -135,8 +138,8 @@ export async function listQuarantineQueue(session: AuthorizedSession): Promise<Q
   const verdictByProject = new Map<string, Promise<boolean>>()
   const visible = await Promise.all(
     rows.map(async (row) => {
-      // One FGA check per project, not per document.
-      const key = `${row.scope}:${row.projectId ?? ''}`
+      // One check per project and folder, not per document.
+      const key = `${row.scope}:${row.projectId ?? ''}:${row.folderId ?? ''}`
       let allowed = verdictByProject.get(key)
       if (!allowed) {
         allowed = mayReviewQuarantine(session, row)

@@ -11,7 +11,7 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNull, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
 import { documentAliasKey, documentNameKey, documentNameVariants } from './name-match'
@@ -142,6 +142,18 @@ export interface ListProjectDocumentsOptions {
    * would be a second definition of what a document listing is.
    */
   includeArchived?: boolean
+  /**
+   * Folders whose documents this reader may not see (ADR-0078), from
+   * `getHiddenFolderIds`. Their rows are left out as if they did not exist.
+   */
+  hiddenFolderIds?: readonly string[]
+}
+
+/** Rows outside every hidden folder; nothing when none is hidden. */
+function outsideHiddenFolders(hiddenFolderIds: readonly string[] | undefined): SQL[] {
+  if (!hiddenFolderIds || hiddenFolderIds.length === 0) return []
+  const visible = or(isNull(documents.folderId), notInArray(documents.folderId, [...hiddenFolderIds]))
+  return visible ? [visible] : []
 }
 
 /**
@@ -172,7 +184,11 @@ export const documentListColumns = {
 function projectListingWhere(
   projectId: string,
   organizationId: string,
-  { authoredBy, includeArchived = false }: Pick<ListProjectDocumentsOptions, 'authoredBy' | 'includeArchived'>,
+  {
+    authoredBy,
+    includeArchived = false,
+    hiddenFolderIds,
+  }: Pick<ListProjectDocumentsOptions, 'authoredBy' | 'includeArchived' | 'hiddenFolderIds'>,
 ): SQL | undefined {
   return and(
     eq(documents.projectId, projectId),
@@ -188,6 +204,7 @@ function projectListingWhere(
     eq(documents.scope, 'project'),
     ...(authoredBy ? [eq(documents.authoredBy, authoredBy)] : []),
     ...(includeArchived ? [] : [eq(documents.lifecycle, 'active')]),
+    ...outsideHiddenFolders(hiddenFolderIds),
   )
 }
 
@@ -198,7 +215,7 @@ function boundListLimit(limit: number): number {
 export async function listProjectDocuments(
   projectId: string,
   organizationId: string,
-  { limit = DOCUMENT_LIST_LIMIT, offset = 0, authoredBy, includeArchived = false }: ListProjectDocumentsOptions = {},
+  { limit = DOCUMENT_LIST_LIMIT, offset = 0, authoredBy, includeArchived = false, hiddenFolderIds }: ListProjectDocumentsOptions = {},
 ): Promise<DocumentListRow[]> {
   const boundedLimit = boundListLimit(limit)
   const boundedOffset = Math.max(0, Math.trunc(offset))
@@ -207,7 +224,7 @@ export async function listProjectDocuments(
     db
       .select(documentListColumns)
       .from(documents)
-      .where(projectListingWhere(projectId, organizationId, { authoredBy, includeArchived }))
+      .where(projectListingWhere(projectId, organizationId, { authoredBy, includeArchived, hiddenFolderIds }))
       // Newest first, with the id as tiebreak: createdAt ties are real (a
       // batch import lands on one timestamp), and under offset pagination an
       // unstable order drops rows from one page and repeats them on the next.
@@ -283,6 +300,7 @@ export async function listProjectDocumentPage(
     cursor,
     authoredBy,
     includeArchived = false,
+    hiddenFolderIds,
   }: Omit<ListProjectDocumentsOptions, 'offset'> & { cursor?: DocumentListCursor } = {},
 ): Promise<DocumentListPage> {
   const db = getDb()
@@ -294,7 +312,7 @@ export async function listProjectDocumentPage(
           .from(documents)
           .where(
             and(
-              projectListingWhere(projectId, organizationId, { authoredBy, includeArchived }),
+              projectListingWhere(projectId, organizationId, { authoredBy, includeArchived, hiddenFolderIds }),
               ...(cursor ? [afterDocumentListCursor(cursor)] : []),
             ),
           )
@@ -340,7 +358,7 @@ export async function findProjectDocumentsByFilenames(
   projectId: string,
   organizationId: string,
   filenames: readonly string[],
-  { includeArchived = false }: Pick<ListProjectDocumentsOptions, 'includeArchived'> = {},
+  { includeArchived = false, hiddenFolderIds }: Pick<ListProjectDocumentsOptions, 'includeArchived' | 'hiddenFolderIds'> = {},
 ): Promise<DocumentListRow[]> {
   const byName = filenameLookupWhere(filenames)
   if (!byName) return []
@@ -349,7 +367,7 @@ export async function findProjectDocumentsByFilenames(
     db
       .select(documentListColumns)
       .from(documents)
-      .where(and(projectListingWhere(projectId, organizationId, { includeArchived }), byName))
+      .where(and(projectListingWhere(projectId, organizationId, { includeArchived, hiddenFolderIds }), byName))
       .orderBy(desc(documents.createdAt), asc(documents.id))
       .limit(DOCUMENT_LIST_LIMIT),
   )
@@ -428,6 +446,7 @@ export async function findProjectDocumentsByNames(
   projectId: string,
   organizationId: string,
   names: readonly string[],
+  { hiddenFolderIds }: Pick<ListProjectDocumentsOptions, 'hiddenFolderIds'> = {},
 ): Promise<DocumentNameMatchRow[]> {
   const db = getDb()
   return probeDocumentNames(names, (where, limit) =>
@@ -440,6 +459,7 @@ export async function findProjectDocumentsByNames(
             eq(documents.projectId, projectId),
             eq(documents.organizationId, organizationId),
             eq(documents.scope, 'project'),
+            ...outsideHiddenFolders(hiddenFolderIds),
             where,
           ),
         )
@@ -749,6 +769,37 @@ export async function findLiveDocumentByFilename(
       .limit(1),
   )
   return row ?? null
+}
+
+/**
+ * The retrieval collections of this project that already hold a live,
+ * person-uploaded document of this name — either Unicode form, as
+ * {@link findLiveDocumentByFilename} reads it. A project keeps one document
+ * per name across all its collections (ADR-0078); the database only enforces
+ * it per collection.
+ */
+export async function findProjectCollectionsHoldingFilename(
+  organizationId: string,
+  projectId: string,
+  filename: string,
+): Promise<string[]> {
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .selectDistinct({ collectionName: documents.collectionName })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.projectId, projectId),
+          eq(documents.scope, 'project'),
+          inArray(documents.filename, documentNameVariants(filename)),
+          eq(documents.authoredBy, 'user'),
+        ),
+      )
+      .limit(DOCUMENT_LIST_LIMIT),
+  )
+  return rows.map((row) => row.collectionName)
 }
 
 /**
