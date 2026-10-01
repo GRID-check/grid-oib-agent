@@ -134,7 +134,7 @@ export async function userHoldsProjectPermission(
   // fallback) rather than guessed from its name — otherwise a custom org role
   // holding `org:projects:administer` would reach every project while this
   // refused to invite them to any of them.
-  if (await orgRoleHoldsPermission(membership.role, ORG_PERMISSIONS.projectsAdminister)) {
+  if (await orgRoleHoldsPermission(membership.role, ORG_PERMISSIONS.projectsAdminister, session.organizationId)) {
     return true
   }
 

@@ -27,6 +27,15 @@ export interface GridSession {
   /** WorkOS role slug within the active organization, or null */
   role: string | null
 
+  /**
+   * Every role slug the membership holds in the active organization: the
+   * token's `roles` claim when WorkOS's multiple-roles setting is on, else
+   * `[role]`. Restricted folders name roles and are cleared by any one of
+   * them (ADR-0078). Optional so a session built before this field — a pinned
+   * requester, a test fixture — reads as `[role]`; use `rolesOf(session)`.
+   */
+  roles?: string[]
+
   /** WorkOS permissions within the active organization */
   permissions: string[]
 
@@ -52,4 +61,10 @@ export interface AuthorizedSession extends GridSession {
   organizationMembershipId: string
   role: string
   permissions: string[]
+}
+
+/** The roles a session holds, with the single `role` standing in for an absent list. */
+export function rolesOf(session: Pick<GridSession, 'role' | 'roles'>): string[] {
+  if (session.roles && session.roles.length > 0) return session.roles
+  return session.role ? [session.role] : []
 }

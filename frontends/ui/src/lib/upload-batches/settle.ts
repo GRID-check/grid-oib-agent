@@ -89,9 +89,9 @@ async function reviewersOf(organizationId: string, document: Document): Promise<
     [...directory.keys()].map(async (userId) => {
       const membership = await resolveSubjectMembership(organizationId, userId)
       if (!membership) return null
-      if (await orgRoleHoldsPermission(membership.role, ORG_PERMISSIONS.projectsAdminister)) return userId
+      if (await orgRoleHoldsPermission(membership.role, ORG_PERMISSIONS.projectsAdminister, organizationId)) return userId
       if (document.scope === 'archiv') {
-        return (await orgRoleHoldsPermission(membership.role, ORG_PERMISSIONS.archivManage)) ? userId : null
+        return (await orgRoleHoldsPermission(membership.role, ORG_PERMISSIONS.archivManage, organizationId)) ? userId : null
       }
       if (document.scope !== 'project' || !document.projectId) return null
       const manages = await userHoldsProjectPermission({ organizationId }, document.projectId, userId, 'project:manage')

@@ -729,6 +729,13 @@
       "when": 1791158400007,
       "tag": "0103_upload_batches",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1791244800007,
+      "tag": "0104_folder_restrictions",
+      "breakpoints": true
     }
   ]
 }

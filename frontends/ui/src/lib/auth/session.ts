@@ -42,6 +42,18 @@ async function resolveOrganizationMembershipId(
 }
 
 /**
+ * Every role the membership holds (ADR-0078): the token's `roles` claim when
+ * WorkOS's "multiple roles" setting puts one there, else the single `role`.
+ * Strings only; anything else in the claim is dropped rather than trusted.
+ */
+export function sessionRoles(fromAuth: unknown, fromClaims: unknown, single: string | null): string[] {
+  const listed = Array.isArray(fromAuth) ? fromAuth : Array.isArray(fromClaims) ? fromClaims : null
+  const roles = (listed ?? []).filter((role): role is string => typeof role === 'string' && role.length > 0)
+  if (roles.length === 0 && single) return [single]
+  return [...new Set(roles)]
+}
+
+/**
  * Read the current Grid session from the WorkOS AuthKit session cookie.
  *
  * Uses `withAuth()` (and `getTokenClaims()` for raw JWT claims) from AuthKit v4.
@@ -82,6 +94,7 @@ export async function getGridSession(): Promise<GridSession | null> {
     organizationId,
     organizationMembershipId,
     role: auth.role ?? (typeof claims.role === 'string' ? claims.role : null),
+    roles: sessionRoles(auth.roles, claims.roles, auth.role ?? (typeof claims.role === 'string' ? claims.role : null)),
     permissions: auth.permissions ?? [],
     featureFlags: auth.featureFlags ?? null,
     profilePictureUrl: auth.user.profilePictureUrl ?? null,

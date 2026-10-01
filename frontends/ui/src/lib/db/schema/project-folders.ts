@@ -1,4 +1,4 @@
-import { foreignKey, index, pgTable, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core'
+import { foreignKey, index, pgTable, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 import { projects } from './projects'
 import { documents } from './documents'
@@ -35,6 +35,15 @@ export const projectFolders = pgTable('project_folders', {
    */
   name: varchar('name', { length: 255 }).notNull(),
   path: varchar('path', { length: 1024 }).notNull(),
+  /**
+   * The WorkOS roles whose holders may see this folder and everything below it
+   * (migration 0104, ADR-0078), or NULL when the folder is open. Never empty
+   * (CHECK). A member must clear EVERY restricted folder on a document's path;
+   * `lib/authz/folder-access.ts` is the one place that decides.
+   */
+  restrictedRoles: text('restricted_roles').array(),
+  restrictedBy: text('restricted_by'),
+  restrictedAt: timestamp('restricted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({

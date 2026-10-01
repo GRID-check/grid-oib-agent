@@ -6,6 +6,9 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { getProjectFolderAccess } from '@/lib/authz/folder-access'
+import { listProjectDocumentCollections } from '@/lib/authz/folder-access-repository'
+import { placeProjectDocuments } from './collection-placement'
 import { validateFolderName, buildFolderPath, folderMatchKey, pathSegments } from './folders'
 
 /** Backend calls here are decoration on a committed write — keep them short. */
@@ -45,6 +48,12 @@ export interface FolderRow {
   parentId: string | null
   name: string
   path: string
+  /**
+   * The WorkOS roles this folder is restricted to (ADR-0078), or null when it
+   * is open. Only ever shown to someone who can see the folder: a folder a
+   * reader is not cleared for is not listed at all.
+   */
+  restrictedRoles: string[] | null
   createdAt: Date
   updatedAt: Date
 }
@@ -56,9 +65,21 @@ export function toFolderRow(row: typeof projectFolders.$inferSelect): FolderRow 
     parentId: row.parentId,
     name: row.name,
     path: row.path,
+    restrictedRoles: row.restrictedRoles ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
+}
+
+/**
+ * The reader's view of the project's folders (ADR-0078): a folder they are not
+ * cleared for, and everything below it, does not exist for them. Every function
+ * here that takes a folder id from a request asks this first, so a hidden
+ * folder answers like a missing one.
+ */
+async function folderAccessFor(session: AuthorizedSession, projectId: string) {
+  const project = await findProjectInOrg(projectId, session.organizationId)
+  return getProjectFolderAccess(session, projectId, project?.collectionName ?? '')
 }
 
 export async function listProjectFolders(
@@ -66,13 +87,14 @@ export async function listProjectFolders(
   session: AuthorizedSession
 ): Promise<FolderRow[]> {
   await requireProjectAccess(session, projectId, 'project:view')
+  const access = await folderAccessFor(session, projectId)
   const db = getDb()
   const rows = await db
     .select()
     .from(projectFolders)
     .where(eq(projectFolders.projectId, projectId))
     .orderBy(projectFolders.path)
-  return rows.map(toFolderRow)
+  return rows.filter((row) => access.isVisible(row.id)).map(toFolderRow)
 }
 
 export async function createProjectFolder(
@@ -87,6 +109,9 @@ export async function createProjectFolder(
 
   let parentPath = ''
   if (input.parentId) {
+    if (!(await folderAccessFor(session, input.projectId)).isVisible(input.parentId)) {
+      return { ok: false, error: 'Parent folder not found.' }
+    }
     const db = getDb()
     const [parent] = await db
       .select()
@@ -447,14 +472,21 @@ export async function mirrorFolderPathRewrite(
   try {
     const project = await findProjectInOrg(projectId, organizationId)
     if (!project) return
-    await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(project.collectionName)}/folder-paths`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from_path: fromPath, to_path: toPath || null }),
-        signal: AbortSignal.timeout(BACKEND_MIRROR_TIMEOUT_MS),
-      }
+    // Every collection the project's documents live in, not only its own: a
+    // restricted folder's documents are in theirs (ADR-0078), and a rename
+    // above it must reach them too. A failed read still mirrors the project's
+    // own collection rather than none.
+    const others = await listProjectDocumentCollections(organizationId, projectId).catch(() => [])
+    const collections = new Set([project.collectionName, ...others])
+    await Promise.all(
+      [...collections].map((collection) =>
+        fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(collection)}/folder-paths`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from_path: fromPath, to_path: toPath || null }),
+          signal: AbortSignal.timeout(BACKEND_MIRROR_TIMEOUT_MS),
+        }).catch(() => undefined)
+      )
     )
   } catch {
     // ignore — see the note above; the folder rows are the durable truth.
@@ -485,6 +517,9 @@ export async function updateProjectFolder(
     )
     .limit(1)
   if (!folder) return { ok: false, error: 'Folder not found.' }
+  const access = await folderAccessFor(session, input.projectId)
+  if (!access.isVisible(folder.id)) return { ok: false, error: 'Folder not found.' }
+  if (input.parentId && !access.isVisible(input.parentId)) return { ok: false, error: 'Parent folder not found.' }
 
   let name = folder.name
   if (input.name !== undefined) {
@@ -539,6 +574,9 @@ export async function updateProjectFolder(
   })
 
   await mirrorFolderPathRewrite(input.projectId, session.organizationId, folder.path, path)
+  // A folder moved under (or out from under) a restricted one takes its
+  // documents into (or out of) that folder's collection (ADR-0078).
+  if (parentId !== folder.parentId) await placeProjectDocuments(session.organizationId, input.projectId)
 
   return { ok: true, folder: toFolderRow(updated) }
 }
@@ -572,6 +610,9 @@ export async function deleteProjectFolder(
     )
     .limit(1)
   if (!folder) return { ok: false, error: 'Folder not found.' }
+  if (!(await folderAccessFor(session, input.projectId)).isVisible(folder.id)) {
+    return { ok: false, error: 'Folder not found.' }
+  }
 
   let parentPath = ''
   if (folder.parentId) {
@@ -625,6 +666,9 @@ export async function deleteProjectFolder(
   // `Brandschutz/Alt` becomes `Brandschutz`, carrying `Brandschutz/Alt/EG` to
   // `Brandschutz/EG` with it, exactly as the rows above just moved.
   await mirrorFolderPathRewrite(input.projectId, session.organizationId, folder.path, parentPath)
+  // Deleting a restricted folder lifts its restriction from what it held: the
+  // documents now sit under its parent and belong in that one's collection.
+  if (folder.restrictedRoles) await placeProjectDocuments(session.organizationId, input.projectId)
 
   return outcome
 }
