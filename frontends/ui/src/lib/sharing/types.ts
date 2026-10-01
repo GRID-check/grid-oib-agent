@@ -73,4 +73,9 @@ export const SHARING_ERROR_REASONS = {
   rateLimited: 'rate-limited',
   /** The roster is at SHARE_ROSTER_LIMIT; someone must leave before anyone joins. */
   rosterFull: 'roster-full',
+  /**
+   * The resource draws on a restricted folder (ADR-0078) and stays with its
+   * owner. No remedy but a new conversation without that content.
+   */
+  restrictedContent: 'restricted-content',
 } as const

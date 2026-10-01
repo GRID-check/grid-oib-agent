@@ -81,6 +81,8 @@ export const collaboration: typeof en.collaboration = {
         'Zu viele Änderungen an der Freigabe. Bitte warten Sie einige Minuten und versuchen Sie es dann erneut.',
       rosterFull:
         'Dieser Chat hat bereits die maximale Anzahl an Personen. Entziehen Sie zuerst jemandem den Zugriff.',
+      restrictedContent:
+        'Dieser Chat stützt sich auf einen Ordner mit eingeschränktem Zugriff. Er kann deshalb nur von seinem Eigentümer gesehen und nicht freigegeben werden.',
       loadFailed: 'Die Freigabe-Einstellungen konnten nicht geladen werden.',
       saveFailed: 'Die Änderung konnte nicht gespeichert werden.',
       tryAgain: 'Erneut versuchen',

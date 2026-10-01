@@ -37,6 +37,25 @@ import { SHARING_ERROR_REASONS, type ResourceAccessEntry, type ResourceSharingSt
 export type { ResourceAccessEntry, ResourceSharingState }
 
 /**
+ * Refuse to widen a resource that must stay with its owner (ADR-0078): a
+ * conversation whose answers drew on a restricted folder. Asked before every
+ * path that lets someone else in — a wider visibility, a grant (and so a
+ * mention's invite), an escalation — and before any write or rate-limit spend.
+ */
+async function assertMayLeaveOwner(
+  resourceType: ShareableResourceType,
+  resourceId: string,
+  organizationId: string,
+): Promise<void> {
+  const confinedToOwner = describeResource(resourceType).confinedToOwner
+  if (!confinedToOwner || !(await confinedToOwner(resourceId, organizationId))) return
+  throw new ConflictError(
+    'This conversation draws on a restricted folder and cannot be shared beyond its owner.',
+    { reason: SHARING_ERROR_REASONS.restrictedContent },
+  )
+}
+
+/**
  * Read a resource's sharing state. Requires `viewer` — a participant is entitled
  * to know who else is in the room, which is also what the participant strip
  * renders.
@@ -116,6 +135,11 @@ export async function setResourceVisibility(
     return getSharingState(session, resourceType, resourceId)
   }
 
+  // Narrowing back to `private` is always allowed; anything wider is a share.
+  if (visibility !== 'private') {
+    await assertMayLeaveOwner(resourceType, resourceId, session.organizationId)
+  }
+
   // Capture who could see it BEFORE the change, so a narrowing can tell the
   // people who are about to lose it.
   const previousAudience = await resolveParticipants(session.organizationId, resourceType, resourceId)
@@ -173,6 +197,8 @@ export async function grantResourceAccess(
   if (!descriptor.roles.includes(input.role)) {
     throw new BadRequestError(`Role "${input.role}" is not available for this resource`)
   }
+
+  await assertMayLeaveOwner(resourceType, resourceId, session.organizationId)
 
   // Rate limit BEFORE any write (spec SH-16, NF-5).
   const limit = await consumeLimit(SHARE_LIMIT, memberSubject(session))
@@ -474,6 +500,8 @@ export async function escalateToOwner(
   if (!access.canEscalate) {
     throw new NotFoundError()
   }
+  // A project admin is not necessarily cleared for the folder the answers drew on.
+  await assertMayLeaveOwner(resourceType, resourceId, session.organizationId)
 
   await upsertGrant({
     organizationId: session.organizationId,

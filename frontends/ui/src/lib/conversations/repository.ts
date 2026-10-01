@@ -318,6 +318,36 @@ export async function findConversationTenancy(
   return row ?? null
 }
 
+/** Distinct restricted collections returned per probe; one is enough to refuse. */
+const RESTRICTED_ANSWER_COLLECTIONS_LIMIT = 20
+
+/**
+ * The restricted-folder collections (ADR-0078) this conversation's stored
+ * answers name, cited (`citations`) or read without citing (`readSources`).
+ *
+ * Both envelopes carry each source's `collection` as the backend stated it, for
+ * the browser writer and the backend writer alike (`agent-answer-metadata.ts`).
+ * Read-but-uncited counts: a passage the answer drew on without a surviving
+ * citation is still in the prose. The jsonpath filter is a pre-filter on the
+ * name's shape; the caller decides with `restrictedCollectionBase`, the one
+ * rule. Scoped by organization, bounded by `LIMIT`, and `lax` so a malformed
+ * row (the column is browser-fed) matches nothing rather than throwing.
+ */
+export async function listRestrictedAnswerCollections(
+  conversationId: string,
+  organizationId: string,
+): Promise<string[]> {
+  const db = getDb()
+  const path = 'lax $[*].sources[*].collection ? (@ like_regex "_r[0-9a-f]{12}$")'
+  const collection = sql<string>`jsonb_path_query(jsonb_build_array(${messages.metadata} -> 'citations', ${messages.metadata} -> 'readSources'), ${path}::jsonpath) #>> '{}'`
+  const rows = await db
+    .selectDistinct({ collection })
+    .from(messages)
+    .where(and(eq(messages.conversationId, conversationId), eq(messages.organizationId, organizationId)))
+    .limit(RESTRICTED_ANSWER_COLLECTIONS_LIMIT)
+  return rows.map((row) => String(row.collection))
+}
+
 /**
  * Set a conversation's blanket visibility, scoped to the organization in SQL.
  * Returns null when the row does not exist in this org (caller maps to 404).

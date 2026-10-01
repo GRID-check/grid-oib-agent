@@ -714,6 +714,19 @@ describe('submitAgentRun', () => {
     expect(submitted).not.toHaveProperty('clarifier_result')
     expect(submitted).not.toHaveProperty('documents')
   })
+
+  it('never searches a restricted folder: its report is filed for the whole project (ADR-0078)', async () => {
+    // The real scope assembly, so the names on the wire are the ones checked.
+    const actual = await vi.importActual<typeof import('@/lib/collection-scope')>('@/lib/collection-scope')
+    vi.mocked(computeCollectionScope).mockImplementation(actual.computeCollectionScope)
+
+    await submitAgentRun(spec)
+
+    expect(vi.mocked(computeCollectionScope).mock.calls[0][1]).not.toHaveProperty('restrictedCollections')
+    const submitted = vi.mocked(submitJob).mock.calls[0][0]
+    expect(submitted.collection_scope).toContain('proj_x')
+    expect((submitted.collection_scope ?? []).filter((name) => /_r[0-9a-f]{12}$/.test(name))).toEqual([])
+  })
 })
 
 // ---------------------------------------------------------------------------

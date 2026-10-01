@@ -89,6 +89,8 @@ export const collaboration = {
       organizationMembershipRequired: 'That person is not a member of this organization.',
       rateLimited: 'Too many sharing changes. Please wait a few minutes and try again.',
       rosterFull: 'This conversation already has the maximum number of people. Remove someone before inviting more.',
+      restrictedContent:
+        'This conversation draws on a folder with restricted access, so only its owner can see it and it cannot be shared.',
       loadFailed: 'Sharing settings could not be loaded.',
       saveFailed: 'That change could not be saved.',
       tryAgain: 'Try again',

@@ -32,8 +32,10 @@ import {
   findConversationInOrg,
   findConversationTenancy,
   listConversationIdsForProject,
+  listRestrictedAnswerCollections,
   updateConversationVisibilityInOrg,
 } from '@/lib/conversations/repository'
+import { restrictedCollectionBase } from '@/lib/authz/folder-access'
 import {
   documentIdsExisting,
   findDocumentTenancy,
@@ -120,6 +122,13 @@ export interface ShareableDescriptor {
   readonly exists: (ids: readonly string[]) => Promise<Set<string>>
   /** Ids of this type inside a project — project-member cleanup (§3.5). */
   readonly listIdsInProject: (projectId: string, organizationId: string) => Promise<string[]>
+  /**
+   * True when the resource must stay with its owner: no wider visibility, no
+   * grant, no escalation (ADR-0078). The sharing service asks before every
+   * widening and refuses with `restricted-content`. Absent: the type has no
+   * such content and may be shared as its roles allow.
+   */
+  readonly confinedToOwner?: (resourceId: string, organizationId: string) => Promise<boolean>
 }
 
 /**
@@ -165,6 +174,15 @@ const conversationDescriptor: ShareableDescriptor = {
   },
   exists: (ids) => conversationIdsExisting(ids),
   listIdsInProject: (projectId, organizationId) => listConversationIdsForProject(projectId, organizationId),
+  // An answer that cited or read a restricted folder's collection carries that
+  // folder's content in its prose, so the thread stays with its owner. The
+  // stored sources name the collection they came from; that is the signal, and
+  // the scope builder keeps restricted collections out of any thread that is
+  // already shared, so the order "share, then ask" cannot get around it.
+  confinedToOwner: async (resourceId, organizationId) =>
+    (await listRestrictedAnswerCollections(resourceId, organizationId)).some(
+      (collection) => restrictedCollectionBase(collection) !== null
+    ),
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
     // `?session=` — the parameter the chat surface ALREADY reads (`useSessionUrl`).

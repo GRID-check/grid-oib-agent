@@ -36,6 +36,7 @@ vi.mock('@/lib/conversations/repository', () => ({
   findConversationInOrg: vi.fn(),
   conversationIdsExisting: vi.fn(),
   listConversationIdsForProject: vi.fn(),
+  listRestrictedAnswerCollections: vi.fn(),
 }))
 
 vi.mock('@/lib/documents/repository', () => ({
@@ -80,7 +81,11 @@ import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { canUserAccessProject, isUserInOrganization } from '@/lib/authz/project-membership'
-import { findConversationTenancy, updateConversationVisibilityInOrg } from '@/lib/conversations/repository'
+import {
+  findConversationTenancy,
+  listRestrictedAnswerCollections,
+  updateConversationVisibilityInOrg,
+} from '@/lib/conversations/repository'
 import type { ResourceRole, ResourceVisibility } from '@/lib/db/schema'
 import { publishToUsers } from '@/lib/events/bus'
 import { requireResourceAccess, resolveResourceAccess } from './access'
@@ -156,6 +161,7 @@ beforeEach(() => {
   vi.mocked(upsertGrant).mockResolvedValue({} as never)
   vi.mocked(deleteGrant).mockResolvedValue(true)
   vi.mocked(updateConversationVisibilityInOrg).mockResolvedValue({} as never)
+  vi.mocked(listRestrictedAnswerCollections).mockResolvedValue([])
 })
 
 describe('the last-owner invariant (spec SH-11)', () => {
@@ -405,5 +411,71 @@ describe('escalateToOwner (spec SH-10)', () => {
     expect(publishToUsers).not.toHaveBeenCalled()
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
+  })
+})
+
+describe('a conversation that drew on a restricted folder stays with its owner (ADR-0078)', () => {
+  const RESTRICTED = 'proj_8f2c3b1e_0000_4000_8000_000000000001_r0123456789ab'
+
+  beforeEach(() => {
+    vi.mocked(listRestrictedAnswerCollections).mockResolvedValue([RESTRICTED])
+  })
+
+  async function refusal(promise: Promise<unknown>): Promise<ConflictError> {
+    const error = await promise.catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(ConflictError)
+    return error as ConflictError
+  }
+
+  it('refuses to widen its visibility, with a machine-readable reason', async () => {
+    stubCallerAccess('owner', 'private')
+
+    const error = await refusal(setResourceVisibility(session, 'conversation', 'conv_1', 'project'))
+
+    expect(error.details).toMatchObject({ reason: 'restricted-content' })
+    expect(listRestrictedAnswerCollections).toHaveBeenCalledWith('conv_1', 'org_1')
+    expect(updateConversationVisibilityInOrg).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('still lets it narrow back to private', async () => {
+    stubCallerAccess('owner', 'project')
+
+    await setResourceVisibility(session, 'conversation', 'conv_1', 'private')
+
+    expect(updateConversationVisibilityInOrg).toHaveBeenCalledWith('conv_1', 'org_1', 'private')
+  })
+
+  it('refuses a grant — and so a mention that would invite — before spending the rate limit', async () => {
+    await refusal(
+      grantResourceAccess(session, 'conversation', 'conv_1', { subjectUserId: 'user_member', role: 'viewer' }),
+    )
+
+    expect(consumeLimit).not.toHaveBeenCalled()
+    expect(upsertGrant).not.toHaveBeenCalled()
+  })
+
+  it('refuses a project admin taking ownership: they need not be cleared for the folder', async () => {
+    vi.mocked(resolveResourceAccess).mockResolvedValue({
+      role: null,
+      reason: null,
+      visibility: 'private',
+      container: { organizationId: 'org_1', projectId: 'proj_1' },
+      canEscalate: true,
+    })
+
+    await refusal(escalateToOwner(session, 'conversation', 'conv_1'))
+
+    expect(upsertGrant).not.toHaveBeenCalled()
+  })
+
+  it('ignores a stored collection that only looks restricted to the SQL pre-filter', async () => {
+    // The repository's jsonpath filter is a pre-filter; the decision is the
+    // canonical name rule, which wants twelve hex digits after `_r`.
+    vi.mocked(listRestrictedAnswerCollections).mockResolvedValue(['proj_x_rNOTHEX000000'])
+
+    await grantResourceAccess(session, 'conversation', 'conv_1', { subjectUserId: 'user_member', role: 'viewer' })
+
+    expect(upsertGrant).toHaveBeenCalled()
   })
 })

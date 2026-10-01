@@ -31,6 +31,8 @@ const session = { organizationId: 'org-1', userId: 'user-1' } as unknown as Grid
 const deps = (overrides: Partial<CollectionAuthzDeps> = {}): CollectionAuthzDeps => ({
   findProjectIdByCollection: vi.fn().mockResolvedValue('proj-id-1'),
   requireProjectAccess: vi.fn().mockResolvedValue({ role: 'project-editor' }),
+  // Fail closed by default: a session is cleared for no restricted collection.
+  clearedRestrictedCollections: vi.fn().mockResolvedValue([]),
   ...overrides,
 })
 
@@ -101,6 +103,52 @@ describe('validateCollectionName', () => {
     const d = deps({ requireProjectAccess: vi.fn().mockRejectedValue(new NotFoundError()) })
     const response = await validateCollectionName(['collections', 'proj_abc'], session, {}, { deps: d })
     expect(response?.status).toBe(404)
+  })
+
+  describe('a restricted folder\'s collection (ADR-0078)', () => {
+    const PROJECT_COLLECTION = 'proj_3f2504e0_4f89_11d3_9a0c_0305e82c3301'
+    const RESTRICTED = `${PROJECT_COLLECTION}_r0123456789ab`
+
+    it('is authorized as its project\'s collection, then by clearance: a cleared session passes', async () => {
+      const d = deps({ clearedRestrictedCollections: vi.fn().mockResolvedValue([RESTRICTED]) })
+      const response = await validateCollectionName(['collections', RESTRICTED, 'documents'], session, {}, { deps: d })
+
+      expect(response).toBeNull()
+      // The project is found by the collection the restricted one extends.
+      expect(d.findProjectIdByCollection).toHaveBeenCalledWith(PROJECT_COLLECTION, 'org-1')
+      expect(d.requireProjectAccess).toHaveBeenCalled()
+      expect(d.clearedRestrictedCollections).toHaveBeenCalledWith(session, 'proj-id-1', PROJECT_COLLECTION)
+    })
+
+    it('is absent (404) to a project member who is not cleared for it', async () => {
+      const d = deps({
+        clearedRestrictedCollections: vi.fn().mockResolvedValue([`${PROJECT_COLLECTION}_rffffffffffff`]),
+      })
+      const response = await validateCollectionName(['collections', RESTRICTED, 'documents'], session, {}, { deps: d })
+
+      expect(response?.status).toBe(404)
+    })
+
+    it('fails closed when the clearance lookup throws', async () => {
+      const d = deps({ clearedRestrictedCollections: vi.fn().mockRejectedValue(new Error('db down')) })
+      const response = await validateCollectionName(['collections', RESTRICTED], session, {}, { deps: d })
+
+      expect(response?.status).toBe(403)
+    })
+
+    it('never asks for clearance before project access holds', async () => {
+      const d = deps({ requireProjectAccess: vi.fn().mockRejectedValue(new NotFoundError()) })
+      const response = await validateCollectionName(['collections', RESTRICTED], session, {}, { deps: d })
+
+      expect(response?.status).toBe(404)
+      expect(d.clearedRestrictedCollections).not.toHaveBeenCalled()
+    })
+
+    it('does not ask for clearance on the project\'s own collection', async () => {
+      const d = deps()
+      expect(await validateCollectionName(['collections', PROJECT_COLLECTION], session, {}, { deps: d })).toBeNull()
+      expect(d.clearedRestrictedCollections).not.toHaveBeenCalled()
+    })
   })
 
   it('accepts s_* collections that match the active conversation', async () => {

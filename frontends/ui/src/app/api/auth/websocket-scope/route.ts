@@ -63,6 +63,10 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       await buildCollectionScopeFromRequest(session, {
         projectId,
         conversationId,
+        // The upgrade opens an interactive chat socket: the one scope that may
+        // carry the restricted-folder collections this session is cleared for
+        // (ADR-0078). Fixed for the socket's life, like everything signed here.
+        interactiveChat: true,
       })
 
     const response: Record<string, unknown> = {
