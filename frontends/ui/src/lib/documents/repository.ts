@@ -477,13 +477,14 @@ export async function findDocumentTenancy(
   documentId: string,
 ): Promise<Pick<
   Document,
-  'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'filename' | 'displayName'
+  'organizationId' | 'projectId' | 'folderId' | 'visibility' | 'createdBy' | 'filename' | 'displayName'
 > | null> {
   const db = getDb()
   const [row] = await db
     .select({
       organizationId: documents.organizationId,
       projectId: documents.projectId,
+      folderId: documents.folderId,
       visibility: documents.visibility,
       createdBy: documents.createdBy,
       filename: documents.filename,

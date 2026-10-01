@@ -76,6 +76,12 @@ export interface ResourceProbe {
   createdBy: string | null
   /** Set when soft-deleted; callers decide whether that is a 404. */
   deletedAt: Date | null
+  /**
+   * The project folder the resource is filed in, for a resource that has one
+   * (a project document). A folder the session is not cleared for hides the
+   * resource whatever grant it holds (ADR-0078).
+   */
+  folderId?: string | null
 }
 
 export interface ShareableDescriptor {
@@ -217,6 +223,7 @@ const documentDescriptor: ShareableDescriptor = {
       createdBy: row.createdBy,
       // Documents are hard-deleted (0077): a row that exists is live.
       deletedAt: null,
+      folderId: row.folderId,
     }
   },
   allowedVisibilities: DOCUMENT_VISIBILITIES,
