@@ -606,7 +606,7 @@ describe('ArchivWorkspace — a file the Archiv already holds', () => {
     expect(mockUploadFiles).not.toHaveBeenCalled()
 
     await user.click(within(dialog).getByTestId('folder-upload-confirm'))
-    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([revised]))
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([revised], expect.objectContaining({ screeningReleased: expect.any(Function) })))
     expect(probed).toEqual([['brandschutz-gutachten.pdf']])
   })
 

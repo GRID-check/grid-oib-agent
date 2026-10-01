@@ -503,6 +503,12 @@ export const files = {
     collisions: '{count} files share a name with another file in this upload',
     collisionsExplain:
       'A project holds one document per filename, so these are not uploaded. Rename them and drop them again.',
+    // Held back by the office's name screening (ADR-0077): the files do not
+    // leave this computer unless someone releases one of them.
+    excluded: '{count} file(s) stay on your computer',
+    excludedExplain:
+      'Your office marks these terms as sensitive, so these files are not uploaded. If one of them belongs in Piloti after all, tick it.',
+    releaseFile: 'Upload anyway',
     showAll: 'Show all {count} files',
     action: {
       new: 'New',
@@ -511,6 +517,7 @@ export const files = {
       collision: 'Conflict',
       duplicate: 'Already here',
       skipped: 'Skipped',
+      excluded: 'Excluded',
     },
     confirm: 'Upload {count} file(s)',
     // Nothing to upload, but the tree still says these belong elsewhere.
@@ -532,6 +539,10 @@ export const files = {
     uploadFiles: 'Choose files',
   },
   errors: {
+    // Held back by the office's name screening (ADR-0077) on a path with no
+    // upload dialog, such as a chat attachment.
+    screenedOut: '{count} file(s) not uploaded because your office marks them as sensitive: {files}',
+    screenedOutFile: '“{name}” ({reason})',
     validation: {
       duplicateInBatch: '“{name}” is in this selection more than once',
       duplicateExisting: '“{name}” has already been added',

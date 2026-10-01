@@ -202,14 +202,19 @@ export async function uploadArchivDocument(
   session: AuthorizedSession,
   file: File,
   request: Request,
-  /** See `UploadDocumentInput.screeningRelease`. */
-  options: { screeningRelease?: boolean } = {},
+  /**
+   * `screeningRelease`: see `UploadDocumentInput.screeningRelease`.
+   * `originPath`: where the file sat on disk. The Büroablage keeps no folders,
+   * so it is not stored — but a file that came out of „Rechnungen" is screened
+   * as one (ADR-0077).
+   */
+  options: { screeningRelease?: boolean; originPath?: string | null } = {},
 ): Promise<UploadArchivDocumentResult> {
   if (!canManageArchiv(session)) throw new ForbiddenError()
   // The name gate's server-side repeat (ADR-0077), before a byte is stored.
   const nameGate = await assertUploadNameAllowed(
     session.organizationId,
-    { filename: file.name },
+    { filename: file.name, originPath: options.originPath ?? null },
     options.screeningRelease === true,
   )
   await assertUploadTypeAllowed(session, file.name)

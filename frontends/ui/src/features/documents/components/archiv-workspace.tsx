@@ -402,10 +402,14 @@ export function ArchivWorkspace({
   const applyUploadPlan = useCallback(
     async (includeUpdates: boolean) => {
       if (!uploadPlan) return
-      const selected = filesToUpload(uploadPlan, includeUpdates).map((planned) => planned.file)
+      const planned = filesToUpload(uploadPlan, includeUpdates)
+      const selected = planned.map((entry) => entry.file)
+      // The files the reader released from the upload screening (ADR-0077);
+      // the upload says so to the server, which would otherwise refuse them.
+      const released = new Set(planned.filter((entry) => entry.screeningReleased).map((entry) => entry.file))
       setUploadPlanOpen(false)
       setUploadPlanPending(false)
-      if (selected.length > 0) await uploadFiles(selected)
+      if (selected.length > 0) await uploadFiles(selected, { screeningReleased: (file) => released.has(file) })
     },
     [uploadPlan, setUploadPlanOpen, setUploadPlanPending, uploadFiles]
   )
@@ -587,6 +591,7 @@ export function ArchivWorkspace({
         onConfirm={applyUploadPlan}
         pending={uploadDecision.pending}
         kind={uploadDecision.kind}
+        onReleaseChange={uploadDecision.setReleased}
       />
 
       {/*

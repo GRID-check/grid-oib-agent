@@ -472,6 +472,12 @@ export const files: typeof en.files = {
     collisions: '{count} Dateien teilen sich einen Namen mit einer anderen Datei in diesem Upload',
     collisionsExplain:
       'Ein Projekt hält pro Dateiname ein Dokument, deshalb werden diese nicht hochgeladen. Benennen Sie sie um und legen Sie sie erneut ab.',
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0077): Die Dateien
+    // verlassen den Rechner nicht, außer jemand gibt eine einzeln frei.
+    excluded: '{count} Datei(en) bleiben auf Ihrem Rechner',
+    excludedExplain:
+      'Ihr Büro hat diese Begriffe als sensibel eingestuft, deshalb werden die Dateien nicht hochgeladen. Gehört eine davon doch nach Piloti, haken Sie sie an.',
+    releaseFile: 'Trotzdem hochladen',
     showAll: 'Alle {count} Dateien anzeigen',
     action: {
       new: 'Neu',
@@ -480,6 +486,7 @@ export const files: typeof en.files = {
       collision: 'Konflikt',
       duplicate: 'Schon vorhanden',
       skipped: 'Übersprungen',
+      excluded: 'Ausgeschlossen',
     },
     confirm: '{count} Datei(en) hochladen',
     confirmMoveOnly: '{count} Dokument(e) verschieben',
@@ -497,6 +504,10 @@ export const files: typeof en.files = {
     uploadFiles: 'Dateien auswählen',
   },
   errors: {
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0077), auf einem Weg ohne
+    // Upload-Dialog, etwa im Chat.
+    screenedOut: '{count} Datei(en) nicht hochgeladen, weil Ihr Büro sie als sensibel einstuft: {files}',
+    screenedOutFile: '„{name}“ ({reason})',
     validation: {
       duplicateInBatch: '„{name}“ ist mehrfach in dieser Auswahl',
       duplicateExisting: '„{name}“ wurde bereits hinzugefügt',

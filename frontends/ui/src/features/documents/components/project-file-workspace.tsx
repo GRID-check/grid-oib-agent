@@ -1031,6 +1031,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    */
   const {
     propose: proposeUpload,
+    setReleased: setUploadReleased,
     plan: folderPlan,
     kind: uploadDecisionKind,
     open: folderPlanOpen,
@@ -1054,6 +1055,16 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     [probeNames, projectId]
   )
 
+  /**
+   * The path of the folder the reader stands in, from the project root, or
+   * null at the root. The upload screening reads it (ADR-0077): a scan dropped
+   * into „Honorare" is screened as a fee document whatever its own name.
+   */
+  const currentFolderPath = useMemo(
+    () => (selectedFolderId ? (folders.find((folder) => folder.id === selectedFolderId)?.path ?? null) : null),
+    [folders, selectedFolderId]
+  )
+
   const handleUpload = useCallback(
     (incoming: File[]) => {
       proposeUpload(
@@ -1062,11 +1073,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           documents: corpusForPlan,
           folders,
           currentFolderId: selectedFolderId,
+          screeningBasePath: currentFolderPath,
         },
-        (direct) => void uploadFiles(direct)
+        (direct) => void uploadFiles(direct, { folderPathFor: () => currentFolderPath })
       ).catch(() => toast.error(t('folderUpload.compareError')))
     },
-    [proposeUpload, corpusForPlan, uploadFiles, folders, selectedFolderId, t]
+    [proposeUpload, corpusForPlan, uploadFiles, folders, selectedFolderId, currentFolderPath, t]
   )
 
   // A drop elsewhere in the project brought the reader here (`ProjectFileDrop`).
@@ -1169,9 +1181,19 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         }
 
         if (selected.length > 0) {
+          // What the server screens each file against: the folder it lands in
+          // (ADR-0077), and whether the reader released it in the dialog.
+          const plannedByFile = new Map(selected.map((planned) => [planned.file, planned]))
           await uploadFiles(
             selected.map((planned) => planned.file),
-            { folderIdFor: (file) => folderIdByFile.get(file) ?? null }
+            {
+              folderIdFor: (file) => folderIdByFile.get(file) ?? null,
+              folderPathFor: (file) => {
+                const target = plannedByFile.get(file)?.targetPath ?? ''
+                return [currentFolderPath, target].filter(Boolean).join('/') || null
+              },
+              screeningReleased: (file) => plannedByFile.get(file)?.screeningReleased === true,
+            }
           )
         }
         // The tree just grew; the breadcrumb and the folder tiles have to know.
@@ -1199,7 +1221,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         setFolderPlanPending(false)
       }
     },
-    [folderPlan, projectId, selectedFolderId, uploadFiles, loadFolders, loadFiles, t, setFolderPlanOpen, setFolderPlanPending]
+    [folderPlan, projectId, selectedFolderId, currentFolderPath, uploadFiles, loadFolders, loadFiles, t, setFolderPlanOpen, setFolderPlanPending]
   )
 
   // Drag-and-drop onto the workspace routes dropped files into the SAME upload
@@ -1542,6 +1564,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         onConfirm={applyFolderPlan}
         pending={folderPlanPending}
         kind={uploadDecisionKind}
+        onReleaseChange={setUploadReleased}
       />
 
       {/*

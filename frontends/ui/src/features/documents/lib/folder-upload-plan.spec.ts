@@ -8,6 +8,7 @@ import {
   type FolderUploadPlanInput,
 } from './folder-upload-plan'
 import type { FileItem, FolderItem } from '../components/project-file-workspace'
+import { SUGGESTED_SCREENING_POLICY } from '@/lib/upload-screening/policy'
 
 /** A `File` carrying the path a folder input would have given it. */
 function pathed(relativePath: string, size = 100): File {
@@ -558,5 +559,67 @@ describe('buildFolderUploadPlan — an archived match', () => {
       flat: true,
     })
     expect(result.files[0]).toMatchObject({ action: 'update', existingId: 'd1' })
+  })
+})
+
+/**
+ * ADR-0077: what the office's upload screening names is shown in the plan and
+ * never sent — not the file, and not the folder it would have created — unless
+ * the reader releases that one file.
+ */
+describe('buildFolderUploadPlan — upload screening', () => {
+  const screening = { policy: SUGGESTED_SCREENING_POLICY, basePath: null }
+
+  it('excludes a file whose folder is named, and does not create that folder', () => {
+    const payslip = pathed('Büro/Personalakten/0042.pdf')
+    const result = plan({ files: [pathed('Büro/Pläne/EG.pdf'), payslip], screening })
+
+    const excluded = result.files.find((file) => file.file === payslip)
+    expect(excluded?.action).toBe('excluded')
+    expect(excluded?.screening).toEqual([{ term: 'Personal', segment: 'Personalakten', kind: 'folder' }])
+    expect(result.folders.map((planned) => planned.path)).toEqual(['Büro', 'Büro/Pläne'])
+    expect(result.counts.excluded).toBe(1)
+    expect(filesToUpload(result, true).map((planned) => planned.file)).not.toContain(payslip)
+    expect(needsUploadDecision(result)).toBe(true)
+  })
+
+  it('screens against the folder the file lands in, too', () => {
+    const scan = new File(['x'], '0042.pdf')
+    const result = plan({ files: [scan], screening: { ...screening, basePath: 'Verwaltung/Honorare' } })
+    expect(result.files[0]).toMatchObject({
+      action: 'excluded',
+      screening: [{ term: 'Honorar', segment: 'Honorare', kind: 'folder' }],
+    })
+  })
+
+  it('lets a released file through as what it would otherwise be, marked as released', () => {
+    const contract = pathed('Projekt/Verträge/Architektenvertrag.pdf')
+    const result = plan({ files: [contract], screening: { ...screening, released: new Set([contract]) } })
+
+    expect(result.files[0]).toMatchObject({ action: 'new', screeningReleased: true })
+    expect(result.files[0]?.screening?.length).toBeGreaterThan(0)
+    expect(result.folders.map((planned) => planned.path)).toEqual(['Projekt', 'Projekt/Verträge'])
+    expect(filesToUpload(result, true)).toHaveLength(1)
+  })
+
+  it('does not let an excluded file collide with an admitted one of the same name', () => {
+    const plan1 = pathed('A/Pläne/Deckblatt.pdf')
+    const plan2 = pathed('A/Rechnungen/Deckblatt.pdf')
+    const result = plan({ files: [plan1, plan2], screening })
+    expect(result.files.map((file) => file.action)).toEqual(['new', 'excluded'])
+  })
+
+  it('screens nothing when no policy is handed in', () => {
+    const result = plan({ files: [pathed('X/Rechnungen/a.pdf')] })
+    expect(result.files[0]?.action).toBe('new')
+  })
+
+  it('still screens the folders on disk when the shelf is flat', () => {
+    const result = plan({ files: [pathed('Rechnungen/Grundriss.pdf')], screening, flat: true })
+    expect(result.files[0]).toMatchObject({
+      action: 'excluded',
+      screening: [{ term: 'Rechnung', segment: 'Rechnungen', kind: 'folder' }],
+    })
+    expect(result.folders).toEqual([])
   })
 })

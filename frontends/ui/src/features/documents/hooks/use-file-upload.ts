@@ -29,6 +29,9 @@ import { UploadOrchestrator } from '../orchestrator'
 import type { PendingJob } from '../orchestrator'
 import { markSessionHasCollection } from '../persistence'
 import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
+import { loadUploadScreeningPolicy } from '@/adapters/api/upload-screening-policy'
+import { screenUploadName, type NameMatch } from '@/lib/upload-screening/name-screen'
+import { describeNameMatch } from '@/lib/upload-screening/quarantine'
 
 /**
  * The upload endpoints' response: `/api/documents/upload`,
@@ -117,6 +120,18 @@ export interface UploadFilesOptions {
    * returning `undefined`, which defers to the batch's own folder.
    */
   folderIdFor?: (file: File) => string | null | undefined
+  /**
+   * The project folder a file lands in, as a path from the project root, for
+   * the upload screening (ADR-0077). The server screens against it too, so a
+   * caller that knows it must say it — or the browser lets through a file the
+   * server will then refuse, after its bytes have left the office.
+   */
+  folderPathFor?: (file: File) => string | null | undefined
+  /**
+   * The reader released this file from the upload screening in the upload
+   * dialog. Sent to the server as `screeningRelease`, which audits it.
+   */
+  screeningReleased?: (file: File) => boolean
 }
 
 interface UseFileUploadReturn {
@@ -300,10 +315,51 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         return
       }
 
-      const validFiles = validationResult.validFiles
+      /*
+       * The upload screening, last before a byte leaves (ADR-0077).
+       *
+       * The dialog already showed the reader what the office's policy holds
+       * back and took their releases; this is the gate for every path that
+       * does not pass the dialog (a chat attachment, a direct pick that met
+       * nothing) and the backstop for the ones that do. What it holds back is
+       * not sent at all.
+       */
+      const policy = await loadUploadScreeningPolicy()
+      const screenedOut: Array<{ file: File; matches: NameMatch[] }> = []
+      const validFiles = validationResult.validFiles.filter((file) => {
+        if (options?.screeningReleased?.(file)) return true
+        const verdict = screenUploadName(policy, {
+          filename: file.name,
+          originPath: file.webkitRelativePath || null,
+          folderPath: options?.folderPathFor?.(file) ?? null,
+        })
+        if (verdict.blocked) screenedOut.push({ file, matches: verdict.matches })
+        return !verdict.blocked
+      })
+      const screenedMessage =
+        screenedOut.length > 0
+          ? t('errors.screenedOut', {
+              count: String(screenedOut.length),
+              files: screenedOut
+                .slice(0, 3)
+                .map(({ file, matches }) =>
+                  t('errors.screenedOutFile', {
+                    name: file.name,
+                    reason: matches.map((match) => describeNameMatch(match, t)).join(', '),
+                  })
+                )
+                .join(', '),
+            })
+          : null
+      if (validFiles.length === 0) {
+        setError(screenedMessage ?? localizedSummary)
+        return
+      }
       setUploading(true)
 
-      if (validationResult.fileErrors.length > 0) {
+      if (screenedMessage) {
+        setError(screenedMessage)
+      } else if (validationResult.fileErrors.length > 0) {
         const skippedCount = validationResult.fileErrors.length
         const uploadingCount = validFiles.length
         setError(
@@ -382,6 +438,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
             if (resolved) formData.append('folderId', resolved)
           }
           formData.append('file', file)
+          if (options?.screeningReleased?.(file)) formData.append('screeningRelease', 'name')
           // Where the file sat before it came here. Set by a folder INPUT
           // (`webkitdirectory`) and stamped onto a dropped tree's files by
           // `asPathStampedFiles`, so one property covers both ways of

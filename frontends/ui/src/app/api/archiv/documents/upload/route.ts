@@ -24,8 +24,10 @@ export const POST = apiRoute(
       throw new BadRequestError('file is required')
     }
 
+    const originPath = formData.get('originPath')
     return uploadArchivDocument(session, file, request, {
       screeningRelease: readScreeningRelease(formData.get('screeningRelease')),
+      originPath: typeof originPath === 'string' ? originPath.slice(0, 1024) : null,
     })
   },
   { authz: { enforcedBy: 'uploadArchivDocument (canManageArchiv)' }, limits: { rule: DOCUMENT_UPLOAD_LIMIT } }
