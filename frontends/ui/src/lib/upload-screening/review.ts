@@ -25,6 +25,8 @@ import {
   findDocumentInOrg,
   listQuarantinedDocuments,
   markScreeningReleased,
+  QUARANTINE_LIST_LIMIT,
+  type QuarantineCursor,
 } from '@/lib/documents/repository'
 import { dispatchDocument, resolveDocumentFolderPath } from '@/lib/documents/service'
 import { parseQuarantine, type QuarantineVerdict } from './quarantine'
@@ -133,31 +135,44 @@ export interface QuarantineQueueItem {
  * projects' part of it. A session that may review nothing gets an empty list,
  * not a 403: "nothing waits for you" is the true answer.
  */
+/** Pages of the organization's quarantine one queue read may look through. */
+export const QUARANTINE_QUEUE_PAGES = 10
+
 export async function listQuarantineQueue(session: AuthorizedSession): Promise<QuarantineQueueItem[]> {
-  const rows = await listQuarantinedDocuments(session.organizationId)
-  const verdictByProject = new Map<string, Promise<boolean>>()
-  const visible = await Promise.all(
-    rows.map(async (row) => {
-      // One check per project and folder, not per document.
-      const key = `${row.scope}:${row.projectId ?? ''}:${row.folderId ?? ''}`
-      let allowed = verdictByProject.get(key)
-      if (!allowed) {
-        allowed = mayReviewQuarantine(session, row)
-        verdictByProject.set(key, allowed)
-      }
-      return (await allowed) ? row : null
-    })
-  )
-  return visible
-    .filter((row): row is Document => row !== null)
-    .map((row) => ({
-      id: row.id,
-      filename: row.filename,
-      scope: row.scope,
-      projectId: row.projectId,
-      conversationId: row.conversationId,
-      uploadedBy: row.createdBy,
-      quarantinedAt: new Date(row.updatedAt).toISOString(),
-      verdict: parseQuarantine(row.errorMessage),
-    }))
+  const verdictByPlace = new Map<string, Promise<boolean>>()
+  const mayReview = (row: Document): Promise<boolean> => {
+    // One check per project and folder, not per document.
+    const key = `${row.scope}:${row.projectId ?? ''}:${row.folderId ?? ''}`
+    let allowed = verdictByPlace.get(key)
+    if (!allowed) {
+      allowed = mayReviewQuarantine(session, row)
+      verdictByPlace.set(key, allowed)
+    }
+    return allowed
+  }
+
+  // Authorized page by page, and read on until the reviewer's own list is full:
+  // limiting before authorizing let another project's newer quarantine push
+  // this reviewer's documents out of their queue.
+  const visible: Document[] = []
+  let cursor: QuarantineCursor | null = null
+  for (let page = 0; page < QUARANTINE_QUEUE_PAGES && visible.length < QUARANTINE_LIST_LIMIT; page += 1) {
+    const rows = await listQuarantinedDocuments(session.organizationId, cursor)
+    const verdicts = await Promise.all(rows.map(mayReview))
+    visible.push(...rows.filter((_, index) => verdicts[index]))
+    if (rows.length < QUARANTINE_LIST_LIMIT) break
+    const last = rows[rows.length - 1]
+    cursor = { updatedAt: new Date(last.updatedAt), id: last.id }
+  }
+
+  return visible.slice(0, QUARANTINE_LIST_LIMIT).map((row) => ({
+    id: row.id,
+    filename: row.filename,
+    scope: row.scope,
+    projectId: row.projectId,
+    conversationId: row.conversationId,
+    uploadedBy: row.createdBy,
+    quarantinedAt: new Date(row.updatedAt).toISOString(),
+    verdict: parseQuarantine(row.errorMessage),
+  }))
 }

@@ -15,6 +15,8 @@
  */
 
 import { sql } from 'drizzle-orm'
+import type { Document } from '@/lib/db/schema'
+import type { QuarantineCursor } from '@/lib/documents/repository'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
@@ -144,5 +146,35 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     await expect(
       inTenant(ORG, () => db.execute(sql`UPDATE documents SET screening_released_by = 'r' WHERE id = ${id}::uuid`))
     ).rejects.toThrow()
+  })
+
+  it('pages the quarantine newest first, with ties on the timestamp broken by id, each row once', async () => {
+    const ids = await Promise.all(['q1.pdf', 'q2.pdf', 'q3.pdf'].map((name) => insertDocument(name, 'quarantined')))
+    // Two rows on one timestamp: the tie a plain `updated_at <` cursor would skip.
+    await inTenant(ORG, () =>
+      db.execute(sql`
+        UPDATE documents SET updated_at = '2026-10-01T10:00:00Z'
+        WHERE id IN (${sql.join(ids.slice(0, 2).map((id) => sql`${id}::uuid`), sql`, `)})
+      `)
+    )
+    await inTenant(ORG, () =>
+      db.execute(sql`UPDATE documents SET updated_at = '2026-10-01T09:00:00Z' WHERE id = ${ids[2]}::uuid`)
+    )
+
+    const seen: string[] = []
+    let cursor: QuarantineCursor | null = null
+    for (let page = 0; page < 10; page += 1) {
+      const rows: Document[] = (await documentsRepo.listQuarantinedDocuments(ORG, cursor)).filter((row) =>
+        ids.includes(row.id)
+      )
+      if (rows.length === 0) break
+      // One row per "page" here, by walking the cursor row by row.
+      const first: Document = rows[0]
+      seen.push(first.id)
+      cursor = { updatedAt: new Date(first.updatedAt), id: first.id }
+    }
+
+    expect([...seen].sort()).toEqual([...ids].sort())
+    expect(seen[2]).toBe(ids[2])
   })
 })

@@ -11,7 +11,7 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, isNull, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNull, lt, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
 import { documentAliasKey, documentNameKey, documentNameVariants } from './name-match'
@@ -1233,15 +1233,35 @@ export async function markScreeningReleased(
 /** Bound on one read of the quarantine queue. A queue longer than this is a policy problem, not a list. */
 export const QUARANTINE_LIST_LIMIT = 200
 
-/** The organization's quarantined documents, newest first, bounded. Authorization is the caller's. */
-export async function listQuarantinedDocuments(organizationId: string): Promise<Document[]> {
+/** Where the next page of the quarantine starts: the last row of the previous one. */
+export interface QuarantineCursor {
+  updatedAt: Date
+  id: string
+}
+
+/**
+ * One page of the organization's quarantined documents, newest first, after
+ * `cursor`. Authorization is the caller's, which is why it pages: a reviewer of
+ * one project must not lose their documents behind a page of another project's
+ * (`listQuarantineQueue` reads on until its own list is full).
+ */
+export async function listQuarantinedDocuments(
+  organizationId: string,
+  cursor: QuarantineCursor | null = null,
+): Promise<Document[]> {
   const db = getDb()
+  const after = cursor
+    ? or(
+        lt(documents.updatedAt, cursor.updatedAt),
+        and(eq(documents.updatedAt, cursor.updatedAt), lt(documents.id, cursor.id)),
+      )
+    : undefined
   return withTenant({ organizationId }, () =>
     db
       .select()
       .from(documents)
-      .where(and(eq(documents.organizationId, organizationId), eq(documents.status, 'quarantined')))
-      .orderBy(desc(documents.updatedAt))
+      .where(and(eq(documents.organizationId, organizationId), eq(documents.status, 'quarantined'), after))
+      .orderBy(desc(documents.updatedAt), desc(documents.id))
       .limit(QUARANTINE_LIST_LIMIT),
   )
 }

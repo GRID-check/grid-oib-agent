@@ -8,6 +8,7 @@ vi.mock('@/lib/documents/repository', () => ({
   findDocumentInOrg: vi.fn(),
   listQuarantinedDocuments: vi.fn(),
   markScreeningReleased: vi.fn(),
+  QUARANTINE_LIST_LIMIT: 3,
 }))
 vi.mock('@/lib/documents/service', () => ({
   dispatchDocument: vi.fn().mockResolvedValue({ jobId: 'job-9', status: 'pending' }),
@@ -138,12 +139,35 @@ describe('releaseQuarantinedDocument', () => {
 })
 
 describe('listQuarantineQueue', () => {
+  it('reads past a page of other projects\' quarantine until the reviewer\'s own list is full', async () => {
+    // The page size is 3 here. The newest page belongs entirely to a project
+    // this reviewer does not administer; theirs come after it.
+    const at = (minute: number) => new Date(Date.UTC(2026, 9, 1, 10, minute))
+    const other = [1, 2, 3].map((n) => ({ ...quarantined, id: `other-${n}`, projectId: 'proj-2', updatedAt: at(60 - n) }))
+    const mine = [1, 2].map((n) => ({ ...quarantined, id: `mine-${n}`, projectId: 'proj-1', updatedAt: at(30 - n) }))
+    vi.mocked(listQuarantinedDocuments).mockReset()
+    vi.mocked(listQuarantinedDocuments).mockResolvedValueOnce(other).mockResolvedValueOnce(mine)
+    vi.mocked(requireProjectAccess).mockImplementation(async (_s, projectId) => {
+      if (projectId !== 'proj-1') throw new NotFoundError('Project not found')
+      return { role: 'project-admin' } as Awaited<ReturnType<typeof requireProjectAccess>>
+    })
+
+    const items = await listQuarantineQueue(member)
+
+    expect(items.map((item) => item.id)).toEqual(['mine-1', 'mine-2'])
+    // The second page starts after the last row of the first.
+    expect(vi.mocked(listQuarantinedDocuments).mock.calls[1]?.[1]).toEqual({ updatedAt: at(57), id: 'other-3' })
+  })
+
   it("shows a project admin only their projects' part of the queue, with the reasons read", async () => {
-    vi.mocked(listQuarantinedDocuments).mockResolvedValue([
-      { ...quarantined, id: 'a', projectId: 'proj-1' },
-      { ...quarantined, id: 'b', projectId: 'proj-2' },
-      { ...quarantined, id: 'c', projectId: 'proj-1' },
-    ])
+    // A full page, then the end of the queue.
+    vi.mocked(listQuarantinedDocuments)
+      .mockResolvedValueOnce([
+        { ...quarantined, id: 'a', projectId: 'proj-1' },
+        { ...quarantined, id: 'b', projectId: 'proj-2' },
+        { ...quarantined, id: 'c', projectId: 'proj-1' },
+      ])
+      .mockResolvedValue([])
     vi.mocked(requireProjectAccess).mockImplementation(async (_s, projectId) => {
       if (projectId !== 'proj-1') throw new NotFoundError('Project not found')
       return { role: 'project-admin' } as Awaited<ReturnType<typeof requireProjectAccess>>
