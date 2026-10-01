@@ -55,7 +55,7 @@ import type { MailZone } from "./email-routing";
  *
  * Literal rules per project address do not scale (200 routing rules per
  * domain, and the BFF would need a Cloudflare credential to mint an address),
- * and plus-addressing (`projekt+<slug>.<token>@`) was rejected in ADR-0074.
+ * and plus-addressing (`projekt+<slug>.<token>@`) was rejected in ADR-0075.
  * `loadConfig` refuses the subdomain-of-the-DNS-zone case statically; the zone
  * lookup in `installMailZones` refuses every other mismatch at preview.
  *

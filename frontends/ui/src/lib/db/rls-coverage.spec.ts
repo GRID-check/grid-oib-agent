@@ -85,7 +85,7 @@ const BOUNDARY_MIGRATIONS = [
   // platform owners. Keyed directly by the organization it was written from,
   // secured exactly as `organization_instructions`.
   '0100_product_feedback.sql',
-  // Adds the project mail inbox (ADR-0074): inbound_mail_addresses and
+  // Adds the project mail inbox (ADR-0075): inbound_mail_addresses and
   // inbound_mail_messages. Keyed by the organization, with the organization
   // inside every foreign key, secured exactly as `document_roles`.
   '0101_inbound_mail.sql',

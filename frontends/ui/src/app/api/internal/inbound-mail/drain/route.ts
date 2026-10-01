@@ -1,6 +1,6 @@
 /**
  * INTERNAL sweep — file the mail the project inboxes accepted
- * (`lib/inbound-mail/drain.ts`, ADR-0074).
+ * (`lib/inbound-mail/drain.ts`, ADR-0075).
  *
  * Token-guarded housekeeping with the shared service token: the caller is the
  * job scheduler (`scheduler/index.js`), which POSTs here every tick the way it

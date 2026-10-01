@@ -265,6 +265,15 @@
               "de": "Beim Öffnen eines Zitats in Safari wird die zitierte Passage jetzt im Dokument markiert – wie in Chrome und Firefox."
             }
           ]
+        },
+        {
+          "key": "security",
+          "notes": [
+            {
+              "en": "Zero data retention is now on for every organization and covers every request Piloti sends to an AI model, including document reading, search and research reports, not only chat answers. Where a model is also hosted in the EU, that location is preferred.",
+              "de": "Zero Data Retention ist jetzt für jede Organisation eingeschaltet und gilt für jede Anfrage, die Piloti an ein KI-Modell sendet – auch beim Lesen von Dokumenten, bei der Suche und bei Rechercheberichten, nicht nur bei Chat-Antworten. Wird ein Modell auch in der EU betrieben, wird dieser Standort bevorzugt."
+            }
+          ]
         }
       ]
     },

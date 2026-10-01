@@ -14,7 +14,7 @@
  *      „läuft" (`lib/runs/reconcile.ts`, backlog T3-11);
  *   5. POSTs the BFF's mail drain (`/api/internal/inbound-mail/drain`), which
  *      files the mail the project inboxes accepted and sweeps its retention
- *      (`lib/inbound-mail/drain.ts`, ADR-0074).
+ *      (`lib/inbound-mail/drain.ts`, ADR-0075).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:

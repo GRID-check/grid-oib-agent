@@ -16,7 +16,6 @@ def _endpoint_available(monkeypatch):
     monkeypatch.delenv(decisions.ENABLED_ENV, raising=False)
     monkeypatch.delenv(decisions.URL_ENV, raising=False)
     with (
-        patch.object(decisions, "_zdr_only_blocking", return_value=False),
         patch.object(
             decisions,
             "_resolve_endpoint_blocking",

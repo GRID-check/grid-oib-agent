@@ -103,6 +103,9 @@ export type ErrorCode =
   | 'agent.response_failed'
   | 'agent.response_interrupted'
   | 'agent.workflow_error'
+  // The provider refused under the org's zero-data-retention policy: the model
+  // has no ZDR endpoint. Not retryable until an admin picks a ZDR model.
+  | 'agent.zdr_refused'
   // Research errors
   // Deep-research job could not be admitted (queue full). Warning-styled, and
   // NON-locking: the composer stays usable so the user can retry.

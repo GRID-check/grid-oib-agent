@@ -56,9 +56,10 @@ import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
 import { fetchRunMessage } from '../lib/commissioned-run'
 import { STAGE_COUNT } from '../lib/turn-projection'
+import { runErrorCard } from '../lib/run-error'
 import type { TurnView } from '../lib/turn-fold'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
-import type { ChatMessage, Conversation, ErrorCode, PendingInteraction } from '../types'
+import type { ChatMessage, Conversation, PendingInteraction } from '../types'
 
 /** A mention as the composer holds it: the structured target plus its text token. */
 export interface SendMessageMention {
@@ -235,13 +236,6 @@ const ACK_MISSES_BEFORE_GIVING_UP = 2
  */
 const SILENT_DROPS_BEFORE_GIVING_UP = 2
 
-/** A turn that failed, as the reader is told about it. */
-const RUN_ERROR_CODES: Record<NonNullable<TurnView['error']>['code'], ErrorCode> = {
-  workflow_error: 'agent.workflow_error',
-  auth_error: 'auth.session_expired',
-  interaction_expired: 'agent.response_interrupted',
-}
-
 type Rejection = Extract<WireEvent, { type: 'CUSTOM'; name: 'rejected' }>
 /** A `user_message` as the client builds it (its `type` has a default, so it is optional here). */
 type UserMessage = Extract<ClientMessage, { message_id: string }>
@@ -298,8 +292,8 @@ const endFailedTurn = (view: TurnView): void => {
     ._recoverInterruptedAssistantMessage(view.conversationId, view.turnId)
     .then((outcome) => {
       if (outcome !== 'nothing' || store().currentConversation?.id !== view.conversationId) return
-      const code = view.error ? RUN_ERROR_CODES[view.error.code] : 'agent.response_failed'
-      store().addErrorCard(code, view.error?.message)
+      const card = runErrorCard(view.error)
+      store().addErrorCard(card.code, card.message, card.details)
     })
 }
 

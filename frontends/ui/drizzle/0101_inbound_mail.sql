@@ -4,7 +4,7 @@
 --
 -- Every project gets an email address. A member mails files to it and the
 -- attachments are filed into the project as if that member had uploaded them
--- (ADR-0074). Cloudflare Email Routing hands the raw message to one Worker,
+-- (ADR-0075). Cloudflare Email Routing hands the raw message to one Worker,
 -- which streams it to `POST /api/internal/inbound-mail`; these two tables, and
 -- the staged objects the second one names, are everything the BFF keeps.
 --

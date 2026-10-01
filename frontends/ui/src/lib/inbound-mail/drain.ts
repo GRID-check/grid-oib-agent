@@ -1,5 +1,5 @@
 /**
- * The drain: file the mail the webhook queued (ADR-0074).
+ * The drain: file the mail the webhook queued (ADR-0075).
  *
  * The scheduler container POSTs `/api/internal/inbound-mail/drain` every tick,
  * the way it already drives the run reconciler. One call reaps the attempts

@@ -35,7 +35,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
-| `inbound-mail.ts` | `inbound_mail_addresses`, `inbound_mail_messages` — the project mail inbox (migration 0101, ADR-0074) |
+| `inbound-mail.ts` | `inbound_mail_addresses`, `inbound_mail_messages` — the project mail inbox (migration 0101, ADR-0075) |
 
 ---
 
@@ -649,7 +649,7 @@ export const projectFolders = pgTable('project_folders', {
 
 ---
 
-## inbound_mail_addresses / inbound_mail_messages (migration 0101, ADR-0074)
+## inbound_mail_addresses / inbound_mail_messages (migration 0101, ADR-0075)
 
 The project mail inbox. A member mails files to `<slug>.<token>@<GRID_INBOUND_MAIL_DOMAIN>`
 and the attachments are filed into the project as if that member had uploaded them
@@ -806,7 +806,8 @@ LangGraph conversation checkpoint tables:
 The platform-controlled default model per agent group — the layer *under* every
 tenant's own configuration (ADR-0014, extended). Global: no `organization_id`,
 one row per `agent_group` (PK), carrying the catalog-validated `model`, a
-`model_snapshot` jsonb (catalog metadata + `_zdr.safe`), an optional `note`, and
+`model_snapshot` jsonb (catalog metadata at save time; older rows also carry an
+unread `_zdr.safe`), an optional `note`, and
 `updated_by`/`updated_by_email`. **No row = that group falls through to the
 workflow YAML for organizations without an org override of their own** (an org
 override still wins). A save replaces the whole set — groups omitted from the
@@ -823,8 +824,9 @@ first ask the backend which provider the deployment actually runs
 (`GET /v1/config/llm-defaults` → `baseUrls`) and skip any group not on the
 platform catalog's provider: a platform default replaces the model id but not the
 `base_url`, so an OpenRouter id written blindly into a Kimi or NVIDIA deployment
-would fail every request. It also validates against the live catalog, records
-`model_snapshot` (including `_zdr.safe`), invalidates the cache and emits
+would fail every request. It also validates against the live catalog and the
+zero-data-retention list (skipping the bootstrap when that list cannot be read),
+records `model_snapshot`, invalidates the cache and emits
 `platform.model_defaults.bootstrapped` — none of which SQL can do. Rows it writes
 carry `updated_by = 'system:bootstrap'`.
 

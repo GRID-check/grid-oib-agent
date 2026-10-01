@@ -1,6 +1,6 @@
 /**
  * Is the From header telling the truth, and was the mail meant for this
- * project? (ADR-0074)
+ * project? (ADR-0075)
  *
  * Cloudflare Email Routing does not hand its SPF, DKIM or DMARC verdicts to the
  * Worker (cloudflare/workerd#6740), and the Worker does not see the connecting

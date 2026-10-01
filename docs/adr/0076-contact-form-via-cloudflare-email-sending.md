@@ -36,14 +36,14 @@ must keep it that way. It is the first thing in the product that sends mail.
 ## Decision Outcome
 
 Chosen option: 4, because the operator's Cloudflare account already runs the
-DNS and, since ADR-0074, Email Routing, and sending to verified destination
+DNS and, since ADR-0075, Email Routing, and sending to verified destination
 addresses is free on every plan
 ([Email Service](https://developers.cloudflare.com/email-service/)).
 
 * `kontakt@piloti.at` is one literal Email Routing rule on the app zone, which
   forwards to the founders' mailboxes (`contactForwardTo`). The contact
   address adds no catch-all to that zone. *Amended 2026-10-01:* the project
-  mail inbox now puts its catch-all on the same zone (ADR-0074, amendment of
+  mail inbox now puts its catch-all on the same zone (ADR-0075, amendment of
   2026-10-01). A literal rule wins over the catch-all, so this address never
   reaches the inbox's Worker, and the Worker refuses every other address
   that is not a project address, as Cloudflare refused it before.
@@ -62,7 +62,7 @@ addresses is free on every plan
 * Good, because the only recipients the site can reach are addresses a founder
   verified by clicking a link. A bug or an abused form cannot mail anyone else.
 * Good, because no new vendor, contract or DPA: Cloudflare is already the
-  sub-processor ADR-0074 introduced.
+  sub-processor ADR-0075 introduced.
 * Good, because the page loads nothing from a third party and works without
   JavaScript.
 * Bad, because onboarding `piloti.at` for Email Sending is a dashboard step the

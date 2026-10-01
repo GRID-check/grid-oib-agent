@@ -447,7 +447,7 @@ sub-processor
 
 Project addresses live on the app zone's apex, the product's own domain:
 `wohnbau-hietzing.k3m7q2xw4pab@piloti.at`. Why, and what was weighed against
-it: [ADR-0074](../adr/0074-project-mail-inbox-via-cloudflare-email-routing.md),
+it: [ADR-0075](../adr/0075-project-mail-inbox-via-cloudflare-email-routing.md),
 amendment of 2026-10-01.
 
 What it deploys, all at Cloudflare:
@@ -657,7 +657,7 @@ Cloudflare Email Routing to the founders' own mailboxes, and the landing
 site's contact form sends to the same mailboxes through Cloudflare's Email
 Service. Sending to verified destination addresses is free on every plan
 ([Email Service](https://developers.cloudflare.com/email-service/)). Why
-this path: [ADR-0075](../adr/0075-contact-form-via-cloudflare-email-sending.md).
+this path: [ADR-0076](../adr/0076-contact-form-via-cloudflare-email-sending.md).
 
 Kubernetes only. Docker Compose (`deploy/compose`) runs no landing-site
 service, so neither the form nor its variables exist there.

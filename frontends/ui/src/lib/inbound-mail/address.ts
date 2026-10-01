@@ -1,5 +1,5 @@
 /**
- * Project mail addresses: minting, formatting and parsing (ADR-0074).
+ * Project mail addresses: minting, formatting and parsing (ADR-0075).
  *
  * An address is `<slug>.<token>@<domain>`. Only the TOKEN names a project; the
  * slug is decoration from the project name so a member can tell two addresses

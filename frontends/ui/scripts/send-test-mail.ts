@@ -1,6 +1,6 @@
 /**
  * Deliver an .eml file to a local BFF exactly as the Cloudflare Email Worker
- * would (ADR-0074): the raw bytes as the body, the envelope recipient in
+ * would (ADR-0075): the raw bytes as the body, the envelope recipient in
  * `x-envelope-to`, the size in `x-inbound-raw-size`, and the Worker's own token.
  *
  *   Usage:

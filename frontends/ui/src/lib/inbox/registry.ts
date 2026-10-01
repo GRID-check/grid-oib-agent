@@ -225,7 +225,7 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     email: { send: 'if-unread', afterMinutes: 0 },
   },
   /*
-    A mail the reader sent to a project's inbox address was filed (ADR-0074).
+    A mail the reader sent to a project's inbox address was filed (ADR-0075).
     `per-anchor` on the DELIVERY (the `inbound_mail_messages` row), so two
     mails are two rows and a redelivery of the same one folds into its own.
     Operational: the mail inbox is not a collaboration feature. Never mailed —

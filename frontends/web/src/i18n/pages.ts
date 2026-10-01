@@ -122,7 +122,7 @@ const de = {
   // /e-mail-eingang/ (MAIL_INBOX_PATH in consts.ts): how the project mail
   // inbox works, for the people who use it and for whoever a mail bounced
   // on. Every rule here is one the receiving side enforces
-  // (docs/user-guides/project-mail-inbox.md, ADR-0074); `backticks` render
+  // (docs/user-guides/project-mail-inbox.md, ADR-0075); `backticks` render
   // as code.
   mailInbox: {
     heading: 'E-Mail-Eingang: Dateien per E-Mail ins Projekt',

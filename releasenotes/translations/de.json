@@ -2432,6 +2432,10 @@
     "de": "Ihre Frage bleibt oben stehen, während die Antwort erscheint, und eine kurze Antwort springt am Ende nicht mehr nach unten."
   },
   {
+    "en": "Zero data retention is now on for every organization and covers every request Piloti sends to an AI model, including document reading, search and research reports, not only chat answers. Where a model is also hosted in the EU, that location is preferred.",
+    "de": "Zero Data Retention ist jetzt für jede Organisation eingeschaltet und gilt für jede Anfrage, die Piloti an ein KI-Modell sendet – auch beim Lesen von Dokumenten, bei der Suche und bei Rechercheberichten, nicht nur bei Chat-Antworten. Wird ein Modell auch in der EU betrieben, wird dieser Standort bevorzugt."
+  },
+  {
     "en": "„Erstelle ein Dokument über …“ now starts a deep research whose finished report is filed in the project under Berichte. If you only want a thorough answer, you still get it in the chat.",
     "de": "„Erstelle ein Dokument über …“ startet jetzt eine Tiefenrecherche, deren fertiger Bericht im Projekt unter „Berichte“ abgelegt wird. Wer nur eine gründliche Antwort will, bekommt sie weiterhin im Chat."
   },

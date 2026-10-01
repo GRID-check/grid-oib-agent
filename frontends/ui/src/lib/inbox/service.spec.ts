@@ -117,7 +117,7 @@ const OPERATIONAL_TYPES = [
   // collaboration still has documents to approve, and gating the one review
   // queue in the product would make it invisible for exactly them.
   'document.review_requested',
-  // A mail the reader sent to a project address was filed (ADR-0074): the
+  // A mail the reader sent to a project address was filed (ADR-0075): the
   // inbox is the sender's only receipt, whether or not collaboration is on.
   'inbound_mail.filed',
   // ...and the only word the sender gets when the drain gave up on the mail.
@@ -405,7 +405,7 @@ describe('listInbox — project href threads the delegated task', () => {
   })
 })
 
-describe('listInbox — a filed mail (ADR-0074)', () => {
+describe('listInbox — a filed mail (ADR-0075)', () => {
   const filed = (overrides: Partial<InboxItem> = {}) =>
     row({
       id: 'mail-1',

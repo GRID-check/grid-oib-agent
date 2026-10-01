@@ -1,5 +1,5 @@
 /**
- * The project's mail inbox address (ADR-0074). Minted on first read.
+ * The project's mail inbox address (ADR-0075). Minted on first read.
  * Thin handler; authorization and logic live in `@/lib/inbound-mail/service`.
  */
 

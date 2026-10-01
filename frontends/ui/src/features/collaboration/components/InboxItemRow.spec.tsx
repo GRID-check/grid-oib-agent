@@ -293,7 +293,7 @@ describe('InboxItemRow — the operational storage alert (ADR-0042)', () => {
   })
 })
 
-describe('InboxItemRow — a filed mail (ADR-0074)', () => {
+describe('InboxItemRow — a filed mail (ADR-0075)', () => {
   const mailRow = (overrides: Partial<InboxItemView>): InboxItemView =>
     item({
       type: 'inbound_mail.filed',

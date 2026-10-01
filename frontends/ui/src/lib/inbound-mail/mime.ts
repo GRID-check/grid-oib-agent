@@ -1,5 +1,5 @@
 /**
- * Reading a raw message, and deciding which of its parts are files (ADR-0074).
+ * Reading a raw message, and deciding which of its parts are files (ADR-0075).
  *
  * `postal-mime` parses and `file-type` sniffs; this module owns only the
  * product decisions on top of them: which parts a member meant to send, what

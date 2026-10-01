@@ -935,6 +935,30 @@ def _resolve_embed_api_key(base_url: str, model: str) -> str:
     ).api_key
 
 
+def make_embed_model(*, base_url: str, model: str, api_key: str, **kwargs: Any):
+    """The embedding client. Every one in the process is built here.
+
+    Its HTTP clients pin every OpenRouter request to zero-data-retention
+    endpoints (``openrouter.PLATFORM_FIXED``): the embedding model is the
+    platform's, not an organization's choice, and document chunks and queries
+    of every tenant pass through it. ``NVIDIAEmbedding`` hard-codes its own
+    ``extra_body``, so the pin rides on the transport instead.
+    """
+    from llama_index.embeddings.nvidia import NVIDIAEmbedding
+
+    from aiq_agent.common.openrouter import pinned_async_http_client
+    from aiq_agent.common.openrouter import pinned_http_client
+
+    return NVIDIAEmbedding(
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+        http_client=pinned_http_client(),
+        async_http_client=pinned_async_http_client(),
+        **kwargs,
+    )
+
+
 def resolve_vlm_credential(organization_id: str | None = None):
     """Resolve the full VLM credential (key + base URL + model) — the single
     source of truth for the vision endpoint ingestion will call.
@@ -1845,6 +1869,25 @@ def _table_to_markdown(table: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
+def _vlm_client(base_url: str, api_key: str):
+    """The vision client for one ingest call, under the ingest job's data policy.
+
+    The ingest job enters ``openrouter.data_policy_scope`` for its organization;
+    anything that reaches here without one (the base corpus sync, a thread that
+    lost the context) is pinned to zero-data-retention endpoints.
+    """
+    from aiq_agent.common.openrouter import openai_client
+    from aiq_agent.common.openrouter import scoped_data_policy
+
+    return openai_client(
+        base_url=base_url,
+        api_key=api_key,
+        policy=scoped_data_policy(),
+        timeout=VLM_REQUEST_TIMEOUT_SECONDS,
+        max_retries=1,
+    )
+
+
 def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, temperature: float = 0.2) -> str:
     """One VLM chat completion with a single truncation retry.
 
@@ -1928,7 +1971,7 @@ def _analyze_image_with_vlm(
         Tuple of (content_type, caption) where content_type is "chart" or "image".
     """
     try:
-        from openai import OpenAI
+        import openai  # noqa: F401 - availability check; the client comes from _vlm_client
     except ImportError:
         logger.warning("openai package not installed. Install with: pip install openai")
         return ("image", "[Image - captioning unavailable]")
@@ -1972,12 +2015,7 @@ Provide a detailed, structured response."""
         # Encode image to base64
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-        client = OpenAI(
-            base_url=vlm_base_url,
-            api_key=api_key,
-            timeout=VLM_REQUEST_TIMEOUT_SECONDS,
-            max_retries=1,
-        )
+        client = _vlm_client(vlm_base_url, api_key)
 
         caption = _vlm_chat_create(
             client,
@@ -2120,7 +2158,7 @@ def _analyze_drawing_page_with_vlm(
     registry = visual_domains.resolve_registry()
 
     try:
-        from openai import OpenAI
+        import openai  # noqa: F401 - availability check; the client comes from _vlm_client
     except ImportError:
         logger.warning("openai package not installed. Install with: pip install openai")
         return ("[Drawing - captioning unavailable]", {})
@@ -2131,12 +2169,7 @@ def _analyze_drawing_page_with_vlm(
 
     try:
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        client = OpenAI(
-            base_url=vlm_base_url,
-            api_key=api_key,
-            timeout=VLM_REQUEST_TIMEOUT_SECONDS,
-            max_retries=1,
-        )
+        client = _vlm_client(vlm_base_url, api_key)
         reply = _vlm_chat_create(
             client,
             model=vlm_model,
@@ -2578,8 +2611,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         ensure_retrieval_dependencies()
 
         try:
-            from llama_index.embeddings.nvidia import NVIDIAEmbedding
-
             embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
             if not embed_api_key:
                 logger.error(
@@ -2587,7 +2618,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     "the provider key for AIQ_EMBED_BASE_URL) - ingestion/retrieval will fail."
                 )
 
-            self._embed_model = NVIDIAEmbedding(
+            self._embed_model = make_embed_model(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
                 api_key=embed_api_key,
@@ -3918,6 +3949,30 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         collection_name: str,
         config: dict[str, Any],
     ):
+        """Background ingestion worker, under the uploading organization's data policy.
+
+        The job runs detached, with no request to read an organization from, so
+        the policy is entered here from the org the job config names: every model
+        call the job makes on a model the organization chose (the ingest VLM,
+        page transcription) follows its zero-data-retention setting. A job with
+        no organization (the base corpus sync) is pinned anyway.
+        """
+        from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
+        from aiq_agent.common.openrouter import data_policy_for
+        from aiq_agent.common.openrouter import data_policy_scope
+
+        organization_id = config.get("organization_id")
+        policy = data_policy_for(organization_id) if organization_id else ZERO_DATA_RETENTION
+        with data_policy_scope(policy):
+            self._ingest_job(job_id, file_paths, collection_name, config)
+
+    def _ingest_job(
+        self,
+        job_id: str,
+        file_paths: list[str | Callable[[], str]],
+        collection_name: str,
+        config: dict[str, Any],
+    ):
         """Background ingestion worker with optional multimodal extraction."""
         from knowledge_layer.deferred_files import ORIGINAL_DOWNLOAD_FAILED
         from knowledge_layer.deferred_files import resolve_original
@@ -5026,8 +5081,6 @@ class LlamaIndexRetriever(BaseRetriever):
         ensure_retrieval_dependencies()
 
         try:
-            from llama_index.embeddings.nvidia import NVIDIAEmbedding
-
             embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
             if not embed_api_key:
                 logger.error(
@@ -5035,7 +5088,7 @@ class LlamaIndexRetriever(BaseRetriever):
                     "the provider key for AIQ_EMBED_BASE_URL) - retrieval/ingestion will fail."
                 )
 
-            self._embed_model = NVIDIAEmbedding(
+            self._embed_model = make_embed_model(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
                 api_key=embed_api_key,

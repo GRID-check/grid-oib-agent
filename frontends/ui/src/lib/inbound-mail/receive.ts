@@ -1,5 +1,5 @@
 /**
- * Receiving one mail (Worker → BFF, ADR-0074): verify it, stage its
+ * Receiving one mail (Worker → BFF, ADR-0075): verify it, stage its
  * attachments, queue it, answer. Filing happens later, in `./drain`.
  *
  * ## Why accept and file are two steps

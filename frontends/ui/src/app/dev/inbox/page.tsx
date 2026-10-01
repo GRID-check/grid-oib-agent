@@ -42,7 +42,7 @@ const now = Date.parse('2026-07-29T10:00:00Z')
 const ago = (minutes: number): string => new Date(now - minutes * 60_000).toISOString()
 
 /*
-  The project mail inbox (ADR-0074), in its three states: files filed with
+  The project mail inbox (ADR-0075), in its three states: files filed with
   some skipped (the list of names and reasons, capped at ten, "+N weitere"),
   nothing filed (the zero form, the reasons and the cloud-link hint), and a
   mail the drain gave up on. `?variant=mail` serves only these three.

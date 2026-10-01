@@ -1,5 +1,5 @@
 /**
- * The sender's receipt (ADR-0074): one inbox item per delivery, anchored on
+ * The sender's receipt (ADR-0075): one inbox item per delivery, anchored on
  * its row, saying what was filed and what was not, or that it could not be
  * filed at all.
  *

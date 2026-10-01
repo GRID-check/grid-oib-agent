@@ -3,6 +3,10 @@
  *
  * GET — any member may read their org's settings.
  * PUT — `org:settings:manage` holders only; merges the provided fields.
+ *       Refuses (400) keys a dedicated route owns — `zdrOnly` is switched only
+ *       through `PUT /api/organization/model-config/zdr`, under
+ *       `org:models:manage` — and (403) platform-owned keys. Both refusals live
+ *       in `updateOrgSettings`, so no other endpoint can reopen them.
  * Thin handlers; all logic lives in `@/lib/organizations/service`.
  */
 

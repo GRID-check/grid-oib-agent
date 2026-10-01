@@ -41,12 +41,12 @@ import logging
 from typing import Any
 
 from aiq_agent.common.message_contract import normalize_chat_request
+from aiq_agent.common.openrouter import targets_openrouter
 from nat.plugin_api import LLMFrameworkEnum
 from nat.utils.exception_handlers.automatic_retries import patch_with_retry
 
 logger = logging.getLogger(__name__)
 
-_OPENROUTER_HOST = "openrouter.ai"
 _RESPONSE_HEALING_PLUGIN = {"id": "response-healing"}
 
 #: Marks a chat-model class as already carrying the request contract, so
@@ -101,7 +101,7 @@ def llm_targets_openrouter(llm: Any) -> bool:
     Shared with the per-request ZDR seam (``model_overrides``) so both use the
     same base-URL detection.
     """
-    return _OPENROUTER_HOST in _llm_base_url(llm)
+    return targets_openrouter(_llm_base_url(llm))
 
 
 def apply_openrouter_structured_defaults(llm: Any) -> Any:
@@ -112,7 +112,7 @@ def apply_openrouter_structured_defaults(llm: Any) -> Any:
     dropping them); the defaults are identical for every caller, so sharing a
     resolved instance is safe.
     """
-    if _OPENROUTER_HOST not in _llm_base_url(llm):
+    if not llm_targets_openrouter(llm):
         return llm
     if not hasattr(llm, "extra_body"):
         return llm

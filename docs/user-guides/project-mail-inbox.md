@@ -4,7 +4,7 @@ Every project has its own email address. Send a mail with plans or permits to
 it, and Piloti files the attachments in the project as if you had uploaded
 them yourself. No more downloading from Outlook and dragging the files back in.
 
-Why it works this way: [ADR-0074](../adr/0074-project-mail-inbox-via-cloudflare-email-routing.md).
+Why it works this way: [ADR-0075](../adr/0075-project-mail-inbox-via-cloudflare-email-routing.md).
 The data protection review: [`inbound-mail-review-2026-09.md`](../compliance/inbound-mail-review-2026-09.md).
 The public version of this page: `https://piloti.at/e-mail-eingang/`, which the
 settings card and every bounce link to.

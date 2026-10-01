@@ -1,5 +1,5 @@
 /**
- * The folder a mail's files are filed in (ADR-0074).
+ * The folder a mail's files are filed in (ADR-0075).
  *
  * One folder per mail under the top-level `E-Mail-Eingang`, named for when it
  * arrived and who sent it: `2026-09-30 10.15 – Anna Berger`. The subject is

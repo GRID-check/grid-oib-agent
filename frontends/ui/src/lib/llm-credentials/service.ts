@@ -317,6 +317,28 @@ export async function isOrgOnOwnKey(organizationId: string): Promise<boolean> {
   })
 }
 
+/**
+ * The provider the org's traffic goes to on its own key, or null when it runs on
+ * the platform key — the same decision as `resolveActiveCredentialForBackend`
+ * (flag, active credential, provider mode) WITHOUT revealing the secret or
+ * touching `last_used_at`. For callers that only need to know where requests
+ * go (whether OpenRouter's zero data retention can apply), not to send one.
+ *
+ * One divergence, on the safe side for that question: a secret that fails to
+ * reveal makes the backend fall back to the platform key, which this still
+ * reports as the BYOK provider.
+ */
+export async function getActiveCredentialProvider(organizationId: string): Promise<string | null> {
+  const enforceFlags = (process.env.GRID_ENFORCE_FEATURE_FLAGS ?? '').toLowerCase() === 'true'
+  if (enforceFlags && !(await isOrgFeatureEnabled(BYOK_LLM_FLAG, organizationId, false))) {
+    return null
+  }
+  const row = await getActiveCredential(organizationId)
+  if (!row) return null
+  if ((await getLlmProviderMode(organizationId)) === 'platform') return null
+  return row.provider
+}
+
 export interface ResolvedCredential {
   id: string
   provider: string

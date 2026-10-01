@@ -24,6 +24,11 @@ export interface ErrorMeta {
    */
   titleKey?: string
   /**
+   * False when resending the same question cannot help, so the banner offers no
+   * "Try again". Omitted means retryable.
+   */
+  retryable?: boolean
+  /**
    * `chat`-namespace i18n key for a localized default message. Used by the
    * banner when the caller does not pass an explicit (already-localized)
    * `message`. Optional so the English `defaultMessage` remains the fallback
@@ -131,6 +136,18 @@ export const ERROR_REGISTRY: Record<ErrorCode, ErrorMeta> = {
     titleKey: 'errorRegistry.workflowError.title',
     defaultMessage: 'The assistant hit an unexpected error while handling your request. Please try again.',
     messageKey: 'errorRegistry.workflowError.message',
+  },
+  // OpenRouter refused the request under the organization's zero-data-retention
+  // policy (see `lib/run-error.ts` for how it is recognised). A resend fails the
+  // same way until an admin chooses a model with a ZDR endpoint, so no retry.
+  'agent.zdr_refused': {
+    status: 'error',
+    title: 'Model not available under zero data retention',
+    titleKey: 'errorRegistry.zdrRefused.title',
+    defaultMessage:
+      "Your organization's zero-data-retention setting only allows models with a zero-data-retention endpoint, and the model for this task has none. An organization admin must choose one under Organization → Models.",
+    messageKey: 'errorRegistry.zdrRefused.message',
+    retryable: false,
   },
 
   // ============================================================

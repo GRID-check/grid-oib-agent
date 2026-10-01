@@ -99,7 +99,7 @@ export const INBOX_ITEM_TYPES = [
   'feedback.submitted',
   /**
    * Informational, operational: the files of a mail the reader sent to a
-   * project's inbox address were filed (ADR-0074). The inbox is the sender's
+   * project's inbox address were filed (ADR-0075). The inbox is the sender's
    * only feedback channel — Piloti sends no mail in v1 — so the row names how
    * many files landed and how many were skipped, and links to the mail's folder.
    */

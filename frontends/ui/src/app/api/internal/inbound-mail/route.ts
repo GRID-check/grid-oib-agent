@@ -1,6 +1,6 @@
 /**
  * INTERNAL endpoint — the Cloudflare Email Worker delivers one raw message
- * (ADR-0074).
+ * (ADR-0075).
  *
  * The Worker does not parse: it streams `message.raw` here with the envelope
  * recipient in `x-envelope-to` and the size in `x-inbound-raw-size`. The

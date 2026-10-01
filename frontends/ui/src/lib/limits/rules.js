@@ -268,7 +268,7 @@ const DEFAULT_MUTATION_LIMIT = {
 const FEEDBACK_REPORT_LIMIT = { name: 'feedback-report', limit: 10, windowMs: 60 * 60 * 1000 }
 
 /**
- * Mail delivered to ONE project mail address (ADR-0074), charged per address
+ * Mail delivered to ONE project mail address (ADR-0075), charged per address
  * after the sender was verified and authorized, so a stranger's spam cannot
  * spend a project's budget.
  *

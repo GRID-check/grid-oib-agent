@@ -195,7 +195,7 @@ describe('purgeProject', () => {
   })
 
   // A mail not yet filed is staged under the project prefix in the bucket its
-  // delivery row recorded (ADR-0074). A project with no document in that
+  // delivery row recorded (ADR-0075). A project with no document in that
   // bucket would otherwise leave the staged attachments behind.
   it('asks the mail inbox delivery rows for the buckets their staging is in', async () => {
     const { tx, executed } = makeTx({
@@ -509,7 +509,7 @@ describe('collaboration rows', () => {
   })
 
   it("purges the inbox items that point at the project itself", async () => {
-    // Run outcomes and filed mail (ADR-0074) target `project`, not a chat or a
+    // Run outcomes and filed mail (ADR-0075) target `project`, not a chat or a
     // document, so neither subquery above reaches them, and nothing cascades.
     const { tx, executed } = makeTx({
       projectRow: { id: 'p1', collection_name: 'proj_p1' },

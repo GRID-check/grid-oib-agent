@@ -1,5 +1,5 @@
 /**
- * The project mail inbox (ADR-0074): the project's address, as the settings
+ * The project mail inbox (ADR-0075): the project's address, as the settings
  * surface reads and rotates it.
  *
  * Receiving a mail is `./receive` (the webhook) and filing it is `./drain`

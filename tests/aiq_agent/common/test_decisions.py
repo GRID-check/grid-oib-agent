@@ -41,7 +41,6 @@ QUESTIONS = {
 
 #: The real resolver, captured before the fixture below replaces it.
 _RESOLVE_ENDPOINT = decisions._resolve_endpoint_blocking
-_ZDR_ONLY = decisions._zdr_only_blocking
 _ENDPOINT = decisions._Endpoint(url="https://openrouter.ai/api/alpha/decisions", api_key="k", model="typesafe/jev-1.13")
 
 
@@ -63,21 +62,18 @@ def _ok(request: httpx.Request) -> httpx.Response:
 
 @pytest.fixture(autouse=True)
 def _endpoint_available(monkeypatch):
-    """A key resolves, no ZDR, breaker closed, decisions enabled."""
+    """A key resolves, breaker closed, decisions enabled."""
     decisions.reset_breaker()
     monkeypatch.delenv(decisions.ENABLED_ENV, raising=False)
     monkeypatch.delenv(decisions.URL_ENV, raising=False)
-    with (
-        patch.object(decisions, "_zdr_only_blocking", return_value=False),
-        patch.object(
-            decisions,
-            "_resolve_endpoint_blocking",
-            return_value=(
-                decisions._Endpoint(
-                    url="https://openrouter.ai/api/alpha/decisions", api_key="k", model="typesafe/jev-1.13"
-                ),
-                None,
+    with patch.object(
+        decisions,
+        "_resolve_endpoint_blocking",
+        return_value=(
+            decisions._Endpoint(
+                url="https://openrouter.ai/api/alpha/decisions", api_key="k", model="typesafe/jev-1.13"
             ),
+            None,
         ),
     ):
         yield
@@ -124,6 +120,9 @@ class TestTheWire:
             "criteria": {"true": "yes", "false": "no"},
         }
         assert seen[0].headers["authorization"] == "Bearer k"
+        # Pinned for every organization: the decision model is the platform's.
+        assert body["provider"]["zdr"] is True
+        assert body["provider"]["data_collection"] == "deny"
         assert decision.noul("needs_evidence") == 0.93
         assert decision.choice("corpus") == ("baurecht", {"baurecht": 0.8, "projekt": 0.2})
         assert decision.score("urgency") == 1.4
@@ -176,11 +175,6 @@ class TestFailOpen:
         assert not called
         assert records.call_args.args[1] == {"skipped": "disabled"}
 
-    async def test_zdr_skips(self, records):
-        with patch.object(decisions, "_zdr_only_blocking", return_value=True):
-            assert await decide("s", QUESTIONS, slot="t", transport=_transport(_ok)) is None
-        assert records.call_args.args[1] == {"skipped": "zdr"}
-
     async def test_a_byok_key_on_another_host_skips(self):
         with patch("aiq_agent.common.credential_resolution.resolve_llm_credential") as resolve:
             resolve.return_value.api_key = "k"
@@ -199,16 +193,18 @@ class TestFailOpen:
             await decisions._endpoint("org-given")
         assert [c.args[0] for c in resolve.call_args_list] == ["org-ctx", "org-given"]
 
-    async def test_zdr_is_the_named_organizations_policy(self):
-        """Ingestion runs with no request context: the org it names decides ZDR."""
-        with (
-            patch("aiq_agent.project_context.get_organization_id_from_context", return_value=None),
-            patch("aiq_agent.common.model_overrides.resolve_org_zdr_only", return_value=True) as zdr,
-            patch.object(decisions, "_zdr_only_blocking", _ZDR_ONLY),
-        ):
-            endpoint, skipped = await decisions._endpoint("org-upload")
-        assert (endpoint, skipped) == (None, "zdr")
-        zdr.assert_called_once_with("org-upload")
+    async def test_a_zdr_organization_is_decided_for_not_skipped(self, records):
+        """Every decision is pinned, so a ZDR org no longer loses them to a skip."""
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return _ok(request)
+
+        with patch("aiq_agent.common.model_overrides.resolve_org_zdr_only", return_value=True):
+            decision = await decide("s", QUESTIONS, slot="t", transport=_transport(handler))
+        assert decision is not None
+        assert json.loads(seen[0].content)["provider"]["zdr"] is True
 
     def test_decide_blocking_runs_from_sync_code_and_inside_a_loop(self, records):
         with patch.object(httpx, "AsyncHTTPTransport", side_effect=lambda: _transport(_ok)):

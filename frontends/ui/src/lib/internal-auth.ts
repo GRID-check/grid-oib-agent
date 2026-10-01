@@ -19,7 +19,7 @@ export const INTERNAL_TOKEN_HEADER = 'x-grid-internal-token'
 export type InternalTokenEnv =
   | 'GRID_INTERNAL_API_TOKEN'
   | 'GRID_CORPUS_EXPORT_TOKEN'
-  /** The Cloudflare Email Worker delivering project mail (ADR-0074). */
+  /** The Cloudflare Email Worker delivering project mail (ADR-0075). */
   | 'GRID_INBOUND_MAIL_TOKEN'
 
 const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'

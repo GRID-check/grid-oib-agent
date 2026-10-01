@@ -207,7 +207,7 @@ async function purgeProject(tx, entry, deps) {
   //    list-then-delete loop, and running several against one storage tier only
   //    trades a rarely-hot latency for contention on the thing being erased.
   //
-  //    The mail inbox's staged attachments (ADR-0074) live under this same
+  //    The mail inbox's staged attachments (ADR-0075) live under this same
   //    project prefix, in the bucket their delivery row recorded. A project
   //    whose only object in a tenant bucket is a mail not yet filed has no
   //    document naming that bucket, so the rows that do are asked too.
@@ -329,7 +329,7 @@ async function purgeProject(tx, entry, deps) {
   await tx`DELETE FROM resource_shares WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
   await tx`DELETE FROM resource_assignments WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
   //    Items whose target is the PROJECT itself — a background run's outcome,
-  //    a mail filed from the project inbox (ADR-0074). Same polymorphic pair,
+  //    a mail filed from the project inbox (ADR-0075). Same polymorphic pair,
   //    same missing cascade, and the payload quotes what the project held (a
   //    run's title, a mail's subject), so it goes with the project.
   await tx`DELETE FROM inbox_items WHERE resource_type = 'project' AND resource_id = ${projectId}`

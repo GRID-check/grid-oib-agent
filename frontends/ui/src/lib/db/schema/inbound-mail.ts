@@ -15,7 +15,7 @@ import {
 import { projects } from './projects'
 
 /**
- * The project mail inbox (migration 0101, ADR-0074).
+ * The project mail inbox (migration 0101, ADR-0075).
  *
  * Storage only: address minting and parsing live in `lib/inbound-mail/address`,
  * the lifecycle in `lib/inbound-mail/service`. Neither table holds content.

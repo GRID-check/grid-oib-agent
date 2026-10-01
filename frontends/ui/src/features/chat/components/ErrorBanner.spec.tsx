@@ -6,7 +6,16 @@ import { ErrorBanner } from './ErrorBanner'
 // Mock the error registry
 vi.mock('../lib/error-registry', () => ({
   getErrorMeta: (code: string) => {
-    const registry: Record<string, { title: string; defaultMessage: string; status: 'error' | 'warning' | 'info' }> = {
+    const registry: Record<
+      string,
+      { title: string; defaultMessage: string; status: 'error' | 'warning' | 'info'; retryable?: boolean }
+    > = {
+      'agent.zdr_refused': {
+        title: 'Model not available under zero data retention',
+        defaultMessage: 'An organization admin must choose a ZDR model.',
+        status: 'error',
+        retryable: false,
+      },
       'connection.failed': {
         title: 'Connection Failed',
         defaultMessage: 'Unable to connect to the server. Please check your network connection.',
@@ -29,6 +38,17 @@ vi.mock('../lib/error-registry', () => ({
 describe('ErrorBanner', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+  })
+
+  test('offers no "try again" for an error resending cannot fix (ZDR refusal)', () => {
+    render(<ErrorBanner code="agent.zdr_refused" onRetry={vi.fn()} />)
+    expect(screen.getByText('Model not available under zero data retention')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /retry|erneut/i })).not.toBeInTheDocument()
+  })
+
+  test('still offers "try again" for a retryable error', () => {
+    render(<ErrorBanner code="connection.failed" onRetry={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /retry|try again|erneut/i })).toBeInTheDocument()
   })
 
   describe('basic rendering', () => {

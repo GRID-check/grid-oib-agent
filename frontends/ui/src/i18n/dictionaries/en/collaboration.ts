@@ -421,7 +421,7 @@ export const collaboration = {
         title: '{actor} asked you to review {subject}',
         body: 'A new version is waiting for your approval.',
       },
-      // The files of a mail sent to the project address were filed (ADR-0074).
+      // The files of a mail sent to the project address were filed (ADR-0075).
       // {subject} is the mail's subject, {project} the project, {filed} and
       // {skipped} how many attachments were filed and skipped. The row lists
       // the skipped files itself, with `reasons`.
