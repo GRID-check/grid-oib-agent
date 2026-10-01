@@ -119,14 +119,15 @@ export function installIngestWorker(
     },
   );
 
-  // How KEDA reads the queue: the plain libpq DSN already in the app Secret.
+  // How KEDA reads the queue: a libpq DSN whose host is the FQDN, because the
+  // operator resolves names in its own namespace (`KEDA_INGEST_QUEUE_DB_URL`).
   const auth = new k8s.apiextensions.CustomResource(
     "ingest-queue-auth",
     {
       apiVersion: "keda.sh/v1alpha1",
       kind: "TriggerAuthentication",
       metadata: { name: "ingest-queue-auth", namespace: w.namespace, labels },
-      spec: { secretTargetRef: [{ parameter: "connection", name: SECRET_NAME, key: "AIQ_LISTEN_DB_URL" }] },
+      spec: { secretTargetRef: [{ parameter: "connection", name: SECRET_NAME, key: "KEDA_INGEST_QUEUE_DB_URL" }] },
     },
     { provider: w.provider, dependsOn },
   );

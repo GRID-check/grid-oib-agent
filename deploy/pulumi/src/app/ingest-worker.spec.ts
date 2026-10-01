@@ -36,6 +36,16 @@ describe("the ingest-worker tier", () => {
     expect(QUEUE_DEPTH_QUERY).toBe(`SELECT COUNT(*) FROM ${table}`);
   });
 
+  it("gives KEDA a DSN it can resolve from its own namespace", () => {
+    // The operator runs in `keda`; a bare `grid-pg-rw` resolves there to
+    // nothing, the scaler errors on every poll, and the tier never scales out.
+    const key = read("deploy", "pulumi", "src", "app", "ingest-worker.ts").match(
+      /parameter: "connection", name: SECRET_NAME, key: "([A-Z_]+)"/,
+    )?.[1];
+    expect(key).toBeDefined();
+    expect(configSource).toMatch(new RegExp(`${key}: w\\.dsn\\(\\{[^}]*clusterWide: true`));
+  });
+
   it("runs the role the entrypoint knows", () => {
     expect(read("deploy", "entrypoint.py")).toContain('role == "ingest-worker"');
     expect(configSource).toContain('{ name: "GRID_ROLE", value: "ingest-worker" }');

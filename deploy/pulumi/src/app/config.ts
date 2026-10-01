@@ -21,6 +21,8 @@ export interface AppWiring {
     db: string;
     driver?: string;
     as?: { user: string; password: pulumi.Output<string> };
+    /** Host by FQDN, for a client in another namespace (KEDA). */
+    clusterWide?: boolean;
   }) => pulumi.Output<string>;
   /**
    * imagePullSecrets for every app pod spec — references the registry pull
@@ -127,6 +129,9 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
     AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
     AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
+    // The same database for KEDA's postgresql scaler, which runs in the `keda`
+    // namespace and cannot resolve the bare service name. Read by no pod.
+    KEDA_INGEST_QUEUE_DB_URL: w.dsn({ db: "aiq_jobs", clusterWide: true }),
     AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
     // The app tier connects as the least-privilege role, so row-level security
     // applies to it (ADR-0041). Migrations get the owner credential below —
