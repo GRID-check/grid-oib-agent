@@ -25,6 +25,7 @@ import {
   type DocumentLifecycle,
   type ResourceVisibility,
 } from '@/lib/db/schema'
+import type { DocumentScreeningOutcome } from '@/lib/db/schema/documents'
 
 /**
  * Hard cap on one page of a document listing (project and Archiv alike).
@@ -1105,13 +1106,73 @@ export async function countDocumentsByProject(
 export async function setDocumentReconciledStatus(
   documentId: string,
   organizationId: string,
-  resolution: { status: string; errorMessage: string | null },
+  resolution: { status: string; errorMessage: string | null; screeningOutcome?: DocumentScreeningOutcome },
 ): Promise<void> {
   const db = getDb()
   await withTenant({ organizationId }, () =>
     db
       .update(documents)
-      .set({ status: resolution.status, errorMessage: resolution.errorMessage, updatedAt: new Date() })
+      .set({
+        status: resolution.status,
+        errorMessage: resolution.errorMessage,
+        // Only when the job said something (ADR-0077): an unscreened job must
+        // not erase a reviewer's `released`.
+        ...(resolution.screeningOutcome ? { screeningOutcome: resolution.screeningOutcome } : {}),
+        updatedAt: new Date(),
+      })
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
+  )
+}
+
+/**
+ * A reviewer's release of a quarantined document (ADR-0077): who, when, and
+ * which bytes. Guarded on the row still being quarantined with the bytes the
+ * reviewer saw, so a release that raced a re-upload releases nothing. Returns
+ * whether it took.
+ */
+export async function markScreeningReleased(
+  documentId: string,
+  organizationId: string,
+  release: { contentHash: string; releasedBy: string; releasedAt: Date },
+): Promise<boolean> {
+  const db = getDb()
+  const updated = await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({
+        status: 'uploaded',
+        errorMessage: null,
+        screeningOutcome: 'released',
+        screeningReleasedHash: release.contentHash,
+        screeningReleasedBy: release.releasedBy,
+        screeningReleasedAt: release.releasedAt,
+        updatedAt: release.releasedAt,
+      })
+      .where(
+        and(
+          eq(documents.id, documentId),
+          eq(documents.organizationId, organizationId),
+          eq(documents.status, 'quarantined'),
+          eq(documents.contentHash, release.contentHash),
+        ),
+      )
+      .returning({ id: documents.id }),
+  )
+  return updated.length > 0
+}
+
+/** Bound on one read of the quarantine queue. A queue longer than this is a policy problem, not a list. */
+export const QUARANTINE_LIST_LIMIT = 200
+
+/** The organization's quarantined documents, newest first, bounded. Authorization is the caller's. */
+export async function listQuarantinedDocuments(organizationId: string): Promise<Document[]> {
+  const db = getDb()
+  return withTenant({ organizationId }, () =>
+    db
+      .select()
+      .from(documents)
+      .where(and(eq(documents.organizationId, organizationId), eq(documents.status, 'quarantined')))
+      .orderBy(desc(documents.updatedAt))
+      .limit(QUARANTINE_LIST_LIMIT),
   )
 }

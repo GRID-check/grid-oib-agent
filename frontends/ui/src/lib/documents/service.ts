@@ -1616,7 +1616,7 @@ async function signedRenditionRef(input: DispatchDocumentInput, fileName: string
  * silently un-file a document the user had filed, and only the agent would
  * notice.
  */
-async function resolveDocumentFolderPath(
+export async function resolveDocumentFolderPath(
   doc: Pick<Document, 'folderId' | 'projectId'>,
   organizationId: string
 ): Promise<string | null> {
