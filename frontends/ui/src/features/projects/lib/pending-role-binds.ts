@@ -119,3 +119,31 @@ export async function sendPendingBinds(
   }
   return refused
 }
+
+/**
+ * The deferred uploads still in flight, so the save can wait for them.
+ *
+ * An upload for a building the wizard has not saved yet records its binding
+ * only when the upload answers. A save started before that sent the bindings
+ * it had, cleared the draft and left: the file was uploaded and never bound,
+ * and nothing said so. `settled` resolves once every tracked upload has,
+ * including ones started while it waits.
+ */
+export function createUploadTracker(): {
+  track: (work: Promise<unknown>) => void
+  settled: () => Promise<void>
+} {
+  const inFlight = new Set<Promise<unknown>>()
+  return {
+    track(work) {
+      inFlight.add(work)
+      const done = () => {
+        inFlight.delete(work)
+      }
+      work.then(done, done)
+    },
+    async settled() {
+      while (inFlight.size > 0) await Promise.allSettled([...inFlight])
+    },
+  }
+}

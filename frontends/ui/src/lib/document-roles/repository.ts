@@ -10,6 +10,7 @@
 import { and, eq, inArray, isNotNull, isNull, notInArray } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { documentRoles, documents } from '@/lib/db/schema'
+import type { DbTransaction } from '@/lib/storage/repository'
 import type { DocumentRole, RoleConfidence, RoleSource } from '@/lib/project-profile/document-roles'
 
 export interface DocumentRoleBinding {
@@ -154,13 +155,19 @@ export async function insertBinding(input: InsertBindingInput): Promise<string> 
  *
  * One transaction fixes the first; `FOR UPDATE` on the slot's existing rows
  * serialises the second, so the loser observes the winner's state.
+ *
+ * `guard` runs first in the same transaction and may throw to refuse: it is
+ * where a building binding locks the project and checks the building still
+ * exists, so a profile save removing it cannot interleave with the insert.
  */
 export async function replaceSlotBinding(
   input: InsertBindingInput,
-  displacedIds: readonly string[]
+  displacedIds: readonly string[],
+  guard?: (tx: DbTransaction) => Promise<void>
 ): Promise<string> {
   const db = getDb()
   return db.transaction(async (tx) => {
+    if (guard) await guard(tx)
     if (displacedIds.length > 0) {
       await tx
         .delete(documentRoles)
@@ -217,14 +224,14 @@ export async function deleteBindings(projectId: string, ids: readonly string[]):
  */
 export async function deleteBindingsOutsideBauwerke(
   projectId: string,
-  keep: readonly string[]
+  keep: readonly string[],
+  tx: DbTransaction
 ): Promise<number> {
-  const db = getDb()
   const outside =
     keep.length > 0
       ? and(isNotNull(documentRoles.scopeInstanceId), notInArray(documentRoles.scopeInstanceId, [...keep]))
       : isNotNull(documentRoles.scopeInstanceId)
-  const removed = await db
+  const removed = await tx
     .delete(documentRoles)
     .where(and(eq(documentRoles.projectId, projectId), outside))
     .returning({ id: documentRoles.id })

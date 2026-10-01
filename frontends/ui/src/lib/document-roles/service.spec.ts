@@ -27,8 +27,6 @@ const repo = vi.hoisted(() => ({
   deleted: [] as string[],
   confirmed: [] as Array<{ bindingId: string; confidence: string; source: string }>,
   documentInProject: true,
-  keptBauwerke: null as string[] | null,
-  retiredCount: 0,
   // A project whose intake was never saved: the column holds `{}`, which
   // `findProjectProfile` hands out as this empty profile (never `null` for an
   // existing project). The implicit first building (`bw1`) is the only one.
@@ -37,7 +35,8 @@ const repo = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/projects/repository', () => ({
-  findProjectProfile: vi.fn(async () => repo.profile),
+  // Read under the project's row lock, inside the binding's own transaction.
+  lockProjectProfile: vi.fn(async () => repo.profile),
 }))
 
 vi.mock('./repository', () => ({
@@ -49,7 +48,14 @@ vi.mock('./repository', () => ({
   // insert failed. The double bookkeeping here mirrors that both still happen,
   // inside one transaction.
   replaceSlotBinding: vi.fn(
-    async (input: Record<string, unknown>, displacedIds: readonly string[]) => {
+    async (
+      input: Record<string, unknown>,
+      displacedIds: readonly string[],
+      guard?: (tx: never) => Promise<void>
+    ) => {
+      // The real one runs the guard first in its transaction; a refusal there
+      // writes nothing.
+      if (guard) await guard(undefined as never)
       const matched = repo.bindings.filter((b) => displacedIds.includes(b.id)).map((b) => b.id)
       repo.deleted.push(...matched)
       repo.bindings = repo.bindings.filter((b) => !displacedIds.includes(b.id))
@@ -65,10 +71,6 @@ vi.mock('./repository', () => ({
       return 'new-binding'
     }
   ),
-  deleteBindingsOutsideBauwerke: vi.fn(async (_projectId: string, keep: readonly string[]) => {
-    repo.keptBauwerke = [...keep]
-    return repo.retiredCount
-  }),
   confirmBinding: vi.fn(
     async (
       _projectId: string,
@@ -94,7 +96,7 @@ vi.mock('./repository', () => ({
   }),
 }))
 
-const { declareDocumentRole, revokeDocumentRole, retireBindingsOfRemovedBauwerke } = await import('./service')
+const { bauwerkIds, declareDocumentRole, revokeDocumentRole } = await import('./service')
 const { requireProjectAccess } = await import('@/lib/authz/projects')
 
 function binding(overrides: Partial<DocumentRoleBinding> = {}): DocumentRoleBinding {
@@ -370,7 +372,7 @@ describe('declareDocumentRole — the Bauwerk has to exist', () => {
 })
 
 
-describe('retireBindingsOfRemovedBauwerke', () => {
+describe('bauwerkIds', () => {
   const fact = (value: string) => ({
     value,
     confidence: 'confirmed' as const,
@@ -378,7 +380,7 @@ describe('retireBindingsOfRemovedBauwerke', () => {
     updatedAt: '2026-01-01T00:00:00.000Z',
   })
 
-  it('keeps exactly the buildings the saved profile names', async () => {
+  it('names exactly the buildings the profile has', () => {
     // Bauwerk 1 was removed in the wizard; 2 and 3 remain.
     const saved: ProjectProfile = {
       facts: { 'bauwerk_name@bw2': fact('Hoftrakt'), 'bauwerk_name@bw3': fact('Garage') },
@@ -387,19 +389,11 @@ describe('retireBindingsOfRemovedBauwerke', () => {
       assumptions: {},
     }
 
-    await retireBindingsOfRemovedBauwerke('proj-1', 'org-1', saved)
-
-    expect(repo.keptBauwerke).toEqual(['bw2', 'bw3'])
+    expect(bauwerkIds(saved)).toEqual(['bw2', 'bw3'])
   })
 
-  it('keeps the implicit first building of a profile that names none', async () => {
-    await retireBindingsOfRemovedBauwerke('proj-1', 'org-1', {
-      facts: {},
-      goals: {},
-      unknowns: [],
-      assumptions: {},
-    })
-
-    expect(repo.keptBauwerke).toEqual(['bw1'])
+  it('names the implicit first building of a profile that names none, or of no profile', () => {
+    expect(bauwerkIds(emptyProfile())).toEqual(['bw1'])
+    expect(bauwerkIds(null)).toEqual(['bw1'])
   })
 })

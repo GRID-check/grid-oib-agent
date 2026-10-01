@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  createUploadTracker,
   pendingBindsFromDraft,
   persistedBauwerkIds,
   sendPendingBinds,
@@ -67,5 +68,29 @@ describe('pending role binds', () => {
       role: 'bestandsplan',
       scopeInstanceId: 'bw2',
     })
+  })
+
+  it('settles only once every tracked upload has, including one started while waiting', async () => {
+    const tracker = createUploadTracker()
+    const order: string[] = []
+    let finishFirst!: () => void
+    let finishLate!: () => void
+    tracker.track(new Promise<void>((resolve) => (finishFirst = resolve)).then(() => order.push('first')))
+
+    const settled = tracker.settled().then(() => order.push('settled'))
+    tracker.track(new Promise<void>((resolve) => (finishLate = resolve)).then(() => order.push('late')))
+    finishFirst()
+    await Promise.resolve()
+    finishLate()
+    await settled
+
+    expect(order).toEqual(['first', 'late', 'settled'])
+  })
+
+  it('settles even when a tracked upload fails', async () => {
+    const tracker = createUploadTracker()
+    tracker.track(Promise.reject(new Error('offline')))
+
+    await expect(tracker.settled()).resolves.toBeUndefined()
   })
 })

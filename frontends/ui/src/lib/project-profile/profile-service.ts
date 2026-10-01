@@ -26,7 +26,8 @@ import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projec
  */
 const PROFILE_WRITE: readonly ProjectPermission[] = ['project:memory:write', 'project:edit']
 import { getBackendUrl } from '@/lib/backend-proxy'
-import { retireBindingsOfRemovedBauwerke } from '@/lib/document-roles/service'
+import { deleteBindingsOutsideBauwerke } from '@/lib/document-roles/repository'
+import { bauwerkIds } from '@/lib/document-roles/service'
 import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import {
@@ -106,12 +107,19 @@ export async function saveProjectProfile(
   if (expectedVersion !== undefined && current.profileVersion !== expectedVersion) {
     throw new ConflictError('Conflict: profile was modified since it was loaded')
   }
-  const saved = await persistProfile(projectId, session.organizationId, profile, current, {
+  return persistProfile(projectId, session.organizationId, profile, current, {
     resetSummary: true,
+    // The wizard is where buildings are removed, and this is its save: the
+    // bindings of a building it no longer has go with it. Removing a Bauwerk
+    // used to keep them, invisible in every slot and still read by the agent
+    // (as "Bestandspläne (bw2)"), and a building added later under the reused
+    // id inherited them. In the save's transaction, under the row lock the
+    // update holds: committed with the profile or not at all, and never after
+    // a later save that brought the building back
+    // (docs/architecture/document-roles.md).
+    inTransaction: (tx, saved) =>
+      deleteBindingsOutsideBauwerke(projectId, bauwerkIds(saved.profile), tx).then(() => undefined),
   })
-  // The wizard is where buildings are removed, and this is its save.
-  await retireBindingsOfRemovedBauwerke(projectId, session.organizationId, saved.profile)
-  return saved
 }
 
 /** A patch write, plus whether it landed or was already there. */
@@ -186,6 +194,8 @@ async function persistProfile(
      * edits keep preserving it (regenerating on every chat patch would churn).
      */
     resetSummary?: boolean
+    /** More of the same write, in its transaction (`updateProjectProfileIfVersion`). */
+    inTransaction?: Parameters<typeof updateProjectProfileIfVersion>[4]
   }
 ): Promise<ProjectProfileState> {
   // Single choke point for BOTH the wizard save and agent patches: a confirmed
@@ -210,7 +220,8 @@ async function persistProfile(
         options?.resetSummary ? undefined : current.profileDisplay?.summaryLocale
       ),
       profileUpdatedAt: new Date(),
-    }
+    },
+    options?.inTransaction
   )
   if (!updated) throw new ConflictError('Conflict: profile was modified by another request')
 

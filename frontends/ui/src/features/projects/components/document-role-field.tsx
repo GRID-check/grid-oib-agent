@@ -47,6 +47,8 @@ interface DocumentRoleFieldProps {
     pending: readonly PendingRoleBind[]
     onDefer: (documentId: string, filename: string) => void
     onDiscard: (bind: PendingRoleBind) => void
+    /** Hands an upload to the wizard, whose save waits for it (`createUploadTracker`). */
+    track: (work: Promise<unknown>) => void
   }
 }
 
@@ -182,6 +184,17 @@ export function DocumentRoleField({
     [bind, projectId]
   )
 
+  // An upload for a building not saved yet binds when it answers; the wizard's
+  // save waits for it, so a quick „Speichern“ cannot leave the file unbound.
+  const upload = useCallback(
+    (files: FileList | File[]) => {
+      const work = uploadAndBind(files)
+      deferred?.track(work)
+      run(work)
+    },
+    [deferred, run, uploadAndBind]
+  )
+
   const held = (deferred?.pending ?? []).filter(
     (bind) => bind.role === role && bind.scopeInstanceId === scopeInstanceId
   )
@@ -281,7 +294,7 @@ export function DocumentRoleField({
           multiple={definition.cardinality === 'many'}
           className="sr-only"
           onChange={(event) => {
-            if (event.target.files) run(uploadAndBind(event.target.files))
+            if (event.target.files) upload(event.target.files)
             event.target.value = ''
           }}
         />
@@ -320,7 +333,7 @@ export function DocumentRoleField({
           // A slot that holds one document takes one file. Binding all of them
           // made each replace the last, silently keeping only the final file.
           const files = definition.cardinality === 'one' ? [dropped[0]] : Array.from(dropped)
-          run(uploadAndBind(files))
+          upload(files)
         }}
         className={cn(
           'rounded-lg border border-dashed px-3 py-2 text-center text-xs transition-colors duration-quick ease-out motion-reduce:transition-none',

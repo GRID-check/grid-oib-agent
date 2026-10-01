@@ -40,6 +40,7 @@ interface ProjektgrundlagenStepProps {
     pending: readonly PendingRoleBind[]
     onDefer: (bind: PendingRoleBind) => void
     onDiscard: (bind: PendingRoleBind) => void
+    track: (work: Promise<unknown>) => void
   }
 }
 
@@ -59,6 +60,7 @@ function deferralFor(
     onDefer: (documentId, filename) =>
       pendingBinds.onDefer({ documentId, filename, role: slot.role, scopeInstanceId: bauwerkId }),
     onDiscard: pendingBinds.onDiscard,
+    track: pendingBinds.track,
   }
 }
 

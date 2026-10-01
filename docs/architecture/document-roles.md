@@ -80,9 +80,16 @@ being filed into one — the correct rule, not a limitation.
   sends them once the save has made the building real. Removing the building in
   the wizard drops what it held.
 - **A building's bindings leave with it.** Saving a profile that no longer names
-  a building deletes that building's bindings
-  (`retireBindingsOfRemovedBauwerke`), so the agent is never told about plans of
-  a building the project does not have.
+  a building deletes that building's bindings, so the agent is never told about
+  plans of a building the project does not have. The delete runs in the save's
+  transaction (`updateProjectProfileIfVersion`'s `inTransaction`): it commits
+  with the profile or not at all.
+- **A building binding and a profile save are serialised.** Declaring a
+  `bauwerk` role locks the project row (`lockProjectProfile`, `FOR UPDATE`) and
+  checks the building inside the insert's transaction. A save that removes the
+  building has either committed (the binding is refused) or waits for the
+  insert (and its cleanup deletes it); a binding to a removed building cannot
+  survive either order.
 
 ## What the agent is told
 

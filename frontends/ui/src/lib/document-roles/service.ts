@@ -15,7 +15,8 @@ import {
 } from '@/lib/project-profile/document-roles'
 import type { DocumentRole, RoleConfidence, RoleSource } from '@/lib/project-profile/document-roles'
 import { invalidateProjectPromptViewCache } from '@/lib/project-profile/prompt-view'
-import { findProjectProfile } from '@/lib/projects/repository'
+import { lockProjectProfile } from '@/lib/projects/repository'
+import type { DbTransaction } from '@/lib/storage/repository'
 import {
   answersFromProfile,
   defaultBauwerke,
@@ -24,7 +25,6 @@ import {
 import {
   confirmBinding,
   deleteBindings,
-  deleteBindingsOutsideBauwerke,
   documentBelongsToProject,
   findBindingsForRole,
   listProjectDocumentRoles,
@@ -44,45 +44,37 @@ export type { DocumentRoleBinding } from './repository'
 const WRITE_PERMISSIONS = ['project:documents:write', 'project:edit'] as const
 
 /**
- * Does this project have a building with this id?
+ * The building ids a stored profile names.
  *
- * Read from the stored profile the wizard writes, which is the only place the
- * building list lives. A project with no profile yet still has the implicit
- * first building (`defaultBauwerke`), so declaring against it before the intake
- * is saved keeps working.
+ * The profile the wizard writes is the only place the building list lives. A
+ * project with no profile yet still has the implicit first building
+ * (`defaultBauwerke`), so declaring against it before the intake is saved
+ * keeps working.
  */
-async function projectHasBauwerk(
-  projectId: string,
-  session: AuthorizedSession,
-  bauwerkId: string
-): Promise<boolean> {
-  const profile = await findProjectProfile(projectId, session.organizationId)
+export function bauwerkIds(profile: ProjectProfile | null): string[] {
   const bauwerke = profile
     ? answersFromProfile(profile, projectIntakeDefinitionV1).bauwerke
     : defaultBauwerke()
-  return bauwerke.some((bauwerk) => bauwerk.id === bauwerkId)
+  return bauwerke.map((bauwerk) => bauwerk.id)
 }
 
 /**
- * After the building list was saved: drop the bindings of buildings it no longer has.
+ * Refuse, inside the binding's own transaction, a building the project does not have.
  *
- * Removing a Bauwerk in the wizard dropped its answers and kept its bindings.
- * Nothing rendered a slot for them any more, so the user could not see or
- * remove them, the agent still read them (as "Bestandspläne (bw2)"), and the
- * next building the wizard added under the reused id inherited them.
- * Authorization is the caller's: this runs inside the profile write, which a
- * user may only make with the profile permission.
+ * The project row is locked first, so a profile save that removes the building
+ * either committed before this read (and the binding is refused) or waits for
+ * this insert (and its cleanup deletes it). Checked outside the transaction, a
+ * save could remove the building between the check and the insert and leave a
+ * binding to nowhere.
  */
-export async function retireBindingsOfRemovedBauwerke(
-  projectId: string,
-  organizationId: string,
-  profile: ProjectProfile
-): Promise<number> {
-  const keep = answersFromProfile(profile, projectIntakeDefinitionV1).bauwerke.map((bauwerk) => bauwerk.id)
-  const removed = await deleteBindingsOutsideBauwerke(projectId, keep)
-  if (removed > 0) await invalidateProjectPromptViewCache(projectId, organizationId)
-  return removed
+function requireBauwerk(projectId: string, bauwerkId: string) {
+  return async (tx: DbTransaction): Promise<void> => {
+    if (!bauwerkIds(await lockProjectProfile(tx, projectId)).includes(bauwerkId)) {
+      throw new BadRequestError(`Bauwerk '${bauwerkId}' does not exist in this project.`)
+    }
+  }
 }
+
 
 export async function listDocumentRoles(
   projectId: string,
@@ -141,22 +133,6 @@ export async function declareDocumentRole(
     )
   }
 
-  // The vocabulary can only check the SHAPE of an instance id — that one is
-  // present for a `bauwerk` role and absent otherwise. Whether the building
-  // exists is a fact about this project, so it is checked here, against the
-  // project's own list.
-  //
-  // Without it any non-empty string was accepted, and the resulting binding
-  // matched no generated slot: invisible in the Modul I checklist, invisible in
-  // the agent's context, and impossible for the user to find and remove. A
-  // silent write to nowhere is worse than a rejection.
-  if (
-    scopeInstanceId !== null &&
-    !(await projectHasBauwerk(input.projectId, session, scopeInstanceId))
-  ) {
-    throw new BadRequestError(`Bauwerk '${scopeInstanceId}' does not exist in this project.`)
-  }
-
   // The composite foreign key would reject a foreign document anyway, but as a
   // constraint violation rather than an answer. Checking first turns "500" into
   // "that file is not in this project", and covers the soft-deleted case the FK
@@ -202,7 +178,14 @@ export async function declareDocumentRole(
       source,
       createdBy: session.userId,
     },
-    replaced.map((binding) => binding.id)
+    replaced.map((binding) => binding.id),
+    // The vocabulary can only check the SHAPE of an instance id — present for
+    // a `bauwerk` role, absent otherwise. Whether the building exists is a fact
+    // about this project, checked against its own list in the insert's
+    // transaction (`requireBauwerk`). Without it any non-empty string was
+    // accepted, and the binding matched no slot: invisible in the checklist and
+    // the agent's context, and impossible to find and remove.
+    scopeInstanceId !== null ? requireBauwerk(input.projectId, scopeInstanceId) : undefined
   )
 
   // The agent's project context carries the bindings, and it is cached for five
