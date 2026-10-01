@@ -176,6 +176,13 @@ def sanitize_job_error(exc: BaseException) -> str:
         if "wall-clock" in str(exc).lower():
             return _WALL_CLOCK_TIMEOUT_MSG
         return _GENERIC_TIMEOUT_MSG
+    from aiq_agent.common.canned_replies import ZDR_MODEL_REFUSED_MESSAGE
+    from aiq_agent.common.openrouter import is_data_policy_refusal
+
+    if is_data_policy_refusal(exc):
+        # Curated and actionable: the model has no zero-data-retention
+        # endpoint, and only an admin choosing another one changes that.
+        return ZDR_MODEL_REFUSED_MESSAGE
     if _GraphRecursionError is not None and isinstance(exc, _GraphRecursionError):
         # A runaway graph hit recursion_limit — not an internal defect, and not
         # an LLM provider error (langgraph is deliberately not in the provider
@@ -1192,6 +1199,22 @@ async def run_agent_job(
                         if llm is not None:
                             llm = provider.get(LLMRole.ORCHESTRATOR)
 
+            # Zero Data Retention (ADR-0014), after BYOK so the pin lands only on
+            # models that still point at OpenRouter. The worker once applied
+            # every dial but this one, and deep research runs here. Every model
+            # the job builds below (the agent, grid cards, anatomy, report
+            # follow-ups) comes from this provider, so pinning it pins them all.
+            # Off the loop: a cold lookup is a BFF call. Fails closed.
+            from aiq_agent.common import LLMRole
+            from aiq_agent.common.openrouter import data_policy_for
+
+            job_data_policy = await asyncio.to_thread(data_policy_for, _job_org_id)
+            pinned = provider.with_zdr(job_data_policy.zdr)
+            if pinned is not provider:
+                provider = pinned
+                if llm is not None:
+                    llm = provider.get(LLMRole.ORCHESTRATOR)
+
             # Resolve tools: use the explicit list or auto-inherit the whole
             # data_source_registry when none are configured.
             tool_refs = _resolve_worker_tool_refs(fn_config)
@@ -1588,6 +1611,7 @@ async def run_agent_job(
                         memory_digest=memory_digest,
                         org_credential=resolved_org_credential,
                         model_overrides=model_overrides,
+                        zdr_only=job_data_policy.zdr,
                     )
                     cards = _merge_job_cards(card_registry.snapshot(), cards_result.cards)
                     if cards:
@@ -2247,6 +2271,7 @@ async def _run_deep_research_reflection(
     memory_digest: str | None,
     org_credential: Any,
     model_overrides: dict[str, str] | None,
+    zdr_only: bool = True,
 ) -> None:
     """Best-effort project-memory reflection over a finished deep-research report.
 
@@ -2291,11 +2316,17 @@ async def _run_deep_research_reflection(
         from aiq_agent.stages.memory_reflection import REFLECTION_TIMEOUT_S
 
         reflection_llm = await get_langchain_llm(builder, reflection_llm_ref)
-        overrides = sanitize_model_overrides(model_overrides) if model_overrides else None
-        reflection_llm = apply_model_override(reflection_llm, AgentGroup.MEMORY_REFLECTION, overrides)
-        # Explicit credential (not context): a Dask worker has no live request,
-        # so the org key resolved at build time is passed directly.
-        reflection_llm = apply_org_credential(reflection_llm, org_credential)
+        overrides = sanitize_model_overrides(model_overrides) if model_overrides else {}
+        # Every dial explicit (not context): a Dask worker has no live request,
+        # and a getter here would be a blocking BFF call on the worker's loop.
+        # The credential first, so the ZDR pin lands only on a model that still
+        # points at OpenRouter.
+        reflection_llm = apply_model_override(
+            apply_org_credential(reflection_llm, org_credential),
+            AgentGroup.MEMORY_REFLECTION,
+            overrides,
+            zdr_only=zdr_only,
+        )
 
         with (
             track_agent_profile(agent_name="project_memory_reflection", job_id=job_id, identity=identity),

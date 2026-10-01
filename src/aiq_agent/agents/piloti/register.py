@@ -39,6 +39,8 @@ from aiq_agent.common.decisions import SKIPPED_TOO_SHORT
 from aiq_agent.common.decisions import record_skipped
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
+from aiq_agent.common.openrouter import PLATFORM_FIXED
+from aiq_agent.common.openrouter import pin_chat_model
 from aiq_agent.common.request_llm_context import read_request_llm_context
 from aiq_agent.project_context import get_organization_id_from_context
 from aiq_agent.project_context import get_project_id_from_context
@@ -603,7 +605,13 @@ async def research_agent(config: ResearchAgentConfig, builder: Builder):
         deferred_tool_loading=config.deferred_tool_loading,
         envelope_json_mode_with_tools=config.envelope_json_mode_with_tools,
         repair_pass=config.repair_pass,
-        card_repair_llm=(await get_langchain_llm(builder, config.card_repair_llm)) if config.card_repair_llm else None,
+        # No agent group, so no organization chooses it: pinned to
+        # zero-data-retention endpoints for every turn (`openrouter.PLATFORM_FIXED`).
+        card_repair_llm=(
+            pin_chat_model(await get_langchain_llm(builder, config.card_repair_llm), PLATFORM_FIXED)
+            if config.card_repair_llm
+            else None
+        ),
     )
     deployment = _Deployment(config=config, agent=agent, provider=provider, tools=tools)
 

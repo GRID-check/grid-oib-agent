@@ -253,7 +253,9 @@ def test_cache_routing_composes_with_zdr_provider_routing():
     llm = apply_zdr_routing(_openrouter_chat_model())
     payload = _sent_payload(llm, _messages(), tools=DEFERRED_TOOLS)
     extra_body = payload["extra_body"]
-    assert extra_body["provider"] == {"zdr": True, "data_collection": "deny"}
+    assert extra_body["provider"]["zdr"] is True
+    assert extra_body["provider"]["data_collection"] == "deny"
+    assert extra_body["provider"]["order"][0] == "azure/eu"
     assert extra_body["session_id"].startswith("grid-")
     assert extra_body["plugins"] == [{"id": "response-healing"}]
 

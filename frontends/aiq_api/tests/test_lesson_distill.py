@@ -89,6 +89,26 @@ async def test_match_returns_existing_lesson_id(app, monkeypatch):
     assert post.await_count == 1
 
 
+async def test_both_calls_are_pinned_to_zdr(app, monkeypatch):
+    """One tenant's report that this route cannot attribute: pinned as if it had ZDR on."""
+    monkeypatch.setenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    distill = _llm_response(
+        {
+            "match_lesson_id": None,
+            "lesson": "Neue Lektion.",
+            "canonical_summary": "Zusammenfassung.",
+            "category": "other",
+            "generalizable": True,
+        }
+    )
+    post = AsyncMock(side_effect=[distill, _llm_response({"passed": True, "reason": ""})])
+    _install_client(monkeypatch, post)
+
+    await _post(app, _BODY)
+    assert post.await_count == 2
+    assert all(call.kwargs["json"]["provider"]["zdr"] is True for call in post.await_args_list)
+
+
 async def test_hallucinated_match_id_is_dropped(app, monkeypatch):
     """A match id the caller never offered must not be trusted."""
     distill = _llm_response(

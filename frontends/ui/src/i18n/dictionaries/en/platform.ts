@@ -708,8 +708,12 @@ export const platform = {
     change: 'Change',
     clear: 'Back to the workflow config',
     zdrWarning:
-      'No zero-data-retention endpoint — organizations with that policy on keep their own model instead.',
-    noZdr: 'No zero-data-retention endpoint',
+      'No zero-data-retention endpoint that serves this task. Every organization is ZDR unless it opted out, and those that have not chosen their own model inherit this default, so their requests for this task are refused until it is changed.',
+    zdrUnknown:
+      'The zero-data-retention list could not be loaded, so it is unknown whether this model has a ZDR endpoint.',
+    zdrListUnavailable:
+      'The zero-data-retention list could not be loaded, so no model can be checked. Nothing is offered or saved until it is back.',
+    noZdrResults: 'No model with a zero-data-retention endpoint matches.',
     // Thinking level per group — the second lever on the same row.
     effortPinnedBadge: 'Platform level',
     effortInherit: 'Workflow config',

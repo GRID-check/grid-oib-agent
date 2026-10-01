@@ -543,7 +543,9 @@ functions:
     # `openrouter` because it is the one key every deployment already holds:
     # `OPENROUTER_API_KEY` is the credential, `POST /api/v1/rerank` the route
     # (answers 401 without a key, so it exists). The default model is
-    # `cohere/rerank-v3.5`, multilingual, which a German corpus needs.
+    # `qwen/qwen3-reranker-8b`, multilingual, which a German corpus needs, and
+    # served from a zero-data-retention endpoint, which every rerank is pinned to
+    # (`cohere/rerank-v3.5`, the default until 2026-09, has none).
     # `AIQ_RERANKER_MODEL` / `AIQ_RERANKER_BASE_URL` override per deployment.
     #
     # Fail-open: a key that does not resolve or any provider error falls back to

@@ -214,16 +214,59 @@ export const organization: typeof en.organization = {
     loadError: 'Die Modellkonfiguration konnte nicht geladen werden.',
     byokCatalogHint:
       'Ihr Organisationsschlüssel ({provider}) ist aktiv: Die Auswahl zeigt die Modelle, die IHR Provider-Konto anbietet, und der gesamte Traffic wird darüber abgerechnet. Wird der Schlüssel entfernt, gilt wieder der Plattformkatalog.',
-    zdrTitle: 'Nur Zero Data Retention',
+    pickerLoadError: 'Die Modellliste konnte nicht geladen werden.',
+    saveErrorZdrUnavailable:
+      'Die Zero-Data-Retention-Liste konnte nicht geladen werden; die Modelle ließen sich daher nicht prüfen. Es wurde nichts gespeichert – bitte versuchen Sie es gleich noch einmal.',
+    zdrTitle: 'Zero Data Retention',
     zdrHint:
-      'Zeigt nur Modelle mit einem Zero-Data-Retention-Endpunkt und leitet jede Anfrage an einen solchen weiter, sodass der Anbieter keine Prompts oder Antworten speichert. Gilt für OpenRouter-Modelle.',
-    zdrEnabled: 'Zero Data Retention aktiviert',
-    zdrDisabled: 'Zero Data Retention deaktiviert',
-    zdrError: 'Die Zero-Data-Retention-Richtlinie konnte nicht geändert werden.',
+      'Standardmäßig aktiv. Jede Anfrage, die Piloti für Ihre Organisation über OpenRouter an ein KI-Modell sendet, geht ausschließlich an Endpunkte, die weder Prompts noch Antworten speichern: Chat- und Rechercheantworten, Rückfragen, das Lesen von Dokumenten beim Hochladen (Beschreibungen von Zeichnungen, Texterkennung, Embeddings, Zusammenfassungen, Klassifizierung), das Reranking von Suchergebnissen, Titel und Zusammenfassungen von Unterhaltungen, Konsistenzprüfungen und Skill-Prüfungen. Kann die Einstellung nicht gelesen werden, gilt die Beschränkung trotzdem, und nur Modelle mit einem solchen Endpunkt sind auswählbar. Wo ein Modell in der EU betrieben wird, wird dieser Standort bevorzugt. Nicht erfasst: Websuchanfragen gehen an den Websuche-Anbieter (Tavily), der kein Modellanbieter ist.',
+    zdrNotApplicable:
+      'Der eigene {provider}-Schlüssel Ihrer Organisation ist aktiv; Anfragen gehen daher direkt an diesen Anbieter und nicht über OpenRouter. Ob dort Daten gespeichert werden, regelt Ihr Vertrag mit {provider}; Piloti kann das nicht durchsetzen. Ihre gespeicherte Einstellung bleibt erhalten und gilt wieder, sobald Sie zum Plattformschlüssel oder zu einem OpenRouter-Schlüssel wechseln.',
+    zdrEnabled: 'Zero Data Retention ist aktiviert',
+    zdrDisabled: 'Zero Data Retention ist deaktiviert',
+    zdrError: 'Zero Data Retention konnte nicht geändert werden. Bitte versuchen Sie es erneut.',
+    zdrErrorForbidden:
+      'Sie können Zero Data Retention nicht ändern: Dafür brauchen Sie die Berechtigung „KI-Modelle verwalten“, und die Modellkonfiguration muss für Ihre Organisation freigeschaltet sein.',
     zdrDisableTitle: 'Zero Data Retention deaktivieren?',
     zdrDisableDescription:
-      'Anfragen können künftig an Endpunkte ohne Zero-Data-Retention gesendet werden, sodass der Anbieter Prompts und Antworten speichern kann. Dies betrifft alle Mitglieder Ihrer Organisation.',
-    zdrDisableConfirm: 'Deaktivieren',
+      'Ohne Zero Data Retention dürfen die Modellanbieter hinter OpenRouter die Prompts, hochgeladenen Dokumente, Zeichnungen und Antworten Ihrer Organisation speichern und – je nach Anbieter – zum Training ihrer Modelle verwenden. Das gilt ab der nächsten Anfrage für alle Mitglieder Ihrer Organisation.',
+    zdrDisableAcknowledge:
+      'Mir ist bewusst, dass Prompts, Dokumente, Zeichnungen und Antworten dieser Organisation dann von Modellanbietern gespeichert und zum Training verwendet werden können.',
+    zdrDisableConfirm: 'Zero Data Retention deaktivieren',
+    zdrOffTitle: 'Zero Data Retention ist deaktiviert',
+    zdrOffBody:
+      'Die Modellanbieter hinter OpenRouter dürfen Prompts, Dokumente, Zeichnungen und Antworten Ihrer Organisation speichern und – je nach Anbieter – zum Training verwenden. Sie können die Einstellung oben jederzeit ohne Bestätigung wieder aktivieren.',
+    zdrBlockedSummary:
+      '{count, plural, one {# Aufgabe kann} other {# Aufgaben können}} mit dem aktuellen Modell nicht unter Zero Data Retention laufen. Siehe die markierten Zeilen unten.',
+    zdrBlockedNotZdr:
+      '{model} ({source}) hat keinen Zero-Data-Retention-Endpunkt. Anfragen für diese Aufgabe werden abgelehnt, bis Sie hier ein ZDR-fähiges Modell wählen.',
+    zdrBlockedCapability:
+      '{model} ({source}) hat zwar Zero-Data-Retention-Endpunkte, aber keiner unterstützt, was diese Aufgabe benötigt. Anfragen für diese Aufgabe werden abgelehnt, bis Sie hier ein anderes Modell wählen.',
+    zdrSource: {
+      org: 'Ihre Auswahl',
+      platform: 'Plattform-Standard',
+      workflow: 'Workflow-Konfiguration',
+    },
+    zdrCoverageUnknown:
+      'Die Zero-Data-Retention-Liste konnte nicht geladen werden; ob das Modell jeder Aufgabe einen ZDR-Endpunkt hat, ist daher unbekannt. Anfragen bleiben auf ZDR-Endpunkte beschränkt; Anfragen ohne passenden Endpunkt werden abgelehnt.',
+    zdrUnresolved:
+      'Das Standardmodell dieser Aufgabe konnte nicht ermittelt werden; ob es einen Zero-Data-Retention-Endpunkt hat, ist unbekannt.',
+    zdrListUnavailable:
+      'Die Zero-Data-Retention-Liste konnte nicht geladen werden; deshalb kann gerade kein Modell angeboten werden. Bitte versuchen Sie es gleich noch einmal.',
+    noZdrResults: 'Kein Modell mit Zero-Data-Retention-Endpunkt passt zu Ihrer Suche.',
+    noZdrMark: 'Kein Zero-Data-Retention-Endpunkt',
+    rejection: {
+      unknown_group: 'Diese Aufgabe gibt es nicht mehr.',
+      not_in_catalog: '{model} ist nicht im Modellkatalog.',
+      not_zdr: '{model} hat keinen Zero-Data-Retention-Endpunkt.',
+      zdr_endpoint_lacks_capability:
+        'Kein Zero-Data-Retention-Endpunkt von {model} unterstützt, was diese Aufgabe benötigt.',
+      no_text_input: 'Das Modell nimmt keine Texteingabe an.',
+      no_image_input: 'Das Modell nimmt keine Bilder an; diese Aufgabe braucht ein Vision-Modell.',
+      context_too_small: 'Das Kontextfenster ({actual} Tokens) ist kleiner als die geforderten {required}.',
+      missing_parameter: 'Das Modell unterstützt „{parameter}“ nicht, das diese Aufgabe braucht.',
+      reasoning_mandatory: 'Das Modell erfordert Reasoning; für diese Aufgabe ist Reasoning deaktiviert.',
+    },
   },
   byok: {
     title: 'LLM-API-Schlüssel (BYOK)',

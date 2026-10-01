@@ -28,8 +28,10 @@ dependencies = [
     "pydantic>=2.0.0",
     "langchain-core>=1.3.3,<2",
     "python-multipart>=0.0.27,<0.1",
-    # JWT validation for AuthMiddleware (RS256 via JWKS)
-    "PyJWT[cryptography]>=2.8.0",
+    # JWT validation for AuthMiddleware (RS256 via JWKS). The extra is `crypto`;
+    # PyJWT has no `cryptography` extra, so that spelling installed nothing.
+    # 2.15.1 is the first release clear of the September 2026 advisories.
+    "PyJWT[crypto]>=2.15.1",
 ]
 
 [project.optional-dependencies]

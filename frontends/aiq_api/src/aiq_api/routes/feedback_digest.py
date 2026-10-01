@@ -26,11 +26,14 @@ path returns an empty digest with a diagnosable code: a digest is a convenience
 on top of a page that works without it, and must never be able to take it down.
 """
 
+import asyncio
 import logging
 
 import httpx
 from fastapi import APIRouter
 from fastapi import Header
+
+from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
 
 from ..models.requests import MAX_DIGEST_SAMPLES
 from ..models.requests import FeedbackDigestRequest
@@ -307,30 +310,34 @@ def add_feedback_digest_routes(router: APIRouter) -> None:
         causes = await _label_causes(request, x_grid_organization_id)
         brief = _build_brief(request, causes)
 
-        model, api_key, base_url = _llm_settings(x_grid_organization_id)
-        if not api_key:
+        # Cross-tenant: the questions come from every organization, so the
+        # request is pinned as if each of them had ZDR on.
+        cred = await asyncio.to_thread(_llm_settings, x_grid_organization_id, data_policy=ZERO_DATA_RETENTION)
+        if not cred.api_key:
             return FeedbackDigestResponse(headline="", error="llm_not_configured")
 
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cred.api_key}"}
         user_content = f"Write the digest in {language}.\n\n{brief}"
 
-        payload = {
-            "model": model,
-            "temperature": 0.2,
-            "max_tokens": 700,
-            # Same endpoint-level JSON contract the other two JSON routes send:
-            # asking for an object in the prompt alone leaves the model free to
-            # answer in prose, which this route can only report as malformed.
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-        }
+        payload = cred.request_body(
+            {
+                "model": cred.model,
+                "temperature": 0.2,
+                "max_tokens": 700,
+                # Same endpoint-level JSON contract the other two JSON routes send:
+                # asking for an object in the prompt alone leaves the model free to
+                # answer in prose, which this route can only report as malformed.
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+            }
+        )
 
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:
-                response = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+                response = await client.post(f"{cred.base_url}/chat/completions", json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as exc:

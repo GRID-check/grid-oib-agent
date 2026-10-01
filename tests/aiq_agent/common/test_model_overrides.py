@@ -145,9 +145,10 @@ class FakeNonOpenRouterModel(BaseModel):
 
 
 class TestMergeZdrExtraBody:
-    def test_sets_provider_zdr_and_data_collection(self):
+    def test_sets_provider_zdr_and_data_collection(self, monkeypatch):
         from aiq_agent.common.model_overrides import _merge_zdr_extra_body
 
+        monkeypatch.setenv("OPENROUTER_PREFERRED_PROVIDERS", "")
         merged = _merge_zdr_extra_body(None)
         assert merged == {"provider": {"zdr": True, "data_collection": "deny"}}
 
@@ -160,9 +161,10 @@ class TestMergeZdrExtraBody:
 
 
 class TestApplyZdrRouting:
-    def test_copies_openrouter_model_with_zdr(self):
+    def test_copies_openrouter_model_with_zdr(self, monkeypatch):
         from aiq_agent.common.model_overrides import apply_zdr_routing
 
+        monkeypatch.setenv("OPENROUTER_PREFERRED_PROVIDERS", "")
         llm = FakeOpenRouterModel(extra_body={"plugins": [{"id": "response-healing"}]})
         result = apply_zdr_routing(llm)
         assert result is not llm
@@ -315,7 +317,8 @@ class TestOrgScopedFallbackResolution:
         assert M.resolve_org_model_overrides("org_A") == {"shallow_research": "vendor/x"}
         assert calls == ["org_A"]
 
-    def test_fetch_failure_fails_open_to_empty(self, monkeypatch):
+    def test_fetch_failure_opens_the_models_and_closes_zdr(self, monkeypatch):
+        """The model choice fails open (YAML models); the privacy control fails closed."""
         import aiq_agent.common.model_overrides as M
 
         def boom(org):
@@ -323,7 +326,7 @@ class TestOrgScopedFallbackResolution:
 
         monkeypatch.setattr(M, "_fetch_org_config", boom)
         assert M.resolve_org_model_overrides("org_A") == {}
-        assert M.resolve_org_zdr_only("org_A") is False
+        assert M.resolve_org_zdr_only("org_A") is True
         # Negative-cached: the failure is not retried within the TTL.
         monkeypatch.setattr(M, "_fetch_org_config", lambda org: pytest.fail("negative cache must hold"))
         assert M.resolve_org_model_overrides("org_A") == {}
@@ -349,11 +352,13 @@ class TestOrgScopedFallbackResolution:
         monkeypatch.setattr("httpx.get", lambda *a, **k: FakeResponse())
         assert M._fetch_org_config("org_A") == ({"deep_research": "x-ai/grok-4.5"}, True)
 
-    def test_no_internal_token_returns_empty(self, monkeypatch):
+    def test_no_internal_token_is_yaml_models_with_zdr_pinned(self, monkeypatch):
+        """Without a trust channel nobody was asked: the org's ZDR bit is unknown, so it is on."""
         import aiq_agent.common.model_overrides as M
 
         monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
-        assert M._fetch_org_config("org_A") == ({}, False)
+        assert M.resolve_org_model_overrides("org_A") == {}
+        assert M.resolve_org_zdr_only("org_A") is True
 
     def test_zdr_only_resolves_via_org_id(self, monkeypatch):
         import aiq_agent.common.model_overrides as M
@@ -437,36 +442,18 @@ class TestSharedTier:
 
         monkeypatch.setattr(M, "_fetch_org_config", boom)
         entry = M._resolve_org_config("org_1")
-        assert entry.overrides == {} and entry.zdr_only is False
+        assert entry.overrides == {} and entry.zdr_only is True
         assert cache.get_json(M.shared_model_config_key("org_1")) is None
 
     def test_missing_token_resolution_writes_nothing_to_the_shared_tier(self, monkeypatch):
-        """No GRID_INTERNAL_API_TOKEN -> ({}, False) with no L2 write, so an
-        unconfigured backend cannot shadow a real config for a full TTL."""
+        """No GRID_INTERNAL_API_TOKEN -> YAML models with ZDR pinned, and no L2
+        write, so an unconfigured backend cannot shadow a real config for a full TTL."""
         from aiq_agent.common import cache
         from aiq_agent.common import model_overrides as M
 
         monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
         entry = M._resolve_org_config("org_1")
-        assert entry.overrides == {} and entry.zdr_only is False
-        assert cache.get_json(M.shared_model_config_key("org_1")) is None
-
-    def test_empty_success_writes_L1_only(self, monkeypatch):
-        """A genuine ({}, False) answer memoises in-process (no refetch storm)
-        but stays out of L2, where it would shadow a concurrent admin save."""
-        from aiq_agent.common import cache
-        from aiq_agent.common import model_overrides as M
-
-        calls = []
-
-        def empty(org):
-            calls.append(org)
-            return {}, False
-
-        monkeypatch.setattr(M, "_fetch_org_config", empty)
-        assert M.resolve_org_model_overrides("org_1") == {}
-        assert M.resolve_org_zdr_only("org_1") is False
-        assert calls == ["org_1"]
+        assert entry.overrides == {} and entry.zdr_only is True
         assert cache.get_json(M.shared_model_config_key("org_1")) is None
 
     def test_an_authoritative_empty_config_is_cached_in_l2(self, monkeypatch):
@@ -538,9 +525,9 @@ class TestSharedTier:
         assert all(r == {"deep_research": "x-ai/grok-4.5"} for r in results)
 
     def test_error_negative_cache_expires_in_about_one_second(self, monkeypatch):
-        """A failed fetch fails open but retries quickly: held within the 1s
-        negative TTL, retried past it — so a transient BFF outage (and its ZDR
-        bit) never pins the fleet, and recovery is a second away, not ten."""
+        """A failed fetch is retried quickly: held within the 1s negative TTL,
+        retried past it — so a transient BFF outage never pins the fleet to the
+        YAML models and ZDR routing, and recovery is a second away, not ten."""
         import time as stdlib_time
 
         from aiq_agent.common import model_overrides as M

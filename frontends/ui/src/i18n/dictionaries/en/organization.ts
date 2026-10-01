@@ -217,16 +217,59 @@ export const organization = {
     loadError: 'Could not load the model configuration.',
     byokCatalogHint:
       'Your organization key ({provider}) is active: the picker lists the models available to YOUR provider account, and all traffic is billed to it. Removing the key switches back to the platform catalog.',
-    zdrTitle: 'Zero data retention only',
+    pickerLoadError: 'The model list could not be loaded.',
+    saveErrorZdrUnavailable:
+      'The zero-data-retention list could not be loaded, so the models could not be checked. Nothing was saved; try again shortly.',
+    zdrTitle: 'Zero data retention',
     zdrHint:
-      'Show only models with a zero-data-retention endpoint and route every request to one, so no prompt or response is stored by the provider. Applies to OpenRouter models.',
-    zdrEnabled: 'Zero data retention enabled',
-    zdrDisabled: 'Zero data retention disabled',
-    zdrError: 'Could not change the zero-data-retention policy.',
+      'On by default. Every request Piloti sends to an AI model through OpenRouter for your organization goes only to endpoints that store neither prompts nor responses: chat and research answers, clarifying questions, reading documents on upload (drawing captions, OCR, embeddings, summaries, classification), search reranking, conversation titles and summaries, consistency checks and skill reviews. If the setting cannot be read, requests are restricted anyway, and only models with such an endpoint can be chosen. EU-hosted endpoints are preferred where a model has one. Not covered: web search queries go to the web search provider (Tavily), which is not a model provider.',
+    zdrNotApplicable:
+      'Your organization’s own {provider} key is active, so requests go directly to that provider, not through OpenRouter. Retention for those requests is governed by your contract with {provider}; Piloti cannot enforce it. Your saved setting is kept and applies again once you switch back to the platform key or an OpenRouter key.',
+    zdrEnabled: 'Zero data retention is on',
+    zdrDisabled: 'Zero data retention is off',
+    zdrError: 'Could not change zero data retention. Try again.',
+    zdrErrorForbidden:
+      'You cannot change zero data retention: it needs the “Manage AI models” permission, and model configuration must be enabled for your organization.',
     zdrDisableTitle: 'Turn off zero data retention?',
     zdrDisableDescription:
-      'Requests may then be sent to endpoints without zero data retention, so the provider can store prompts and responses. This affects every member of your organization.',
-    zdrDisableConfirm: 'Turn off',
+      'With zero data retention off, the model providers behind OpenRouter may store your organization’s prompts, uploaded documents, drawings and answers and, depending on the provider, use them to train their models. This applies to every member of your organization, from the next request on.',
+    zdrDisableAcknowledge:
+      'I understand that prompts, documents, drawings and answers of this organization may then be stored by model providers and used for training.',
+    zdrDisableConfirm: 'Turn off zero data retention',
+    zdrOffTitle: 'Zero data retention is off',
+    zdrOffBody:
+      'The model providers behind OpenRouter may store your organization’s prompts, documents, drawings and answers and, depending on the provider, use them for training. You can turn it back on above at any time, without confirmation.',
+    zdrBlockedSummary:
+      '{count, plural, one {# task cannot run under zero data retention with its current model} other {# tasks cannot run under zero data retention with their current models}}. See the marked rows below.',
+    zdrBlockedNotZdr:
+      '{model} ({source}) has no zero-data-retention endpoint. Requests for this task are refused until you choose a ZDR model here.',
+    zdrBlockedCapability:
+      '{model} ({source}) has zero-data-retention endpoints, but none supports what this task needs. Requests for this task are refused until you choose a different model here.',
+    zdrSource: {
+      org: 'your choice',
+      platform: 'platform default',
+      workflow: 'workflow configuration',
+    },
+    zdrCoverageUnknown:
+      'The zero-data-retention list could not be loaded, so it is unknown whether each task’s model has a ZDR endpoint. Requests stay restricted to ZDR endpoints; any without one are refused.',
+    zdrUnresolved:
+      'The default model for this task could not be determined, so whether it has a zero-data-retention endpoint is unknown.',
+    zdrListUnavailable:
+      'The zero-data-retention list could not be loaded, so no model can be offered right now. Try again shortly.',
+    noZdrResults: 'No model with a zero-data-retention endpoint matches.',
+    noZdrMark: 'No zero-data-retention endpoint',
+    /** Why a model was refused for a task (`ModelRejectionCode`, lib/model-config/rejections.ts). */
+    rejection: {
+      unknown_group: 'This task no longer exists.',
+      not_in_catalog: '{model} is not in the model catalog.',
+      not_zdr: '{model} has no zero-data-retention endpoint.',
+      zdr_endpoint_lacks_capability: 'No zero-data-retention endpoint of {model} supports what this task needs.',
+      no_text_input: 'The model does not accept text input.',
+      no_image_input: 'The model does not accept images; this task needs a vision model.',
+      context_too_small: 'Its context window ({actual} tokens) is below the required {required}.',
+      missing_parameter: 'The model does not support “{parameter}”, which this task needs.',
+      reasoning_mandatory: 'The model always reasons, and this task runs with reasoning off.',
+    },
   },
   byok: {
     title: 'LLM API key (BYOK)',
