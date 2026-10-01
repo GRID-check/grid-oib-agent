@@ -70,6 +70,9 @@ export const files = {
     // retrieval cannot make) nor a failure — nothing went wrong.
     stored: 'Filed',
     unknown: 'Unknown',
+    // Only the office's own uploads: inside one office the queue reads in
+    // order, across offices it takes turns (ADR-0074).
+    queuedAhead: '{count, plural, one {Waiting · # file ahead} other {Waiting · # files ahead}}',
   },
   toast: {
     // Fired the instant async ingestion finishes and the document becomes

@@ -324,3 +324,36 @@ def test_the_runs_guard_says_no_once_another_worker_holds_the_claim(db):
     worker.source()()
 
     assert held == [True, False, False]
+
+
+def test_a_waiting_status_says_how_many_of_its_offices_jobs_are_ahead(db):
+    ingestor = FakeIngestor()
+    ingest_dispatch.dispatch(ingestor, _prepared("job-1"))
+    ingest_dispatch.dispatch(ingestor, _prepared("job-2"))
+    statuses = {
+        "job-1": {"status": "pending", "metadata": {}},
+        "job-2": {"status": "pending"},
+        "local": {"status": "pending", "metadata": {}},
+        "done": {"status": "completed", "metadata": {}},
+        "unknown": None,
+    }
+
+    ingest_dispatch.stamp_queue_ahead(statuses)
+
+    assert statuses["job-1"]["metadata"]["queue_ahead"] == 0
+    assert statuses["job-2"]["metadata"]["queue_ahead"] == 1
+    # Pending but not in the queue: the key is there, empty, so a shown count clears.
+    assert statuses["local"]["metadata"] == {"queue_ahead": None}
+    assert statuses["done"]["metadata"] == {}
+
+
+def test_a_failed_count_leaves_the_statuses_alone(db, monkeypatch):
+    def broken(_ids):
+        raise RuntimeError("database gone")
+
+    monkeypatch.setattr(ingest_queue, "ahead_in_lane", broken)
+    statuses = {"job-1": {"status": "pending", "metadata": {}}}
+
+    ingest_dispatch.stamp_queue_ahead(statuses)
+
+    assert statuses == {"job-1": {"status": "pending", "metadata": {}}}

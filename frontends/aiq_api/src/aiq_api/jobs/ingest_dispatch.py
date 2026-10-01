@@ -321,3 +321,28 @@ def attach(ingestor: BaseIngestor | None, *, claim: bool | None = None) -> bool:
     ingestor.attach_job_source(QueueSource(ingestor))
     logger.info("Claiming queued ingestion jobs (fair across organisations)")
     return True
+
+
+def stamp_queue_ahead(statuses: dict[str, Any]) -> None:
+    """Put each waiting job's place among its own office's jobs into ``metadata.queue_ahead``.
+
+    Every pending status gets the key, ``None`` when the queue does not hold the
+    job (an in-memory job, or the queue off), so a reader that showed a count
+    clears it rather than keeping the last one. Best effort: a failed count
+    leaves the statuses as they were, since the status is the answer and the
+    count only decorates it.
+    """
+    waiting = [
+        job_id for job_id, status in statuses.items() if status and status.get("status") == JobState.PENDING.value
+    ]
+    if not waiting:
+        return
+    ahead: dict[str, int] = {}
+    if queue_enabled():
+        try:
+            ahead = ingest_queue.ahead_in_lane(waiting)
+        except Exception as exc:
+            logger.warning("ingest queue: counting the jobs ahead failed (%s)", type(exc).__name__)
+            return
+    for job_id in waiting:
+        statuses[job_id].setdefault("metadata", {})["queue_ahead"] = ahead.get(job_id)

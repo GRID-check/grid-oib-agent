@@ -2648,6 +2648,8 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     chunkCount: reconciled.chunkCount,
     contentTypes: reconciled.contentTypes,
     tags: reconciled.tags,
+    // The place in the ingest queue, null once the job is claimed or settled.
+    queueAhead: reconciled.queueAhead ?? null,
     // Whose hand wrote the bytes. Added because this payload is how the CHAT
     // resolves a document into the peek pane, and a report Piloti wrote that
     // opens beside the conversation without its „Von Piloti erstellt" byline is

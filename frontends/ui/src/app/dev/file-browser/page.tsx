@@ -168,8 +168,10 @@ const UPLOADING_FILES: FileItem[] = [
     summary: null,
     fileSize: 2_400_000,
   }),
+  // Waiting in the ingest queue behind two of the office's own uploads.
   makeFile('u2', 'Baubeschreibung_Einreichung.pdf', '', {
-    status: 'processing',
+    status: 'pending',
+    queueAhead: 2,
     summary: null,
     fileSize: 1_700_000,
   }),

@@ -35,6 +35,7 @@ from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
 
+from sqlalchemy import bindparam
 from sqlalchemy import text
 
 from .document_metadata_store import DocumentMetadataStore
@@ -405,3 +406,30 @@ def depth() -> int:
         # Only module constants are interpolated; the status is bound.
         # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         return int(conn.execute(text(f"SELECT COUNT(*) FROM {TABLE} WHERE status = :q"), {"q": QUEUED}).scalar() or 0)
+
+
+def ahead_in_lane(job_ids: list[str]) -> dict[str, int]:
+    """For each job still waiting, how many of its own lane's jobs wait ahead of it.
+
+    The lane's own count is the only order the queue promises: inside a lane
+    jobs are claimed oldest first, across lanes the claim interleaves by the
+    fewest running. So "3 ahead" is exact for an office's own uploads, and no
+    other office's backlog is in it, because none stands between. A job not in
+    the queue, or already claimed, has no entry.
+    """
+    url = db_url()
+    if not url or not job_ids:
+        return {}
+    ensure_table(url)
+    # Only module constants are interpolated; the ids and the status are bound.
+    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+    query = text(
+        f"SELECT q.job_id, (SELECT COUNT(*) FROM {TABLE} o"
+        "   WHERE o.status = :q AND o.lane = q.lane"
+        "     AND (o.created_at < q.created_at"
+        "          OR (o.created_at = q.created_at AND o.job_id < q.job_id))) AS ahead"
+        f" FROM {TABLE} q WHERE q.status = :q AND q.job_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    with _engine(url).connect() as conn:
+        rows = conn.execute(query, {"q": QUEUED, "ids": list(job_ids)}).all()
+    return {str(job_id): int(ahead) for job_id, ahead in rows}

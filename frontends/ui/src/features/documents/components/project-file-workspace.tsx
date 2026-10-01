@@ -191,6 +191,11 @@ export interface FileItem {
   contentTypes: string[] | null
   /** Controlled ingestion-generated tags (document type + OIB discipline). */
   tags: string[] | null
+  /**
+   * How many of this office's uploads wait ahead of this one in the ingest
+   * queue, or null when it is not waiting there (`DocumentMetadata.queueAhead`).
+   */
+  queueAhead?: number | null
   /** Who is on the hook. Empty = Unvergeben. Absent when collaboration is off. */
   assignees?: readonly FileAssignee[]
   /**

@@ -150,6 +150,26 @@ def test_depth_counts_the_waiting_jobs(db):
     assert ingest_queue.depth() == 1
 
 
+def test_a_waiting_job_counts_only_its_own_offices_jobs_ahead(db):
+    _enqueue("a0", "org-a", "2026-09-30 10:00:00")
+    _enqueue("a1", "org-a", "2026-09-30 10:00:01")
+    _enqueue("a2", "org-a", "2026-09-30 10:00:02")
+    _enqueue("b0", "org-b", "2026-09-30 09:00:00")
+    _enqueue("b1", "org-b", "2026-09-30 11:00:00")
+    claimed = ingest_queue.claim_next("w1", **CLAIM)
+
+    ahead = ingest_queue.ahead_in_lane(["a0", "a1", "a2", "b0", "b1", "unknown"])
+
+    # b0 is the oldest job and the first claim takes it: claimed, so no entry.
+    assert claimed is not None and claimed.job_id == "b0"
+    # org-b's backlog stands between org-a and nothing: a0 is next for org-a.
+    assert ahead == {"a0": 0, "a1": 1, "a2": 2, "b1": 0}
+
+
+def test_no_ids_asks_nothing(db):
+    assert ingest_queue.ahead_in_lane([]) == {}
+
+
 def test_a_queued_job_is_not_settled_as_interrupted_when_its_replica_is_gone(db):
     """The accepting replica wrote PENDING and died; the job still waits in the queue."""
     status = IngestionJobStatus(

@@ -33,6 +33,7 @@ type OptionalWireField =
   | 'chunkCount'
   | 'contentTypes'
   | 'tags'
+  | 'queueAhead'
   | 'originPath'
   | 'contentHash'
   | 'assignees'
@@ -59,6 +60,7 @@ export function toFileItem(row: DocumentWireRow): FileItem {
     chunkCount: row.chunkCount ?? null,
     contentTypes: row.contentTypes ?? null,
     tags: row.tags ?? null,
+    queueAhead: row.queueAhead ?? null,
     assignees: row.assignees ?? EMPTY_ASSIGNEES,
     authoredBy: row.authoredBy ?? 'user',
     // `null`, never a default state: a listing that did not read the version

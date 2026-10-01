@@ -113,8 +113,13 @@ already give at this volume: a few claims per second.
   reading each file and skips it, so the queue widening the window across
   restarts costs no download, OCR or vision calls. The check after indexing
   (`_deleted_while_indexing`) still catches a delete that lands mid-run.
-* Bad, because the queue has no organisation-facing position ("12 files ahead
-  of yours"). The fairness is real but invisible.
+* Neutral: an office sees its place in the queue ("Wartet · 3 Dateien davor"),
+  counted among its own jobs only (`ingest_queue.ahead_in_lane`, stamped as
+  `metadata.queue_ahead` on the batch status). That is the one order the queue
+  promises: inside a lane it claims oldest first, across lanes it interleaves,
+  so no other office's backlog stands in the count. It cannot say how long the
+  wait is, because that depends on how many lanes are busy when each job is
+  claimed.
 
 ### Confirmation
 
@@ -130,6 +135,9 @@ already give at this volume: a few claims per second.
   `tests/knowledge_layer_tests/test_reingest_replaces_versions.py`
   (`…_lost_its_claim_stops_before_writing`, `…_is_not_read_at_all`) and the
   dispatch guard in `frontends/aiq_api/tests/test_ingest_dispatch.py`.
+* The place in the queue: `test_a_waiting_job_counts_only_its_own_offices_jobs_ahead`
+  in `test_ingest_queue.py`, and the BFF's carry of it in
+  `frontends/ui/src/lib/documents/reconcile-status.spec.ts`.
 * The provider ceiling: `tests/knowledge_layer_tests/test_vlm_rate_limits.py`
   and `tests/aiq_agent/common/test_lease_slots.py`.
 

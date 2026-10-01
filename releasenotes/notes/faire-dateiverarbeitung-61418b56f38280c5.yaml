@@ -4,6 +4,9 @@ improvements:
     Files you upload start being read right away, even while another office
     is importing a large folder, and a busy day brings more reading capacity
     instead of a longer wait.
+  - >
+    A file waiting to be read shows how many of your office's uploads are
+    ahead of it, for example "Wartet · 3 Dateien davor".
 fixes:
   - >
     A file that was still waiting to be read when Piloti restarted is now read
