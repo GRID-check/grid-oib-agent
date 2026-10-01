@@ -116,6 +116,14 @@
           "key": "improvements",
           "notes": [
             {
+              "en": "Files you upload start being read right away, even while another office is importing a large folder, and a busy day brings more reading capacity instead of a longer wait.",
+              "de": "Dateien, die Sie uploaden, werden sofort eingelesen – auch während ein anderes Büro einen großen Ordner importiert. An stark ausgelasteten Tagen steht mehr Kapazität zum Einlesen zur Verfügung, statt dass sich die Wartezeit verlängert."
+            },
+            {
+              "en": "A file waiting to be read shows how many of your office's uploads are ahead of it, for example \"Wartet · 3 Dateien davor\".",
+              "de": "Eine Datei, die noch eingelesen werden muss, zeigt an, wie viele Uploads Ihres Büros noch vor ihr an der Reihe sind, z. B. „Wartet · 3 Dateien davor“."
+            },
+            {
               "en": "When a document cannot be read, the file card, the preview, the upload list and the chat's file list now say why in plain language and what helps, for example reading it again or asking the admins to set up a vision model for scanned pages. The original error text is still there under \"Details\".",
               "de": "Wenn ein Dokument nicht gelesen werden kann, zeigen die Dateikarte, die Vorschau, die Upload-Liste und die Dateiliste im Chat jetzt in klarer Sprache, woran es liegt und was hilft – zum Beispiel, es erneut einzulesen oder Ihre Admins zu bitten, ein Vision-Modell für gescannte Seiten einzurichten. Der ursprüngliche Fehlertext steht weiterhin unter „Details“."
             },
@@ -181,6 +189,14 @@
               "de": "Eine Frage, die nach einem kurzen Verbindungsabbruch erneut gesendet wird, wird nicht mehr doppelt beantwortet. Der Chat führt die bereits laufende Antwort fort."
             },
             {
+              "en": "A file that was still waiting to be read when Piloti restarted is now read afterwards instead of showing as failed.",
+              "de": "Eine Datei, deren Einlesen beim Neustart von Piloti noch ausstand, wird nun nachträglich eingelesen, statt als fehlgeschlagen angezeigt zu werden."
+            },
+            {
+              "en": "Reading and indexing an uploaded document now counts toward usage, booked to its project and to whoever uploaded it. Until now an office's spend left out everything an upload cost, though an upload in progress is still never stopped by a budget.",
+              "de": "Das Lesen und Indexieren eines hochgeladenen Dokuments zählt jetzt zur Nutzung und wird dem zugehörigen Projekt sowie der Person, die es hochgeladen hat, zugeordnet. Bisher waren Upload-Kosten nicht in den Ausgaben eines Büros enthalten; ein laufender Upload wird jedoch weiterhin nie durch ein Budget gestoppt."
+            },
+            {
               "en": "A file whose reading was cut short by a restart of the service that reads it now shows as failed with a retry, instead of staying in progress forever and refusing to be read again. A restart while a Word or PowerPoint file is still being converted is not covered: that file stays at Wird gelesen until you choose Erneut lesen.",
               "de": "Eine Datei, deren Einlesen durch einen Neustart des zuständigen Dienstes unterbrochen wurde, wird jetzt als fehlgeschlagen angezeigt und kann erneut eingelesen werden, statt dauerhaft auf „Wird gelesen“ zu bleiben und sich nicht erneut einlesen zu lassen. Ein Neustart während der Konvertierung einer Word- oder PowerPoint-Datei ist davon nicht abgedeckt: Diese Datei bleibt auf „Wird gelesen“, bis Sie „Erneut lesen“ auswählen."
             },
@@ -229,6 +245,22 @@
               "de": "Ein Projektlink mit einer falsch eingegebenen oder abgeschnittenen Adresse zeigt jetzt dieselbe Seite „Kein Zugriff“ wie jedes Projekt, das Sie nicht öffnen können, statt einer allgemeinen Fehlerseite."
             },
             {
+              "en": "Assigning existing plans to a building under Projektgrundlagen no longer fails with an internal error when the project brief has not been saved yet. Plans for a building you have just added are shown as waiting and assigned when you save, and removing a building also removes its plan assignments.",
+              "de": "Das Zuweisen bestehender Pläne zu einem Gebäude unter Projektgrundlagen führt nicht mehr zu einem internen Fehler, wenn der Projektbrief noch nicht gespeichert wurde. Pläne für ein gerade hinzugefügtes Gebäude werden als wartend angezeigt und beim Speichern zugewiesen. Beim Entfernen eines Gebäudes werden auch die zugehörigen Planzuweisungen entfernt."
+            },
+            {
+              "en": "Dragging files into Dateien now uploads them even when they come straight from an email or a cloud-synced folder, where the drop used to do nothing.",
+              "de": "Das Ziehen von Dateien in Dateien lädt diese jetzt auch hoch, wenn sie direkt aus einer E-Mail oder einem cloud-synchronisierten Ordner stammen – zuvor blieb das Ablegen ohne Wirkung."
+            },
+            {
+              "en": "Dropping files on any other project page, such as Einstellungen, now opens Dateien and uploads them there, where the browser used to open the file in place of Piloti.",
+              "de": "Wenn Sie Dateien auf einer anderen Projektseite wie Einstellungen ablegen, öffnet sich jetzt die Seite Dateien und lädt die Dateien dort hoch, statt dass der Browser sie anstelle von Piloti öffnet."
+            },
+            {
+              "en": "A short overload at the language model provider no longer ends your question with an error; Piloti waits a moment and tries again.",
+              "de": "Bei einer kurzzeitigen Überlastung des Sprachmodell-Anbieters erhalten Sie für Ihre Frage keine Fehlermeldung mehr: Piloti wartet kurz und versucht es erneut."
+            },
+            {
               "en": "A scanned PDF is now read word for word, up to 500 pages, tables included, and the file says how many pages were left. Before, only its first 20 pages were looked at and those were described rather than read, so the conditions in a scanned permit could not be found.",
               "de": "Ein gescanntes PDF wird jetzt bis zu 500 Seiten wortgetreu gelesen, Tabellen inklusive. Die Datei zeigt außerdem an, wie viele Seiten noch übrig sind. Bisher wurden nur die ersten 20 Seiten betrachtet und beschrieben statt gelesen, sodass Auflagen in einem gescannten Bescheid nicht gefunden werden konnten."
             },
@@ -269,6 +301,10 @@
         {
           "key": "security",
           "notes": [
+            {
+              "en": "Langfuse moves to 4.48.0 and its ClickHouse to 26.8 LTS. Langfuse 3.x still shipped a Next.js version with a remote code execution flaw that no 3.x release fixes.",
+              "de": "Langfuse wird auf 4.48.0 und ClickHouse auf 26.8 LTS aktualisiert. Langfuse 3.x enthält weiterhin eine Next.js-Version mit einer Schwachstelle zur Remote-Code-Ausführung, die in keinem 3.x-Release behoben wird."
+            },
             {
               "en": "Zero data retention is now on for every organization and covers every request Piloti sends to an AI model, including document reading, search and research reports, not only chat answers. Where a model is also hosted in the EU, that location is preferred.",
               "de": "Zero Data Retention ist jetzt für jede Organisation eingeschaltet und gilt für jede Anfrage, die Piloti an ein KI-Modell sendet – auch beim Lesen von Dokumenten, bei der Suche und bei Rechercheberichten, nicht nur bei Chat-Antworten. Wird ein Modell auch in der EU betrieben, wird dieser Standort bevorzugt."
