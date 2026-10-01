@@ -1,0 +1,14 @@
+---
+security:
+  - >
+    Langfuse moves to 4.48.0 and its ClickHouse to 26.8 LTS. Langfuse 3.x still
+    shipped a Next.js version with a remote code execution flaw that no 3.x
+    release fixes.
+operators:
+  - >
+    The next deploy runs the first stage of Langfuse's v3 to v4 migration: it
+    writes both data models, so v3 stays a rollback. Before it, back up the
+    langfuse Postgres database and the ClickHouse volume, and confirm v3 has no
+    unfinished background migrations. The later cutover is
+    langfuseV4WriteMode: events_only. Both steps are in the deployment guide,
+    section 9b.

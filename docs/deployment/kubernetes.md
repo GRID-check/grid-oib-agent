@@ -1789,7 +1789,7 @@ depends on §9, whose guard already refuses `networkPolicies=false`.
 - **Web and worker images must be the same Langfuse version.** They are two
   config keys because upstream publishes two images; digests are opaque, so
   nothing can verify it for you. Both defaults are pinned from the same tag
-  (3.225.11). Bump them together.
+  (4.48.0). Bump them together.
 - **ClickHouse must run UTC.** On any other server timezone Langfuse's queries
   return empty or shifted results — a dashboard reporting "no data" for a system
   that is plainly running. `TZ=UTC` is pinned on the container; do not override.
@@ -1803,6 +1803,53 @@ depends on §9, whose guard already refuses `networkPolicies=false`.
   the org, project and API keys from config on first boot, which is what lets
   the collector hold a working credential in the same `pulumi up`. Rotating
   `langfuseSalt` invalidates every stored API key, including that one.
+
+### Upgrading to Langfuse v4
+
+The defaults moved from 3.225.11 to **4.48.0**, because no 3.x release fixes
+the `next/og` remote code execution in Next 16.2.11 (GHSA-vcvr-r3jv-pc5j). v4
+changes the ClickHouse data model, so the upgrade is upstream's three-stage
+migration ([guide](https://langfuse.com/self-hosting/upgrade/upgrade-guides/upgrade-v3-to-v4)),
+and the first stage runs on the next `npm run up`.
+
+What the program already does:
+
+- **ClickHouse goes to 26.8 LTS first.** v4 needs 25.12 or newer, and v3 runs on
+  it unchanged. The Langfuse Deployments depend on the ClickHouse Service, which
+  depends on the StatefulSet, so one `up` finishes the ClickHouse roll before the
+  v4 pods start. 26.8 adds one always-written system log,
+  `background_schedule_pool_log`, which gets the same 14-day TTL as the rest.
+- **The ClickHouse login needs no new grants.** The image creates it without a
+  `<grants>` list, which in ClickHouse means every privilege, so the extra
+  grants v4 asks for are already held.
+- **Writes go to both data models** (`langfuseV4WriteMode: dual`): v3's tables,
+  which keep the rollback path open, and v4's events table. The collector sends
+  `x-langfuse-ingestion-version: 4`, so its spans reach v4 at once rather than
+  through the ~15-minute server-side propagation. Users may opt into the v4
+  views. Historic traces are **not** rewritten (`langfuseV4HistoricBackfill:
+  false`), because upstream asks for about three times the current ClickHouse
+  disk as headroom.
+
+What you do before that `up`. None of it can be undone after v4's schema
+migrations run, short of a restore:
+
+1. **Back up both stores**: the `langfuse` Postgres database (a CNPG backup)
+   and the ClickHouse PVC (a volume snapshot).
+2. **Confirm v3 finished its background migrations.** In the `langfuse`
+   database, this must return no rows:
+   `SELECT name, failed_at, failed_reason FROM background_migrations WHERE finished_at IS NULL;`
+3. After the `up`, check that v4's propagation is healthy:
+   `kubectl exec deploy/langfuse-worker -- wget -qO- 'localhost:3030/api/health?failIfEventPropagationStuck=true'`
+   answers 200, not 503.
+
+**The cutover is a later, one-way config change.** Once the v4 views hold what
+you need (new traces at once, history only if you turn the backfill on and have
+the disk), set `langfuseV4WriteMode: events_only` and `up`. From then on v3's
+tables are no longer written and the legacy public APIs (`/api/public/traces`,
+`/observations`, `/sessions`, `/scores`, `/metrics`) answer 404. Nothing in
+this repo reads them: traces arrive over OTLP, and the Python SDK only reads
+prompts. Rollback before the cutover is upstream's `migrate … goto 37` from the
+v4 web container, then the v3 digests. After it, only the backups.
 
 ### Signals and attribution
 

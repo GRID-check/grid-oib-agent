@@ -155,6 +155,13 @@ describe("with the Langfuse tier enabled", () => {
       expect(collectorConfig).not.toMatch(/^\s+endpoint: http:\/\/langfuse-web/m);
     });
 
+    it("marks its spans as v4 ingestion, so they land without the propagation delay", () => {
+      // Without the header Langfuse v4 still accepts the spans, but routes them
+      // through the server-side propagation: traces appear ~15 minutes late and
+      // nothing reports it.
+      expect(collectorConfig).toContain('x-langfuse-ingestion-version: "4"');
+    });
+
     it("reads its credential from the environment, never the ConfigMap", async () => {
       // A ConfigMap is not protected the way a Secret is — anyone who can run
       // `kubectl get cm` in the namespace would otherwise be handed a working
@@ -187,6 +194,17 @@ describe("with the Langfuse tier enabled", () => {
   });
 
   describe("migrations", () => {
+    it("dual-writes during the v4 migration, on both containers alike", async () => {
+      // `dual` keeps v3's tables written, which is the rollback path; the
+      // cutover to `events_only` is a deliberate config change, never a default.
+      for (const name of ["langfuse-web", "langfuse-worker"]) {
+        const env = await containerEnv(name);
+        expect(env.LANGFUSE_MIGRATION_V4_WRITE_MODE).toBe("dual");
+        expect(env.LANGFUSE_MIGRATION_V4_NATIVE_OTEL_BEHAVIOUR).toBe("dual_write");
+        expect(env.LANGFUSE_BACKGROUND_MIGRATION_V4_ENABLE_HISTORIC_BACKFILL).toBe("false");
+      }
+    });
+
     it("gives them to exactly one container", async () => {
       const web = await containerEnv("langfuse-web");
       const worker = await containerEnv("langfuse-worker");
@@ -459,6 +477,13 @@ describe("config gating", () => {
 
   it("accepts the fully configured tier", () => {
     expect(loadWith({})).toBeNull();
+  });
+
+  it("refuses a v4 write mode Langfuse does not know", () => {
+    // Langfuse would fall back to its default, `events_only`: the one-way
+    // cutover, taken by a typo.
+    const error = loadWith({ "grid-oib:langfuseV4WriteMode": "dual-write" });
+    expect(error?.message).toMatch(/langfuseV4WriteMode/);
   });
 
   it("refuses a base64 encryption key, which is the natural mistake", () => {

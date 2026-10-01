@@ -1069,6 +1069,22 @@ export interface GridConfig {
     /** ClickHouse server image, digest-pinned. */
     clickhouseImage: string;
     /**
+     * Where Langfuse v4 writes ingested spans (`LANGFUSE_MIGRATION_V4_WRITE_MODE`).
+     * `dual` (default) writes v3's tables and v4's events table both, so the
+     * upgrade keeps a rollback path to v3 and the v3 views keep working;
+     * `events_only` is the cutover, after which only a database restore goes
+     * back; `legacy` writes v3's tables alone. The cutover is a config change:
+     * docs/deployment/kubernetes.md §9b, "Upgrading to Langfuse v4".
+     */
+    v4WriteMode: "legacy" | "dual" | "events_only";
+    /**
+     * Rewrite historic traces into v4's tables in the background
+     * (`LANGFUSE_BACKGROUND_MIGRATION_V4_ENABLE_HISTORIC_BACKFILL`). Off by
+     * default: upstream asks for about three times the current ClickHouse disk
+     * as headroom, which the 50 Gi PVC is not sized for.
+     */
+    v4HistoricBackfill: boolean;
+    /**
      * PVC for ClickHouse. The TRACE store is still the tier's unbounded
      * resource: retention policies are an Enterprise feature, so observations
      * grow for as long as the deployment runs - size for the history you
@@ -1233,6 +1249,13 @@ export interface ResourceSpec {
 function num(cfg: pulumi.Config, key: string, fallback: number): number {
   const v = cfg.getNumber(key);
   return v === undefined ? fallback : v;
+}
+
+/** `langfuseV4WriteMode`, refused at load time when it is not one Langfuse knows. */
+function langfuseV4WriteMode(value: string | undefined): "legacy" | "dual" | "events_only" {
+  if (value === undefined) return "dual";
+  if (value === "legacy" || value === "dual" || value === "events_only") return value;
+  throw new Error(`langfuseV4WriteMode must be legacy, dual or events_only, not "${value}"`);
 }
 
 function bool(cfg: pulumi.Config, key: string, fallback: boolean): boolean {
@@ -2530,18 +2553,22 @@ export function loadConfig(): GridConfig {
       enabled: langfuseEnabled,
       domain: langfuseDomain,
       // Digest-pinned on the same terms as the ADR-0029 images, and scanned by
-      // the same trivy gate: langfuse 3.225.11 (web + worker, which MUST be the
-      // same version) and ClickHouse 25.8 LTS. `3` and `25.8` are moving tags
-      // upstream; these are the digests they resolved to when pinned.
+      // the same trivy gate: langfuse 4.48.0 (web + worker, which MUST be the
+      // same version) and ClickHouse 26.8.15.10 LTS, which v4 needs (>= 25.12).
+      // `4` and `26.8` are moving tags upstream; these are the digests they
+      // resolved to when pinned. v3 (3.225.11) shipped next 16.2.11, whose
+      // next/og RCE (GHSA-vcvr-r3jv-pc5j) no 3.x release fixes.
       webImage:
         cfg.get("langfuseWebImage") ??
-        "ghcr.io/langfuse/langfuse@sha256:a343f64e035eb01aeea358703a0428945d909d01e19452509a5a830862dda878",
+        "ghcr.io/langfuse/langfuse@sha256:8c1b80ed7735be587974d603af0f6e0247b33d3b56c7d5ab9d2337aec313efa0",
       workerImage:
         cfg.get("langfuseWorkerImage") ??
-        "ghcr.io/langfuse/langfuse-worker@sha256:8a28c946bb5401eef488153fa294db5a79bd99dd5c90db8e4d39559374c9ebd3",
+        "ghcr.io/langfuse/langfuse-worker@sha256:9349b003a453326b3d2e2033eb94fe5ca9ee12ee237779c10984b9d3dfe0f8ed",
       clickhouseImage:
         cfg.get("clickhouseImage") ??
-        "clickhouse/clickhouse-server@sha256:aec6fb9892becb6a20eb8d57708b8cf9c777b2ad1f4eb70bbece7a70eaed9fd0",
+        "clickhouse/clickhouse-server@sha256:3043f691ec1a847f38b446ff43708893fcbf9815bd9bd88c0f84bfe064ce852f",
+      v4WriteMode: langfuseV4WriteMode(cfg.get("langfuseV4WriteMode")),
+      v4HistoricBackfill: bool(cfg, "langfuseV4HistoricBackfill", false),
       // 50 Gi: fourteen days of TTL-bounded system logs plus headroom for the
       // trace store itself, which still grows without bound (OSS has no
       // retention policies) - see the interface comment. Raised from 20 Gi
