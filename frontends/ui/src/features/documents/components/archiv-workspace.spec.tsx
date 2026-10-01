@@ -18,10 +18,11 @@ vi.mock('sonner', () => ({
   },
 }))
 
+const navigation = vi.hoisted(() => ({ search: '', replace: vi.fn() }))
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: navigation.replace, refresh: vi.fn() }),
   usePathname: () => '/app/archiv',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(navigation.search),
 }))
 
 const mockUploadFiles = vi.fn()
@@ -80,6 +81,7 @@ const archivDocuments = [
 
 beforeEach(() => {
   vi.clearAllMocks()
+  navigation.search = ''
   server.use(
     http.get('/api/archiv/documents', () =>
       HttpResponse.json({
@@ -468,6 +470,26 @@ describe('ArchivWorkspace — only the newest answer may win', () => {
     await vi.advanceTimersByTimeAsync(8_000)
     expect(statusCalls).toBe(1)
     expect(documentCalls).toBe(2)
+  })
+})
+
+describe('ArchivWorkspace — a link to one document', () => {
+  it('opens the document ?doc= names once the corpus has it, and lets go of the parameter', async () => {
+    navigation.search = 'doc=doc-2'
+    render(<ArchivWorkspace canManage />)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getAllByText('fassadendetail.pdf').length).toBeGreaterThan(0)
+    expect(navigation.replace).toHaveBeenCalledWith('/app/archiv', { scroll: false })
+  })
+
+  it('opens nothing for an id the Archiv does not hold, and still drops it', async () => {
+    navigation.search = 'doc=gone'
+    render(<ArchivWorkspace canManage />)
+
+    expect(await screen.findByText('fassadendetail.pdf')).toBeInTheDocument()
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith('/app/archiv', { scroll: false }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
 

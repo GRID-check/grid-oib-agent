@@ -314,6 +314,25 @@ export function ArchivWorkspace({
   }, [pathname, router, searchParams])
 
   /**
+   * A link to one Archiv document (`/app/archiv?doc=…`: a share, an upload
+   * summary) opens its preview once the corpus holds it, then lets go of the
+   * parameter, so closing the preview stays closed and a reload does not reopen
+   * it. An id the corpus does not hold (deleted, or not this reader's) is
+   * dropped the same way and opens nothing.
+   */
+  const docParam = searchParams?.get('doc') ?? null
+  useEffect(() => {
+    if (!docParam || isLoading) return
+    if (files.some((file) => file.id === docParam)) setSelectedFileId(docParam)
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    params.delete('doc')
+    const query = params.toString()
+    router.replace(query ? `${pathname ?? ARCHIV_MODEL_PATH}?${query}` : (pathname ?? ARCHIV_MODEL_PATH), {
+      scroll: false,
+    })
+  }, [docParam, isLoading, files, pathname, router, searchParams])
+
+  /**
    * One click handler, and the same one Dateien uses.
    *
    * Preview first by default, with the stage a button away inside it; straight
