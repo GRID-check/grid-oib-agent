@@ -87,10 +87,16 @@ probe, item routes, folder listing, the quarantine queue and resource access
 absent, not greyed out.
 
 **Indirect leaks** are closed where the answer can travel. A conversation whose
-answers cite a restricted collection cannot be shared beyond its owner. The
-agent writes nothing to project memory in a turn that read restricted content.
-A generated document filed into a restricted folder is indexed into that
-folder's collection.
+stored answers cite or read a restricted collection cannot be shared, escalated
+or widened beyond its owner, and a thread that is already shared never gets
+restricted collections in its scope. Because a socket's scope is signed once,
+the chat socket asks the BFF before every turn whose scope holds a restricted
+collection whether the thread is still its asker's alone, and closes the
+socket when it is not. The agent writes nothing to project or organization
+memory in a turn whose signed scope holds a restricted collection: the scope,
+not the hits, because the inventory block has put every in-scope document's
+summary into the prompt before the first tool call. A generated document filed
+into a restricted folder is indexed into that folder's collection.
 
 **Re-classified here as "roles outside WorkOS"** and fixed: third-party
 permission checks (invitations, quarantine reviewers, storage alerts) consulted
@@ -106,7 +112,13 @@ to them. They now ask WorkOS for the organization's roles first.
 * Bad, because changing a restriction re-ingests the folder's documents: minutes, and model
   cost, for a large folder. The folder reads as being processed meanwhile.
 * Bad, because a WebSocket's signed scope is fixed for the socket's lifetime, so a withdrawn
-  role takes effect on the next connection, not mid-conversation.
+  role takes effect on the next connection, not mid-conversation. (A thread shared mid-socket
+  is caught: the per-turn confinement check closes the socket.)
+* Bad, because a cleared member gets no memory writes at all in a turn whose scope holds a
+  restricted collection, even when the turn used nothing from it.
+* Bad, because a move whose purge fails (backend unreachable) leaves the document's chunks in
+  the open collection until the scheduler's placement sweep moves it, on its next tick after
+  the backend is back.
 * Bad, because with "multiple roles" off, a clearance role must also carry its holder's working
   permissions; offices that want clearance separate from function need that switch on, which
   is environment-wide and set in the WorkOS dashboard.
@@ -122,8 +134,13 @@ to them. They now ask WorkOS for the organization's roles first.
   roles claim).
 * The real-Postgres suite (`task db:test:rls`) seeds a restricted folder and proves each listing
   repository hides its documents from a member not cleared.
-* `collection-scope-request` specs prove the restricted collection is in a cleared member's chat
-  scope and absent from an uncleared member's, and from every deep-research scope.
+* `collection-scope-request.restricted.spec.ts` proves the restricted collection is in a cleared
+  member's chat scope and absent from an uncleared member's, from a shared thread's, and from
+  every deep-research and scheduled scope.
+* `collection-placement.integration.spec.ts` proves against Postgres that the purge comes before
+  the re-point, a failed purge leaves the row, and the sweep finishes it.
+* `test_chat_socket.py` and `test_internal_api_confinement.py` prove the per-turn confinement
+  check closes a socket whose thread was shared, and fails closed.
 * `authz-coverage.spec.ts` covers the new routes.
 * Nothing enforces yet that a NEW read path asks `folder-access.ts`; review is the gate for that.
 
