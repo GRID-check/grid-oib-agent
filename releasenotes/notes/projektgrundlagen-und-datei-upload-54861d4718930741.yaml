@@ -9,5 +9,9 @@ fixes:
     Dragging files into Dateien now uploads them even when they come straight
     from an email or a cloud-synced folder, where the drop used to do nothing.
   - >
+    Dropping files on any other project page, such as Einstellungen, now opens
+    Dateien and uploads them there, where the browser used to open the file in
+    place of Piloti.
+  - >
     A short overload at the language model provider no longer ends your
     question with an error; Piloti waits a moment and tries again.

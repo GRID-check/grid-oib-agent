@@ -46,7 +46,7 @@ Files render as cards in a responsive grid. Each card shows:
 - a tinted **extension chip** (PDF, DOCX, …), the file size and a relative upload time
 - the **ingestion status badge** (Ready / Processing / Failed) — failed cards show the failure reason inline
 
-The last tile of the grid is a dashed **upload card** listing the actually accepted file types and the size limit; drag-and-drop anywhere on the workspace also works.
+The last tile of the grid is a dashed **upload card** listing the actually accepted file types and the size limit; drag-and-drop anywhere on the workspace also works. A file dropped on another project page, such as Settings or Members, opens Files and is uploaded there; the chat, the research page and the intake keep their own drop targets.
 
 Right-click a file, a folder, or the empty listing — the same operations as the ⋯ menu, laid out the way Finder and Explorer are: Open, Ask about this, Download, Rename, Move, Copy origin path, Delete on a file; Open, New folder inside, Rename, Move, Delete on a folder; New folder, Upload, View and Sort on empty canvas. The ⋯ stays, top-right on both file and folder tiles, so the menu is still there if you never right-click.
 

@@ -10,6 +10,7 @@ import { SETTLING_POLL_MS } from '../hooks/use-settling-refresh'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import type { DocumentWireRow } from '../lib/file-item'
+import { handOverDroppedFiles } from '../lib/dropped-file-handover'
 
 function renderWorkspace(ui: ReactElement) {
   return render(
@@ -223,6 +224,21 @@ describe('ProjectFileWorkspace', () => {
     fireEvent.drop(dropzone, { dataTransfer })
     // Same contract as the button: files still flow to uploadFiles, which validates.
     await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([badFile]))
+  })
+
+  it('uploads a drop made elsewhere in the project once it arrives, and only once', async () => {
+    const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
+    handOverDroppedFiles('proj-1', [file])
+
+    const { unmount } = renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([file]))
+    unmount()
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockUploadFiles).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -18,6 +18,7 @@ import { fetchListingPages } from '../lib/fetch-listing-pages'
 import { createDocumentNameProbeClient } from '@/lib/documents/name-probe-client'
 import { filesToUpload } from '../lib/folder-upload-plan'
 import { useUploadDecision } from '../hooks/use-upload-decision'
+import { takeDroppedFiles } from '../lib/dropped-file-handover'
 import { FolderUploadDialog } from './folder-upload-dialog'
 import { inferDocumentKind } from '../document-kind'
 import { FileBrowserPane } from './file-browser-pane'
@@ -1062,6 +1063,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     },
     [proposeUpload, corpusForPlan, uploadFiles, folders, selectedFolderId, t]
   )
+
+  // A drop elsewhere in the project brought the reader here (`ProjectFileDrop`).
+  // Taken once, so a re-run of this effect finds nothing left to upload.
+  useEffect(() => {
+    const handedOver = takeDroppedFiles(projectId)
+    if (handedOver.length > 0) handleUpload(handedOver)
+  }, [projectId, handleUpload])
 
   /**
    * Apply the plan: make the folders, then send the files into them.
