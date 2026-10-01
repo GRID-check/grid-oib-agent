@@ -1193,6 +1193,9 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                 return [currentFolderPath, target].filter(Boolean).join('/') || null
               },
               screeningReleased: (file) => plannedByFile.get(file)?.screeningReleased === true,
+              excludedByScreening: folderPlan.files
+                .filter((planned) => planned.action === 'excluded')
+                .map((planned) => planned.screening ?? []),
             }
           )
         }

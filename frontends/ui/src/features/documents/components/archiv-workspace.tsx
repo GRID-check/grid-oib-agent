@@ -409,7 +409,14 @@ export function ArchivWorkspace({
       const released = new Set(planned.filter((entry) => entry.screeningReleased).map((entry) => entry.file))
       setUploadPlanOpen(false)
       setUploadPlanPending(false)
-      if (selected.length > 0) await uploadFiles(selected, { screeningReleased: (file) => released.has(file) })
+      if (selected.length > 0) {
+        await uploadFiles(selected, {
+          screeningReleased: (file) => released.has(file),
+          excludedByScreening: uploadPlan.files
+            .filter((entry) => entry.action === 'excluded')
+            .map((entry) => entry.screening ?? []),
+        })
+      }
     },
     [uploadPlan, setUploadPlanOpen, setUploadPlanPending, uploadFiles]
   )

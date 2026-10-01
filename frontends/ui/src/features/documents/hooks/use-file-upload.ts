@@ -32,6 +32,7 @@ import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 import { loadUploadScreeningPolicy } from '@/adapters/api/upload-screening-policy'
 import { screenUploadName, type NameMatch } from '@/lib/upload-screening/name-screen'
 import { describeNameMatch } from '@/lib/upload-screening/quarantine'
+import { exclusionsByTerm, openUploadBatch, sealUploadBatch } from '../lib/upload-batch'
 
 /**
  * The upload endpoints' response: `/api/documents/upload`,
@@ -132,6 +133,12 @@ export interface UploadFilesOptions {
    * dialog. Sent to the server as `screeningRelease`, which audits it.
    */
   screeningReleased?: (file: File) => boolean
+  /**
+   * What the upload dialog's screening already held back, one entry per file
+   * (its matches). Recorded on the upload's batch by term and count, so the
+   * summary can say why something is missing; never sent by name.
+   */
+  excludedByScreening?: ReadonlyArray<readonly NameMatch[]>
 }
 
 interface UseFileUploadReturn {
@@ -406,6 +413,22 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         // only the endpoint and form fields differ (Archiv resolves the org
         // server-side, a chat names its conversation).
         //
+        // The batch these uploads belong to (ADR-0077), opened before the
+        // first file goes so each upload can name it. Null: no summary, and
+        // the upload goes ahead regardless.
+        const batchId = await openUploadBatch({
+          id: uuidv4(),
+          scope: shelf,
+          projectId: shelf === 'project' ? (projectId ?? null) : null,
+          conversationId: shelf === 'session' ? targetCollection : null,
+          expectedCount: entries.length,
+          excluded: exclusionsByTerm([
+            ...(options?.excludedByScreening ?? []),
+            ...screenedOut.map(({ matches }) => matches),
+          ]),
+        })
+        let unchangedCount = 0
+
         // Several at a time, not one after another: each POST also writes to
         // object storage, checks the org quota and dispatches to the ingest
         // API, so a serial loop left the connection idle for most of every
@@ -439,6 +462,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           }
           formData.append('file', file)
           if (options?.screeningReleased?.(file)) formData.append('screeningRelease', 'name')
+          if (batchId) formData.append('uploadBatchId', batchId)
           // Where the file sat before it came here. Set by a folder INPUT
           // (`webkitdirectory`) and stamped onto a dropped tree's files by
           // `asPathStampedFiles`, so one property covers both ways of
@@ -470,6 +494,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
             )
 
             const result = JSON.parse(responseText) as UploadDocumentResponse
+            if (result.unchanged) unchangedCount += 1
             // A re-upload replaces a document in place, under the same id: a
             // tombstone from an earlier delete must not hide it.
             if (result.documentId) removeRecentlyDeletedIds([result.documentId])
@@ -507,6 +532,15 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         // make every surface that mounts during the batch refetch four
         // listings again for each one.
         notifyDocumentsChanged()
+
+        // Sealed once every request has answered: the files that wrote no row
+        // are counted here, the rest the server can see for itself.
+        if (batchId) {
+          await sealUploadBatch(batchId, {
+            unchanged: unchangedCount,
+            failed: results.filter((result) => result.status === 'rejected').length,
+          })
+        }
 
         const firstFailure = results.find((result) => result.status === 'rejected')
         if (firstFailure && firstFailure.status === 'rejected') {
