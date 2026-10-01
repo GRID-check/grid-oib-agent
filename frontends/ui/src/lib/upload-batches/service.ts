@@ -16,12 +16,15 @@
 import 'server-only'
 import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { getProjectFolderAccess } from '@/lib/authz/folder-access'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { Document, UploadBatch, UploadBatchExclusion, UploadBatchScope } from '@/lib/db/schema'
 import { documentStatusFacts } from '@/lib/documents/document-status'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findFolderPathsInProject } from '@/lib/documents/repository'
+import { findProjectInOrg } from '@/lib/projects/repository'
+import { loadOrganizationDirectory } from '@/lib/sharing/directory'
 import { parseQuarantine, type QuarantineVerdict } from '@/lib/upload-screening/quarantine'
 import {
   countBatchDocumentsByStatus,
@@ -186,10 +189,23 @@ function toSummaryDocument(row: EnrichedDocument, folderPaths: Map<string, strin
  * the batch, and the summary and tags come from the same enrichment the file
  * list uses.
  */
+/**
+ * The batch's documents this reader may still see. A folder restricted after
+ * the upload hides what was filed in it from its own uploader too (ADR-0078):
+ * the summary names files, and a name is what the restriction withholds.
+ */
+async function visibleToReader(session: AuthorizedSession, batch: UploadBatch, rows: Document[]): Promise<Document[]> {
+  if (batch.scope !== 'project' || !batch.projectId) return rows
+  const project = await findProjectInOrg(batch.projectId, session.organizationId)
+  if (!project) return []
+  const access = await getProjectFolderAccess(session, batch.projectId, project.collectionName)
+  return access.anyRestricted ? rows.filter((row) => access.isVisible(row.folderId)) : rows
+}
+
 export async function getUploadSummary(session: AuthorizedSession, batchId: string): Promise<UploadSummary> {
   const batch = await findOwnUploadBatch(session, batchId)
   if (!batch) throw new NotFoundError('Upload not found')
-  const rows = await listBatchDocuments(session.organizationId, batchId)
+  const rows = await visibleToReader(session, batch, await listBatchDocuments(session.organizationId, batchId))
   const enriched = await reconcileDocumentStatuses(rows, session.organizationId)
   const folderIds = [...new Set(enriched.map((row) => row.folderId).filter((id): id is string => !!id))]
   const folderPaths =
@@ -217,6 +233,8 @@ export async function getUploadSummary(session: AuthorizedSession, batchId: stri
 export interface UploadHistoryEntry {
   id: string
   createdBy: string
+  /** The uploader's display name from the organization directory; null when they have left it. */
+  createdByName: string | null
   createdAt: string
   completedAt: string | null
   expectedCount: number
@@ -237,16 +255,20 @@ export async function listProjectUploadHistory(
 ): Promise<UploadHistoryEntry[]> {
   await requireProjectAccess(session, projectId, 'project:view')
   const batches = await listProjectUploadBatches(session.organizationId, projectId)
-  const counts = await countBatchDocumentsByStatus(
-    session.organizationId,
-    batches.map((batch) => batch.id)
-  )
+  const [counts, directory] = await Promise.all([
+    countBatchDocumentsByStatus(
+      session.organizationId,
+      batches.map((batch) => batch.id)
+    ),
+    loadOrganizationDirectory(session.organizationId),
+  ])
   return batches.map((batch) => {
     const tally: UploadHistoryEntry['counts'] = { ready: 0, reading: 0, quarantined: 0, failed: 0, stored: 0 }
     for (const row of counts) if (row.batchId === batch.id) tally[outcomeOf(row.status)] += row.count
     return {
       id: batch.id,
       createdBy: batch.createdBy,
+      createdByName: directory.get(batch.createdBy)?.name ?? null,
       createdAt: new Date(batch.createdAt).toISOString(),
       completedAt: batch.completedAt ? new Date(batch.completedAt).toISOString() : null,
       expectedCount: batch.expectedCount,
