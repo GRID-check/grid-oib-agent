@@ -465,7 +465,7 @@ turns answered with a friendly message the way a budget refusal already is.
   forever with increment/decrement, shrinking the pool until nobody can chat. A
   lease self-heals.
 
-### L3b — ingestion fair share and the provider ceiling (ADR-0074)
+### L3b — ingestion fair share and the provider ceiling (ADR-0076)
 
 Ingestion is not refused, it waits, so its L3 is an order and a ceiling rather
 than an admission.

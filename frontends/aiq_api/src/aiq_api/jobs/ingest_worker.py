@@ -1,4 +1,4 @@
-"""The dedicated ingestion worker tier (ADR-0074).
+"""The dedicated ingestion worker tier (ADR-0076).
 
 Run as its own container: ``GRID_ROLE=ingest-worker`` makes the entrypoint start
 ``python -m aiq_api.jobs.ingest_worker``. It builds the NAT workflow once, which

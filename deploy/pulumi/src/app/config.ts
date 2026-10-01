@@ -241,7 +241,7 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "GRID_MAX_ACTIVE_JOBS_PER_ORG", value: String(cfg.backend.maxActiveJobsPerOrg) },
     { name: "AIQ_INGEST_MAX_WORKERS", value: String(cfg.backend.ingestMaxWorkers) },
     // With the ingest tier running, the chat pods take no queued ingestion
-    // (ADR-0074); their pool still runs the jobs with local files.
+    // (ADR-0076); their pool still runs the jobs with local files.
     { name: "GRID_INGEST_QUEUE_CLAIM", value: String(!cfg.ingestWorker.enabled) },
     { name: "GRID_INGEST_MAX_PER_ORG", value: String(cfg.ingestWorker.maxPerOrg) },
     // LLM / embeddings / VLM (all via OpenRouter).
@@ -295,7 +295,7 @@ export function workerEnv(w: AppWiring): EnvVar[] {
 }
 
 /**
- * Ingest worker (ADR-0074) environment: the full backend env (it builds the same
+ * Ingest worker (ADR-0076) environment: the full backend env (it builds the same
  * ingestor: summary model, shared Chroma, object store, DSNs) plus the role, its
  * per-process concurrency and the claim switch forced on.
  */

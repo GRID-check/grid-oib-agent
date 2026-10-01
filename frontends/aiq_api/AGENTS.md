@@ -26,7 +26,7 @@ access belongs in the BFF, not here.
 retention sweep assume it. Ingestion claims from its own table,
 `aiq_agent.knowledge.ingest_queue`, in fewest-running-first order across
 organisations rather than FIFO; `jobs/ingest_dispatch.py` puts jobs there and
-`jobs/ingest_worker.py` is its dedicated tier (ADR-0074). New work of either
+`jobs/ingest_worker.py` is its dedicated tier (ADR-0076). New work of either
 kind joins by claiming through its queue, never by an in-process pool alone.
 
 ## Reference

@@ -133,7 +133,7 @@ export interface DocumentMetadata {
   tags?: string[]
   /**
    * How many of this organisation's uploads wait in the ingest queue ahead of
-   * this one (ADR-0074), or null when the row is not waiting there. The lane's
+   * this one (ADR-0076), or null when the row is not waiting there. The lane's
    * own order is the only one the queue promises, so no other office's backlog
    * is in the count. Set on every reconciled row, so a count shown once clears.
    */

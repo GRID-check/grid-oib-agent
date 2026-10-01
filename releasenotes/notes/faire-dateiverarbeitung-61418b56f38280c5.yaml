@@ -14,5 +14,5 @@ fixes:
 operators:
   - >
     Ingestion runs from a durable queue on its own worker tier, scaled by KEDA
-    on the queue's depth; see ADR-0074 and the ingest-worker settings in the
+    on the queue's depth; see ADR-0076 and the ingest-worker settings in the
     stack files before deploying.

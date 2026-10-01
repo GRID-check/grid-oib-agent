@@ -71,7 +71,7 @@ export const files = {
     stored: 'Filed',
     unknown: 'Unknown',
     // Only the office's own uploads: inside one office the queue reads in
-    // order, across offices it takes turns (ADR-0074).
+    // order, across offices it takes turns (ADR-0076).
     queuedAhead: '{count, plural, one {Waiting · # file ahead} other {Waiting · # files ahead}}',
   },
   toast: {

@@ -999,7 +999,7 @@ Safe rollout: `jobExecution: dask` (default in code) is byte-for-byte today's
 behaviour; flip to `db` per environment. `agentWorkerMinReplicas` /
 `agentWorkerMaxReplicas` / `agentWorkerConcurrency` size the worker tier.
 
-### 6.3b Ingestion — a fair queue and a tier KEDA scales on its depth (ADR-0074)
+### 6.3b Ingestion — a fair queue and a tier KEDA scales on its depth (ADR-0076)
 
 Ingestion used to be two threads per backend process, FIFO across every tenant,
 lost on restart. Now, with `jobExecution: db`:
@@ -1095,7 +1095,7 @@ idle WebSockets is memory/fd/event-loop, not CPU; SSR awaiting the Python
 backend is I/O wait, not CPU. Only rendering is CPU-bound, so a pod can be at its
 connection or event-loop limit while the HPA sees a quiet CPU. Scaling on active
 WS connections and event-loop lag needs a `custom.metrics.k8s.io` provider, and
-this cluster serves `metrics.k8s.io` (metrics-server) and, since ADR-0074,
+this cluster serves `metrics.k8s.io` (metrics-server) and, since ADR-0076,
 KEDA's `external.metrics.k8s.io` — but no Prometheus adapter, so there is no
 `Pods`-type metric for connections or loop lag yet; one would report
 `<unknown>` and never scale. KEDA can now carry such a trigger once the gauge is
@@ -1995,7 +1995,7 @@ developing against the Langfuse UI and API, not for reproducing ingestion.
   SeaweedFS all expose Prometheus metrics, so this is a natural next layer —
   and the provider's paid Metrics (Grafana) add-on is the quick option.
 - **Autoscaling the frontend on WS connections / event-loop lag (§6.5).**
-  Blocked on the item above, not on app code. KEDA is installed now (ADR-0074,
+  Blocked on the item above, not on app code. KEDA is installed now (ADR-0076,
   for the ingest tier), so the cluster-side provider is decided; what is
   missing is a store KEDA can read the gauge from (Prometheus, or a KEDA
   `metrics-api` endpoint on the frontend). The OTel collector already

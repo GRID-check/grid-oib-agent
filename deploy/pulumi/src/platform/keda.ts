@@ -6,7 +6,7 @@ export const KEDA_NAMESPACE = "keda";
 
 /**
  * KEDA — the event-driven autoscaler the ingest-worker tier scales with
- * (ADR-0074).
+ * (ADR-0076).
  *
  * The CPU HPAs this cluster already runs cannot scale ingestion: an ingest
  * worker spends most of a job waiting on the model provider, so its CPU says

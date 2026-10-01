@@ -19,7 +19,7 @@ const QUEUE_TABLE = "ingest_job_queue";
 export const QUEUE_DEPTH_QUERY = `SELECT COUNT(*) FROM ${QUEUE_TABLE}`;
 
 /**
- * The ingestion tier (ADR-0074) — only deployed with `jobExecution = "db"`.
+ * The ingestion tier (ADR-0076) — only deployed with `jobExecution = "db"`.
  *
  * Replicas of the backend image with `GRID_ROLE=ingest-worker`: no web port, no
  * Dask, no PVC. Each builds the ingestor once and its `concurrency` threads

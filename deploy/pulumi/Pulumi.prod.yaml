@@ -279,7 +279,7 @@ config:
 
   # workers roll one at a time and a draining one holds its slot this long.
   grid-oib:agentWorkerDrainSeconds: "600"
-  # ── Ingestion tier (ADR-0074) ──
+  # ── Ingestion tier (ADR-0076) ──
 
   # Dedicated replicas claim the durable ingest queue fairly across
 

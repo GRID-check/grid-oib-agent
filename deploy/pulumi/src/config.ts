@@ -746,7 +746,7 @@ export interface GridConfig {
   };
 
   /**
-   * The ingestion tier (ADR-0074): dedicated replicas that claim jobs from the
+   * The ingestion tier (ADR-0076): dedicated replicas that claim jobs from the
    * durable, fair ingest queue (`ingest_job_queue`), scaled by KEDA on its
    * depth. When enabled the web tier stops claiming (`GRID_INGEST_QUEUE_CLAIM
    * =false`), so ingestion no longer shares the chat pods' CPU and GIL.
