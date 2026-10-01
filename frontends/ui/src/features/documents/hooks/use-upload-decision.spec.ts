@@ -76,3 +76,36 @@ describe('useUploadDecision — upload screening', () => {
     await waitFor(() => expect(result.current.plan?.files[0]?.action).toBe('excluded'))
   })
 })
+
+describe('useUploadDecision — what the operating system left in the folder', () => {
+  it('plans a dropped folder without .DS_Store, Thumbs.db or an Office lock file', async () => {
+    const { result } = renderHook(() => useUploadDecision())
+    const files = [
+      pathed('Wohnbau Nord/EG.pdf'),
+      pathed('Wohnbau Nord/.DS_Store'),
+      pathed('Wohnbau Nord/Thumbs.db'),
+      pathed('Wohnbau Nord/~$Baubeschreibung.docx'),
+    ]
+
+    await act(async () => {
+      await result.current.propose({ files, documents: [], folders: [], currentFolderId: null }, vi.fn())
+    })
+
+    await waitFor(() => expect(result.current.plan?.files.map((entry) => entry.file.name)).toEqual(['EG.pdf']))
+  })
+
+  it('does nothing for a drop that held only such files', async () => {
+    const sendDirect = vi.fn()
+    const { result } = renderHook(() => useUploadDecision())
+
+    await act(async () => {
+      await result.current.propose(
+        { files: [new File(['x'], '.DS_Store')], documents: [], folders: [], currentFolderId: null },
+        sendDirect
+      )
+    })
+
+    expect(sendDirect).not.toHaveBeenCalled()
+    expect(result.current.open).toBe(false)
+  })
+})
