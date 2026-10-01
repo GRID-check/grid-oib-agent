@@ -35,6 +35,10 @@ logger = logging.getLogger(__name__)
 # One script because the three steps must be atomic: split apart, two turns
 # both read "one slot left" and both take it, which is precisely the
 # concurrency this exists to bound. Returns 1 when a slot was taken.
+#
+# A lease stamped more than one lease into the future is dropped too: only a
+# holder whose clock runs that far ahead writes one, and it would otherwise
+# hold its slot until our clocks caught up, which `hold` would wait out.
 ACQUIRE_LUA = """
 local key = KEYS[1]
 local now = tonumber(ARGV[1])
@@ -43,6 +47,7 @@ local limit = tonumber(ARGV[3])
 local member = ARGV[4]
 
 redis.call('ZREMRANGEBYSCORE', key, '-inf', now - lease)
+redis.call('ZREMRANGEBYSCORE', key, '(' .. (now + lease), '+inf')
 if redis.call('ZCARD', key) >= limit then
   return 0
 end
@@ -77,15 +82,21 @@ def hold(key: str, limit: int, *, lease_seconds: int, max_wait_seconds: float) -
 
     The lease must outlast the body (a call's own timeout is the natural
     value): the slot is not renewed. ``limit`` of 0 or less disables the pool.
-    After ``max_wait_seconds`` without a slot the body runs anyway and says so,
-    because a slot leaked past its lease or a pool sized to nothing must not
-    stop the work outright.
+
+    It waits for as long as the pool stays full, saying so every
+    ``max_wait_seconds``. Running without a slot after a deadline (as this
+    first did) broke the ceiling exactly when it mattered: under sustained
+    load every late waiter ran at once, which is the burst of upstream 429s
+    the pool exists to prevent. The wait is bounded all the same, because
+    every lease ages out: a holder that died frees its slot ``lease_seconds``
+    later. Only a missing store lets the body run without one.
     """
     if limit <= 0:
         yield
         return
     member = uuid.uuid4().hex
-    deadline = time.monotonic() + max_wait_seconds
+    started = time.monotonic()
+    next_warning = started + max_wait_seconds
     delay = 0.05
     held = False
     while True:
@@ -95,9 +106,9 @@ def hold(key: str, limit: int, *, lease_seconds: int, max_wait_seconds: float) -
         if int(taken) == 1:
             held = True
             break
-        if time.monotonic() >= deadline:
-            logger.warning("No slot in %s after %.0fs; proceeding without one", key, max_wait_seconds)
-            break
+        if time.monotonic() >= next_warning:
+            logger.warning("Still waiting for a slot in %s after %.0fs", key, time.monotonic() - started)
+            next_warning = time.monotonic() + max_wait_seconds
         # Jittered so a fleet of waiters does not retry in lockstep.
         time.sleep(delay * (0.5 + random.random()))
         delay = min(delay * 2, 2.0)

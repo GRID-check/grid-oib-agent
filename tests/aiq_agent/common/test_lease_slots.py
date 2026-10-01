@@ -19,7 +19,7 @@ class FakeStore:
         if script == lease_slots.ACQUIRE_LUA:
             self.acquires += 1
             now, lease, limit, member = args
-            for stale in [m for m, at in pool.items() if at <= now - lease]:
+            for stale in [m for m, at in pool.items() if at <= now - lease or at > now + lease]:
                 del pool[stale]
             if len(pool) >= limit:
                 return 0
@@ -45,7 +45,7 @@ def test_a_holder_takes_a_slot_and_gives_it_back(store):
 
 
 def test_a_full_pool_makes_the_next_holder_wait_for_a_release(store, monkeypatch):
-    store.pools["pool"] = {"other": 9e18}  # held, and fresh for the length of the test
+    store.pools["pool"] = {"other": lease_slots.time.time()}  # held, and fresh for the length of the test
     released_after = 3
 
     real = store.eval_script
@@ -73,8 +73,30 @@ def test_without_a_store_every_call_proceeds(monkeypatch):
         pass
 
 
-def test_a_pool_that_never_frees_gives_up_waiting_and_proceeds(store):
-    store.pools["pool"] = {"stuck": 9e18}
+def test_a_lease_stamped_far_in_the_future_ages_out_too(store):
+    # Only a holder whose clock runs a lease ahead writes one; left alone it
+    # would keep its slot until the fleet's clocks caught up.
+    store.pools["pool"] = {"skewed": 9e18}
     with lease_slots.hold("pool", 1, lease_seconds=60, max_wait_seconds=0):
-        pass
-    assert store.pools["pool"] == {"stuck": 9e18}
+        assert "skewed" not in store.pools["pool"]
+
+
+def test_a_full_pool_is_waited_out_past_the_deadline_never_bypassed(store, monkeypatch):
+    # Running without a slot after the deadline let every late waiter through
+    # at once under sustained load: the burst the ceiling exists to stop.
+    clock = iter(range(0, 10_000, 5))
+    monkeypatch.setattr(lease_slots.time, "monotonic", lambda: next(clock))
+    store.pools["pool"] = {"other": 9e9}  # held, fresh, and within a lease of now
+    monkeypatch.setattr(lease_slots.time, "time", lambda: 9e9)
+    real = store.eval_script
+
+    def release_late(script, keys, args):
+        if script == lease_slots.ACQUIRE_LUA and store.acquires == 20:
+            store.pools["pool"].pop("other", None)
+        return real(script, keys, args)
+
+    monkeypatch.setattr(lease_slots.cache, "eval_script", release_late)
+    with lease_slots.hold("pool", 1, lease_seconds=60, max_wait_seconds=10):
+        assert "other" not in store.pools["pool"]
+        assert len(store.pools["pool"]) == 1
+    assert store.acquires > 20
