@@ -183,6 +183,10 @@ export function useFolderDropTarget({
         setIsOver(true)
       },
       onDragLeave: (event: React.DragEvent) => {
+        // An upload drag is the workspace's: its enter reached the workspace's
+        // counter through this tile, so its leave must too, or the counter
+        // never returns to zero and „Dateien hier ablegen" stays up.
+        if (isExternalFileDrag(event.dataTransfer)) return
         event.stopPropagation()
         const next = event.relatedTarget
         if (next instanceof Node && event.currentTarget.contains(next)) return

@@ -834,7 +834,8 @@ LLM budgets and the usage ledger (ADR-0015).
   (`uniq_budget_policies_active`, COALESCE on subject) enforces one active
   policy per (org, scope, subject).
 - `llm_usage_events`: one row per LLM generation — org/user/project/
-  conversation/job attribution, `agent_group` (reserved), `requested_model`
+  conversation/job attribution, `agent_group` (the call's role, NULL for an
+  agent turn), `activity` (0101: `'ingest'` or NULL), `requested_model`
   vs served `model`, OpenRouter `generation_id`, token counts (incl. cached +
   reasoning), `cost_usd numeric(14,8)` exactly as OpenRouter reported,
   `cost_source`, `is_byok`, and `message_id` (migration 0098): the chat

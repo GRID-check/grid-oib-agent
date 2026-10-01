@@ -7,6 +7,7 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { NavigationTrailLabel, ProjectSectionFrame } from '@/components/shell'
 import { PRODUCT_NAME } from '@/lib/brand'
 import { FilePreviewBridge } from '@/features/documents/components/file-preview-host'
+import { ProjectFileDrop } from '@/features/documents/components/project-file-drop'
 
 interface ProjectLayoutProps {
   children: React.ReactNode
@@ -88,9 +89,12 @@ export default async function ProjectLayout({
             of — including the org-scope rail's own back control. */}
         <NavigationTrailLabel label={current.name} />
         <FilePreviewBridge>
-          <ProjectSectionFrame projectId={id} projectName={current.name}>
-            {children}
-          </ProjectSectionFrame>
+          {/* A file dropped on any page of the project lands in its Dateien. */}
+          <ProjectFileDrop projectId={id}>
+            <ProjectSectionFrame projectId={id} projectName={current.name}>
+              {children}
+            </ProjectSectionFrame>
+          </ProjectFileDrop>
         </FilePreviewBridge>
       </>
     )

@@ -188,7 +188,8 @@ specs and flips pullPolicy to `Always`) — never a bare `pulumi up --refresh`.
 
 **Size worker groups against the HPA ceilings.** The autoscaler only adds
 nodes within a worker group's min/max. If frontend `maxReplicas` (6) +
-agent-worker `maxReplicas` (8) + the fixed tiers exceed the group's max
+agent-worker `maxReplicas` (8) + ingest-worker `maxReplicas` (12, KEDA) + the
+fixed tiers exceed the group's max
 capacity, the extra pods sit Pending forever. Check the sum of limits at max
 scale against the group product when sizing.
 
@@ -998,6 +999,34 @@ Safe rollout: `jobExecution: dask` (default in code) is byte-for-byte today's
 behaviour; flip to `db` per environment. `agentWorkerMinReplicas` /
 `agentWorkerMaxReplicas` / `agentWorkerConcurrency` size the worker tier.
 
+### 6.3b Ingestion — a fair queue and a tier KEDA scales on its depth (ADR-0076)
+
+Ingestion used to be two threads per backend process, FIFO across every tenant,
+lost on restart. Now, with `jobExecution: db`:
+
+- **`/v1/ingest` jobs go into `ingest_job_queue`** (Postgres, beside the status
+  rows). A free worker claims the next job of the organisation with the fewest
+  jobs running fleet-wide, then the one served longest ago: one office's
+  reindex no longer queues everyone else. Claims heartbeat and are taken again
+  when a worker dies, up to three times.
+- **A dedicated `ingest-worker` tier** (same image, `GRID_ROLE=ingest-worker`,
+  no port, no PVC) claims them. The web tier stops claiming
+  (`GRID_INGEST_QUEUE_CLAIM=false`) while the tier runs, so a PDF's parse no
+  longer shares the chat pods' CPU.
+- **KEDA scales it on the queue**, not on CPU (a job mostly waits on the
+  provider): its `postgresql` trigger counts the table and asks for
+  ceil(jobs / `ingestWorkerConcurrency`) replicas between
+  `ingestWorkerMinReplicas` and `ingestWorkerMaxReplicas`. Out at once, in a pod
+  a minute; dev's floor is 0. Pulumi installs KEDA (`installKeda`, default on)
+  and a NetworkPolicy letting it reach Postgres.
+- **The provider sees a fixed ceiling.** `AIQ_VLM_FLEET_CONCURRENCY` (48) vision
+  calls in flight fleet-wide, a Dragonfly lease pool; more workers queue on it
+  instead of multiplying 429s on the shared OpenRouter key.
+
+Sizing: at `ingestWorkerMaxReplicas` the tier asks for max × the ingest-worker
+limits; make the worker group's max hold that (below), or the extra replicas
+sit Pending and add nothing.
+
 ### 6.4 Multi-replica chat/web tier — IMPLEMENTED (`jobExecution: db`)
 
 In `db` mode the `aiq-agent` web tier now runs `backendReplicas` replicas
@@ -1066,10 +1095,11 @@ idle WebSockets is memory/fd/event-loop, not CPU; SSR awaiting the Python
 backend is I/O wait, not CPU. Only rendering is CPU-bound, so a pod can be at its
 connection or event-loop limit while the HPA sees a quiet CPU. Scaling on active
 WS connections and event-loop lag needs a `custom.metrics.k8s.io` provider, and
-this cluster has **only** `metrics.k8s.io` (metrics-server) — no Prometheus
-adapter, no KEDA. A `Pods`-type HPA metric would report `<unknown>` and never
-scale. Adding that pipeline is a deliberate infra decision, not a config tweak;
-see §10.
+this cluster serves `metrics.k8s.io` (metrics-server) and, since ADR-0076,
+KEDA's `external.metrics.k8s.io` — but no Prometheus adapter, so there is no
+`Pods`-type metric for connections or loop lag yet; one would report
+`<unknown>` and never scale. KEDA can now carry such a trigger once the gauge is
+emitted somewhere it can read; see §10.
 
 ---
 
@@ -1759,7 +1789,7 @@ depends on §9, whose guard already refuses `networkPolicies=false`.
 - **Web and worker images must be the same Langfuse version.** They are two
   config keys because upstream publishes two images; digests are opaque, so
   nothing can verify it for you. Both defaults are pinned from the same tag
-  (3.225.11). Bump them together.
+  (4.48.0). Bump them together.
 - **ClickHouse must run UTC.** On any other server timezone Langfuse's queries
   return empty or shifted results — a dashboard reporting "no data" for a system
   that is plainly running. `TZ=UTC` is pinned on the container; do not override.
@@ -1773,6 +1803,53 @@ depends on §9, whose guard already refuses `networkPolicies=false`.
   the org, project and API keys from config on first boot, which is what lets
   the collector hold a working credential in the same `pulumi up`. Rotating
   `langfuseSalt` invalidates every stored API key, including that one.
+
+### Upgrading to Langfuse v4
+
+The defaults moved from 3.225.11 to **4.48.0**, because no 3.x release fixes
+the `next/og` remote code execution in Next 16.2.11 (GHSA-vcvr-r3jv-pc5j). v4
+changes the ClickHouse data model, so the upgrade is upstream's three-stage
+migration ([guide](https://langfuse.com/self-hosting/upgrade/upgrade-guides/upgrade-v3-to-v4)),
+and the first stage runs on the next `npm run up`.
+
+What the program already does:
+
+- **ClickHouse goes to 26.8 LTS first.** v4 needs 25.12 or newer, and v3 runs on
+  it unchanged. The Langfuse Deployments depend on the ClickHouse Service, which
+  depends on the StatefulSet, so one `up` finishes the ClickHouse roll before the
+  v4 pods start. 26.8 adds one always-written system log,
+  `background_schedule_pool_log`, which gets the same 14-day TTL as the rest.
+- **The ClickHouse login needs no new grants.** The image creates it without a
+  `<grants>` list, which in ClickHouse means every privilege, so the extra
+  grants v4 asks for are already held.
+- **Writes go to both data models** (`langfuseV4WriteMode: dual`): v3's tables,
+  which keep the rollback path open, and v4's events table. The collector sends
+  `x-langfuse-ingestion-version: 4`, so its spans reach v4 at once rather than
+  through the ~15-minute server-side propagation. Users may opt into the v4
+  views. Historic traces are **not** rewritten (`langfuseV4HistoricBackfill:
+  false`), because upstream asks for about three times the current ClickHouse
+  disk as headroom.
+
+What you do before that `up`. None of it can be undone after v4's schema
+migrations run, short of a restore:
+
+1. **Back up both stores**: the `langfuse` Postgres database (a CNPG backup)
+   and the ClickHouse PVC (a volume snapshot).
+2. **Confirm v3 finished its background migrations.** In the `langfuse`
+   database, this must return no rows:
+   `SELECT name, failed_at, failed_reason FROM background_migrations WHERE finished_at IS NULL;`
+3. After the `up`, check that v4's propagation is healthy:
+   `kubectl exec deploy/langfuse-worker -- wget -qO- 'localhost:3030/api/health?failIfEventPropagationStuck=true'`
+   answers 200, not 503.
+
+**The cutover is a later, one-way config change.** Once the v4 views hold what
+you need (new traces at once, history only if you turn the backfill on and have
+the disk), set `langfuseV4WriteMode: events_only` and `up`. From then on v3's
+tables are no longer written and the legacy public APIs (`/api/public/traces`,
+`/observations`, `/sessions`, `/scores`, `/metrics`) answer 404. Nothing in
+this repo reads them: traces arrive over OTLP, and the Python SDK only reads
+prompts. Rollback before the cutover is upstream's `migrate … goto 37` from the
+v4 web container, then the v3 digests. After it, only the backups.
 
 ### Signals and attribution
 
@@ -1965,10 +2042,9 @@ developing against the Langfuse UI and API, not for reproducing ingestion.
   SeaweedFS all expose Prometheus metrics, so this is a natural next layer —
   and the provider's paid Metrics (Grafana) add-on is the quick option.
 - **Autoscaling the frontend on WS connections / event-loop lag (§6.5).**
-  Blocked on the item above, not on app code: an HPA can only consume
-  `custom.metrics.k8s.io` or `external.metrics.k8s.io`, and this cluster serves
-  only `metrics.k8s.io`. Once a metrics pipeline exists, the choice is
-  prometheus-adapter (map a scraped gauge to a `Pods` metric, keeps the HPA) or
-  KEDA (richer triggers, its own CRD and controller). The OTel collector already
+  Blocked on the item above, not on app code. KEDA is installed now (ADR-0076,
+  for the ingest tier), so the cluster-side provider is decided; what is
+  missing is a store KEDA can read the gauge from (Prometheus, or a KEDA
+  `metrics-api` endpoint on the frontend). The OTel collector already
   carries a metrics pipeline (§9), so the app-side emission is the small half of
   this; the cluster-side provider is the decision.

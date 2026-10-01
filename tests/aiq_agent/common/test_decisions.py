@@ -8,6 +8,8 @@ relies on: ``None`` on any failure, and a record that says why.
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
@@ -21,6 +23,17 @@ from aiq_agent.common.decisions import decide_many
 from aiq_agent.common.decisions import noul
 from aiq_agent.common.decisions import score
 from aiq_agent.common.wire_v2 import StatusStep
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _bff_cost_sources() -> set[str]:
+    """`COST_SOURCES` as the BFF declares it, the vocabulary its internal usage route accepts."""
+    schema = (_REPO_ROOT / "frontends/ui/src/lib/db/schema/budgets.ts").read_text()
+    declared = re.search(r"export const COST_SOURCES = \[([^\]]*)\]", schema)
+    assert declared is not None
+    return set(re.findall(r"'([a-z_]+)'", declared.group(1)))
+
 
 ANSWERS = {
     "needs_evidence": {"type": "noul", "noul": 0.93},
@@ -263,4 +276,8 @@ class TestTheCostIsOnTheLedger:
             await decide("s", QUESTIONS, slot="t", transport=_transport(_ok))
         record.assert_called_once()
         kwargs = record.call_args.kwargs
-        assert kwargs["role"] == "decision" and kwargs["prompt_tokens"] == 476 and kwargs["cost_source"] == "provider"
+        assert kwargs["role"] == "decision" and kwargs["prompt_tokens"] == 476
+        # A value outside the ledger's vocabulary, as "provider" was, has the
+        # internal endpoint refuse the whole batch. Read from the BFF schema.
+        assert kwargs["cost_source"] == "usage_field"
+        assert kwargs["cost_source"] in _bff_cost_sources()

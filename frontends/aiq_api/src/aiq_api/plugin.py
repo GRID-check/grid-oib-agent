@@ -349,6 +349,15 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         # so we schedule it on the running loop and let it log its own outcome.
         self._schedule_internal_api_check()
 
+        # Claim queued ingestion jobs in this process unless a dedicated
+        # ingest-worker tier does (GRID_INGEST_QUEUE_CLAIM=false). The workflow
+        # is built by now, so the knowledge function has activated the ingestor.
+        from aiq_agent.knowledge.factory import get_active_ingestor
+
+        from .jobs import ingest_dispatch
+
+        ingest_dispatch.attach(get_active_ingestor())
+
         self._install_signal_handlers()
 
         @app.on_event("shutdown")

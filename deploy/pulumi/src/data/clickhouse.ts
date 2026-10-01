@@ -47,9 +47,13 @@ const SYSTEM_LOG_TTL_DAYS = 14;
  * intervals and the rest stay upstream's. `<table>` is repeated so no entry
  * dangles off an image default a future bump could rename.
  *
- * The table list is exact, and `clickhouse.spec.ts` asserts it: the eleven
- * MergeTree-backed log tables the pinned 25.8 image creates (verified by
- * `SHOW TABLES FROM system LIKE '%log'`) that takes a standalone `<ttl>`.
+ * The table list is exact, and `clickhouse.spec.ts` asserts it: the
+ * MergeTree-backed log tables the pinned image creates that take a standalone
+ * `<ttl>`. The 25.8 set was verified by `SHOW TABLES FROM system LIKE '%log'`;
+ * 26.8 adds `background_schedule_pool_log` (a section without `<engine>` in
+ * the image's config.xml, written by every background task over 30 ms). Its
+ * other new sections are written only by features this stack does not use
+ * (instrumentation, Delta Lake) or carry their own 30-day TTL (ZooKeeper).
  * That last clause is load-bearing: the image defines
  * `opentelemetry_span_log` with a custom `<engine>`, and a standalone
  * `<ttl>` next to an `<engine>` fails the server at startup with Code 36
@@ -61,6 +65,7 @@ const SYSTEM_LOG_TTL_DAYS = 14;
 const SYSTEM_LOG_TTL_XML = `<clickhouse>
   <asynchronous_insert_log><table>asynchronous_insert_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></asynchronous_insert_log>
   <asynchronous_metric_log><table>asynchronous_metric_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></asynchronous_metric_log>
+  <background_schedule_pool_log><table>background_schedule_pool_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></background_schedule_pool_log>
   <error_log><table>error_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></error_log>
   <metric_log><table>metric_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></metric_log>
   <part_log><table>part_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></part_log>

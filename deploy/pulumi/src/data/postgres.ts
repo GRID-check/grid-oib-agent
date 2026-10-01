@@ -40,7 +40,7 @@ export interface Postgres {
   langfuseStoreDeps: pulumi.Resource[];
 }
 
-const CLUSTER_NAME = "grid-pg";
+export const CLUSTER_NAME = "grid-pg";
 
 // Table DDL adapted from deploy/compose/init-db.sql, minus the psql
 // meta-commands (\gexec/\connect) — CNPG creates the databases, this Job only
@@ -576,12 +576,15 @@ export function installPostgres(
   /**
    * Build a DSN. `as` selects a non-default role — used for the least-privilege
    * runtime credential (ADR-0041), which is the same cluster with a different
-   * login, not a different database.
+   * login, not a different database. `clusterWide` names the host by its FQDN,
+   * for a client in ANOTHER namespace: KEDA's operator resolves a bare
+   * `grid-pg-rw` in `keda`, finds nothing, and the queue never scales out.
    */
   const dsn = (opts: {
     db: string;
     driver?: string;
     as?: { user: string; password: pulumi.Output<string> };
+    clusterWide?: boolean;
   }): pulumi.Output<string> => {
     const scheme = opts.driver ?? "postgresql";
     const user = opts.as ? encodeURIComponent(opts.as.user) : appUser;
@@ -607,11 +610,13 @@ export function installPostgres(
     //
     // The parameter NAME is driver-specific — see `sslParamFor`.
     const sslParam = sslParamFor(scheme);
-    return password.apply(
-      (pw) =>
-        `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:${PORT.postgres}/${opts.db}` +
-        `?${sslParam}=require`,
-    );
+    return pulumi.all([password, namespace]).apply(([pw, ns]) => {
+      const host = opts.clusterWide ? `${rwHost}.${ns}.svc.cluster.local` : rwHost;
+      return (
+        `${scheme}://${user}:${encodeURIComponent(pw)}@${host}:${PORT.postgres}/${opts.db}` +
+        `?${sslParam}=require`
+      );
+    });
   };
 
   // 4. Idempotent table bootstrap. Waits for the cluster's -rw service to

@@ -52,6 +52,7 @@ from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
+from contextvars import copy_context
 from dataclasses import dataclass
 from threading import Lock
 from typing import Any
@@ -157,6 +158,17 @@ class BudgetSnapshot:
 #: which until now appeared on no ledger at all (ledger row 25).
 USAGE_ROLE_RERANK = "rerank"
 
+#: Roles for the model calls a document ingestion job makes (``activity`` =
+#: ``ingest`` on the ledger). Vision: captions and drawing analysis.
+#: Transcription: OCR of scanned or garbled pages. Embedding: the vectors a
+#: chunk is stored under (and, inside a chat turn, a query's).
+USAGE_ROLE_INGEST_VISION = "ingest_vision"
+USAGE_ROLE_INGEST_TRANSCRIPTION = "ingest_transcription"
+USAGE_ROLE_EMBEDDING = "embedding"
+
+#: ``activity`` of a document ingestion job's spend (the ledger's CHECK lists it).
+USAGE_ACTIVITY_INGEST = "ingest"
+
 
 @dataclass
 class UsageEvent:
@@ -191,14 +203,11 @@ class UsageEvent:
             "costUsd": self.cost_usd,
             "costSource": self.cost_source,
             "isByok": self.is_byok,
-            # `role` is deliberately NOT on the wire. The internal endpoint
-            # declares its fields (`app/api/internal/usage/route.ts`) and
-            # `test_payload_shape_matches_internal_endpoint` is the ratchet
-            # that keeps this dict equal to them; a key the route does not
-            # declare is dropped by zod, so sending it would buy nothing and
-            # cost the guarantee. The ledger's reserved `agent_group` column is
-            # where a role belongs, and wiring it is a BFF change: until then a
-            # rerank row is told apart by its `model`.
+            # Stored as the ledger's `agent_group`. The internal endpoint
+            # declares every key (`app/api/internal/usage/route.ts`), and
+            # `test_payload_shape_matches_internal_endpoint` reads that file, so
+            # a key here the route would silently drop fails the test instead.
+            "role": self.role,
         }
 
 
@@ -334,6 +343,7 @@ class GridCostTracker(BaseCallbackHandler):
         job_id: str | None = None,
         message_id: str | None = None,
         budget: BudgetSnapshot | None = None,
+        activity: str | None = None,
     ) -> None:
         self.organization_id = organization_id
         self.user_id = user_id
@@ -344,6 +354,9 @@ class GridCostTracker(BaseCallbackHandler):
         #: so the answer's details can show what it cost in the tenant's unit.
         #: ``None`` off the chat path (jobs, the CLI).
         self.message_id = message_id
+        #: What kind of work the whole scope is (``USAGE_ACTIVITY_INGEST`` for an
+        #: ingestion job); ``None`` for a chat turn, a stage or a research job.
+        self.activity = activity
         self.budget = budget
         self._lock = Lock()
         self._pending: list[UsageEvent] = []
@@ -543,6 +556,7 @@ class GridCostTracker(BaseCallbackHandler):
             "conversationId": self.conversation_id,
             "jobId": self.job_id,
             "messageId": self.message_id,
+            "activity": self.activity,
             "events": [event.to_payload() for event in batch],
         }
         if wait:
@@ -713,6 +727,93 @@ def record_usage_event(
     return True
 
 
+def _usage_event_from_openai(response: Any, *, role: str, requested_model: str | None) -> UsageEvent | None:
+    """A UsageEvent from a raw ``openai`` SDK response (chat completion or embedding), or None."""
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    raw = usage.model_dump() if hasattr(usage, "model_dump") else dict(usage) if isinstance(usage, dict) else {}
+    generation_id = getattr(response, "id", None)
+    prompt_details = raw.get("prompt_tokens_details") or {}
+    completion_details = raw.get("completion_tokens_details") or {}
+    prompt_tokens = _as_int(raw.get("prompt_tokens"))
+    completion_tokens = _as_int(raw.get("completion_tokens"))
+    cost_usd = _reported_cost(raw.get("cost"), generation_id)
+    is_byok = raw.get("is_byok")
+    return UsageEvent(
+        model=getattr(response, "model", None) or requested_model,
+        requested_model=requested_model,
+        generation_id=generation_id if isinstance(generation_id, str) else None,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=_as_int(raw.get("total_tokens")) or prompt_tokens + completion_tokens,
+        cached_tokens=_as_int(prompt_details.get("cached_tokens") if isinstance(prompt_details, dict) else 0),
+        reasoning_tokens=_as_int(
+            completion_details.get("reasoning_tokens") if isinstance(completion_details, dict) else 0
+        ),
+        cost_usd=cost_usd if cost_usd is not None else 0.0,
+        cost_source="usage_field" if cost_usd is not None else "missing",
+        is_byok=is_byok if isinstance(is_byok, bool) else None,
+        role=role,
+    )
+
+
+def _metered(create: Any, role: str) -> Any:
+    @functools.wraps(create)
+    def call(*args: Any, **kwargs: Any) -> Any:
+        response = create(*args, **kwargs)
+        tracker = grid_cost_tracker_var.get()
+        if tracker is not None:
+            try:
+                event = _usage_event_from_openai(response, role=role, requested_model=kwargs.get("model"))
+                if event is not None:
+                    tracker.record(event)
+            except Exception:  # noqa: BLE001 - accounting must never fail the call it measures
+                logger.warning("Could not record a %s usage event", role, exc_info=True)
+        return response
+
+    call.__grid_metered__ = True  # type: ignore[attr-defined]
+    return call
+
+
+def meter_openai_client(client: Any, *, role: str) -> Any:
+    """Record the usage of every chat completion and embedding ``client`` makes; returns it.
+
+    The calls that never pass LangChain (ingestion's vision and transcription
+    calls, the embeddings llama-index makes through its own ``openai`` client)
+    reached no ledger: the response's ``usage``, with OpenRouter's ``cost`` in
+    it, was read for nothing and dropped. This wraps the client's two create
+    methods in place. Attribution is the ambient tracker's, as for
+    :func:`record_usage_event`: inside an ingestion job that is the job's
+    organization, project and uploader under ``activity = ingest``; inside a
+    chat turn (a query embedding) it is the turn's; with no tracker nothing is
+    recorded. Idempotent.
+    """
+    for resource_name in ("chat.completions", "embeddings"):
+        try:
+            resource = client
+            for part in resource_name.split("."):
+                resource = getattr(resource, part)
+        except AttributeError:
+            continue
+        create = getattr(resource, "create", None)
+        if create is None or getattr(create, "__grid_metered__", False):
+            continue
+        resource.create = _metered(create, role)
+    return client
+
+
+def submit_in_context(executor: Any, fn: Any, /, *args: Any, **kwargs: Any) -> Future[Any]:
+    """``executor.submit`` that runs ``fn`` in a copy of the caller's context.
+
+    A pool thread starts with an empty context, so the cost tracker (a
+    ContextVar) did not reach the work handed to it: every vision call an
+    ingestion job fans out to its pool ran with no ledger. One copy per call,
+    because a single ``Context`` cannot be entered by two threads at once.
+    """
+    return executor.submit(copy_context().run, fn, *args, **kwargs)
+
+
 def _read_identity_from_context() -> dict[str, str | None]:
     from aiq_agent.project_context import _read_header
     from aiq_agent.project_context import get_conversation_id_from_context
@@ -777,6 +878,7 @@ def track_llm_costs(
     identity: dict[str, str | None] | None = None,
     budget: BudgetSnapshot | None = None,
     inline_flush: bool = True,
+    activity: str | None = None,
 ):
     """Activate cost tracking for the enclosed request/turn.
 
@@ -805,6 +907,7 @@ def track_llm_costs(
             job_id=job_id,
             message_id=resolved_identity.get("message_id"),
             budget=resolved_budget,
+            activity=activity,
         )
         token = grid_cost_tracker_var.set(tracker)
     except Exception:

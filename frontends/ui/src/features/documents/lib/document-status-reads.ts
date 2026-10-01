@@ -38,6 +38,7 @@ export const STATUS_FIELDS: readonly (keyof FileItem)[] = [
   'contentTypes',
   'tags',
   'versionCount',
+  'queueAhead',
 ]
 
 /** What a status read answered: the row's fresh fields, or that the row is gone. */

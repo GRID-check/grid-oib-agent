@@ -57,6 +57,21 @@ _CONTRACT_MARKER = "__grid_request_contract__"
 #: ``type(llm)`` stable and cheap across the fleet's many resolutions.
 _CONTRACT_SUBCLASSES: dict[type, type] = {}
 
+#: A rate limit that arrives INSIDE a Responses stream, as an ``error`` event.
+#: langchain-openai raises it as a bare ``ValueError("rate_limit_exceeded: …")``
+#: that carries no status code and no "429", so NAT's default filters (status
+#: codes, "Too Many Requests", "429") let it through and the turn ends on the
+#: generic error (GRID-check/grid-oib-agent#826). Matched on the provider's
+#: error code, which is what OpenRouter puts in front of the message.
+_STREAMED_RATE_LIMIT_MESSAGES = ("rate_limit_exceeded",)
+
+
+def retry_messages(configured: list[str] | None) -> list[str]:
+    """The config's retry substrings plus the streamed rate-limit code, once each."""
+    merged = list(configured or [])
+    merged.extend(m for m in _STREAMED_RATE_LIMIT_MESSAGES if m not in merged)
+    return merged
+
 
 def _llm_base_url(llm: Any) -> str:
     """Best-effort base URL for a LangChain chat model."""
@@ -306,7 +321,7 @@ async def get_langchain_llm(builder: Any, ref: Any) -> Any:
         wrapped.default,
         retries=config.num_retries,
         retry_codes=config.retry_on_status_codes,
-        retry_on_messages=config.retry_on_errors,
+        retry_on_messages=retry_messages(config.retry_on_errors),
     )
     hardened = disable_previous_response_id(apply_openrouter_structured_defaults(llm))
     return enforce_chat_request_contract(hardened)

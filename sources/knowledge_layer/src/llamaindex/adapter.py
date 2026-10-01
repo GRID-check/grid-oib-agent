@@ -35,6 +35,7 @@ import json
 import logging
 import math
 import os
+import random
 import re
 import threading
 import time
@@ -48,12 +49,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from aiq_agent.common.cost_tracking import USAGE_ROLE_EMBEDDING
+from aiq_agent.common.cost_tracking import USAGE_ROLE_INGEST_VISION
+from aiq_agent.common.cost_tracking import meter_openai_client
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.base import BaseRetriever
+from aiq_agent.knowledge.base import PreparedIngestJob
 from aiq_agent.knowledge.base import TTLCleanupMixin
 from aiq_agent.knowledge.factory import register_ingestor
 from aiq_agent.knowledge.factory import register_retriever
+from aiq_agent.knowledge.ingest_scheduler import FairIngestScheduler
+from aiq_agent.knowledge.ingest_scheduler import JobSource
 from aiq_agent.knowledge.schema import Chunk
 from aiq_agent.knowledge.schema import CollectionInfo
 from aiq_agent.knowledge.schema import ContentType
@@ -399,6 +406,29 @@ MAX_OCR_PAGES = _env_int("AIQ_MAX_OCR_PAGES", 500, minimum=0)
 # silently disable captioning altogether.
 VLM_REQUEST_TIMEOUT_SECONDS = max(1, _env_int("AIQ_VLM_TIMEOUT_SECONDS", 180))
 
+# @environment_variable AIQ_VLM_FLEET_CONCURRENCY
+# @category Knowledge Layer
+# @type int
+# @default 48
+# @required false
+# Vision-model calls in flight across EVERY ingest process at once (a lease pool
+# on the shared cache, `common.lease_slots`); a call waits for a slot. This, not
+# the number of ingest workers, is what the provider sees, so scaling the ingest
+# tier out queues calls here instead of turning into upstream 429s. 0 disables.
+VLM_FLEET_CONCURRENCY = _env_int("AIQ_VLM_FLEET_CONCURRENCY", 48)
+
+# @environment_variable AIQ_VLM_RATE_LIMIT_RETRIES
+# @category Knowledge Layer
+# @type int
+# @default 4
+# @required false
+# Retries of a vision-model call the provider rate-limited (HTTP 429), with
+# exponential backoff or the provider's Retry-After, before the caption fails.
+VLM_RATE_LIMIT_RETRIES = max(0, _env_int("AIQ_VLM_RATE_LIMIT_RETRIES", 4))
+
+_VLM_SLOT_KEY = "ingest:vlm:inflight"
+_VLM_BACKOFF_CAP_SECONDS = 60.0
+
 # @environment_variable AIQ_EMBED_BATCH_SIZE
 # @category Knowledge Layer
 # @type int
@@ -496,6 +526,11 @@ JOB_RETENTION_SECONDS = 3600  # 1 hour
 # summary reconciliation, which backfills a row for every successful file,
 # never writes one for a document that no longer exists.
 DOCUMENT_DELETED_DURING_INGEST = "document_deleted: the document was deleted while it was being ingested"
+
+
+class _ClaimLost(Exception):  # noqa: N818 - a signal, not an error
+    """The durable queue gave this job to another worker; this run must write nothing more."""
+
 
 # Terminal per-file tracking entries (self._files) are retained this long, then
 # pruned. SUCCESS files are still listable afterwards (list_files rebuilds them
@@ -949,7 +984,7 @@ def make_embed_model(*, base_url: str, model: str, api_key: str, **kwargs: Any):
     from aiq_agent.common.openrouter import pinned_async_http_client
     from aiq_agent.common.openrouter import pinned_http_client
 
-    return NVIDIAEmbedding(
+    embed_model = NVIDIAEmbedding(
         base_url=base_url,
         model=model,
         api_key=api_key,
@@ -957,6 +992,10 @@ def make_embed_model(*, base_url: str, model: str, api_key: str, **kwargs: Any):
         async_http_client=pinned_async_http_client(),
         **kwargs,
     )
+    # Metered: llama-index calls the OpenAI SDK itself, so no callback sees an
+    # embedding; its usage lands in whatever tracker is active (ingest job or turn).
+    meter_openai_client(getattr(embed_model, "_client", None), role=USAGE_ROLE_EMBEDDING)
+    return embed_model
 
 
 def resolve_vlm_credential(organization_id: str | None = None):
@@ -1869,22 +1908,94 @@ def _table_to_markdown(table: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
-def _vlm_client(base_url: str, api_key: str):
-    """The vision client for one ingest call, under the ingest job's data policy.
+def _ingest_cost_scope(job_id: str, config: dict[str, Any]):
+    """The cost tracker an ingestion job's model calls are recorded under (``activity = ingest``)."""
+    from aiq_agent.common.cost_tracking import USAGE_ACTIVITY_INGEST
+    from aiq_agent.common.cost_tracking import BudgetSnapshot
+    from aiq_agent.common.cost_tracking import track_llm_costs
+
+    return track_llm_costs(
+        job_id=job_id,
+        identity={
+            "organization_id": config.get("organization_id"),
+            "user_id": config.get("user_id"),
+            "project_id": config.get("project_id"),
+            "conversation_id": None,
+            "message_id": None,
+        },
+        # Unlimited, deliberately: see `_run_ingestion`.
+        budget=BudgetSnapshot(),
+        activity=USAGE_ACTIVITY_INGEST,
+    )
+
+
+def _vlm_slot():
+    """One of the fleet's ``VLM_FLEET_CONCURRENCY`` vision-call slots, for as long as the call may last."""
+    from aiq_agent.common import lease_slots
+
+    return lease_slots.hold(
+        _VLM_SLOT_KEY,
+        VLM_FLEET_CONCURRENCY,
+        lease_seconds=VLM_REQUEST_TIMEOUT_SECONDS + 30,
+        max_wait_seconds=VLM_REQUEST_TIMEOUT_SECONDS * 3,
+    )
+
+
+def _rate_limited_for(error: Exception) -> float | None:
+    """Seconds to wait before retrying a call the provider rate-limited; None when it was not a 429."""
+    if getattr(error, "status_code", None) != 429 and "rate_limit" not in str(error).lower():
+        return None
+    headers = getattr(getattr(error, "response", None), "headers", None) or {}
+    try:
+        stated = float(headers.get("retry-after", ""))
+    except (TypeError, ValueError):
+        return 0.0
+    return min(max(stated, 0.0), _VLM_BACKOFF_CAP_SECONDS)
+
+
+def _vlm_create_fairly(client, **request):
+    """``client.chat.completions.create`` inside a fleet slot, waiting out the provider's 429s.
+
+    The OpenAI SDK retries a 429 once on its own (``max_retries=1``); a burst of
+    ingest workers outlasts that. Each further attempt waits OUTSIDE the slot
+    (Retry-After when the provider states it, else 2, 4, 8 … s with jitter), so
+    a rate-limited call never holds capacity another call could use once the
+    limit lifts.
+    """
+    for attempt in range(VLM_RATE_LIMIT_RETRIES + 1):
+        try:
+            with _vlm_slot():
+                return client.chat.completions.create(**request)
+        except Exception as error:
+            wait = _rate_limited_for(error)
+            if wait is None or attempt == VLM_RATE_LIMIT_RETRIES:
+                raise
+            wait = wait or min(_VLM_BACKOFF_CAP_SECONDS, 2.0 ** (attempt + 1))
+            logger.info("VLM call rate-limited; retrying in %.1fs (attempt %d)", wait, attempt + 1)
+            time.sleep(wait * (0.8 + 0.4 * random.random()))
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _vlm_client(base_url: str, api_key: str, *, role: str = USAGE_ROLE_INGEST_VISION):
+    """The vision client for one ingest call, under the ingest job's data policy and on its cost ledger.
 
     The ingest job enters ``openrouter.data_policy_scope`` for its organization;
     anything that reaches here without one (the base corpus sync, a thread that
-    lost the context) is pinned to zero-data-retention endpoints.
+    lost the context) is pinned to zero-data-retention endpoints. Each call's
+    usage is recorded under ``role`` in the job's tracker (``_ingest_cost_scope``).
     """
     from aiq_agent.common.openrouter import openai_client
     from aiq_agent.common.openrouter import scoped_data_policy
 
-    return openai_client(
-        base_url=base_url,
-        api_key=api_key,
-        policy=scoped_data_policy(),
-        timeout=VLM_REQUEST_TIMEOUT_SECONDS,
-        max_retries=1,
+    return meter_openai_client(
+        openai_client(
+            base_url=base_url,
+            api_key=api_key,
+            policy=scoped_data_policy(),
+            timeout=VLM_REQUEST_TIMEOUT_SECONDS,
+            max_retries=1,
+        ),
+        role=role,
     )
 
 
@@ -1909,7 +2020,8 @@ def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, tem
       Raising here would discard usable content and — since failure placeholders
       are no longer indexed — drop the chunk entirely over a partial success.
     """
-    response = client.chat.completions.create(
+    response = _vlm_create_fairly(
+        client,
         model=model,
         messages=messages,
         max_tokens=max_tokens,
@@ -1931,12 +2043,13 @@ def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, tem
         except Exception:  # pragma: no cover - defensive, SDK-shape dependent
             retry_client = client
     try:
-        response = retry_client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens * 2,
-            temperature=temperature,
-        )
+        with _vlm_slot():
+            response = retry_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens * 2,
+                temperature=temperature,
+            )
     except Exception as exc:
         logger.warning("VLM truncation retry failed (%s); keeping the truncated caption", exc)
         return partial
@@ -2427,6 +2540,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # (job status stays PENDING) instead of each spawning a thread.
     INGEST_MAX_WORKERS = max(1, _env_int("AIQ_INGEST_MAX_WORKERS", 2))
 
+    # @environment_variable AIQ_INGEST_MAX_PER_ORG
+    # @category Knowledge Layer
+    # @type int
+    # @default 0
+    # @required false
+    # Most ingestion jobs one organisation may run at once in this process; 0
+    # for no cap. Workers are shared fairly without it (the organisation with
+    # the fewest running jobs goes next, `ingest_scheduler`); a cap also keeps
+    # workers free for newcomers, at the price of idling them when one
+    # organisation is alone.
+    INGEST_MAX_PER_ORG = max(0, _env_int("AIQ_INGEST_MAX_PER_ORG", 0))
+
     # @environment_variable AIQ_EXTRACT_IMAGES
     # @category Knowledge Layer
     # @type bool
@@ -2446,6 +2571,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     DEFAULT_EXTRACT_CHARTS = _env_switch("AIQ_EXTRACT_CHARTS")
 
     backend_name = "llamaindex"
+    supports_durable_jobs = True
 
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config)
@@ -2477,14 +2603,24 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         # latest write did not land, which the heartbeat writes again.
         self._persist_lock = threading.Lock()
         self._unpersisted: set[str] = set()
+        # Jobs this process prepared whose PENDING write did not land. Handed to
+        # `_unpersisted` when this process runs the job; a job the durable queue
+        # carries elsewhere is written by its worker's first status change.
+        self._unstored_at_prepare: set[str] = set()
+        # Jobs claimed from the durable queue, and how to ask whether this
+        # process still holds each claim (`run_prepared`).
+        self._claim_guards: dict[str, Callable[[], bool]] = {}
 
         # Bounded ingestion pool: a thread per upload gave N concurrent
         # uploads N threads all embedding against the remote API and writing
         # into the same embedded Chroma store. Excess jobs queue (status stays
         # PENDING until a worker picks them up) instead of piling on threads.
-        self._ingest_pool = ThreadPoolExecutor(
-            max_workers=self.INGEST_MAX_WORKERS,
-            thread_name_prefix="llamaindex-ingest",
+        # Shared FAIRLY between organisations: a FIFO here queued every office
+        # behind one office's folder upload (`ingest_scheduler`).
+        self._ingest_pool = FairIngestScheduler(
+            self.INGEST_MAX_WORKERS,
+            name="llamaindex-ingest",
+            per_org_cap=self.INGEST_MAX_PER_ORG,
         )
 
         # Lazy-loaded components
@@ -2707,16 +2843,39 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         collection_name: str,
         config: dict[str, Any] | None = None,
     ) -> str:
-        """Submit an ingestion job (non-blocking).
+        """Submit an ingestion job (non-blocking) to this process's fair pool.
 
         An entry is a local path, or a deferred download the job runs when it
         reaches the file (``knowledge_layer.deferred_files``); the latter is
         kept here unchecked, since there is nothing on disk yet to check.
         """
+        prepared = self.prepare_job(file_paths, collection_name, config)
+        if prepared.status.status == JobState.PENDING:
+            self.submit_prepared(prepared)
+        return prepared.job_id
+
+    def prepare_job(
+        self,
+        file_paths: list[str | Callable[[], str]],
+        collection_name: str,
+        config: dict[str, Any] | None = None,
+    ) -> PreparedIngestJob:
+        """Validate a job and record it PENDING in the shared store, without running it.
+
+        What runs it is the caller's choice: ``submit_prepared`` queues it in
+        this process, and the durable queue (``aiq_api.jobs.ingest_queue``)
+        stores it for whichever worker claims it, on any replica. So a pending
+        job is NOT registered in this process here: the process that runs it
+        is the one that vouches for it (``_beat``). A job that fails validation
+        is final at once, and is registered and stored as failed.
+        """
         from knowledge_layer.deferred_files import is_deferred
 
         job_id = str(uuid.uuid4())
-        job_config = {**self.config, **(config or {})}
+        # The REQUEST's config only: it travels with the job (the durable queue
+        # stores it), and this ingestor's own config holds live objects, the
+        # summary LLM among them. `_job_config` merges the two where it runs.
+        job_config = dict(config or {})
 
         # Validate file paths. The caller-supplied per-file lists
         # (original_filenames / file_ids) are positional, so they must be
@@ -2765,7 +2924,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             with self._lock:
                 self._jobs[job_id] = job
             self._persist(job)
-            return job_id
+            return PreparedIngestJob(job_id, job, [], collection_name, job_config)
 
         # Create pending job with file details
         # Use original filenames if provided, otherwise extract from path
@@ -2791,20 +2950,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     progress_percent=0.0,
                 )
             )
-            # Store file_id → file_name mapping for delete operations
-            with self._lock:
-                existing_file = self._files.get(file_id)
-                if existing_file:
-                    existing_file.file_name = file_name
-                    existing_file.collection_name = collection_name
-                    existing_file.status = FileStatus.UPLOADING
-                else:
-                    self._files[file_id] = FileInfo(
-                        file_id=file_id,
-                        file_name=file_name,
-                        collection_name=collection_name,
-                        status=FileStatus.UPLOADING,
-                    )
 
         job = IngestionJobStatus(
             job_id=job_id,
@@ -2822,18 +2967,115 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             },
         )
 
-        with self._lock:
-            self._jobs[job_id] = job
-
         # Persist the initial PENDING status so a poll to any replica resolves it
-        # immediately, even before this replica's pool starts processing.
-        self._persist(job)
+        # immediately, before any worker picks it up. Straight to the store,
+        # not `_persist`: this process may never run the job, and a failed
+        # write is retried only for the jobs a process runs.
+        if not ingest_status_store.put(job):
+            # Whichever process adopts it retries the write on its heartbeat.
+            with self._persist_lock:
+                self._unstored_at_prepare.add(job_id)
+        return PreparedIngestJob(job_id, job, validated_paths, collection_name, job_config)
 
-        # Run ingestion on the bounded pool; the job stays PENDING while queued.
-        self._ingest_pool.submit(self._run_ingestion, job_id, validated_paths, collection_name, job_config)
+    def _adopt(self, prepared: PreparedIngestJob) -> None:
+        """Register a prepared job as this process's: its status and its files."""
+        job = prepared.status
+        with self._persist_lock:
+            if prepared.job_id in self._unstored_at_prepare:
+                self._unstored_at_prepare.discard(prepared.job_id)
+                self._unpersisted.add(prepared.job_id)
+        with self._lock:
+            self._jobs[prepared.job_id] = job
+            # file_id → file_name, for delete operations
+            for detail in job.file_details:
+                existing_file = self._files.get(detail.file_id)
+                if existing_file:
+                    existing_file.file_name = detail.file_name
+                    existing_file.collection_name = prepared.collection_name
+                    existing_file.status = FileStatus.UPLOADING
+                else:
+                    self._files[detail.file_id] = FileInfo(
+                        file_id=detail.file_id,
+                        file_name=detail.file_name,
+                        collection_name=prepared.collection_name,
+                        status=FileStatus.UPLOADING,
+                    )
 
-        logger.info(f"LlamaIndex ingestion job submitted: {job_id}")
-        return job_id
+    def submit_prepared(self, prepared: PreparedIngestJob) -> None:
+        """Queue a prepared job in this process's fair pool; it stays PENDING while it waits."""
+        self._adopt(prepared)
+        try:
+            self._ingest_pool.submit(
+                prepared.organization_id,
+                self._run_ingestion,
+                prepared.job_id,
+                prepared.file_paths,
+                prepared.collection_name,
+                self._job_config(prepared),
+            )
+        except RuntimeError as error:
+            # The pool is shutting down. Adopted and never run, the job would
+            # read PENDING for as long as this process beats for it.
+            with self._lock:
+                job = self._jobs[prepared.job_id]
+                job.status = JobState.FAILED
+                job.error_message = f"{ingest_status_store.INTERRUPTED}: {error}; retry to index this file"
+                job.completed_at = datetime.utcnow().isoformat()
+            self._persist(job)
+            raise
+        logger.info("LlamaIndex ingestion job submitted: %s", prepared.job_id)
+
+    def run_prepared(self, prepared: PreparedIngestJob, still_owner: Callable[[], bool] | None = None) -> None:
+        """Run a prepared job here and now, on the calling thread: a job claimed from the durable queue.
+
+        Adopting it makes this process the one that vouches for it; the first
+        status write (`_run_ingestion`'s PROCESSING) takes the row over from
+        the process that prepared it. ``still_owner`` answers whether this
+        worker still holds the job's claim; it is asked before each file is
+        read and again before its chunks are written, and a "no" ends the run
+        without another write (``_ClaimLost``): the worker that holds the claim
+        now indexes the file, once.
+        """
+        self._adopt(prepared)
+        if still_owner is not None:
+            self._claim_guards[prepared.job_id] = still_owner
+        try:
+            self._run_ingestion(
+                prepared.job_id, prepared.file_paths, prepared.collection_name, self._job_config(prepared)
+            )
+        finally:
+            self._claim_guards.pop(prepared.job_id, None)
+
+    def _assert_still_owner(self, job_id: str) -> None:
+        """Raise ``_ClaimLost`` when the durable queue gave this job to another worker."""
+        guard = self._claim_guards.get(job_id)
+        if guard is not None and not guard():
+            raise _ClaimLost(job_id)
+
+    def _abandon(self, job_id: str) -> None:
+        """Forget a job whose claim was lost: no status write, no heartbeat; the new owner has the row."""
+        with self._lock:
+            self._jobs.pop(job_id, None)
+        with self._persist_lock:
+            self._unpersisted.discard(job_id)
+        logger.warning("Ingestion job %s was claimed by another worker; this run stops without writing", job_id)
+
+    def _job_config(self, prepared: PreparedIngestJob) -> dict[str, Any]:
+        """This ingestor's config under the job's own, as ``_run_ingestion`` reads it."""
+        return {**self.config, **prepared.config}
+
+    def attach_job_source(self, source: JobSource) -> None:
+        """Let this process's free workers claim jobs from ``source`` (the durable queue)."""
+        self._ingest_pool.attach_source(source)
+
+    def detach_job_source(self) -> None:
+        """Stop claiming; claimed jobs run to the end."""
+        self._ingest_pool.detach_source()
+
+    @property
+    def busy_workers(self) -> int:
+        """Workers running a job now: what a draining worker process waits for."""
+        return self._ingest_pool.busy
 
     def _prune_completed_jobs(self) -> None:
         """Remove terminal jobs older than the retention window.
@@ -3949,13 +4191,20 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         collection_name: str,
         config: dict[str, Any],
     ):
-        """Background ingestion worker, under the uploading organization's data policy.
+        """Background ingestion worker, under the uploading organization's data policy and on the cost ledger.
 
         The job runs detached, with no request to read an organization from, so
         the policy is entered here from the org the job config names: every model
         call the job makes on a model the organization chose (the ingest VLM,
         page transcription) follows its zero-data-retention setting. A job with
         no organization (the base corpus sync) is pinned anyway.
+
+        Every model call the job makes (vision, transcription, summary, tags,
+        embeddings) is also recorded under ``activity = ingest`` for the job's
+        organization, and its project and uploader when the request named them.
+        No budget is enforced here: a document half-read because a limit ran out
+        mid-job is worse than the overrun, and the spend still lands in the
+        budgets it counts toward.
         """
         from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
         from aiq_agent.common.openrouter import data_policy_for
@@ -3963,7 +4212,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         organization_id = config.get("organization_id")
         policy = data_policy_for(organization_id) if organization_id else ZERO_DATA_RETENTION
-        with data_policy_scope(policy):
+        with data_policy_scope(policy), _ingest_cost_scope(job_id, config):
             self._ingest_job(job_id, file_paths, collection_name, config)
 
     def _ingest_job(
@@ -4078,6 +4327,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # _find_previous_versions), released when the file is done.
             kept_previous: list[str] = []
             for i, file_entry in enumerate(file_paths):
+                self._assert_still_owner(job_id)
+                # A document deleted while its job waited is not read at all:
+                # the download, OCR and vision calls would all be for chunks
+                # the check after indexing takes back out (below).
+                if self._deleted_while_indexing(config, collection_name):
+                    self._update_file_status(job, i, FileStatus.FAILED, error=DOCUMENT_DELETED_DURING_INGEST)
+                    logger.info("Skipped file %d of job %s: its document was deleted before it was read", i + 1, job_id)
+                    continue
                 # The original first, and nothing else for it when that fails:
                 # its rendition is no use without the identity it carries.
                 file_path = resolve_original(file_entry, downloaded)
@@ -4478,10 +4735,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         else:
                             llm_input = text_source
                         executor = ThreadPoolExecutor(max_workers=3)
-                        summary_future = executor.submit(
-                            _generate_document_summary, llm_input, file_name, self.summary_llm
+                        # In the job's context, so the summary and the tags
+                        # land on its cost ledger (`_ingest_cost_scope`).
+                        from aiq_agent.common.cost_tracking import submit_in_context
+
+                        summary_future = submit_in_context(
+                            executor, _generate_document_summary, llm_input, file_name, self.summary_llm
                         )
-                        tags_future = executor.submit(
+                        tags_future = submit_in_context(
+                            executor,
                             classify_document_tags,
                             llm_input,
                             file_name,
@@ -4496,8 +4758,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         if stored_doc_class is None and base_corpus and doc_class == DEFAULT_DOC_CLASS:
                             from aiq_agent.knowledge.document_classification import suggest_doc_class
 
-                            doc_class_future = executor.submit(
-                                suggest_doc_class, llm_input, file_name, organization_id=organization_id
+                            doc_class_future = submit_in_context(
+                                executor, suggest_doc_class, llm_input, file_name, organization_id=organization_id
                             )
 
                     # Wait for summary if started
@@ -4571,6 +4833,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         doc.metadata.update(provenance)
                         _apply_metadata_exclusions(doc)
 
+                    # The last moment a run that lost its claim can stop with
+                    # nothing of this file written: the new owner indexes it.
+                    self._assert_still_owner(job_id)
                     # Create/update index with all documents
                     chunks_before = self._chunk_ids_under(chroma_collection, file_name)
                     if index is None:
@@ -4774,6 +5039,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                     logger.info(f"Completed file {i + 1}/{len(file_paths)} ({chunks_created} chunks)")
 
+                except _ClaimLost:
+                    # Not this file's failure: the run as a whole stops (below).
+                    raise
                 except Exception as e:
                     logger.exception(f"Error processing file {file_path}")
                     self._update_file_status(job, i, FileStatus.FAILED, error=str(e))
@@ -4865,6 +5133,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 f"LlamaIndex ingestion completed: {job_id} "
                 f"(chunks={total_chunks}, tables={total_tables}, charts={total_charts}, images={total_images})"
             )
+
+        except _ClaimLost:
+            self._abandon(job_id)
 
         except Exception as e:
             logger.exception("LlamaIndex ingestion failed")
