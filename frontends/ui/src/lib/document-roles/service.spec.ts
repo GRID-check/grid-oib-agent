@@ -27,6 +27,8 @@ const repo = vi.hoisted(() => ({
   deleted: [] as string[],
   confirmed: [] as Array<{ bindingId: string; confidence: string; source: string }>,
   documentInProject: true,
+  keptBauwerke: null as string[] | null,
+  retiredCount: 0,
   // A project whose intake was never saved: the column holds `{}`, which
   // `findProjectProfile` hands out as this empty profile (never `null` for an
   // existing project). The implicit first building (`bw1`) is the only one.
@@ -63,6 +65,10 @@ vi.mock('./repository', () => ({
       return 'new-binding'
     }
   ),
+  deleteBindingsOutsideBauwerke: vi.fn(async (_projectId: string, keep: readonly string[]) => {
+    repo.keptBauwerke = [...keep]
+    return repo.retiredCount
+  }),
   confirmBinding: vi.fn(
     async (
       _projectId: string,
@@ -88,7 +94,7 @@ vi.mock('./repository', () => ({
   }),
 }))
 
-const { declareDocumentRole, revokeDocumentRole } = await import('./service')
+const { declareDocumentRole, revokeDocumentRole, retireBindingsOfRemovedBauwerke } = await import('./service')
 const { requireProjectAccess } = await import('@/lib/authz/projects')
 
 function binding(overrides: Partial<DocumentRoleBinding> = {}): DocumentRoleBinding {
@@ -360,5 +366,40 @@ describe('declareDocumentRole — the Bauwerk has to exist', () => {
       session
     )
     expect(repo.inserted).toHaveLength(1)
+  })
+})
+
+
+describe('retireBindingsOfRemovedBauwerke', () => {
+  const fact = (value: string) => ({
+    value,
+    confidence: 'confirmed' as const,
+    source: 'onboarding' as const,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  })
+
+  it('keeps exactly the buildings the saved profile names', async () => {
+    // Bauwerk 1 was removed in the wizard; 2 and 3 remain.
+    const saved: ProjectProfile = {
+      facts: { 'bauwerk_name@bw2': fact('Hoftrakt'), 'bauwerk_name@bw3': fact('Garage') },
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    }
+
+    await retireBindingsOfRemovedBauwerke('proj-1', 'org-1', saved)
+
+    expect(repo.keptBauwerke).toEqual(['bw2', 'bw3'])
+  })
+
+  it('keeps the implicit first building of a profile that names none', async () => {
+    await retireBindingsOfRemovedBauwerke('proj-1', 'org-1', {
+      facts: {},
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    })
+
+    expect(repo.keptBauwerke).toEqual(['bw1'])
   })
 })

@@ -22,8 +22,13 @@ vi.mock('@/lib/cache', () => ({
   invalidateCached: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('@/lib/document-roles/service', () => ({
+  retireBindingsOfRemovedBauwerke: vi.fn().mockResolvedValue(0),
+}))
+
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { invalidateCached } from '@/lib/cache'
+import { retireBindingsOfRemovedBauwerke } from '@/lib/document-roles/service'
 import {
   findProjectProfileInOrg,
   setProjectProfileSummaryInOrg,
@@ -181,6 +186,18 @@ describe('saveProjectProfile optimistic concurrency (If-Match)', () => {
   it('keeps the legacy in-request check when no version is supplied', async () => {
     await saveProjectProfile(session, 'proj-1', storedProfile)
     expect(updateProjectProfileIfVersion).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops the bindings of buildings the saved profile no longer has', async () => {
+    await saveProjectProfile(session, 'proj-1', storedProfile, 5)
+
+    expect(retireBindingsOfRemovedBauwerke).toHaveBeenCalledWith('proj-1', 'org-1', storedProfile)
+  })
+
+  it('touches no binding when the save is refused', async () => {
+    await expect(saveProjectProfile(session, 'proj-1', storedProfile, 4)).rejects.toThrow()
+
+    expect(retireBindingsOfRemovedBauwerke).not.toHaveBeenCalled()
   })
 })
 

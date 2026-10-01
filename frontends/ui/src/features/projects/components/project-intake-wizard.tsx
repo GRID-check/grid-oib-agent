@@ -38,6 +38,15 @@ import { cn } from '@/lib/utils'
 import { DocumentRoleField } from './document-role-field'
 import { ProjektgrundlagenStep } from './projektgrundlagen-step'
 import {
+  pendingBindsFromDraft,
+  persistedBauwerkIds,
+  sendPendingBinds,
+  withPendingBind,
+  withoutBauwerk,
+  withoutPendingBind,
+  type PendingRoleBind,
+} from '../lib/pending-role-binds'
+import {
   answerKeyFor,
   bauwerkIdFromAnswerKey,
   answersFromProfile,
@@ -111,6 +120,8 @@ type Answers = Record<string, ProjectPrimitiveValue>
 interface IntakeDraft {
   answers?: Answers
   bauwerke?: BauwerkInstance[]
+  /** Role bindings held for buildings not saved yet (`pending-role-binds`). */
+  pendingBinds?: PendingRoleBind[]
   currentStep?: number
   savedAt?: number
   baseVersion?: number | null
@@ -200,6 +211,7 @@ export function ProjectIntakeWizard({
   const [currentStep, setCurrentStep] = useState(initialStep)
   const [answers, setAnswers] = useState<Answers>({})
   const [bauwerke, setBauwerke] = useState<BauwerkInstance[]>(defaultBauwerke())
+  const [pendingBinds, setPendingBinds] = useState<PendingRoleBind[]>([])
   const [touched, setTouched] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -253,6 +265,7 @@ export function ProjectIntakeWizard({
                     ? parsed.bauwerke
                     : bauwerkeFromAnswers(parsed.answers)
                 setBauwerke(draftBauwerke)
+                setPendingBinds(pendingBindsFromDraft(parsed.pendingBinds))
                 bwCounter.current = maxBwNumber(draftBauwerke)
                 setAnswers(pruneStaleConditionalAnswers(parsed.answers, data))
                 if (typeof parsed.currentStep === 'number') setCurrentStep(parsed.currentStep)
@@ -310,6 +323,7 @@ export function ProjectIntakeWizard({
           JSON.stringify({
             answers,
             bauwerke,
+            pendingBinds,
             currentStep,
             savedAt: Date.now(),
             baseVersion: typeof initialProfileVersion === 'number' ? initialProfileVersion : null,
@@ -321,7 +335,7 @@ export function ProjectIntakeWizard({
       }
     }, 500)
     return () => clearTimeout(timer)
-  }, [answers, bauwerke, currentStep, STORAGE_KEY, loading, initialProfileVersion])
+  }, [answers, bauwerke, pendingBinds, currentStep, STORAGE_KEY, loading, initialProfileVersion])
 
   useEffect(() => {
     if (draftSaved) {
@@ -566,6 +580,8 @@ export function ProjectIntakeWizard({
 
   const removeBauwerk = useCallback((id: string) => {
     setBauwerke((prev) => (prev.length > 1 ? prev.filter((bw) => bw.id !== id) : prev))
+    // A binding held for a building that is gone has nowhere to go.
+    setPendingBinds((prev) => withoutBauwerk(prev, id))
     // Drop every answer belonging to the removed building.
     setAnswers((prev) => {
       const next: Answers = {}
@@ -574,6 +590,18 @@ export function ProjectIntakeWizard({
       }
       return next
     })
+  }, [])
+
+  // The buildings the server already knows; a binding to any other waits for the save.
+  const savedBauwerkIds = useMemo(
+    () => persistedBauwerkIds(initialProfile, definition),
+    [initialProfile, definition]
+  )
+  const deferBind = useCallback((bind: PendingRoleBind) => {
+    setPendingBinds((prev) => withPendingBind(prev, bind))
+  }, [])
+  const discardPendingBind = useCallback((bind: PendingRoleBind) => {
+    setPendingBinds((prev) => withoutPendingBind(prev, bind))
   }, [])
 
   const renameBauwerk = useCallback((id: string, name: string) => {
@@ -604,6 +632,15 @@ export function ProjectIntakeWizard({
         throw new Error('Failed to save')
       }
 
+      // The save made the wizard's new buildings real; only now can their
+      // documents be bound to them.
+      const refused = await sendPendingBinds(projectId, pendingBinds)
+      if (refused.length > 0) {
+        toast.error(
+          `${refused.map((bind) => bind.filename).join(', ')} konnte nicht zugeordnet werden. Bitte in den Projektgrundlagen erneut wählen.`
+        )
+      }
+
       try {
         localStorage.removeItem(STORAGE_KEY)
       } catch {
@@ -629,6 +666,7 @@ export function ProjectIntakeWizard({
     initialProfile,
     initialProfileVersion,
     mode,
+    pendingBinds,
     projectId,
     projectName,
     router,
@@ -932,6 +970,12 @@ export function ProjectIntakeWizard({
                     projectId={projectId}
                     answers={answers}
                     bauwerke={bauwerke}
+                    pendingBinds={{
+                      persistedBauwerkIds: savedBauwerkIds,
+                      pending: pendingBinds,
+                      onDefer: deferBind,
+                      onDiscard: discardPendingBind,
+                    }}
                   />
                 ) : isReview ? (
                   <div className="space-y-4">

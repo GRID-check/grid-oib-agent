@@ -26,6 +26,7 @@ import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projec
  */
 const PROFILE_WRITE: readonly ProjectPermission[] = ['project:memory:write', 'project:edit']
 import { getBackendUrl } from '@/lib/backend-proxy'
+import { retireBindingsOfRemovedBauwerke } from '@/lib/document-roles/service'
 import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import {
@@ -105,7 +106,12 @@ export async function saveProjectProfile(
   if (expectedVersion !== undefined && current.profileVersion !== expectedVersion) {
     throw new ConflictError('Conflict: profile was modified since it was loaded')
   }
-  return persistProfile(projectId, session.organizationId, profile, current, { resetSummary: true })
+  const saved = await persistProfile(projectId, session.organizationId, profile, current, {
+    resetSummary: true,
+  })
+  // The wizard is where buildings are removed, and this is its save.
+  await retireBindingsOfRemovedBauwerke(projectId, session.organizationId, saved.profile)
+  return saved
 }
 
 /** A patch write, plus whether it landed or was already there. */

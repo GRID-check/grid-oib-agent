@@ -24,12 +24,14 @@ import {
 import {
   confirmBinding,
   deleteBindings,
+  deleteBindingsOutsideBauwerke,
   documentBelongsToProject,
   findBindingsForRole,
   listProjectDocumentRoles,
   replaceSlotBinding,
 } from './repository'
 import type { DocumentRoleBinding } from './repository'
+import type { ProjectProfile } from '@/lib/project-profile/types'
 
 export type { DocumentRoleBinding } from './repository'
 
@@ -59,6 +61,27 @@ async function projectHasBauwerk(
     ? answersFromProfile(profile, projectIntakeDefinitionV1).bauwerke
     : defaultBauwerke()
   return bauwerke.some((bauwerk) => bauwerk.id === bauwerkId)
+}
+
+/**
+ * After the building list was saved: drop the bindings of buildings it no longer has.
+ *
+ * Removing a Bauwerk in the wizard dropped its answers and kept its bindings.
+ * Nothing rendered a slot for them any more, so the user could not see or
+ * remove them, the agent still read them (as "Bestandspläne (bw2)"), and the
+ * next building the wizard added under the reused id inherited them.
+ * Authorization is the caller's: this runs inside the profile write, which a
+ * user may only make with the profile permission.
+ */
+export async function retireBindingsOfRemovedBauwerke(
+  projectId: string,
+  organizationId: string,
+  profile: ProjectProfile
+): Promise<number> {
+  const keep = answersFromProfile(profile, projectIntakeDefinitionV1).bauwerke.map((bauwerk) => bauwerk.id)
+  const removed = await deleteBindingsOutsideBauwerke(projectId, keep)
+  if (removed > 0) await invalidateProjectPromptViewCache(projectId, organizationId)
+  return removed
 }
 
 export async function listDocumentRoles(

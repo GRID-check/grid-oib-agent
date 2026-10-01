@@ -72,6 +72,17 @@ being filed into one — the correct rule, not a limitation.
 - **Membership before the foreign key.** The FK would reject a foreign document
   as a constraint violation; checking first answers "that file is not in this
   project", and catches the soft-deleted case the FK cannot see.
+- **A building binding needs a saved building.** The service accepts a
+  `bauwerk` binding only for a building the stored profile names. During a first
+  intake, every building but `bw1` exists only in the wizard's draft, so the
+  wizard holds those bindings (`features/projects/lib/pending-role-binds.ts`),
+  shows them as "wird beim Speichern zugeordnet", keeps them in the draft, and
+  sends them once the save has made the building real. Removing the building in
+  the wizard drops what it held.
+- **A building's bindings leave with it.** Saving a profile that no longer names
+  a building deletes that building's bindings
+  (`retireBindingsOfRemovedBauwerke`), so the agent is never told about plans of
+  a building the project does not have.
 
 ## What the agent is told
 

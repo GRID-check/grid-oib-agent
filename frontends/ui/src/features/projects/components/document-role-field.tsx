@@ -30,6 +30,7 @@ import { documentRoleDefinition } from '@/lib/project-profile/document-roles'
 import type { DocumentRole } from '@/lib/project-profile/document-roles'
 import { useDocumentRoles } from '../lib/use-document-roles'
 import type { RoleBinding } from '../lib/use-document-roles'
+import type { PendingRoleBind } from '../lib/pending-role-binds'
 
 interface DocumentRoleFieldProps {
   projectId: string
@@ -38,6 +39,15 @@ interface DocumentRoleFieldProps {
   scopeInstanceId?: string | null
   /** Rendered above the control; the question supplies its own label. */
   label?: string
+  /**
+   * The building is not saved yet (`pending-role-binds`): a choice is held by
+   * the wizard and made on its save, instead of being refused by the server.
+   */
+  deferred?: {
+    pending: readonly PendingRoleBind[]
+    onDefer: (documentId: string, filename: string) => void
+    onDiscard: (bind: PendingRoleBind) => void
+  }
 }
 
 function documentLabel(binding: { displayName?: string | null; filename: string }): string {
@@ -49,6 +59,7 @@ export function DocumentRoleField({
   role,
   scopeInstanceId = null,
   label,
+  deferred,
 }: DocumentRoleFieldProps) {
   const definition = documentRoleDefinition(role)
   const { bindings, documents, refresh } = useDocumentRoles(projectId)
@@ -77,7 +88,17 @@ export function DocumentRoleField({
   }, [])
 
   const bind = useCallback(
-    async (documentId: string) => {
+    async (documentId: string, filename?: string) => {
+      if (deferred) {
+        const known = documents.find((document) => document.id === documentId)
+        deferred.onDefer(
+          documentId,
+          filename ?? (known ? documentLabel({ displayName: known.displayName ?? null, filename: known.filename }) : documentId)
+        )
+        // The upload is a real document now, and the picker should offer it.
+        await refresh({ afterWrite: true })
+        return
+      }
       setBusy(true)
       try {
         const response = await fetch(`/api/projects/${projectId}/document-roles`, {
@@ -106,7 +127,7 @@ export function DocumentRoleField({
         setBusy(false)
       }
     },
-    [definition.label, projectId, refresh, role, scopeInstanceId]
+    [definition.label, deferred, documents, projectId, refresh, role, scopeInstanceId]
   )
 
   const unbind = useCallback(
@@ -152,7 +173,7 @@ export function DocumentRoleField({
             toast.error(`${file.name} wurde abgelegt, aber nicht zugeordnet.`)
             continue
           }
-          await bind(documentId)
+          await bind(documentId, file.name)
         }
       } finally {
         setBusy(false)
@@ -161,9 +182,15 @@ export function DocumentRoleField({
     [bind, projectId]
   )
 
-  const alreadyBound = new Set(mine.map((binding) => binding.documentId))
+  const held = (deferred?.pending ?? []).filter(
+    (bind) => bind.role === role && bind.scopeInstanceId === scopeInstanceId
+  )
+  const alreadyBound = new Set([
+    ...mine.map((binding) => binding.documentId),
+    ...held.map((bind) => bind.documentId),
+  ])
   const selectable = documents.filter((document) => !alreadyBound.has(document.id))
-  const full = definition.cardinality === 'one' && mine.length > 0
+  const full = definition.cardinality === 'one' && mine.length + held.length > 0
 
   return (
     <div className="flex flex-col gap-2">
@@ -198,6 +225,27 @@ export function DocumentRoleField({
                 disabled={busy}
                 onClick={() => run(unbind(binding.id))}
                 aria-label={`${documentLabel(binding)} nicht mehr als ${definition.label} führen`}
+              >
+                <X className="size-3.5" aria-hidden />
+              </Button>
+            </li>
+          ))}
+          {held.map((bind) => (
+            <li
+              key={`held-${bind.documentId}`}
+              className="bg-muted/20 flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm"
+            >
+              <FileText className="text-muted-foreground size-4 shrink-0" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{bind.filename}</span>
+              <span className="text-muted-foreground shrink-0 text-xs">wird beim Speichern zugeordnet</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0"
+                disabled={busy}
+                onClick={() => deferred?.onDiscard(bind)}
+                aria-label={`${bind.filename} nicht als ${definition.label} führen`}
               >
                 <X className="size-3.5" aria-hidden />
               </Button>

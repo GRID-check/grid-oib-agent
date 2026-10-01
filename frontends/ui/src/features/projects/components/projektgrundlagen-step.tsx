@@ -25,11 +25,41 @@ import type { DocumentRole } from '@/lib/project-profile/document-roles'
 import type { BauwerkInstance } from '@/lib/project-profile/intake-definition'
 import type { ProjectPrimitiveValue } from '@/lib/project-profile/types'
 import { DocumentRoleField } from './document-role-field'
+import type { PendingRoleBind } from '../lib/pending-role-binds'
 
 interface ProjektgrundlagenStepProps {
   projectId: string
   answers: Record<string, ProjectPrimitiveValue>
   bauwerke: BauwerkInstance[]
+  /**
+   * The wizard's hold on bindings for buildings it has not saved yet
+   * (`pending-role-binds`). Without it every slot binds at once, as before.
+   */
+  pendingBinds?: {
+    persistedBauwerkIds: ReadonlySet<string>
+    pending: readonly PendingRoleBind[]
+    onDefer: (bind: PendingRoleBind) => void
+    onDiscard: (bind: PendingRoleBind) => void
+  }
+}
+
+type Deferral = NonNullable<Parameters<typeof DocumentRoleField>[0]['deferred']>
+
+/** The field's hold for a slot whose building is not saved yet, or undefined to bind at once. */
+function deferralFor(
+  slot: Slot,
+  pendingBinds: ProjektgrundlagenStepProps['pendingBinds']
+): Deferral | undefined {
+  const bauwerkId = slot.scopeInstanceId
+  if (!pendingBinds || bauwerkId === null || pendingBinds.persistedBauwerkIds.has(bauwerkId)) {
+    return undefined
+  }
+  return {
+    pending: pendingBinds.pending,
+    onDefer: (documentId, filename) =>
+      pendingBinds.onDefer({ documentId, filename, role: slot.role, scopeInstanceId: bauwerkId }),
+    onDiscard: pendingBinds.onDiscard,
+  }
 }
 
 interface Slot {
@@ -44,6 +74,7 @@ export function ProjektgrundlagenStep({
   projectId,
   answers,
   bauwerke,
+  pendingBinds,
 }: ProjektgrundlagenStepProps) {
   const slots = useMemo<Slot[]>(() => {
     const projectRecommended = new Set(recommendedRoles(answers))
@@ -105,6 +136,7 @@ export function ProjektgrundlagenStep({
                   projectId={projectId}
                   role={slot.role}
                   scopeInstanceId={slot.scopeInstanceId}
+                  deferred={deferralFor(slot, pendingBinds)}
                 />
               </li>
             ))}
@@ -122,7 +154,12 @@ export function ProjektgrundlagenStep({
           </div>
           <ul className="bg-card divide-y rounded-xl border">
             {optional.map((slot) => (
-              <CollapsedSlot key={slot.key} slot={slot} projectId={projectId} />
+              <CollapsedSlot
+                key={slot.key}
+                slot={slot}
+                projectId={projectId}
+                deferred={deferralFor(slot, pendingBinds)}
+              />
             ))}
           </ul>
         </section>
@@ -131,7 +168,15 @@ export function ProjektgrundlagenStep({
   )
 }
 
-function CollapsedSlot({ slot, projectId }: { slot: Slot; projectId: string }) {
+function CollapsedSlot({
+  slot,
+  projectId,
+  deferred,
+}: {
+  slot: Slot
+  projectId: string
+  deferred?: Deferral
+}) {
   const [open, setOpen] = useState(false)
   const panelId = `grundlage-${slot.key.replace(/[^a-z0-9]/gi, '-')}`
 
@@ -161,6 +206,7 @@ function CollapsedSlot({ slot, projectId }: { slot: Slot; projectId: string }) {
             projectId={projectId}
             role={slot.role}
             scopeInstanceId={slot.scopeInstanceId}
+            deferred={deferred}
           />
         </div>
       )}
