@@ -39,7 +39,7 @@ def test_a_name_the_bff_mints_is_restricted_and_reads_back_to_its_project() -> N
         PROJECT,
         "proj_1",
         "oib_knowledge",
-        "archiv_org_01HZX4Y8K2M3N5P6Q7R8S9T0VW",
+        "archiv_org_01HZX4Y8K2M3N5P6Q7R8S9T0VW",  # pragma: allowlist secret
         "s_9b2e1f0a-7c3d-4e5f-8a9b-0c1d2e3f4a5b",
         f"{PROJECT}_r0123456789a",  # eleven digits
         f"{PROJECT}_r0123456789abc",  # thirteen
