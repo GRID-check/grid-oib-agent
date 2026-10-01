@@ -1443,7 +1443,22 @@ def _read_pdf_page(page, page_num: int, previous, pdf_path: str) -> tuple[dict[s
     # Font size and weight per line, for the heading-aware chunker of tenant PDFs.
     styles = extract_line_styles(source) if text else []
     entry = {"page_number": page_num, "text": text, "tables": tables, "table_boxes": boxes, "line_styles": styles}
+    # Rasters on the page, counted from what pdfplumber already parsed: the
+    # upload screen reads it to know whether the VLM will see unscreened images.
+    entry["image_count"] = _raster_count(page)
     return entry, continued
+
+
+def _raster_count(page) -> int:
+    """How many rasters pdfplumber parsed on ``page``; one when it cannot say.
+
+    Never costs the page its text, and errs toward the screen calling the file
+    ``partial`` rather than claiming a raster-free page it did not see.
+    """
+    try:
+        return len(page.images)
+    except Exception:  # noqa: BLE001 - an uncountable page is counted as carrying one
+        return 1
 
 
 def _extract_text_from_pdf(pdf_path: str) -> PdfTextPages:
@@ -2821,6 +2836,101 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         # Persist outside the lock (DB I/O) so any replica can serve this status.
         self._persist(job)
+
+    def _record_screening(self, job: IngestionJobStatus, file_index: int, rules: Any, outcome: str) -> None:
+        """Put the upload screen's outcome on the file's status; nothing when the job is not screened."""
+        if rules is None:
+            return
+        with self._lock:
+            if file_index < len(job.file_details):
+                job.file_details[file_index].screening = outcome
+
+    def _record_unscreened_rasters(self, job: IngestionJobStatus, file_index: int) -> None:
+        """A file the screen called ``clean`` is ``partial`` once embedded rasters go to the VLM.
+
+        The screen decides before any model call from pdfplumber's raster count;
+        this is the backstop for rasters it could not see (a page with no text
+        has no entry to count them on), so the reported outcome never claims
+        more than was screened.
+        """
+        with self._lock:
+            if file_index < len(job.file_details) and job.file_details[file_index].screening == "clean":
+                job.file_details[file_index].screening = "partial"
+
+    def _screen_or_quarantine(
+        self,
+        job: IngestionJobStatus,
+        file_index: int,
+        rules: Any,
+        pages: list[tuple[int | None, str]],
+        checked: str,
+    ) -> bool:
+        """Screen one file's locally extracted ``pages``; True when it was quarantined.
+
+        A quarantined file is FAILED with ``quarantine_error``'s reason and must
+        go no further: nothing of it has reached a model yet, and nothing will.
+        The log line names reason kinds and counts, never a term, a value or
+        the file name, which can itself say what the document is.
+        """
+        from knowledge_layer.llamaindex import screening
+
+        if rules is None:
+            return False
+        if not any(text.strip() for _page, text in pages):
+            self._record_screening(job, file_index, rules, "unchecked")
+            return False
+        verdict = screening.screen_pages(pages, rules, checked=checked)
+        if not verdict.matched:
+            self._record_screening(job, file_index, rules, "clean" if checked == "full" else "partial")
+            return False
+        self._record_screening(job, file_index, rules, "quarantined")
+        self._update_file_status(job, file_index, FileStatus.FAILED, error=screening.quarantine_error(verdict))
+        logger.info(
+            "Quarantined file %d of job %s before any model call: %s (checked %s)",
+            file_index + 1,
+            job.job_id,
+            screening.log_summary(verdict),
+            verdict.checked,
+        )
+        return True
+
+    def _screen_pdf(
+        self,
+        job: IngestionJobStatus,
+        file_index: int,
+        rules: Any,
+        source_path: str,
+        text_pages: list[dict[str, Any]],
+        companions: list[Any],
+        *,
+        captions_rasters: bool,
+    ) -> dict[str, Any] | None:
+        """Screen a PDF's text layer (and its rendition's companions) before any page reaches a model.
+
+        Returns what ``route_pdf_pages`` takes from it, the page triage measured
+        here so the PDF is measured once, or ``None`` when the file was
+        quarantined. ``checked`` is ``partial`` when the triage sends a page to
+        transcription or drawing analysis, or cannot measure the PDF, or when
+        ``captions_rasters`` (the VLM will caption embedded images) and a page
+        carries one: that content reaches a model without having been screened,
+        which the product accepts for content that cannot be read locally.
+        """
+        if rules is None:
+            return {}
+        from knowledge_layer.llamaindex import page_triage
+        from knowledge_layer.llamaindex.screening import document_pages
+
+        page_texts = page_texts_for_visual_heuristic(text_pages)
+        triage = page_triage.triage_pdf(
+            source_path, page_texts, min_text_chars=VISUAL_PAGE_MIN_TEXT_CHARS, min_paths=VISUAL_PAGE_MIN_PATHS
+        )
+        has_rasters = any(page.get("image_count") for page in text_pages)
+        unscreened = triage is None or bool(triage.transcribed or triage.drawings) or (captions_rasters and has_rasters)
+        pages = [*sorted(page_texts.items()), *document_pages(companions)]
+        checked = "partial" if unscreened else "full"
+        if self._screen_or_quarantine(job, file_index, rules, pages, checked):
+            return None
+        return {"triage": triage}
 
     def _record_failed_pages(self, job: IngestionJobStatus, file_index: int, text_pages: list) -> None:
         """Put the pages a PDF read lost, below the failure threshold, on the file's result."""
@@ -4323,6 +4433,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # Original filenames for temp file uploads (avoids tmp prefix in metadata)
             original_filenames = config.get("original_filenames", [])
 
+            # The office's upload screening, applied to each file's locally
+            # extracted text before its first model call; None: not screened.
+            from knowledge_layer.llamaindex.screening import ScreeningRules
+            from knowledge_layer.llamaindex.screening import document_pages
+
+            screening_rules = ScreeningRules.from_config(config.get("screening"))
+
             # Process each file, each under its own replacement lock (see
             # _find_previous_versions), released when the file is done.
             kept_previous: list[str] = []
@@ -4439,6 +4556,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # SimpleDirectoryReader can fall back to indexing raw PDF bytes
                     # when optional LlamaIndex file readers are missing.
                     text_pages: list[dict[str, Any]] = []
+                    # What the PDF export dropped from the original (pptx
+                    # speaker notes), read before the screen so it is screened too.
+                    companions: list[Any] = []
                     if is_pdf:
                         text_pages = _extract_text_from_pdf(source_path)
                         unreadable = unreadable_pdf_verdict(text_pages)
@@ -4447,6 +4567,21 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             logger.warning("Failing %s: %s", file_name, unreadable)
                             continue
                         self._record_failed_pages(job, i, text_pages)
+                        if rendition:
+                            companions = _rendition_companions(file_path, file_name, file_size)
+                        # The upload screen: the last step before a page of
+                        # this file can reach a model (transcription, below).
+                        route_kwargs = self._screen_pdf(
+                            job,
+                            i,
+                            screening_rules,
+                            source_path,
+                            text_pages,
+                            companions,
+                            captions_rasters=bool(vlm_api_key) and (extract_images or extract_charts),
+                        )
+                        if route_kwargs is None:
+                            continue
                         page_routes = _transcription.route_pdf_pages(
                             source_path,
                             text_pages,
@@ -4458,6 +4593,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             min_paths=VISUAL_PAGE_MIN_PATHS,
                             max_ocr_pages=MAX_OCR_PAGES,
                             max_dim=PAGE_RENDER_MAX_DIM,
+                            **route_kwargs,
                         )
                         self._record_file_counts(job, i, **page_routes.counts())
                         if page_routes.not_transcribed and not text_pages:
@@ -4473,6 +4609,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # file with a specific, machine-readable reason the
                         # failed-doc UX can surface for retry. The key is the
                         # org-aware resolved one (BYOK), not the deployment key.
+                        # Nothing of an image is readable here, so it is not screened.
+                        self._record_screening(job, i, screening_rules, "unchecked")
                         if not vlm_api_key:
                             self._update_file_status(
                                 job,
@@ -4549,14 +4687,16 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             for doc in text_documents:
                                 doc.metadata["file_name"] = file_name
                                 doc.metadata["file_size"] = file_size
+                        # The upload screen, before anything reads `text_documents`.
+                        if self._screen_or_quarantine(job, i, screening_rules, document_pages(text_documents), "full"):
+                            continue
 
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")
-                    # What the PDF export dropped from the original (pptx
-                    # speaker notes). Kept out of `text_documents`, which feed
-                    # the summary: notes are not what the document says first.
-                    if rendition:
-                        all_documents.extend(_rendition_companions(file_path, file_name, file_size))
+                    # The rendition's companions (read above). Kept out of
+                    # `text_documents`, which feed the summary: notes are not
+                    # what the document says first.
+                    all_documents.extend(companions)
 
                     # Summary + tag classification are started AFTER visual
                     # extraction (below) so that for text-sparse drawing PDFs the
@@ -4616,6 +4756,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         )
                         if images_over_cap:
                             self._record_file_counts(job, i, images_over_cap=images_over_cap)
+                        if images and vlm_api_key:
+                            self._record_unscreened_rasters(job, i)
 
                         image_results, drawing_pages = _processing.enrich_vlm_batch(
                             image_records=images,

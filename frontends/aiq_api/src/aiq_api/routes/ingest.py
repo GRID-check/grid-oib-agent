@@ -180,6 +180,11 @@ def _job_config(request: IngestRequest, organization_id: str | None, dispatch_ke
     # every human document, which is what the parser expects
     # (aiq_agent.common.provenance.parse_agent_provenance).
     config.update(_provenance_config(request))
+    # The office's upload screening (`knowledge_layer.llamaindex.screening`),
+    # as plain data so it rides the durable queue's JSON payload unchanged.
+    # An empty policy is no policy: the file's `screening` outcome stays null.
+    if request.screening is not None and not request.screening.is_empty:
+        config["screening"] = request.screening.model_dump(mode="json")
     if request.extraction_ref:
         # Read the document from its PDF rendition (ADR-0071), downloaded by
         # the job like the original. Positional like original_filenames, whose
