@@ -22,18 +22,7 @@
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
-vi.mock('@/lib/authz/folder-access', () => ({
-  getHiddenFolderIds: vi.fn(async () => []),
-  isFolderVisibleTo: vi.fn(async () => true),
-  placementCollectionFor: vi.fn(async (_org: string, _project: string, collection: string) => collection),
-  getProjectFolderAccess: vi.fn(async (_session: unknown, _project: string, collection: string) => ({
-    hiddenFolderIds: new Set<string>(),
-    isVisible: () => true,
-    collectionFor: () => collection,
-    clearedRestrictedCollections: [],
-    anyRestricted: false,
-  })),
-}))
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('@/lib/projects/collection-placement', () => ({
   placeProjectDocuments: vi.fn(async () => ({ moved: 0, failed: [] })),
 }))

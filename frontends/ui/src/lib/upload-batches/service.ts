@@ -35,6 +35,9 @@ import {
   sealUploadBatch,
 } from './repository'
 
+/** The shelves an upload can go to; re-stated here so a route needs nothing from the db layer. */
+export { UPLOAD_BATCH_SCOPES } from '@/lib/db/schema'
+
 /** Most files one batch may announce. Mirrors the CHECK in migration 0103. */
 export const UPLOAD_BATCH_MAX_FILES = 10_000
 

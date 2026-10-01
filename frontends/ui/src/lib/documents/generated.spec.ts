@@ -5,18 +5,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 
-vi.mock('@/lib/authz/folder-access', () => ({
-  getHiddenFolderIds: vi.fn(async () => []),
-  isFolderVisibleTo: vi.fn(async () => true),
-  placementCollectionFor: vi.fn(async (_org: string, _project: string, collection: string) => collection),
-  getProjectFolderAccess: vi.fn(async (_session: unknown, _project: string, collection: string) => ({
-    hiddenFolderIds: new Set<string>(),
-    isVisible: () => true,
-    collectionFor: () => collection,
-    clearedRestrictedCollections: [],
-    anyRestricted: false,
-  })),
-}))
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('server-only', () => ({}))
 
 const s3Send = vi.fn()

@@ -9,8 +9,7 @@
 
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
-import { UPLOAD_BATCH_SCOPES } from '@/lib/db/schema'
-import { openUploadBatch, UPLOAD_BATCH_MAX_FILES } from '@/lib/upload-batches/service'
+import { openUploadBatch, UPLOAD_BATCH_MAX_FILES, UPLOAD_BATCH_SCOPES } from '@/lib/upload-batches/service'
 
 const bodySchema = z
   .object({

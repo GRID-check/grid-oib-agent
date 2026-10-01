@@ -46,6 +46,8 @@ vi.mock('@/lib/auth/require-auth', () => ({
 }))
 
 vi.mock('@/lib/conversations/repository', () => ({
+  // ADR-0078: no stored answer of these threads draws on a restricted folder.
+  listRestrictedAnswerCollections: vi.fn().mockResolvedValue([]),
   deleteConversationInOrg: vi.fn(),
   findConversationInOrg: vi.fn(),
   findConversationRead: vi.fn(),

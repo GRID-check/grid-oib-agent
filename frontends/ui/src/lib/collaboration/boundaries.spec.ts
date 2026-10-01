@@ -36,6 +36,8 @@ vi.mock('@/lib/authz/project-membership', () => ({
 }))
 
 vi.mock('@/lib/conversations/repository', () => ({
+  // ADR-0078: no stored answer of these threads draws on a restricted folder.
+  listRestrictedAnswerCollections: vi.fn().mockResolvedValue([]),
   findConversationInOrg: vi.fn(),
   findConversationTenancy: vi.fn(),
   updateConversationVisibilityInOrg: vi.fn(),

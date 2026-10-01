@@ -6,18 +6,7 @@ import { createHash } from 'node:crypto'
  * records a version through the lifecycle; here that reduces to "it was asked
  * for", and the version table's own behaviour is `lifecycle.spec.ts`'s.
  */
-vi.mock('@/lib/authz/folder-access', () => ({
-  getHiddenFolderIds: vi.fn(async () => []),
-  isFolderVisibleTo: vi.fn(async () => true),
-  placementCollectionFor: vi.fn(async (_org: string, _project: string, collection: string) => collection),
-  getProjectFolderAccess: vi.fn(async (_session: unknown, _project: string, collection: string) => ({
-    hiddenFolderIds: new Set<string>(),
-    isVisible: () => true,
-    collectionFor: () => collection,
-    clearedRestrictedCollections: [],
-    anyRestricted: false,
-  })),
-}))
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('./version-repository', () => ({
   DOCUMENT_VERSION_LIST_LIMIT: 200,
   insertDocumentVersion: vi.fn(async (values: Record<string, unknown>) => ({

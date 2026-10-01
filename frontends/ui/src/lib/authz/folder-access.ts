@@ -182,6 +182,9 @@ export async function isFolderVisibleTo(
   projectId: string,
   folderId: string | null
 ): Promise<boolean> {
+  // Nothing about the session is read until a restriction is in play: an
+  // unfiled document, or a project that restricts nothing, is the common case.
+  if (folderId === null) return true
   return isFolderVisibleToClearance(session.organizationId, projectId, folderId, clearanceOf(session))
 }
 
