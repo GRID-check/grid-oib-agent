@@ -142,3 +142,36 @@ modal must fetch its own data. No type opens a modal today.
 - **Container restart** mid-run stopped three subagents (retrieval scope,
   Python/purger, roles UI); their edits survived on disk and they were resumed.
 - **Triage** of the remaining tickets: `docs/audit/upload-and-filing-triage-2026-10.md`.
+- **Retrieval and leak controls (ADR-0078).** `7a9baf7`: restricted collections enter
+  the signed scope only for an interactive chat turn of a cleared member on a thread
+  confined to them; the v1 proxy requires clearance; a thread whose answers cite or
+  read a restricted collection cannot be shared, escalated or widened. Ten revert
+  checks, each red. `57a0a00`: a thread shared while its socket is open — the socket
+  now asks the BFF per turn and closes (4412) when the thread is no longer confined.
+  `f49c97c`: memory writes refused in a turn whose scope holds a restricted collection
+  (scope, not hits: the inventory block has already put every in-scope summary in the
+  prompt); the purger reaches every collection of a project.
+- **Found and fixed on the way: conversation sharing was dead since #813** (`4504bc1`).
+  A uuid guard on a text column answered null for every real conversation id
+  (`s_<uuid_with_underscores>`): every share 404'd, and the WebSocket conversation gate
+  passed every id as "not created yet", so any member could open a turn on a
+  colleague's private thread. Verified against the code before committing; flagged in
+  the PR for the team to decide disclosure.
+- **Placement retried by the scheduler** (`dad1062`), proven against Postgres: purge
+  before re-point, a failed purge leaves the row, the sweep finishes it (2 red on
+  revert through the real database). Discovery outside a tenant context was caught by
+  the real-DB run, not by the unit specs.
+- **Review findings (CodeRabbit), all four real and fixed:** retry lost the release and
+  the destination folder (`7486204`); the quarantine queue limited before authorizing
+  (`f85a481`, keyset cursor proven against Postgres); PDF table text from a page the
+  text pass lost was embedded unscreened (`ff47f30`); spreadsheet truncation reported
+  `clean` (`ff47f30`, extended in `32397b2` to columns and long cells).
+- **Self-corrections.** Committed an integration spec that failed `tsc` (vitest skips
+  integration specs without a database, so only the typecheck sees them): run
+  `tsc --noEmit` before every commit that touches a spec. The full UI run found seven
+  suites the targeted runs missed (folder access reaching the database through
+  `getAccessibleDocument`); ratcheted with `@/test-utils/folder-access` and a gotchas
+  row indexed by the symptom.
+- **Container restarts:** two, mid-run. Uncommitted work survived on disk both times;
+  stopped agents were resumed from their transcripts. The full vitest run in one
+  process exceeds the container's memory; run it in shards.
