@@ -467,7 +467,10 @@ def _record_cost(decision: Decision, *, byok: bool) -> None:
             prompt_tokens=decision.input_tokens,
             completion_tokens=decision.output_tokens,
             cost_usd=decision.cost_usd or 0.0,
-            cost_source="provider" if decision.cost_usd is not None else "estimate",
+            # The ledger's vocabulary (`COST_SOURCES` in the BFF schema): a
+            # value outside it, as `"provider"` was, has the internal endpoint
+            # refuse the whole batch, and with it up to four other calls.
+            cost_source="usage_field" if decision.cost_usd is not None else "missing",
             is_byok=byok,
         )
     except Exception:  # noqa: BLE001 — accounting never takes a decision down
@@ -561,9 +564,12 @@ def decide_blocking(
     except RuntimeError:
         return _run()
     from concurrent.futures import ThreadPoolExecutor
+    from contextvars import copy_context
 
+    # In the caller's context, so the decision's cost reaches its tracker (a
+    # ContextVar a fresh thread would not see) and lands on the ledger.
     with ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(_run).result()
+        return pool.submit(copy_context().run, _run).result()
 
 
 async def decide_many(
