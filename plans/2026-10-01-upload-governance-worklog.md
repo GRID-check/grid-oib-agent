@@ -111,3 +111,34 @@ modal must fetch its own data. No type opens a modal today.
 3. Quarantine is cleared by **org admins and the project's admins**.
 4. **All roles live in WorkOS, as custom roles** (workos.com/docs/rbac/custom-roles).
    Anything role-shaped held outside WorkOS moves there. Ticket 9 is out of scope.
+
+### Build log
+
+- **Screening and quarantine (ADR-0077).** Commits `c0d7a3f`..`b5265fd`. Name gate in
+  the browser and on the server, content gate in the ingest job before the first
+  model call, quarantine status, release tied to the content hash, admin pages
+  for the list and the queue. Revert checks: dispatch screening 5/6 red,
+  reconcile mapping 3 red, hook gate 2 red, Python hook 7/10 red, raster
+  `partial` 2 red. Found on the way: Windows-1252 previews decoded C1 controls on
+  Node 22 (`ee5f7a9`, 3 red on revert).
+- **Upload batches and the inbox (migration 0103).** `5ce3bdf`, `19b0e69`. Settlement
+  runs on reconcile and on the scheduler sweep; the completion SQL guard is
+  proven against Postgres (1 red on revert, RLS suite 136/136).
+- **Summary dialog and history.** `e666a48` (built by a subagent, reviewed and extended):
+  uploader names resolved server-side, files in folders hidden since the upload
+  left out (1 red on revert). `15a76d2`: the inbox payload carried German place
+  names to English readers; only a project name travels now (1/43 red on
+  revert). `1dee1c8`: Archiv `?doc=` links never opened their document, which
+  also broke shared Archiv links (1/22 red on revert).
+- **Folder access (ADR-0078).** `735f21c`: custom roles through WorkOS, the
+  session's roles claim, org-own role lookups first, the restriction table,
+  placement into per-folder collections. `dd927de`: every BFF read path asks
+  `folder-access.ts`; uploads file into the folder's collection; one name per
+  project across collections. Seven revert checks, each red; one test was
+  vacuous (destination check passed with the fix removed) and was fixed.
+  **Leak found and closed:** the name screen ran before the visibility check,
+  so an upload aimed at a hidden folder called „Honorare" was refused with a
+  message naming it.
+- **Container restart** mid-run stopped three subagents (retrieval scope,
+  Python/purger, roles UI); their edits survived on disk and they were resumed.
+- **Triage** of the remaining tickets: `docs/audit/upload-and-filing-triage-2026-10.md`.
