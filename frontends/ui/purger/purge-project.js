@@ -206,10 +206,18 @@ async function purgeProject(tx, entry, deps) {
   //    Sequential rather than concurrent on purpose: the prefix sweep is a
   //    list-then-delete loop, and running several against one storage tier only
   //    trades a rarely-hot latency for contention on the thing being erased.
+  //
+  //    The mail inbox's staged attachments (ADR-0075) live under this same
+  //    project prefix, in the bucket their delivery row recorded. A project
+  //    whose only object in a tenant bucket is a mail not yet filed has no
+  //    document naming that bucket, so the rows that do are asked too.
   const recorded = /** @type {{ storage_bucket: string }[]} */ (
     await tx`
       SELECT DISTINCT storage_bucket FROM documents
-       WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL`
+       WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL
+      UNION
+      SELECT DISTINCT staging_bucket FROM inbound_mail_messages
+       WHERE project_id = ${projectId} AND staging_bucket IS NOT NULL`
   )
   const targets = new Set([bucket, ...recorded.map((row) => row.storage_bucket)])
   for (const target of targets) {
@@ -272,7 +280,8 @@ async function purgeProject(tx, entry, deps) {
 
   // 4. grid_app rows: the collaboration rows FIRST, then conversations
   //    (messages and conversation_reads cascade), then the project row
-  //    (documents / folders / project-scoped memory cascade).
+  //    (documents / folders / project-scoped memory / the mail inbox's
+  //    addresses and delivery records cascade).
   //
   //    The collaboration tables address their target as a polymorphic
   //    `(resource_type, resource_id)` pair with no foreign key (ADR-0032), so
@@ -319,6 +328,11 @@ async function purgeProject(tx, entry, deps) {
   await tx`DELETE FROM mention_requests WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
   await tx`DELETE FROM resource_shares WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
   await tx`DELETE FROM resource_assignments WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
+  //    Items whose target is the PROJECT itself — a background run's outcome,
+  //    a mail filed from the project inbox (ADR-0075). Same polymorphic pair,
+  //    same missing cascade, and the payload quotes what the project held (a
+  //    run's title, a mail's subject), so it goes with the project.
+  await tx`DELETE FROM inbox_items WHERE resource_type = 'project' AND resource_id = ${projectId}`
   await tx`DELETE FROM conversations WHERE project_id = ${projectId}`
   await tx`DELETE FROM projects WHERE id = ${projectId}`
 }

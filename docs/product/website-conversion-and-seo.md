@@ -34,6 +34,12 @@ with the question, the state, the building type and the team size
 (`ui.ts` `cta.bodyPilot`). Every page ends in the same action (`EndInvite`).
 Being a pilot office is what follows a good answer, and the copy says so.
 
+The landing page ends in a contact form (`#kontakt`, and `/kontakt/` for a
+browser without script) that reaches the founders at `kontakt@piloti.at`, the
+one address the site names. That closed the old gap of a personal mailbox
+reading as a side project. Setup: `docs/deployment/kubernetes.md` §3d;
+decision: [ADR-0077](../adr/0077-contact-form-via-cloudflare-email-sending.md).
+
 ## Keyword map
 
 One page per query cluster. A new article takes a cluster nobody owns yet.
@@ -84,7 +90,6 @@ None of these can be written into the code. Each needs a person or a decision.
 |---|---|---|
 | Measured pilot evidence | The teardown's biggest criticism: the site proves the product is built, not that it pays | Record per pilot: questions asked, research time before and after, answers used without correction. Publish once real |
 | One anonymised case study | Worth more than any section of copy | One pilot office's permission for question → documents → answer → outcome |
-| A Piloti mailbox | `mail@jonathanuhlemann.de` reads as a side project | Create `pilot@piloti.at`, then change `CONTACT_EMAILS` in `src/consts.ts` |
 | The real product on the homepage | The chat mock is labelled fictional, and a buyer wants the interface | Screenshots from a demo organisation with non-confidential documents |
 | The value calculator | Amortisation and value-per-euro read as claims, despite the disclaimer | Reframe to "what searching costs your office" until pilot data replaces the assumptions |
 | An EU-only processing option | US routing will stop some deals, and Reiner AI offers German servers | A product and provider decision, then the copy |

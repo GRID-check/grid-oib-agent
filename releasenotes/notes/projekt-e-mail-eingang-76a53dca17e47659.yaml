@@ -1,0 +1,24 @@
+---
+features:
+  - >
+    Each project can now have its own email address, under E-Mail-Eingang in
+    the project settings, once it is switched on for your organization. Send
+    attachments to it and Piloti files them in a folder for that mail, lists
+    anything it skipped in your inbox, and does not store the mail text.
+  - >
+    Only members who may add documents can send, from the address they sign in
+    with and a mail domain that signs its mail with DKIM. The help page at
+    piloti.at/e-mail-eingang explains why a mail came back and what to do.
+operators:
+  - >
+    The project mail inbox needs inboundMailDomain set to the app zone's apex
+    on the stack that owns that zone, which adds a catch-all and its Worker
+    beside the contact address, with no separate zone; Cloudflare becomes a
+    sub-processor. It stays off for every organization
+    until you enable the WorkOS flag project-mail-inbox for it, after giving
+    the notice its contract requires.
+  - >
+    Before the first organization, prove on staging that the DKIM-Signature
+    header reaches the Worker intact and that a failing Worker makes the
+    sending server retry instead of bouncing. Keep Email preview off for the
+    app zone, which the contact form onboards for sending.

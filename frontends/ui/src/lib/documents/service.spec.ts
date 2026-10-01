@@ -2566,6 +2566,216 @@ describe('two FIRST uploads of one filename at once', () => {
   })
 })
 
+describe("onNameTaken: 'suffix' — an unattended upload never touches another document (K1)", () => {
+  const digestOfInput = 'sha256:' + createHash('sha256').update(Buffer.from(new ArrayBuffer(8))).digest('hex')
+  const live = (overrides: Partial<{ id: string; folderId: string | null; contentHash: string | null; status: string }>) => ({
+    id: 'doc-alice',
+    storageKey: 'org/org-1/project/proj-1/doc/doc-alice/Plan.pdf',
+    storageBucket: 'test-bucket',
+    fileSize: 900,
+    contentHash: 'sha256:other',
+    folderId: 'folder-plaene',
+    status: 'completed',
+    ...overrides,
+  })
+  const mailInput = (overrides: Partial<Parameters<typeof uploadDocument>[1]> = {}) => ({
+    ...makeInput({ name: 'Plan.pdf' }),
+    folderId: 'folder-mail',
+    onNameTaken: 'suffix' as const,
+    audit: { channel: 'inbound-mail' as const, ref: 'msg-row-1' },
+    ...overrides,
+  })
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
+    vi.mocked(findProjectInOrg).mockResolvedValue(makeProject({ id: 'proj-1', collectionName: 'proj_abc' }))
+  })
+
+  afterEach(() => {
+    vi.mocked(findLiveDocumentByFilename).mockReset().mockResolvedValue(null)
+  })
+
+  it('files a name somebody else holds as the first free Name (n).ext, as a NEW document', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockImplementation(async (_org, _coll, name) =>
+      name === 'Plan.pdf' ? live({}) : name === 'Plan (2).pdf' ? live({ id: 'doc-bob', folderId: 'x' }) : null,
+    )
+
+    const result = await uploadDocument(session, mailInput())
+
+    expect(result).toMatchObject({ filename: 'Plan (3).pdf', unchanged: false })
+    expect(result.documentId).not.toBe('doc-alice')
+    // Never the replacement path: Alice's row, version and folder stay hers.
+    expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
+    expect(vi.mocked(admitOrDiscard).mock.calls.at(-1)?.[2]).toMatchObject({
+      filename: 'Plan (3).pdf',
+      folderId: 'folder-mail',
+    })
+    const put = vi
+      .mocked(s3Client.send)
+      .mock.calls.map(([command]) => (command as unknown as { input: { Key?: string } }).input.Key)
+      .find((key) => typeof key === 'string' && key.endsWith('.pdf'))
+    expect(put).toMatch(/\/Plan \(3\)\.pdf$/)
+  })
+
+  it('keeps the name when it is free', async () => {
+    const result = await uploadDocument(session, mailInput())
+
+    expect(result.filename).toBe('Plan.pdf')
+    expect(vi.mocked(findLiveDocumentByFilename)).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['pending', 'uploaded', 'failed', 'completed'])(
+    'answers unchanged for the same bytes in the same folder, while %s',
+    async (status) => {
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue(
+        live({ id: 'doc-mine', folderId: 'folder-mail', contentHash: digestOfInput, status }),
+      )
+
+      const result = await uploadDocument(session, mailInput())
+
+      expect(result).toEqual({
+        documentId: 'doc-mine',
+        jobId: null,
+        status: 'uploaded',
+        filename: 'Plan.pdf',
+        unchanged: true,
+      })
+      expect(admitOrDiscard).not.toHaveBeenCalled()
+      expect(s3Client.send).not.toHaveBeenCalledWith(expect.any(PutObjectCommand))
+      expect(recordAuditEvent).not.toHaveBeenCalled()
+    },
+  )
+
+  it('finds its own earlier Plan (2).pdf on a retry, rather than filing a Plan (3).pdf', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockImplementation(async (_org, _coll, name) =>
+      name === 'Plan.pdf'
+        ? live({})
+        : name === 'Plan (2).pdf'
+          ? live({ id: 'doc-mine', folderId: 'folder-mail', contentHash: digestOfInput, status: 'pending' })
+          : null,
+    )
+
+    const result = await uploadDocument(session, mailInput())
+
+    expect(result).toMatchObject({ documentId: 'doc-mine', filename: 'Plan (2).pdf', unchanged: true })
+  })
+
+  it('steps over the same bytes in ANOTHER folder: that copy is somebody else\'s', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockImplementation(async (_org, _coll, name) =>
+      name === 'Plan.pdf' ? live({ contentHash: digestOfInput }) : null,
+    )
+
+    const result = await uploadDocument(session, mailInput())
+
+    expect(result).toMatchObject({ filename: 'Plan (2).pdf', unchanged: false })
+  })
+
+  it('walks on to the next name when a concurrent upload takes the free one first', async () => {
+    let taken = false
+    vi.mocked(findLiveDocumentByFilename).mockImplementation(async (_org, _coll, name) => {
+      if (name === 'Plan.pdf') return live({})
+      if (name === 'Plan (2).pdf' && taken) return live({ id: 'doc-racer', folderId: 'folder-mail' })
+      return null
+    })
+    vi.mocked(admitOrDiscard).mockImplementationOnce(async () => {
+      taken = true
+      throw new LiveFilenameTakenError('Plan (2).pdf')
+    })
+
+    const result = await uploadDocument(session, mailInput())
+
+    expect(result.filename).toBe('Plan (3).pdf')
+    expect(admitOrDiscard).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives up with a 409 rather than probing without end', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(live({}))
+
+    await expect(uploadDocument(session, mailInput())).rejects.toMatchObject({
+      status: 409,
+      details: { reason: 'no_free_name' },
+    })
+  })
+
+  it('names its channel in the trail, and no IP or user agent without a request', async () => {
+    await uploadDocument(session, mailInput())
+
+    const event = vi.mocked(recordAuditEvent).mock.calls.at(-1)?.[0]
+    expect(event?.metadata).toMatchObject({ channel: 'inbound-mail', channelRef: 'msg-row-1' })
+    expect(event?.request).toBeUndefined()
+  })
+
+  it('declares every metadata key it sends in the audit schema registry', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(live({ id: 'doc-x', folderId: 'folder-mail' }))
+    await uploadDocument(session, { ...mailInput(), onNameTaken: 'version' })
+
+    const { AUDIT_SCHEMAS } = await import('@/lib/audit/schemas.mjs')
+    const declared = Object.keys(AUDIT_SCHEMAS['document.uploaded'].metadata)
+    const sent = Object.keys(vi.mocked(recordAuditEvent).mock.calls.at(-1)?.[0]?.metadata ?? {})
+    expect(sent).toEqual(expect.arrayContaining(['replaced', 'channel', 'channelRef']))
+    for (const key of sent) expect(declared).toContain(key)
+  })
+
+  it('asks the project gate to throw, not deny, when WorkOS cannot answer', async () => {
+    await uploadDocument(session, mailInput())
+
+    expect(requireProjectAccess).toHaveBeenCalledWith(
+      session,
+      'proj-1',
+      ['project:documents:write', 'project:edit'],
+      { onError: 'throw' },
+    )
+  })
+})
+
+describe("onNameTaken defaults to 'version': a person dropping a file is unchanged", () => {
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
+    vi.mocked(findProjectInOrg).mockResolvedValue(makeProject({ id: 'proj-1', collectionName: 'proj_abc' }))
+  })
+
+  afterEach(() => {
+    vi.mocked(findLiveDocumentByFilename).mockReset().mockResolvedValue(null)
+  })
+
+  it('replaces the live document of that name wherever it is, and keeps its id', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+      id: 'doc-alice',
+      storageKey: 'k',
+      storageBucket: 'test-bucket',
+      fileSize: 1,
+      contentHash: 'sha256:other',
+      folderId: 'folder-plaene',
+      status: 'completed',
+    })
+
+    const result = await uploadDocument(
+      session,
+      { ...makeInput({ name: 'Plan.pdf' }), folderId: 'folder-mail' },
+      new Request('http://x'),
+    )
+
+    expect(result).toMatchObject({ documentId: 'doc-alice', filename: 'Plan.pdf', unchanged: false })
+    expect(vi.mocked(findLiveDocumentByFilename)).toHaveBeenCalledTimes(1)
+    expect(admitReplacementOrDiscard).toHaveBeenCalled()
+  })
+
+  it('keeps the fail-closed authz default and passes the browser request to the trail', async () => {
+    const request = new Request('http://x')
+    await uploadDocument(session, makeInput({ name: 'neu.pdf' }), request)
+
+    expect(requireProjectAccess).toHaveBeenCalledWith(
+      session,
+      'proj-1',
+      ['project:documents:write', 'project:edit'],
+      { onError: 'deny' },
+    )
+    const event = vi.mocked(recordAuditEvent).mock.calls.at(-1)?.[0]
+    expect(event?.request).toBe(request)
+    expect(event?.metadata).not.toHaveProperty('channel')
+  })
+})
+
 /*
  * An empty object in the thumbnail slot is no thumbnail. A failed ingest
  * render can leave a 0-byte `_thumb.jpg` behind, which passes the HeadObject

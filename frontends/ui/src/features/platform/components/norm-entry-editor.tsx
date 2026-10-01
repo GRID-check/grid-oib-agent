@@ -47,7 +47,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { SectionLabel } from '@/components/ui/section-label'
 import { SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
-import { latinize } from '@/lib/text/latinize'
+import { slugify } from '@/lib/text/slugify'
 import { cn } from '@/lib/utils'
 import type { Translator } from '@/i18n'
 import {
@@ -114,22 +114,6 @@ const splitList = (value: string): string[] =>
     .filter(Boolean)
 
 const joinList = (value: string[] | undefined): string => (value ?? []).join(', ')
-
-/**
- * Catalog IDs are slugs; deriving one from the short name spares the operator
- * a decision.
- *
- * `latinize` rather than the German table alone: this field is only a
- * suggestion the operator can overwrite, so folding the rest of the accents
- * costs nothing and stops `ÖNORM B 1600 Dvořák` proposing an id with holes in
- * it.
- */
-function slugify(value: string): string {
-  return latinize(value.trim())
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
 
 /* ---------------------------------------------------------------------------
  * Form <-> entry mapping
@@ -445,6 +429,8 @@ export function NormEntryEditor({
     if (!isNew) return
     const current = form.state.values.id
     if (current && current !== autoIdRef.current) return
+    // Catalog IDs are slugs; deriving one from the short name spares the
+    // operator a decision, and `ÖNORM B 1600 Dvořák` proposes no id with holes.
     const next = slugify(shortName)
     autoIdRef.current = next
     if (current !== next) form.setFieldValue('id', next)

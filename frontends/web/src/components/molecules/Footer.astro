@@ -1,7 +1,7 @@
 ---
 import { SECTIONS, SECTION_IDS, landingPath } from '../../lib/landing'
 import Logo from '../atoms/Logo.astro'
-import { CONTACT_EMAILS, mailtoHref } from '../../consts'
+import { CONTACT_EMAIL, MAIL_INBOX_PATH, mailtoHref } from '../../consts'
 import { ui, type Locale } from '../../i18n/ui'
 import { useTranslatedPath } from '../../i18n/utils'
 
@@ -26,6 +26,7 @@ const columns = [
       { label: t.footer.data, href: `${home}#daten` },
       { label: t.footer.value, href: `${home}#wert` },
       { label: t.footer.working, href: translatePath('/rechenweg/') },
+      { label: t.footer.mailInbox, href: translatePath(MAIL_INBOX_PATH) },
     ],
   },
   {
@@ -51,7 +52,7 @@ const columns = [
 <!-- The footer is where a visitor lands who did not convert: it has to say who
      we are, where everything is, and how to reach a person. It is the foot of
      the sheet, not a box on it: one hairline, then the page itself. The
-     addresses stay here as the fallback for every mailto button above. On a
+     address stays here as the fallback for the form and every mailto above. On a
      phone the link groups sit side by side, with 44px rows. -->
 <footer class="frame">
   <div class="border-t border-ink/15 pb-10 pt-12 lg:pb-14 lg:pt-16">
@@ -87,8 +88,8 @@ const columns = [
         ))
       }
 
-      <!-- The addresses are the links: a button beside them would be a third way
-           to the same two inboxes. -->
+      <!-- The address is the link: a button beside it would be a second way to
+           the same inbox. -->
       <div class="col-span-2 min-w-0 lg:col-span-1">
         <p class="m-0 font-mono text-2xs uppercase tracking-widest text-ink-faint">
           {t.footer.contactHeading}
@@ -96,20 +97,14 @@ const columns = [
         <p class="m-0 mt-2 max-w-sm text-base leading-relaxed text-ink-mute sm:mt-5 sm:text-sm">
           {t.footer.contactBody}
         </p>
-        <ul class="m-0 mt-2 list-none p-0">
-          {
-            CONTACT_EMAILS.map((email) => (
-              <li>
-                <a
-                  class="inline-flex min-h-11 items-center break-all text-base font-medium text-ink hover:text-accent-600 sm:min-h-0 sm:py-0.5 sm:text-sm"
-                  href={mailtoHref()}
-                >
-                  {email}
-                </a>
-              </li>
-            ))
-          }
-        </ul>
+        <p class="m-0 mt-2">
+          <a
+            class="inline-flex min-h-11 items-center break-all text-base font-medium text-ink hover:text-accent-600 sm:min-h-0 sm:py-0.5 sm:text-sm"
+            href={mailtoHref()}
+          >
+            {CONTACT_EMAIL}
+          </a>
+        </p>
       </div>
     </div>
 

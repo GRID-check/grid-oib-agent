@@ -19,6 +19,7 @@ npm run dev        # http://localhost:4321
 | `PUBLIC_APP_URL`  | `https://app.piloti.at` | Base URL of the app. Read at **runtime** by the `/sign-in` endpoint, which 302s to `/?sign-in` there — the app's root bounces logged-out visitors back to this site, so the bare URL would be a loop. Injected per stack by the Kubernetes deployment; one image serves every host. |
 | `PUBLIC_SITE_URL` | `https://piloti.at` | Canonical site URL for OG/sitemap metadata (public). Baked at build. Prod default is deliberate: dev canonicalizing to prod is harmless — dev should not be indexed anyway. |
 | `HOST` / `PORT`   | `0.0.0.0` / `4321`   | Node adapter listen address (runtime)              |
+| `CONTACT_FORM_SECRET`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_EMAIL_TOKEN`, `CONTACT_FORWARD_TO`, `CONTACT_FROM` | unset | The contact form (`src/lib/contact.ts`), read at **runtime**. Unset, the form answers 503 and shows `kontakt@piloti.at`; the site still builds and renders. What each needs: [`docs/deployment/environment-variables.md`](../../docs/deployment/environment-variables.md#landing-site-web-tier-kubernetespulumi-injected). | <!-- pragma: allowlist secret -->
 
 Only `PUBLIC_SITE_URL` is read at **build time** (it ends up in the prerendered
 HTML); the Docker build accepts it as a build arg (see `Dockerfile`).

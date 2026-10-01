@@ -97,6 +97,20 @@ export const INBOX_ITEM_TYPES = [
    * inbox's platform lane, `@/lib/inbox/service`).
    */
   'feedback.submitted',
+  /**
+   * Informational, operational: the files of a mail the reader sent to a
+   * project's inbox address were filed (ADR-0075). The inbox is the sender's
+   * only feedback channel — Piloti sends no mail in v1 — so the row names how
+   * many files landed and how many were skipped, and links to the mail's folder.
+   */
+  'inbound_mail.filed',
+  /**
+   * Informational, operational: a mail the reader sent to a project's address
+   * could not be filed after every retry, and its staged files were deleted.
+   * Without it the sender would learn nothing: the mail was accepted, so no
+   * bounce ever reached them.
+   */
+  'inbound_mail.failed',
 ] as const
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
 

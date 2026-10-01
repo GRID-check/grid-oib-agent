@@ -1,0 +1,30 @@
+---
+/**
+ * The project mail inbox help page, prerendered at the one path in
+ * `MAIL_INBOX_SLUG` (src/consts.ts). A route of its own rather than a file
+ * named after the slug, so the site spells the path once. The app's settings
+ * card and the Worker's bounce text link here too; all three are held to
+ * `shared/public-site.json` by checks, not by an import.
+ */
+import BaseLayout from '../layouts/BaseLayout.astro'
+import MailInbox from '../components/organisms/MailInbox.astro'
+import EndInvite from '../components/molecules/EndInvite.astro'
+import { MAIL_INBOX_SLUG } from '../consts'
+import { ui } from '../i18n/ui'
+import { SHARE_ART, pageLd } from '../lib/seo'
+
+export const getStaticPaths = () => [{ params: { mailInbox: MAIL_INBOX_SLUG } }]
+
+const t = ui.de.seo.pages.mailInbox
+---
+
+<BaseLayout
+  locale="de"
+  title={t.title}
+  description={t.description}
+  ogArt={SHARE_ART.mailInbox}
+  jsonLd={pageLd('de', t.title, Astro.url.pathname, Astro.site)}
+>
+  <MailInbox locale="de" />
+  <EndInvite locale="de" page="mailInbox" />
+</BaseLayout>

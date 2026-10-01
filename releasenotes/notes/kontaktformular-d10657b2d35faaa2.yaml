@@ -1,0 +1,17 @@
+---
+features:
+  - >
+    The piloti.at website has a contact form, at the end of the landing page
+    and on /kontakt/, that reaches the founders directly by email. Nothing is
+    stored on the site, and it works without JavaScript.
+  - >
+    Piloti now has one contact address, kontakt@piloti.at, in place of the
+    founders' personal addresses on the imprint, the privacy policy and every
+    "write to us" link.
+operators:
+  - >
+    The contact form needs CONTACT_FORM_SECRET, CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_EMAIL_TOKEN and CONTACT_FORWARD_TO on the web service, verified
+    Email Routing destinations, and piloti.at onboarded for Email Sending.
+    Deploy the site only after kontakt@piloti.at routes, since the imprint
+    names it.

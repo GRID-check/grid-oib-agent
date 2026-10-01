@@ -12,10 +12,16 @@
 
 import { getWorkOS } from './client'
 import { getCached, invalidateCached } from '@/lib/cache'
-import { FEATURE_FLAGS, enforcementOn } from '@/lib/authz/feature-flags'
+import {
+  FEATURE_FLAGS,
+  enforcementOn,
+  projectMailInboxEnvEnabled,
+  type FeatureFlagSlug,
+} from '@/lib/authz/feature-flags'
+import { TransientAuthzError } from '@/lib/authz/errors'
 
 /** Slug of the flag gating the async post-answer memory-reflection stage. */
-export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
+export const MEMORY_REFLECTION_FLAG = FEATURE_FLAGS.memoryReflection
 
 /**
  * Slug of the flag gating the async post-answer follow-up-questions stage.
@@ -24,10 +30,10 @@ export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
  * and true per-turn cost were measured before any reader saw a chip
  * (docs/architecture/post-answer-stages.md §10, slices 1 and 3).
  */
-export const FOLLOW_UPS_FLAG = 'post-answer-follow-ups'
+export const FOLLOW_UPS_FLAG = FEATURE_FLAGS.postAnswerFollowUps
 
 /** Slug of the flag gating per-org BYOK LLM credentials (ADR-0022). */
-export const BYOK_LLM_FLAG = 'byok-llm'
+export const BYOK_LLM_FLAG = FEATURE_FLAGS.byokLlm
 
 /**
  * Slug of the flag gating the Agent Skills feature (Phase A). Session paths
@@ -35,7 +41,7 @@ export const BYOK_LLM_FLAG = 'byok-llm'
  * path evaluates this slug per-org so revoking an org's flag also pauses its
  * skill schedules (fail-closed).
  */
-export const SKILLS_FLAG = 'skills'
+export const SKILLS_FLAG = FEATURE_FLAGS.skills
 
 /**
  * Slug of the platform-layer web-search flag (ADR-0022). Participates only
@@ -43,7 +49,7 @@ export const SKILLS_FLAG = 'skills'
  * `@/lib/organizations/service`, which combines it with the tenant's own
  * `settings.webSearchEnabled` toggle.
  */
-export const WEB_SEARCH_FLAG = 'web-search'
+export const WEB_SEARCH_FLAG = FEATURE_FLAGS.webSearch
 
 /**
  * Slug of the flag gating deep research. Taken from the registry rather than
@@ -63,7 +69,20 @@ export const TASK_AUTOMATION_FLAG = FEATURE_FLAGS.taskAutomation
 
 const CACHE_TTL_MS = 30_000
 
-async function enabledSlugsForOrg(organizationId: string): Promise<Set<string>> {
+/**
+ * Every flag slug enabled for `organizationId`, read from WorkOS (cached 30s
+ * per org). The full-set reader: a caller that needs more than one flag, such
+ * as a session built for somebody who is not signed in, reads them all in one
+ * call instead of asking flag by flag.
+ *
+ * THROWS when WorkOS cannot be asked (no API key, network, plan). It does not
+ * decide what a failure means; {@link isOrgFeatureEnabled} fails closed, an
+ * unattended caller may retry.
+ */
+export async function enabledSlugsForOrg(organizationId: string): Promise<Set<string>> {
+  if (!process.env.WORKOS_API_KEY) {
+    throw new Error('WORKOS_API_KEY is not set; organization flags cannot be read')
+  }
   const slugs = await getCached(`flags:${organizationId}`, CACHE_TTL_MS, async () => {
     const list = await getWorkOS().featureFlags.listOrganizationFeatureFlags({ organizationId })
     // EVERY page, not the first. The endpoint defaults to 10 flags and this
@@ -83,7 +102,7 @@ async function enabledSlugsForOrg(organizationId: string): Promise<Set<string>> 
  * there is no org, no WorkOS API key, or evaluation fails (fail-closed).
  */
 export async function isOrgFeatureEnabled(
-  slug: string,
+  slug: FeatureFlagSlug,
   organizationId: string | null | undefined,
   defaultValue = false,
 ): Promise<boolean> {
@@ -107,7 +126,7 @@ export async function isOrgFeatureEnabled(
  */
 export interface PostAnswerStageFlag {
   readonly id: string
-  readonly flag: string
+  readonly flag: FeatureFlagSlug
   readonly envVar: string
   /** The value when flag enforcement is off and the env var is unset. */
   readonly defaultOn: boolean
@@ -245,6 +264,31 @@ export async function isTaskAutomationEnabledForOrg(
   // break-glass caller, not a tenant with the flag switched off.
   if (!organizationId) return true
   return isOrgFeatureEnabled(TASK_AUTOMATION_FLAG, organizationId)
+}
+
+/**
+ * Whether the project email address is on for this org, WITHOUT a session: the
+ * webhook and the drain act for an organization, not a signed-in person.
+ *
+ * The same two halves as `isProjectMailInboxEnabled` (authz/feature-flags):
+ * enforcement on reads the per-org flag, enforcement off reads the opt-in env
+ * variable. No organization is off: unlike deep research, nothing here serves
+ * an anonymous deployment.
+ *
+ * A flag read that could not complete THROWS {@link TransientAuthzError}
+ * rather than answering `false`. "Off" is a permanent refusal to the sender's
+ * server; "could not ask" must be a retry (review finding C2).
+ */
+export async function isProjectMailInboxEnabledForOrg(
+  organizationId: string | null | undefined,
+): Promise<boolean> {
+  if (!organizationId) return false
+  if (!enforcementOn()) return projectMailInboxEnvEnabled()
+  try {
+    return (await enabledSlugsForOrg(organizationId)).has(FEATURE_FLAGS.projectMailInbox)
+  } catch (error) {
+    throw new TransientAuthzError('feature-flags', { cause: error })
+  }
 }
 
 /** Test hook: clear a specific org's flag cache entry. */

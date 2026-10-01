@@ -21,13 +21,13 @@ import { baseStackConfig } from "./src/test-support/stack-config";
  * It does NOT prove the stack deploys. Nothing here contacts an API server.
  */
 
-const RESOURCES: Array<{ type: string; name: string }> = [];
+const RESOURCES: Array<{ type: string; name: string; inputs: Record<string, unknown> }> = [];
 let STACK: Record<string, unknown> = {};
 
 pulumi.runtime.setMocks(
   {
     newResource: (args: pulumi.runtime.MockResourceArgs) => {
-      RESOURCES.push({ type: args.type, name: args.name });
+      RESOURCES.push({ type: args.type, name: args.name, inputs: args.inputs });
       return {
         id: `${args.name}-id`,
         state: { ...args.inputs, metadata: args.inputs.metadata ?? { name: args.name } },
@@ -131,6 +131,22 @@ describe("the program constructs in the split topology", () => {
     expect(named("kubernetes:networking.k8s.io/v1:NetworkPolicy")).toContain(
       "gotenberg-frontend-only",
     );
+  });
+
+  it("leaves the project mail inbox off while inboundMailDomain is unset", () => {
+    // Off means nothing at Cloudflare and no domain on the frontend, which is
+    // what hides the address in the UI. The token is still wired (empty), so
+    // the BFF route answers 503 rather than reading an unset variable.
+    expect(RESOURCES.filter((r) => r.type.startsWith("cloudflare:"))).toEqual([]);
+    const frontend = RESOURCES.find(
+      (r) => r.type === "kubernetes:apps/v1:Deployment" && r.name === "frontend",
+    );
+    const spec = frontend?.inputs.spec as {
+      template: { spec: { containers: Array<{ env: Array<{ name: string }> }> } };
+    };
+    const names = spec.template.spec.containers[0].env.map((e) => e.name);
+    expect(names).not.toContain("GRID_INBOUND_MAIL_DOMAIN");
+    expect(names).toContain("GRID_INBOUND_MAIL_TOKEN");
   });
 
   it("keeps the S3 endpoint on the name the app tier already uses", () => {

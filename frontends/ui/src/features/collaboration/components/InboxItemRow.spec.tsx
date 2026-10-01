@@ -2,7 +2,8 @@ import type { ReactNode } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@/test-utils'
 
-import type { InboxItemView } from '@/lib/inbox/types'
+import type { InboundMailFiledParams, InboxItemView } from '@/lib/inbox/types'
+import { I18nProvider } from '@/i18n'
 import { formatAbsoluteTime } from '@/lib/format'
 import { DocumentLifecycleError } from '@/lib/documents/lifecycle-client'
 import { InboxItemRow } from './InboxItemRow'
@@ -289,6 +290,211 @@ describe('InboxItemRow — the operational storage alert (ADR-0042)', () => {
     // `tone: 'warning'` shares the request tint — something needs attention —
     // but the row is not actionable, so it never sits in the "needs me" badge.
     expect(container.querySelector('.bg-warning-subtle')).not.toBeNull()
+  })
+})
+
+describe('InboxItemRow — a filed mail (ADR-0075)', () => {
+  const mailRow = (overrides: Partial<InboxItemView>): InboxItemView =>
+    item({
+      type: 'inbound_mail.filed',
+      actionable: false,
+      resourceType: 'project',
+      resourceId: 'p1',
+      anchorId: 'msg-1',
+      actorName: null,
+      actorUserId: null,
+      href: '/app/projects/p1/files?folder=f1',
+      subject: 'Pläne Einreichung',
+      excerpt: null,
+      ...overrides,
+    })
+  const filed = (params: InboundMailFiledParams, overrides: Partial<InboxItemView> = {}) =>
+    mailRow({ params, ...overrides })
+
+  test('says how many files landed where, in the plural it needs, and shows no skipped line at zero', () => {
+    render(
+      <InboxItemRow
+        item={filed({ filed: 3, skipped: 0, project: 'Wohnbau Hietzing', skippedFiles: [] })}
+      />,
+    )
+    expect(
+      screen.getByText('3 files from the email “Pläne Einreichung” filed in Wohnbau Hietzing'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/app/projects/p1/files?folder=f1')
+    expect(screen.queryByTestId('inbox-mail-skipped')).toBeNull()
+    expect(screen.queryByText(/skipped/i)).toBeNull()
+  })
+
+  test('uses the singular for one file', () => {
+    render(<InboxItemRow item={filed({ filed: 1, skipped: 0, project: 'Wohnbau', skippedFiles: [] })} />)
+    expect(screen.getByText('1 file from the email “Pläne Einreichung” filed in Wohnbau')).toBeInTheDocument()
+  })
+
+  test('lists the skipped files by name and reason, ten at most, and counts the rest', () => {
+    const skippedFiles: InboundMailFiledParams['skippedFiles'] = Array.from({ length: 10 }, (_, n) => ({
+      name: `Anhang-${n + 1}.p7m`,
+      reason: 'encrypted',
+    }))
+    skippedFiles[0] = { name: 'winmail.dat', reason: 'tnef' }
+    render(
+      <InboxItemRow
+        item={filed({ filed: 2, skipped: 13, project: 'Wohnbau', skippedFiles })}
+      />,
+    )
+
+    const skipped = screen.getByTestId('inbox-mail-skipped')
+    expect(skipped).toHaveTextContent('Not filed:')
+    expect(skipped.querySelectorAll('li')).toHaveLength(11)
+    expect(skipped).toHaveTextContent('winmail.dat– Outlook format (winmail.dat)')
+    expect(skipped).toHaveTextContent('Anhang-10.p7m– encrypted')
+    expect(skipped).toHaveTextContent('+3 more')
+    // The cloud-link hint is for a mail that filed nothing.
+    expect(skipped).not.toHaveTextContent('cloud files')
+  })
+
+  test('has a label for every skip reason', () => {
+    const reasons = [
+      ['embedded', 'image in the email text'],
+      ['tnef', 'Outlook format (winmail.dat)'],
+      ['signature', 'email signature'],
+      ['encrypted', 'encrypted'],
+      ['calendar', 'calendar invitation'],
+      ['empty', 'empty file'],
+      ['unknown-type', 'file type not recognised'],
+      ['limit', 'more than 100 files in the email'],
+      ['type', 'file type not allowed'],
+      ['size', 'file too large'],
+      ['quota', 'organization storage full'],
+    ] as const
+    render(
+      <InboxItemRow
+        item={filed({
+          filed: 0,
+          skipped: reasons.length,
+          project: 'Wohnbau',
+          // Ten is the cap the schema admits; the eleventh is checked below.
+          skippedFiles: reasons.slice(0, 10).map(([reason], n) => ({ name: `f${n}`, reason })),
+        })}
+      />,
+    )
+    const skipped = screen.getByTestId('inbox-mail-skipped')
+    for (const [, label] of reasons.slice(0, 10)) expect(skipped).toHaveTextContent(`– ${label}`)
+    expect(skipped).toHaveTextContent('+1 more')
+  })
+
+  test('the eleventh reason renders too', () => {
+    render(
+      <InboxItemRow
+        item={filed({
+          filed: 1,
+          skipped: 1,
+          project: 'Wohnbau',
+          skippedFiles: [{ name: 'Plan.dwg', reason: 'quota' }],
+        })}
+      />,
+    )
+    expect(screen.getByTestId('inbox-mail-skipped')).toHaveTextContent('Plan.dwg– organization storage full')
+  })
+
+  test('nothing filed: says so, lists why, and names the cloud-link case', () => {
+    render(
+      <InboxItemRow
+        item={filed({
+          filed: 0,
+          skipped: 1,
+          project: 'Wohnbau',
+          skippedFiles: [{ name: 'image001.png', reason: 'embedded' }],
+        })}
+      />,
+    )
+    expect(
+      screen.getByText('No attachments from the email “Pläne Einreichung” filed in Wohnbau'),
+    ).toBeInTheDocument()
+    const skipped = screen.getByTestId('inbox-mail-skipped')
+    expect(skipped).toHaveTextContent('image001.png– image in the email text')
+    expect(skipped).toHaveTextContent('Piloti does not fetch links to cloud files.')
+  })
+
+  test('nothing filed and nothing skipped: the mail had no attachments, so the cloud-link hint alone', () => {
+    render(<InboxItemRow item={filed({ filed: 0, skipped: 0, project: 'Wohnbau', skippedFiles: [] })} />)
+    const skipped = screen.getByTestId('inbox-mail-skipped')
+    expect(skipped).not.toHaveTextContent('Not filed')
+    expect(skipped).toHaveTextContent('Piloti does not fetch links to cloud files.')
+  })
+
+  test('a mail without a subject reads as "an email", from the dictionary', () => {
+    render(
+      <I18nProvider initialLocale="de" fixedLocale>
+        <InboxItemRow
+          item={filed(
+            { filed: 2, skipped: 0, project: 'Wohnbau', skippedFiles: [] },
+            { subject: null },
+          )}
+        />
+      </I18nProvider>,
+    )
+    expect(screen.getByText('2 Dateien aus einer E-Mail in Wohnbau abgelegt')).toBeInTheDocument()
+  })
+
+  test('in German, with typographic quotes and the zero form', () => {
+    render(
+      <I18nProvider initialLocale="de" fixedLocale>
+        <InboxItemRow item={filed({ filed: 0, skipped: 0, project: 'Wohnbau', skippedFiles: [] })} />
+      </I18nProvider>,
+    )
+    expect(
+      screen.getByText('Keine Anhänge aus der E-Mail „Pläne Einreichung“ in Wohnbau abgelegt'),
+    ).toBeInTheDocument()
+  })
+
+  test('a row whose params were withheld says what happened without a blank count', () => {
+    render(
+      <InboxItemRow
+        item={mailRow({ state: 'inert', href: null, subject: null, params: undefined })}
+      />,
+    )
+    expect(screen.getByText('Attachments from an email filed')).toBeInTheDocument()
+    expect(screen.queryByTestId('inbox-mail-skipped')).toBeNull()
+  })
+})
+
+describe('InboxItemRow — a mail that could not be filed', () => {
+  const failed = (overrides: Partial<InboxItemView> = {}) =>
+    item({
+      type: 'inbound_mail.failed',
+      actionable: false,
+      resourceType: 'project',
+      resourceId: 'p1',
+      anchorId: 'msg-1',
+      actorName: null,
+      actorUserId: null,
+      href: '/app/projects/p1/files',
+      subject: 'Pläne Einreichung',
+      excerpt: null,
+      params: { project: 'Wohnbau Hietzing' },
+      ...overrides,
+    })
+
+  test('says the files did not arrive and what to do instead, in German', () => {
+    const { container } = render(
+      <I18nProvider initialLocale="de" fixedLocale>
+        <InboxItemRow item={failed({ subject: null })} />
+      </I18nProvider>,
+    )
+    expect(
+      screen.getByText('Die Dateien aus Ihrer E-Mail konnten nicht in Wohnbau Hietzing abgelegt werden'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Bitte laden Sie sie direkt hoch.')).toBeInTheDocument()
+    // A warning: it needs the sender's attention, though nobody waits on them.
+    expect(container.querySelector('.bg-warning-subtle')).not.toBeNull()
+  })
+
+  test('names the mail by its subject when it has one', () => {
+    render(<InboxItemRow item={failed()} />)
+    expect(
+      screen.getByText('The files from your email “Pläne Einreichung” could not be filed in Wohnbau Hietzing'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Please upload them directly.')).toBeInTheDocument()
   })
 })
 

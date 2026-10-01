@@ -351,6 +351,22 @@ export const EDGE_RATE_LIMIT = {
      * that session, because every later turn rides the open socket (ADR-0009).
      */
     ws: "/websocket",
+    /**
+     * The project mail inbox webhook (`platform/inbound-mail.ts`). Every call
+     * comes from Cloudflare's Email Worker, so from Cloudflare's shared egress
+     * addresses: it gets a bucket of its own and is exempt from the catch-all.
+     * Must equal `INBOUND_MAIL_PATH` in `platform/inbound-mail-worker.js`.
+     */
+    inboundMail: "/api/internal/inbound-mail",
+    /**
+     * The landing site's contact form (`frontends/web`): `POST /api/kontakt`
+     * from the scripted form, and `POST /kontakt/` or `/en/kontakt/` from the
+     * same form without script. A regular expression, so the three share ONE
+     * per-client bucket, and an optional query string, so `?x` does not step
+     * around it. Selected together with the POST method: reading the page
+     * costs nothing from this bucket.
+     */
+    webContact: "^(/en)?/(api/)?kontakt/?(\\?.*)?$",
   },
 } as const;
 

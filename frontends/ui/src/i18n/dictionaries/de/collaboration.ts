@@ -268,6 +268,41 @@ export const collaboration: typeof en.collaboration = {
         title: '{actor} bittet Sie um die Freigabe von {subject}',
         body: 'Eine neue Fassung wartet auf Ihre Freigabe.',
       },
+      // Die Dateien einer E-Mail an die Projektadresse sind abgelegt (ADR-0075).
+      // {subject} ist der Betreff der E-Mail, {project} das Projekt, {filed}
+      // und {skipped} die Zahl der abgelegten und übersprungenen Anhänge. Die
+      // übersprungenen Dateien listet die Zeile selbst, mit `reasons`.
+      inboundMailFiled: {
+        title:
+          '{filed, plural, =0 {Keine Anhänge} one {# Datei} other {# Dateien}} aus der E-Mail „{subject}“ in {project} abgelegt',
+        titleUntitled:
+          '{filed, plural, =0 {Keine Anhänge} one {# Datei} other {# Dateien}} aus einer E-Mail in {project} abgelegt',
+        titleWithheld: 'Anhänge aus einer E-Mail abgelegt',
+        skippedLabel: 'Nicht abgelegt:',
+        more: '+{count} weitere',
+        cloudLinks: 'Links auf Cloud-Dateien ruft Piloti nicht ab. Hängen Sie die Dateien an oder laden Sie sie direkt hoch.',
+        reasons: {
+          embedded: 'Bild im E-Mail-Text',
+          tnef: 'Outlook-Format (winmail.dat)',
+          signature: 'Signatur der E-Mail',
+          encrypted: 'verschlüsselt',
+          calendar: 'Kalendereinladung',
+          empty: 'leere Datei',
+          unknownType: 'Dateityp nicht erkannt',
+          limit: 'mehr als 100 Dateien in der E-Mail',
+          type: 'Dateityp nicht erlaubt',
+          size: 'Datei zu groß',
+          quota: 'Speicherplatz der Organisation voll',
+        },
+      },
+      // Die Dateien einer E-Mail konnten auch nach allen Wiederholungen nicht
+      // abgelegt werden. {project} ist das Projekt, {subject} der Betreff.
+      inboundMailFailed: {
+        title: 'Die Dateien aus Ihrer E-Mail „{subject}“ konnten nicht in {project} abgelegt werden',
+        titleUntitled: 'Die Dateien aus Ihrer E-Mail konnten nicht in {project} abgelegt werden',
+        titleWithheld: 'Die Dateien aus einer E-Mail konnten nicht abgelegt werden',
+        body: 'Bitte laden Sie sie direkt hoch.',
+      },
       unknown: {
         title: 'Es gab Aktivität',
         body: 'in {subject}',

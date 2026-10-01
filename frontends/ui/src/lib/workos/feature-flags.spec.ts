@@ -22,11 +22,15 @@ vi.mock('./client', () => ({
   getWorkOS: () => ({ featureFlags: { listOrganizationFeatureFlags } }),
 }))
 
+import { FEATURE_FLAGS } from '@/lib/authz/feature-flags'
+import { TransientAuthzError } from '@/lib/authz/errors'
 import {
   _clearFeatureFlagCache,
   enabledPostAnswerStages,
+  enabledSlugsForOrg,
   isMemoryReflectionEnabled,
   isOrgFeatureEnabled,
+  isProjectMailInboxEnabledForOrg,
   MEMORY_REFLECTION_FLAG,
   POST_ANSWER_STAGE_FLAGS,
 } from './feature-flags'
@@ -186,5 +190,71 @@ describe('enabledPostAnswerStages', () => {
     listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: 'other' }]))
     const [viaStages, viaLegacy] = [await enabledPostAnswerStages('org-1'), await isMemoryReflectionEnabled('org-1')]
     expect(viaStages.includes('memory_reflection')).toBe(viaLegacy)
+  })
+})
+
+describe('the slug is typed, so it cannot trade places with the org id (#787)', () => {
+  it('does not compile with the arguments swapped', async () => {
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: FEATURE_FLAGS.skills }]))
+    // The pinned-session bug: `isOrgFeatureEnabled(orgId, slug)`. Both are
+    // strings, so it compiled and asked WorkOS about an organization named
+    // after the flag. `tsc` now refuses it; this line is the proof.
+    // @ts-expect-error an organization id is not a FeatureFlagSlug
+    await isOrgFeatureEnabled('org-1', FEATURE_FLAGS.skills)
+    await expect(isOrgFeatureEnabled(FEATURE_FLAGS.skills, 'org-1')).resolves.toBe(true)
+  })
+
+  it('registers every slug the post-answer stages read, so provisioning checks them', () => {
+    const registry: readonly string[] = Object.values(FEATURE_FLAGS)
+    for (const stage of POST_ANSWER_STAGE_FLAGS) expect(registry).toContain(stage.flag)
+  })
+})
+
+describe('enabledSlugsForOrg — the full-set reader', () => {
+  it('returns every enabled slug, past the first page', async () => {
+    listOrganizationFeatureFlags.mockResolvedValue(
+      paginated([{ slug: 'a' }], [{ slug: 'b' }, { slug: 'project-mail-inbox' }])
+    )
+    await expect(enabledSlugsForOrg('org-1')).resolves.toEqual(new Set(['a', 'b', 'project-mail-inbox']))
+  })
+
+  it('throws rather than deciding what a failure means', async () => {
+    listOrganizationFeatureFlags.mockRejectedValue(new Error('workos down'))
+    await expect(enabledSlugsForOrg('org-1')).rejects.toThrow('workos down')
+  })
+
+  it('throws without an API key, where the single-flag reader answers its default', async () => {
+    vi.stubEnv('WORKOS_API_KEY', '')
+    await expect(enabledSlugsForOrg('org-1')).rejects.toThrow(/WORKOS_API_KEY/)
+    expect(listOrganizationFeatureFlags).not.toHaveBeenCalled()
+  })
+})
+
+describe('isProjectMailInboxEnabledForOrg — the session-less half (E1, C2)', () => {
+  it('is off without an organization', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    await expect(isProjectMailInboxEnabledForOrg(null)).resolves.toBe(false)
+  })
+
+  it('follows the per-org flag under enforcement', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: 'project-mail-inbox' }]))
+    await expect(isProjectMailInboxEnabledForOrg('org-1')).resolves.toBe(true)
+    await _clearFeatureFlagCache('org-1')
+    listOrganizationFeatureFlags.mockResolvedValue(paginated([{ slug: 'skills' }]))
+    await expect(isProjectMailInboxEnabledForOrg('org-1')).resolves.toBe(false)
+  })
+
+  it('throws TransientAuthzError when WorkOS cannot be asked: a retry, not "off"', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    listOrganizationFeatureFlags.mockRejectedValue(new Error('workos down'))
+    await expect(isProjectMailInboxEnabledForOrg('org-1')).rejects.toBeInstanceOf(TransientAuthzError)
+  })
+
+  it('follows the opt-in env variable without enforcement, and never asks WorkOS', async () => {
+    await expect(isProjectMailInboxEnabledForOrg('org-1')).resolves.toBe(false)
+    vi.stubEnv('GRID_PROJECT_MAIL_INBOX_ENABLED', 'true')
+    await expect(isProjectMailInboxEnabledForOrg('org-1')).resolves.toBe(true)
+    expect(listOrganizationFeatureFlags).not.toHaveBeenCalled()
   })
 })

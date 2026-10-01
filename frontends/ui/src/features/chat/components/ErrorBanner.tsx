@@ -11,6 +11,7 @@ import { type FC, useId, useState } from 'react'
 import { ChevronDown, ChevronUp, AlertTriangle, XCircle, X, RotateCw, Check, Copy } from 'lucide-react'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import { shortRequestId } from '@/shared/utils/request-id'
@@ -179,26 +180,16 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
  */
 const RequestReference: FC<{ requestId: string }> = ({ requestId }) => {
   const t = useTranslations('chat')
-  const [copied, setCopied] = useState(false)
-
-  const handleCopy = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(requestId)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // The id is on screen either way — it is selectable text — so a refused
-      // clipboard costs the reader nothing but the shortcut.
-      setCopied(false)
-    }
-  }
+  // A refused clipboard is not reported: the id is on screen either way, as
+  // selectable text, so it costs the reader nothing but the shortcut.
+  const { copied, copy } = useCopyToClipboard()
 
   return (
     <div className="mt-2 flex items-center gap-1.5" data-testid="error-request-id">
       <span className="text-subtle text-xs">{t('error.reference')}</span>
       <button
         type="button"
-        onClick={() => void handleCopy()}
+        onClick={() => void copy(requestId)}
         aria-label={t('error.referenceCopyAria', { id: requestId })}
         className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 rounded-xs font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
       >

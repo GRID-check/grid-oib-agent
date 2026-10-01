@@ -6,8 +6,8 @@
  * language:
  *
  *   the project profile card (the single "Projektparameter" surface) + honest
- *   Insights card (top grid) → applicable standards → members → memory →
- *   danger zone.
+ *   Insights card (top grid) → applicable standards → members → E-Mail-Eingang
+ *   (document writers only) → memory → knowledge index → danger zone.
  *
  * ONE profile surface, ONE editor. The profile is shown once — as the
  * {@link ProjectBrief} (facts, summary, Piloti's assumptions and the open
@@ -31,6 +31,7 @@ import type { ProjectOverviewData } from '../types'
 import { ApplicableStandards } from './applicable-standards'
 import { ProjectBrief } from './project-brief'
 import { ProjectDangerZone } from './project-danger-zone'
+import { ProjectInboundMailCard } from './project-inbound-mail-card'
 import { ProjectMemoryPanel } from './project-memory-panel'
 import { ProjectReindexCard } from './project-reindex-card'
 import { ProjectRenameButton } from './project-rename-button'
@@ -51,6 +52,12 @@ interface ProjectSettingsProps {
    * control the API rejects.
    */
   canManageProject?: boolean
+  /**
+   * Whether the current user can write documents in this project
+   * (`project:documents:write` or the `project:edit` umbrella). Gates the
+   * „E-Mail-Eingang" section: mailing files in is uploading them.
+   */
+  canWriteDocuments?: boolean
   /** Whether the flagged project knowledge page is linked from here (spec §5). */
   showKnowledgeLink?: boolean
   /**
@@ -64,6 +71,7 @@ interface ProjectSettingsProps {
 export function ProjectSettings({
   data,
   canManageProject = false,
+  canWriteDocuments = false,
   showKnowledgeLink = false,
   currentMembershipId = null,
 }: ProjectSettingsProps) {
@@ -183,6 +191,14 @@ export function ProjectSettings({
           />
         </section>
       </StaggerItem>
+
+      {/* E-Mail-Eingang — the project's mail address. Renders nothing when the
+          deployment has no inbound mail domain. */}
+      {canWriteDocuments && (
+        <StaggerItem>
+          <ProjectInboundMailCard projectId={data.id} />
+        </StaggerItem>
+      )}
 
       {/* Project memory — what Piloti has learned about this project, user-curated. */}
       <StaggerItem>

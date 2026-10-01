@@ -24,7 +24,9 @@ import {
   orgRoleHoldsPermission,
   organizationRoleHoldsPermission,
   organizationRolePermissions,
+  tenantRolePermissions,
 } from './org-role-permissions'
+import { permissionsForOrgRole } from './permissions'
 import { hasPermission, ORG_PERMISSIONS } from './permissions'
 import { setCacheStore, type CacheStore } from '@/lib/cache'
 
@@ -170,5 +172,38 @@ describe('organization-scoped roles', () => {
     await organizationRolePermissions('org_a', 'r')
     await organizationRolePermissions('org_b', 'r')
     expect(listOrganizationRoles).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('tenantRolePermissions — a session built without a sign-in (D1)', () => {
+  it('unions the environment role WorkOS knows with the catalog', async () => {
+    listEnvironmentRoles.mockResolvedValue({
+      data: [{ slug: 'member', permissions: ['org:custom:thing'] }],
+    })
+    const held = await tenantRolePermissions('org_1', 'member')
+    expect(held.has('org:custom:thing')).toBe(true)
+    for (const permission of permissionsForOrgRole('member')) expect(held.has(permission)).toBe(true)
+    expect(listOrganizationRoles).not.toHaveBeenCalled()
+  })
+
+  it('finds a custom role the organization defined itself, which the catalog never heard of', async () => {
+    listOrganizationRoles.mockResolvedValue({
+      data: [{ slug: 'acme-planer', permissions: ['project:documents:write'] }],
+    })
+    const held = await tenantRolePermissions('org_1', 'acme-planer')
+    expect([...held]).toEqual(['project:documents:write'])
+    expect(listOrganizationRoles).toHaveBeenCalledWith('org_1')
+  })
+
+  it('keeps the catalog when WorkOS cannot be asked — never more', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    listEnvironmentRoles.mockRejectedValue(new Error('workos down'))
+    const held = await tenantRolePermissions('org_1', 'member')
+    expect([...held].sort()).toEqual([...permissionsForOrgRole('member')].sort())
+  })
+
+  it('holds nothing for no role, without calling WorkOS', async () => {
+    await expect(tenantRolePermissions('org_1', null)).resolves.toEqual(new Set())
+    expect(listEnvironmentRoles).not.toHaveBeenCalled()
   })
 })

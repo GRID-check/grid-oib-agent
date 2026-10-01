@@ -9,8 +9,11 @@ import {
   isAgentAuthoredDocumentsEnabled,
   isFeatureEnabled,
   isIfcModelsEnabled,
+  isProjectMailInboxEnabled,
   isSkillsEnabled,
+  projectMailInboxEnvEnabled,
   requireFeature,
+  requireProjectMailInboxEnabled,
   requireSkillsEnabled,
 } from './feature-flags'
 
@@ -234,5 +237,44 @@ describe('isSkillsEnabled (dark-launch gate, ADR-0046)', () => {
     const res = requireSkillsEnabled({ featureFlags: [] })
     expect(res?.status).toBe(403)
     expect(await res?.json()).toEqual({ error: 'feature-disabled', feature: 'skills' })
+  })
+})
+
+describe('project-mail-inbox — per organization, default OFF both ways (E1)', () => {
+  afterEach(() => {
+    delete process.env.GRID_ENFORCE_FEATURE_FLAGS
+    delete process.env.GRID_PROJECT_MAIL_INBOX_ENABLED
+  })
+
+  it('registry carries the project-mail-inbox slug', () => {
+    expect(FEATURE_FLAGS.projectMailInbox).toBe('project-mail-inbox')
+  })
+
+  it('unenforced and unset: OFF, unlike the fail-open flags', () => {
+    expect(isProjectMailInboxEnabled({ featureFlags: null })).toBe(false)
+    expect(isProjectMailInboxEnabled({ featureFlags: [FEATURE_FLAGS.projectMailInbox] })).toBe(false)
+  })
+
+  it('unenforced: only an explicit true opts the deployment in', () => {
+    for (const value of ['true', 'TRUE', ' true ']) {
+      process.env.GRID_PROJECT_MAIL_INBOX_ENABLED = value
+      expect(projectMailInboxEnvEnabled(), `value ${JSON.stringify(value)}`).toBe(true)
+    }
+    for (const value of ['', '1', 'yes', 'on']) {
+      process.env.GRID_PROJECT_MAIL_INBOX_ENABLED = value
+      expect(projectMailInboxEnvEnabled(), `value ${JSON.stringify(value)}`).toBe(false)
+    }
+  })
+
+  it('enforced: the per-org claim decides and the env var is ignored', async () => {
+    process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
+    process.env.GRID_PROJECT_MAIL_INBOX_ENABLED = 'true'
+    expect(isProjectMailInboxEnabled({ featureFlags: [FEATURE_FLAGS.projectMailInbox] })).toBe(true)
+    expect(isProjectMailInboxEnabled({ featureFlags: [] })).toBe(false)
+    expect(isProjectMailInboxEnabled({ featureFlags: null })).toBe(false)
+
+    const gated = requireProjectMailInboxEnabled({ featureFlags: [] })
+    expect(gated?.status).toBe(403)
+    expect(await gated?.json()).toEqual({ error: 'feature-disabled', feature: 'project-mail-inbox' })
   })
 })

@@ -78,4 +78,41 @@ describe('SectionCard', () => {
     expect(screen.getByTestId('section-loading')).toBeDefined()
     expect(screen.queryByText('No documents yet')).toBeNull()
   })
+
+  test('announces a failed load', () => {
+    render(<SectionCard title="Base knowledge" error errorMessage="Could not load it." />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load it.')
+  })
+
+  test('the raised variant is a region named by its h2', () => {
+    render(
+      <SectionCard variant="raised" title="Project email address" description="Send files here.">
+        <p>body</p>
+      </SectionCard>,
+    )
+
+    const region = screen.getByRole('region', { name: 'Project email address' })
+    expect(region).toContainElement(screen.getByRole('heading', { level: 2, name: 'Project email address' }))
+    expect(region).toHaveTextContent('Send files here.')
+    expect(region).toHaveTextContent('body')
+  })
+
+  test('draws the footer after the body, and hides it while loading or failed', () => {
+    const footer = <a href="https://piloti.at/">Help</a>
+    const { rerender } = render(
+      <SectionCard title="Base knowledge" footer={footer}>
+        <p>42 documents</p>
+      </SectionCard>,
+    )
+    const body = screen.getByText('42 documents')
+    const link = screen.getByRole('link', { name: 'Help' })
+    expect(body.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    rerender(<SectionCard title="Base knowledge" footer={footer} loading />)
+    expect(screen.queryByRole('link', { name: 'Help' })).toBeNull()
+
+    rerender(<SectionCard title="Base knowledge" footer={footer} error />)
+    expect(screen.queryByRole('link', { name: 'Help' })).toBeNull()
+  })
 })

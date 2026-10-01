@@ -68,6 +68,58 @@ describe("committed stack files", () => {
       expect(redirecting.map((s) => s.file), `zone ${zoneId}`).toEqual([]);
     }
   });
+
+  /**
+   * The zone a stack's inbox routes on, as `loadConfig` resolves it:
+   * `inboundMailZoneId`, or `dnsZoneId` when the domain is the app zone's apex.
+   */
+  function inboundZone(config: Record<string, unknown>): string | undefined {
+    const domain = str(config, "inboundMailDomain");
+    if (domain === undefined) return undefined;
+    return (
+      str(config, "inboundMailZoneId") ??
+      (domain === str(config, "dnsZoneName") ? str(config, "dnsZoneId") : undefined)
+    );
+  }
+
+  it("give each project-mail zone at most one stack", () => {
+    // The Email Routing catch-all is one object per zone. A second stack on the
+    // same zone is no API error: its `up` repoints the catch-all at its own
+    // Worker, and from then on every mail is filed by that stack's database.
+    const owners = new Map<string, string[]>();
+    for (const stack of stacks()) {
+      const zoneId = inboundZone(stack.config);
+      if (zoneId === undefined) continue;
+      owners.set(zoneId, [...(owners.get(zoneId) ?? []), stack.file]);
+    }
+    for (const [zoneId, files] of owners) {
+      expect(files.length, `zone ${zoneId} is claimed by ${files.join(", ")}`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("keep every project-mail zone apart from OTHER stacks' contact addresses", () => {
+    // The inbox may share its own stack's contact zone (the production setup:
+    // both on the product apex, one `installMailZones`). `loadConfig` cannot
+    // see a dev stack pointing its inbox at the zone where prod routes
+    // kontakt@: that stack would enable routing a second time and take the
+    // zone's catch-all over.
+    const contactZones = new Map<string, string>();
+    for (const stack of stacks()) {
+      const zoneId = str(stack.config, "dnsZoneId");
+      if (str(stack.config, "contactAddress") === undefined || zoneId === undefined) continue;
+      contactZones.set(zoneId, stack.file);
+    }
+    for (const stack of stacks()) {
+      const zoneId = inboundZone(stack.config);
+      if (zoneId === undefined) continue;
+      const owner = contactZones.get(zoneId);
+      expect(
+        owner === undefined || owner === stack.file,
+        `${stack.file} puts the project mail inbox on zone ${zoneId}, where ${owner} routes ` +
+          "its contact address",
+      ).toBe(true);
+    }
+  });
 });
 
 describe("the prod image pin the deploy verifies", () => {

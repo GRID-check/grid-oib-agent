@@ -21,6 +21,7 @@ import 'server-only'
 import { getCached } from '@/lib/cache'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { getWorkOS } from '@/lib/workos/client'
+import { TransientAuthzError, type AuthzLookupOptions } from './errors'
 import { orgRoleHoldsPermission } from './org-role-permissions'
 import { ORG_PERMISSIONS, type ProjectPermission } from './permissions'
 
@@ -45,10 +46,16 @@ interface SubjectMembership {
  * `getCached`, so the next request asks again. Caught inside the loader, a
  * single failed lookup was stored as "not a member", and the colleague vanished
  * from every picker for the negative TTL.
+ *
+ * "Could not ask" answers `null` by default, the same as "not a member". An
+ * unattended caller that can retry passes `{ onError: 'throw' }` and gets a
+ * {@link TransientAuthzError} instead, so a WorkOS blip is never read as a
+ * definite "no".
  */
 export async function resolveSubjectMembership(
   organizationId: string,
-  userId: string
+  userId: string,
+  options: AuthzLookupOptions = {}
 ): Promise<SubjectMembership | null> {
   try {
     return await getCached(
@@ -70,6 +77,9 @@ export async function resolveSubjectMembership(
       { negativeTtlMs: MEMBERSHIP_NEGATIVE_TTL_MS }
     )
   } catch (error) {
+    if (options.onError === 'throw') {
+      throw new TransientAuthzError('membership', { cause: error })
+    }
     // Fail closed, and uncached: an unanswered lookup is not a membership.
     console.warn(`[project-membership] lookup failed for ${userId}:`, error)
     return null
@@ -117,14 +127,18 @@ export async function canUserAccessProject(
  * The general form of {@link canUserAccessProject}, which is this asked about
  * `project:view`. Same fail-closed posture, and the same reason the org-wide
  * bypass is checked first: it is a PERMISSION, not the role slug `admin`.
+ *
+ * With `{ onError: 'throw' }` a membership lookup or FGA check that could not
+ * complete raises {@link TransientAuthzError} instead of answering `false`.
  */
 export async function userHoldsProjectPermission(
   session: AuthorizedSession,
   projectId: string,
   targetUserId: string,
-  permission: ProjectPermission
+  permission: ProjectPermission,
+  options: AuthzLookupOptions = {}
 ): Promise<boolean> {
-  const membership = await resolveSubjectMembership(session.organizationId, targetUserId)
+  const membership = await resolveSubjectMembership(session.organizationId, targetUserId, options)
   if (!membership) return false
 
   // Mirror requireProjectAccess exactly: the org-wide project bypass is a
@@ -146,6 +160,9 @@ export async function userHoldsProjectPermission(
     })
     return result.authorized
   } catch (error) {
+    if (options.onError === 'throw') {
+      throw new TransientAuthzError('fga-check', { cause: error })
+    }
     console.warn(
       `[project-membership] FGA check failed for ${targetUserId} on ${projectId}:`,
       error
