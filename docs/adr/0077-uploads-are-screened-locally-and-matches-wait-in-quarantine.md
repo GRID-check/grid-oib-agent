@@ -112,8 +112,11 @@ German, and explains each verdict.
   file and assert the OCR, VLM, summary and embedding call sites were never invoked.
 * `lib/upload-screening/*.spec.ts` pin the name matcher (compounds, exceptions, umlauts) and the
   server refusal without an override.
-* `dispatchIngest` takes the screening rules as a required argument, so a caller that has none
-  does not compile.
+* `dispatchIngest` computes the screening rules itself from the document's organization
+  (`ingestScreeningFor`, failing closed to the suggested list), so no caller can dispatch
+  without them; `service.spec.ts` asserts every dispatch path sends them (5 of 6 cases fail
+  with the line removed). A required argument was the first design; it would have had to be
+  threaded through eleven callers that cannot know the policy.
 * `settings-ownership.spec.ts` asserts the generic settings save refuses `uploadScreening`.
 
 ## Pros and Cons of the Options
