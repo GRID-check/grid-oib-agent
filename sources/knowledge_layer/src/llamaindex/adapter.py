@@ -2904,8 +2904,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         companions: list[Any],
         *,
         captions_rasters: bool,
+        tables: list[Any],
     ) -> dict[str, Any] | None:
-        """Screen a PDF's text layer (and its rendition's companions) before any page reaches a model.
+        """Screen a PDF's text layer, its rendition's companions and its ``tables`` before any page reaches a model.
+
+        ``tables`` are the table pass's Documents: that pass opens the PDF on
+        its own and reads pages the text pass lost, so they are screened as
+        what they are, the text that will be embedded.
 
         Returns what ``route_pdf_pages`` takes from it, the page triage measured
         here so the PDF is measured once, or ``None`` when the file was
@@ -2913,7 +2918,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         transcription or drawing analysis, or cannot measure the PDF, or when
         ``captions_rasters`` (the VLM will caption embedded images) and a page
         carries one: that content reaches a model without having been screened,
-        which the product accepts for content that cannot be read locally.
+        which the product accepts for content that cannot be read locally. A
+        page the text pass could not read (``failed_pages``) makes it
+        ``partial`` too: its text was never read, so never screened.
         """
         if rules is None:
             return {}
@@ -2925,8 +2932,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             source_path, page_texts, min_text_chars=VISUAL_PAGE_MIN_TEXT_CHARS, min_paths=VISUAL_PAGE_MIN_PATHS
         )
         has_rasters = any(page.get("image_count") for page in text_pages)
-        unscreened = triage is None or bool(triage.transcribed or triage.drawings) or (captions_rasters and has_rasters)
-        pages = [*sorted(page_texts.items()), *document_pages(companions)]
+        lost_pages = bool(getattr(text_pages, "failed_pages", ()))
+        unscreened = (
+            triage is None
+            or bool(triage.transcribed or triage.drawings)
+            or (captions_rasters and has_rasters)
+            or lost_pages
+        )
+        pages = [*sorted(page_texts.items()), *document_pages(companions), *document_pages(tables)]
         checked = "partial" if unscreened else "full"
         if self._screen_or_quarantine(job, file_index, rules, pages, checked):
             return None
@@ -4559,6 +4572,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # What the PDF export dropped from the original (pptx
                     # speaker notes), read before the screen so it is screened too.
                     companions: list[Any] = []
+                    # The PDF's uncaptioned tables, likewise read before the screen.
+                    tables: list[dict[str, Any]] = []
+                    table_documents: list[Any] = []
                     if is_pdf:
                         text_pages = _extract_text_from_pdf(source_path)
                         unreadable = unreadable_pdf_verdict(text_pages)
@@ -4569,6 +4585,16 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         self._record_failed_pages(job, i, text_pages)
                         if rendition:
                             companions = _rendition_companions(file_path, file_name, file_size)
+                        if extract_tables:
+                            from knowledge_layer.llamaindex.section_chunking import uncaptioned_table_documents
+
+                            taken = {page["page_number"]: page.get("table_boxes") or [] for page in text_pages}
+                            tables = _extract_tables_from_pdf(source_path, taken)
+                            table_documents = [
+                                document
+                                for table in tables
+                                for document in uncaptioned_table_documents(table, file_name, file_size)
+                            ]
                         # The upload screen: the last step before a page of
                         # this file can reach a model (transcription, below).
                         route_kwargs = self._screen_pdf(
@@ -4579,6 +4605,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             text_pages,
                             companions,
                             captions_rasters=bool(vlm_api_key) and (extract_images or extract_charts),
+                            tables=table_documents,
                         )
                         if route_kwargs is None:
                             continue
@@ -4673,6 +4700,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         office_documents = office_extractors.extract_office_documents(file_path, file_name, file_size)
                         if office_documents is None:
                             office_documents = extract_text_format_documents(file_path, file_name, file_size)
+                        over_cap = 0
                         if office_documents is not None:
                             text_documents = office_documents
                             over_cap = office_extractors.rows_over_cap(office_documents)
@@ -4688,7 +4716,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                 doc.metadata["file_name"] = file_name
                                 doc.metadata["file_size"] = file_size
                         # The upload screen, before anything reads `text_documents`.
-                        if self._screen_or_quarantine(job, i, screening_rules, document_pages(text_documents), "full"):
+                        # Rows past the cap were never read: not screened, not indexed.
+                        checked = "partial" if over_cap else "full"
+                        if self._screen_or_quarantine(job, i, screening_rules, document_pages(text_documents), checked):
                             continue
 
                     all_documents.extend(text_documents)
@@ -4708,14 +4738,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     executor = None
                     drawing_pages: list[dict[str, Any]] = []
 
-                    # 2. Extract tables (PDF only)
+                    # 2. Tables (PDF only), read and screened with the text above
                     if is_pdf and extract_tables:
-                        taken = {page["page_number"]: page.get("table_boxes") or [] for page in text_pages}
-                        tables = _extract_tables_from_pdf(source_path, taken)
-                        from knowledge_layer.llamaindex.section_chunking import uncaptioned_table_documents
-
-                        for table in tables:
-                            all_documents.extend(uncaptioned_table_documents(table, file_name, file_size))
+                        all_documents.extend(table_documents)
                         total_tables += len(tables)
                         logger.info(f"  Table extraction: {len(tables)} tables")
 

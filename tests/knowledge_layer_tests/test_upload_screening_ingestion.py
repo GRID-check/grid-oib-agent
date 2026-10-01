@@ -300,3 +300,93 @@ class TestOutcomes:
         detail = _ingest(calls, _pdf_with_raster(tmp_path, _BODY), "Bericht.pdf", _TERMS)
 
         assert detail.screening == "clean"
+
+
+def _ruled_table(rows: list[list[str]]) -> bytes:
+    """Content-stream ops for a grid of ruled cells with ``rows`` of text, the shape pdfplumber's table finder reads."""
+    from .pdf_fixtures import _escape
+
+    ops = bytearray()
+    width, height, top = 150, 20, 700
+    for r, row in enumerate(rows):
+        for c, cell in enumerate(row):
+            x, y = 50 + c * width, top - (r + 1) * height
+            ops += f"{x} {y} {width} {height} re S\n".encode()
+            ops += f"BT /FR 10 Tf {x + 4} {y + 6} Td (".encode() + _escape(cell) + b") Tj ET\n"
+    return bytes(ops)
+
+
+def _pdf_with_table_page(tmp_path, monkeypatch, rows: list[list[str]]):
+    """Five pages: four of body text, and page 2 holding nothing but a ruled table of ``rows``."""
+    from . import pdf_fixtures
+
+    plain = pdf_fixtures._content
+
+    def _content(lines):
+        return _ruled_table(rows) if lines == ["TABLE"] else plain(lines)
+
+    monkeypatch.setattr(pdf_fixtures, "_content", _content)
+    text = [("R", 10, line) for line in _BODY]
+    path = tmp_path / "liste.pdf"
+    path.write_bytes(pdf_fixtures.build_pdf([text, ["TABLE"], text, text, text]))
+    return path
+
+
+def _text_pass_loses_page(monkeypatch, lost: int) -> None:
+    """Page ``lost`` raises in the text pass, as a pdfplumber edge case does; the table pass still reads it."""
+    read = adapter._read_pdf_page
+
+    def _read(page, page_num, previous, pdf_path):
+        if page_num == lost:
+            raise ValueError("unreadable page")
+        return read(page, page_num, previous, pdf_path)
+
+    monkeypatch.setattr(adapter, "_read_pdf_page", _read)
+
+
+class TestTablesAndCapsAreScreened:
+    def test_a_term_only_in_a_table_on_a_page_the_text_pass_lost(self, tmp_path, calls, monkeypatch):
+        # One page of five is within the failed-page tolerance, so the file
+        # stands; the table pass opens the PDF on its own and reads that page.
+        path = _pdf_with_table_page(tmp_path, monkeypatch, [["Posten", "Betrag"], ["Gehaltsabrechnung", "4200"]])
+        _text_pass_loses_page(monkeypatch, 2)
+
+        detail = _ingest(calls, path, "Liste.pdf", _TERMS, extract_tables=True)
+
+        assert detail.status == FileStatus.FAILED
+        assert _reasons(detail.error_message)["reasons"][0] == {
+            "kind": "term",
+            "term": "Gehaltsabrechnung",
+            "count": 1,
+            "pages": [2],
+        }
+        assert _external_calls(calls) == dict.fromkeys(_external_calls(calls), 0)
+
+    def test_a_page_the_text_pass_lost_makes_it_partial(self, tmp_path, calls, monkeypatch):
+        path = _pdf_with_table_page(tmp_path, monkeypatch, [["Posten", "Betrag"], ["Estrich", "4200"]])
+        _text_pass_loses_page(monkeypatch, 2)
+
+        detail = _ingest(calls, path, "Liste.pdf", _TERMS, extract_tables=False)
+
+        assert detail.status == FileStatus.SUCCESS
+        assert detail.screening == "partial"
+
+    def test_a_term_only_in_spreadsheet_rows_past_the_cap_is_partial(self, tmp_path, calls, monkeypatch):
+        openpyxl = pytest.importorskip("openpyxl")
+        from knowledge_layer.llamaindex import office_extractors
+
+        monkeypatch.setattr(office_extractors, "MAX_TABLE_ROWS", 3)
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        for row in (["Raum", "Flaeche"], ["Buero", "20"], ["Lager", "12"], ["Gehaltsabrechnung", "1"]):
+            sheet.append(row)
+        path = tmp_path / "raumliste.xlsx"
+        workbook.save(path)
+
+        detail = _ingest(calls, path, "Raumliste.xlsx", _TERMS)
+
+        assert detail.status == FileStatus.SUCCESS
+        assert detail.metadata["rows_over_cap"] == 1
+        assert detail.screening == "partial"
+        embedded = [doc.text for call in calls["index"].from_documents.call_args_list for doc in call.args[0]]
+        assert embedded and not any("Gehaltsabrechnung" in text for text in embedded)
