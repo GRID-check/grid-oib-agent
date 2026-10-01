@@ -131,12 +131,30 @@ track_llm_costs()  ──sets──▶  grid_cost_tracker_var (ContextVar)
               gets GridCostTracker — all agents, all groups, automatically
 ```
 
-- **Activation points (the only wiring, 3 total)**:
+- **Activation points (the only wiring, 4 total)**:
   - sync chat turn — `piloti/conversation_register.py` around `agent.run(...)`
   - async Dask job — `aiq_api/jobs/runner.py` around `_run_agent(...)`
     (identity + budget captured at submit time via `capture_usage_context()`)
   - background memory reflection — `project_memory/reflection.py` (own
     activation; the turn's tracker is already flushed when it fires)
+  - document ingestion — `knowledge_layer/.../adapter.py` `_ingest_cost_scope`
+    around each job, booked to the document's organization, project and
+    uploader (the BFF sends both with the dispatch) and stamped
+    `activity = 'ingest'`. It carries an unlimited budget: a half-indexed
+    document is worse than an overspent day, so ingestion is never stopped
+    mid-job; its spend lands in the same rollups, so the *next* chat turn sees
+    it against the organization's limit.
+- **Calls that are not LangChain**: the ingest VLM and OCR calls use the raw
+  `openai` client and the embedder is llama-index's, so no callback ever sees
+  them. `meter_openai_client(client, role=…)` wraps `chat.completions.create`
+  and `embeddings.create` to record the response's `usage` into the active
+  tracker (a no-op outside one), and each event carries its role
+  (`ingest_vision`, `ingest_transcription`, `embedding`) into `agent_group`.
+  Query-time embeddings in a chat turn are metered by the same wrapper.
+- **Thread pools lose the tracker**: a `ContextVar` does not follow work into
+  `ThreadPoolExecutor.submit`. Submit through `submit_in_context(executor,
+  fn, …)`, which runs `fn` in a copy of the caller's context; a plain
+  `submit` drops that thread's usage silently.
 - `on_llm_end` extracts the usage event (model served, requested model from
   invocation params, generation id, tokens, cost); events batch (5) and
   flush to `POST /api/internal/usage` on a single background worker thread —
@@ -159,7 +177,9 @@ status, supersedes_id, created_by, note)`. A hand-written partial-unique index e
 lineage.
 
 **`llm_usage_events`** — the ledger: org / user / project / conversation /
-job attribution, `agent_group` (reserved), `requested_model` vs `model`
+job attribution, `agent_group` (the call's role, e.g. `ingest_vision`;
+NULL for an agent turn), `activity` (since 0101: `'ingest'` for document
+ingestion, NULL for a turn; CHECK-constrained), `requested_model` vs `model`
 (served), `generation_id`, token detail (incl. cached + reasoning),
 `cost_usd numeric(14,8)`, `cost_source
 ('usage_field'|'missing'|'generation_api'|'estimate')`, `is_byok`, and since
@@ -257,7 +277,12 @@ excluded amount named under the tile), revenue at the price list, gross margin
 as the difference; the 30-day cost trend; the price list editor (margin, credit
 price, seeded allowance, change note, version trail, a live worked example);
 and per-organization cost and revenue in the directory, with an "own key" badge
-on organizations whose usage this month ran on their own key.
+on organizations whose usage this month ran on their own key. Ingestion is part
+of the cost, not on top of it: the cost tiles name its share ("of which
+ingestion …") and the directory has an "Ingestion this month" column, both
+summed from `activity = 'ingest'` rows not on a tenant's own key. The rollup
+does not split by activity, so only the ledger-summed windows carry
+`ingestCostUsd`.
 
 ## Observability & audit answers
 
@@ -267,6 +292,7 @@ on organizations whose usage this month ran on their own key.
 | What was the tenant charged, and at which price list? | `price_usd`, `credits`, `pricing_version_id` on the same row |
 | Who changed the margin, from what, when? | `platform_pricing_versions` supersede chain + `platform.pricing.updated` audit events |
 | Who spent it? | `user_id`, `project_id`, `conversation_id`, `job_id` per row |
+| What did indexing documents cost? | `activity = 'ingest'`, by `job_id` for one upload, `agent_group` for vision vs OCR vs embeddings |
 | Was the charge real? | `generation_id` → `GET /api/v1/generation?id=` |
 | Who set this limit, and what was it before? | `budget_policies.created_by` + `supersedes_id` chain |
 | Why was a chat blocked? | WS 403 reason + backend `BudgetExceededError` log (scope, org, turn cost) |
