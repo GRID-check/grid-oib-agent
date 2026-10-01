@@ -1034,3 +1034,43 @@ class TestTheFindingsRideIntoMemory:
 
         assert _reflection_text("Bericht.", None) == "Bericht."
         assert _reflection_text("Bericht.", {"items": []}) == "Bericht."
+
+
+class TestReportReflectionOverRestrictedScope:
+    """ADR-0078: a run whose scope held a restricted folder's collection writes no project memory.
+
+    The BFF keeps restricted collections out of every research scope, so this
+    is the second layer: should one arrive, the report may carry restricted
+    content and project memory is read by people the restriction excludes.
+    """
+
+    async def _reflect(self, monkeypatch, scope):
+        from aiq_agent import common
+        from aiq_api.jobs import runner
+
+        get_llm = AsyncMock(side_effect=RuntimeError("stop before the model call"))
+        monkeypatch.setattr(common, "get_langchain_llm", get_llm)
+        await runner._run_deep_research_reflection(
+            builder=object(),
+            job_id="job-1",
+            reflection_llm_ref="card_llm",
+            reflection_enabled=True,
+            query="q",
+            report="Bericht.",
+            usage_context={"identity": {"project_id": "p1", "organization_id": "o1"}},
+            memory_digest=None,
+            org_credential=None,
+            model_overrides=None,
+            collection_scope=scope,
+        )
+        return get_llm
+
+    @pytest.mark.asyncio
+    async def test_a_restricted_scope_never_reaches_the_reflection_model(self, monkeypatch) -> None:
+        get_llm = await self._reflect(monkeypatch, ["oib_knowledge", "proj_abc", "proj_abc_r0123456789ab"])
+        get_llm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_an_open_scope_still_reflects(self, monkeypatch) -> None:
+        get_llm = await self._reflect(monkeypatch, ["oib_knowledge", "proj_abc"])
+        get_llm.assert_called_once()

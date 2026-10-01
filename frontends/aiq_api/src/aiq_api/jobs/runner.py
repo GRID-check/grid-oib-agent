@@ -33,6 +33,7 @@ from aiq_agent.common.plan_documents import PlanDocument
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.plan_documents import sanitize_plan_documents
 from aiq_agent.common.turn_status import DEGRADED_CARDS_GENERATION_FAILED
+from aiq_agent.knowledge.restricted_collections import restricted_collections_in
 from aiq_agent.project_context import ORGANIZATION_ID_HEADER
 from aiq_agent.project_context import PROJECT_ID_HEADER
 from aiq_agent.project_context import PROJECT_MEMORY_HEADER
@@ -1612,6 +1613,7 @@ async def run_agent_job(
                         org_credential=resolved_org_credential,
                         model_overrides=model_overrides,
                         zdr_only=job_data_policy.zdr,
+                        collection_scope=collection_scope,
                     )
                     cards = _merge_job_cards(card_registry.snapshot(), cards_result.cards)
                     if cards:
@@ -2272,6 +2274,7 @@ async def _run_deep_research_reflection(
     org_credential: Any,
     model_overrides: dict[str, str] | None,
     zdr_only: bool = True,
+    collection_scope: list[str] | None = None,
 ) -> None:
     """Best-effort project-memory reflection over a finished deep-research report.
 
@@ -2296,6 +2299,14 @@ async def _run_deep_research_reflection(
     already had.
     """
     if not reflection_enabled or not reflection_llm_ref or not report:
+        return
+    restricted = restricted_collections_in(collection_scope)
+    if restricted:
+        # ADR-0078: a run's scope never carries a restricted folder's collection
+        # today (the BFF leaves it out of every research scope). Should one ever
+        # arrive, the report could hold restricted content, and project memory
+        # is read by people the restriction excludes. Same rule as the chat stage.
+        logger.info("Job %s: memory reflection skipped, scope includes restricted %s", job_id, restricted)
         return
     identity = (usage_context or {}).get("identity") or {}
     project_id = identity.get("project_id")
