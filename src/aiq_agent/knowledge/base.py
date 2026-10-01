@@ -348,8 +348,8 @@ class BaseIngestor(ABC):
         """Queue a prepared job in this process."""
         raise NotImplementedError
 
-    def run_prepared(self, prepared: "PreparedIngestJob") -> None:
-        """Run a prepared job on the calling thread."""
+    def run_prepared(self, prepared: "PreparedIngestJob", still_owner: Callable[[], bool] | None = None) -> None:
+        """Run a prepared job on the calling thread; ``still_owner`` says whether its claim is still held."""
         raise NotImplementedError
 
     def attach_job_source(self, source: Callable[[], Callable[[], None] | None]) -> None:

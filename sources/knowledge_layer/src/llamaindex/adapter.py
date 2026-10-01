@@ -524,6 +524,11 @@ JOB_RETENTION_SECONDS = 3600  # 1 hour
 # never writes one for a document that no longer exists.
 DOCUMENT_DELETED_DURING_INGEST = "document_deleted: the document was deleted while it was being ingested"
 
+
+class _ClaimLost(Exception):  # noqa: N818 - a signal, not an error
+    """The durable queue gave this job to another worker; this run must write nothing more."""
+
+
 # Terminal per-file tracking entries (self._files) are retained this long, then
 # pruned. SUCCESS files are still listable afterwards (list_files rebuilds them
 # from Chroma chunks — with a fresh id, exactly as for any never-tracked file);
@@ -2537,6 +2542,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         # `_unpersisted` when this process runs the job; a job the durable queue
         # carries elsewhere is written by its worker's first status change.
         self._unstored_at_prepare: set[str] = set()
+        # Jobs claimed from the durable queue, and how to ask whether this
+        # process still holds each claim (`run_prepared`).
+        self._claim_guards: dict[str, Callable[[], bool]] = {}
 
         # Bounded ingestion pool: a thread per upload gave N concurrent
         # uploads N threads all embedding against the remote API and writing
@@ -2954,15 +2962,40 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             raise
         logger.info("LlamaIndex ingestion job submitted: %s", prepared.job_id)
 
-    def run_prepared(self, prepared: PreparedIngestJob) -> None:
+    def run_prepared(self, prepared: PreparedIngestJob, still_owner: Callable[[], bool] | None = None) -> None:
         """Run a prepared job here and now, on the calling thread: a job claimed from the durable queue.
 
         Adopting it makes this process the one that vouches for it; the first
         status write (`_run_ingestion`'s PROCESSING) takes the row over from
-        the process that prepared it.
+        the process that prepared it. ``still_owner`` answers whether this
+        worker still holds the job's claim; it is asked before each file is
+        read and again before its chunks are written, and a "no" ends the run
+        without another write (``_ClaimLost``): the worker that holds the claim
+        now indexes the file, once.
         """
         self._adopt(prepared)
-        self._run_ingestion(prepared.job_id, prepared.file_paths, prepared.collection_name, self._job_config(prepared))
+        if still_owner is not None:
+            self._claim_guards[prepared.job_id] = still_owner
+        try:
+            self._run_ingestion(
+                prepared.job_id, prepared.file_paths, prepared.collection_name, self._job_config(prepared)
+            )
+        finally:
+            self._claim_guards.pop(prepared.job_id, None)
+
+    def _assert_still_owner(self, job_id: str) -> None:
+        """Raise ``_ClaimLost`` when the durable queue gave this job to another worker."""
+        guard = self._claim_guards.get(job_id)
+        if guard is not None and not guard():
+            raise _ClaimLost(job_id)
+
+    def _abandon(self, job_id: str) -> None:
+        """Forget a job whose claim was lost: no status write, no heartbeat; the new owner has the row."""
+        with self._lock:
+            self._jobs.pop(job_id, None)
+        with self._persist_lock:
+            self._unpersisted.discard(job_id)
+        logger.warning("Ingestion job %s was claimed by another worker; this run stops without writing", job_id)
 
     def _job_config(self, prepared: PreparedIngestJob) -> dict[str, Any]:
         """This ingestor's config under the job's own, as ``_run_ingestion`` reads it."""
@@ -4200,6 +4233,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # _find_previous_versions), released when the file is done.
             kept_previous: list[str] = []
             for i, file_entry in enumerate(file_paths):
+                self._assert_still_owner(job_id)
+                # A document deleted while its job waited is not read at all:
+                # the download, OCR and vision calls would all be for chunks
+                # the check after indexing takes back out (below).
+                if self._deleted_while_indexing(config, collection_name):
+                    self._update_file_status(job, i, FileStatus.FAILED, error=DOCUMENT_DELETED_DURING_INGEST)
+                    logger.info("Skipped file %d of job %s: its document was deleted before it was read", i + 1, job_id)
+                    continue
                 # The original first, and nothing else for it when that fails:
                 # its rendition is no use without the identity it carries.
                 file_path = resolve_original(file_entry, downloaded)
@@ -4693,6 +4734,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         doc.metadata.update(provenance)
                         _apply_metadata_exclusions(doc)
 
+                    # The last moment a run that lost its claim can stop with
+                    # nothing of this file written: the new owner indexes it.
+                    self._assert_still_owner(job_id)
                     # Create/update index with all documents
                     chunks_before = self._chunk_ids_under(chroma_collection, file_name)
                     if index is None:
@@ -4896,6 +4940,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                     logger.info(f"Completed file {i + 1}/{len(file_paths)} ({chunks_created} chunks)")
 
+                except _ClaimLost:
+                    # Not this file's failure: the run as a whole stops (below).
+                    raise
                 except Exception as e:
                     logger.exception(f"Error processing file {file_path}")
                     self._update_file_status(job, i, FileStatus.FAILED, error=str(e))
@@ -4987,6 +5034,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 f"LlamaIndex ingestion completed: {job_id} "
                 f"(chunks={total_chunks}, tables={total_tables}, charts={total_charts}, images={total_images})"
             )
+
+        except _ClaimLost:
+            self._abandon(job_id)
 
         except Exception as e:
             logger.exception("LlamaIndex ingestion failed")

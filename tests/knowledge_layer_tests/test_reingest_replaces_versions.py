@@ -552,11 +552,12 @@ def presence(monkeypatch):
     """The BFF's answer about the dispatched document, and who asked."""
     from knowledge_layer.llamaindex import document_presence
 
-    state = SimpleNamespace(answer=True, asked=[])
+    # `answers` are given first, one per question; `answer` after that.
+    state = SimpleNamespace(answer=True, answers=[], asked=[])
 
     def still_exists(document_id, collection, organization_id=None):
         state.asked.append((document_id, collection, organization_id))
-        return state.answer
+        return state.answers.pop(0) if state.answers else state.answer
 
     monkeypatch.setattr(document_presence, "document_still_exists", still_exists)
     return state
@@ -593,6 +594,8 @@ def test_a_delete_during_a_reupload_leaves_no_chunks(tmp_path, monkeypatch, live
     monkeypatch.setattr("llama_index.core.VectorStoreIndex", _DeletedBetweenInserts)
     _seed_previous_version(live_ingestor, stores, "proj_del", "statik.pdf")
     upload = _two_page_pdf(monkeypatch, tmp_path)
+    # Present when the job starts reading the file; gone by the time it is in.
+    presence.answers = [True]
     presence.answer = False
 
     job_id = live_ingestor.submit_job([str(upload)], "proj_del", config=_dispatched("statik.pdf"))
@@ -605,7 +608,8 @@ def test_a_delete_during_a_reupload_leaves_no_chunks(tmp_path, monkeypatch, live
     _no_metadata_row("proj_del", "statik.pdf")
     assert status.file_details[0].status.value == "failed"
     assert status.file_details[0].error_message == adapter_module.DOCUMENT_DELETED_DURING_INGEST
-    assert presence.asked == [("doc-1", "proj_del", None)]
+    # Asked before reading the file, and again once it was in.
+    assert presence.asked == [("doc-1", "proj_del", None)] * 2
 
 
 def test_a_dispatch_for_a_deleted_document_indexes_nothing(tmp_path, live_ingestor, stores, presence):
@@ -681,7 +685,8 @@ def test_a_document_that_still_exists_is_replaced_as_before(tmp_path, live_inges
     assert status.file_details[0].status.value == "success"
     assert list(_chunks(live_ingestor, "proj_live").values()) == ["Neue Fassung der Statik."]
     assert get_document_doc_class("proj_live", "statik.txt") == "tragwerk"
-    assert presence.asked == [("doc-1", "proj_live", "org_1")]
+    # Before reading the file, and once it was in.
+    assert presence.asked == [("doc-1", "proj_live", "org_1")] * 2
 
 
 def test_a_job_no_bff_document_dispatched_is_never_asked_about(tmp_path, live_ingestor, stores, presence):
@@ -695,3 +700,39 @@ def test_a_job_no_bff_document_dispatched_is_never_asked_about(tmp_path, live_in
 
     assert status.file_details[0].status.value == "success"
     assert presence.asked == []
+
+
+def test_a_document_deleted_while_its_job_waited_is_not_read_at_all(tmp_path, monkeypatch, live_ingestor, presence):
+    """The download, OCR and vision calls would all be for chunks that go back out."""
+    read = []
+    monkeypatch.setattr(
+        "knowledge_layer.deferred_files.resolve_original", lambda entry, downloaded: read.append(entry) or entry
+    )
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Ein Dokument, das es nicht mehr gibt.", encoding="utf-8")
+    presence.answer = False
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_gone", config=_dispatched("gone.txt"))
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert read == []
+    assert presence.asked == [("doc-1", "proj_gone", None)]
+    assert status.file_details[0].error_message == adapter_module.DOCUMENT_DELETED_DURING_INGEST
+
+
+def test_a_run_that_lost_its_claim_stops_before_writing(tmp_path, live_ingestor, stores, presence):
+    """Another worker holds the job now: this run writes no chunk and no status."""
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Neue Fassung der Statik.", encoding="utf-8")
+    prepared = live_ingestor.prepare_job([str(upload)], "proj_lost", config=_dispatched("statik.txt"))
+    answers = iter([True, False])  # held when the file is read, lost before its chunks go in
+    written = []
+    live_ingestor._persist = written.append
+
+    live_ingestor.run_prepared(prepared, still_owner=lambda: next(answers))
+
+    assert _chunks(live_ingestor, "proj_lost") == {}
+    assert stores.count("proj_lost") == 0
+    # Only the PROCESSING write from before the claim was lost; nothing after.
+    assert [job.status.value for job in written] == ["processing"]
+    assert prepared.job_id not in live_ingestor._jobs

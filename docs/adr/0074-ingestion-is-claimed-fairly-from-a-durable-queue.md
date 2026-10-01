@@ -103,12 +103,16 @@ already give at this volume: a few claims per second.
   claim round trip for nothing. (A check ranked by claim time let three
   through a cap of two in the race test: transaction start order is not
   commit order.)
-* Bad, because a worker that loses its claim mid-run cannot stop halfway. It
-  finishes, so a file can be indexed twice. Re-indexing replaces a file's
-  chunks, so the second run is the one that counts.
-* Bad, because a job queued for a document deleted before it runs still indexes
-  it. The in-memory pool had the same gap for a shorter window; the queue
-  widens it across restarts.
+* Neutral: a worker that loses its claim mid-run (it stalled past the stale
+  window and another worker took the job) asks the database before reading
+  each file and again before writing its chunks, and stops with nothing more
+  written. The new owner indexes the file once. A file already written in the
+  same job before the loss is written again by the new owner; re-indexing
+  replaces a file's chunks, so that costs time, not correctness.
+* Neutral: a job whose document was deleted while it waited asks the BFF before
+  reading each file and skips it, so the queue widening the window across
+  restarts costs no download, OCR or vision calls. The check after indexing
+  (`_deleted_while_indexing`) still catches a delete that lands mid-run.
 * Bad, because the queue has no organisation-facing position ("12 files ahead
   of yours"). The fairness is real but invisible.
 
@@ -122,6 +126,10 @@ already give at this volume: a few claims per second.
   including forged rows that must be refused.
 * The wiring: `deploy/pulumi/src/app/ingest-worker.spec.ts` reads the Python
   sources, so the env names and the table KEDA counts cannot drift.
+* The lost claim and the deleted document:
+  `tests/knowledge_layer_tests/test_reingest_replaces_versions.py`
+  (`…_lost_its_claim_stops_before_writing`, `…_is_not_read_at_all`) and the
+  dispatch guard in `frontends/aiq_api/tests/test_ingest_dispatch.py`.
 * The provider ceiling: `tests/knowledge_layer_tests/test_vlm_rate_limits.py`
   and `tests/aiq_agent/common/test_lease_slots.py`.
 

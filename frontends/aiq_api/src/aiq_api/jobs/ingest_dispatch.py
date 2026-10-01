@@ -248,22 +248,44 @@ class QueueSource:
 
     def _run(self, job_id: str, prepared: PreparedIngestJob) -> None:
         stop = threading.Event()
-        beat = threading.Thread(target=self._beat, args=(job_id, stop), daemon=True, name=f"ingest-claim-{job_id[:8]}")
+        lost = threading.Event()
+        beat = threading.Thread(
+            target=self._beat, args=(job_id, stop, lost), daemon=True, name=f"ingest-claim-{job_id[:8]}"
+        )
         beat.start()
         try:
-            self._ingestor.run_prepared(prepared)
+            self._ingestor.run_prepared(prepared, still_owner=lambda: self._still_owner(job_id, lost))
         finally:
             stop.set()
             ingest_queue.mark_done(job_id, self._worker)
 
-    def _beat(self, job_id: str, stop: threading.Event) -> None:
+    def _still_owner(self, job_id: str, lost: threading.Event) -> bool:
+        """Whether this worker still holds the claim, asked of the database at the moment it matters.
+
+        The ingestor asks before reading each file and before writing its
+        chunks, so a run that lost its claim (it stalled past the stale window
+        and another worker took the job) stops before writing anything twice.
+        A database that cannot answer is not a lost claim: the run goes on.
+        """
+        if lost.is_set():
+            return False
+        try:
+            if ingest_queue.heartbeat(job_id, self._worker):
+                return True
+        except Exception:  # noqa: BLE001 - an unanswered question is not a "no"
+            logger.warning("Could not confirm the claim on ingestion job %s; continuing", job_id, exc_info=True)
+            return True
+        lost.set()
+        return False
+
+    def _beat(self, job_id: str, stop: threading.Event, lost: threading.Event) -> None:
         while not stop.wait(self._heartbeat_seconds):
             try:
                 if not ingest_queue.heartbeat(job_id, self._worker):
-                    # Another worker holds it now. An ingestion run cannot be
-                    # stopped halfway without leaving a half-indexed file, so
-                    # this one finishes; re-indexing a file replaces its chunks.
-                    logger.warning("Lost the claim on ingestion job %s; finishing it anyway", job_id)
+                    # Another worker holds it now. The ingestor stops at its
+                    # next check, before it writes this file's chunks.
+                    logger.warning("Lost the claim on ingestion job %s", job_id)
+                    lost.set()
                     return
             except Exception:  # noqa: BLE001 - a missed beat is retried; the stale window allows several
                 logger.warning("Heartbeat for ingestion job %s failed", job_id, exc_info=True)

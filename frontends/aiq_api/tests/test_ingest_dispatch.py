@@ -80,8 +80,9 @@ class FakeIngestor:
     def submit_prepared(self, prepared: PreparedIngestJob) -> None:
         self.local.append(prepared)
 
-    def run_prepared(self, prepared: PreparedIngestJob) -> None:
+    def run_prepared(self, prepared: PreparedIngestJob, still_owner=None) -> None:
         self.ran.append(prepared)
+        self.still_owner = still_owner
 
     def attach_job_source(self, source) -> None:
         self.source = source
@@ -293,3 +294,33 @@ async def test_the_ingest_worker_claims_until_told_to_stop_then_drains(db, monke
 
     assert ingestor.source is not None
     assert ingestor.detached is True
+
+
+def test_the_runs_guard_says_no_once_another_worker_holds_the_claim(db):
+    from sqlalchemy import text
+
+    from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
+
+    ingest_dispatch.dispatch(FakeIngestor(), _prepared())
+    worker = FakeIngestor()
+    ingest_dispatch.attach(worker)
+    worker.source()()
+    guard = worker.still_owner
+
+    # The run is over and its row gone: a stale guard says "not yours" rather than raising.
+    assert guard() is False
+
+    ingest_dispatch.dispatch(FakeIngestor(), _prepared("job-2"))
+    held = []
+
+    def run_and_probe(prepared, still_owner=None):
+        held.append(still_owner())
+        with DocumentMetadataStore._get_or_create_sync_engine(db).begin() as conn:
+            conn.execute(text("UPDATE ingest_job_queue SET claimed_by = 'someone-else' WHERE job_id = 'job-2'"))
+        held.append(still_owner())
+        held.append(still_owner())  # stays lost
+
+    worker.run_prepared = run_and_probe
+    worker.source()()
+
+    assert held == [True, False, False]
