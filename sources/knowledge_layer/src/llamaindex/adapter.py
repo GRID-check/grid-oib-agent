@@ -4716,8 +4716,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                                 doc.metadata["file_name"] = file_name
                                 doc.metadata["file_size"] = file_size
                         # The upload screen, before anything reads `text_documents`.
-                        # Rows past the cap were never read: not screened, not indexed.
-                        checked = "partial" if over_cap else "full"
+                        # Rows past the cap, columns past it and the tail of an
+                        # over-long cell were never read: not screened, not indexed.
+                        cut = office_extractors.content_cut(text_documents)
+                        checked = "partial" if over_cap or cut else "full"
                         if self._screen_or_quarantine(job, i, screening_rules, document_pages(text_documents), checked):
                             continue
 

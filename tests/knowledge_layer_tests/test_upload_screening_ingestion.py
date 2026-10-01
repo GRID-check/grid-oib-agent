@@ -390,3 +390,46 @@ class TestTablesAndCapsAreScreened:
         assert detail.screening == "partial"
         embedded = [doc.text for call in calls["index"].from_documents.call_args_list for doc in call.args[0]]
         assert embedded and not any("Gehaltsabrechnung" in text for text in embedded)
+
+    def test_a_term_only_in_columns_past_the_cap_is_partial(self, tmp_path, calls, monkeypatch):
+        openpyxl = pytest.importorskip("openpyxl")
+        from knowledge_layer.llamaindex import office_extractors
+
+        monkeypatch.setattr(office_extractors, "MAX_TABLE_COLS", 2)
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        for row in (["Raum", "Flaeche", "Notiz"], ["Buero", "20", "Gehaltsabrechnung"]):
+            sheet.append(row)
+        path = tmp_path / "raumliste.xlsx"
+        workbook.save(path)
+
+        detail = _ingest(calls, path, "Raumliste.xlsx", _TERMS)
+
+        assert detail.status == FileStatus.SUCCESS
+        assert detail.screening == "partial"
+
+    def test_a_term_only_in_the_cut_tail_of_a_long_csv_cell_is_partial(self, tmp_path, calls, monkeypatch):
+        from knowledge_layer.llamaindex import text_formats
+
+        monkeypatch.setattr(text_formats, "_MAX_CELL_CHARS", 20)
+        path = tmp_path / "liste.csv"
+        path.write_text("Raum;Notiz\nBuero;" + "x" * 30 + " Gehaltsabrechnung\n", encoding="utf-8")
+
+        detail = _ingest(calls, path, "Liste.csv", _TERMS)
+
+        assert detail.status == FileStatus.SUCCESS
+        assert detail.screening == "partial"
+
+    def test_a_spreadsheet_nothing_was_cut_from_stays_clean(self, tmp_path, calls):
+        openpyxl = pytest.importorskip("openpyxl")
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        for row in (["Raum", "Flaeche"], ["Buero", "20"]):
+            sheet.append(row)
+        path = tmp_path / "raumliste.xlsx"
+        workbook.save(path)
+
+        detail = _ingest(calls, path, "Raumliste.xlsx", _TERMS)
+
+        assert detail.status == FileStatus.SUCCESS
+        assert detail.screening == "clean"
