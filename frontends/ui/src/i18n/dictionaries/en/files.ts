@@ -356,6 +356,39 @@ export const files = {
     breadcrumb: 'Folder path',
     movedFolder: '“{name}” moved to “{parent}”.',
     moveFolderError: 'The folder could not be moved. Please try again.',
+    /** Folder access (ADR-0078): restricting a folder to roles. */
+    access: {
+      menu: 'Access…',
+      restrictedTo: 'Restricted to: {roles}',
+      openRestricted: 'Open folder “{name}”, restricted to: {roles}',
+      title: 'Access to “{name}”',
+      description: 'Who in this project may see this folder, its subfolders and their documents.',
+      everyone: 'Everyone in the project',
+      everyoneHint: 'Anyone who can open the project sees the folder.',
+      restricted: 'Only certain roles',
+      restrictedHint:
+        'Only people holding one of the chosen roles see the folder, its documents and what Piloti answers from them. Organization admins always see it.',
+      roles: 'Roles',
+      customRole: 'Custom role',
+      pickOne: 'Choose at least one role.',
+      noRoles:
+        'Your organization has no roles to choose from yet. Custom roles are created under Organization → People & access.',
+      lockout:
+        'If you hold none of these roles yourself, the folder disappears for you too once you save, unless you are an organization admin.',
+      moveNotice:
+        'Saving moves the folder’s documents and has Piloti read them again. For a large folder that takes a few minutes; meanwhile the documents show as “Reading”.',
+      ifcNotice: 'Building models (IFC) are not yet fully protected in a restricted folder. Keep them in open folders.',
+      save: 'Save access',
+      saving: 'Saving…',
+      loadError: 'The roles could not be loaded.',
+      savedRestricted: '“{name}” is now restricted.',
+      savedOpen: '“{name}” is visible to everyone in the project again.',
+      moving: '{count, plural, one {# document is} other {# documents are}} being moved and read again.',
+      failed:
+        '{count, plural, one {# document} other {# documents}} could not be moved yet. Save again to retry.',
+      saveError: 'Access could not be changed. Please try again.',
+      forbidden: 'Only project admins can change who may see a folder.',
+    },
   },
   workspace: {
     renameFolderError: 'The folder could not be renamed. Please try again.',

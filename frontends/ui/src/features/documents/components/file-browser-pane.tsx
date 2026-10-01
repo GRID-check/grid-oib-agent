@@ -41,6 +41,13 @@ export interface FolderNavigation {
   onCreateFolder: (name: string, parentId?: string) => Promise<boolean>
   onRenameFolder: (folderId: string, name: string) => Promise<boolean>
   onDeleteFolder: (folderId: string) => Promise<boolean>
+  /**
+   * Open the folder's access dialog (ADR-0078). Present only for a reader who
+   * manages the project; absent hides „Zugriff…" from the folder menu.
+   */
+  onEditFolderAccess?: (folderId: string) => void
+  /** Role slugs → names, for the lock on a restricted folder. Slugs show as themselves without it. */
+  roleNames?: (slugs: readonly string[]) => string[]
 }
 
 interface FileBrowserPaneProps {
@@ -253,6 +260,9 @@ export function FileBrowserPane({
       actions: folderNav ? <FolderActionsTrigger /> : undefined,
       editing: editingFolderId === folder.id,
       onEditingChange: (next: boolean) => setEditingFolderId(next ? folder.id : null),
+      restrictedRoleNames: folder.restrictedRoles?.length
+        ? (folderNav?.roleNames?.(folder.restrictedRoles) ?? folder.restrictedRoles)
+        : undefined,
     }
     const tile = asRow ? <FolderRow {...props} /> : <FolderCard {...props} />
     if (!folderNav) return tile
@@ -268,6 +278,9 @@ export function FileBrowserPane({
           onDropFolderInFolder
             ? (parentId) => void onDropFolderInFolder(folder.id, parentId)
             : undefined
+        }
+        onAccess={
+          folderNav.onEditFolderAccess ? () => folderNav.onEditFolderAccess?.(folder.id) : undefined
         }
         onDelete={() => void folderNav.onDeleteFolder(folder.id)}
       >

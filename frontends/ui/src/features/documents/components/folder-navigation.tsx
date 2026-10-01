@@ -33,6 +33,7 @@ import { folderDragProps, useFolderDropTarget } from '../hooks/use-document-drag
 import { cn } from '@/lib/utils'
 import { TimeAgo } from '@/components/ui/time-ago'
 import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
+import { FolderAccessMark } from './folder-access-mark'
 import type { FolderItem } from './project-file-workspace'
 
 /**
@@ -304,6 +305,20 @@ interface FolderTileProps {
   onDropFolder?: (draggedFolderId: string, parentId: string | null) => void
   /** Whether this tile may receive that folder — see `useFolderDropTarget`. */
   canAcceptFolder?: (draggedFolderId: string, targetFolderId: string | null) => boolean
+  /**
+   * The names of the roles this folder is restricted to (ADR-0078); absent or
+   * empty for an open folder. Draws the lock, and names the roles in the open
+   * button's accessible name.
+   */
+  restrictedRoleNames?: readonly string[]
+}
+
+/** The open button's accessible name: a restricted folder says so, and to whom. */
+function useOpenFolderLabel(folder: FolderItem, restrictedRoleNames?: readonly string[]): string {
+  const t = useTranslations('files')
+  return restrictedRoleNames && restrictedRoleNames.length > 0
+    ? t('folders.access.openRestricted', { name: folder.name, roles: restrictedRoleNames.join(', ') })
+    : t('folders.openFolder', { name: folder.name })
 }
 
 /** Shared inline rename field — same in-place contract the tree pane had. */
@@ -435,8 +450,12 @@ export function FolderCard({
   actions,
   editing: editingProp,
   onEditingChange,
+  restrictedRoleNames,
 }: FolderTileProps): JSX.Element {
   const t = useTranslations('files')
+  const openLabel = useOpenFolderLabel(folder, restrictedRoleNames)
+  const roleNames = restrictedRoleNames ?? []
+  const restricted = roleNames.length > 0
   const { locale } = useLocale()
   const [uncontrolledEditing, setUncontrolledEditing] = useState(false)
   const editing = editingProp ?? uncontrolledEditing
@@ -473,7 +492,7 @@ export function FolderCard({
       <button
         type="button"
         onClick={() => onOpen(folder.id)}
-        aria-label={t('folders.openFolder', { name: folder.name })}
+        aria-label={openLabel}
         className="flex h-full w-full flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <GridTileBody className="flex-1 p-0">
@@ -505,9 +524,14 @@ export function FolderCard({
             {editing ? (
               <FolderNameEditor folder={folder} onRenameFolder={onRenameFolder} onDone={() => setEditing(false)} />
             ) : (
-              <p className="truncate text-sm font-medium leading-tight text-foreground" title={folder.name}>
-                {folder.name}
-              </p>
+              <div className="flex min-w-0 items-center gap-1.5">
+                {restricted && (
+                  <FolderAccessMark roleNames={roleNames} testId={`folder-lock-${folder.id}`} />
+                )}
+                <p className="truncate text-sm font-medium leading-tight text-foreground" title={folder.name}>
+                  {folder.name}
+                </p>
+              </div>
             )}
           </div>
         </GridTileBody>
@@ -546,8 +570,11 @@ export function FolderRow({
   actions,
   editing: editingProp,
   onEditingChange,
+  restrictedRoleNames,
 }: FolderTileProps): JSX.Element {
-  const t = useTranslations('files')
+  const openLabel = useOpenFolderLabel(folder, restrictedRoleNames)
+  const roleNames = restrictedRoleNames ?? []
+  const restricted = roleNames.length > 0
   const { locale } = useLocale()
   const [uncontrolledEditing, setUncontrolledEditing] = useState(false)
   const editing = editingProp ?? uncontrolledEditing
@@ -615,7 +642,7 @@ export function FolderRow({
       <button
         type="button"
         onClick={() => onOpen(folder.id)}
-        aria-label={t('folders.openFolder', { name: folder.name })}
+        aria-label={openLabel}
         className="focus-visible:ring-ring flex min-w-0 flex-1 items-center gap-2.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 pointer-coarse:min-h-11"
       >
         {/* One glyph, for the reason the card's comment gives. The row's own
@@ -624,6 +651,7 @@ export function FolderRow({
           <Folder className="text-muted-foreground size-3.5" aria-hidden />
         </span>
         <span className="text-foreground truncate font-medium">{folder.name}</span>
+        {restricted && <FolderAccessMark roleNames={roleNames} testId={`folder-lock-${folder.id}`} />}
         {/* The kit's numeric pill, not a fourth hand-rolled one. */}
         <CountPill>{itemCount}</CountPill>
         {lastModified && (

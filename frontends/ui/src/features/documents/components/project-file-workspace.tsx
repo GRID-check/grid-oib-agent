@@ -36,6 +36,8 @@ import { askAboutFile } from '../lib/ask-about-file'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
+import { FolderAccessDialog } from './folder-access-dialog'
+import { roleNamesFor, useOrganizationRoles } from '@/features/organization/hooks/use-organization-roles'
 import { UploadTray } from './upload-tray'
 import { ProjectSectionActions } from '@/components/shell/project-section-frame'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -121,6 +123,12 @@ interface ProjectFileWorkspaceProps {
    * over the corpus in the browser. Absent means complete, as before.
    */
   initialFilesComplete?: boolean
+  /**
+   * Whether this reader may change who sees a folder (`project:manage`,
+   * resolved on the server, ADR-0078). Shows „Zugriff…" in the folder menu; the
+   * route checks again.
+   */
+  canManageFolderAccess?: boolean
 }
 
 /**
@@ -143,6 +151,11 @@ export interface FolderItem {
   path: string
   createdAt?: string
   updatedAt?: string
+  /**
+   * The role slugs this folder is restricted to (ADR-0078), or null/absent
+   * when it is open. The listing only carries folders the reader may see.
+   */
+  restrictedRoles?: string[] | null
 }
 
 export interface FileItem {
@@ -247,7 +260,7 @@ type FileView = 'cards' | 'list'
 
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId, lifecyclePermissions, initialFolders, initialFiles, initialFilesComplete = true }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId, lifecyclePermissions, initialFolders, initialFiles, initialFilesComplete = true, canManageFolderAccess = false }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const router = useRouter()
   const pathname = usePathname()
@@ -363,6 +376,16 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const [isLoadingFiles, setIsLoadingFiles] = useState(initialFiles === undefined)
   const [foldersError, setFoldersError] = useState(false)
   const [filesError, setFilesError] = useState(false)
+  /** The folder whose access dialog is open (ADR-0078). */
+  const [accessFolderId, setAccessFolderId] = useState<string | null>(null)
+  // Role names are read only when something needs them: a lock to label, or
+  // the access dialog to fill.
+  const anyRestricted = folders.some((folder) => (folder.restrictedRoles?.length ?? 0) > 0)
+  const organizationRoles = useOrganizationRoles(anyRestricted || accessFolderId !== null)
+  const roleNames = useCallback(
+    (slugs: readonly string[]) => roleNamesFor(slugs, organizationRoles.data),
+    [organizationRoles.data]
+  )
   /** The drain stopped at its page ceiling: older documents are not loaded. */
   const [filesTruncated, setFilesTruncated] = useState(false)
 
@@ -1524,6 +1547,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                       onCreateFolder: handleCreateFolder,
                       onRenameFolder: handleRenameFolder,
                       onDeleteFolder: handleDeleteFolder,
+                      onEditFolderAccess: canManageFolderAccess ? setAccessFolderId : undefined,
+                      roleNames,
                     },
                   })}
               uploadControl={
@@ -1551,6 +1576,22 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         </div>
 
       </div>
+
+      {/* Who may see a folder (ADR-0078). Saving moves and re-reads the
+          folder's documents, so both listings are read again. */}
+      <FolderAccessDialog
+        open={accessFolderId !== null}
+        onOpenChange={(next) => !next && setAccessFolderId(null)}
+        projectId={projectId}
+        folder={folders.find((folder) => folder.id === accessFolderId) ?? null}
+        roles={organizationRoles.data}
+        rolesFailed={organizationRoles.failed}
+        onRetryRoles={() => void organizationRoles.reload()}
+        onSaved={() => {
+          void loadFolders()
+          void loadFiles(true)
+        }}
+      />
 
       {/* „Wollen Sie aktualisieren?" — the plan a dropped folder opens, before
           anything moves. Rendered unconditionally so its own exit transition

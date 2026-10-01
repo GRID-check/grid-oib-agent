@@ -331,6 +331,40 @@ export const files: typeof en.files = {
     breadcrumb: 'Ordnerpfad',
     movedFolder: '„{name}“ nach „{parent}“ verschoben.',
     moveFolderError: 'Der Ordner konnte nicht verschoben werden. Bitte erneut versuchen.',
+    /** Ordnerzugriff (ADR-0078): einen Ordner auf Rollen einschränken. */
+    access: {
+      menu: 'Zugriff …',
+      restrictedTo: 'Eingeschränkt auf: {roles}',
+      openRestricted: 'Ordner „{name}“ öffnen, eingeschränkt auf: {roles}',
+      title: 'Zugriff auf „{name}“',
+      description: 'Wer in diesem Projekt den Ordner, seine Unterordner und deren Dokumente sehen darf.',
+      everyone: 'Alle im Projekt',
+      everyoneHint: 'Wer das Projekt öffnen kann, sieht den Ordner.',
+      restricted: 'Nur bestimmte Rollen',
+      restrictedHint:
+        'Nur wer eine der gewählten Rollen hat, sieht den Ordner, seine Dokumente und was Piloti daraus antwortet. Organisations-Admins sehen ihn immer.',
+      roles: 'Rollen',
+      customRole: 'Eigene Rolle',
+      pickOne: 'Wählen Sie mindestens eine Rolle.',
+      noRoles:
+        'Ihre Organisation hat noch keine Rollen zur Auswahl. Eigene Rollen legen Sie unter Organisation → Personen & Zugriff an.',
+      lockout:
+        'Haben Sie selbst keine dieser Rollen, verschwindet der Ordner nach dem Speichern auch für Sie, außer Sie sind Organisations-Admin.',
+      moveNotice:
+        'Beim Speichern verschiebt Piloti die Dokumente des Ordners und liest sie neu ein. Bei einem großen Ordner dauert das einige Minuten; so lange stehen die Dokumente auf „Wird gelesen“.',
+      ifcNotice:
+        'Gebäudemodelle (IFC) sind in einem eingeschränkten Ordner noch nicht vollständig geschützt. Legen Sie sie in offene Ordner.',
+      save: 'Zugriff speichern',
+      saving: 'Wird gespeichert…',
+      loadError: 'Die Rollen konnten nicht geladen werden.',
+      savedRestricted: '„{name}“ ist jetzt eingeschränkt.',
+      savedOpen: '„{name}“ ist wieder für alle im Projekt sichtbar.',
+      moving: '{count, plural, one {# Dokument wird} other {# Dokumente werden}} verschoben und neu eingelesen.',
+      failed:
+        '{count, plural, one {# Dokument konnte} other {# Dokumente konnten}} noch nicht verschoben werden. Speichern Sie erneut, um es noch einmal zu versuchen.',
+      saveError: 'Der Zugriff konnte nicht geändert werden. Bitte versuchen Sie es erneut.',
+      forbidden: 'Nur Projekt-Admins können ändern, wer einen Ordner sieht.',
+    },
   },
   workspace: {
     renameFolderError: 'Der Ordner konnte nicht umbenannt werden. Bitte versuchen Sie es erneut.',
