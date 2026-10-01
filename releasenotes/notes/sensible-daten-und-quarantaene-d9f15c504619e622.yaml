@@ -24,7 +24,12 @@ features:
     Personen & Zugriff → Eigene Rollen, and restrict a project folder to them.
     Only people holding one of its roles see that folder, its files and what
     Piloti finds in them, and organization admins see everything.
+  - >
+    A chat whose answers draw on a restricted folder stays with the person who
+    asked, so it cannot be shared with colleagues who may not see that folder.
 fixes:
+  - >
+    Sharing a chat with colleagues works again.
   - >
     Dropping a folder no longer uploads .DS_Store, Thumbs.db or Office lock
     files (~$Vertrag.docx) with it.
