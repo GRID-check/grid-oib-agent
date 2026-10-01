@@ -41,8 +41,12 @@ addresses is free on every plan
 ([Email Service](https://developers.cloudflare.com/email-service/)).
 
 * `kontakt@piloti.at` is one literal Email Routing rule on the app zone, which
-  forwards to the founders' mailboxes (`contactForwardTo`). There is no
-  catch-all on that zone.
+  forwards to the founders' mailboxes (`contactForwardTo`). The contact
+  address adds no catch-all to that zone. *Amended 2026-10-01:* the project
+  mail inbox now puts its catch-all on the same zone (ADR-0074, amendment of
+  2026-10-01). A literal rule wins over the catch-all, so this address never
+  reaches the inbox's Worker, and the Worker refuses every other address
+  that is not a project address, as Cloudflare refused it before.
 * The form posts to the site's own server (`frontends/web/src/lib/contact.ts`),
   which sends through the Email Service REST API from `kontakt@piloti.at` to
   the same verified addresses, with the enquirer in `reply_to`. It keeps

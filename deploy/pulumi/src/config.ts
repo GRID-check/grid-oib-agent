@@ -2179,7 +2179,7 @@ export function loadConfig(): GridConfig {
     }
     if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(inboundMailDomain)) {
       throw new Error(
-        `grid-oib:inboundMailDomain must be a bare domain name like "piloti-post.at" ` +
+        `grid-oib:inboundMailDomain must be a bare domain name like "piloti.at" ` +
           `(got "${inboundMailDomain}"): no scheme, no "@", no path.`,
       );
     }

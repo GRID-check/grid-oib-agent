@@ -15,7 +15,7 @@ Open the project's settings and find the section **E-Mail-Eingang**. The
 **Projektadresse** looks like this:
 
 ```
-wohnbau-hietzing.k3m7q2xw4pab@piloti-post.at
+wohnbau-hietzing.k3m7q2xw4pab@piloti.at
 ```
 
 Copy it with the button beside it and save it as a contact in your mail client.
@@ -116,6 +116,15 @@ addresses exist or who is a member. The reason is one of these:
 | You sent from a different address than your Piloti account | Send from the address you sign in with |
 | The project address was only in Bcc | Put it in To or Cc |
 | Your mail domain does not sign with DKIM | See below |
+
+A mail can also come back with a shorter text:
+
+> Unbekannte Adresse: Diese Nachricht wurde nicht zugestellt. / Unknown
+> address: this message was not delivered.
+
+That means the address does not even have the form of a project address,
+usually because a character was lost, added or changed while typing it. Copy
+the address from the project settings again.
 
 ### Scanners, multifunction devices and forwarding rules
 

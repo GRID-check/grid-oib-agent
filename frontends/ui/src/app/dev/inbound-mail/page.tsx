@@ -20,7 +20,7 @@ import type {
   RotateInboundAddressResponse,
 } from '@/lib/inbound-mail/contract'
 
-const DOMAIN = 'piloti-post.at'
+const DOMAIN = 'piloti.at'
 
 const ADDRESSES: Record<string, InboundAddressResponse> = {
   'preview-rotate': {

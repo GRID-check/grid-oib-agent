@@ -8,7 +8,7 @@
  * `<input>`: on a phone a 45-character address in a one-line field shows its
  * first 20 characters, and the reader cannot check what they are about to hand
  * out. It offers a break before every `@` and `.` (`<wbr>`, which a copy does
- * not carry), so `projekt.k7m2@piloti-post.at` wraps between its parts, and
+ * not carry), so `projekt.k7m2@piloti.at` wraps between its parts, and
  * uses `overflow-wrap: anywhere` rather than `word-break: break-all`, so a
  * run of characters is split only when that run alone is wider than the field. One click selects all of it (`select-all`), so it can still be copied by
  * hand where the Clipboard API is refused. Below `sm` the button moves under

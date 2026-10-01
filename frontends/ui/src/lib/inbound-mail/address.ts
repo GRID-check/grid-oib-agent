@@ -103,7 +103,7 @@ export function isToken(value: string): boolean {
 
 /**
  * The deployment's inbound mail domain, or `null` when the feature is off.
- * `GRID_INBOUND_MAIL_DOMAIN`, e.g. `piloti-post.at`.
+ * `GRID_INBOUND_MAIL_DOMAIN`, e.g. `piloti.at`.
  */
 export function inboundMailDomain(env: Readonly<Record<string, string | undefined>> = process.env): string | null {
   const domain = env.GRID_INBOUND_MAIL_DOMAIN?.trim().toLowerCase()

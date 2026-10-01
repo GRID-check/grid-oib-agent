@@ -129,8 +129,8 @@ const de = {
     lede: 'Jedes Projekt in Piloti hat eine eigene E-Mail-Adresse. Senden Sie Pläne, Bescheide oder Stellungnahmen als Anhang dorthin, und Piloti legt die Dateien im Projekt ab, als hätten Sie sie selbst hochgeladen. Aus Outlook speichern und wieder hineinziehen entfällt.',
     address: {
       label: 'So sieht eine Projektadresse aus',
-      example: 'wohnbau-hietzing.k3m7q2xw4pab@…',
-      note: 'Vor dem Punkt steht der Projektname, damit Sie die Adresse wiedererkennen. Nur die zwölf Zeichen danach bestimmen das Projekt, darum behält ein umbenanntes Projekt seine Adresse. Die Domain nach dem @ ist eine eigene Eingangsdomain, die Ihre Piloti-Installation festlegt.',
+      example: 'wohnbau-hietzing.k3m7q2xw4pab@piloti.at',
+      note: 'Vor dem Punkt steht der Projektname, damit Sie die Adresse wiedererkennen. Nur die zwölf Zeichen danach bestimmen das Projekt, darum behält ein umbenanntes Projekt seine Adresse. Nach dem @ steht piloti.at, die Domain von Piloti selbst.',
     },
     steps: {
       title: 'So funktioniert es',
@@ -197,7 +197,7 @@ const de = {
       reasons: [
         {
           name: 'Die Adresse ist vertippt oder wurde durch eine neue ersetzt.',
-          body: 'Kopieren Sie die aktuelle Adresse aus den Projekteinstellungen.',
+          body: 'Kopieren Sie die aktuelle Adresse aus den Projekteinstellungen. Lautet der Hinweis nur „Unbekannte Adresse“, hat die Adresse nicht einmal die Form einer Projektadresse, meist weil beim Abtippen ein Zeichen verloren ging oder dazukam.',
         },
         {
           name: 'Der E-Mail-Eingang ist für Ihre Organisation nicht eingeschaltet.',
@@ -363,8 +363,8 @@ const en: typeof de = {
     lede: 'Every project in Piloti has its own email address. Send drawings, permits or comments to it as attachments, and Piloti files them in the project as if you had uploaded them yourself. No more saving from Outlook and dragging the files back in.',
     address: {
       label: 'What a project address looks like',
-      example: 'wohnbau-hietzing.k3m7q2xw4pab@…',
-      note: 'The part before the dot is the project name, there for you to recognise the address. Only the twelve characters after it identify the project, so a renamed project keeps its address. The domain after the @ is a dedicated inbound domain set by your Piloti deployment.',
+      example: 'wohnbau-hietzing.k3m7q2xw4pab@piloti.at',
+      note: 'The part before the dot is the project name, there for you to recognise the address. Only the twelve characters after it identify the project, so a renamed project keeps its address. After the @ comes piloti.at, Piloti’s own domain.',
     },
     steps: {
       title: 'How it works',
@@ -431,7 +431,7 @@ const en: typeof de = {
       reasons: [
         {
           name: 'The address is mistyped, or it was replaced by a new one.',
-          body: 'Copy the current address from the project settings.',
+          body: 'Copy the current address from the project settings. If the notice says only “Unknown address”, the address does not even have the form of a project address, usually because a character was lost or added while typing it.',
         },
         {
           name: 'The mail inbox is not switched on for your organization.',

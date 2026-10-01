@@ -11,13 +11,14 @@ features:
     piloti.at/e-mail-eingang explains why a mail came back and what to do.
 operators:
   - >
-    The project mail inbox needs the stack's inboundMailDomain, the apex of a
-    Cloudflare zone of its own, which sets up Email Routing and its Worker;
-    Cloudflare becomes a sub-processor. It stays off for every organization
+    The project mail inbox needs inboundMailDomain set to the app zone's apex
+    on the stack that owns that zone, which adds a catch-all and its Worker
+    beside the contact address, with no separate zone; Cloudflare becomes a
+    sub-processor. It stays off for every organization
     until you enable the WorkOS flag project-mail-inbox for it, after giving
     the notice its contract requires.
   - >
     Before the first organization, prove on staging that the DKIM-Signature
     header reaches the Worker intact and that a failing Worker makes the
-    sending server retry instead of bouncing. Keep Email preview off, and never
-    onboard the inbound domain for sending.
+    sending server retry instead of bouncing. Keep Email preview off for the
+    app zone, which the contact form onboards for sending.

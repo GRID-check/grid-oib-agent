@@ -5,7 +5,7 @@
  *
  *   Usage:
  *     GRID_INBOUND_MAIL_TOKEN=… npx tsx scripts/send-test-mail.ts \
- *       --to wohnbau.abcdefgh2345@piloti-post.at path/to/mail.eml
+ *       --to wohnbau.abcdefgh2345@piloti.at path/to/mail.eml
  *
  *   Options:
  *     --to <address>     envelope recipient (required): the project address

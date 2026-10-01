@@ -445,66 +445,110 @@ organization, after that organization has been told about the new
 sub-processor
 ([review](../compliance/inbound-mail-review-2026-09.md), F1 and F16).
 
+Project addresses live on the app zone's apex, the product's own domain:
+`wohnbau-hietzing.k3m7q2xw4pab@piloti.at`. Why, and what was weighed against
+it: [ADR-0074](../adr/0074-project-mail-inbox-via-cloudflare-email-routing.md),
+amendment of 2026-10-01.
+
 What it deploys, all at Cloudflare:
 
-- **Email Routing** enabled on the inbound domain (Cloudflare adds and locks its
-  MX and SPF records).
+- **Email Routing** enabled on the apex (Cloudflare adds and locks its MX and
+  SPF records). With the contact address (§3d) on the same zone, this is one
+  enablement both features share: one module owns the zone's Email Routing
+  (the provider, the zone and MX guards, `EmailRoutingDns`; `installMailZones`
+  in `src/platform/email-routing.ts`), and the contact
+  rule and the inbox's catch-all and Worker hang off it.
 - **One Email Worker**, `grid-inbound-mail-<stack>`
-  (`src/platform/inbound-mail-worker.js`). It does not parse. It streams the raw
-  message to `https://<appDomain>/api/internal/inbound-mail`, with the size in
+  (`src/platform/inbound-mail-worker.js`). It first checks the recipient's
+  shape, with the rule the BFF's parser uses (`shared/inbound-address.json`):
+  lowercase ASCII, strip surrounding quotes and a `+detail` subaddress, take
+  what follows the last dot, which must be 12 characters of `[a-z2-7]`. An
+  address of any other shape (a typo of `kontakt@`, `info@` with no rule,
+  spam to a guessed name) is refused right there, without calling the BFF,
+  with `Unbekannte Adresse: Diese Nachricht wurde nicht zugestellt. / Unknown
+  address: this message was not delivered.` That is what such an address got
+  before, when Cloudflare refused it, and it keeps spam off the webhook's
+  edge rate-limit bucket. A project-shaped address goes on: the Worker does
+  not parse it, it streams the raw message to
+  `https://<appDomain>/api/internal/inbound-mail`, with the size in
   `x-inbound-raw-size` (a streamed body carries no Content-Length). It bounces
   a mail **only** when the answer is a 4xx carrying `x-inbound-verdict: reject`,
   which the BFF sets on a permanent refusal and nothing else. A 2xx accepts.
   Every other answer throws, so the sending server retries: 401, 403, 404 or
   413 without the header, 409, 429, 5xx, a redirect, a network error. A rotated
   or mismatched token (403) or a `BFF_URL` that points at the wrong host (404)
-  therefore delays mail until you fix it; it never bounces it. The one bounce
-  text is ASCII and links the help page (`https://piloti.at/e-mail-eingang/`)
-  and the privacy page (`https://piloti.at/datenschutz/`).
-- **The zone's catch-all rule**, sending every address to that Worker.
+  therefore delays mail until you fix it; it never bounces it. The bounce
+  text for a project address is ASCII and links the help page
+  (`https://piloti.at/e-mail-eingang/`) and the privacy page
+  (`https://piloti.at/datenschutz/`).
+- **The zone's catch-all rule**, sending every address that no literal rule
+  claims to that Worker. Cloudflare matches literal rules first, so
+  `kontakt@piloti.at` keeps going to the founders.
 
 In the cluster there is nothing new to deploy. The webhook only queues; the
 `skill-scheduler` Deployment, which runs whatever `skillsEnabled` says, POSTs
 `/api/internal/inbound-mail/drain` on every tick (30 s by default) and that
 files the queued mail.
 
-### The domain must be a zone apex
+### The domain: the app zone's apex
 
 Not `eingang.<baseDomain>`. Cloudflare's catch-all exists only for a zone's apex:
 "Catch-all rules are only available for the apex domain"
 ([Subdomains](https://developers.cloudflare.com/email-service/configuration/subdomains/));
 a subdomain can have Email Routing, but only with literal per-address rules, 200
 per domain. A subdomain gets routing, MX records and a Worker, then refuses
-every project address. A child zone for the subdomain is Enterprise-only.
+every project address. A child zone for the subdomain is Enterprise-only. The
+module header in `src/platform/inbound-mail.ts` lists the evidence.
+`loadConfig` refuses a subdomain of `dnsZoneName`, and `pulumi preview`
+refuses any domain that is not the named zone's apex.
 
-So the inbound domain is the apex of a Cloudflare zone of its own, typically a
-second, short domain (`piloti-post.at`), or the stack's own zone apex if nothing
-else receives mail there. The module header in `src/platform/inbound-mail.ts`
-lists the evidence. `loadConfig` refuses a subdomain of `dnsZoneName`, and
-`pulumi preview` refuses any domain that is not the named zone's apex.
+So the addresses sit on the app zone's apex, `piloti.at`, beside
+`kontakt@piloti.at`. Three things make that safe:
 
-**The apex must not receive mail anywhere else.** The catch-all takes every
-address on it, so an apex that is the company's mail domain would have all of
-its mail captured. `pulumi preview` reads the apex's MX records and refuses any
-that point anywhere but `*.mx.cloudflare.net` (`assertNoForeignMx` in
-`src/platform/email-routing.ts`). No MX passes: that is the first run on a
-fresh domain. Cloudflare's own MX passes: that is every run after it. MX
-records on subdomains are not read, since routing on the apex does not touch
-them.
+- **Literal rules win.** Cloudflare matches a literal rule before the
+  catch-all, so a company address with its own rule never reaches the Worker.
+- **The Worker refuses the rest.** Anything that is not project-shaped
+  bounces as an unknown address, as it did before the catch-all existed.
+- **The apex MX must point only at Cloudflare.** `pulumi preview` reads the
+  apex's MX records and refuses any that point anywhere but
+  `*.mx.cloudflare.net` (`assertNoForeignMx` in `src/platform/email-routing.ts`):
+  the catch-all would otherwise take over mail that goes elsewhere. No MX
+  passes: that is the first run on a fresh domain. Cloudflare's own MX
+  passes: that is every run after it, and `piloti.at` already has it. MX
+  records on subdomains are not read, since routing on the apex does not
+  touch them.
+
+What this costs, and what to remember:
+
+- **`piloti.at` mail stays on Cloudflare Email Routing.** If the company ever
+  moves its mail to Microsoft 365 or Google Workspace, the MX guard refuses
+  the zone, and the inbox has to move first to a domain of its own (below).
+  Every project then gets a new address: rotate them, and tell the members.
+- **Every new named company address needs its own literal rule** in Email
+  Routing. Without one, the Worker refuses it as unknown, as Cloudflare did
+  before the catch-all.
+
+**A domain of its own still works.** `inboundMailDomain` may be the apex of a
+separate Cloudflare zone, with `inboundMailZoneId` set to that zone's id. That
+was the original setup and the code still supports it; it is no longer the
+recommendation, because addresses on a second domain read as foreign to
+customers.
 
 **One stack per inbound zone.** The catch-all is a single object per zone. A
 second stack on the same zone is no API error: its `up` points the catch-all at
-its own Worker and from then on files every mail. `stack-files.spec.ts` checks
-the committed stacks. A dev stack that wants the feature needs its own domain.
+its own Worker and from then on files every mail. On the app zone, only the
+stack with `dnsZoneBaseline` may set it (`loadConfig`), and
+`stack-files.spec.ts` checks the committed stacks. A dev stack that wants the
+feature needs its own domain.
 
 ### Setup
 
-1. Add the inbound domain to Cloudflare as a zone (the registrar delegates its
-   NS records, as in §3b) and copy its zone id. Leave its MX records to Email
-   Routing and delete any the zone scan imported: `pulumi preview` refuses the
-   zone while an apex MX record points anywhere but Cloudflare.
-2. Widen `cloudflareApiToken` (the same token §3b uses), or set it if DNS is not
-   managed here. It needs:
+1. The app zone is already in Cloudflare (§3b); there is no zone to add. Its
+   apex must receive mail nowhere else: no MX at all, or only Cloudflare's
+   (`*.mx.cloudflare.net`, already there once the contact address of §3d is
+   on). Delete any other MX the zone scan imported: `pulumi preview` refuses
+   the zone while an apex MX record points anywhere but Cloudflare.
+2. Widen `cloudflareApiToken` (the same token §3b uses). It needs:
    - Account · **Workers Scripts · Edit** (the Worker)
    - Zone · **Email Routing Rules · Edit** (the catch-all)
    - Zone · **Zone Settings · Edit** (enabling Email Routing)
@@ -513,25 +557,29 @@ the committed stacks. A dev stack that wants the feature needs its own domain.
    - Zone · **Zone · Read** (the apex check, and the account id the Worker is
      uploaded to)
 
-   The zone permissions on the inbound zone; keep `Zone:DNS:Edit` on the DNS
-   zone as before.
-3. Set the keys. The token in ESC, the rest in the stack file. New keys go
-   **below** the encrypted secrets block (`deploy/AGENTS.md`):
+   The zone permissions on the app zone. With the contact address already on,
+   only Workers Scripts · Edit is new.
+3. Set the keys, on the stack that owns the app zone (`dnsEnabled` and
+   `dnsZoneBaseline`; `loadConfig` refuses the inbox on the app zone
+   without them, as it does the contact address). The token in ESC, the rest
+   in the stack file. New keys go **below** the encrypted secrets block
+   (`deploy/AGENTS.md`):
 
    ```bash
    # The shared secret between the Worker and the BFF. Pulumi binds it into the
    # Worker as a secret and into grid-secrets for the frontend.
    esc env set matthiasbigl/grid-oib/<stack> pulumiConfig.grid-oib:inboundMailToken "$(openssl rand -hex 32)" --secret
-   # Only if cloudflareApiToken is not set yet (step 2):
-   esc env set matthiasbigl/grid-oib/<stack> pulumiConfig.grid-oib:cloudflareApiToken "<token>" --secret
 
-   pulumi config set grid-oib:inboundMailZoneId <zone id of the inbound domain>
-   pulumi config set grid-oib:inboundMailDomain piloti-post.at
+   # The app zone's apex. inboundMailZoneId defaults to dnsZoneId when the
+   # domain equals dnsZoneName, so it is not set here.
+   pulumi config set grid-oib:inboundMailDomain piloti.at
    ```
 
    Set the token **before** the domain. Once the domain is set, `loadConfig`
    refuses to plan without it, which on a CI-deployed stack turns a merge into
-   a failed deploy.
+   a failed deploy. For a domain of its own instead, add that zone to
+   Cloudflare (§3b), give the token the zone permissions there, and also set
+   `grid-oib:inboundMailZoneId` to its zone id.
 4. `pulumi up`. The stack output `inboundMailWorker` names the Worker.
 5. **The WorkOS feature flag `project-mail-inbox`** exists, OFF for every
    organization, in both environments (created 2026-10-01;
@@ -562,12 +610,14 @@ the committed stacks. A dev stack that wants the feature needs its own domain.
 
 ### Keep message content out of Cloudflare's dashboards
 
-- **Email preview stays OFF.** It is an Email *Sending* setting that keeps the
-  full raw message, attachments included, for about seven days, and it is on by
-  default for sending domains onboarded since 2026-07-02
+- **Email preview stays OFF for `piloti.at`.** It is an Email *Sending*
+  setting for *sent* messages: "Previews cover messages sent while the setting
+  is turned on and are retained for about seven days", and it is on by default
+  for sending domains onboarded on or after 2026-07-02
   ([changelog](https://developers.cloudflare.com/changelog/post/2026-07-17-email-message-preview/)).
-  Do not onboard the inbound domain for Email Sending (the inbox sends nothing);
-  if it ever is, turn Email preview off first. The product keeps no `.eml`
+  `piloti.at` is onboarded for sending for the contact form, so it must be off
+  there for the form's sake (§3d, step 3). Cloudflare does not describe it as
+  covering mail received through Email Routing. The product keeps no `.eml`
   either: the webhook parses the message in memory and stages only the
   attachments it selected, for at most seven days.
 - **Workers observability stays off** on the inbound Worker (the default, and
@@ -621,9 +671,11 @@ What `contactAddress` deploys (`src/platform/contact-mail.ts`,
   Cloudflare send a verification mail to that inbox. Until its owner clicks the
   link, nothing is forwarded there and the form cannot send to it. `pulumi up`
   succeeds either way.
-- **One literal rule**: `contactAddress` forwards to every target. There is no
-  catch-all on this zone, so every other address on the apex is refused, as
-  it was before.
+- **One literal rule**: `contactAddress` forwards to every target. The contact
+  address adds no catch-all. Without the inbox, every other address on the
+  apex is refused by Cloudflare; with the inbox (§3c), the catch-all sends
+  them to its Worker, which refuses every one that is not a project address.
+  The literal rule wins over the catch-all either way.
 - **On the web pods**: `CONTACT_FROM`, `CONTACT_FORWARD_TO`,
   `CLOUDFLARE_ACCOUNT_ID` (the app zone's account), and
   `CLOUDFLARE_EMAIL_TOKEN` and `CONTACT_FORM_SECRET` from a Secret of their
@@ -644,9 +696,10 @@ Guards, all before anything is created:
   Cloudflare's own, passes.
 - `pulumi preview` refuses the zone while `_dmarc.<apex>` holds more than one
   DMARC record (see step 2).
-- The project mail inbox (§3c) may run in the same account, on a zone of its
-  own. `loadConfig` refuses it on the app zone, and `stack-files.spec.ts`
-  refuses one stack's inbox on another stack's contact zone.
+- The project mail inbox (§3c) runs on the same zone by default. One module
+  then owns the zone's Email Routing, and the contact rule and the inbox's
+  catch-all hang off it. `stack-files.spec.ts` refuses one stack's inbox on
+  another stack's contact zone.
 
 ### Setup
 
@@ -706,6 +759,9 @@ Guards, all before anything is created:
    the sender.
 
 ### Deploy order
+
+The contact address and the project mail inbox (§3c) share the zone's Email
+Routing, and either may be deployed first.
 
 Run steps 1–6 **before** deploying a site that shows `kontakt@piloti.at`. The
 Impressum must name an address that works; one that routes nowhere, or to an
