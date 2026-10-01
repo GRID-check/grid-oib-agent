@@ -2601,12 +2601,13 @@ export function loadConfig(): GridConfig {
 
     err2issue: {
       enabled: err2issueEnabled,
-      // Digest-pinned: v0.5.1, published as `:sha-b7ec93fb291214171638a169975fd5129dc77a6b`.
-      // Upstream cuts no release tags, so the digest is the version; the
-      // CHANGELOG names the commit. Scanned by the trivy job in security.yml.
+      // Digest-pinned: published as `:sha-7240361d3d62213625b7ddee5e9b28aa47dfa0cd`,
+      // the first build with PyJWT >= 2.14 (2.15.1). Upstream cuts no release
+      // tags, so the digest is the version; the CHANGELOG names the commit.
+      // Scanned by the trivy job in security.yml.
       image:
         cfg.get("err2issueImage") ??
-        "ghcr.io/matthiasbigl/err2issue@sha256:25254f2b26ef7ff38801aa66747f98b2fc57738f5e0cf2d32bd02130f277c952",
+        "ghcr.io/matthiasbigl/err2issue@sha256:23ff1752ac2425739c6047c93c479b0d5b1a1b24b67221ae1ba0205dba8c4333",
       githubRepo: err2issueGithubRepo,
       githubToken: err2issueGithubToken ?? pulumi.output(""),
       routeMap: cfg.get("err2issueRouteMap") ?? "",
