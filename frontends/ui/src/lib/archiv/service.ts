@@ -16,6 +16,7 @@
  * `@/lib/api/errors`.
  */
 
+import { assertUploadNameAllowed, auditScreeningOverride } from '@/lib/upload-screening/service'
 import 'server-only'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import {
@@ -201,8 +202,16 @@ export async function uploadArchivDocument(
   session: AuthorizedSession,
   file: File,
   request: Request,
+  /** See `UploadDocumentInput.screeningRelease`. */
+  options: { screeningRelease?: boolean } = {},
 ): Promise<UploadArchivDocumentResult> {
   if (!canManageArchiv(session)) throw new ForbiddenError()
+  // The name gate's server-side repeat (ADR-0077), before a byte is stored.
+  const nameGate = await assertUploadNameAllowed(
+    session.organizationId,
+    { filename: file.name },
+    options.screeningRelease === true,
+  )
   await assertUploadTypeAllowed(session, file.name)
   assertFileSizeAllowed(file.size, file.name)
   // Same org ceiling as the project path — the Archiv shares the tenant's
@@ -336,6 +345,11 @@ export async function uploadArchivDocument(
     metadata: { filename: filename.slice(0, 200), fileSize: file.size, collectionName },
     request,
   })
+  await auditScreeningOverride(
+    session,
+    { documentId, projectId: null, filename, overridden: nameGate.overridden },
+    request,
+  )
 
   return { documentId, jobId, status, filename }
 }

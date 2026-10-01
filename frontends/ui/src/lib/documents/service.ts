@@ -8,6 +8,7 @@
  * Failures are signalled with typed errors from `@/lib/api/errors`.
  */
 
+import { assertUploadNameAllowed, auditScreeningOverride, ingestScreeningFor } from '@/lib/upload-screening/service'
 import 'server-only'
 import {
   GetObjectCommand,
@@ -413,6 +414,10 @@ export async function dispatchIngest(
   // Read from the row rather than threaded through every caller; a failed read
   // books the spend to the organization alone, never fails the dispatch.
   const attribution = await findDocumentInOrg(documentId, organizationId).catch(() => null)
+  // The content gate's rules (ADR-0077). Every path into the index passes this
+  // line — upload, re-ingest, re-index, Archiv, chat, the IFC digest — so the
+  // gate is not something a new caller has to remember.
+  const screening = await ingestScreeningFor(organizationId, attribution)
 
   const body = JSON.stringify({
     file_ref: presignedUrl,
@@ -432,6 +437,9 @@ export async function dispatchIngest(
     // only the bytes read differ, never the identity.
     extraction_ref: extras.extractionRef ?? null,
     folder_path: folderPath,
+    // Null when screening is off for the organization or a reviewer released
+    // these exact bytes from quarantine; the job then reads as it always did.
+    screening,
     // The document's IDENTITY inside the collection, stated rather than
     // left to be derived. Without it the backend reads the name off the
     // presigned URL's last path segment, which is the OBJECT KEY's
@@ -802,6 +810,13 @@ export interface UploadDocumentInput {
    * for why this is not Piloti's own folder path.
    */
   originPath?: string | null
+  /**
+   * The uploader released this file in the upload dialog although the
+   * organization's name screening excludes it (ADR-0077) — the Bauvertrag in a
+   * folder called „Verträge". Honoured and audited; absent means "do not
+   * override", so a client that never asks is screened.
+   */
+  screeningRelease?: boolean
 }
 
 /** Longest origin path recorded. Deep office trees exist; unbounded text does not belong in a row. */
@@ -949,6 +964,12 @@ export async function uploadDocument(
     folderPath = await findFolderPathInProject(folderId, projectId, session.organizationId)
     if (folderPath === null) throw new NotFoundError('Folder not found in project')
   }
+  // The name gate's server-side repeat (ADR-0077), before a byte is stored.
+  const nameGate = await assertUploadNameAllowed(
+    session.organizationId,
+    { filename: file.name, originPath, folderPath },
+    input.screeningRelease === true
+  )
 
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
@@ -1202,6 +1223,12 @@ export async function uploadDocument(
     },
     request,
   })
+
+  await auditScreeningOverride(
+    session,
+    { documentId, projectId, filename, overridden: nameGate.overridden },
+    request
+  )
 
   return {
     documentId,

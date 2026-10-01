@@ -69,6 +69,9 @@ export const files = {
     // the knowledge base. Neither a success ("Citable" would promise a citation
     // retrieval cannot make) nor a failure — nothing went wrong.
     stored: 'Filed',
+    // The content check (ADR-0077) matched: the file is in the project, no
+    // model has seen it, and someone has to decide.
+    quarantined: 'Quarantined',
     unknown: 'Unknown',
     // Only the office's own uploads: inside one office the queue reads in
     // order, across offices it takes turns (ADR-0076).
@@ -274,8 +277,23 @@ export const files = {
     timeout: 'Reading took too long and was stopped. Try again. Splitting a very large file helps.',
     empty: 'No text was found in this file. It may be password-protected, damaged or empty.',
     deleted: 'The file was deleted while Piloti was reading it.',
+    quarantined:
+      'This file contains something your office marks as sensitive. Piloti showed it to no model. An office or project admin releases or deletes it.',
     unknown: "Piloti couldn't read this document, so search can't find it.",
     details: 'Details',
+  },
+  screening: {
+    // Why a file was held back, by the content check (in the text) or the
+    // name check (in the file or folder name), ADR-0077.
+    reasonTerm: '“{term}” in the text',
+    reasonIban: 'IBAN {sample}',
+    reasonSvnr: 'Social security number {sample}',
+    reasonCard: 'Card number {sample}',
+    reasonPages: '{count, plural, one {page {pages}} other {pages {pages}}}',
+    nameInFile: 'File name contains “{term}”',
+    nameInFolder: 'Folder “{segment}” contains “{term}”',
+    partial: 'Some pages had no text layer and were not checked.',
+    unchecked: 'The content could not be read without a model and was checked by name only.',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',

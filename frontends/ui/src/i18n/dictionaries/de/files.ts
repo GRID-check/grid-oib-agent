@@ -70,6 +70,9 @@ export const files: typeof en.files = {
     // Erfolg („Zitierbar“ wäre ein Versprechen, das die Suche nicht einlöst)
     // und kein Fehler. Dasselbe Wort wie im Toast nach dem Lauf.
     stored: 'Abgelegt',
+    // Die Inhaltsprüfung (ADR-0077) hat angeschlagen: Die Datei liegt im
+    // Projekt, kein Modell hat sie gesehen, und jemand muss entscheiden.
+    quarantined: 'In Quarantäne',
     unknown: 'Unbekannt',
     // Nur die eigenen Uploads des Büros: Innerhalb eines Büros wird der Reihe
     // nach gelesen, zwischen Büros fair abgewechselt (ADR-0076).
@@ -254,8 +257,23 @@ export const files: typeof en.files = {
     timeout: 'Das Lesen hat zu lange gedauert und wurde abgebrochen. Erneut lesen. Sehr große Dateien besser aufteilen.',
     empty: 'In dieser Datei war kein Text zu finden. Sie ist vielleicht passwortgeschützt, beschädigt oder leer.',
     deleted: 'Die Datei wurde gelöscht, während Piloti sie las.',
+    quarantined:
+      'Diese Datei enthält etwas, das Ihr Büro als sensibel eingestuft hat. Piloti hat sie keinem Modell gezeigt. Die Büro- oder Projektadministration gibt sie frei oder löscht sie.',
     unknown: 'Piloti konnte dieses Dokument nicht lesen, daher findet die Suche es nicht.',
     details: 'Details',
+  },
+  screening: {
+    // Warum eine Datei zurückgehalten wurde – vom Inhaltsfilter (im Text) oder
+    // vom Namensfilter (im Datei- oder Ordnernamen), ADR-0077.
+    reasonTerm: '„{term}“ im Text',
+    reasonIban: 'IBAN {sample}',
+    reasonSvnr: 'Sozialversicherungsnummer {sample}',
+    reasonCard: 'Kreditkartennummer {sample}',
+    reasonPages: '{count, plural, one {Seite {pages}} other {Seiten {pages}}}',
+    nameInFile: 'Dateiname enthält „{term}“',
+    nameInFolder: 'Ordner „{segment}“ enthält „{term}“',
+    partial: 'Einige Seiten hatten keine Textebene und wurden nicht geprüft.',
+    unchecked: 'Der Inhalt ließ sich ohne Modell nicht lesen und wurde nur am Namen geprüft.',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',
