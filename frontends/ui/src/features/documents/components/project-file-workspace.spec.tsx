@@ -10,7 +10,7 @@ import { SETTLING_POLL_MS } from '../hooks/use-settling-refresh'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import type { DocumentWireRow } from '../lib/file-item'
-import { handOverDroppedFiles } from '../lib/dropped-file-handover'
+import { handOverDroppedFiles, takeDroppedFiles } from '../lib/dropped-file-handover'
 
 function renderWorkspace(ui: ReactElement) {
   return render(
@@ -227,6 +227,8 @@ describe('ProjectFileWorkspace', () => {
   })
 
   it('uploads a drop made elsewhere in the project once it arrives, and only once', async () => {
+    server.use(http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })))
+    takeDroppedFiles('proj-1')
     const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
     handOverDroppedFiles('proj-1', [file])
 
@@ -239,6 +241,19 @@ describe('ProjectFileWorkspace', () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(mockUploadFiles).toHaveBeenCalledTimes(1)
+  })
+
+  it('holds a handed-over drop while the folders it is planned against failed to load', async () => {
+    server.use(http.get('/api/projects/:projectId/folders', () => new HttpResponse(null, { status: 500 })))
+    takeDroppedFiles('proj-1')
+    const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
+    handOverDroppedFiles('proj-1', [file])
+
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+
+    await waitFor(() => expect(screen.getByText(/folders/i)).toBeInTheDocument())
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+    expect(takeDroppedFiles('proj-1')).toEqual([file])
   })
 })
 

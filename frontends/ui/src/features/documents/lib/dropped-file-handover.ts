@@ -14,8 +14,12 @@
 
 let held: { projectId: string; files: File[] } | null = null
 
+/** Hold a drop; a second drop into the same project before Dateien takes them joins the first. */
 export function handOverDroppedFiles(projectId: string, files: File[]): void {
-  held = { projectId, files }
+  held = {
+    projectId,
+    files: held?.projectId === projectId ? [...held.files, ...files] : [...files],
+  }
 }
 
 /** The files held for this project, once: a second call returns none. */

@@ -68,6 +68,21 @@ describe('ProjectFileDrop', () => {
     expect(takeDroppedFiles('p1')).toEqual([])
   })
 
+  it('keeps an earlier drop when a second one lands before Dateien has taken it', async () => {
+    const second = new File(['%PDF'], 'Schnitt.pdf', { type: 'application/pdf' })
+    render(
+      <ProjectFileDrop projectId="p1">
+        <p>Einstellungen</p>
+      </ProjectFileDrop>
+    )
+
+    fireEvent.drop(screen.getByText('Einstellungen'), { dataTransfer: fileTransfer([plan]) })
+    fireEvent.drop(screen.getByText('Einstellungen'), { dataTransfer: fileTransfer([second]) })
+
+    await waitFor(() => expect(nav.push).toHaveBeenCalledTimes(2))
+    expect(takeDroppedFiles('p1')).toEqual([plan, second])
+  })
+
   it('shows where the drop goes while a file is held over the page', () => {
     render(
       <ProjectFileDrop projectId="p1">
