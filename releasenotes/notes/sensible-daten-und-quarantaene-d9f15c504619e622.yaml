@@ -38,6 +38,9 @@ features:
     given it.
 fixes:
   - >
+    A chat in a project with a great deal of project information can no longer
+    fail to connect and wait forever.
+  - >
     Sharing a chat with colleagues works again.
   - >
     Dropping a folder no longer uploads .DS_Store, Thumbs.db or Office lock
