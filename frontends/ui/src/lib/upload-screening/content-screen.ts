@@ -53,8 +53,8 @@ const MASK = '••••'
 export interface ContentScreenRules {
   terms: readonly string[]
   detectors: readonly ScreeningDetector[]
-  /** One per term, same order. */
-  patterns: readonly RegExp[]
+  /** One per term, same order: the term's folded words, matched literally (`termMatches`). */
+  patterns: readonly (readonly string[])[]
 }
 
 /** One match, in the ORIGINAL text. */
@@ -133,9 +133,56 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 }
 
-function termPattern(term: string): RegExp {
-  const words = foldContent(term).split(/\s+/).filter(Boolean).map(escapeRegExp)
-  return new RegExp(NO_ALNUM_BEFORE + words.join('\\s+'), 'gu')
+function termPattern(term: string): string[] {
+  return foldContent(term).split(/\s+/).filter(Boolean)
+}
+
+const LETTER_OR_NUMBER = /[\p{L}\p{N}]/u
+const WHITESPACE = /\s/u
+
+/** The code point that ends just before `index`, or '' at the start. */
+function codePointBefore(text: string, index: number): string {
+  if (index === 0) return ''
+  const low = text.charCodeAt(index - 1)
+  const isLowSurrogate = low >= 0xdc00 && low <= 0xdfff
+  return isLowSurrogate && index >= 2 ? text.slice(index - 2, index) : text.slice(index - 1, index)
+}
+
+/** Where the words match at `start`, separated by at least one whitespace each; the end, or -1. */
+function matchWordsAt(text: string, start: number, words: readonly string[]): number {
+  let cursor = start
+  for (let w = 0; w < words.length; w += 1) {
+    if (w > 0) {
+      const gap = cursor
+      while (cursor < text.length && WHITESPACE.test(text[cursor])) cursor += 1
+      if (cursor === gap) return -1
+    }
+    if (!text.startsWith(words[w], cursor)) return -1
+    cursor += words[w].length
+  }
+  return cursor
+}
+
+/**
+ * `[start, end)` of each match of a term's words in folded text, leftmost
+ * first and not overlapping: no letter or number right before, the words in
+ * order with whitespace between. The same matches the Python side's regex
+ * finds; done without a regex built from office input, so no term can be read
+ * as a pattern (Semgrep `detect-non-literal-regexp`, the precedent in
+ * `features/layout/lib/file-reference-markers.ts`).
+ */
+function* termMatches(text: string, words: readonly string[]): Generator<[number, number]> {
+  if (words.length === 0) return
+  let index = text.indexOf(words[0])
+  while (index !== -1) {
+    const end = LETTER_OR_NUMBER.test(codePointBefore(text, index)) ? -1 : matchWordsAt(text, index, words)
+    if (end > index) {
+      yield [index, end]
+      index = text.indexOf(words[0], end)
+    } else {
+      index = text.indexOf(words[0], index + 1)
+    }
+  }
 }
 
 // ----------------------------------------------------------------- rules
@@ -333,9 +380,9 @@ function wordEnd(text: string, end: number): number {
 function* termSpans(text: string, rules: ContentScreenRules): Generator<ContentSpan> {
   const folded = foldMapped(text)
   for (let i = 0; i < rules.terms.length; i += 1) {
-    for (const match of folded.text.matchAll(rules.patterns[i])) {
-      const start = folded.starts[match.index]
-      const end = wordEnd(text, folded.ends[match.index + match[0].length - 1])
+    for (const [matchStart, matchEnd] of termMatches(folded.text, rules.patterns[i])) {
+      const start = folded.starts[matchStart]
+      const end = wordEnd(text, folded.ends[matchEnd - 1])
       yield { kind: 'term', start, end, term: rules.terms[i] }
     }
   }
