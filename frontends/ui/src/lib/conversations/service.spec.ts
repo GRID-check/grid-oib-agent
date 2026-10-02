@@ -81,6 +81,19 @@ vi.mock('@/lib/mentions/service', () => ({
   threadIsAwaitingHuman: vi.fn(),
 }))
 
+// The office's chat screening (ADR-0077): the REAL matcher over Piloti's
+// suggested list; only the settings read is replaced, because it reaches the
+// database. What the matcher does has its own spec (`content-screen.spec.ts`).
+vi.mock('@/lib/upload-screening/service', async () => {
+  const { chatScreeningRules, maskText } = await import('@/lib/upload-screening/content-screen')
+  const { SUGGESTED_SCREENING_POLICY } = await import('@/lib/upload-screening/policy')
+  return {
+    maskChatText: vi.fn(async (_organizationId: string, text: string) =>
+      maskText(text, chatScreeningRules(SUGGESTED_SCREENING_POLICY))
+    ),
+  }
+})
+
 // The engagement mode (ADR-0036) is mocked at the module boundary: what this
 // suite asserts is that the RULING obeys it, while how the mode is stored and
 // derived has its own tests in engagement.spec.ts.
@@ -105,6 +118,7 @@ import { countGrantsForResource, findGrantForSubject } from '@/lib/sharing/repos
 import { resolveParticipants } from '@/lib/sharing/service'
 import { deleteSessionCollection, purgeSessionDocuments } from '@/lib/session-documents/cleanup'
 import { discardConversationDrafts } from './working-directory'
+import { maskChatText } from '@/lib/upload-screening/service'
 import { resolveEngagement, resolveEngagementFor, setEngagement } from './engagement'
 import {
   deleteConversationInOrg,
@@ -1571,5 +1585,72 @@ describe('deleting a conversation takes its working directory with it', () => {
 
     await expect(deleteConversation(session, CONVERSATION_ID)).rejects.toThrow()
     expect(discardConversationDrafts).not.toHaveBeenCalled()
+  })
+})
+
+describe('what a person wrote is stored masked (ADR-0077, chat screening)', () => {
+  const IBAN = 'AT61 1904 3002 3457 3201'
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("stores a user message masked against the office's policy, and leaves the agent's answer alone", async () => {
+    stubConversation({ createdBy: 'user_me' })
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: `Lohnzettel anbei, IBAN ${IBAN}` },
+      { id: 'msg_2', role: 'assistant', content: `Die IBAN ${IBAN} steht im Vertrag.` },
+    ])
+
+    const rows = vi.mocked(insertMessages).mock.calls[0][0]
+    expect(rows[0].content).toBe('[Begriff entfernt] anbei, IBAN [IBAN entfernt]')
+    expect(rows[1].content).toBe(`Die IBAN ${IBAN} steht im Vertrag.`)
+    expect(maskChatText).toHaveBeenCalledWith('org_1', `Lohnzettel anbei, IBAN ${IBAN}`)
+  })
+
+  it('stores a message the composer already masked unchanged', async () => {
+    stubConversation({ createdBy: 'user_me' })
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Bitte überweise an [IBAN entfernt]' },
+    ])
+
+    expect(vi.mocked(insertMessages).mock.calls[0][0][0].content).toBe('Bitte überweise an [IBAN entfernt]')
+  })
+
+  it('masks a job prompt the backend writes as a user turn', async () => {
+    stubConversation()
+
+    await persistInternalConversationMessages('org_1', CONVERSATION_ID, [
+      { id: 'msg_q', role: 'user', content: `Prüfe Konto ${IBAN}`, messageType: 'user_message' },
+    ])
+
+    expect(vi.mocked(insertMessages).mock.calls[0][0][0].content).toBe('Prüfe Konto [IBAN entfernt]')
+  })
+
+  it("masks the user's turns before the opening exchange goes to the naming model", async () => {
+    stubConversation({ createdBy: 'user_me' })
+    vi.mocked(updateConversationMetaInOrg).mockResolvedValue({} as never)
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ title: 'Konto', tags: [] }),
+      text: async () => '',
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await generateConversationTitle(session, CONVERSATION_ID, {
+      messages: [
+        { role: 'user', content: `Konto ${IBAN}?` },
+        { role: 'assistant', content: 'Welches Projekt?' },
+      ],
+    })
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init.body)).messages).toEqual([
+      { role: 'user', content: 'Konto [IBAN entfernt]?' },
+      { role: 'assistant', content: 'Welches Projekt?' },
+    ])
   })
 })

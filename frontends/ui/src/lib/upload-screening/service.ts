@@ -15,11 +15,14 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { getCached, invalidateCached } from '@/lib/cache'
 import { getOrgSettings, writeDedicatedOrgSetting } from '@/lib/organizations/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { chatScreeningRules, maskText, type MaskedText } from './content-screen'
 import { screenUploadName, type NameMatch, type ScreenedName } from './name-screen'
 import {
   SUGGESTED_SCREENING_POLICY,
   resolveUploadScreeningPolicy,
+  toChatScreening,
   toIngestScreening,
+  type ChatScreening,
   type IngestScreening,
   type UploadScreeningPolicy,
 } from './policy'
@@ -170,4 +173,25 @@ export async function ingestScreeningFor(
   const policy = await policyOrSuggestion(organizationId)
   const released = Boolean(row?.contentHash && row.screeningReleasedHash === row.contentHash)
   return toIngestScreening(policy, { released })
+}
+
+/**
+ * The chat half of the policy, for the chat socket (`/api/internal/chat-screening`).
+ * Fails CLOSED like every gate: unreadable settings answer with Piloti's
+ * suggested list, never with "off".
+ */
+export async function chatScreeningFor(organizationId: string): Promise<ChatScreening> {
+  return toChatScreening(await policyOrSuggestion(organizationId))
+}
+
+/**
+ * A person's chat text as it may be stored and sent on: every content term and
+ * detector match replaced by its placeholder. The composer masked it already
+ * and asked the person first; this repeat is for a client that did not, so the
+ * stored history (which title generation and memory reflection later hand to a
+ * model) never holds what the composer would have removed. Masking a masked
+ * text changes nothing.
+ */
+export async function maskChatText(organizationId: string, text: string): Promise<MaskedText> {
+  return maskText(text, chatScreeningRules(await policyOrSuggestion(organizationId)))
 }

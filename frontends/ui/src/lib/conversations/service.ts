@@ -67,6 +67,7 @@ import {
 import { sanitizeProvenance } from './message-provenance'
 import { sanitizeStages } from './message-stages'
 import { sanitizePromptDetail, sanitizePromptState } from './message-prompt'
+import { maskChatText } from '@/lib/upload-screening/service'
 import { CONVERSATION_TAG_KEYS, normalizeConversationTags } from './tags'
 import {
   deleteConversationInOrg,
@@ -348,9 +349,14 @@ export async function generateConversationTitle(
 ): Promise<GenerateConversationTitleResult> {
   await requireResourceAccess(session, 'conversation', conversationId, 'owner')
 
-  const messages = input.messages
-    .map((m) => ({ role: m.role, content: (m.content ?? '').trim() }))
-    .filter((m) => m.content.length > 0)
+  // The client sends the opening exchange itself, and it goes to a model: the
+  // user's turns are masked here as they are when stored.
+  const messages = (
+    await screenedUserInputs(
+      session.organizationId,
+      input.messages.map((m) => ({ role: m.role, content: (m.content ?? '').trim() }))
+    )
+  ).filter((m) => m.content.length > 0)
   if (messages.length === 0) {
     return { title: '', tags: [] }
   }
@@ -969,10 +975,38 @@ async function prepareMessage(
  * server decides, the client executes (ADR-0034). The array shape is unchanged,
  * so callers that ignore the ruling keep working.
  */
+/**
+ * What a person wrote, as it may be stored and handed on: each user message's
+ * text (and the inbox note made from it) masked against the office's
+ * „Sensible Daten" policy (ADR-0077, "Chat messages are screened too").
+ *
+ * The composer already masked and asked the person; this is the backstop for a
+ * client that did not (an old tab, a script, the API). Stored history is what
+ * title generation and memory reflection later send to a model, so it must not
+ * hold what the composer would have removed. Masking a masked text is a no-op,
+ * and a batch with no user message pays nothing.
+ */
+async function screenedUserInputs<T extends { role: string; content: string; mentionNote?: string | null }>(
+  organizationId: string,
+  inputs: T[]
+): Promise<T[]> {
+  if (!inputs.some((input) => input.role === 'user')) return inputs
+  return Promise.all(
+    inputs.map(async (input) => {
+      if (input.role !== 'user') return input
+      const content = (await maskChatText(organizationId, input.content)).text
+      const mentionNote = input.mentionNote
+        ? (await maskChatText(organizationId, input.mentionNote)).text
+        : input.mentionNote
+      return mentionNote === undefined ? { ...input, content } : { ...input, content, mentionNote }
+    })
+  )
+}
+
 export async function createConversationMessages(
   session: AuthorizedSession,
   conversationId: string,
-  inputs: CreateMessageInput[]
+  unscreened: CreateMessageInput[]
 ): Promise<PersistedMessage[]> {
   const access = await requireResourceAccess(
     session,
@@ -980,6 +1014,7 @@ export async function createConversationMessages(
     conversationId,
     'collaborator'
   )
+  const inputs = await screenedUserInputs(session.organizationId, unscreened)
 
   // Shared-ness decides two things: whether anything fans out at all, and whether
   // a plain message can possibly be a remark rather than a question for Piloti
@@ -1302,9 +1337,12 @@ export async function persistInternalConversationMessages(
 ): Promise<Message[]> {
   const conversation = await findConversationInOrg(conversationId, organizationId)
   if (!conversation) throw new NotFoundError()
+  // A job's prompt arrives here as a user turn (`jobs/conversation_output.py`):
+  // stored masked like any other person's message.
+  const screened = await screenedUserInputs(organizationId, inputs)
 
   const rows = await insertMessages(
-    inputs.map((input) =>
+    screened.map((input) =>
       buildMessageRow(
         conversationId,
         // The backend posts its answer metadata in WIRE spelling (`sources`,

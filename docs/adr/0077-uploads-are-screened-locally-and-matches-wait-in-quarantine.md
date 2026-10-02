@@ -138,6 +138,117 @@ German, and explains each verdict.
   invoice or a payroll slip", which is what its own terms answer. Worth revisiting as an
   additional detector, not as the gate.
 
+## Amendment (2026-10-02): chat messages are screened too
+
+### Context
+
+The gates above screened files. What a person types or pastes into the chat
+went straight to the model and into the stored history: an IBAN in a question,
+a colleague's line with a social-security number in it, a typed answer to
+Piloti's question. The product promise does not stop at uploads.
+
+### Decision
+
+Chat text is screened against the **same policy**, with no new setting: the
+office's content terms and its detectors (`iban`, `at_svnr`, `credit_card`),
+never the name terms, which are for file and folder names and far too broad for
+prose. `enabled: false` switches chat screening off with the rest. No new
+detector (e-mail, phone, names): the product owner chose the office's list
+only.
+
+- **Mask, not refuse, and the person chooses.** Before a message leaves the
+  browser the composer says what it found (the office's term, or the kind of
+  number with a masked sample, never the value) and offers „Maskiert senden"
+  (each match replaced by its placeholder) or „Bearbeiten" (back to the editor,
+  text untouched). There is no "send unmasked": the promise is that the model
+  never sees it. A typed answer to Piloti's question is screened like a
+  question.
+- **Server backstop.** A client that skips the composer (an old tab, a script,
+  the API) gets the same result without being asked. The chat socket
+  (`aiq_api.chat_socket.ChatSocket._masked`) masks the text of every
+  `user_message`, `context_only` colleague lines included, and every typed
+  `interaction_response`, before the agent, its checkpoint or a relay replica
+  sees it. The BFF masks every user message it stores
+  (`createConversationMessages`, the internal persist route a job's prompt
+  arrives through) and the user turns it hands to the title model, because the
+  stored history is what title generation and memory reflection later send to a
+  model. The server never refuses a turn for a match.
+- **Placeholders** are domain data, in German, defined once in Python
+  (`aiq_agent.common.content_screen.PLACEHOLDERS`) and mirrored in TypeScript:
+  `[IBAN entfernt]`, `[SV-Nummer entfernt]`, `[Kartennummer entfernt]`,
+  `[Begriff entfernt]`. They are protected regions: no term or detector match
+  that overlaps one counts, so masking a masked text is a no-op, whatever the
+  office's list holds. Masking repeats to a fixpoint, because removing one
+  number can expose another its digits were hiding.
+- **One matcher.** The matching moved out of the knowledge layer into
+  `aiq_agent.common.content_screen` (folding, terms, detectors, spans, masks);
+  the ingest screen turns its spans into a verdict, the socket into a mask. The
+  chat socket could not import it where it was: anything under
+  `knowledge_layer.llamaindex` loads LlamaIndex and Chroma on import (five
+  seconds measured), and both consumers already import `aiq_agent.common`. The
+  browser runs a TypeScript twin (`lib/upload-screening/content-screen.ts`);
+  both read `tests/fixtures/content_screen_cases.json` and must produce the
+  same matches, masked text and findings for every case.
+- **How the policy reaches the socket: one read per connection.** The socket
+  asks `GET /api/internal/chat-screening` for the organization the BFF signed
+  into its envelope, once, and keeps the answer for its life; a policy change
+  applies from the next connection. Not a field in the signed envelope, which
+  was the first idea: the envelope is ONE header line, and the socket's
+  handshake parser (`websockets`, under uvicorn's `websockets-sansio`) refuses
+  any line over 8192 bytes. A policy may hold 200 terms of 80 characters, and
+  the envelope already carries the project context, memory and instructions; a
+  long list would have refused the upgrade, which is chat down.
+- **Fail closed, twice.** The BFF answers with Piloti's suggested list when it
+  cannot read the organization's settings, never with "off". The socket masks
+  with every detector and no term whenever it has no answer (no signed
+  organization, an older BFF without the route, an error), and asks again on
+  its next message. The composer uses the suggested list until the office's has
+  loaded.
+
+### Consequences
+
+* Good, because nothing a person types reaches a model or the stored history
+  with a checksum-valid IBAN, social-security or card number, or a term the
+  office named, on any path into a turn.
+* Good, because the person sees what was found and decides, instead of a
+  message silently changing.
+* Bad, because masking a term hides the word, not the figures around it:
+  „Honorarvereinbarung über 12.400 €" becomes „[Begriff entfernt] über
+  12.400 €". Rules see words and number shapes, not meaning; the user guide
+  says so.
+* Bad, because the stored copy of a message from a client that skipped the
+  composer differs from what that client shows locally until it reloads.
+* Neutral: prompts that reach a model by another door than the chat (a
+  scheduled task's instruction, a deep-research job submitted over the REST
+  API) are not screened by this change.
+
+### Why not NeMo Guardrails' sensitive-data rail
+
+Its `input` rail is exactly where a chat check would sit, which is why it was
+looked at again. In `nemoguardrails` 0.24.1 (the latest on PyPI, released
+2026-09-16, wheel sha256 `4fcfc9d9…31680f`),
+`library/sensitive_data_detection/actions.py` hard-codes `language="en"` in both
+`detect_sensitive_data` and `mask_sensitive_data`; `_get_analyzer` refuses to
+start without the spaCy model `en_core_web_lg`; the rail accepts only the
+`input`, `output` and `retrieval` sources, so it has no hook for ingestion; and
+per-tenant term lists would be one static `recognizers` entry in a deployment's
+`RailsConfig`, not an office's own list. The package also declares
+`Requires-Python >=3.10, <3.14`, and this repository runs 3.14. So the check sits
+where the rail would, in our own socket, with the office's list and German
+folding.
+
+### Confirmation
+
+* `tests/aiq_agent/common/test_content_screen.py` and
+  `frontends/ui/src/lib/upload-screening/content-screen.spec.ts` run every case
+  of the shared fixture, and assert that a masked text masks to itself.
+* `frontends/aiq_api/tests/test_chat_socket.py` asserts what the workflow, the
+  agent's history (`append_conversation_context`) and a resumed HITL turn
+  receive, and the detectors-only fallback.
+* `InputArea.screening.spec.tsx` asserts the notice, both buttons, and that
+  nothing is sent until one is pressed; `lib/conversations/service.spec.ts`
+  asserts the stored copy and what the title model receives.
+
 ## More Information
 
 * Evidence and the two NVIDIA evaluations: `plans/2026-10-01-upload-governance-worklog.md`.

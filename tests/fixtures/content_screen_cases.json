@@ -1,0 +1,517 @@
+{
+  "description": "Cross-language contract for the content screen (ADR-0077): the office's content terms and number detectors, found and masked. Python: aiq_agent.common.content_screen (tests/aiq_agent/common/test_content_screen.py). TypeScript: frontends/ui/src/lib/upload-screening/content-screen.ts (content-screen.spec.ts). For each case both assert the same matches (rule and matched text, in rule order then position: terms in list order, then iban, at_svnr, credit_card), the same masked text and the same findings, and that masking the masked text changes nothing. `matches` is a single pass over `text`; `masked` and `findings` are the result of masking to a fixpoint. Matched text, not offsets, is compared because Python counts code points and JavaScript UTF-16 units. `placeholders` is defined in Python (PLACEHOLDERS) and held here so the TS mirror cannot drift. There is ONE copy: the TS spec reads this file from disk at run time (vitest runs in frontends/ui with the whole repository checked out) rather than importing it, so the frontend typecheck never needs a path outside frontends/ui.",
+  "placeholders": {
+    "iban": "[IBAN entfernt]",
+    "at_svnr": "[SV-Nummer entfernt]",
+    "credit_card": "[Kartennummer entfernt]",
+    "term": "[Begriff entfernt]"
+  },
+  "cases": [
+    {
+      "name": "an IBAN as it is printed, in groups of four",
+      "terms": [],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "Bitte überweise an AT61 1904 3002 3457 3201",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        }
+      ],
+      "masked": "Bitte überweise an [IBAN entfernt]",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 1,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "an unbroken IBAN keeps the full stop after it",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "IBAN AT611904300234573201.",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT611904300234573201"
+        }
+      ],
+      "masked": "IBAN [IBAN entfernt].",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 1,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "a group of letters after an IBAN is not part of it",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "DE89 3704 0044 0532 0130 00 EUR bis Freitag",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "DE89 3704 0044 0532 0130 00"
+        }
+      ],
+      "masked": "[IBAN entfernt] EUR bis Freitag",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 1,
+          "sample": "DE89 •••• •••• •••• •••• 3000"
+        }
+      ]
+    },
+    {
+      "name": "an IBAN with a wrong check is not one",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "AT61 1904 3002 3457 3202",
+      "matches": [],
+      "masked": "AT61 1904 3002 3457 3202",
+      "findings": []
+    },
+    {
+      "name": "an IBAN in lower case is not printed that way and is left",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "at61 1904 3002 3457 3201",
+      "matches": [],
+      "masked": "at61 1904 3002 3457 3201",
+      "findings": []
+    },
+    {
+      "name": "a social-security number with a valid check digit",
+      "terms": [],
+      "detectors": [
+        "at_svnr"
+      ],
+      "text": "SVNR 1237 010180 bitte eintragen",
+      "matches": [
+        {
+          "kind": "at_svnr",
+          "text": "1237 010180"
+        }
+      ],
+      "masked": "SVNR [SV-Nummer entfernt] bitte eintragen",
+      "findings": [
+        {
+          "kind": "at_svnr",
+          "count": 1,
+          "sample": "•••• ••••80"
+        }
+      ]
+    },
+    {
+      "name": "a social-security number with a wrong check digit is left",
+      "terms": [],
+      "detectors": [
+        "at_svnr"
+      ],
+      "text": "Nummer 1238 010180",
+      "matches": [],
+      "masked": "Nummer 1238 010180",
+      "findings": []
+    },
+    {
+      "name": "a ten-digit run that only looks like one is left",
+      "terms": [],
+      "detectors": [
+        "at_svnr"
+      ],
+      "text": "Auftrag 91237010180",
+      "matches": [],
+      "masked": "Auftrag 91237010180",
+      "findings": []
+    },
+    {
+      "name": "a Luhn-valid card number with hyphens",
+      "terms": [],
+      "detectors": [
+        "credit_card"
+      ],
+      "text": "Karte 4111-1111-1111-1111, gültig bis 12/27",
+      "matches": [
+        {
+          "kind": "credit_card",
+          "text": "4111-1111-1111-1111"
+        }
+      ],
+      "masked": "Karte [Kartennummer entfernt], gültig bis 12/27",
+      "findings": [
+        {
+          "kind": "credit_card",
+          "count": 1,
+          "sample": "•••• 1111"
+        }
+      ]
+    },
+    {
+      "name": "a card number that fails Luhn is left",
+      "terms": [],
+      "detectors": [
+        "credit_card"
+      ],
+      "text": "Karte 4111 1111 1111 1112",
+      "matches": [],
+      "masked": "Karte 4111 1111 1111 1112",
+      "findings": []
+    },
+    {
+      "name": "a card printed right after an IBAN is found once the IBAN is masked",
+      "terms": [],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "AT61 1904 3002 3457 3201 4111 1111 1111 1111",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        }
+      ],
+      "masked": "[IBAN entfernt] [Kartennummer entfernt]",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 1,
+          "sample": "AT61 •••• •••• •••• 3201"
+        },
+        {
+          "kind": "credit_card",
+          "count": 1,
+          "sample": "•••• 1111"
+        }
+      ]
+    },
+    {
+      "name": "a term in capitals and transliterated",
+      "terms": [
+        "Gehaltsübersicht"
+      ],
+      "detectors": [],
+      "text": "Anbei die GEHALTSUEBERSICHT für März",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "Gehaltsübersicht",
+          "text": "GEHALTSUEBERSICHT"
+        }
+      ],
+      "masked": "Anbei die [Begriff entfernt] für März",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "Gehaltsübersicht",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "a decomposed umlaut folds like the composed one and the word is masked whole",
+      "terms": [
+        "Gehalt"
+      ],
+      "detectors": [],
+      "text": "Die Gehaltsübersicht liegt bei",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "Gehalt",
+          "text": "Gehaltsübersicht"
+        }
+      ],
+      "masked": "Die [Begriff entfernt] liegt bei",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "Gehalt",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "a term masks the compound it starts, not the figures around it",
+      "terms": [
+        "Honorar"
+      ],
+      "detectors": [],
+      "text": "Die Honorarvereinbarung vom Mai: 12.400 € netto",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "Honorar",
+          "text": "Honorarvereinbarung"
+        }
+      ],
+      "masked": "Die [Begriff entfernt] vom Mai: 12.400 € netto",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "Honorar",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "a term inside another word is left",
+      "terms": [
+        "Honorar"
+      ],
+      "detectors": [],
+      "text": "Das Ehrenhonorar entfällt",
+      "matches": [],
+      "masked": "Das Ehrenhonorar entfällt",
+      "findings": []
+    },
+    {
+      "name": "a two-word term matches across a line break",
+      "terms": [
+        "streng vertraulich"
+      ],
+      "detectors": [],
+      "text": "STRENG\nvertraulich! Nicht weitergeben.",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "streng vertraulich",
+          "text": "STRENG\nvertraulich"
+        }
+      ],
+      "masked": "[Begriff entfernt]! Nicht weitergeben.",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "streng vertraulich",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "eszett and ss are one spelling",
+      "terms": [
+        "Musterstraße"
+      ],
+      "detectors": [],
+      "text": "Wohnhaft Musterstrasse 5",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "Musterstraße",
+          "text": "Musterstrasse"
+        }
+      ],
+      "masked": "Wohnhaft [Begriff entfernt] 5",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "Musterstraße",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "a term is a literal, not a pattern",
+      "terms": [
+        "a.b"
+      ],
+      "detectors": [],
+      "text": "Variante axb und a.b",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "a.b",
+          "text": "a.b"
+        }
+      ],
+      "masked": "Variante axb und [Begriff entfernt]",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "a.b",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "placeholders are never masked again, whatever the list holds",
+      "terms": [
+        "IBAN",
+        "Begriff",
+        "Kartennummer",
+        "SV-Nummer",
+        "entfernt"
+      ],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "Bitte an [IBAN entfernt], Karte [Kartennummer entfernt], [SV-Nummer entfernt], [Begriff entfernt]",
+      "matches": [],
+      "masked": "Bitte an [IBAN entfernt], Karte [Kartennummer entfernt], [SV-Nummer entfernt], [Begriff entfernt]",
+      "findings": []
+    },
+    {
+      "name": "a term and a detector in one message",
+      "terms": [
+        "IBAN"
+      ],
+      "detectors": [
+        "iban"
+      ],
+      "text": "Unsere IBAN: AT61 1904 3002 3457 3201, danke",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "IBAN",
+          "text": "IBAN"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        }
+      ],
+      "masked": "Unsere [Begriff entfernt]: [IBAN entfernt], danke",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "IBAN",
+          "count": 1
+        },
+        {
+          "kind": "iban",
+          "count": 1,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "an overlapping term and number are one placeholder",
+      "terms": [
+        "AT61"
+      ],
+      "detectors": [
+        "iban"
+      ],
+      "text": "Konto AT61 1904 3002 3457 3201",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "AT61",
+          "text": "AT61"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        }
+      ],
+      "masked": "Konto [IBAN entfernt]",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "AT61",
+          "count": 1
+        },
+        {
+          "kind": "iban",
+          "count": 1,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "every occurrence is counted and the first sample reported",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "Alt: AT61 1904 3002 3457 3201, neu: DE89 3704 0044 0532 0130 00",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        },
+        {
+          "kind": "iban",
+          "text": "DE89 3704 0044 0532 0130 00"
+        }
+      ],
+      "masked": "Alt: [IBAN entfernt], neu: [IBAN entfernt]",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 2,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "a character outside the basic plane before a match",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "👷 Bauherr zahlt an AT61 1904 3002 3457 3201",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        }
+      ],
+      "masked": "👷 Bauherr zahlt an [IBAN entfernt]",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 1,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "clean text is unchanged",
+      "terms": [
+        "Gehalt"
+      ],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "Fluchtweglänge 40 m, Brandabschnitt 1200 m², Bestellnummer 4111 1111",
+      "matches": [],
+      "masked": "Fluchtweglänge 40 m, Brandabschnitt 1200 m², Bestellnummer 4111 1111",
+      "findings": []
+    },
+    {
+      "name": "a detector not switched on is not run",
+      "terms": [
+        "Gehalt"
+      ],
+      "detectors": [],
+      "text": "AT61 1904 3002 3457 3201 und 1237 010180",
+      "matches": [],
+      "masked": "AT61 1904 3002 3457 3201 und 1237 010180",
+      "findings": []
+    }
+  ]
+}

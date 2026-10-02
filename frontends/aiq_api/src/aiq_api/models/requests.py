@@ -9,7 +9,7 @@ from pydantic import Field
 from pydantic import field_validator
 
 #: Bounds of an office's screening terms. The ingest job applies the same ones
-#: (``knowledge_layer.llamaindex.screening``) to whatever reaches it.
+#: (``aiq_agent.common.content_screen``) to whatever reaches it.
 SCREENING_MAX_TERMS = 200
 SCREENING_MIN_TERM_CHARS = 2
 SCREENING_MAX_TERM_CHARS = 80

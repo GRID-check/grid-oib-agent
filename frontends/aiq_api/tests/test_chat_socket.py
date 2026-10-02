@@ -27,6 +27,7 @@ import pytest_asyncio
 from starlette.datastructures import QueryParams
 from starlette.websockets import WebSocketDisconnect
 
+from aiq_agent.common.content_screen import ScreeningRules
 from aiq_agent.common.human_prompt import build_human_prompt
 from aiq_agent.common.human_prompt import extract_user_response
 from aiq_agent.common.wire_v2 import HELLO
@@ -44,6 +45,7 @@ from aiq_agent.common.wire_v2 import TurnResult
 from aiq_agent.common.wire_v2 import WireSource
 from aiq_agent.turn.response import answer_message_id
 from aiq_api import chat_socket
+from aiq_api import internal_api as chat_socket_internal
 from aiq_api.auth.errors import AuthError
 from aiq_api.chat_socket import ChatRegistry
 from aiq_api.chat_socket import ChatSocket
@@ -55,6 +57,7 @@ from aiq_api.chat_socket import turn_row_metadata
 from aiq_api.conversation_bus import ConversationBus
 from aiq_api.conversation_bus import force_multi_replica_for_tests
 from aiq_api.conversation_bus import reset_bus_for_tests
+from aiq_api.internal_api import ChatScreening
 from nat.plugin_api import InteractionPrompt
 
 CONV = "conv-1"
@@ -1418,3 +1421,153 @@ async def test_an_open_scope_asks_nobody(harness, confinement):
     await until(lambda: _last(sock) == "RUN_FINISHED")
 
     assert confinement.asked == []
+
+
+# ---------------------------------------------------------------------------
+# What may reach the model: the office's chat screening (ADR-0077)
+# ---------------------------------------------------------------------------
+
+_IBAN = "AT61 1904 3002 3457 3201"
+
+
+def _office_envelope() -> list[tuple[bytes, bytes]]:
+    return _envelope({"organizationId": "org_1", "userId": "user_asker", "conversationId": CONV})
+
+
+class OfficeScreening:
+    """The BFF's answer for the office's chat screening, and every organization it was asked for."""
+
+    def __init__(self, screening: ChatScreening) -> None:
+        self.screening = screening
+        self.asked: list[str | None] = []
+
+    async def __call__(self, organization_id: str | None) -> ChatScreening:
+        self.asked.append(organization_id)
+        return self.screening
+
+
+@pytest.fixture
+def office(monkeypatch) -> OfficeScreening:
+    rules = ScreeningRules.build(["Gehaltsabrechnung"], ["iban", "at_svnr", "credit_card"])
+    screening = OfficeScreening(ChatScreening(rules=rules, from_office=True))
+    monkeypatch.setattr(chat_socket, "chat_screening_for", screening)
+    return screening
+
+
+def _recording(seen: list[str]):
+    async def turn(request, ask):
+        seen.append(request.text)
+        yield _finished(request, text="ok")
+
+    return turn
+
+
+async def test_a_question_reaches_the_agent_masked(harness, office):
+    seen: list[str] = []
+    h = harness(_recording(seen))
+    sock = h.connect(headers=_office_envelope())
+
+    sock.client(type="user_message", message_id="t1", text=f"Gehaltsabrechnung für Anna, IBAN {_IBAN}")
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    # What the workflow ran on is the turn's input, and so what its checkpoint keeps.
+    assert seen == ["[Begriff entfernt] für Anna, IBAN [IBAN entfernt]"]
+    assert office.asked == ["org_1"]  # the SIGNED organization's policy
+
+
+async def test_a_colleague_s_line_is_masked_before_the_agent_s_history_keeps_it(harness, office, monkeypatch):
+    stored: list[tuple[str, str]] = []
+
+    async def append(thread_id, text):
+        stored.append((thread_id, text))
+        return True
+
+    monkeypatch.setattr(chat_socket, "append_conversation_context", append)
+    sock = harness().connect(headers=_office_envelope())
+
+    sock.client(type="user_message", message_id="t1", text=f"Konto {_IBAN}", context_only=True, author_name="X")
+    await until(lambda: stored)
+
+    assert stored == [(CONV, "Anna Asker: Konto [IBAN entfernt]")]
+
+
+async def test_a_typed_answer_reaches_the_turn_masked_and_a_chosen_option_untouched(harness, office):
+    answers: list[str] = []
+
+    async def asking_free_text(request, ask):
+        prompt = InteractionPrompt(id="ask_01", timestamp="2026-10-02T10:00:00Z", content=build_human_prompt("Konto?"))
+        answers.append(extract_user_response(SimpleNamespace(content=await ask(prompt))))
+        yield _finished(request, text="ok")
+
+    h = harness(asking_free_text)
+    sock = h.connect(headers=_office_envelope())
+
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: "interaction_request" in _types(sock.events()))
+    sock.client(type="interaction_response", turn_id="t1", interaction_id="ask_01", answer={"text": f"Es ist {_IBAN}"})
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert answers == ["Es ist [IBAN entfernt]"]
+
+
+async def test_a_masked_question_is_masked_once(harness, office):
+    seen: list[str] = []
+    h = harness(_recording(seen))
+    sock = h.connect(headers=_office_envelope())
+
+    sock.client(type="user_message", message_id="t1", text="Bitte überweise an [IBAN entfernt]")
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert seen == ["Bitte überweise an [IBAN entfernt]"]
+
+
+async def test_without_the_office_s_policy_every_detector_applies_and_no_term(harness, monkeypatch):
+    """Fail closed: no organization to ask (off the BFF), or a BFF that cannot answer."""
+    monkeypatch.delenv("FRONTEND_INTERNAL_URL", raising=False)
+    monkeypatch.delenv("FRONTEND_URL", raising=False)
+    seen: list[str] = []
+    h = harness(_recording(seen))
+    sock = h.connect(headers=_office_envelope())
+
+    sock.client(type="user_message", message_id="t1", text=f"Gehaltsabrechnung, {_IBAN}, 1237 010180")
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert seen == ["Gehaltsabrechnung, [IBAN entfernt], [SV-Nummer entfernt]"]
+
+
+async def test_the_fallback_is_asked_again_and_the_office_s_answer_is_kept(harness, monkeypatch):
+    rules = ScreeningRules.build(["Gehaltsabrechnung"], [])
+    answers = [chat_socket_internal.CHAT_SCREENING_FALLBACK, ChatScreening(rules=rules, from_office=True)]
+    asked: list[str | None] = []
+
+    async def screening_for(organization_id):
+        asked.append(organization_id)
+        return answers[min(len(asked), len(answers)) - 1]
+
+    monkeypatch.setattr(chat_socket, "chat_screening_for", screening_for)
+    seen: list[str] = []
+    h = harness(_recording(seen))
+    sock = h.connect(headers=_office_envelope())
+
+    for turn_id in ("t1", "t2", "t3"):
+        sock.client(type="user_message", message_id=turn_id, text=f"Gehaltsabrechnung {_IBAN}")
+        await until(lambda turn_id=turn_id: _last(sock, turn_id) == "RUN_FINISHED")
+
+    assert seen == [
+        "Gehaltsabrechnung [IBAN entfernt]",  # every detector, no term
+        "[Begriff entfernt] AT61 1904 3002 3457 3201",  # the office's own list: a term, no detector
+        "[Begriff entfernt] AT61 1904 3002 3457 3201",
+    ]
+    assert asked == ["org_1", "org_1"]  # the office's answer is kept for the socket's life
+
+
+async def test_an_office_that_switched_screening_off_is_not_masked(harness, monkeypatch):
+    monkeypatch.setattr(chat_socket, "chat_screening_for", OfficeScreening(ChatScreening(rules=None, from_office=True)))
+    seen: list[str] = []
+    h = harness(_recording(seen))
+    sock = h.connect(headers=_office_envelope())
+
+    sock.client(type="user_message", message_id="t1", text=f"IBAN {_IBAN}")
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert seen == [f"IBAN {_IBAN}"]

@@ -40,6 +40,29 @@ can be switched off.
 What Piloti drops on its own: system files a folder carries along, such as
 `.DS_Store`, `Thumbs.db` and Office lock files (`~$Vertrag.docx`).
 
+## Chat messages
+
+The **content terms and number checks** apply to what people type into the chat
+as well; the file-name terms do not. When a message contains one, the composer
+does not send it. It says what it found, for example „Enthält eine IBAN
+(Sensible Daten). Piloti sendet sie nicht an das Modell.", and offers two
+choices:
+
+- **Maskiert senden** sends the message with each match replaced, so Piloti
+  reads „Bitte überweise an [IBAN entfernt]". The placeholders are
+  `[IBAN entfernt]`, `[SV-Nummer entfernt]`, `[Kartennummer entfernt]` and
+  `[Begriff entfernt]`.
+- **Bearbeiten** sends nothing and leaves the text as you typed it.
+
+There is no way to send the message unmasked. An answer to a question Piloti
+asked is checked the same way, and so are messages to colleagues in a shared
+chat. A message that reaches Piloti some other way is masked on the server
+without asking, and the stored chat keeps the masked text.
+
+Masking a term hides the word, not what stands around it: „Honorarvereinbarung
+über 12.400 €" becomes „[Begriff entfernt] über 12.400 €". A change to the list
+applies to an open chat once the page is reloaded.
+
 ## The quarantine
 
 **Organisation → Quarantäne.** A quarantined file shows which terms or checks
