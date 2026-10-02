@@ -21,7 +21,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Document, DocumentVersion } from '@/lib/db/schema'
-import { makeDocument } from '@/test-utils/db-fixtures'
+import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { AUDIT_ACTIONS } from '@/lib/audit/schemas.mjs'
 
@@ -104,6 +104,13 @@ vi.mock('./version-content', () => ({
   writeVersionContent: vi.fn(),
 }))
 vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
+// The restricted-folder refusal (ADR-0078) is decided in `restricted-egress.ts`
+// and pinned in its own spec; here only the join is under test.
+vi.mock('@/lib/conversations/restricted-egress', () => ({ requireMayFileFrom: vi.fn() }))
+vi.mock('@/lib/projects/repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/projects/repository')>()),
+  findProjectInOrg: vi.fn(),
+}))
 vi.mock('@/lib/s3', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/s3')>()),
   s3Client: { send: vi.fn() },
@@ -1205,6 +1212,40 @@ describe('replaceVersionContent', () => {
     // `update` is an `either` row, so nothing is refused today — which is
     // exactly why the flag has to arrive: the door is the `actor` field, and a
     // caller that lies about who it is bypasses it the moment a row changes.
+    expect(writeVersionContent).toHaveBeenCalled()
+  })
+
+  it('asks the restricted-folder refusal about the document’s own folder before rendering (ADR-0078)', async () => {
+    const { requireMayFileFrom } = await import('@/lib/conversations/restricted-egress')
+    const { findProjectInOrg } = await import('@/lib/projects/repository')
+    const { ConversationConfinedError } = await import('@/lib/api/errors')
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+    vi.mocked(getAccessibleDocument).mockResolvedValue({ ...document, folderId: 'folder_open' })
+    vi.mocked(findProjectInOrg).mockResolvedValue(makeProject({ id: 'proj_1', collectionName: 'proj_abc' }))
+    vi.mocked(requireMayFileFrom).mockRejectedValueOnce(new ConversationConfinedError('filing', 'nein'))
+    const origin = { conversationId: 's_conv_1', signedRestrictedCollections: ['proj_abc_r0123456789ab'], locale: 'de' as const }
+
+    await expect(
+      replaceVersionContent(session, 'doc_1', 'ver_1', 'Honorar 48.000', 'sha256:abc', { actingHuman: false, origin }),
+    ).rejects.toBeInstanceOf(ConversationConfinedError)
+
+    expect(requireMayFileFrom).toHaveBeenCalledWith(origin, {
+      organizationId: 'org_1',
+      projectId: 'proj_1',
+      projectCollection: 'proj_abc',
+      folderId: 'folder_open',
+    })
+    expect(renderVersionBytes).not.toHaveBeenCalled()
+    expect(writeVersionContent).not.toHaveBeenCalled()
+  })
+
+  it('asks nothing for a person’s own edit, which names no conversation', async () => {
+    const { requireMayFileFrom } = await import('@/lib/conversations/restricted-egress')
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+
+    await replaceVersionContent(session, 'doc_1', 'ver_1', 'neu', 'sha256:abc')
+
+    expect(requireMayFileFrom).not.toHaveBeenCalled()
     expect(writeVersionContent).toHaveBeenCalled()
   })
 

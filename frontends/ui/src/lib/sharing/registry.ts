@@ -31,12 +31,10 @@ import {
   conversationIdsExisting,
   findConversationInOrg,
   findConversationTenancy,
-  hasRestrictedTurn,
   listConversationIdsForProject,
-  listRestrictedAnswerCollections,
   updateConversationVisibilityInOrg,
 } from '@/lib/conversations/repository'
-import { restrictedCollectionBase } from '@/lib/authz/folder-access'
+import { isConversationConfined } from '@/lib/conversations/restricted-egress'
 import {
   documentIdsExisting,
   findDocumentTenancy,
@@ -190,12 +188,10 @@ const conversationDescriptor: ShareableDescriptor = {
   // is refused too. Stored sources naming a restricted collection are the second
   // signal, for answers written before the mark existed. The scope builder keeps
   // restricted collections out of any thread that is already shared, so the
-  // order "share, then ask" cannot get around it.
-  confinedToOwner: async (resourceId, organizationId) =>
-    (await hasRestrictedTurn(resourceId, organizationId)) ||
-    (await listRestrictedAnswerCollections(resourceId, organizationId)).some(
-      (collection) => restrictedCollectionBase(collection) !== null
-    ),
+  // order "share, then ask" cannot get around it. The same predicate refuses a
+  // run, a task, a profile patch or a filing out of the thread
+  // (`restricted-egress.ts`).
+  confinedToOwner: (resourceId, organizationId) => isConversationConfined(resourceId, organizationId),
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
     // `?session=` — the parameter the chat surface ALREADY reads (`useSessionUrl`).

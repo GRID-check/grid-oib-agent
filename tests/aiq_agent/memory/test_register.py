@@ -438,3 +438,26 @@ async def test_an_open_scope_still_records(monkeypatch):
     assert await _remember(monkeypatch, insert) == "Recorded derived_fact in project memory."
     insert.assert_called_once()
     assert insert.call_args.kwargs["restricted_collections"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_restricted_note_an_earlier_turn_was_shown_still_restricts(monkeypatch):
+    """ADR-0078: the note is gone from this turn's digest and no restricted row is
+    listable; what earlier turns were shown (bound by `turn_registries`) is still
+    evidence, and a copy of it is restricted to the note's own collection."""
+    from aiq_agent.memory.restriction import RestrictedNote
+    from aiq_agent.memory.shown_notes import ShownNotes
+    from aiq_agent.memory.shown_notes import bind_shown_notes
+    from aiq_agent.memory.shown_notes import unbind_shown_notes
+
+    _patch_context(monkeypatch)
+    _patch_scope(monkeypatch, _RESTRICTED_SCOPE)
+    # The judge answers "nothing": only the deterministic copy check can restrict.
+    _patch_turn(monkeypatch, rows=({"collection": "proj_abc", "file_name": "Plan.pdf"},), judge=_Judge([]))
+    token = bind_shown_notes(ShownNotes(notes=(RestrictedNote("Honorar pauschal 184.000 EUR netto", (_RESTRICTED,)),)))
+    try:
+        insert = MagicMock(return_value="item-1")
+        await _remember(monkeypatch, insert, content="Honorar pauschal 184.000 EUR netto")
+    finally:
+        unbind_shown_notes(token)
+    assert insert.call_args.kwargs["restricted_collections"] == (_RESTRICTED,)

@@ -14,6 +14,7 @@ import {
   getRestrictedFolderIds,
   isRestrictedCollectionOf,
   restrictedCollectionName,
+  restrictedCollectionsOnPath,
   type AccessFolder,
 } from './folder-access'
 import { listProjectFolderTree, projectHasRestrictedFolders } from './folder-access-repository'
@@ -152,5 +153,34 @@ describe('getRestrictedFolderIds — the answer for a caller with no session', (
     vi.mocked(projectHasRestrictedFolders).mockResolvedValue(false)
     expect(await getRestrictedFolderIds('org-1', 'proj-1')).toEqual([])
     expect(listProjectFolderTree).not.toHaveBeenCalled()
+  })
+})
+
+describe('restrictedCollectionsOnPath — what a reader of a folder is cleared for (ADR-0078)', () => {
+  const vertraege = restrictedCollectionName(COLLECTION, F.vertraege)
+  const honorare = restrictedCollectionName(COLLECTION, F.honorare)
+
+  it('lists every restricted folder from the folder up to the root, itself included', () => {
+    expect(restrictedCollectionsOnPath(TREE, COLLECTION, F.honorare)).toEqual([honorare, vertraege])
+    expect(restrictedCollectionsOnPath(TREE, COLLECTION, F.vertraege)).toEqual([vertraege])
+  })
+
+  it('lists nothing for an open folder, the root and an unknown id', () => {
+    expect(restrictedCollectionsOnPath(TREE, COLLECTION, F.verwaltung)).toEqual([])
+    expect(restrictedCollectionsOnPath(TREE, COLLECTION, F.plaene)).toEqual([])
+    expect(restrictedCollectionsOnPath(TREE, COLLECTION, null)).toEqual([])
+    expect(restrictedCollectionsOnPath(TREE, COLLECTION, '99999999-aaaa-4bbb-8ccc-000000000009')).toEqual([])
+  })
+
+  it('agrees with the clearance rule: whoever sees the folder is cleared for every collection it lists', () => {
+    for (const roles of [['org-projektleitung'], ['org-geschaeftsfuehrung'], ['member']]) {
+      const access = as(roles)
+      for (const folder of TREE) {
+        if (!access.isVisible(folder.id)) continue
+        for (const collection of restrictedCollectionsOnPath(TREE, COLLECTION, folder.id)) {
+          expect(access.clearedRestrictedCollections).toContain(collection)
+        }
+      }
+    }
   })
 })

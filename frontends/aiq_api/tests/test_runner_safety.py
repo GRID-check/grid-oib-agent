@@ -1036,15 +1036,25 @@ class TestTheFindingsRideIntoMemory:
         assert _reflection_text("Bericht.", {"items": []}) == "Bericht."
 
 
-class TestReportReflectionOverRestrictedScope:
-    """ADR-0078: a run whose scope held a restricted folder's collection writes no project memory.
+class TestReportReflectionHasNoScopeCheck:
+    """ADR-0078: a run's reflection takes no scope, because a check on it could never fire.
 
-    The BFF keeps restricted collections out of every research scope, so this
-    is the second layer: should one arrive, the report may carry restricted
-    content and project memory is read by people the restriction excludes.
+    The BFF signs restricted collections only into an interactive chat scope, and
+    refuses to commission a run from a conversation that drew on a restricted
+    folder (``restricted-egress.ts``). The guard that stood here read the job's
+    scope, which never held one; it is gone, and this pins that the parameter
+    went with it, so nobody re-adds a check that reads like protection.
     """
 
-    async def _reflect(self, monkeypatch, scope):
+    def test_the_reflection_takes_no_collection_scope(self) -> None:
+        import inspect
+
+        from aiq_api.jobs import runner
+
+        assert "collection_scope" not in inspect.signature(runner._run_deep_research_reflection).parameters
+
+    @pytest.mark.asyncio
+    async def test_a_report_still_reflects(self, monkeypatch) -> None:
         from aiq_agent import common
         from aiq_api.jobs import runner
 
@@ -1061,16 +1071,5 @@ class TestReportReflectionOverRestrictedScope:
             memory_digest=None,
             org_credential=None,
             model_overrides=None,
-            collection_scope=scope,
         )
-        return get_llm
-
-    @pytest.mark.asyncio
-    async def test_a_restricted_scope_never_reaches_the_reflection_model(self, monkeypatch) -> None:
-        get_llm = await self._reflect(monkeypatch, ["oib_knowledge", "proj_abc", "proj_abc_r0123456789ab"])
-        get_llm.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_an_open_scope_still_reflects(self, monkeypatch) -> None:
-        get_llm = await self._reflect(monkeypatch, ["oib_knowledge", "proj_abc"])
         get_llm.assert_called_once()

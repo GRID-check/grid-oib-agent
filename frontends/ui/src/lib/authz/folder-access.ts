@@ -238,6 +238,48 @@ export async function placementCollectionFor(
 }
 
 /**
+ * The collections of every restricted folder on `folderId`'s path, itself
+ * included: what a member must be cleared for to see a document filed there.
+ *
+ * Clearance for a folder is a role for EVERY restricted folder on its path
+ * (`computeFolderAccess`), and clearance for a restricted collection is
+ * clearance for its folder, whose path is a prefix of this one. So anyone who
+ * can read a document in `folderId` is cleared for each collection listed here,
+ * and content drawn from those collections, and from no others, reaches nobody
+ * new when it is filed there (`lib/conversations/restricted-egress.ts`). A root
+ * folder, or an unknown id, lists nothing: it is open.
+ */
+export function restrictedCollectionsOnPath(
+  folders: readonly AccessFolder[],
+  projectCollection: string,
+  folderId: string | null
+): string[] {
+  const byId = new Map(folders.map((folder) => [folder.id, folder]))
+  const collections: string[] = []
+  const seen = new Set<string>()
+  for (let current = folderId ? byId.get(folderId) : undefined; current && !seen.has(current.id); ) {
+    seen.add(current.id)
+    if (current.restrictedRoles && current.restrictedRoles.length > 0) {
+      collections.push(restrictedCollectionName(projectCollection, current.id))
+    }
+    current = current.parentId ? byId.get(current.parentId) : undefined
+  }
+  return collections
+}
+
+/** {@link restrictedCollectionsOnPath} for a stored folder; one probe for a project that restricts nothing. */
+export async function restrictedCollectionsAbove(
+  organizationId: string,
+  projectId: string,
+  projectCollection: string,
+  folderId: string | null
+): Promise<string[]> {
+  if (folderId === null || !(await projectHasRestrictedFolders(organizationId, projectId))) return []
+  const folders = await listProjectFolderTree(organizationId, projectId)
+  return restrictedCollectionsOnPath(folders, projectCollection, folderId)
+}
+
+/**
  * Every CURRENT restricted collection of a project, whoever asks: what a stored
  * restriction (a memory item, ADR-0078) is validated and served against. A
  * collection missing from this list belongs to a restriction that was lifted or

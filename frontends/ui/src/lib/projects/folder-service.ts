@@ -175,6 +175,22 @@ export async function createProjectFolder(
 }
 
 /**
+ * The root folder of this name, or null; never creates it. For a caller that
+ * must decide about the destination before anything exists (the restricted-
+ * folder filing check, `lib/conversations/restricted-egress.ts`). Like
+ * {@link getOrCreateProjectFolderByName} it does not authorize.
+ */
+export async function findRootProjectFolderByName(projectId: string, name: string): Promise<FolderRow | null> {
+  const db = getDb()
+  const [row] = await db
+    .select()
+    .from(projectFolders)
+    .where(and(eq(projectFolders.projectId, projectId), isNull(projectFolders.parentId), eq(projectFolders.name, name)))
+    .limit(1)
+  return row ? toFolderRow(row) : null
+}
+
+/**
  * The project's root folder with this name, creating it on first use.
  *
  * ## Why it catches a unique violation instead of trusting the lookup
@@ -204,20 +220,7 @@ export async function getOrCreateProjectFolderByName(
   name: string,
 ): Promise<FolderRow> {
   const db = getDb()
-  const find = async (): Promise<FolderRow | null> => {
-    const [row] = await db
-      .select()
-      .from(projectFolders)
-      .where(
-        and(
-          eq(projectFolders.projectId, projectId),
-          isNull(projectFolders.parentId),
-          eq(projectFolders.name, name),
-        ),
-      )
-      .limit(1)
-    return row ? toFolderRow(row) : null
-  }
+  const find = (): Promise<FolderRow | null> => findRootProjectFolderByName(projectId, name)
 
   const existing = await find()
   if (existing) return existing

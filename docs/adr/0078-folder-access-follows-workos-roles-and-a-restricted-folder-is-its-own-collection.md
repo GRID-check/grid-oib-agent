@@ -107,6 +107,40 @@ scope carries a restricted collection gets an uncached context built for its
 session. A generated document filed into a restricted folder is indexed into
 that folder's collection.
 
+**Escalated** means every door that writes something the whole project reads,
+and each refuses at the BFF service a client cannot route around, with a typed
+403 (`CONVERSATION_CONFINED`, `details.action`) whose sentence says why
+(`lib/conversations/restricted-egress.ts`, German and English in
+`errors.confinement`). A conversation counts as confined when the share refusal
+would say so (`isConversationConfined`: the mark, or a stored answer that cites
+or read a restricted collection), and a call carrying the turn's verified
+envelope is also refused on the envelope's own restricted collections:
+
+- a deep-research run (`commissionResearchRun`, from the agent's
+  `POST /api/internal/tasks` and the UI's `POST /api/projects/[id]/runs`): its
+  question and context are model-written with restricted content in front of
+  the model, its job gets an open scope and digest, and its title, plan and
+  report are listed to every member;
+- a task (`delegateTask`), for the same reason;
+- a `project_profile_patch` accepted from such a thread
+  (`POST /api/projects/[id]/profile/patches` with the card's `conversationId`):
+  the profile is read by every member and every chat;
+- a filing (`fileGeneratedDocument` for drafts and diagrams, and the agent
+  rewriting a draft's content): allowed only into a folder whose path carries
+  every current restricted collection of the project, so that whoever can open
+  the document is cleared for everything the thread could have drawn on.
+  Generated documents go to the root folder „Berichte", so in practice this
+  refuses unless „Berichte" is itself the project's one restricted folder.
+
+The agent does not offer what will be refused: a turn whose signed scope holds a
+restricted collection withdraws deep research and tasks for the turn, its
+prompt names the shut doors and the reason, the one validator of model-composed
+cards refuses a `project_profile_patch`, and a commission the BFF refuses as
+confined is answered with that reason and never run in process. The job
+runner's reflection carries no restricted-scope check: a run's scope is never
+restricted, so such a check could not fire, and the input that could carry
+restricted content is refused where the run is commissioned.
+
 **Memory from a restricted turn is restricted memory** (product owner,
 2026-10-02: Piloti should remember as it always does; restricted must not feel
 like amnesia). A memory written in a turn whose scope holds restricted
@@ -117,10 +151,19 @@ session cleared for all of them is ever served it or shown it. Which collections
   and the citation registry of its earlier turns.
 - A restricted document the turn could list (the inventory block or
   `list_files`) but did not read goes to a model judge, with its name and
-  summary. The judge also sees any restricted memory the prompt carried; a note
-  drawing on one of those is restricted to every restricted collection in
-  scope, because a digest line does not say which folder it came from. Without
-  that, a paraphrase of a restricted note would be stored as open memory.
+  summary. The judge also sees the restricted memory the conversation was
+  shown: this turn's digest lines and restricted writes, and the lines earlier
+  turns were shown (`memory/shown_notes.py`, kept per conversation beside the
+  citation registry, because the digest is re-ranked per turn and capped at
+  1,800 characters). A note drawing on one of those is restricted to the
+  restricted collections of the scope that line was shown under, because a
+  digest line does not say which folder it came from. Without that, a
+  paraphrase of a restricted note would be stored as open memory.
+- Before the judge, and whatever it answers, a note whose normalized text
+  substantially reproduces a restricted line is restricted to that line's
+  collections (`restriction.reproduces`: containment either way with at least
+  three significant tokens, or at least 60 % of the line's significant tokens
+  repeated).
 - Every failure fails closed to every restricted collection in scope: no judge
   model, a timeout, a reply that does not parse strictly, an unknown inventory,
   more than 150 unread restricted entries.
@@ -152,6 +195,19 @@ to them. They now ask WorkOS for the organization's roles first.
 * Bad, because a memory restricted to a folder whose restriction is later lifted or whose
   folder is deleted names a collection that no longer exists, and is then shown to nobody
   until a person re-files it: the safe direction, but a loss.
+* Bad, because nothing a whole project reads can come out of a restricted conversation: no
+  deep-research run, task or profile patch, and no filing except into a folder restricted as
+  narrowly as every restricted folder of the project. The scope builder gives a cleared member's
+  private chat every restricted collection they are cleared for, from its first turn, so EVERY
+  chat of a cleared member (an organization admin is cleared for every folder) in a project with
+  a restricted folder is such a conversation: for them, deep research, tasks and profile patches
+  are unavailable from chat in that project. A per-chat choice to leave restricted folders out of
+  the scope would give them back; that is a product decision this change does not take. The
+  person can still edit the brief, or upload a file themselves: a deliberate human act, which
+  the product does not try to prevent.
+* Bad, because a `project_profile_patch` card and a diagram name their conversation in the
+  request body. A client that leaves it out writes what it sends as a person would by hand; the
+  refusal holds for the card and the diagram button, not for a caller writing its own request.
 * Bad, because restricted memory over-restricts: once a conversation has read folder A, every
   later note from it is restricted to A, and a note drawing on a restricted digest line is
   restricted to every restricted folder in scope. Colleagues not cleared lose such a note; the
@@ -198,8 +254,22 @@ to them. They now ask WorkOS for the organization's roles first.
   pins the `project:manage` rule for folder deletes and moves.
 * `test_chat_socket.py` and `test_internal_api_confinement.py` prove the per-turn confinement
   check closes a socket whose thread was shared, and fails closed.
+* `restricted-egress.spec.ts` pins which conversations are confined and each refusal;
+  `delegation.spec.ts` proves a run and a task are refused before any row exists (mark, cited
+  restricted answer, signed scope); `generated.spec.ts` and `diagrams/filing.spec.ts` prove a
+  filing into an open folder is refused before anything is rendered or written and one into a
+  folder restricted as narrowly goes through; the profile-patch route spec proves a confined
+  card's patch is refused with a typed 403 and writes nothing; `lifecycle.spec.ts` and the
+  internal document-versions and tasks route specs pin the joins; `folder-access.spec.ts` pins
+  `restrictedCollectionsOnPath` against the clearance rule.
+* `tests/aiq_agent/turn/test_context.py` and `test_confined_turn.py` prove a confined turn
+  withdraws deep research and tasks, renders the shut-doors block and refuses a
+  `project_profile_patch` card; `test_commission.py` and `test_deep_research_gate.py` prove a
+  confined refusal is told as such and never run in process.
 * `tests/aiq_agent/memory/test_restriction.py` pins the restriction decision and each
-  fail-closed case; `memory-restricted.integration.spec.ts` proves against Postgres that a
+  fail-closed case, the reproduction check (a verbatim copy is restricted when the judge says
+  nothing) and earlier-turn notes as evidence; `test_shown_notes.py` pins the per-conversation
+  record, its bound and that a turn writes what it was shown; `memory-restricted.integration.spec.ts` proves against Postgres that a
   restricted note is served only to a cleared session, never consolidates with an open one, and
   that migration 0106's CHECK and index hold; `rls-test-db.sh` checks its down migration deletes
   restricted notes rather than opening them.

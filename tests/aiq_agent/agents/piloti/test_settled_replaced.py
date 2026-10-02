@@ -57,7 +57,9 @@ def workflow(monkeypatch):
     seen: dict = {"order": [], "prose": []}
 
     async def prepare(*_args, runtime, **_kwargs):
-        context = types.SimpleNamespace(stage_facts=types.SimpleNamespace(ws_parent_id="t1", memory_digest=None))
+        context = types.SimpleNamespace(
+            stage_facts=types.SimpleNamespace(ws_parent_id="t1", memory_digest=None), restricted_scope=()
+        )
         yield cr._Turn(None, None, None, context, None, types.SimpleNamespace(organization_id=None), runtime)
 
     @contextlib.asynccontextmanager

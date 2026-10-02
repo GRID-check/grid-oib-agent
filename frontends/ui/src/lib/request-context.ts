@@ -480,6 +480,29 @@ export interface VerifiedGridRequestContext {
   projectId: string | null
   conversationId: string | null
   issuedAt: number
+  /**
+   * The collection names of the signed scope, bare or shelf-bearing on the wire
+   * (ADR-0047). What a write route reads to tell a turn whose scope held a
+   * restricted folder's collection (ADR-0078, `restricted-egress.ts`): that is
+   * the turn's scope as signed, with no read in between. Empty when the
+   * envelope carried none.
+   */
+  collectionScope: readonly string[]
+}
+
+/** The names in a signed scope, whichever of the two entry shapes each one has. */
+function scopeNames(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((entry: unknown) => {
+      if (typeof entry === 'string') return entry
+      if (typeof entry === 'object' && entry !== null && 'collection' in entry) {
+        const { collection } = entry
+        return typeof collection === 'string' ? collection : null
+      }
+      return null
+    })
+    .filter((name): name is string => name !== null && name.length > 0)
 }
 
 /**
@@ -569,6 +592,7 @@ export function verifyGridRequestContextEnvelope(
     projectId: typeof fields.projectId === 'string' ? fields.projectId : null,
     conversationId: typeof fields.conversationId === 'string' ? fields.conversationId : null,
     issuedAt,
+    collectionScope: scopeNames(fields.collectionScope),
   }
 }
 

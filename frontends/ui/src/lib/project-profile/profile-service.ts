@@ -30,6 +30,9 @@ import { deleteBindingsOutsideBauwerke } from '@/lib/document-roles/repository'
 import { bauwerkIds } from '@/lib/document-roles/service'
 import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import type { Locale } from '@/i18n/config'
+import { requireMayLeaveConversation } from '@/lib/conversations/restricted-egress'
+import { requireResourceAccess } from '@/lib/sharing/access'
 import {
   findProjectProfileInOrg,
   setProjectProfileSummaryInOrg,
@@ -139,12 +142,36 @@ export interface PatchedProjectProfile extends ProjectProfileState {
  * then any unknowns the patch just answered are retired. 409 on a version
  * conflict, unless the conflict is the concurrent-accept case above.
  */
+/**
+ * The conversation a patch was proposed in, when it came from a
+ * `project_profile_patch` card. The brief's own editor sends none: a person
+ * typing a value is not content leaving a conversation.
+ */
+export interface ProfilePatchOrigin {
+  conversationId: string
+  /** The language of a refusal. */
+  locale: Locale
+}
+
 export async function patchProjectProfile(
   session: AuthorizedSession,
   projectId: string,
-  operations: ProjectProfilePatchOperation[]
+  operations: ProjectProfilePatchOperation[],
+  origin?: ProfilePatchOrigin
 ): Promise<PatchedProjectProfile> {
   await requireProjectAccess(session, projectId, PROFILE_WRITE)
+  if (origin) {
+    // The profile is read by every project member and every chat in the
+    // project, so a patch proposed in a thread that drew on a restricted folder
+    // is refused (ADR-0078). The thread is authorized first, so the refusal
+    // says nothing about a conversation the caller cannot read.
+    await requireResourceAccess(session, 'conversation', origin.conversationId, 'viewer')
+    await requireMayLeaveConversation(
+      { conversationId: origin.conversationId, locale: origin.locale },
+      session.organizationId,
+      'profilePatch'
+    )
+  }
   const current = await findProjectProfileInOrg(projectId, session.organizationId)
   if (!current) throw new NotFoundError()
 

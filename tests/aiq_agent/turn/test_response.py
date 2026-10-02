@@ -201,7 +201,35 @@ class TestPostAnswerTurnFacts:
             cards=[],
             restricted_memory_writes=("Vertragsstrafe 0,1 %",),
         )
-        assert facts.restriction.notes == ("Honorar pauschal.", "Vertragsstrafe 0,1 %")
+        assert [(note.content, note.collections) for note in facts.restriction.notes] == [
+            ("Honorar pauschal.", (restricted,)),
+            ("Vertragsstrafe 0,1 %", (restricted,)),
+        ]
+
+    def test_notes_earlier_turns_were_shown_cross_with_their_own_collections(self):
+        """ADR-0078: a restricted note gone from this turn's digest is still evidence."""
+        from aiq_agent.memory.restriction import RestrictedNote
+        from aiq_agent.memory.shown_notes import ShownNotes
+
+        earlier_folder = "proj_1_rba9876543210"
+        overflowed = "proj_1_r00000000000f"
+        facts = post_answer_turn_facts(
+            TurnFacts(project_id="proj_1", memory_digest=None),
+            state=_state(collection_scope=["proj_1"]),
+            query_text="q",
+            cards=[],
+            earlier_restricted_notes=ShownNotes(
+                notes=(RestrictedNote("Gehalt Bauleiter 5.200 brutto.", (earlier_folder,)),),
+                overflowed=(overflowed,),
+            ),
+        )
+        evidence = facts.restriction
+        assert evidence.restricted
+        assert evidence.scope == (earlier_folder, overflowed)
+        assert evidence.read == (overflowed,)
+        assert [(note.content, note.collections) for note in evidence.notes] == [
+            ("Gehalt Bauleiter 5.200 brutto.", (earlier_folder,))
+        ]
 
     def test_the_prompt_rows_stand_in_when_no_listing_was_bound(self):
         restricted = "proj_1_r0123456789ab"

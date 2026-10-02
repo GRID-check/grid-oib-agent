@@ -270,3 +270,38 @@ class TestRestrictedMemoryInTheLiveDigest:
         )
         await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=False)
         assert stubs["digest_restricted"] == []
+
+
+class TestAConfinedTurnOffersNothingTheWholeProjectReads:
+    """ADR-0078: a turn whose VERIFIED scope holds a restricted collection may not
+    commission a run or hand work over, so it is never offered either. The BFF
+    refuses both on its own; this keeps the model from proposing them."""
+
+    _SCOPE = ["oib_knowledge", "proj_p1", "proj_p1_r0123456789ab", "s_c1"]
+
+    async def test_a_signed_restricted_scope_withdraws_deep_research_and_tasks(self, stubs):
+        request = _request(
+            project_id="p1", organization_id="org", collection_scope=self._SCOPE, envelope_header="signed"
+        )
+        context = await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=True)
+        assert context.confined is True
+        assert context.restricted_scope == ("proj_p1_r0123456789ab",)
+        assert (context.deep_research_allowed, context.tasks_allowed) == (False, False)
+
+    async def test_an_open_scope_keeps_what_the_tenant_allows(self, stubs):
+        request = _request(
+            project_id="p1", organization_id="org", collection_scope=["proj_p1"], envelope_header="signed"
+        )
+        context = await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=True)
+        assert context.confined is False
+        assert (context.deep_research_allowed, context.tasks_allowed) == (True, True)
+
+    async def test_the_fail_open_context_stays_confined(self, stubs):
+        stubs["digest"] = TypeError("a bug, not a transport failure")
+        request = _request(
+            project_id="p1", organization_id="org", collection_scope=self._SCOPE, envelope_header="signed"
+        )
+        context = await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=True)
+        assert context.project_context is None
+        assert context.confined is True
+        assert (context.deep_research_allowed, context.tasks_allowed) == (False, False)

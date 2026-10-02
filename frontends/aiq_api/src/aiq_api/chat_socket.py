@@ -29,12 +29,13 @@ What a socket holds, in order of the checks on every client message:
   message's ``conversation_id``, so a message naming another is refused.
 * **Whose turn.** Stop and a HITL answer are the asker's (:func:`may_act_for`).
   In a shared conversation (ADR-0032) a colleague is a different subject.
-* **What may reach the model.** The text of a question, of a colleague's
-  ``context_only`` line and of a typed HITL answer is masked against the
-  office's „Sensible Daten" policy (ADR-0077) before the agent, its history or a
-  relay replica sees it (:meth:`ChatSocket._masked`). The composer masks first
-  and asks the person; this is the backstop for a client that did not, and it
-  masks rather than refuses. The policy is read once per socket from the BFF
+* **What may reach the model.** The text of a question (and the focus file's
+  name it carries), of a colleague's ``context_only`` line and of a typed HITL
+  answer is masked against the office's „Sensible Daten" policy (ADR-0077)
+  before the agent, its history or a relay replica sees it
+  (:meth:`ChatSocket._masked`). The composer masks first and asks the person;
+  this is the backstop for a client that did not, and it masks rather than
+  refuses. The policy is read once per socket from the BFF
   (``chat_screening_for``), so a change applies from the next connection, and
   every detector applies whenever it cannot be read.
 
@@ -1128,9 +1129,13 @@ class ChatSocket:
             await self.socket.send_json(to_frame(event))
 
     async def on_user_message(self, message: UserMessage) -> None:
-        text = await self._masked(message.text, message)
-        if text != message.text:
-            message = message.model_copy(update={"text": text})
+        # The focus file's name is the client's word too, and the system prompt
+        # quotes it (``prompt.py``): masked like the text it rides with.
+        update = {"text": await self._masked(message.text, message)}
+        if message.focus_file_name:
+            update["focus_file_name"] = await self._masked(message.focus_file_name, message)
+        if any(getattr(message, field) != value for field, value in update.items()):
+            message = message.model_copy(update=update)
         if message.context_only:
             await self._ingest(message)
             return

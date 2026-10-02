@@ -55,13 +55,38 @@ choices:
 - **Bearbeiten** sends nothing and leaves the text as you typed it.
 
 There is no way to send the message unmasked. An answer to a question Piloti
-asked is checked the same way, and so are messages to colleagues in a shared
-chat. A message that reaches Piloti some other way is masked on the server
-without asking, and the stored chat keeps the masked text.
+asked is checked the same way, and so is a plan you edit before approving it,
+and so are messages to colleagues in a shared chat. A message that reaches
+Piloti some other way is masked on the server without asking, and the stored
+chat keeps the masked text: your messages and your answers to Piloti's
+questions. In Piloti's own answers only numbers are masked (IBAN,
+Sozialversicherungsnummer, Kartennummer); an answer that names a term from the
+list, such as „Es gibt keine Honorarvereinbarung", reads the same after a
+reload. The name of the file you ask
+about („Frage zu …") is masked the same way before Piloti reads it.
+
+The same list masks, without asking, what you write elsewhere that Piloti
+later reads:
+
+- **notes** you add or edit in the Projektspeicher or the Organisationsgedächtnis,
+  and the notes Piloti keeps itself;
+- the **comment on a thumbs-down**.
 
 Masking a term hides the word, not what stands around it: „Honorarvereinbarung
 über 12.400 €" becomes „[Begriff entfernt] über 12.400 €". A change to the list
 applies to an open chat once the page is reloaded.
+
+**Not checked** against the list, so keep sensitive data out of them yourself:
+
+- the standing instructions under **Organisation → Anweisungen**, and the
+  instructions of a **Skill**, which Piloti reads when it answers;
+- the **project profile** you fill in with the intake wizard;
+- the comment a reviewer writes when sending a draft back („Änderungen
+  anfordern"), which the chat that wrote the draft reads;
+- the instruction of a **scheduled task**, and a research job started through
+  the API;
+- anything stored before the list applied to it: older chats, notes and
+  comments keep the text they were saved with.
 
 ## The quarantine
 
@@ -125,6 +150,20 @@ them again; for a large folder that takes a few minutes, and the documents show
 **A chat that draws on a restricted folder stays with the person who asked.**
 It cannot be shared. A file name used in a restricted folder cannot be uploaded
 a second time elsewhere in the project.
+
+Nothing from such a chat goes where the whole project reads it, so Piloti does
+not offer, and refuses with a message saying why:
+
+- a Tiefenrecherche or an Auftrag started from it;
+- a change to the project context („Projektkontext aktualisieren");
+- filing a draft or a diagram from it into a folder that people not cleared for
+  the restricted folder can open. Piloti files these into „Berichte", so they
+  stay in the chat unless „Berichte" is itself the project's restricted folder.
+
+A chat reads a restricted folder whenever the person asking is cleared for
+one in that project, and organization admins are cleared for every folder. So
+for them this applies to every chat in a project with a restricted folder. The
+project context can still be changed by hand, in the project intake.
 
 **What Piloti remembers from such a chat is restricted too.** Piloti keeps
 notes from it in the project's memory as it does from any chat, but a note that

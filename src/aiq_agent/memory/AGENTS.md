@@ -25,7 +25,11 @@ finding poisons every project in the org, and no human saw this one.
 every failure restricts to all of the scope's restricted collections. A
 restricted finding is project memory (never organization) and never a
 `memory_proposal` card, because accepting a card writes open memory
-(ADR-0078, `docs/architecture/project-memory-design.md` §3.6).
+(ADR-0078, `docs/architecture/project-memory-design.md` §3.6). Its evidence
+includes the restricted digest lines EARLIER turns were shown
+(`shown_notes.py`, recorded per conversation by `turn/registries.py`): a new
+reader of restricted evidence reads that record too, or a note that left the
+re-ranked digest is filed open.
 
 **A supersede must quote one COMPLETE entry of the digest the model was
 shown.** The frontend resolves supersedes fuzzily (≥0.7 Jaccard), so a

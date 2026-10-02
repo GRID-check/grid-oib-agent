@@ -1521,6 +1521,29 @@ async def test_a_masked_question_is_masked_once(harness, office):
     assert seen == ["Bitte überweise an [IBAN entfernt]"]
 
 
+async def test_the_focus_file_name_reaches_the_agent_masked(harness, office):
+    """The composer's "Asking about <file>" name is client-supplied and the system prompt quotes it."""
+    names: list[str | None] = []
+
+    async def turn(request, ask):
+        names.append(request.focus_file_name)
+        yield _finished(request, text="ok")
+
+    h = harness(turn)
+    sock = h.connect(headers=_office_envelope())
+
+    sock.client(
+        type="user_message",
+        message_id="t1",
+        text="Was steht drin?",
+        focus_file_name=f"Gehaltsabrechnung {_IBAN}.pdf",
+        focus_shelf="project",
+    )
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert names == ["[Begriff entfernt] [IBAN entfernt].pdf"]
+
+
 async def test_without_the_office_s_policy_every_detector_applies_and_no_term(harness, monkeypatch):
     """Fail closed: no organization to ask (off the BFF), or a BFF that cannot answer."""
     monkeypatch.delenv("FRONTEND_INTERNAL_URL", raising=False)

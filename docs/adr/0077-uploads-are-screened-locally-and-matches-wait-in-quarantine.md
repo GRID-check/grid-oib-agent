@@ -166,20 +166,41 @@ only.
 - **Server backstop.** A client that skips the composer (an old tab, a script,
   the API) gets the same result without being asked. The chat socket
   (`aiq_api.chat_socket.ChatSocket._masked`) masks the text of every
-  `user_message`, `context_only` colleague lines included, and every typed
-  `interaction_response`, before the agent, its checkpoint or a relay replica
-  sees it. The BFF masks every user message it stores
-  (`createConversationMessages`, the internal persist route a job's prompt
-  arrives through) and the user turns it hands to the title model, because the
-  stored history is what title generation and memory reflection later send to a
-  model. The server never refuses a turn for a match.
+  `user_message`, `context_only` colleague lines included, its
+  `focus_file_name` (client-supplied, and quoted in the system prompt), and
+  every typed `interaction_response`, before the agent, its checkpoint or a
+  relay replica sees it. The BFF masks every message it stores, **whatever role
+  the client gave it** (`createConversationMessages`, the internal persist route
+  a job's prompt arrives through), the typed answer to a HITL prompt stored on
+  the message (`updateMessageDetail`'s `promptState`, which also carries an
+  edited plan, and a `promptState` inside a new message's metadata), and every
+  turn it hands to the title model, because the stored history is what title
+  generation and memory reflection later send to a model. The role is the
+  client's word: a browser can label typed text `assistant`. A `user` message
+  is masked in full; any other role against the number checks only
+  (`maskAnswerText`), because a content term marks a kind of document while
+  the sensitive data is the numbers, and Piloti's answer that names a term
+  („Es gibt keine Honorarvereinbarung") should read after a reload as it did
+  live. The title model gets every role masked in full. The server never
+  refuses a turn for a match.
+- **Text that rides into later turns.** A memory note is masked where it is
+  written, in `lib/projects/memory-service.ts` (`createProjectMemoryItem`,
+  and `updateProjectMemoryItem` for an edit), so the memory panel, the
+  organization memory route, the agent's `remember` tool and reflection are all
+  masked by construction before the note reaches the embedder or a turn's
+  digest. A thumbs-down comment is masked in `submitAnswerFeedback` before it is
+  stored, so memory implication's embedding, the lesson pipeline and the
+  platform feedback digest read the masked text.
 - **Placeholders** are domain data, in German, defined once in Python
   (`aiq_agent.common.content_screen.PLACEHOLDERS`) and mirrored in TypeScript:
   `[IBAN entfernt]`, `[SV-Nummer entfernt]`, `[Kartennummer entfernt]`,
   `[Begriff entfernt]`. They are protected regions: no term or detector match
   that overlaps one counts, so masking a masked text is a no-op, whatever the
-  office's list holds. Masking repeats to a fixpoint, because removing one
-  number can expose another its digits were hiding.
+  office's list holds. That is accepted by design: a text that itself
+  contains a placeholder (a document quoting „[IBAN entfernt]" for an office
+  whose list holds „IBAN") passes with that word unmasked. Masking repeats to
+  a fixpoint, because removing one number can expose another its digits were
+  hiding.
 - **One matcher.** The matching moved out of the knowledge layer into
   `aiq_agent.common.content_screen` (folding, terms, detectors, spans, masks);
   the ingest screen turns its spans into a verdict, the socket into a mask. The
@@ -207,9 +228,12 @@ only.
 
 ### Consequences
 
-* Good, because nothing a person types reaches a model or the stored history
-  with a checksum-valid IBAN, social-security or card number, or a term the
-  office named, on any path into a turn.
+* Good, because nothing a person types into the chat, a HITL answer, a memory
+  note or a thumbs-down comment reaches a model or the stored history with a
+  checksum-valid IBAN, social-security or card number, or a term the office
+  named. That holds for the chat socket, every message the BFF stores, the
+  title model, the memory digest and the embedder. It does not hold for the
+  doors listed under "Neutral" below.
 * Good, because the person sees what was found and decides, instead of a
   message silently changing.
 * Bad, because masking a term hides the word, not the figures around it:
@@ -218,9 +242,18 @@ only.
   says so.
 * Bad, because the stored copy of a message from a client that skipped the
   composer differs from what that client shows locally until it reloads.
-* Neutral: prompts that reach a model by another door than the chat (a
-  scheduled task's instruction, a deep-research job submitted over the REST
-  API) are not screened by this change.
+* Bad, because masking happens on write: chats, notes and comments stored
+  before this change, or before the office added a term, keep the text they
+  were saved with, and nothing re-masks them.
+* Neutral: text a person types that reaches a model by another door is not
+  screened by this change: a scheduled task's instruction, a deep-research job
+  submitted over the REST API, the organization's standing instructions
+  (`lib/org-instructions`), a skill's body (`lib/skills`, also sent to
+  `/v1/skills/review`), the project profile (`lib/project-profile`, sent to
+  `/v1/generate-summary` and `/v1/consistency-check` and into every turn), and
+  a reviewer's comment on a refused draft (`buildReviewDecisionsBlock`, which
+  rides the memory channel into the conversation that wrote the draft). The
+  user guide names them.
 
 ### Why not NeMo Guardrails' sensitive-data rail
 
@@ -241,13 +274,21 @@ folding.
 
 * `tests/aiq_agent/common/test_content_screen.py` and
   `frontends/ui/src/lib/upload-screening/content-screen.spec.ts` run every case
-  of the shared fixture, and assert that a masked text masks to itself.
-* `frontends/aiq_api/tests/test_chat_socket.py` asserts what the workflow, the
-  agent's history (`append_conversation_context`) and a resumed HITL turn
-  receive, and the detectors-only fallback.
+  of the shared fixture, and assert that a masked text masks to itself. Each
+  also holds its whitespace, decimal digits, character classes, fold of every
+  code point and IBAN registry to the tables in that fixture, so the twins
+  agree on every code point, and masks 300 generated texts twice.
+* `frontends/aiq_api/tests/test_chat_socket.py` asserts what the workflow
+  (text and focus file name), the agent's history
+  (`append_conversation_context`) and a resumed HITL turn receive, and the
+  detectors-only fallback.
 * `InputArea.screening.spec.tsx` asserts the notice, both buttons, and that
   nothing is sent until one is pressed; `lib/conversations/service.spec.ts`
-  asserts the stored copy and what the title model receives.
+  asserts the stored copy for every role, the stored HITL answer, and what the
+  title model receives, whatever role a turn was given.
+* `lib/projects/memory-service.spec.ts` asserts a new and an edited note are
+  stored and embedded masked; `memory-restricted.integration.spec.ts` asserts it
+  against Postgres. `lib/feedback/service.spec.ts` asserts the stored comment.
 
 ## More Information
 

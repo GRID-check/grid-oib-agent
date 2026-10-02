@@ -112,7 +112,7 @@ describe('editing and deleting', () => {
     await editProjectMemoryItem(SESSION, 'proj-1', 'item-1', { pinned: true })
     await removeProjectMemoryItem(SESSION, 'proj-1', 'item-1')
 
-    const owner = { projectId: 'proj-1', clearedRestrictedCollections: [] }
+    const owner = { projectId: 'proj-1', organizationId: 'org_1', clearedRestrictedCollections: [] }
     expect(updateProjectMemoryItem).toHaveBeenCalledWith(owner, 'item-1', { pinned: true })
     expect(deleteProjectMemoryItem).toHaveBeenCalledWith(owner, 'item-1')
   })

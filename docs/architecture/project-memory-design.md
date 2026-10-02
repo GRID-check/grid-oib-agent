@@ -309,14 +309,41 @@ session cleared for **all** of them is served it or shown it.
    their collections are added. The judge runs on the memory-reflection model
    (`memory_reflection_llm`; the tool's `judge_llm`, both `card_llm`), with the
    org's override and credential, bounded at 12 s, one call per batch.
-   Restricted MEMORY in the prompt is judged too — the digest's `restricted`
-   lines and what the turn already stored as restricted — and a memory drawing
-   on one is restricted to all of `R` (a digest line does not say which
-   collections it carries). Without it, a paraphrase of a restricted note would
-   be filed as open memory.
-4. **Fail closed**: no judge model, a timeout, an error, an unparseable or
-   partial reply, more than 150 unread restricted documents, or an unknown
-   inventory → restricted to all of `R`.
+   Restricted MEMORY the conversation was shown is judged too — this turn's
+   digest `restricted` lines, what the turn already stored as restricted, and
+   the restricted lines EARLIER turns were shown — and a memory drawing on one
+   is restricted to the restricted collections of the scope that line was shown
+   under (a digest line does not say which collections it carries). Without it,
+   a paraphrase of a restricted note would be filed as open memory.
+4. **Copies need no judge.** Before the judge is asked, and whatever it
+   answers, a memory whose text substantially reproduces a restricted line is
+   restricted to that line's collections (`restriction.reproduces`). Both are
+   normalized (Unicode form, case, punctuation, spacing); it is a copy when one
+   contains the other and the contained side has at least three significant
+   tokens, or when the memory repeats at least 60 % of the line's significant
+   tokens and at least three of them. Significant: three letters or longer, or
+   holding a digit, and not a German or English function word. Measured against
+   the line, so a reordered copy („Mit Büro Müller vereinbart: Statik-Honorar
+   48.000 € netto" against its 7-token line) matches and a different fact about
+   the same people („Die Statik prüft Büro Müller", 3 of 7) is left to the judge.
+5. **Fail closed**: no judge model, a timeout, an error, an unparseable or
+   partial reply, more than 150 unread restricted entries, or an unknown
+   inventory → restricted to every restricted collection of the evidence.
+
+**What earlier turns were shown** — `aiq_agent/memory/shown_notes.py`. The
+digest is re-ranked per turn and capped at 1,800 characters, so a restricted
+note can leave the prompt while what it said stays in the history. Every turn
+with restricted collections in its signed scope adds its digest's `restricted`
+lines and its restricted writes to a per-conversation record, each line with
+those collections, beside the citation registry in the shared cache (key
+`restricted-notes:<conversation>`, 30 days). The next turn loads it during
+setup, binds it for the `remember` tool and hands it to the reflection stage.
+Its collections count as restricted scope even in a turn that no longer has
+them in its signed scope. The record keeps 150 lines; a line that falls out
+moves its collections to `overflowed`, and every later memory of the
+conversation is restricted to those, so the bound fails closed. A record lost
+to the cache (eviction, outage, past 30 days) is evidence lost: the decision
+then rests on this turn's digest and the citation registry, as before.
 
 Organization scope that depends on restricted content is filed as restricted
 memory of the turn's project (org memory reaches every project); the BFF

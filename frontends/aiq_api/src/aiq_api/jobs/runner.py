@@ -33,7 +33,6 @@ from aiq_agent.common.plan_documents import PlanDocument
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.plan_documents import sanitize_plan_documents
 from aiq_agent.common.turn_status import DEGRADED_CARDS_GENERATION_FAILED
-from aiq_agent.knowledge.restricted_collections import restricted_collections_in
 from aiq_agent.project_context import ORGANIZATION_ID_HEADER
 from aiq_agent.project_context import PROJECT_ID_HEADER
 from aiq_agent.project_context import PROJECT_MEMORY_HEADER
@@ -1613,7 +1612,6 @@ async def run_agent_job(
                         org_credential=resolved_org_credential,
                         model_overrides=model_overrides,
                         zdr_only=job_data_policy.zdr,
-                        collection_scope=collection_scope,
                     )
                     cards = _merge_job_cards(card_registry.snapshot(), cards_result.cards)
                     if cards:
@@ -2274,7 +2272,6 @@ async def _run_deep_research_reflection(
     org_credential: Any,
     model_overrides: dict[str, str] | None,
     zdr_only: bool = True,
-    collection_scope: list[str] | None = None,
 ) -> None:
     """Best-effort project-memory reflection over a finished deep-research report.
 
@@ -2300,16 +2297,17 @@ async def _run_deep_research_reflection(
     """
     if not reflection_enabled or not reflection_llm_ref or not report:
         return
-    restricted = restricted_collections_in(collection_scope)
-    if restricted:
-        # ADR-0078: a run's scope never carries a restricted folder's collection
-        # (the BFF leaves it out of every research scope). Should one ever
-        # arrive, nothing is written: the chat stage files such findings as
-        # restricted memory, but that rests on a scope signed for one cleared
-        # session's private thread, and a run's report is filed for the whole
-        # project. Defense in depth, kept on purpose.
-        logger.info("Job %s: memory reflection skipped, scope includes restricted %s", job_id, restricted)
-        return
+    # ADR-0078: no restricted-folder check here, on purpose. A check on this
+    # job's scope could never fire: the BFF signs a restricted collection only
+    # into an interactive chat scope (`collection-scope-request.ts`, pinned by
+    # `collection-scope-request.restricted.spec.ts`), so a run's scope is always
+    # open. What could carry restricted content into a run is its INPUT, the
+    # question a confined chat turn wrote, and that is refused where the run is
+    # commissioned: `commissionResearchRun` and `delegateTask` refuse a
+    # conversation that drew on a restricted folder, and a turn whose signed
+    # scope held one (`lib/conversations/restricted-egress.ts`). So the input
+    # read below (`query`) and the report are open content, and reflecting them
+    # into open project memory is right.
     identity = (usage_context or {}).get("identity") or {}
     project_id = identity.get("project_id")
     if not project_id:

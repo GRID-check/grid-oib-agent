@@ -15,7 +15,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { getCached, invalidateCached } from '@/lib/cache'
 import { getOrgSettings, writeDedicatedOrgSetting } from '@/lib/organizations/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { chatScreeningRules, maskText, type MaskedText } from './content-screen'
+import { buildContentRules, chatScreeningRules, maskText, type MaskedText } from './content-screen'
 import { screenUploadName, type NameMatch, type ScreenedName } from './name-screen'
 import {
   SUGGESTED_SCREENING_POLICY,
@@ -194,4 +194,17 @@ export async function chatScreeningFor(organizationId: string): Promise<ChatScre
  */
 export async function maskChatText(organizationId: string, text: string): Promise<MaskedText> {
   return maskText(text, chatScreeningRules(await policyOrSuggestion(organizationId)))
+}
+
+/**
+ * Text Piloti wrote, as it may be stored: the office's NUMBER checks only.
+ * A content term marks a kind of document („Honorarvereinbarung"); the
+ * sensitive data is the numbers. An answer that names a term („Es gibt keine
+ * Honorarvereinbarung") keeps it, so the stored answer reads as it did live,
+ * while a number in a message a client merely labels `assistant` is still
+ * masked. A person's own text goes through `maskChatText`.
+ */
+export async function maskAnswerText(organizationId: string, text: string): Promise<MaskedText> {
+  const policy = await policyOrSuggestion(organizationId)
+  return maskText(text, policy.enabled ? buildContentRules([], policy.detectors) : null)
 }

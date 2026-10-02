@@ -1,5 +1,5 @@
 {
-  "description": "Cross-language contract for the content screen (ADR-0077): the office's content terms and number detectors, found and masked. Python: aiq_agent.common.content_screen (tests/aiq_agent/common/test_content_screen.py). TypeScript: frontends/ui/src/lib/upload-screening/content-screen.ts (content-screen.spec.ts). For each case both assert the same matches (rule and matched text, in rule order then position: terms in list order, then iban, at_svnr, credit_card), the same masked text and the same findings, and that masking the masked text changes nothing. `matches` is a single pass over `text`; `masked` and `findings` are the result of masking to a fixpoint. Matched text, not offsets, is compared because Python counts code points and JavaScript UTF-16 units. `placeholders` is defined in Python (PLACEHOLDERS) and held here so the TS mirror cannot drift. There is ONE copy: the TS spec reads this file from disk at run time (vitest runs in frontends/ui with the whole repository checked out) rather than importing it, so the frontend typecheck never needs a path outside frontends/ui.",
+  "description": "Cross-language contract for the content screen (ADR-0077): the office's content terms and number detectors, found and masked. Python: aiq_agent.common.content_screen (tests/aiq_agent/common/test_content_screen.py). TypeScript: frontends/ui/src/lib/upload-screening/content-screen.ts (content-screen.spec.ts). For each case both assert the same matches (rule and matched text, in rule order then position: terms in list order, then iban, at_svnr, credit_card), the same masked text and the same findings, and that masking the masked text changes nothing. `matches` is a single pass over `text`; `masked` and `findings` are the result of masking to a fixpoint. Matched text, not offsets, is compared because Python counts code points and JavaScript UTF-16 units. `placeholders` is defined in Python (PLACEHOLDERS) and held here so the TS mirror cannot drift. There is ONE copy: the TS spec reads this file from disk at run time (vitest runs in frontends/ui with the whole repository checked out) rather than importing it, so the frontend typecheck never needs a path outside frontends/ui. `unicode` holds the character tables Python computed, which each side checks its own against for every code point: `whitespace` (the White_Space property, the only whitespace either side uses), `decimal_zeros` (the zero of every run of ten Nd digits; a digit's value is its distance from that zero), `classes_sha256` (per code point L, N, M or -, joined) and `fold_sha256` (the fold of each code point, joined by a line feed), all over every code point but the surrogates, made with Unicode `version`. `iban_lengths` is the IBAN registry both sides hold. When Python's Unicode version changes, the tables move with it: each is computed by its test in tests/aiq_agent/common/test_content_screen.py, whose failure prints the value to put here; then run the TS spec on a Node with the same Unicode version.",
   "placeholders": {
     "iban": "[IBAN entfernt]",
     "at_svnr": "[SV-Nummer entfernt]",
@@ -87,15 +87,30 @@
       "findings": []
     },
     {
-      "name": "an IBAN in lower case is not printed that way and is left",
+      "name": "an IBAN in lower or mixed case is still one",
       "terms": [],
       "detectors": [
         "iban"
       ],
-      "text": "at61 1904 3002 3457 3201",
-      "matches": [],
-      "masked": "at61 1904 3002 3457 3201",
-      "findings": []
+      "text": "meine iban: at61 1904 3002 3457 3201, alt: De89370400440532013000",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "at61 1904 3002 3457 3201"
+        },
+        {
+          "kind": "iban",
+          "text": "De89370400440532013000"
+        }
+      ],
+      "masked": "meine iban: [IBAN entfernt], alt: [IBAN entfernt]",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 2,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
     },
     {
       "name": "a social-security number with a valid check digit",
@@ -512,6 +527,747 @@
       "matches": [],
       "masked": "AT61 1904 3002 3457 3201 und 1237 010180",
       "findings": []
+    },
+    {
+      "name": "IBAN groups joined by no-break, narrow no-break and thin spaces",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "A: AT61\u00a01904\u00a03002\u00a03457\u00a03201; B: AT61\u202f1904\u202f3002\u202f3457\u202f3201; C: AT61\u20091904\u20093002\u20093457\u20093201",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT61\u00a01904\u00a03002\u00a03457\u00a03201"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61\u202f1904\u202f3002\u202f3457\u202f3201"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61\u20091904\u20093002\u20093457\u20093201"
+        }
+      ],
+      "masked": "A: [IBAN entfernt]; B: [IBAN entfernt]; C: [IBAN entfernt]",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 3,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "IBAN groups joined by a tab, two spaces, hyphens or full stops",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "AT61\t1904\t3002\t3457\t3201 / AT61  1904  3002  3457  3201 / AT61-1904-3002-3457-3201 / AT61.1904.3002.3457.3201",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT61\t1904\t3002\t3457\t3201"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61  1904  3002  3457  3201"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61-1904-3002-3457-3201"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61.1904.3002.3457.3201"
+        }
+      ],
+      "masked": "[IBAN entfernt] / [IBAN entfernt] / [IBAN entfernt] / [IBAN entfernt]",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 4,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "an IBAN split across a line break",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "Konto: AT61 1904 3002\n3457 3201 bitte",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002\n3457 3201"
+        }
+      ],
+      "masked": "Konto: [IBAN entfernt] bitte",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 1,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "a space after the country code",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "IBAN AT 61 1904 3002 3457 3201",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT 61 1904 3002 3457 3201"
+        }
+      ],
+      "masked": "IBAN [IBAN entfernt]",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 1,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "card groups joined by no-break spaces or full stops",
+      "terms": [],
+      "detectors": [
+        "credit_card"
+      ],
+      "text": "Karte 4111\u00a01111\u00a01111\u00a01111 oder 5555.5555.5555.4444",
+      "matches": [
+        {
+          "kind": "credit_card",
+          "text": "4111\u00a01111\u00a01111\u00a01111"
+        },
+        {
+          "kind": "credit_card",
+          "text": "5555.5555.5555.4444"
+        }
+      ],
+      "masked": "Karte [Kartennummer entfernt] oder [Kartennummer entfernt]",
+      "findings": [
+        {
+          "kind": "credit_card",
+          "count": 2,
+          "sample": "•••• 1111"
+        }
+      ]
+    },
+    {
+      "name": "a card followed by its security code masks the card",
+      "terms": [],
+      "detectors": [
+        "credit_card"
+      ],
+      "text": "Karte 4111 1111 1111 1111 123, Amex 378282246310005 1234",
+      "matches": [
+        {
+          "kind": "credit_card",
+          "text": "4111 1111 1111 1111"
+        },
+        {
+          "kind": "credit_card",
+          "text": "378282246310005"
+        }
+      ],
+      "masked": "Karte [Kartennummer entfernt] 123, Amex [Kartennummer entfernt] 1234",
+      "findings": [
+        {
+          "kind": "credit_card",
+          "count": 2,
+          "sample": "•••• 1111"
+        }
+      ]
+    },
+    {
+      "name": "a card followed by five more digits is a longer number, not a card",
+      "terms": [],
+      "detectors": [
+        "credit_card"
+      ],
+      "text": "Ref 4111 1111 1111 1111 12345",
+      "matches": [],
+      "masked": "Ref 4111 1111 1111 1111 12345",
+      "findings": []
+    },
+    {
+      "name": "social-security numbers with a hyphen, a slash, or a spaced date",
+      "terms": [],
+      "detectors": [
+        "at_svnr"
+      ],
+      "text": "SVNR 1237-010180, 1237/010180, 1237 01 01 80, 1237 01.01.80",
+      "matches": [
+        {
+          "kind": "at_svnr",
+          "text": "1237-010180"
+        },
+        {
+          "kind": "at_svnr",
+          "text": "1237/010180"
+        },
+        {
+          "kind": "at_svnr",
+          "text": "1237 01 01 80"
+        },
+        {
+          "kind": "at_svnr",
+          "text": "1237 01.01.80"
+        }
+      ],
+      "masked": "SVNR [SV-Nummer entfernt], [SV-Nummer entfernt], [SV-Nummer entfernt], [SV-Nummer entfernt]",
+      "findings": [
+        {
+          "kind": "at_svnr",
+          "count": 4,
+          "sample": "•••• ••••80"
+        }
+      ]
+    },
+    {
+      "name": "a 22-digit drawing number is no number of ours",
+      "terms": [],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "Plannummer 2026 0102 0304 0506 0708 09, Index 1234567890123456789012",
+      "matches": [],
+      "masked": "Plannummer 2026 0102 0304 0506 0708 09, Index 1234567890123456789012",
+      "findings": []
+    },
+    {
+      "name": "a date range is no number of ours",
+      "terms": [],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "Bauzeit 01.03.2026 - 30.09.2027, Zeitraum 2019-2020, Stand 2024 01 03",
+      "matches": [],
+      "masked": "Bauzeit 01.03.2026 - 30.09.2027, Zeitraum 2019-2020, Stand 2024 01 03",
+      "findings": []
+    },
+    {
+      "name": "a phone number is no number of ours",
+      "terms": [],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "Tel. +43 1 234 56 78, mobil 0664 1234567, Fax 01 234 56 78 90",
+      "matches": [],
+      "masked": "Tel. +43 1 234 56 78, mobil 0664 1234567, Fax 01 234 56 78 90",
+      "findings": []
+    },
+    {
+      "name": "a lower-case country code in prose is no IBAN",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "we meet at 12 to 15 people, de 4 a 6 personas",
+      "matches": [],
+      "masked": "we meet at 12 to 15 people, de 4 a 6 personas",
+      "findings": []
+    },
+    {
+      "name": "six IBANs in a row are all found in one pass",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "AT61 1904 3002 3457 3201 AT61 1904 3002 3457 3201 AT61 1904 3002 3457 3201 AT61 1904 3002 3457 3201 AT61 1904 3002 3457 3201 AT61 1904 3002 3457 3201",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        }
+      ],
+      "masked": "[IBAN entfernt] [IBAN entfernt] [IBAN entfernt] [IBAN entfernt] [IBAN entfernt] [IBAN entfernt]",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 6,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "IBANs and cards alternating are all masked",
+      "terms": [],
+      "detectors": [
+        "iban",
+        "at_svnr",
+        "credit_card"
+      ],
+      "text": "AT61 1904 3002 3457 3201 4111 1111 1111 1111 AT61 1904 3002 3457 3201 5555 5555 5555 4444",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        },
+        {
+          "kind": "iban",
+          "text": "AT61 1904 3002 3457 3201"
+        }
+      ],
+      "masked": "[IBAN entfernt] [Kartennummer entfernt] [IBAN entfernt] [Kartennummer entfernt]",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 2,
+          "sample": "AT61 •••• •••• •••• 3201"
+        },
+        {
+          "kind": "credit_card",
+          "count": 2,
+          "sample": "•••• 1111"
+        }
+      ]
+    },
+    {
+      "name": "U+FEFF does not join the words of a term",
+      "terms": [
+        "Lohn Steuer"
+      ],
+      "detectors": [],
+      "text": "Lohn\ufeffSteuer",
+      "matches": [],
+      "masked": "Lohn\ufeffSteuer",
+      "findings": []
+    },
+    {
+      "name": "U+001C does not join the words of a term",
+      "terms": [
+        "Lohn Steuer"
+      ],
+      "detectors": [],
+      "text": "Lohn\u001cSteuer",
+      "matches": [],
+      "masked": "Lohn\u001cSteuer",
+      "findings": []
+    },
+    {
+      "name": "U+0085 joins the words of a term",
+      "terms": [
+        "Lohn Steuer"
+      ],
+      "detectors": [],
+      "text": "Lohn\u0085Steuer",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "Lohn Steuer",
+          "text": "Lohn\u0085Steuer"
+        }
+      ],
+      "masked": "[Begriff entfernt]",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "Lohn Steuer",
+          "count": 1
+        }
+      ]
+    },
+    {
+      "name": "final sigma is sigma",
+      "terms": [
+        "οδος"
+      ],
+      "detectors": [],
+      "text": "ΟΔΟΣ und οδος",
+      "matches": [
+        {
+          "kind": "term",
+          "term": "οδος",
+          "text": "ΟΔΟΣ"
+        },
+        {
+          "kind": "term",
+          "term": "οδος",
+          "text": "οδος"
+        }
+      ],
+      "masked": "[Begriff entfernt] und [Begriff entfernt]",
+      "findings": [
+        {
+          "kind": "term",
+          "term": "οδος",
+          "count": 2
+        }
+      ]
+    },
+    {
+      "name": "a letter whose fold ends in a combining mark still starts the word",
+      "terms": [
+        "Honorar"
+      ],
+      "detectors": [],
+      "text": "ẗHonorar und ﬆ̈Honorar",
+      "matches": [],
+      "masked": "ẗHonorar und ﬆ̈Honorar",
+      "findings": []
+    },
+    {
+      "name": "a social-security number in fullwidth digits",
+      "terms": [],
+      "detectors": [
+        "at_svnr"
+      ],
+      "text": "SVNR １２３７ ０１０１８０",
+      "matches": [
+        {
+          "kind": "at_svnr",
+          "text": "１２３７ ０１０１８０"
+        }
+      ],
+      "masked": "SVNR [SV-Nummer entfernt]",
+      "findings": [
+        {
+          "kind": "at_svnr",
+          "count": 1,
+          "sample": "•••• ••••80"
+        }
+      ]
+    },
+    {
+      "name": "a social-security number in Arabic-Indic digits",
+      "terms": [],
+      "detectors": [
+        "at_svnr"
+      ],
+      "text": "SVNR ١٢٣٧٠١٠١٨٠",
+      "matches": [
+        {
+          "kind": "at_svnr",
+          "text": "١٢٣٧٠١٠١٨٠"
+        }
+      ],
+      "masked": "SVNR [SV-Nummer entfernt]",
+      "findings": [
+        {
+          "kind": "at_svnr",
+          "count": 1,
+          "sample": "•••• ••••80"
+        }
+      ]
+    },
+    {
+      "name": "an IBAN with fullwidth check digits",
+      "terms": [],
+      "detectors": [
+        "iban"
+      ],
+      "text": "IBAN AT６１ 1904 3002 3457 3201",
+      "matches": [
+        {
+          "kind": "iban",
+          "text": "AT６１ 1904 3002 3457 3201"
+        }
+      ],
+      "masked": "IBAN [IBAN entfernt]",
+      "findings": [
+        {
+          "kind": "iban",
+          "count": 1,
+          "sample": "AT61 •••• •••• •••• 3201"
+        }
+      ]
+    },
+    {
+      "name": "a card in mathematical digits",
+      "terms": [],
+      "detectors": [
+        "credit_card"
+      ],
+      "text": "Karte 𝟒𝟏𝟏𝟏 𝟏𝟏𝟏𝟏 𝟏𝟏𝟏𝟏 𝟏𝟏𝟏𝟏",
+      "matches": [
+        {
+          "kind": "credit_card",
+          "text": "𝟒𝟏𝟏𝟏 𝟏𝟏𝟏𝟏 𝟏𝟏𝟏𝟏 𝟏𝟏𝟏𝟏"
+        }
+      ],
+      "masked": "Karte [Kartennummer entfernt]",
+      "findings": [
+        {
+          "kind": "credit_card",
+          "count": 1,
+          "sample": "•••• 1111"
+        }
+      ]
     }
-  ]
+  ],
+  "unicode": {
+    "version": "16.0.0",
+    "whitespace": [
+      9,
+      10,
+      11,
+      12,
+      13,
+      32,
+      133,
+      160,
+      5760,
+      8192,
+      8193,
+      8194,
+      8195,
+      8196,
+      8197,
+      8198,
+      8199,
+      8200,
+      8201,
+      8202,
+      8232,
+      8233,
+      8239,
+      8287,
+      12288
+    ],
+    "decimal_zeros": [
+      48,
+      1632,
+      1776,
+      1984,
+      2406,
+      2534,
+      2662,
+      2790,
+      2918,
+      3046,
+      3174,
+      3302,
+      3430,
+      3558,
+      3664,
+      3792,
+      3872,
+      4160,
+      4240,
+      6112,
+      6160,
+      6470,
+      6608,
+      6784,
+      6800,
+      6992,
+      7088,
+      7232,
+      7248,
+      42528,
+      43216,
+      43264,
+      43472,
+      43504,
+      43600,
+      44016,
+      65296,
+      66720,
+      68912,
+      68928,
+      69734,
+      69872,
+      69942,
+      70096,
+      70384,
+      70736,
+      70864,
+      71248,
+      71360,
+      71376,
+      71386,
+      71472,
+      71904,
+      72016,
+      72688,
+      72784,
+      73040,
+      73120,
+      73552,
+      90416,
+      92768,
+      92864,
+      93008,
+      93552,
+      118000,
+      120782,
+      120792,
+      120802,
+      120812,
+      120822,
+      123200,
+      123632,
+      124144,
+      124401,
+      125264,
+      130032
+    ],
+    "classes_sha256": "33b3bc750a5cf22e31644311528764314827224a9f92b073e1f59bddfa2add1d",
+    "fold_sha256": "fde0eb0902313c121ab40287285b6ef1d71148014ea62ad31350c886560e40a8"
+  },
+  "iban_lengths": {
+    "AD": 24,
+    "AE": 23,
+    "AL": 28,
+    "AO": 25,
+    "AT": 20,
+    "AX": 18,
+    "AZ": 28,
+    "BA": 20,
+    "BE": 16,
+    "BF": 28,
+    "BG": 22,
+    "BH": 22,
+    "BI": 27,
+    "BJ": 28,
+    "BL": 27,
+    "BR": 29,
+    "BY": 28,
+    "CF": 27,
+    "CG": 27,
+    "CH": 21,
+    "CI": 28,
+    "CM": 27,
+    "CR": 22,
+    "CV": 25,
+    "CY": 28,
+    "CZ": 24,
+    "DE": 22,
+    "DJ": 27,
+    "DK": 18,
+    "DO": 28,
+    "DZ": 26,
+    "EE": 20,
+    "EG": 29,
+    "ES": 24,
+    "FI": 18,
+    "FK": 18,
+    "FO": 18,
+    "FR": 27,
+    "GA": 27,
+    "GB": 22,
+    "GE": 22,
+    "GF": 27,
+    "GG": 22,
+    "GI": 23,
+    "GL": 18,
+    "GP": 27,
+    "GQ": 27,
+    "GR": 27,
+    "GT": 28,
+    "GW": 25,
+    "HN": 28,
+    "HR": 21,
+    "HU": 28,
+    "IE": 22,
+    "IL": 23,
+    "IM": 22,
+    "IQ": 23,
+    "IR": 26,
+    "IS": 26,
+    "IT": 27,
+    "JE": 22,
+    "JO": 30,
+    "KM": 27,
+    "KW": 30,
+    "KZ": 20,
+    "LB": 28,
+    "LC": 32,
+    "LI": 21,
+    "LT": 20,
+    "LU": 20,
+    "LV": 21,
+    "LY": 25,
+    "MA": 28,
+    "MC": 27,
+    "MD": 24,
+    "ME": 22,
+    "MF": 27,
+    "MG": 27,
+    "MK": 19,
+    "ML": 28,
+    "MN": 20,
+    "MQ": 27,
+    "MR": 27,
+    "MT": 31,
+    "MU": 30,
+    "MZ": 25,
+    "NC": 27,
+    "NE": 28,
+    "NI": 28,
+    "NL": 18,
+    "NO": 15,
+    "OM": 23,
+    "PF": 27,
+    "PK": 24,
+    "PL": 28,
+    "PM": 27,
+    "PS": 29,
+    "PT": 25,
+    "QA": 29,
+    "RE": 27,
+    "RO": 24,
+    "RS": 22,
+    "RU": 33,
+    "SA": 24,
+    "SC": 31,
+    "SD": 18,
+    "SE": 24,
+    "SI": 19,
+    "SK": 24,
+    "SM": 27,
+    "SN": 28,
+    "SO": 23,
+    "ST": 25,
+    "SV": 28,
+    "TD": 27,
+    "TF": 27,
+    "TG": 28,
+    "TL": 23,
+    "TN": 24,
+    "TR": 26,
+    "UA": 29,
+    "VA": 22,
+    "VG": 24,
+    "WF": 27,
+    "XK": 20,
+    "YE": 30,
+    "YT": 27
+  }
 }

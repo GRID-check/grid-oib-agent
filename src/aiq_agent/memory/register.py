@@ -45,6 +45,7 @@ from aiq_agent.memory.restriction import RestrictionEvidence
 from aiq_agent.memory.restriction import decide_restriction
 from aiq_agent.memory.restriction import restricted_digest_notes
 from aiq_agent.memory.restriction import restriction_evidence
+from aiq_agent.memory.shown_notes import turn_shown_notes
 from nat.plugin_api import Builder
 from nat.plugin_api import FunctionBaseConfig
 from nat.plugin_api import FunctionInfo
@@ -156,7 +157,11 @@ def _turn_restriction_evidence() -> RestrictionEvidence:
     answering from; what could be listed is the turn's uncapped inventory.
     """
     scope = scoping.get_collection_scope_from_context()
-    if not restricted_collections_in(scope):
+    # What earlier turns of the conversation were shown of restricted memory
+    # (`memory/shown_notes.py`): evidence even in a turn whose scope no longer
+    # holds the folder the note came from.
+    earlier = turn_shown_notes()
+    if not restricted_collections_in(scope) and earlier.empty:
         return RestrictionEvidence()
     from aiq_agent.common.citation_verification import get_session_registry
     from aiq_agent.common.citation_verification import get_turn_captures
@@ -176,6 +181,8 @@ def _turn_restriction_evidence() -> RestrictionEvidence:
             *restricted_digest_notes(memory_client.turn_memory_digest()),
             *memory_client.turn_restricted_memory_writes(),
         ),
+        earlier_notes=earlier.notes,
+        always=earlier.overflowed,
     )
 
 

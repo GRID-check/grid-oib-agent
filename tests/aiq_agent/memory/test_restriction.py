@@ -238,3 +238,104 @@ class TestRestrictedMemoryInThePrompt:
         )
         assert await decide_restriction("y", evidence, llm=judge) == (CONTRACTS, PERSONNEL)
         assert judge.calls == []
+
+
+class TestACopyOfARestrictedNoteIsRestrictedWithoutAsking:
+    """ADR-0078: a verbatim copy of a restricted digest line is that line, whatever the judge says."""
+
+    _NOTE = "Honorar für die Tragwerksplanung: 48.000 € netto, mit Büro Müller vereinbart."
+
+    @pytest.mark.parametrize(
+        "memory",
+        [
+            # Verbatim.
+            _NOTE,
+            # Verbatim, with words around it.
+            f"Merke: {_NOTE} Gilt ab Juli.",
+            # Case, spacing, punctuation and Unicode form folded away (NFD „ü").
+            "honorar FÜR die  tragwerksplanung 48.000 €, netto; mit büro müller vereinbart",
+            # Reordered and reformatted: every significant token of the note kept.
+            "Mit Büro Müller vereinbart: Tragwerksplanung-Honorar 48.000 € netto.",
+            # A verbatim fragment of the note.
+            "Tragwerksplanung: 48.000 € netto",
+        ],
+    )
+    def test_these_reproduce_the_note(self, memory):
+        assert R.reproduces(memory, self._NOTE)
+
+    @pytest.mark.parametrize(
+        "memory",
+        [
+            # A different fact about the same people: 3 of 7 tokens, left to the judge.
+            "Die Statik prüft Büro Müller.",
+            # The same grammatical shape, different content: the function words do not count.
+            "Die Kosten der Fenster und des Kellers.",
+            # One shared number is a coincidence, not a copy.
+            "Die Stellplatzanzahl beträgt 48.",
+            "",
+        ],
+    )
+    def test_these_do_not(self, memory):
+        assert not R.reproduces(memory, self._NOTE)
+
+    async def test_a_verbatim_copy_is_restricted_although_the_judge_says_nothing(self):
+        judge = _Judge(_reply([]))
+        evidence = restriction_evidence(SCOPE, listed_documents=(OPEN_ROW,), restricted_notes=(self._NOTE,))
+
+        assert await decide_restriction(self._NOTE, evidence, llm=judge) == (CONTRACTS, PERSONNEL)
+        # The judge was still asked: it may name more than the copy.
+        assert len(judge.calls) == 1
+
+    async def test_an_unrelated_memory_beside_it_stays_open(self):
+        judge = _Judge(_reply([], []))
+        evidence = restriction_evidence(SCOPE, listed_documents=(OPEN_ROW,), restricted_notes=(self._NOTE,))
+
+        assert await decide_restrictions(["Flachdach extensiv begrünt.", self._NOTE], evidence, llm=judge) == [
+            None,
+            (CONTRACTS, PERSONNEL),
+        ]
+
+
+class TestRestrictedNotesEarlierTurnsWereShown:
+    """ADR-0078: a restricted note that left the digest is still evidence in a later turn."""
+
+    _EARLIER = R.RestrictedNote("Gehalt Bauleitung: 5.200 € brutto.", (PERSONNEL,))
+
+    async def test_with_nothing_restricted_listable_the_judge_is_still_asked(self):
+        """The case that wrote open memory: no restricted row listed, the note gone from the digest."""
+        judge = _Judge(_reply([1]))
+        evidence = restriction_evidence(SCOPE, listed_documents=(OPEN_ROW,), earlier_notes=(self._EARLIER,))
+
+        assert await decide_restriction("Die Bauleitung verdient gut.", evidence, llm=judge) == (PERSONNEL,)
+        assert "(confidential note) Gehalt Bauleitung" in judge.calls[0][1].content
+
+    async def test_a_note_is_restricted_to_its_own_collections_not_the_whole_scope(self):
+        judge = _Judge(_reply([1]))
+        evidence = restriction_evidence(SCOPE, listed_documents=(OPEN_ROW,), earlier_notes=(self._EARLIER,))
+
+        assert await decide_restriction("Bauleitung 5.200 brutto", evidence, llm=judge) == (PERSONNEL,)
+
+    async def test_a_copy_of_an_earlier_note_is_restricted_in_a_turn_without_its_folder_in_scope(self):
+        judge = _Judge(_reply([]))
+        evidence = restriction_evidence(
+            ["oib_knowledge", PROJECT], listed_documents=(OPEN_ROW,), earlier_notes=(self._EARLIER,)
+        )
+
+        assert evidence.restricted
+        assert await decide_restriction(self._EARLIER.content, evidence, llm=judge) == (PERSONNEL,)
+
+    async def test_notes_that_overflowed_the_record_restrict_every_memory(self):
+        judge = _Judge(_reply([1]))
+        evidence = restriction_evidence(SCOPE, listed_documents=(OPEN_ROW, CONTRACT_ROW), always=(PERSONNEL,))
+
+        assert await decide_restriction("Flachdach", evidence, llm=_Judge(_reply([]))) == (PERSONNEL,)
+        assert await decide_restriction("Honorar", evidence, llm=judge) == (CONTRACTS, PERSONNEL)
+
+    async def test_an_earlier_note_under_a_read_folder_needs_no_judge(self):
+        judge = _Judge(_reply([1]))
+        evidence = restriction_evidence(
+            SCOPE, source_collections=[PERSONNEL], listed_documents=(OPEN_ROW,), earlier_notes=(self._EARLIER,)
+        )
+
+        assert await decide_restriction("x", evidence, llm=judge) == (PERSONNEL,)
+        assert judge.calls == []

@@ -16,6 +16,7 @@ import type { DocumentListRow } from '@/lib/documents/repository'
 import { findOpenVersion } from '@/lib/documents/version-repository'
 import { findConversationInOrg } from './repository'
 import { readConversationDraft } from './draft-preview'
+import type { Locale } from '@/i18n/config'
 
 export const MAX_FILING_REF_CHARS = 200
 export const MAX_FILING_TITLE_CHARS = 200
@@ -93,6 +94,8 @@ export interface FileConversationDraftInput {
   path: string
   title?: string
   force?: boolean
+  /** The language of a refusal (a thread that drew on a restricted folder, ADR-0078). */
+  locale?: Locale
 }
 
 export interface FiledConversationDraft {
@@ -170,6 +173,7 @@ export async function fileConversationDraft(
     content: draft.content,
     request,
     originConversationId: conversationId,
+    locale: input.locale,
   })
   return {
     documentId: filed.documentId,

@@ -261,6 +261,41 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
   })
 
   describe('serving filters by clearance', () => {
+    it("lets a down-vote lower only the notes its voter may see", async () => {
+      vi.mocked(embedNote).mockImplementation(async () => ({ vector: [1, 0, 0, 0], fingerprint: 'vote' }))
+      const { projectId, restricted } = await seedProject('implicate')
+      const open = await write(projectId, 'Die Attika ist mit 1,10 m ausgeführt')
+      const secret = await write(projectId, 'Das Honorar für die Attika ist pauschal', [restricted[0]])
+      const implicate = (cleared: string[]) =>
+        inTenant(() =>
+          memory.implicateMemoryFromFeedback({
+            organizationId: ORG,
+            projectId,
+            comment: 'Die Attika stimmt nicht',
+            clearedRestrictedCollections: cleared,
+          })
+        )
+      const byId = async () => new Map((await rowsOf(projectId)).map((row) => [row.id, row]))
+
+      // A member not cleared for the folder: its note keeps its salience.
+      expect(await implicate([])).toBe(1)
+      let rows = await byId()
+      expect(rows.get(open.id)?.confidence).toBe('low')
+      expect(rows.get(secret.id)?.confidence).toBe(secret.confidence)
+      expect(rows.get(secret.id)?.salience).toBe(secret.salience)
+
+      // A member cleared for it reaches both.
+      expect(await implicate([restricted[0]])).toBe(2)
+      rows = await byId()
+      expect(rows.get(secret.id)?.confidence).toBe('low')
+    })
+
+    it("stores a note masked against the office's policy (ADR-0077)", async () => {
+      const { projectId } = await seedProject('masked')
+      const note = await write(projectId, 'Lohnzettel an AT61 1904 3002 3457 3201 überweisen')
+      expect(note.content).toBe('[Begriff entfernt] an [IBAN entfernt] überweisen')
+    })
+
     it('serves a restricted note only to a reader cleared for all of its collections', async () => {
       const { projectId, restricted } = await seedProject('serve')
       await write(projectId, 'Offene Notiz zum Brandschutz im Stiegenhaus')
@@ -301,8 +336,8 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
     it('reaches a hidden note by id for nobody: update and delete answer as if it were missing', async () => {
       const { projectId, restricted } = await seedProject('by_id')
       const secret = await write(projectId, 'Honorarnotiz', [restricted[0]])
-      const uncleared = { projectId, clearedRestrictedCollections: [] }
-      const cleared = { projectId, clearedRestrictedCollections: [restricted[0]] }
+      const uncleared = { projectId, organizationId: ORG, clearedRestrictedCollections: [] }
+      const cleared = { projectId, organizationId: ORG, clearedRestrictedCollections: [restricted[0]] }
 
       expect(await inTenant(() => memory.updateProjectMemoryItem(uncleared, secret.id, { pinned: true }))).toBeNull()
       expect(await inTenant(() => memory.deleteProjectMemoryItem(uncleared, secret.id))).toBe(false)

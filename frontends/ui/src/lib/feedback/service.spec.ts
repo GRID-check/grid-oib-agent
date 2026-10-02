@@ -22,6 +22,23 @@ vi.mock('@/lib/projects/memory-service', () => ({
   implicateMemoryFromFeedback: vi.fn(async () => 0),
 }))
 
+// The voter's folder clearance (ADR-0078), decided in the projects service.
+vi.mock('@/lib/projects/service', () => ({
+  memoryClearance: vi.fn(async () => ({ cleared: ['proj_x_raaaaaaaaaaaa'], projectCollection: 'proj_x' })),
+}))
+
+// The office's chat screening (ADR-0077): the REAL matcher over Piloti's
+// suggested list, with no database behind it.
+vi.mock('@/lib/upload-screening/service', async () => {
+  const { chatScreeningRules, maskText } = await import('@/lib/upload-screening/content-screen')
+  const { SUGGESTED_SCREENING_POLICY } = await import('@/lib/upload-screening/policy')
+  return {
+    maskChatText: vi.fn(async (_organizationId: string, text: string) =>
+      maskText(text, chatScreeningRules(SUGGESTED_SCREENING_POLICY))
+    ),
+  }
+})
+
 vi.mock('./digest', () => ({ getFeedbackDigest: vi.fn() }))
 
 vi.mock('@/lib/authz/platform', () => ({
@@ -41,6 +58,7 @@ import {
   upsertAnswerFeedback,
 } from './repository'
 import { implicateMemoryFromFeedback } from '@/lib/projects/memory-service'
+import { memoryClearance } from '@/lib/projects/service'
 import { getFeedbackDigest } from './digest'
 import {
   getAnswerFeedbackDigest,
@@ -149,11 +167,36 @@ describe('submitAnswerFeedback', () => {
       comment: 'OIB 4 falsch zitiert',
       projectId: 'proj_1',
     })
-    expect(mockImplicate).toHaveBeenCalledWith({
-      organizationId: 'org_1',
-      projectId: 'proj_1',
-      comment: 'OIB 4 falsch zitiert',
+    // Among the notes this voter may see (ADR-0078): their clearance rides along.
+    await vi.waitFor(() =>
+      expect(mockImplicate).toHaveBeenCalledWith({
+        organizationId: 'org_1',
+        projectId: 'proj_1',
+        comment: 'OIB 4 falsch zitiert',
+        clearedRestrictedCollections: ['proj_x_raaaaaaaaaaaa'],
+      })
+    )
+    expect(memoryClearance).toHaveBeenCalledWith(session, 'proj_1')
+  })
+
+  it('implicates open organization notes only for a vote outside a project', async () => {
+    mockUpsert.mockResolvedValue({ ...storedRow, verdict: 'down', comment: 'falsch' })
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'down', comment: 'falsch' })
+    await vi.waitFor(() =>
+      expect(mockImplicate).toHaveBeenCalledWith(expect.objectContaining({ clearedRestrictedCollections: [] }))
+    )
+    expect(memoryClearance).not.toHaveBeenCalled()
+  })
+
+  it("stores a down-vote comment masked against the office's policy (ADR-0077)", async () => {
+    await submitAnswerFeedback(session, {
+      messageId: 'msg_1',
+      verdict: 'down',
+      comment: 'Die IBAN AT61 1904 3002 3457 3201 aus dem Lohnzettel fehlt',
     })
+    expect(mockUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ comment: 'Die IBAN [IBAN entfernt] aus dem [Begriff entfernt] fehlt' })
+    )
   })
 
   it('does not implicate memory again for an unchanged re-vote comment', async () => {

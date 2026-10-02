@@ -28,6 +28,7 @@ import {
   type EmbeddedNote,
 } from '@/lib/knowledge/embeddings'
 import { daysSince, fuseHybridRelevance, rankByRecallScore } from '@/lib/knowledge/recall-scoring'
+import { maskChatText } from '@/lib/upload-screening/service'
 
 /** Re-exported so a route reads the bound without importing the schema (ADR-0017). */
 export { PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS }
@@ -502,6 +503,11 @@ async function refreshDuplicate(
   return updated ?? duplicate
 }
 
+/** A note's text as it may be stored, embedded and served: masked (ADR-0077). */
+async function maskedNote(organizationId: string, content: string): Promise<string> {
+  return (await maskChatText(organizationId, content)).text
+}
+
 export async function createProjectMemoryItem(
   input: NewProjectMemoryItem,
   options: CreateMemoryOptions = {}
@@ -514,7 +520,13 @@ export async function createProjectMemoryItem(
   if (restrictedCollections && input.scope !== 'project') {
     throw new BadRequestError('Restricted memory is project memory')
   }
-  const values: NewProjectMemoryItem = { ...input, restrictedCollections }
+  // Masked against the office's „Sensible Daten" policy before anything reads
+  // it (ADR-0077): a note rides every turn's digest and goes to the embedder
+  // below, so it must not hold what the chat composer would have removed. Here
+  // rather than at each caller, so the memory panel, the organization route,
+  // the agent's `remember` tool and reflection are all masked by construction.
+  const content = await maskedNote(input.organizationId, input.content)
+  const values: NewProjectMemoryItem = { ...input, content, restrictedCollections }
 
   // Write-time consolidation (design §3.2). Three outcomes, in order:
   //
@@ -711,7 +723,12 @@ export async function createProjectMemoryItemForProject(
  * reader is cleared for, so an item they cannot see answers like a missing one.
  */
 export type MemoryOwner =
-  | { projectId: string; clearedRestrictedCollections: readonly string[] }
+  | {
+      projectId: string
+      /** The project's organization: whose „Sensible Daten" policy masks an edit (ADR-0077). */
+      organizationId: string
+      clearedRestrictedCollections: readonly string[]
+    }
   | { organizationId: string }
 
 function ownerCondition(owner: MemoryOwner) {
@@ -735,9 +752,14 @@ export async function updateProjectMemoryItem(
   >
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
+  // An edited note is typed text like a new one, and masked the same way.
+  const masked =
+    patch.content === undefined
+      ? patch
+      : { ...patch, content: await maskedNote(owner.organizationId, patch.content) }
   const [item] = await db
     .update(projectMemory)
-    .set({ ...patch, updatedAt: new Date() })
+    .set({ ...masked, updatedAt: new Date() })
     .where(and(eq(projectMemory.id, itemId), ownerCondition(owner)))
     .returning()
   return item ?? null
@@ -1139,6 +1161,13 @@ export async function implicateMemoryFromFeedback(input: {
   organizationId: string
   projectId: string | null
   comment: string
+  /**
+   * The restricted collections the person who voted is cleared for
+   * (ADR-0078), as every other reader here takes them: a note they cannot see
+   * is not one their complaint can be about, and must not lose salience for
+   * people who can. Empty: open notes only.
+   */
+  clearedRestrictedCollections: readonly string[]
 }): Promise<number> {
   const text = input.comment.trim()
   if (!text) return 0
@@ -1149,6 +1178,12 @@ export async function implicateMemoryFromFeedback(input: {
     const owner = input.projectId
       ? sql`m.organization_id = ${input.organizationId} and ((m.scope = 'project' and m.project_id = ${input.projectId}) or (m.scope = 'organization' and m.project_id is null))`
       : sql`m.organization_id = ${input.organizationId} and m.scope = 'organization' and m.project_id is null`
+    // `memoryVisibleTo` for this aliased statement (drizzle's column would name
+    // the table, not `m`). Organization notes are never restricted, so they pass.
+    const restriction = canonicalRestriction(input.clearedRestrictedCollections)
+    const visible = restriction
+      ? sql`(m.restricted_collections is null or m.restricted_collections <@ ${textArrayLiteral(restriction)}::text[])`
+      : sql`m.restricted_collections is null`
     // Vector literal travels once (scored CTE), same discipline as the
     // near-match query above; RLS remains the backstop under the org filter.
     const result = await db.execute(sql`
@@ -1156,6 +1191,7 @@ export async function implicateMemoryFromFeedback(input: {
         select m.id, grid_cosine_similarity(m.embedding, ${toVectorLiteral(embedded.vector)}::real[]) as similarity
         from project_memory m
         where ${owner}
+          and ${visible}
           and m.status = 'active'
           and m.pinned = false
           and m.embedding_model = ${embedded.fingerprint}

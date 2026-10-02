@@ -20,12 +20,19 @@ reflection stage both call :func:`decide_restrictions`:
 3. Restricted documents the turn could list but did not read: a model judge is
    shown the memory and those documents' inventory lines (name and summary) and
    names the ones it draws on. Their collections are added. Nothing named: no
-   addition. Restricted MEMORY in the prompt is judged the same way — the
-   digest's ``restricted`` lines and what this turn already wrote as
-   restricted — and a note that draws on one is restricted to all of ``R``,
-   because a digest line does not say which collections it carries. Without
-   this a paraphrase of a restricted note would be filed as open memory.
-4. Any judge failure — no model, timeout, transport error, a reply that does not
+   addition. Restricted MEMORY the conversation was shown is judged the same
+   way — this turn's digest ``restricted`` lines, what this turn already wrote
+   as restricted, and the restricted lines EARLIER turns of the conversation
+   were shown (``memory/shown_notes.py``; the digest is re-ranked per turn and
+   capped, so a note can leave the prompt and stay in the history). A note that
+   draws on one is restricted to the collections that note could carry: the
+   restricted collections of the scope it was shown under, because a digest
+   line does not say which folder it came from. Without this a paraphrase of a
+   restricted note would be filed as open memory.
+4. Before the judge, and whatever it says: a memory whose text substantially
+   reproduces a restricted note (:func:`reproduces`) draws on it. A judge that
+   answers "nothing" for a verbatim copy cannot open it.
+5. Any judge failure — no model, timeout, transport error, a reply that does not
    parse strictly — counts as "draws on all of them": fail closed. So does a
    turn whose inventory is unknown (it failed open), and one with more unread
    restricted documents than the judge is shown.
@@ -44,6 +51,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import unicodedata
 from collections.abc import Iterable
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -88,6 +96,18 @@ class RestrictedDocument:
 
 
 @dataclass(frozen=True)
+class RestrictedNote:
+    """One restricted memory line a turn of the conversation was shown or wrote.
+
+    ``collections`` are the restricted collections of the scope it was shown
+    under: the note is restricted to some of them, and a line does not say which.
+    """
+
+    content: str
+    collections: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class RestrictionEvidence:
     """What a turn could have taken from restricted folders.
 
@@ -101,10 +121,10 @@ class RestrictionEvidence:
     read: tuple[str, ...] = ()
     #: Restricted documents of ``R`` the turn could list, read or not.
     documents: tuple[RestrictedDocument, ...] = ()
-    #: Restricted memory the prompt carried: the digest's ``restricted`` lines
-    #: and this turn's restricted writes. A note drawing on one is restricted to
-    #: all of ``scope``.
-    notes: tuple[str, ...] = ()
+    #: Restricted memory the conversation was shown: this turn's digest
+    #: ``restricted`` lines and restricted writes, and the lines earlier turns
+    #: were shown. A note drawing on one is restricted to that line's collections.
+    notes: tuple[RestrictedNote, ...] = ()
     #: Whether the turn's inventory was known at all. A turn with restricted
     #: collections in scope and NO inventory rows (the inventory read failed
     #: open) cannot say what it could have listed, so its memory fails closed.
@@ -121,12 +141,20 @@ def _row_field(row: Any, name: str) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _earlier_note(note: RestrictedNote) -> RestrictedNote | None:
+    collections = tuple(dict.fromkeys(restricted_collections_in(note.collections)))
+    content = note.content.strip()[:_MAX_SUMMARY_CHARS]
+    return RestrictedNote(content, collections) if content and collections else None
+
+
 def restriction_evidence(
     scope_names: Iterable[str | None] | None,
     *,
     source_collections: Iterable[str | None] = (),
     listed_documents: Iterable[Any] = (),
     restricted_notes: Iterable[str] = (),
+    earlier_notes: Iterable[RestrictedNote] = (),
+    always: Iterable[str] = (),
 ) -> RestrictionEvidence:
     """Assemble the evidence from what a turn holds.
 
@@ -135,14 +163,27 @@ def restriction_evidence(
     (and of the conversation's citation registry, whose passages are in the
     history); ``listed_documents`` the inventory rows the turn could list
     (``AvailableDocument`` or a dict with ``collection``/``file_name``/
-    ``display_title``/``summary``). Collection names compare case-insensitively,
-    like :func:`is_restricted_collection`, and keep the scope's spelling.
+    ``display_title``/``summary``); ``restricted_notes`` this turn's restricted
+    memory lines, shown under this scope; ``earlier_notes`` the lines earlier
+    turns were shown, each with its own collections; ``always`` collections
+    every memory of the conversation is restricted to (earlier notes that no
+    longer fit the bounded record, ``memory/shown_notes.py``).
+
+    The restricted scope is this turn's restricted collections plus those of the
+    earlier notes and ``always``: a note shown under folder A is A's content even
+    in a turn that no longer has A in scope. Collection names compare
+    case-insensitively, like :func:`is_restricted_collection`, and keep the
+    scope's spelling.
     """
-    scope = tuple(dict.fromkeys(restricted_collections_in(scope_names)))
+    signed = tuple(dict.fromkeys(restricted_collections_in(scope_names)))
+    earlier = tuple(note for note in map(_earlier_note, earlier_notes) if note is not None)
+    pinned = tuple(dict.fromkeys(restricted_collections_in(always)))
+    scope = tuple(dict.fromkeys([*signed, *(name for note in earlier for name in note.collections), *pinned]))
     if not scope:
         return RestrictionEvidence()
     by_key = {name.lower(): name for name in scope}
     seen = {name.strip().lower() for name in source_collections if isinstance(name, str) and name.strip()}
+    seen |= {name.lower() for name in pinned}
     read = tuple(sorted(by_key[key] for key in by_key if key in seen))
     documents = []
     rows = tuple(listed_documents or ())
@@ -158,9 +199,12 @@ def restriction_evidence(
                 summary=_row_field(row, "summary")[:_MAX_SUMMARY_CHARS],
             )
         )
-    notes = tuple(
-        dict.fromkeys(note.strip()[:_MAX_SUMMARY_CHARS] for note in restricted_notes if note and note.strip())
+    current = tuple(
+        RestrictedNote(content, signed)
+        for content in dict.fromkeys(note.strip()[:_MAX_SUMMARY_CHARS] for note in restricted_notes if note)
+        if content and signed
     )
+    notes = tuple({(note.content, note.collections): note for note in (*current, *earlier)}.values())
     return RestrictionEvidence(
         scope=scope, read=read, documents=tuple(documents), notes=notes, listing_known=bool(rows)
     )
@@ -214,15 +258,32 @@ JUDGE_SYSTEM_PROMPT = (
 )
 
 
-#: The ``collection`` of a judged entry that is restricted memory rather than a
-#: document: drawing on it restricts to every restricted collection in scope.
-_ALL_RESTRICTED = ""
+@dataclass(frozen=True)
+class _Judged:
+    """One entry the judge is shown: a restricted document, or a restricted note.
+
+    ``collections`` are what a memory drawing on it is restricted to: the
+    document's collection, or every collection the note could carry.
+    """
+
+    name: str
+    summary: str
+    collections: tuple[str, ...]
+    is_note: bool = False
 
 
-def _judge_prompt(contents: Sequence[str], documents: Sequence[RestrictedDocument]) -> str:
+def _document_entry(doc: RestrictedDocument) -> _Judged:
+    return _Judged(doc.name, doc.summary, (doc.collection,))
+
+
+def _note_entry(note: RestrictedNote) -> _Judged:
+    return _Judged("", note.content, note.collections, is_note=True)
+
+
+def _judge_prompt(contents: Sequence[str], documents: Sequence[_Judged]) -> str:
     doc_lines = [
         f"[{index}] (confidential note) {doc.summary}"
-        if doc.collection == _ALL_RESTRICTED
+        if doc.is_note
         else f"[{index}] {doc.name}" + (f" — {doc.summary}" if doc.summary else "")
         for index, doc in enumerate(documents, start=1)
     ]
@@ -256,9 +317,7 @@ def parse_judge_reply(text: str, *, notes: int, documents: int) -> list[frozense
     return [verdicts[index] for index in range(1, notes + 1)]
 
 
-async def judge(
-    contents: Sequence[str], documents: Sequence[RestrictedDocument], *, llm: Any
-) -> list[frozenset[int]] | None:
+async def judge(contents: Sequence[str], documents: Sequence[_Judged], *, llm: Any) -> list[frozenset[int]] | None:
     """Ask the model which documents each note draws on; ``None`` on any failure.
 
     One call for every note of a write (the reflection stage writes up to five),
@@ -296,26 +355,104 @@ async def decide_restrictions(contents: Sequence[str], evidence: RestrictionEvid
         logger.info("Memory restriction: the turn's inventory is unknown; failing closed")
         return [_restriction(evidence.scope)] * len(contents)
     read = set(evidence.read)
-    # Unread restricted documents the turn could list, and the restricted
-    # memory its prompt carried: what the judge is for.
-    unread = [doc for doc in evidence.documents if doc.collection not in read]
-    if read != set(evidence.scope):
-        unread += [RestrictedDocument(_ALL_RESTRICTED, "", note) for note in evidence.notes]
+    # The restricted notes a memory reproduces draw on them, whatever a judge
+    # would say (step 4): a verbatim copy of a restricted line is that line.
+    copied = [_reproduced_collections(content, evidence.notes) for content in contents]
+    # Unread restricted documents the turn could list, and restricted memory
+    # the conversation was shown that is not already covered by what it read:
+    # what the judge is for.
+    unread = [_document_entry(doc) for doc in evidence.documents if doc.collection not in read]
+    unread += [_note_entry(note) for note in evidence.notes if not set(note.collections) <= read]
     if not unread:
-        return [_restriction(read)] * len(contents)
+        return [_restriction(read | extra) for extra in copied]
     if len(unread) > MAX_JUDGE_DOCUMENTS:
         logger.info("Memory restriction: %d restricted entries exceed the judge's bound; failing closed", len(unread))
         return [_restriction(evidence.scope)] * len(contents)
     verdicts = await judge(contents, unread, llm=llm)
     if verdicts is None:
         return [_restriction(evidence.scope)] * len(contents)
-    return [_restriction(read | _collections_drawn(drawn, unread, evidence.scope)) for drawn in verdicts]
+    return [
+        _restriction(read | extra | _collections_drawn(drawn, unread))
+        for drawn, extra in zip(verdicts, copied, strict=True)
+    ]
 
 
-def _collections_drawn(drawn: frozenset[int], judged: Sequence[RestrictedDocument], scope: tuple[str, ...]) -> set[str]:
-    """The collections behind the judged entries a note draws on; a note entry means all of ``scope``."""
-    collections = {judged[number - 1].collection for number in drawn}
-    return set(scope) if _ALL_RESTRICTED in collections else collections
+def _collections_drawn(drawn: frozenset[int], judged: Sequence[_Judged]) -> set[str]:
+    """The collections behind the judged entries a memory draws on."""
+    return {collection for number in drawn for collection in judged[number - 1].collections}
+
+
+# ---------------------------------------------------------------------------
+# Reproduction: a memory that copies a restricted note
+# ---------------------------------------------------------------------------
+
+#: Function words that say nothing about WHAT a note states, German and English,
+#: three letters and longer (shorter tokens are dropped anyway). Without them two
+#: unrelated sentences of one grammatical shape ("Die Kosten der Fassade und des
+#: Daches" / "Die Kosten der Fenster und des Kellers") would share most tokens.
+_STOPWORDS = frozenset(
+    """
+    der die das den dem des ein eine einer eines einem einen und oder aber auch noch nur
+    nicht kein keine für mit von bei aus nach auf über unter vor zum zur vom ist sind war
+    waren wird werden wurde wurden hat haben hatte sein seine ihre ihr wie als dass dies
+    diese dieser dieses sich sie wir uns ich man bis per pro sowie bzw laut
+    the and for with from that this these those are was were has have had not but also
+    only than into onto its their there which who will would should can could been being
+    """.split()
+)
+_WORD = re.compile(r"\w+")
+#: The share of a restricted note's significant tokens a memory must repeat to
+#: reproduce it. A reordered or reformatted copy keeps nearly all of them (a fee
+#: note rewritten as "Statik-Honorar: 48.000 € netto, vereinbart mit Müller"
+#: keeps 7 of 7); a different fact about the same people keeps few (an open
+#: "Die Statik prüft Büro Müller" repeats 3 of a 7-token fee note, 0.43), and
+#: that one is the judge's to decide. Measured against the NOTE, not the memory:
+#: what matters is how much of the restricted line is carried, not how much else
+#: the memory says.
+REPRODUCTION_SHARE = 0.6
+#: At least this many significant tokens in common, or in a contained copy:
+#: below it, one shared name or number is a coincidence, not a copy.
+REPRODUCTION_MIN_TOKENS = 3
+
+
+def _normalized(text: str) -> str:
+    """Case, Unicode form, punctuation and spacing folded away: what a copy keeps."""
+    folded = unicodedata.normalize("NFKC", text).casefold()
+    return " ".join(_WORD.findall(folded))
+
+
+def _significant(normalized: str) -> set[str]:
+    return {
+        token
+        for token in normalized.split()
+        if token not in _STOPWORDS and (len(token) >= 3 or any(char.isdigit() for char in token))
+    }
+
+
+def reproduces(memory: str, note: str) -> bool:
+    """Whether ``memory`` substantially reproduces the restricted ``note``.
+
+    Either one contains the other once normalized (a verbatim copy, with or
+    without words around it, or a verbatim fragment of the note), the contained
+    side carrying at least :data:`REPRODUCTION_MIN_TOKENS` significant tokens;
+    or the memory repeats at least :data:`REPRODUCTION_SHARE` of the note's
+    significant tokens, and at least :data:`REPRODUCTION_MIN_TOKENS` of them.
+    Deterministic and conservative in one direction only: a match restricts, a
+    miss leaves the question to the judge.
+    """
+    left, right = _normalized(memory), _normalized(note)
+    if not left or not right:
+        return False
+    shorter = left if len(left) <= len(right) else right
+    if (right in left or left in right) and len(_significant(shorter)) >= REPRODUCTION_MIN_TOKENS:
+        return True
+    note_tokens = _significant(right)
+    shared = note_tokens & _significant(left)
+    return len(shared) >= REPRODUCTION_MIN_TOKENS and len(shared) >= REPRODUCTION_SHARE * len(note_tokens)
+
+
+def _reproduced_collections(memory: str, notes: Sequence[RestrictedNote]) -> set[str]:
+    return {collection for note in notes if reproduces(memory, note.content) for collection in note.collections}
 
 
 async def decide_restriction(content: str, evidence: RestrictionEvidence, *, llm: Any) -> Restriction:

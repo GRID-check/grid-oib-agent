@@ -58,6 +58,19 @@ vi.mock('@/lib/knowledge/embeddings', async (importOriginal) => {
   return { ...actual, embedNote: vi.fn(async () => null), embedNotes: vi.fn(async () => null) }
 })
 
+// The office's chat screening (ADR-0077): the REAL matcher over Piloti's
+// suggested list, so a note is masked here exactly as the policy would, with no
+// database. What the matcher does has its own spec (`content-screen.spec.ts`).
+vi.mock('@/lib/upload-screening/service', async () => {
+  const { chatScreeningRules, maskText } = await import('@/lib/upload-screening/content-screen')
+  const { SUGGESTED_SCREENING_POLICY } = await import('@/lib/upload-screening/policy')
+  return {
+    maskChatText: vi.fn(async (_organizationId: string, text: string) =>
+      maskText(text, chatScreeningRules(SUGGESTED_SCREENING_POLICY))
+    ),
+  }
+})
+
 import { getDb } from '@/lib/db'
 import { BadRequestError } from '@/lib/api/errors'
 import { currentRestrictedCollections } from '@/lib/authz/folder-access'
@@ -130,7 +143,7 @@ describe('updateProjectMemoryItem tenancy guard', () => {
     const { where } = mockUpdateChain([{ id: 'item-1' }])
 
     const result = await updateProjectMemoryItem(
-      { projectId: 'proj-1', clearedRestrictedCollections: [] },
+      { projectId: 'proj-1', organizationId: 'org-1', clearedRestrictedCollections: [] },
       'item-1',
       { status: 'dismissed' }
     )
@@ -145,7 +158,7 @@ describe('updateProjectMemoryItem tenancy guard', () => {
     const { where } = mockUpdateChain([{ id: 'item-1' }])
 
     await updateProjectMemoryItem(
-      { projectId: 'proj-1', clearedRestrictedCollections: ['proj_x_rbbbbbbbbbbbb', 'proj_x_raaaaaaaaaaaa'] },
+      { projectId: 'proj-1', organizationId: 'org-1', clearedRestrictedCollections: ['proj_x_rbbbbbbbbbbbb', 'proj_x_raaaaaaaaaaaa'] },
       'item-1',
       { pinned: true }
     )
@@ -156,6 +169,40 @@ describe('updateProjectMemoryItem tenancy guard', () => {
         and(eq('pm.projectId', 'proj-1'), memoryVisibleTo(['proj_x_raaaaaaaaaaaa', 'proj_x_rbbbbbbbbbbbb']))
       )
     )
+  })
+})
+
+describe('a note is stored masked (ADR-0077)', () => {
+  const IBAN = 'AT61 1904 3002 3457 3201'
+
+  it('masks an edited note against the office policy before it is written', async () => {
+    const returning = vi.fn().mockResolvedValue([{ id: 'item-1' }])
+    const where = vi.fn().mockReturnValue({ returning })
+    const set = vi.fn().mockReturnValue({ where })
+    vi.mocked(getDb).mockReturnValue(asDb({ update: vi.fn().mockReturnValue({ set }) }))
+
+    await updateProjectMemoryItem(
+      { projectId: 'proj-1', organizationId: 'org-1', clearedRestrictedCollections: [] },
+      'item-1',
+      { content: `Honorar laut Honorarvereinbarung an ${IBAN}` }
+    )
+    await updateProjectMemoryItem({ organizationId: 'org-1' }, 'item-2', { content: `Konto ${IBAN}` })
+
+    expect(set.mock.calls.map(([patch]) => (patch as { content: string }).content)).toEqual([
+      'Honorar laut [Begriff entfernt] an [IBAN entfernt]',
+      'Konto [IBAN entfernt]',
+    ])
+  })
+
+  it('leaves an edit without text alone', async () => {
+    const returning = vi.fn().mockResolvedValue([{ id: 'item-1' }])
+    const where = vi.fn().mockReturnValue({ returning })
+    const set = vi.fn().mockReturnValue({ where })
+    vi.mocked(getDb).mockReturnValue(asDb({ update: vi.fn().mockReturnValue({ set }) }))
+
+    await updateProjectMemoryItem({ organizationId: 'org-1' }, 'item-1', { pinned: true })
+
+    expect(set.mock.calls[0][0]).not.toHaveProperty('content')
   })
 })
 
@@ -185,7 +232,7 @@ describe('deleteProjectMemoryItem tenancy guard', () => {
     const { where } = mockDeleteChain([{ id: 'item-1' }])
 
     const deleted = await deleteProjectMemoryItem(
-      { projectId: 'proj-1', clearedRestrictedCollections: [] },
+      { projectId: 'proj-1', organizationId: 'org-1', clearedRestrictedCollections: [] },
       'item-1'
     )
 
@@ -399,6 +446,24 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     )
     return { set, values, insert, update }
   }
+
+  it('stores, embeds and de-duplicates a new note by its masked text (ADR-0077)', async () => {
+    const { values } = mockCreateChain(null)
+    vi.mocked(embedNote).mockClear()
+
+    await createProjectMemoryItem({
+      scope: 'organization',
+      projectId: null,
+      organizationId: 'org-1',
+      kind: 'derived_fact',
+      content: 'Lohnzettel gehen an AT61 1904 3002 3457 3201.',
+    })
+
+    expect((values.mock.calls[0][0] as { content: string }).content).toBe(
+      '[Begriff entfernt] gehen an [IBAN entfernt].'
+    )
+    expect(String(vi.mocked(embedNote).mock.calls[0][0])).not.toContain('AT61')
+  })
 
   it('inserts when no active duplicate exists', async () => {
     const { values, set } = mockCreateChain(null)
@@ -1102,6 +1167,7 @@ describe('implicateMemoryFromFeedback', () => {
       organizationId: 'org-1',
       projectId: 'proj-1',
       comment: 'Die Antwort hat OIB 4 mit der Wiener BO vermischt.',
+      clearedRestrictedCollections: [],
     })
     expect(count).toBe(0)
     expect(execute).not.toHaveBeenCalled()
@@ -1116,6 +1182,7 @@ describe('implicateMemoryFromFeedback', () => {
       organizationId: 'org-1',
       projectId: 'proj-1',
       comment: 'Die Antwort hat OIB 4 mit der Wiener BO vermischt.',
+      clearedRestrictedCollections: [],
     })
     expect(count).toBe(2)
     expect(execute).toHaveBeenCalledTimes(1)
@@ -1128,9 +1195,39 @@ describe('implicateMemoryFromFeedback', () => {
     expect(flat).toContain('org-1')
   })
 
+  it("implicates only notes the voter may see: open ones, and restricted ones they are cleared for (ADR-0078)", async () => {
+    vi.mocked(embedNote).mockResolvedValue({ vector: [0.1, 0.2], fingerprint: 'model-a' })
+    const execute = vi.fn(async () => [])
+    vi.mocked(getDb).mockReturnValue(asDb({ execute }))
+
+    await implicateMemoryFromFeedback({
+      organizationId: 'org-1',
+      projectId: 'proj-1',
+      comment: 'Die Antwort war falsch.',
+      clearedRestrictedCollections: [],
+    })
+    await implicateMemoryFromFeedback({
+      organizationId: 'org-1',
+      projectId: 'proj-1',
+      comment: 'Die Antwort war falsch.',
+      clearedRestrictedCollections: ['proj_x_rbbbbbbbbbbbb', 'proj_x_raaaaaaaaaaaa'],
+    })
+
+    const [uncleared, cleared] = (execute.mock.calls as unknown[][]).map((call) => JSON.stringify(call[0]))
+    expect(uncleared).toContain('m.restricted_collections is null')
+    expect(uncleared).not.toContain('<@')
+    expect(cleared).toContain('m.restricted_collections <@ ')
+    expect(cleared).toContain('{\\"proj_x_raaaaaaaaaaaa\\",\\"proj_x_rbbbbbbbbbbbb\\"}')
+  })
+
   it('returns 0 for a blank comment and never throws on db failure', async () => {
     expect(
-      await implicateMemoryFromFeedback({ organizationId: 'org-1', projectId: null, comment: '   ' })
+      await implicateMemoryFromFeedback({
+        organizationId: 'org-1',
+        projectId: null,
+        comment: '   ',
+        clearedRestrictedCollections: [],
+      })
     ).toBe(0)
     vi.mocked(embedNote).mockResolvedValue({ vector: [0.1], fingerprint: 'model-a' })
     const execute = vi.fn(async () => {
@@ -1138,7 +1235,12 @@ describe('implicateMemoryFromFeedback', () => {
     })
     vi.mocked(getDb).mockReturnValue(asDb({ execute }))
     await expect(
-      implicateMemoryFromFeedback({ organizationId: 'org-1', projectId: null, comment: 'kaputt' })
+      implicateMemoryFromFeedback({
+        organizationId: 'org-1',
+        projectId: null,
+        comment: 'kaputt',
+        clearedRestrictedCollections: [],
+      })
     ).resolves.toBe(0)
   })
 })

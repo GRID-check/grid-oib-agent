@@ -23,6 +23,8 @@ type FolderAccessModule = Pick<
   | 'isFolderVisibleToClearance'
   | 'placementCollectionFor'
   | 'getProjectFolderAccess'
+  | 'currentRestrictedCollections'
+  | 'restrictedCollectionsAbove'
 >
 
 /** The open answer `getProjectFolderAccess` gives for a project that restricts nothing. */
@@ -44,5 +46,7 @@ export function openFolderAccessModule(): FolderAccessModule {
     isFolderVisibleToClearance: vi.fn(async () => true),
     placementCollectionFor: vi.fn(async (_org: string, _project: string, collection: string) => collection),
     getProjectFolderAccess: vi.fn(async (_session, _project: string, collection: string) => openFolderAccess(collection)),
+    currentRestrictedCollections: vi.fn(async () => []),
+    restrictedCollectionsAbove: vi.fn(async () => []),
   }
 }

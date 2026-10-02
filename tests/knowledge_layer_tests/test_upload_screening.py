@@ -153,7 +153,10 @@ class TestIban:
             "CH93 0076 2011 6238 5295 7",
             "GB29 NWBK 6016 1331 9268 19",
             f"{_IBAN_AT} EUR",  # a following group of letters is not part of it
-            f"{_IBAN_AT} 12",  # nor a following short number: the valid prefix stands
+            f"{_IBAN_AT} 12",  # nor a following short number: the country fixes the length
+            "at61 1904 3002 3457 3201",  # typed in lower case
+            "AT61-1904-3002-3457-3201",  # any whitespace run, or one hyphen or full stop, between groups
+            "AT６１ 1904 3002 3457 3201",  # any decimal digit is read as its value
         ],
     )
     def test_a_checksum_valid_iban_matches(self, text):
@@ -166,7 +169,7 @@ class TestIban:
             "AT62 1904 3002 3457 3201",  # wrong check digits
             "XAT611904300234573201",  # inside a longer token
             "AT6119043002345732011",  # one character too many for AT
-            "at61 1904 3002 3457 3201",  # IBANs are printed upper case
+            "XX61 1904 3002 3457 3201",  # no registered country
         ],
     )
     def test_an_invalid_or_embedded_candidate_does_not(self, text):
@@ -183,7 +186,20 @@ class TestIban:
 
 
 class TestAustrianSocialSecurityNumber:
-    @pytest.mark.parametrize("text", ["SVNR 1237 010180", "SV-Nr.: 1237010180", "4568 311299", "7890 151370"])
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "SVNR 1237 010180",
+            "SV-Nr.: 1237010180",
+            "4568 311299",
+            "7890 151370",
+            "1237  010180",  # any run of whitespace
+            "1237-010180",
+            "1237/010180",
+            "1237 01 01 80",
+            "١٢٣٧ ٠١٠١٨٠",  # Arabic-Indic digits
+        ],
+    )
     def test_a_valid_number_matches(self, text):
         assert _kinds(text, _rules(detectors=["at_svnr"])) == ["at_svnr"]
 
@@ -197,7 +213,7 @@ class TestAustrianSocialSecurityNumber:
             "0123 010180",  # leading zero
             "91237010180",  # inside a longer digit run
             "1237 0101801",  # inside a longer digit run
-            "1237  010180",  # two spaces is not the printed form
+            "1237 01 0180",  # the date is either joined or separated throughout
         ],
     )
     def test_an_invalid_or_embedded_number_does_not(self, text):
@@ -211,7 +227,14 @@ class TestAustrianSocialSecurityNumber:
 class TestCreditCard:
     @pytest.mark.parametrize(
         "text",
-        ["Karte 4111 1111 1111 1111", "4111-1111-1111-1111", "5555555555554444", "Amex 3782 822463 10005"],
+        [
+            "Karte 4111 1111 1111 1111",
+            "4111-1111-1111-1111",
+            "5555555555554444",
+            "Amex 3782 822463 10005",
+            "4111.1111.1111.1111",
+            "4111 1111 1111 1111 123",  # followed by its security code
+        ],
     )
     def test_a_luhn_valid_card_matches(self, text):
         assert _kinds(text, _rules(detectors=["credit_card"])) == ["credit_card"]

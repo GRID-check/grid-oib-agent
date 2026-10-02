@@ -65,13 +65,14 @@ const session = {
 }
 
 function envelopeHeaders(
-  overrides: { issuedAt?: number; userId?: string; projectId?: string | null } = {},
+  overrides: { issuedAt?: number; userId?: string; projectId?: string | null; collectionScope?: string[] } = {},
 ) {
   const { header, signature } = buildGridRequestContextEnvelope(
     {
       organizationId: 'org_1',
       userId: overrides.userId ?? 'user_requester',
       ...(overrides.projectId === null ? {} : { projectId: overrides.projectId ?? PROJECT }),
+      ...(overrides.collectionScope ? { collectionScope: overrides.collectionScope } : {}),
       conversationId: 's_conv_1',
       issuedAt: overrides.issuedAt ?? Date.now(),
     },
@@ -278,8 +279,35 @@ describe('the ops it does serve', () => {
       // refused today, and that is exactly why the flag has to be right — the
       // door is the `actor` field, and a caller that lies about who it is
       // bypasses it the moment a row changes.
-      { request: expect.any(Request), actingHuman: false },
+      {
+        request: expect.any(Request),
+        actingHuman: false,
+        // The thread and the turn's signed scope ride along, so content from a
+        // turn that read a restricted folder goes only where it may (ADR-0078).
+        origin: { conversationId: expect.any(String), signedRestrictedCollections: [], locale: 'de' },
+      },
     )
+  })
+
+  it('hands both writes the restricted collections of the SIGNED scope (ADR-0078)', async () => {
+    const restricted = 'proj_3333_r0123456789ab'
+    const headers = envelopeHeaders({ collectionScope: ['oib_knowledge', 'proj_3333', restricted] })
+    await call(
+      { op: 'create', projectId: PROJECT, ref: 's_conv_1-honorar', title: 'Honorar', content: '# Honorar' },
+      headers,
+    )
+    expect(vi.mocked(fileAgentDocumentDraft).mock.calls[0][0]).toMatchObject({
+      originConversationId: 's_conv_1',
+      signedRestrictedCollections: [restricted],
+    })
+
+    await call(
+      { op: 'update', documentId: DOC, versionId: VERSION, content: 'Honorar 48.000', ifMatch: 'sha256:abc' },
+      headers,
+    )
+    expect(vi.mocked(replaceVersionContent).mock.calls[0][5]).toMatchObject({
+      origin: { conversationId: 's_conv_1', signedRestrictedCollections: [restricted], locale: 'de' },
+    })
   })
 
   it('refuses an op outside the union at the schema', async () => {

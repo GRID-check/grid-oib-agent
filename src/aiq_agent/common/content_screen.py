@@ -9,20 +9,32 @@ Daten" policy (ADR-0077):
   before the agent sees a message or its history keeps one.
 
 The browser runs a TypeScript twin (``frontends/ui/src/lib/upload-screening/content-screen.ts``)
-before a chat message leaves it. Both implementations read the cases in
-``tests/fixtures/content_screen_cases.json`` (byte-identical twin under
-``frontends/ui/tests/fixtures/``), so the same text gives the same spans, the
-same masked text and the same findings on both sides.
+before a chat message leaves it. Both implementations read the ONE shared fixture,
+``tests/fixtures/content_screen_cases.json`` at the repository root, so the same
+text gives the same spans, the same masked text and the same findings on both
+sides. The twins agree by construction rather than by luck: neither uses its
+runtime's own idea of whitespace, case folding or digits, and the detectors are
+the same small parsers on both sides, not two regex dialects.
 
 It lives in ``aiq_agent.common`` because both Python consumers already import
 from here, while importing anything under ``knowledge_layer.llamaindex`` loads
 LlamaIndex and Chroma (five seconds) into a process that only wants a regex.
 
+Characters
+----------
+* **Whitespace** is :data:`WHITESPACE`, Unicode's ``White_Space`` property,
+  listed. Not ``str.isspace`` (which adds U+001C-U+001F) and not JavaScript's
+  ``\\s`` (which adds U+FEFF and drops U+0085).
+* **A word character** is a letter or a number (general category ``L*`` or ``N*``).
+* **A digit** is any Unicode decimal digit (``Nd``), read as its value: a number
+  typed in fullwidth or Arabic-Indic digits is still that number.
+
 Term matching
 -------------
-Both sides are folded the same way: Unicode NFKC, ``casefold``, then the German
-transliterations (ä→ae, ö→oe, ü→ue; ``casefold`` already makes ß→ss), so
-``Gehaltsübersicht``, ``GEHALTSÜBERSICHT`` and ``Gehaltsuebersicht`` are one term.
+Both sides are folded the same way: Unicode NFKC, the default lowercase mapping,
+final sigma as sigma, then the German transliterations (ä→ae, ö→oe, ü→ue, ß→ss),
+so ``Gehaltsübersicht``, ``GEHALTSÜBERSICHT`` and ``Gehaltsuebersicht`` are one term.
+Lowercase, not ``casefold``: JavaScript has the first and not the second.
 The fold runs per CLUSTER (a character and the combining marks after it), which
 is what lets a span found in the folded text be mapped back to the characters
 it came from, and makes a decomposed ``ü`` (some PDFs, some keyboards) fold like
@@ -30,20 +42,34 @@ the composed one.
 
 A term matches at a WORD START and may run on: ``Honorar`` matches
 ``Honorarvereinbarung`` and ``Honorare``, because German builds its compounds by
-appending. It does NOT match inside a word (``Ehrenhonorar``): a term preceded by a
-letter or digit is part of a different word, and matching there would quarantine on
-every compound that merely ends in the term. A multi-word term matches across any
-run of whitespace, line breaks included. A term's span runs to the end of the
-word it starts, so masking ``Honorar`` hides ``Honorarvereinbarung`` whole.
+appending. It does NOT match inside a word (``Ehrenhonorar``): a term whose first
+character is preceded by a letter or digit in the ORIGINAL text is part of a
+different word. A multi-word term matches across any run of whitespace, line
+breaks included. A term's span runs to the end of the word it starts, so masking
+``Honorar`` hides ``Honorarvereinbarung`` whole.
 
 Detectors
 ---------
 Only checksum-valid matches count, so a text full of order numbers is not
-flagged for looking like one. Detectors read digits as ASCII ``0-9`` on purpose:
-the browser's regular expressions do, and the two must agree. What is reported
-never carries a matched value: a detector's ``sample`` is MASKED
-(``AT61 •••• •••• •••• 3201``), because it is stored on a job status and shown to
-people who may not see the value.
+flagged for looking like one. The checksum is the precision gate; the shapes
+around it are wide, because a number a person types is not printed by a bank:
+
+* ``iban``: a registered country code (:data:`IBAN_LENGTHS`, which also fixes
+  the length), in either case, two check digits, then the account, in groups of
+  four or unbroken. A separator may stand after the country code and between
+  groups: a run of whitespace (line breaks too) or one ``-`` or ``.``. Mod 97.
+* ``at_svnr``: four digits, then the birth date DDMMYY, optionally separated
+  from it (whitespace, ``-``, ``.`` or ``/``), optionally with the date's own
+  parts separated. The check digit, the first digit and the date must hold.
+* ``credit_card``: a run of digits joined by horizontal whitespace, ``-`` or
+  ``.``, starting 2-6 (the major networks). The whole run is the candidate, so a
+  number inside a longer run of numbers is not a card; a run that ends in a
+  separate group of 3-4 digits (a security code) is a card when the rest is.
+  Luhn.
+
+What is reported never carries a matched value: a detector's ``sample`` is
+MASKED (``AT61 •••• •••• •••• 3201``), because it is stored on a job status and
+shown to people who may not see the value.
 
 Masking
 -------
@@ -52,7 +78,7 @@ Placeholders are protected: no term or detector match that overlaps one counts,
 so masking a masked text is a no-op, even for an office whose list contains
 „IBAN" or „Kartennummer". Masking repeats until nothing is left to mask, because
 removing one number can expose another that its digits were hiding (a card
-printed straight after an IBAN).
+printed straight after an IBAN reads as part of its run).
 
 Rules see words and number shapes, not meaning: masking a term hides the word,
 not the figures around it („Honorar: 12.400 €" keeps the amount).
@@ -95,26 +121,63 @@ PLACEHOLDERS: dict[str, str] = {
     "term": "[Begriff entfernt]",
 }
 
-#: How often :func:`mask_text` re-reads its own output. Each pass removes at
-#: least one match and adds none (placeholders are protected), so this is a
-#: bound against a bug, not a budget a real text reaches.
-MAX_MASK_PASSES = 5
-
-_TRANSLITERATION = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
-
-#: Not preceded / followed by a letter or digit (``[^\W_]`` is a word character
-#: other than the underscore, i.e. ``str.isalnum``).
-_NO_ALNUM_BEFORE = r"(?<![^\W_])"
-_NO_ALNUM_AFTER = r"(?![^\W_])"
-
 _PLACEHOLDER_RE = re.compile("|".join(re.escape(placeholder) for placeholder in PLACEHOLDERS.values()))
 
 
-# ------------------------------------------------------------------------- fold
+# ------------------------------------------------------------------- characters
+
+#: Unicode's ``White_Space`` property, all 25 code points. The one definition of
+#: whitespace on both sides (the TypeScript twin lists the same, and its spec
+#: holds the list to ``\p{White_Space}``).
+WHITESPACE = (
+    "\t\n\x0b\x0c\r \x85\xa0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000"
+)
+_LINE_BREAKS = "\n\x0b\x0c\r\x85\u2028\u2029"
+#: Whitespace that keeps a line: what may join the groups of a card number.
+_HORIZONTAL_SPACE = "".join(char for char in WHITESPACE if char not in _LINE_BREAKS)
+_SPACE_RUN = re.compile(f"[{WHITESPACE}]+")
+
+_FOLD_TABLE = str.maketrans({"ς": "σ", "ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
 
 
 def _is_mark(char: str) -> bool:
-    return unicodedata.category(char).startswith("M")
+    return unicodedata.category(char)[0] == "M"
+
+
+def _is_word_char(char: str) -> bool:
+    """A letter or a number: general category ``L*`` or ``N*``."""
+    return unicodedata.category(char)[0] in "LN"
+
+
+def _word_char_at(text: str, index: int) -> bool:
+    return 0 <= index < len(text) and _is_word_char(text[index])
+
+
+def _digit_at(text: str, index: int) -> str | None:
+    """The ASCII digit for a Unicode decimal digit (``Nd``) at ``index``, else ``None``."""
+    if index >= len(text):
+        return None
+    value = unicodedata.decimal(text[index], None)
+    return None if value is None else str(value)
+
+
+def _skip_separator(text: str, index: int, marks: str) -> int:
+    """``index`` moved past one separator: a run of whitespace, or one of ``marks``."""
+    if index < len(text) and text[index] in WHITESPACE:
+        while index < len(text) and text[index] in WHITESPACE:
+            index += 1
+    elif index < len(text) and text[index] in marks:
+        index += 1
+    return index
+
+
+def _split_words(text: str) -> list[str]:
+    return [word for word in _SPACE_RUN.split(text) if word]
+
+
+# ------------------------------------------------------------------------- fold
 
 
 def _clusters(text: str) -> Iterator[tuple[int, int]]:
@@ -127,7 +190,7 @@ def _clusters(text: str) -> Iterator[tuple[int, int]]:
 
 
 def _fold_cluster(cluster: str) -> str:
-    return unicodedata.normalize("NFKC", cluster).casefold().translate(_TRANSLITERATION)
+    return unicodedata.normalize("NFKC", cluster).lower().translate(_FOLD_TABLE)
 
 
 def fold(text: str) -> str:
@@ -156,9 +219,8 @@ def _fold_mapped(text: str) -> _Folded:
     return _Folded("".join(parts), starts, ends)
 
 
-def _term_pattern(term: str) -> re.Pattern[str]:
-    words = [re.escape(word) for word in fold(term).split()]
-    return re.compile(_NO_ALNUM_BEFORE + r"\s+".join(words))
+def _term_words(term: str) -> tuple[str, ...]:
+    return tuple(_split_words(fold(term)))
 
 
 # ------------------------------------------------------------------------ rules
@@ -170,7 +232,8 @@ class ScreeningRules:
 
     terms: tuple[str, ...] = ()
     detectors: tuple[str, ...] = ()
-    patterns: tuple[re.Pattern[str], ...] = field(default=(), repr=False, compare=False)
+    #: One per term, same order: the term's folded words, matched literally.
+    patterns: tuple[tuple[str, ...], ...] = field(default=(), repr=False, compare=False)
 
     @classmethod
     def build(cls, terms: Iterable[str], detectors: Iterable[str]) -> ScreeningRules | None:
@@ -180,7 +243,7 @@ class ScreeningRules:
         kept_detectors = tuple(name for name in DETECTORS if name in wanted)
         if not kept_terms and not kept_detectors:
             return None
-        patterns = tuple(_term_pattern(term) for term in kept_terms)
+        patterns = tuple(_term_words(term) for term in kept_terms)
         return cls(terms=kept_terms, detectors=kept_detectors, patterns=patterns)
 
     @classmethod
@@ -230,7 +293,7 @@ def _normalised_terms(terms: Iterable[str]) -> tuple[str, ...]:
     """Stripped, in bounds, first spelling of each folded form kept, at most ``MAX_TERMS``."""
     kept: dict[str, str] = {}
     for term in terms:
-        stripped = " ".join(term.split())
+        stripped = " ".join(_split_words(term))
         if MIN_TERM_CHARS <= len(stripped) <= MAX_TERM_CHARS:
             kept.setdefault(fold(stripped), stripped)
     return tuple(kept.values())[:MAX_TERMS]
@@ -238,72 +301,82 @@ def _normalised_terms(terms: Iterable[str]) -> tuple[str, ...]:
 
 # --------------------------------------------------------------------- detectors
 
-#: Registered IBAN lengths for the countries an Austrian office meets most.
-#: A country not listed is accepted at any ISO 13616 length (15..34).
+#: Every country that issues IBANs, and the one length its IBANs have: the SWIFT
+#: IBAN registry, plus the countries that issue IBANs outside it (French
+#: territories, several African states), as ``schwifty`` 2026.7.3 lists them. A
+#: country not listed here issues no IBAN, so a candidate from it is not one.
+#: The TypeScript twin and the shared fixture hold the same table.
 IBAN_LENGTHS: dict[str, int] = {
-    "AT": 20,
-    "BE": 16,
-    "CH": 21,
-    "CZ": 24,
-    "DE": 22,
-    "ES": 24,
-    "FR": 27,
-    "GB": 22,
-    "HR": 21,
-    "HU": 28,
-    "IT": 27,
-    "LI": 21,
-    "LU": 20,
-    "NL": 18,
-    "PL": 28,
-    "SI": 19,
-    "SK": 24,
-}
+    "AD": 24, "AE": 23, "AL": 28, "AO": 25, "AT": 20, "AX": 18, "AZ": 28, "BA": 20, "BE": 16, "BF": 28,
+    "BG": 22, "BH": 22, "BI": 27, "BJ": 28, "BL": 27, "BR": 29, "BY": 28, "CF": 27, "CG": 27, "CH": 21,
+    "CI": 28, "CM": 27, "CR": 22, "CV": 25, "CY": 28, "CZ": 24, "DE": 22, "DJ": 27, "DK": 18, "DO": 28,
+    "DZ": 26, "EE": 20, "EG": 29, "ES": 24, "FI": 18, "FK": 18, "FO": 18, "FR": 27, "GA": 27, "GB": 22,
+    "GE": 22, "GF": 27, "GG": 22, "GI": 23, "GL": 18, "GP": 27, "GQ": 27, "GR": 27, "GT": 28, "GW": 25,
+    "HN": 28, "HR": 21, "HU": 28, "IE": 22, "IL": 23, "IM": 22, "IQ": 23, "IR": 26, "IS": 26, "IT": 27,
+    "JE": 22, "JO": 30, "KM": 27, "KW": 30, "KZ": 20, "LB": 28, "LC": 32, "LI": 21, "LT": 20, "LU": 20,
+    "LV": 21, "LY": 25, "MA": 28, "MC": 27, "MD": 24, "ME": 22, "MF": 27, "MG": 27, "MK": 19, "ML": 28,
+    "MN": 20, "MQ": 27, "MR": 27, "MT": 31, "MU": 30, "MZ": 25, "NC": 27, "NE": 28, "NI": 28, "NL": 18,
+    "NO": 15, "OM": 23, "PF": 27, "PK": 24, "PL": 28, "PM": 27, "PS": 29, "PT": 25, "QA": 29, "RE": 27,
+    "RO": 24, "RS": 22, "RU": 33, "SA": 24, "SC": 31, "SD": 18, "SE": 24, "SI": 19, "SK": 24, "SM": 27,
+    "SN": 28, "SO": 23, "ST": 25, "SV": 28, "TD": 27, "TF": 27, "TG": 28, "TL": 23, "TN": 24, "TR": 26,
+    "UA": 29, "VA": 22, "VG": 24, "WF": 27, "XK": 20, "YE": 30, "YT": 27,
+}  # fmt: skip
 
-#: Country, check digits, then either groups of four with single spaces (the
-#: printed form; the last group may be shorter) or one unbroken run.
-_IBAN_RE = re.compile(
-    _NO_ALNUM_BEFORE + r"[A-Z]{2}[0-9]{2}(?:(?: [A-Z0-9]{4})+(?: [A-Z0-9]{1,3})?|[A-Z0-9]{11,30})" + _NO_ALNUM_AFTER
-)
-
-#: Four digits (the serial and the check digit), the birth date DDMMYY,
-#: optionally one space between them.
-_SVNR_RE = re.compile(_NO_ALNUM_BEFORE + r"([0-9]{4}) ?([0-9]{6})" + _NO_ALNUM_AFTER)
+#: Where an IBAN may start: two ASCII letters at a word start. The parse is :func:`_iban_at`.
+_IBAN_START = re.compile(r"(?<![^\W_])[A-Za-z]{2}")
+#: Where a social-security number may start: a digit at a word start.
+_SVNR_START = re.compile(r"(?<![^\W_])\d")
 _SVNR_WEIGHTS = (3, 7, 9, 0, 5, 8, 4, 2, 1, 6)
-
-#: A run of digits joined by single spaces or hyphens, starting 2-6 (the major
-#: networks). The whole run is the candidate: a card number inside a longer run
-#: of numbers is not one. The price is a card printed with one space before
-#: its expiry (``… 1111 12/27``), which reads as a longer run and is missed;
-#: matching inside runs instead quarantined every long reference number whose
-#: tail happens to pass Luhn (one in ten).
-_CARD_RE = re.compile(r"(?<![^\W_])(?<![0-9][ -])[2-6](?:[ -]?[0-9]){12,18}(?![ -]?[0-9])" + _NO_ALNUM_AFTER)
+_SVNR_MARKS = "-./"
+#: A maximal run of digits joined by horizontal whitespace, ``-`` or ``.``: a card candidate.
+_CARD_RUN = re.compile(rf"\d(?:(?:[{_HORIZONTAL_SPACE}]+|[-.])?\d)*")
+_DIGIT_GROUP = re.compile(r"\d+")
 
 
 def valid_iban(compact: str) -> bool:
-    """ISO 13616: the registered length where known, and mod 97 == 1. Pure."""
-    expected = IBAN_LENGTHS.get(compact[:2])
-    if expected is not None and len(compact) != expected:
-        return False
-    if not 15 <= len(compact) <= 34:
+    """ISO 13616: a registered country, its registered length, and mod 97 == 1. Pure."""
+    if IBAN_LENGTHS.get(compact[:2]) != len(compact) or not (compact.isascii() and compact.isalnum()):
         return False
     rearranged = compact[4:] + compact[:4]
     digits = "".join(str(int(char, 36)) for char in rearranged)
     return int(digits) % 97 == 1
 
 
-def _iban_in(candidate: str) -> tuple[str, int] | None:
-    """The valid IBAN a printed candidate starts with, longest first, and its printed length.
+def _iban_at(text: str, start: int) -> tuple[str, int] | None:
+    """The IBAN printed at ``start``: its compact form and where it ends; ``None`` when there is none.
 
-    A spaced candidate may have swallowed a following group (``… 3201 EUR``),
-    so its group prefixes are tried; an unbroken run must be valid whole.
+    The country fixes the length, so the parse reads exactly that many
+    characters and stops: what follows (``EUR``, a card number, the next IBAN)
+    is never part of it. A separator may stand after the country code and
+    before each group of four.
     """
-    groups = candidate.split(" ")
-    for end in range(len(groups), 0, -1):
-        compact = "".join(groups[:end])
-        if valid_iban(compact):
-            return compact, len(" ".join(groups[:end]))
-    return None
+    country = text[start : start + 2].upper()
+    length = IBAN_LENGTHS.get(country)
+    if length is None:
+        return None
+    chars = [country]
+    index = start + 2
+    for position in range(2, length):
+        if position == 2 or position % 4 == 0:
+            index = _skip_separator(text, index, "-.")
+        char = _iban_char(text, index, digits_only=position < 4)
+        if char is None:
+            return None
+        chars.append(char)
+        index += 1
+    compact = "".join(chars)
+    if _word_char_at(text, index) or not valid_iban(compact):
+        return None
+    return compact, index
+
+
+def _iban_char(text: str, index: int, *, digits_only: bool) -> str | None:
+    """The IBAN character at ``index``: a digit as ASCII, or (past the check digits) an ASCII letter upper-cased."""
+    digit = _digit_at(text, index)
+    if digit is not None or digits_only or index >= len(text):
+        return digit
+    char = text[index]
+    return char.upper() if char.isascii() and char.isalpha() else None
 
 
 def mask_iban(compact: str) -> str:
@@ -318,13 +391,44 @@ def valid_at_svnr(digits: str) -> bool:
     The check digit (4th) is the weighted sum of the other nine mod 11; a sum
     giving 10 is never issued. Months 13-15 stand for an unknown birth month.
     """
-    if len(digits) != 10 or not digits.isdigit() or digits[0] == "0":
+    if len(digits) != 10 or not digits.isascii() or not digits.isdigit() or digits[0] == "0":
         return False
     check = sum(int(d) * w for d, w in zip(digits, _SVNR_WEIGHTS, strict=True)) % 11
     if check == 10 or check != int(digits[3]):
         return False
     day, month = int(digits[4:6]), int(digits[6:8])
     return 1 <= day <= 31 and 1 <= month <= 15
+
+
+def _digits_at(text: str, index: int, count: int) -> str | None:
+    """``count`` digits from ``index`` on, as ASCII; ``None`` unless every one is a digit."""
+    digits = ""
+    for offset in range(count):
+        digit = _digit_at(text, index + offset)
+        if digit is None:
+            return None
+        digits += digit
+    return digits
+
+
+def _svnr_at(text: str, start: int) -> tuple[str, int] | None:
+    """The social-security number printed at ``start``: its ten digits and where it ends.
+
+    ``SSSS DDMMYY``, with or without a separator after the serial; the date's
+    own parts are either all joined (``010180``) or all separated (``01 01 80``,
+    ``01.01.80``).
+    """
+    day_at = _skip_separator(text, start + 4, _SVNR_MARKS)
+    month_at = _skip_separator(text, day_at + 2, _SVNR_MARKS)
+    split = month_at != day_at + 2
+    year_at = _skip_separator(text, month_at + 2, _SVNR_MARKS) if split else month_at + 2
+    end = year_at + 2
+    parts = [_digits_at(text, start, 4), _digits_at(text, day_at, 2), _digits_at(text, month_at, 2)]
+    parts.append(_digits_at(text, year_at, 2))
+    if (split and year_at == month_at + 2) or any(part is None for part in parts) or _word_char_at(text, end):
+        return None
+    digits = "".join(part or "" for part in parts)
+    return (digits, end) if valid_at_svnr(digits) else None
 
 
 def mask_at_svnr(digits: str) -> str:
@@ -342,6 +446,19 @@ def luhn_valid(digits: str) -> bool:
 
 def valid_card(digits: str) -> bool:
     return 13 <= len(digits) <= 19 and digits[0] in "23456" and luhn_valid(digits)
+
+
+def _card_in(run: str) -> tuple[str, int] | None:
+    """The card a run of digits is, or starts with when a security code ends it: digits and printed length."""
+    matches = list(_DIGIT_GROUP.finditer(run))
+    groups = [_digits_at(run, match.start(), len(match.group())) or "" for match in matches]
+    digits = "".join(groups)
+    if valid_card(digits):
+        return digits, len(run)
+    code = len(groups[-1])
+    if len(groups) >= 2 and 3 <= code <= 4 and valid_card(digits[:-code]):
+        return digits[:-code], matches[-2].end()
+    return None
 
 
 def mask_card(digits: str) -> str:
@@ -363,25 +480,37 @@ class Span:
 
 
 def _iban_spans(text: str) -> Iterator[Span]:
-    for match in _IBAN_RE.finditer(text):
-        found = _iban_in(match.group(0))
+    """Every IBAN, in one pass: each start is parsed on its own, and the scan resumes after a match."""
+    resume = 0
+    for match in _IBAN_START.finditer(text):
+        if match.start() < resume:
+            continue
+        found = _iban_at(text, match.start())
         if found is not None:
-            compact, printed = found
-            yield Span("iban", match.start(), match.start() + printed, sample=mask_iban(compact))
+            compact, resume = found
+            yield Span("iban", match.start(), resume, sample=mask_iban(compact))
 
 
 def _svnr_spans(text: str) -> Iterator[Span]:
-    for match in _SVNR_RE.finditer(text):
-        digits = match.group(1) + match.group(2)
-        if valid_at_svnr(digits):
-            yield Span("at_svnr", match.start(), match.end(), sample=mask_at_svnr(digits))
+    resume = 0
+    for match in _SVNR_START.finditer(text):
+        if match.start() < resume:
+            continue
+        found = _svnr_at(text, match.start())
+        if found is not None:
+            digits, resume = found
+            yield Span("at_svnr", match.start(), resume, sample=mask_at_svnr(digits))
 
 
 def _card_spans(text: str) -> Iterator[Span]:
-    for match in _CARD_RE.finditer(text):
-        digits = re.sub(r"[ -]", "", match.group(0))
-        if valid_card(digits):
-            yield Span("credit_card", match.start(), match.end(), sample=mask_card(digits))
+    for match in _CARD_RUN.finditer(text):
+        start, end = match.span()
+        if _word_char_at(text, start - 1) or _word_char_at(text, end):
+            continue
+        found = _card_in(match.group(0))
+        if found is not None:
+            digits, printed = found
+            yield Span("credit_card", start, start + printed, sample=mask_card(digits))
 
 
 _DETECTOR_SPANS = {"iban": _iban_spans, "at_svnr": _svnr_spans, "credit_card": _card_spans}
@@ -389,17 +518,52 @@ _DETECTOR_SPANS = {"iban": _iban_spans, "at_svnr": _svnr_spans, "credit_card": _
 
 def _word_end(text: str, end: int) -> int:
     """``end`` moved over the rest of the word it is in: letters, digits and their combining marks."""
-    while end < len(text) and (text[end].isalnum() or _is_mark(text[end])):
+    while end < len(text) and unicodedata.category(text[end])[0] in "LNM":
         end += 1
     return end
 
 
+def _starts_a_word(folded: _Folded, text: str, index: int) -> bool:
+    """Whether folded ``index`` begins a cluster that no letter or digit precedes in the original text."""
+    if index == 0:
+        return True
+    previous = folded.starts[index - 1]
+    return previous != folded.starts[index] and not _is_word_char(text[previous])
+
+
+def _words_end(folded: str, start: int, words: tuple[str, ...]) -> int:
+    """Where ``words`` end when they stand at ``start`` with whitespace between them; -1 when they do not."""
+    cursor = start
+    for position, word in enumerate(words):
+        gap = cursor
+        while position and cursor < len(folded) and folded[cursor] in WHITESPACE:
+            cursor += 1
+        if (position and cursor == gap) or not folded.startswith(word, cursor):
+            return -1
+        cursor += len(word)
+    return cursor
+
+
+def _term_matches(folded: _Folded, text: str, words: tuple[str, ...]) -> Iterator[tuple[int, int]]:
+    """``(start, end)`` in the folded text of each match of a term, leftmost first and not overlapping."""
+    if not words:
+        return
+    index = folded.text.find(words[0])
+    while index != -1:
+        end = _words_end(folded.text, index, words) if _starts_a_word(folded, text, index) else -1
+        if end > index:
+            yield index, end
+            index = folded.text.find(words[0], end)
+        else:
+            index = folded.text.find(words[0], index + 1)
+
+
 def _term_spans(text: str, rules: ScreeningRules) -> Iterator[Span]:
     folded = _fold_mapped(text)
-    for term, pattern in zip(rules.terms, rules.patterns, strict=True):
-        for match in pattern.finditer(folded.text):
-            start = folded.starts[match.start()]
-            end = _word_end(text, folded.ends[match.end() - 1])
+    for term, words in zip(rules.terms, rules.patterns, strict=True):
+        for match_start, match_end in _term_matches(folded, text, words):
+            start = folded.starts[match_start]
+            end = _word_end(text, folded.ends[match_end - 1])
             yield Span("term", start, end, term=term)
 
 
@@ -498,18 +662,21 @@ def mask_text(text: str, rules: ScreeningRules | None) -> MaskedText:
     """``text`` with every term and detector match replaced by its placeholder. Pure.
 
     ``None`` rules mask nothing. Idempotent: the result's text, masked again,
-    is itself with no findings.
+    is itself with no findings, because the loop runs until a pass finds
+    nothing; there is no pass limit that could leave a match behind. It ends:
+    every pass replaces at least one character outside a placeholder with a
+    placeholder, placeholders never overlap (each is bracketed and holds no
+    bracket), so the characters outside them strictly decrease.
     """
     if rules is None or not text:
         return MaskedText(text)
     found: list[Span] = []
     current = text
-    for _ in range(MAX_MASK_PASSES):
-        spans = find_spans(current, rules)
-        if not spans:
-            break
+    spans = find_spans(current, rules)
+    while spans:
         found.extend(spans)
         current = _replaced(current, spans)
+        spans = find_spans(current, rules)
     return MaskedText(current, _findings(found, rules))
 
 

@@ -14,6 +14,7 @@ import { findConversationInOrg } from '@/lib/conversations/repository'
 import { requireResourceAccess } from '@/lib/sharing/access'
 import { TASK_GOAL_MAX_CHARS } from '@/lib/tasks/delegation'
 import { commissionResearchRun } from '@/lib/tasks/delegation'
+import { getLocale } from '@/i18n/server'
 
 type Params = { id: string }
 
@@ -44,6 +45,9 @@ export const POST = apiRoute<Params>(
       question: input.question,
       context: input.context ?? null,
       documents: input.documents ?? null,
+      // A refusal (a thread that drew on a restricted folder, ADR-0078) is read
+      // by the person who pressed the button.
+      locale: await getLocale(),
     })
     return {
       runId: run.runId,
@@ -56,7 +60,7 @@ export const POST = apiRoute<Params>(
     status: 201,
     authz: {
       enforcedBy:
-        'requireFeature deepResearch; requireResourceAccess conversation collaborator; commissionResearchRun (requireProjectAccess COMMISSION_PERMISSIONS)',
+        'requireFeature deepResearch; requireResourceAccess conversation collaborator; commissionResearchRun (requireProjectAccess COMMISSION_PERMISSIONS, refuses a confined conversation)',
     },
   }
 )

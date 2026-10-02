@@ -54,6 +54,11 @@ import { JobSubmitError, JobSubmitSkippedError } from '@/lib/jobs/backend-client
 import { minIntervalMinutesFromEnv, nextOccurrence, validateCron } from '@/lib/jobs/schedule'
 import { emptySkillSnapshot } from '@/lib/jobs/types'
 import { isEmptyPlanDocuments, type PlanDocuments } from '@/lib/runs/plan-documents'
+import {
+  AGENT_REFUSAL_LOCALE,
+  requireMayLeaveConversation,
+} from '@/lib/conversations/restricted-egress'
+import type { Locale } from '@/i18n/config'
 import * as repository from './repository'
 import { TASK_GOAL_MAX_CHARS } from './wire'
 
@@ -244,6 +249,14 @@ export interface DelegateTaskInput {
    * own thread holds the run.
    */
   conversationId?: string | null
+  /**
+   * The restricted-folder collections of the commissioning turn's VERIFIED
+   * envelope (ADR-0078). Any one refuses the delegation, as a conversation that
+   * drew on a restricted folder does: a task is listed to every project member.
+   */
+  signedRestrictedCollections?: readonly string[]
+  /** The language of a refusal; the agent's own route leaves it German. */
+  locale?: Locale
 }
 
 /**
@@ -275,6 +288,18 @@ export async function delegateTask(
   input: DelegateTaskInput,
 ): Promise<DelegateTaskResult> {
   await requireProjectAccess(session, input.projectId, [...COMMISSION_PERMISSIONS])
+  // Before anything is written: a task's title and plan are listed to every
+  // project member, and its goal was put in words with restricted content in
+  // front of the model (ADR-0078).
+  await requireMayLeaveConversation(
+    {
+      conversationId: input.conversationId ?? null,
+      signedRestrictedCollections: input.signedRestrictedCollections,
+      locale: input.locale ?? AGENT_REFUSAL_LOCALE,
+    },
+    session.organizationId,
+    'task',
+  )
 
   const goal = input.goal.trim()
   if (!goal) throw new UnprocessableError('A task needs a goal')
@@ -425,6 +450,10 @@ export interface CommissionResearchInput {
   dataSources?: string[] | null
   /** The Unterlagen the reader named on the plan card. */
   documents?: PlanDocuments | null
+  /** As on {@link DelegateTaskInput.signedRestrictedCollections}. */
+  signedRestrictedCollections?: readonly string[]
+  /** The language of a refusal; the agent's own route leaves it German. */
+  locale?: Locale
 }
 
 /** Where the commissioned run narrates itself, for the turn that commissioned it. */
@@ -475,6 +504,20 @@ export async function commissionResearchRun(
   input: CommissionResearchInput,
 ): Promise<CommissionedResearchRun> {
   await requireProjectAccess(session, input.projectId, [...COMMISSION_PERMISSIONS])
+  // A run out of a thread that drew on a restricted folder would carry that
+  // folder to everyone in the project: its question and context are written
+  // with restricted content in front of the model, its job gets an open scope
+  // and an open memory digest, and its title, plan and report are listed to
+  // every member. Refused before the row exists (ADR-0078).
+  await requireMayLeaveConversation(
+    {
+      conversationId: input.conversationId,
+      signedRestrictedCollections: input.signedRestrictedCollections,
+      locale: input.locale ?? AGENT_REFUSAL_LOCALE,
+    },
+    session.organizationId,
+    'deepResearch',
+  )
 
   const question = input.question.trim()
   if (!question) throw new UnprocessableError('A research run needs a question')

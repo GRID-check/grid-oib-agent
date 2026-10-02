@@ -142,6 +142,30 @@ describe('ProjectProfilePatchCard', () => {
     expect(await screen.findByText('Project brief updated.')).toBeInTheDocument()
   })
 
+  it('names the conversation its message belongs to, so the server can refuse a confined one (ADR-0078)', async () => {
+    const { posts } = stubFetch()
+    const user = userEvent.setup()
+    render(<ProjectProfilePatchCard {...ownedProps} />)
+
+    await user.click(screen.getByRole('button', { name: 'Accept' }))
+
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0].body).toEqual({ patch, conversationId: 'conv-1' })
+  })
+
+  it('shows the server’s refusal and keeps the card undecided', async () => {
+    const refusal =
+      'This conversation draws on a folder with restricted access, so it cannot change the project context.'
+    stubFetch(403, { error: refusal, code: 'CONVERSATION_CONFINED' })
+    const user = userEvent.setup()
+    render(<ProjectProfilePatchCard {...ownedProps} />)
+
+    await user.click(screen.getByRole('button', { name: 'Accept' }))
+
+    expect(await screen.findByText(refusal)).toBeInTheDocument()
+    expect(setCardDecision).not.toHaveBeenCalled()
+  })
+
   it('shows the rejected state without POSTing on reject', async () => {
     const { posts } = stubFetch()
     const user = userEvent.setup()

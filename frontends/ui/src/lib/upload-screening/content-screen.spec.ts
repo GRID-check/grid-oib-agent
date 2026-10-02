@@ -12,15 +12,24 @@
  * `frontends/ui` with the whole repository checked out (CI's frontend jobs
  * check out the full tree). Not an `import`, so `tsc` never has to resolve a
  * path outside `frontends/ui` (`Dockerfile.typecheck` copies only that).
+ *
+ * The fixture also holds the character tables Python computed (whitespace,
+ * decimal digits, letter/number/mark classes, the fold of every code point, the
+ * IBAN registry). This spec checks its own against them for every code point,
+ * so the twins agree beyond the cases listed.
  */
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
+  IBAN_LENGTHS,
   SCREENING_PLACEHOLDERS,
+  SCREENING_WHITESPACE,
   buildContentRules,
   chatScreeningRules,
+  decimalDigitValue,
   findSpans,
   foldContent,
   maskText,
@@ -40,6 +49,14 @@ interface FixtureCase {
 interface Fixture {
   placeholders: Record<string, string>
   cases: FixtureCase[]
+  unicode: {
+    version: string
+    whitespace: number[]
+    decimal_zeros: number[]
+    classes_sha256: string
+    fold_sha256: string
+  }
+  iban_lengths: Record<string, number>
 }
 
 const FIXTURE_PATH = join(
@@ -113,5 +130,146 @@ describe('content screen: chat rules', () => {
   it('folds per character, so a decomposed umlaut is the composed one', () => {
     expect(foldContent('Gehaltsübersicht')).toBe(foldContent('Gehaltsübersicht'))
     expect(foldContent('Straße')).toBe('strasse')
+  })
+})
+
+function allCodePoints(): number[] {
+  const out: number[] = []
+  for (let cp = 0; cp <= 0x10ffff; cp += 1) if (cp < 0xd800 || cp > 0xdfff) out.push(cp)
+  return out
+}
+
+function sha256(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex')
+}
+
+describe('content screen: the character tables Python is held to too', () => {
+  const codePoints = allCodePoints()
+
+  it('runs on the Unicode version the fixture was made with', () => {
+    // A different version changes the tables below: regenerate them in Python on the same version.
+    expect(fixture.unicode.version.startsWith(process.versions.unicode ?? '(unknown)')).toBe(true)
+  })
+
+  it('takes whitespace to be exactly the White_Space property, as Python does', () => {
+    const whiteSpace = /\p{White_Space}/u
+    const listed = [...SCREENING_WHITESPACE].map((char) => char.codePointAt(0))
+    expect(listed).toEqual(fixture.unicode.whitespace)
+    expect(codePoints.filter((cp) => whiteSpace.test(String.fromCodePoint(cp)))).toEqual(
+      fixture.unicode.whitespace
+    )
+  })
+
+  it('reads every decimal digit as the value Python reads', () => {
+    const expected = new Map<number, number>()
+    for (const zero of fixture.unicode.decimal_zeros) {
+      for (let value = 0; value < 10; value += 1) expected.set(zero + value, value)
+    }
+    const actual = new Map<number, number>()
+    for (const cp of codePoints) {
+      const value = decimalDigitValue(cp)
+      if (value !== null) actual.set(cp, value)
+    }
+    expect(actual.size).toBe(760)
+    expect(actual).toEqual(expected)
+  })
+
+  it('classes every code point as a letter, number or mark as Python does', () => {
+    const [letter, number, mark] = [/\p{L}/u, /\p{N}/u, /\p{M}/u]
+    const classes = codePoints.map((cp) => {
+      const char = String.fromCodePoint(cp)
+      if (letter.test(char)) return 'L'
+      if (number.test(char)) return 'N'
+      return mark.test(char) ? 'M' : '-'
+    })
+    expect(sha256(classes.join(''))).toBe(fixture.unicode.classes_sha256)
+  })
+
+  it('folds every code point as Python does', { timeout: 60_000 }, () => {
+    const folded = codePoints.map((cp) => foldContent(String.fromCodePoint(cp)))
+    expect(sha256(folded.join('\n'))).toBe(fixture.unicode.fold_sha256)
+  })
+
+  it('holds the IBAN registry Python defines', () => {
+    expect(Object.fromEntries(IBAN_LENGTHS)).toEqual(fixture.iban_lengths)
+  })
+})
+
+describe('content screen: every match in one pass, and masking is a fixpoint', () => {
+  const IBANS = [
+    'AT611904300234573201',
+    'DE89370400440532013000',
+    'GB29NWBK60161331926819',
+    'CH9300762011623852957',
+  ]
+  const CARDS = ['4111111111111111', '5555555555554444', '378282246310005']
+  const SEPARATORS = [' ', '  ', '\t', '\n', '-', '.', '\u00a0', '\u202f', '']
+  const DETECTORS = ['iban', 'at_svnr', 'credit_card']
+  const grouped = (compact: string, separator: string) =>
+    (compact.match(/.{1,4}/g) ?? []).join(separator)
+
+  it('finds fifty IBANs in a row in one pass', () => {
+    const text = Array<string>(50).fill(IBAN).join(' ')
+    const rules = buildContentRules([], ['iban'])
+    expect(rules && findSpans(text, rules)).toHaveLength(50)
+    expect(maskText(text, rules).text).toBe(Array<string>(50).fill('[IBAN entfernt]').join(' '))
+  })
+
+  it('leaves no number of fifty IBANs each followed by a card', () => {
+    const text = Array.from(
+      { length: 50 },
+      (_, i) => `${grouped(IBANS[i % 4], ' ')} ${grouped(CARDS[i % 3], ' ')}`
+    ).join(' ')
+    const masked = maskText(text, buildContentRules([], DETECTORS))
+    expect(masked.text).not.toMatch(/[0-9]/)
+    expect(masked.findings.map((f) => [f.kind, f.count])).toEqual([
+      ['iban', 50],
+      ['credit_card', 50],
+    ])
+  })
+
+  it('masks any generated text to a fixpoint', () => {
+    // mulberry32: a seeded generator, so a failure names the seed that reproduces it.
+    const seeded = (seed: number) => () => {
+      seed = (seed + 0x6d2b79f5) | 0
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+    const rules = buildContentRules(
+      ['Honorar', 'Lohn Steuer', 'οδος', 'IBAN', 'entfernt'],
+      DETECTORS
+    )
+    for (let seed = 0; seed < 300; seed += 1) {
+      const random = seeded(seed)
+      const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]
+      const blocks = [
+        () => grouped(pick(IBANS), pick(SEPARATORS)),
+        () => pick(IBANS).toLowerCase(),
+        () =>
+          // one IBAN, printed again and again
+          Array<string>(2 + Math.floor(random() * 11))
+            .fill(grouped(pick(IBANS), ' '))
+            .join(' '),
+        () => grouped(pick(CARDS), pick(SEPARATORS)) + pick(['', ' 123', ' 4567']),
+        () => '1237' + pick(SEPARATORS) + pick(['010180', '01 01 80', '01.01.80']),
+        () => pick(Object.values(SCREENING_PLACEHOLDERS)),
+        () => pick(['Honorarvereinbarung', 'Lohn\nSteuer', 'IBAN', 'entfernt', 'ΟΔΟΣ', 'ẗHonorar']),
+        () =>
+          Array.from({ length: 1 + Math.floor(random() * 12) }, () =>
+            pick([...'0123456789 -.AT[]x\u0660\uff11'])
+          ).join(''),
+      ]
+      const count = pick([1, 3, 8, 50])
+      const text = Array.from(
+        { length: count },
+        () => pick(['', ' ', '\n', ', ', 'x']) + pick(blocks)()
+      ).join('')
+      const once = maskText(text, rules)
+      expect({ seed, again: maskText(once.text, rules) }).toEqual({
+        seed,
+        again: { text: once.text, findings: [] },
+      })
+    }
   })
 })

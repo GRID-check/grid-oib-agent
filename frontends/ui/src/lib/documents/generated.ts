@@ -56,7 +56,8 @@ import { FEATURE_FLAGS, isAgentAuthoredDocumentsEnabled } from '@/lib/authz/feat
 import { recordAuditEventOrThrow } from '@/lib/audit/service'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { findProjectInOrg } from '@/lib/projects/repository'
-import { getOrCreateProjectFolderByName } from '@/lib/projects/folder-service'
+import { findRootProjectFolderByName, getOrCreateProjectFolderByName } from '@/lib/projects/folder-service'
+import { requireMayFileFrom, type ConversationOrigin } from '@/lib/conversations/restricted-egress'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { AuthoredRefKind } from './document-authors'
 import { deleteProjectDocument, findDocumentAuthoredByRef } from './repository'
@@ -302,6 +303,15 @@ export interface FileGeneratedDocumentInput {
   render: (context: GeneratedRenderContext) => Promise<GeneratedRendering> | GeneratedRendering
   /** Source request, for the audit event's IP + user agent context. */
   request?: Request
+  /**
+   * The conversation (and, for the agent, the turn's signed scope) the content
+   * came out of. A thread that drew on a restricted folder files only into a
+   * folder restricted at least as narrowly (ADR-0078,
+   * `lib/conversations/restricted-egress.ts`); checked before anything is
+   * rendered or created. Absent for a producer whose input is not a
+   * conversation's (a deep-research run, whose scope is always open).
+   */
+  origin?: ConversationOrigin
 }
 
 export interface FiledGeneratedDocument {
@@ -425,7 +435,7 @@ export function generatedFilename(title: string, contentType: string, now: Date)
 export async function fileGeneratedDocument(
   input: FileGeneratedDocumentInput,
 ): Promise<FiledGeneratedDocument> {
-  const { session, projectId, producer, ref, title, render, request } = input
+  const { session, projectId, producer, ref, title, render, request, origin } = input
   // Not passed in, and that is the point — see the producer map's header.
   const refKind = GENERATED_DOCUMENT_PRODUCER_REF_KINDS[producer]
 
@@ -518,6 +528,23 @@ export async function fileGeneratedDocument(
 
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
+
+  // Restricted-folder content stays where only people cleared for it read it
+  // (ADR-0078). Before the render and the folder creation, so a refusal leaves
+  // nothing behind; a destination that does not exist yet would be created open
+  // at the root, and is judged as such.
+  if (origin) {
+    const destination = await findRootProjectFolderByName(
+      projectId,
+      resolveGeneratedDocumentDestination(producer).folderName,
+    )
+    await requireMayFileFrom(origin, {
+      organizationId: session.organizationId,
+      projectId,
+      projectCollection: project.collectionName,
+      folderId: destination?.id ?? null,
+    })
+  }
 
   const marking = generatedDocumentMarking(producer, ref)
   const rendered = await render({ projectId, projectName: project.name, marking })

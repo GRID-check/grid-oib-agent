@@ -29,6 +29,7 @@ from aiq_agent.common.wire_v2 import card_key
 from aiq_agent.memory.restriction import RestrictionEvidence
 from aiq_agent.memory.restriction import restricted_digest_notes
 from aiq_agent.memory.restriction import restriction_evidence
+from aiq_agent.memory.shown_notes import ShownNotes
 from aiq_agent.stages import TurnFacts
 
 if TYPE_CHECKING:
@@ -127,6 +128,7 @@ def turn_restriction_evidence(
     registry_collections: tuple[str, ...] = (),
     listed_documents: tuple[Any, ...] = (),
     restricted_notes: tuple[str, ...] = (),
+    earlier_notes: ShownNotes | None = None,
 ) -> RestrictionEvidence:
     """What the finished turn could have taken from restricted folders (ADR-0078).
 
@@ -135,8 +137,10 @@ def turn_restriction_evidence(
     passages sit in the history the turn answered from. Listed: every inventory
     row the turn could name (``listed_documents``, uncapped, as ``list_files``
     sees them), else the capped rows its prompt carried. Notes: restricted
-    memory the prompt carried (``restricted_notes``).
+    memory the prompt carried (``restricted_notes``) and that earlier turns
+    of the conversation were shown (``earlier_notes``).
     """
+    earlier = earlier_notes or ShownNotes()
     return restriction_evidence(
         state.collection_scope,
         source_collections=[
@@ -146,6 +150,8 @@ def turn_restriction_evidence(
         ],
         listed_documents=listed_documents or state.available_documents or (),
         restricted_notes=restricted_notes,
+        earlier_notes=earlier.notes,
+        always=earlier.overflowed,
     )
 
 
@@ -159,6 +165,7 @@ def post_answer_turn_facts(
     registry_collections: tuple[str, ...] = (),
     listed_documents: tuple[Any, ...] = (),
     restricted_memory_writes: tuple[str, ...] = (),
+    earlier_restricted_notes: ShownNotes | None = None,
 ) -> TurnFacts:
     """Complete the turn's :class:`TurnFacts` from the finished graph state.
 
@@ -182,5 +189,6 @@ def post_answer_turn_facts(
             # The digest the agent was shown, and what the tool stored as
             # restricted this turn: restricted memory in the prompt.
             restricted_notes=(*restricted_digest_notes(request_facts.memory_digest), *restricted_memory_writes),
+            earlier_notes=earlier_restricted_notes,
         ),
     )

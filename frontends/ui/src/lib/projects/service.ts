@@ -324,7 +324,7 @@ export type ProjectMemoryListItem = ProjectMemoryItem & { restrictedFolderNames?
  * the project's collection name. A project without a collection (not found in
  * the org) clears nothing.
  */
-async function memoryClearance(
+export async function memoryClearance(
   session: AuthorizedSession,
   projectId: string
 ): Promise<{ cleared: readonly string[]; projectCollection: string | null }> {
@@ -412,7 +412,11 @@ export async function editProjectMemoryItem(
   await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
   // A restricted item the session is not cleared for answers like a missing one.
   const { cleared } = await memoryClearance(session, projectId)
-  const item = await updateProjectMemoryItem({ projectId, clearedRestrictedCollections: cleared }, itemId, patch)
+  const item = await updateProjectMemoryItem(
+    { projectId, organizationId: session.organizationId, clearedRestrictedCollections: cleared },
+    itemId,
+    patch
+  )
   if (!item) throw new NotFoundError()
   return item
 }
@@ -424,6 +428,9 @@ export async function removeProjectMemoryItem(
 ): Promise<void> {
   await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
   const { cleared } = await memoryClearance(session, projectId)
-  const deleted = await deleteProjectMemoryItem({ projectId, clearedRestrictedCollections: cleared }, itemId)
+  const deleted = await deleteProjectMemoryItem(
+    { projectId, organizationId: session.organizationId, clearedRestrictedCollections: cleared },
+    itemId
+  )
   if (!deleted) throw new NotFoundError()
 }
