@@ -1,6 +1,6 @@
 'use client'
 
-import { useFileUpload } from '@/features/documents/hooks/use-file-upload'
+import { useFileUpload, type UploadFilesOptions } from '@/features/documents/hooks/use-file-upload'
 import type { TrackedFile } from '@/features/documents/types'
 
 interface UseArchivDocumentsOptions {
@@ -11,7 +11,7 @@ interface UseArchivDocumentsOptions {
 }
 
 interface UseArchivDocumentsReturn {
-  uploadFiles: (files: File[]) => Promise<void>
+  uploadFiles: (files: File[], options?: UploadFilesOptions) => Promise<void>
   cancelUpload: () => void
   cancelFile: (fileId: string) => void
   dismissFiles: (fileIds: string[]) => void

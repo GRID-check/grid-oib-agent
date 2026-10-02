@@ -222,3 +222,50 @@ def test_check_internal_api_never_raises_on_oserror(monkeypatch):
     with _patched_opener(monkeypatch, error=OSError("boom")):
         # Must swallow the error and return False, never propagate.
         assert pm.check_internal_api() is False
+
+
+def test_insert_sends_a_restriction_sorted_and_unique(monkeypatch):
+    """ADR-0078: restricted memory names the restricted collections it depends on."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    with _patched_opener(monkeypatch, body={"item": {"id": "item-r"}}) as captured:
+        pm.insert_memory_item(
+            scope="project",
+            project_id="p1",
+            organization_id=None,
+            kind="decision",
+            content="x",
+            restricted_collections=("proj_p1_rbbbbbbbbbbbb", "proj_p1_raaaaaaaaaaaa", "proj_p1_raaaaaaaaaaaa"),
+        )
+    assert captured["payload"]["restrictedCollections"] == ["proj_p1_raaaaaaaaaaaa", "proj_p1_rbbbbbbbbbbbb"]
+
+
+def test_open_memory_sends_no_restriction(monkeypatch):
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    with _patched_opener(monkeypatch, body={"item": {"id": "item-o"}}) as captured:
+        pm.insert_memory_item(scope="project", project_id="p1", organization_id=None, kind="decision", content="x")
+    assert "restrictedCollections" not in captured["payload"]
+
+
+def test_a_restricted_write_is_logged_as_restricted_for_the_turn(monkeypatch):
+    """The reflection stage and a later remember call treat it as restricted memory in the prompt."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    token = pm.begin_turn_memory_log("DIGEST")
+    try:
+        with _patched_opener(monkeypatch, body={"item": {"id": "item-r"}}):
+            pm.insert_memory_item(
+                scope="project",
+                project_id="p1",
+                organization_id=None,
+                kind="decision",
+                content="geheim",
+                restricted_collections=("proj_p1_raaaaaaaaaaaa",),
+            )
+            pm.insert_memory_item(
+                scope="project", project_id="p1", organization_id=None, kind="decision", content="offen"
+            )
+        assert pm.turn_memory_writes() == ("geheim", "offen")
+        assert pm.turn_restricted_memory_writes() == ("geheim",)
+        assert pm.turn_memory_digest() == "DIGEST"
+    finally:
+        pm.end_turn_memory_log(token)
+    assert pm.turn_memory_digest() is None

@@ -21,6 +21,12 @@ describe('decodeTextBytes', () => {
     expect(decodeTextBytes(cp1252)).toEqual({ text: 'Maß;Höhe €', encoding: 'windows-1252' })
   })
 
+  it('reads the German quotes and dash Excel writes in 0x80-0x9F', () => {
+    // „Höhe“ – 3 m: Node 22's own windows-1252 decoder returns C1 controls here.
+    const cp1252 = bytes(0x84, 0x48, 0xf6, 0x68, 0x65, 0x93, 0x20, 0x96, 0x20, 0x33, 0x20, 0x6d)
+    expect(decodeTextBytes(cp1252)).toEqual({ text: '\u201eHöhe\u201c \u2013 3 m', encoding: 'windows-1252' })
+  })
+
   it('maps the bytes cp1252 leaves undefined rather than refusing them', () => {
     // 0x81 has no cp1252 character; the backend's Latin-1 floor reads it as U+0081.
     expect(decodeTextBytes(bytes(0x41, 0x81)).text).toBe('A\u0081')

@@ -118,6 +118,17 @@ WS_IMPLEMENTATION = "websockets-sansio"
 WS_PING_INTERVAL = 20.0
 WS_PING_TIMEOUT = 60.0
 
+#: The longest header line a chat socket's upgrade may carry. websockets reads
+#: ``WEBSOCKETS_MAX_LINE_LENGTH`` once, when ``websockets.http11`` is imported,
+#: and defaults to 8192 bytes. The BFF signs everything a turn needs into ONE
+#: line, ``X-Grid-Request-Context`` (base64url JSON: project context, memory,
+#: office instructions, scope), and nothing bounds the project context. Past
+#: 8192 bytes the upgrade is dropped without a response: the chat would never
+#: connect, and nothing is logged.
+#: ``tests/test_websocket_implementation.py`` upgrades with a line this long.
+WS_MAX_HEADER_LINE = 65536
+os.environ.setdefault("WEBSOCKETS_MAX_LINE_LENGTH", str(WS_MAX_HEADER_LINE))
+
 # Suppress warnings unless PYTHONWARNINGS is explicitly set
 if not os.environ.get("PYTHONWARNINGS"):
     warnings.filterwarnings("ignore")

@@ -37,6 +37,51 @@ import { SHARING_ERROR_REASONS, type ResourceAccessEntry, type ResourceSharingSt
 export type { ResourceAccessEntry, ResourceSharingState }
 
 /**
+ * Refuse to widen a resource that must stay with its owner (ADR-0078): a
+ * conversation whose answers drew on a restricted folder. Asked before every
+ * path that lets someone else in — a wider visibility, a grant (and so a
+ * mention's invite), an escalation — and before any write or rate-limit spend.
+ */
+async function assertMayLeaveOwner(
+  resourceType: ShareableResourceType,
+  resourceId: string,
+  organizationId: string,
+): Promise<void> {
+  const confinedToOwner = describeResource(resourceType).confinedToOwner
+  if (!confinedToOwner || !(await confinedToOwner(resourceId, organizationId))) return
+  throw new ConflictError(
+    'This conversation draws on a restricted folder and cannot be shared beyond its owner.',
+    { reason: SHARING_ERROR_REASONS.restrictedContent },
+  )
+}
+
+/**
+ * Ask {@link assertMayLeaveOwner} again AFTER the widening is written, and undo
+ * the write when the answer has turned to no.
+ *
+ * The check before the write cannot see a restricted turn admitted between it
+ * and the write. The turn's admission marks first and reads the thread's
+ * sharing second (`admitRestrictedTurn`); this writes first and reads the mark
+ * second. Whichever commits second sees the other, so a share racing the
+ * thread's first restricted turn either closes that turn's socket or is undone
+ * here. Runs before the audit entry and the fan-out: an undone share announces
+ * nothing.
+ */
+async function confirmMayLeaveOwner(
+  resourceType: ShareableResourceType,
+  resourceId: string,
+  organizationId: string,
+  undo: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await assertMayLeaveOwner(resourceType, resourceId, organizationId)
+  } catch (error) {
+    await undo()
+    throw error
+  }
+}
+
+/**
  * Read a resource's sharing state. Requires `viewer` — a participant is entitled
  * to know who else is in the room, which is also what the participant strip
  * renders.
@@ -116,12 +161,22 @@ export async function setResourceVisibility(
     return getSharingState(session, resourceType, resourceId)
   }
 
+  // Narrowing back to `private` is always allowed; anything wider is a share.
+  if (visibility !== 'private') {
+    await assertMayLeaveOwner(resourceType, resourceId, session.organizationId)
+  }
+
   // Capture who could see it BEFORE the change, so a narrowing can tell the
   // people who are about to lose it.
   const previousAudience = await resolveParticipants(session.organizationId, resourceType, resourceId)
 
   const written = await descriptor.setVisibility(resourceId, session.organizationId, visibility)
   if (!written) throw new NotFoundError()
+  if (visibility !== 'private') {
+    await confirmMayLeaveOwner(resourceType, resourceId, session.organizationId, () =>
+      descriptor.setVisibility(resourceId, session.organizationId, access.visibility),
+    )
+  }
 
   await recordAuditEvent({
     organizationId: session.organizationId,
@@ -174,6 +229,8 @@ export async function grantResourceAccess(
     throw new BadRequestError(`Role "${input.role}" is not available for this resource`)
   }
 
+  await assertMayLeaveOwner(resourceType, resourceId, session.organizationId)
+
   // Rate limit BEFORE any write (spec SH-16, NF-5).
   const limit = await consumeLimit(SHARE_LIMIT, memberSubject(session))
   if (!limit.allowed) {
@@ -200,6 +257,9 @@ export async function grantResourceAccess(
     role: input.role,
     grantedBy: session.userId,
   })
+  await confirmMayLeaveOwner(resourceType, resourceId, session.organizationId, () =>
+    deleteGrant(session.organizationId, resourceType, resourceId, input.subjectUserId),
+  )
 
   await recordAuditEvent({
     organizationId: session.organizationId,
@@ -474,6 +534,8 @@ export async function escalateToOwner(
   if (!access.canEscalate) {
     throw new NotFoundError()
   }
+  // A project admin is not necessarily cleared for the folder the answers drew on.
+  await assertMayLeaveOwner(resourceType, resourceId, session.organizationId)
 
   await upsertGrant({
     organizationId: session.organizationId,
@@ -483,6 +545,9 @@ export async function escalateToOwner(
     role: 'owner',
     grantedBy: session.userId,
   })
+  await confirmMayLeaveOwner(resourceType, resourceId, session.organizationId, () =>
+    deleteGrant(session.organizationId, resourceType, resourceId, session.userId),
+  )
 
   await recordAuditEvent({
     organizationId: session.organizationId,

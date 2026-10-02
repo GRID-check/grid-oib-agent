@@ -11,6 +11,9 @@ When a user asks a question, the AI needs to know which knowledge sources to sea
 - The base OIB knowledge collection (always)
 - The org-wide Archiv collection (`archiv_{orgId}`, when the Archiv feature is enabled for the org — ADR-0024)
 - The active project collection (`proj_{projectId}`, if working in a project)
+- The restricted-folder collections the session is cleared for
+  (`<project collection>_r<12 hex>`, interactive chat turns only — ADR-0078, see
+  [Restricted folders](#restricted-folders-adr-0078))
 - The session collection (`s_{conversationId}`, if in a conversation)
 
 This page is about which collections a request READS. What writes into the
@@ -75,6 +78,9 @@ function computeCollectionScope(
 - `projectId?: string` — if present, adds `proj_{projectId}`
 - `conversationId?: string` — if present, adds `s_{conversationId}`
 - `baseCollection?: string` — defaults to `process.env.BASE_COLLECTION_NAME || 'oib_knowledge'`
+- `restrictedCollections?: readonly string[]` — restricted-folder collections, placed right
+  after the project collection. Only `buildCollectionScopeFromRequest` passes them, and only for
+  an interactive chat turn; the session-less scheduled-run path (`jobs/service.ts`) never does
 
 ### `buildCollectionScopeHeader(scope)`
 
@@ -115,6 +121,75 @@ async function buildCollectionScopeFromRequest(
 
 ---
 
+## Restricted folders (ADR-0078)
+
+A document under a restricted folder lives in the collection of its nearest
+restricted folder, `<project collection>_r<12 hex of the folder id>`
+(`restrictedCollectionName` in `lib/authz/folder-access.ts`). Retrieval keeps it
+out of reach by leaving that collection out of the scope; no Python read path
+needs to know.
+
+`buildCollectionScopeFromRequest` adds a project's restricted collections, with
+shelf `project`, only when ALL of these hold:
+
+- the caller passed `interactiveChat: true`. Only the WebSocket upgrade
+  (`/api/auth/websocket-scope`) does. Deep research (`/api/jobs/async/*`, whose
+  context comes from `parseBodyContext`/`parseQueryContext` and cannot carry
+  the flag), the `/api/v1` proxy and scheduled or commissioned runs
+  (`submitAgentRun`, session-less) never get one: their reports are filed for
+  the whole project;
+- the session is cleared for the folder, as `getProjectFolderAccess(session, …)`
+  answers it from the session's roles and permissions and nothing else;
+- the upgrade names a conversation, and that conversation is readable by the
+  caller alone: not created yet, or theirs, `private` and without grants. A
+  thread that is already shared never gets restricted content, so sharing first
+  and asking afterwards cannot walk around the share refusal below.
+
+The same clearance gates the collection proxy: `/api/v1/collections/<name>` with
+a restricted name is authorized as its project's collection and then 404s
+unless the session is cleared for it (`lib/proxy/collection-authz.ts`).
+
+A conversation that ran a turn with a restricted collection in its scope
+cannot be shared beyond its owner: wider visibility, a grant (and so a mention
+that invites) and a project admin's escalation are refused with `409` and
+reason `restricted-content` (`confinedToOwner` on the conversation's sharing
+descriptor). The signal is the scope, not the citations. The inventory block
+puts every in-scope document's summary into the prompt, so an answer can use a
+restricted summary and cite nothing; and nothing is stored while the first
+restricted answer streams. So the turn's admission marks the conversation
+(`conversation_restricted_turns`, migration 0105) before the turn produces a
+word, and the refusal keys on that mark. Stored answers whose `citations` or
+`readSources` name a restricted collection are the second signal, for answers
+written before the mark existed.
+
+The share and the turn's admission can race. The admission writes the mark
+first and then reads whether the thread is still private; the sharing service
+writes the widening first and then re-reads the mark, undoing its write when
+the mark has appeared (`confirmMayLeaveOwner`). Whichever commits second sees
+the other, so they cannot both go through.
+
+The scope is signed into the envelope once per socket, so a withdrawn role or a
+newly restricted folder takes effect on the next connection.
+
+Whether the thread is still its asker's alone is not left to the socket's age.
+The owner can share it while the socket is open, and the next turn would then
+write restricted content into a thread others read and watch live. So before
+every turn on a socket whose signed scope carries a restricted collection, the
+chat socket (`aiq_api.chat_socket`, `_require_confinement`) asks the BFF
+(`POST /api/internal/conversations/[id]/confinement`, the same rule as the
+upgrade: `lib/conversations/confinement.ts`). A yes is also the turn's
+admission and records the mark above (`admitRestrictedTurn`); a no withdraws a
+mark that ask had just created. On anything but a yes it closes
+the socket with `4412` before the turn is claimed; the client reconnects, the
+new upgrade is signed a scope without the restricted collections, and the
+unacknowledged question goes out again. A socket whose scope carries none asks
+nobody.
+
+A socket answers for one conversation only: the signed `conversationId`.
+A frame naming another is refused with `conversation_mismatch` before anything
+runs (`ChatSocket._admit`), so a restricted scope cannot be pointed at a
+different thread over the same socket.
+
 ## WebSocket Scope
 
 **File**: `frontends/ui/server.js` (lines 198–258)
@@ -131,6 +206,8 @@ During WebSocket upgrade (`/websocket` path):
 
 Internal endpoint that:
 - Reads `projectId` and `conversationId` from query params
+- Asks for an interactive chat scope (`interactiveChat: true`), the only scope that may carry
+  restricted-folder collections
 - Resolves the Grid session from the encrypted WorkOS cookie
 - Enforces project access if auth is required
 - Returns JSON with `{ scope, header, organizationId, userId, accessToken }`

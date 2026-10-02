@@ -81,7 +81,7 @@ def add_ingest_routes(router: APIRouter):
             raise HTTPException(status_code=400, detail="file_ref and collection are required")
         _assert_request_urls(request)
 
-        # Idempotent per document and object (see _dispatch_key): the BFF
+        # Idempotent per document, object and collection (see _dispatch_key): the BFF
         # retries once when its ten-second budget runs out, and a retry must
         # join the job the first attempt started, not start a second one. The
         # slot serialises the lookup and the submit of one key on this
@@ -180,6 +180,11 @@ def _job_config(request: IngestRequest, organization_id: str | None, dispatch_ke
     # every human document, which is what the parser expects
     # (aiq_agent.common.provenance.parse_agent_provenance).
     config.update(_provenance_config(request))
+    # The office's upload screening (`knowledge_layer.llamaindex.screening`),
+    # as plain data so it rides the durable queue's JSON payload unchanged.
+    # An empty policy is no policy: the file's `screening` outcome stays null.
+    if request.screening is not None and not request.screening.is_empty:
+        config["screening"] = request.screening.model_dump(mode="json")
     if request.extraction_ref:
         # Read the document from its PDF rendition (ADR-0071), downloaded by
         # the job like the original. Positional like original_filenames, whose
@@ -207,20 +212,24 @@ def _assert_request_urls(request: IngestRequest) -> None:
 
 
 def _dispatch_key(request: IngestRequest) -> str | None:
-    """What makes two dispatches the same one: the document and the object it names.
+    """What makes two dispatches the same one: the document, the object it names,
+    and the collection it is written into.
 
     Not the document alone: a re-upload keeps the document id and writes its
     bytes under a new key (ADR-0054), and must be indexed even while the
-    previous version's job still runs. The object path is the presigned URL
-    without its query, so the signature, which differs on every signing, is
-    not part of it. Hashed, because the path names the tenant and the key is
-    stored in the shared status table. None without a document id (the OIB
-    corpus sync), which keeps that caller's behaviour.
+    previous version's job still runs. Not without the collection: a document
+    moved across a folder restriction (ADR-0078) is dispatched again with the
+    same id and object into its new collection, and joining a live job still
+    writing into the old one would index nothing where it now belongs. The
+    object path is the presigned URL without its query, so the signature, which
+    differs on every signing, is not part of it. Hashed, because the path names
+    the tenant and the key is stored in the shared status table. None without a
+    document id (the OIB corpus sync), which keeps that caller's behaviour.
     """
     if not request.document_id:
         return None
     path = urlparse(request.file_ref).path
-    return hashlib.sha256(f"{request.document_id}\0{path}".encode()).hexdigest()
+    return hashlib.sha256(f"{request.document_id}\0{path}\0{request.collection}".encode()).hexdigest()
 
 
 #: Dispatch keys with a request in the handler on this replica, and how many.

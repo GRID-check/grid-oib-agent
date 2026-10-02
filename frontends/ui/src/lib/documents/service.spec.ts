@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
  * records a version through the lifecycle; here that reduces to "it was asked
  * for", and the version table's own behaviour is `lifecycle.spec.ts`'s.
  */
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('./version-repository', () => ({
   DOCUMENT_VERSION_LIST_LIMIT: 200,
   insertDocumentVersion: vi.fn(async (values: Record<string, unknown>) => ({
@@ -73,6 +74,12 @@ vi.mock('@/lib/audit/service', () => ({
   recordAuditEvent: vi.fn().mockResolvedValue(undefined),
 }))
 
+// The upload-screening policy (ADR-0077) is read off the organization's
+// settings; an office that never saved one is on Piloti's suggestion.
+vi.mock('@/lib/organizations/service', () => ({
+  getOrgSettings: vi.fn().mockResolvedValue({ displayName: null, defaultLocale: 'de', settings: {} }),
+}))
+
 // The server-side allow-list consults the derived VLM capability. Mock it so
 // tests drive the (flag × capability) matrix directly, without a backend probe.
 vi.mock('@/lib/documents/vlm-capability', () => ({
@@ -97,6 +104,7 @@ vi.mock('./repository', () => ({
   // Default: no collision, so the upload path is the insert path it has always
   // been. The replace path is driven per-test.
   findLiveDocumentByFilename: vi.fn().mockResolvedValue(null),
+  findProjectCollectionsHoldingFilename: vi.fn().mockResolvedValue([]),
   listProjectDocuments: vi.fn(),
   listProjectDocumentPage: vi.fn().mockResolvedValue({ rows: [], nextCursor: null }),
   findProjectDocumentsByFilenames: vi.fn().mockResolvedValue([]),
@@ -138,10 +146,12 @@ import {
   listProjectDocumentPage,
   findProjectDocumentsByFilenames,
   findProjectDocumentsByNames,
+  findProjectCollectionsHoldingFilename,
   deleteProjectDocument,
   setDocumentDisplayName,
   setDocumentReconciledStatus,
 } from './repository'
+import { getHiddenFolderIds, getProjectFolderAccess, type ProjectFolderAccess } from '@/lib/authz/folder-access'
 import {
   listDocuments,
   listDocumentsPage,
@@ -338,6 +348,118 @@ describe('uploadDocument server-side type gate', () => {
       )
     ).rejects.toBeInstanceOf(BadRequestError)
     expect(admitOrDiscard).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The name gate's server-side repeat (ADR-0077). The browser checks first and
+ * never sends an excluded file; this is what makes a client that skipped the
+ * check harmless. It runs before a byte is written, and an explicit release by
+ * the uploader is honoured and audited rather than refused.
+ */
+describe('uploadDocument server-side name screening', () => {
+  it('refuses a file whose name matches the policy, before anything is stored', async () => {
+    await expect(
+      uploadDocument(session, makeInput({ name: 'Schlussrechnung 2026.pdf' }), new Request('http://x'))
+    ).rejects.toMatchObject({ status: 422, code: 'UPLOAD_SCREENED' })
+    expect(s3Client.send).not.toHaveBeenCalled()
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('refuses a file because of the folder it sat in, and names the folder', async () => {
+    const error = await uploadDocument(
+      session,
+      { ...makeInput({ name: 'scan_0042.pdf' }), originPath: 'Akt/Personalunterlagen/scan_0042.pdf' },
+      new Request('http://x')
+    ).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({
+      details: { matches: [{ term: 'Personal', segment: 'Personalunterlagen', kind: 'folder' }] },
+    })
+  })
+
+  it('stores a matching file the uploader released, and audits the override', async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-1' }) })
+    const result = await uploadDocument(
+      session,
+      { ...makeInput({ name: 'Architektenvertrag.pdf' }), screeningRelease: true },
+      new Request('http://x')
+    )
+    expect(result.status).toBe('pending')
+    expect(admitOrDiscard).toHaveBeenCalled()
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'document.screening_overridden',
+        metadata: expect.objectContaining({ terms: 'Vertrag' }),
+      })
+    )
+  })
+
+  it('lets an ordinary plan through without an override event', async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-1' }) })
+    await uploadDocument(session, makeInput({ name: 'Statische Berechnung.pdf' }), new Request('http://x'))
+    expect(admitOrDiscard).toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'document.screening_overridden' })
+    )
+  })
+})
+
+/**
+ * Restricted folders do not hold IFC models (ADR-0078): the model's building
+ * data is keyed by project, so a restriction would hide the file and leave the
+ * building open. The upload is refused before anything is stored.
+ */
+describe('uploadDocument refuses an IFC model into a restricted folder', () => {
+  const restricted = (): ProjectFolderAccess => ({
+    hiddenFolderIds: new Set<string>(),
+    isVisible: () => true,
+    collectionFor: (folderId) => (folderId === 'f-restricted' ? 'proj_abc_r0123456789ab' : 'proj_abc'),
+    clearedRestrictedCollections: ['proj_abc_r0123456789ab'],
+    anyRestricted: true,
+  })
+
+  it('answers 409 with the reason, and stores nothing', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(restricted())
+    const error = await uploadDocument(
+      session,
+      { ...makeInput({ name: 'Haus-A.ifc', type: 'application/octet-stream' }), folderId: 'f-restricted' },
+      new Request('http://x')
+    ).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect(error).toMatchObject({
+      status: 409,
+      message: expect.stringContaining('IFC models cannot be filed in a restricted folder yet'),
+      details: { code: 'IFC_IN_RESTRICTED_FOLDER' },
+    })
+    expect(s3Client.send).not.toHaveBeenCalled()
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('refuses an .ifczip the same way', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(restricted())
+    await expect(
+      uploadDocument(
+        session,
+        { ...makeInput({ name: 'Haus-A.IFCZIP', type: 'application/zip' }), folderId: 'f-restricted' },
+        new Request('http://x')
+      )
+    ).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('still files any other document into the restricted folder', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(restricted())
+    vi.mocked(findFolderPathInProject).mockResolvedValueOnce('Leitung')
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-1' }) })
+    const result = await uploadDocument(
+      session,
+      { ...makeInput({ name: 'Bauzeitplan.pdf' }), folderId: 'f-restricted' },
+      new Request('http://x')
+    )
+    expect(result.status).toBe('pending')
+    expect(admitOrDiscard).toHaveBeenCalled()
   })
 })
 
@@ -671,7 +793,9 @@ describe('probeProjectDocumentNames', () => {
 
     expect(await probeProjectDocumentNames(session, 'proj-1', ['EG.pdf'])).toEqual([match])
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
-    expect(findProjectDocumentsByNames).toHaveBeenCalledWith('proj-1', session.organizationId, ['EG.pdf'])
+    expect(findProjectDocumentsByNames).toHaveBeenCalledWith('proj-1', session.organizationId, ['EG.pdf'], {
+      hiddenFolderIds: [],
+    })
   })
 
   it('reads nothing for a reader without the project', async () => {
@@ -859,7 +983,9 @@ describe('resolveProjectDocumentsByName', () => {
     const documents = await resolveProjectDocumentsByName(session, 'proj-1', ['bestand-1962.pdf'])
 
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
-    expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith('proj-1', 'org-1', ['bestand-1962.pdf'])
+    expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith('proj-1', 'org-1', ['bestand-1962.pdf'], {
+      hiddenFolderIds: [],
+    })
     expect(listProjectDocumentPage).not.toHaveBeenCalled()
     expect(documents).toEqual([expect.objectContaining({ id: 'doc-old', assignees: [] })])
     expect(documents[0]).not.toHaveProperty('metadata')
@@ -960,10 +1086,12 @@ describe('searchProjectDocuments', () => {
     expect(hits[0]).toMatchObject({ snippet: 'permit snippet', page: 2, score: 0.91 })
     // The rows are looked up by the hit names, not read from the paged
     // listing: a hit on a document past the first page must still resolve.
-    expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith('proj-1', 'org-1', [
-      'permit.pdf',
-      'plan.pdf',
-    ])
+    expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith(
+      'proj-1',
+      'org-1',
+      ['permit.pdf', 'plan.pdf'],
+      { hiddenFolderIds: [] }
+    )
     expect(listProjectDocumentPage).not.toHaveBeenCalled()
   })
 
@@ -2722,5 +2850,76 @@ describe('an office document is viewed through its PDF rendition', () => {
     })
     await expect(streamDocumentFile(session, 'doc-office')).rejects.toMatchObject({ status: 502 })
     expect(fetchSpy).toHaveBeenCalledTimes(conversions)
+  })
+})
+
+describe('restricted folders (ADR-0078)', () => {
+  const HIDDEN = 'folder-hidden'
+  const RESTRICTED_COLLECTION = 'proj_abc_r1111aaaa2222'
+  const restricted: ProjectFolderAccess = {
+    hiddenFolderIds: new Set([HIDDEN]),
+    isVisible: (folderId) => folderId !== HIDDEN,
+    collectionFor: (folderId) => (folderId === 'folder-cleared' ? RESTRICTED_COLLECTION : 'proj_abc'),
+    clearedRestrictedCollections: [RESTRICTED_COLLECTION],
+    anyRestricted: true,
+  }
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findProjectInOrg).mockResolvedValue(makeProject({ collectionName: 'proj_abc' }))
+    vi.mocked(getHiddenFolderIds).mockResolvedValue([HIDDEN])
+    vi.mocked(getProjectFolderAccess).mockResolvedValue(restricted)
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-1', hits: [] }) })
+  })
+
+  it('leaves a hidden folder out of the listing, the by-name resolve and the name probe', async () => {
+    await listDocumentsPage(session, 'proj-1')
+    await resolveProjectDocumentsByName(session, 'proj-1', ['Honorar.pdf'])
+    await probeProjectDocumentNames(session, 'proj-1', ['Honorar.pdf'])
+
+    expect(vi.mocked(listProjectDocumentPage).mock.calls[0][2]).toMatchObject({ hiddenFolderIds: [HIDDEN] })
+    expect(vi.mocked(findProjectDocumentsByFilenames).mock.calls[0][3]).toEqual({ hiddenFolderIds: [HIDDEN] })
+    expect(vi.mocked(findProjectDocumentsByNames).mock.calls[0][3]).toEqual({ hiddenFolderIds: [HIDDEN] })
+  })
+
+  it('searches the restricted collections this reader is cleared for, and joins only visible rows', async () => {
+    await searchProjectDocuments(session, 'proj-1', 'Honorar', 10)
+
+    const searched = mockFetch.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.endsWith('/search'))
+      .sort()
+    expect(searched).toEqual([
+      'http://backend:8000/v1/collections/proj_abc/search',
+      `http://backend:8000/v1/collections/${RESTRICTED_COLLECTION}/search`,
+    ])
+  })
+
+  it('files an upload into the collection its folder puts it in', async () => {
+    vi.mocked(findFolderPathInProject).mockResolvedValue('Verwaltung/Verträge')
+
+    await uploadDocument(session, { ...makeInput(), folderId: 'folder-cleared' }, new Request('http://x'))
+
+    expect(vi.mocked(admitOrDiscard).mock.calls[0][2]).toMatchObject({ collectionName: RESTRICTED_COLLECTION })
+  })
+
+  it('refuses an upload into a folder the uploader may not see, as not found', async () => {
+    vi.mocked(findFolderPathInProject).mockResolvedValue('Verwaltung/Honorare')
+
+    await expect(
+      uploadDocument(session, { ...makeInput(), folderId: HIDDEN }, new Request('http://x'))
+    ).rejects.toBeInstanceOf(NotFoundError)
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+  })
+
+  it('refuses a name the project already holds under another restriction, naming no folder', async () => {
+    vi.mocked(findProjectCollectionsHoldingFilename).mockResolvedValueOnce([RESTRICTED_COLLECTION])
+
+    const refusal = uploadDocument(session, makeInput(), new Request('http://x'))
+
+    await expect(refusal).rejects.toBeInstanceOf(ConflictError)
+    await expect(refusal).rejects.not.toThrow(/Honorare|Verwaltung/)
+    expect(admitOrDiscard).not.toHaveBeenCalled()
   })
 })

@@ -25,6 +25,8 @@ export interface FolderObjectMenuProps {
   onNewInside?: () => void
   onRename: () => void
   onMove?: (parentId: string | null, parentName: string) => void
+  /** „Zugriff…" (ADR-0078); absent for a reader who may not manage the project. */
+  onAccess?: () => void
   onDelete: () => void
   children: ReactNode
 }
@@ -37,6 +39,7 @@ export function FolderObjectMenu({
   onNewInside,
   onRename,
   onMove,
+  onAccess,
   onDelete,
   children,
 }: FolderObjectMenuProps): ReactNode {
@@ -52,6 +55,7 @@ export function FolderObjectMenu({
           move: t('folders.move'),
           delete: t('folders.delete'),
           allFiles: t('folders.allFiles'),
+          access: t('folders.access.menu'),
         },
         folders,
         canAcceptMove,
@@ -59,6 +63,7 @@ export function FolderObjectMenu({
         onNewInside,
         onRename,
         onMove,
+        onAccess,
         onDelete,
       }),
     [
@@ -69,6 +74,7 @@ export function FolderObjectMenu({
       onNewInside,
       onRename,
       onMove,
+      onAccess,
       onDelete,
       t,
     ],

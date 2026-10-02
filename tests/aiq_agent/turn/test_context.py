@@ -36,8 +36,9 @@ def stubs(monkeypatch):
     def lessons(_conversation_id):
         return calls["lessons"]
 
-    def digest(*, project_id, organization_id, query):
+    def digest(*, project_id, organization_id, query, restricted_collections=()):
         calls["digest_args"] = (project_id, organization_id, query)
+        calls["digest_restricted"] = list(restricted_collections)
         value = calls["digest"]
         if isinstance(value, Exception):
             raise value
@@ -242,3 +243,65 @@ def test_turn_identity_is_the_parsed_request_in_ledger_shape():
         "project_id": "p",
         "conversation_id": "conv",
     }
+
+
+class TestRestrictedMemoryInTheLiveDigest:
+    """ADR-0078: the live digest serves restricted memory only for the restricted
+    collections the turn's VERIFIED envelope carries."""
+
+    _SCOPE = ["oib_knowledge", "proj_p1", "proj_p1_r0123456789ab", "s_c1"]
+
+    async def test_a_signed_scope_passes_its_restricted_collections(self, stubs):
+        request = _request(
+            project_id="p1", organization_id="org", collection_scope=self._SCOPE, envelope_header="signed"
+        )
+        await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=False)
+        assert stubs["digest_restricted"] == ["proj_p1_r0123456789ab"]
+
+    async def test_an_unsigned_scope_passes_none(self, stubs):
+        """The raw-header fallback has nothing vouching for it."""
+        request = _request(project_id="p1", organization_id="org", collection_scope=self._SCOPE)
+        await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=False)
+        assert stubs["digest_restricted"] == []
+
+    async def test_an_open_scope_passes_none(self, stubs):
+        request = _request(
+            project_id="p1", organization_id="org", collection_scope=["proj_p1"], envelope_header="signed"
+        )
+        await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=False)
+        assert stubs["digest_restricted"] == []
+
+
+class TestAConfinedTurnOffersNothingTheWholeProjectReads:
+    """ADR-0078: a turn whose VERIFIED scope holds a restricted collection may not
+    commission a run or hand work over, so it is never offered either. The BFF
+    refuses both on its own; this keeps the model from proposing them."""
+
+    _SCOPE = ["oib_knowledge", "proj_p1", "proj_p1_r0123456789ab", "s_c1"]
+
+    async def test_a_signed_restricted_scope_withdraws_deep_research_and_tasks(self, stubs):
+        request = _request(
+            project_id="p1", organization_id="org", collection_scope=self._SCOPE, envelope_header="signed"
+        )
+        context = await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=True)
+        assert context.confined is True
+        assert context.restricted_scope == ("proj_p1_r0123456789ab",)
+        assert (context.deep_research_allowed, context.tasks_allowed) == (False, False)
+
+    async def test_an_open_scope_keeps_what_the_tenant_allows(self, stubs):
+        request = _request(
+            project_id="p1", organization_id="org", collection_scope=["proj_p1"], envelope_header="signed"
+        )
+        context = await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=True)
+        assert context.confined is False
+        assert (context.deep_research_allowed, context.tasks_allowed) == (True, True)
+
+    async def test_the_fail_open_context_stays_confined(self, stubs):
+        stubs["digest"] = TypeError("a bug, not a transport failure")
+        request = _request(
+            project_id="p1", organization_id="org", collection_scope=self._SCOPE, envelope_header="signed"
+        )
+        context = await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=True)
+        assert context.project_context is None
+        assert context.confined is True
+        assert (context.deep_research_allowed, context.tasks_allowed) == (False, False)

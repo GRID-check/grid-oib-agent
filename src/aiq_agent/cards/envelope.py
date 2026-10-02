@@ -144,6 +144,26 @@ REFUSED_NOT_AN_OBJECT = "not_an_object"
 REFUSED_SHAPE = "shape"
 REFUSED_SYSTEM_TYPE = "system_type"
 REFUSED_RETIRED_TYPE = "retired_type"
+REFUSED_CONFINED = "confined"
+
+#: Card types a turn whose scope holds a restricted folder's collection may not
+#: compose (ADR-0078): accepting one writes something the whole project reads.
+#: A ``project_profile_patch`` writes the project profile. (``memory_proposal``
+#: is a system card, and the ``remember`` tool never pushes one for a restricted
+#: finding.)
+CONFINED_CARD_TYPES = frozenset({"project_profile_patch"})
+
+
+def _turn_is_confined() -> bool:
+    """Whether this turn's scope holds a restricted folder's collection; False outside a request."""
+    from aiq_agent.knowledge.restricted_collections import restricted_collections_in
+    from aiq_agent.knowledge.scoping import get_collection_scope_from_context
+
+    try:
+        return bool(restricted_collections_in(get_collection_scope_from_context()))
+    except Exception:  # noqa: BLE001 - an unreadable scope must not let the card through
+        logger.warning("card check: the turn's scope could not be read; treating it as confined", exc_info=True)
+        return True
 
 
 @dataclass(frozen=True)
@@ -167,6 +187,11 @@ class CardRefusal:
             return f"card of type '{self.card_type}' failed validation: {self.detail}."
         if self.kind == REFUSED_SYSTEM_TYPE:
             return f"card type '{self.card_type}' is system-emitted: the tool that does the work pushes it."
+        if self.kind == REFUSED_CONFINED:
+            return (
+                f"card type '{self.card_type}' is not offered in a conversation that reads folders with "
+                "restricted access: what it writes is read by everyone in the project."
+            )
         return retired_refusal(self.card_type)
 
     def for_repair(self) -> str:
@@ -204,6 +229,9 @@ def validate_model_card(payload: object) -> tuple[dict[str, Any] | None, CardRef
     if card_type in RETIRED_CARD_TYPES:
         logger.warning("card rejected: '%s' no longer exists", card_type)
         return None, CardRefusal(REFUSED_RETIRED_TYPE, card_type)
+    if card_type in CONFINED_CARD_TYPES and _turn_is_confined():
+        logger.warning("card rejected: '%s' in a turn whose scope holds a restricted folder", card_type)
+        return None, CardRefusal(REFUSED_CONFINED, card_type)
     try:
         validated = grid_card_adapter.validate_python(payload).model_dump(exclude_none=True)
     except Exception as exc:

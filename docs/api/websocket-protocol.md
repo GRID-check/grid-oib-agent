@@ -48,6 +48,14 @@ ws://<host>/websocket?v=2&projectId=<uuid>&conversationId=<session_id>
   signed into the context envelope. A client message naming another
   conversation is refused with `rejected{conversation_mismatch}`; the socket
   stays open. To talk in another conversation, open a socket for it.
+- **A restricted scope is re-checked per turn (ADR-0078).** When the signed
+  scope carries a restricted folder's collection, every `user_message` first
+  asks the BFF whether the conversation is still its asker's alone. If it is
+  not (shared since the upgrade, or the check cannot be made), the server
+  closes the socket with **`4412`** before the turn is claimed. The client
+  treats it like any drop: it reconnects, the new upgrade is signed a scope
+  without the restricted collections, and the unacknowledged question is sent
+  again.
 - **Auth** is read at the handshake and every client message re-checks the
   token's `exp`; an expired one is refused with `rejected{auth_expired}`, and
   the client reconnects with a fresh token.
@@ -297,6 +305,22 @@ refused (`rejected{invalid_message}`), and so is an unknown `type`
 ```json
 {"v":2,"type":"user_message","conversation_id":"s_1","message_id":"msg_1759000000000_3","text":"Wie lang darf der Fluchtweg in GK 4 sein?","data_sources":["knowledge_layer"]}
 ```
+
+### Sensitive data is masked, never refused (ADR-0077)
+
+The free text of a `user_message` (`context_only` lines included) and of an
+`interaction_response` `{text}` answer is masked against the office's
+„Sensible Daten" policy before the agent, its history or another replica sees
+it: each content-term or detector match (IBAN, Austrian social-security number,
+card number; checksum-valid only) becomes a placeholder such as
+`[IBAN entfernt]`. The wire does not change and the turn is never refused for a
+match. The composer masks first and asks the person; this is the backstop for a
+client that did not. The socket reads the policy once per connection from
+`GET /api/internal/chat-screening`, so a policy change applies from the next
+connection; until it can be read (no signed organization, an older BFF, an
+error) every detector applies and no term. A chosen `{option_id}` is not free
+text and passes as it is. `aiq_api.chat_socket.ChatSocket._masked`;
+the matcher is `aiq_agent.common.content_screen`.
 
 ### Invoking a skill (no wire field)
 

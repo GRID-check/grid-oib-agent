@@ -30,6 +30,11 @@ import type {
 } from '@/lib/db/schema'
 import { getProjectOverviewData } from './overview-query'
 import {
+  getHiddenFolderIds,
+  getProjectFolderAccess,
+  restrictedFolderNamesByCollection,
+} from '@/lib/authz/folder-access'
+import {
   createProjectMemoryItem,
   deleteProjectMemoryItem,
   listProjectMemory,
@@ -37,6 +42,7 @@ import {
 } from './memory-service'
 import {
   deleteProjectRow,
+  findProjectCollectionName,
   findProjectInOrg,
   insertProject,
   listProjectsInOrg,
@@ -294,7 +300,9 @@ export async function restoreProject(
 
 export async function getProjectOverview(session: AuthorizedSession, projectId: string) {
   await requireProjectAccess(session, projectId, 'project:view')
-  const data = await getProjectOverviewData(projectId, session.organizationId)
+  const data = await getProjectOverviewData(projectId, session.organizationId, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+  })
   if (!data) throw new NotFoundError('Project not found')
   return data
 }
@@ -305,16 +313,68 @@ export type ProjectMemoryItemPatch = Partial<
 >
 
 /**
+ * A memory item as the panel receives it. A restricted item (ADR-0078) also
+ * names the folders it is restricted to, for the lock; it only reaches a reader
+ * already cleared for all of them.
+ */
+export type ProjectMemoryListItem = ProjectMemoryItem & { restrictedFolderNames?: string[] }
+
+/**
+ * The restricted collections this session is cleared for in the project, and
+ * the project's collection name. A project without a collection (not found in
+ * the org) clears nothing.
+ */
+export async function memoryClearance(
+  session: AuthorizedSession,
+  projectId: string
+): Promise<{ cleared: readonly string[]; projectCollection: string | null }> {
+  const projectCollection = await findProjectCollectionName(projectId, session.organizationId)
+  if (!projectCollection) return { cleared: [], projectCollection: null }
+  const access = await getProjectFolderAccess(session, projectId, projectCollection)
+  return { cleared: access.clearedRestrictedCollections, projectCollection }
+}
+
+/** Name the folders behind each restricted item; open items pass through untouched. */
+async function labelRestrictions(
+  session: AuthorizedSession,
+  projectId: string,
+  projectCollection: string | null,
+  items: ProjectMemoryItem[]
+): Promise<ProjectMemoryListItem[]> {
+  if (!projectCollection || !items.some((item) => (item.restrictedCollections?.length ?? 0) > 0)) {
+    return items
+  }
+  const names = await restrictedFolderNamesByCollection(session.organizationId, projectId, projectCollection)
+  return items.map((item) =>
+    item.restrictedCollections && item.restrictedCollections.length > 0
+      ? {
+          ...item,
+          restrictedFolderNames: item.restrictedCollections
+            .map((collection) => names.get(collection))
+            .filter((name): name is string => name !== undefined),
+        }
+      : item
+  )
+}
+
+/**
  * List a project's memory items, including the org-wide items that apply to
- * every project in the org.
+ * every project in the org. A restricted item (ADR-0078) is listed only for a
+ * session cleared for all of its collections; for anyone else it is absent.
  */
 export async function getProjectMemory(
   session: AuthorizedSession,
   projectId: string,
   options: { includeArchived?: boolean; sourceConversationId?: string } = {}
-): Promise<ProjectMemoryItem[]> {
+): Promise<ProjectMemoryListItem[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  return listProjectMemory(projectId, { ...options, organizationId: session.organizationId })
+  const { cleared, projectCollection } = await memoryClearance(session, projectId)
+  const items = await listProjectMemory(projectId, {
+    ...options,
+    organizationId: session.organizationId,
+    clearedRestrictedCollections: cleared,
+  })
+  return labelRestrictions(session, projectId, projectCollection, items)
 }
 
 /** Manually add a memory item — user-authored and user-confirmed by definition. */
@@ -350,7 +410,13 @@ export async function editProjectMemoryItem(
   patch: ProjectMemoryItemPatch
 ): Promise<ProjectMemoryItem> {
   await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
-  const item = await updateProjectMemoryItem({ projectId }, itemId, patch)
+  // A restricted item the session is not cleared for answers like a missing one.
+  const { cleared } = await memoryClearance(session, projectId)
+  const item = await updateProjectMemoryItem(
+    { projectId, organizationId: session.organizationId, clearedRestrictedCollections: cleared },
+    itemId,
+    patch
+  )
   if (!item) throw new NotFoundError()
   return item
 }
@@ -361,6 +427,10 @@ export async function removeProjectMemoryItem(
   itemId: string
 ): Promise<void> {
   await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
-  const deleted = await deleteProjectMemoryItem({ projectId }, itemId)
+  const { cleared } = await memoryClearance(session, projectId)
+  const deleted = await deleteProjectMemoryItem(
+    { projectId, organizationId: session.organizationId, clearedRestrictedCollections: cleared },
+    itemId
+  )
   if (!deleted) throw new NotFoundError()
 }

@@ -89,6 +89,8 @@ export const collaboration = {
       organizationMembershipRequired: 'That person is not a member of this organization.',
       rateLimited: 'Too many sharing changes. Please wait a few minutes and try again.',
       rosterFull: 'This conversation already has the maximum number of people. Remove someone before inviting more.',
+      restrictedContent:
+        'This conversation draws on a folder with restricted access, so only its owner can see it and it cannot be shared.',
       loadFailed: 'Sharing settings could not be loaded.',
       saveFailed: 'That change could not be saved.',
       tryAgain: 'Try again',
@@ -400,6 +402,20 @@ export const collaboration = {
       documentAssigned: {
         title: '{actor} assigned {subject} to you',
         body: 'You are responsible for this file.',
+      },
+      // ADR-0077: everything an upload brought in has been read. {subject}
+      // is where it went (a project name, "Büroablage" or "Chat").
+      uploadCompleted: {
+        title: 'Your upload has been read',
+        body: '{subject}: open the summary to see what arrived.',
+        bodyNoSubject: 'Open the summary to see what arrived.',
+      },
+      // ADR-0077: the content check held files back.
+      documentQuarantined: {
+        titleOne: '1 file is waiting in quarantine',
+        titleMany: '{count} files are waiting in quarantine',
+        titleNone: 'Files in quarantine',
+        body: 'No model has read them. Release or delete them.',
       },
       jobCompleted: {
         title: '"{subject}" is done',

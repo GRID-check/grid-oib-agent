@@ -16,6 +16,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/auth/require-auth', () => ({ requireAuthorizedSession: vi.fn() }))
 
 vi.mock('@/lib/bim/repository', () => ({ listBimModels: vi.fn() }))
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('@/lib/bim/query', async () => {
   const actual = await vi.importActual<typeof import('@/lib/bim/query')>('@/lib/bim/query')
   return { ...actual, runBimQuery: vi.fn() }
@@ -27,6 +28,7 @@ import { listBimModels } from '@/lib/bim/repository'
 import { runBimQuery } from '@/lib/bim/query'
 import { isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
 import type { BimModelHeader } from '@/lib/bim/repository'
+import { getRestrictedFolderIds } from '@/lib/authz/folder-access'
 
 const PROJECT = '44444444-4444-4444-4444-444444444444'
 
@@ -82,6 +84,22 @@ describe('POST /api/internal/bim/query', () => {
       })
     )
     expect(denied.status).toBe(403)
+    expect(runBimQuery).not.toHaveBeenCalled()
+  })
+
+  // ADR-0078: the agent's routes carry no session to clear, and a model's
+  // building data is keyed by project, so every restricted subtree is hidden.
+  it('never queries a model filed under a restricted folder', async () => {
+    vi.mocked(getRestrictedFolderIds).mockResolvedValueOnce(['folder-verwaltung'])
+    // What the query does with the hidden folders: NEW is filed under one.
+    vi.mocked(listBimModels).mockImplementation(async (_org, options) =>
+      options?.hiddenFolderIds?.includes('folder-verwaltung') ? [OLD] : [NEW, OLD]
+    )
+
+    const response = await post({ organizationId: 'org-1', projectId: PROJECT, modelId: NEW.id, query: { op: 'overview' } })
+
+    expect(getRestrictedFolderIds).toHaveBeenCalledWith('org-1', PROJECT)
+    expect(response.status).toBe(404)
     expect(runBimQuery).not.toHaveBeenCalled()
   })
 

@@ -4,7 +4,7 @@
  * middle; delete set apart.
  */
 
-import { Check, Folder, FolderInput, FolderPlus, Pencil, Trash2, Eye } from 'lucide-react'
+import { Check, Folder, FolderInput, FolderPlus, Lock, Pencil, Trash2, Eye } from 'lucide-react'
 import type { ActionMenuEntry } from '@/components/ui/action-menu'
 import { sortedFolderDestinations, type PathFolder } from '../lib/folder-path-label'
 
@@ -15,6 +15,8 @@ export interface FolderActionLabels {
   move: string
   delete: string
   allFiles: string
+  /** „Zugriff…" — needed only when `onAccess` is given. */
+  access?: string
 }
 
 export interface FolderActionEntriesInput {
@@ -27,6 +29,8 @@ export interface FolderActionEntriesInput {
   onNewInside?: () => void
   onRename: () => void
   onMove?: (parentId: string | null, parentName: string) => void
+  /** Who may see the folder (ADR-0078). Absent for a reader who may not manage the project. */
+  onAccess?: () => void
   onDelete: () => void
 }
 
@@ -40,6 +44,7 @@ export function folderActionEntries({
   onNewInside,
   onRename,
   onMove,
+  onAccess,
   onDelete,
 }: FolderActionEntriesInput): ActionMenuEntry[] {
   const entries: ActionMenuEntry[] = [
@@ -109,6 +114,17 @@ export function folderActionEntries({
           }
         }),
       ],
+    })
+  }
+
+  if (onAccess && labels.access) {
+    entries.push({
+      type: 'item',
+      id: 'access',
+      label: labels.access,
+      icon: Lock,
+      onSelect: onAccess,
+      testId: `folder-action-access-${folder.id}`,
     })
   }
 

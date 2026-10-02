@@ -100,3 +100,23 @@ def test_timeout_error_propagates_for_failopen(monkeypatch):
     with _patched_opener(monkeypatch, error=TimeoutError("timed out")):
         with pytest.raises(TimeoutError):
             pm.fetch_memory_digest(project_id="p1", organization_id=None)
+
+
+def test_the_turns_restricted_collections_ride_the_query(monkeypatch):
+    """ADR-0078: restricted memory is served only for these."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    with _patched_opener(monkeypatch, body={"digest": "d"}) as captured:
+        pm.fetch_memory_digest(
+            project_id="p1",
+            organization_id="o1",
+            conversation_id="",
+            restricted_collections=["proj_p1_raaaaaaaaaaaa", " ", "proj_p1_rbbbbbbbbbbbb"],
+        )
+    assert "restrictedCollections=proj_p1_raaaaaaaaaaaa%2Cproj_p1_rbbbbbbbbbbbb" in captured["url"]
+
+
+def test_no_restricted_collections_no_param(monkeypatch):
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    with _patched_opener(monkeypatch, body={"digest": "d"}) as captured:
+        pm.fetch_memory_digest(project_id="p1", organization_id="o1", conversation_id="")
+    assert "restrictedCollections" not in captured["url"]

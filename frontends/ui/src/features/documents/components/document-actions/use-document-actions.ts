@@ -127,6 +127,8 @@ export function useDocumentActions({
   onMoved,
 }: UseDocumentActionsOptions): DocumentActions {
   const t = useTranslations(scope)
+  // Folders are a project concept, so the one refusal a move can meet is worded there.
+  const tFiles = useTranslations('files')
   const [isRenaming, setIsRenaming] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
@@ -280,6 +282,11 @@ export function useDocumentActions({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ folderId }),
         })
+        // 409: an IFC model bound for a restricted folder (ADR-0078). Retrying cannot help, so say why.
+        if (res.status === 409) {
+          toast.error(tFiles('folders.access.ifcRefused'))
+          return false
+        }
         if (!res.ok) throw new Error(`Move failed (${res.status})`)
         onMoved?.(document.id, folderId)
         toast.success(t('actions.moved', { name, folder: folderName }))
@@ -291,7 +298,7 @@ export function useDocumentActions({
         setIsMoving(false)
       }
     },
-    [document.id, name, onMoved, t]
+    [document.id, name, onMoved, t, tFiles]
   )
 
   return {

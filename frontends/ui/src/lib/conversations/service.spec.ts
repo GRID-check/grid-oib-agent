@@ -81,6 +81,22 @@ vi.mock('@/lib/mentions/service', () => ({
   threadIsAwaitingHuman: vi.fn(),
 }))
 
+// The office's chat screening (ADR-0077): the REAL matcher over Piloti's
+// suggested list; only the settings read is replaced, because it reaches the
+// database. What the matcher does has its own spec (`content-screen.spec.ts`).
+vi.mock('@/lib/upload-screening/service', async () => {
+  const { buildContentRules, chatScreeningRules, maskText } = await import('@/lib/upload-screening/content-screen')
+  const { SUGGESTED_SCREENING_POLICY } = await import('@/lib/upload-screening/policy')
+  return {
+    maskChatText: vi.fn(async (_organizationId: string, text: string) =>
+      maskText(text, chatScreeningRules(SUGGESTED_SCREENING_POLICY))
+    ),
+    maskAnswerText: vi.fn(async (_organizationId: string, text: string) =>
+      maskText(text, buildContentRules([], SUGGESTED_SCREENING_POLICY.detectors))
+    ),
+  }
+})
+
 // The engagement mode (ADR-0036) is mocked at the module boundary: what this
 // suite asserts is that the RULING obeys it, while how the mode is stored and
 // derived has its own tests in engagement.spec.ts.
@@ -105,6 +121,7 @@ import { countGrantsForResource, findGrantForSubject } from '@/lib/sharing/repos
 import { resolveParticipants } from '@/lib/sharing/service'
 import { deleteSessionCollection, purgeSessionDocuments } from '@/lib/session-documents/cleanup'
 import { discardConversationDrafts } from './working-directory'
+import { maskChatText } from '@/lib/upload-screening/service'
 import { resolveEngagement, resolveEngagementFor, setEngagement } from './engagement'
 import {
   deleteConversationInOrg,
@@ -1571,5 +1588,155 @@ describe('deleting a conversation takes its working directory with it', () => {
 
     await expect(deleteConversation(session, CONVERSATION_ID)).rejects.toThrow()
     expect(discardConversationDrafts).not.toHaveBeenCalled()
+  })
+})
+
+describe('what a person wrote is stored masked (ADR-0077, chat screening)', () => {
+  const IBAN = 'AT61 1904 3002 3457 3201'
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it("stores a user message masked against the office's policy", async () => {
+    stubConversation({ createdBy: 'user_me' })
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: `Lohnzettel anbei, IBAN ${IBAN}` },
+    ])
+
+    const rows = vi.mocked(insertMessages).mock.calls[0][0]
+    expect(rows[0].content).toBe('[Begriff entfernt] anbei, IBAN [IBAN entfernt]')
+    expect(maskChatText).toHaveBeenCalledWith('org_1', `Lohnzettel anbei, IBAN ${IBAN}`)
+  })
+
+  it('masks numbers whatever role the client gave it, since the role is the client\'s word too', async () => {
+    stubConversation({ createdBy: 'user_me' })
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_2', role: 'assistant', content: `Die IBAN ${IBAN} steht im Vertrag.` },
+      { id: 'msg_3', role: 'system', content: 'Lohnzettel liegt bei.' },
+    ])
+
+    const rows = vi.mocked(insertMessages).mock.calls[0][0]
+    expect(rows.map((row) => row.content)).toEqual([
+      'Die IBAN [IBAN entfernt] steht im Vertrag.',
+      'Lohnzettel liegt bei.',
+    ])
+  })
+
+  it("stores Piloti's answer that names a listed term as it read live, numbers masked", async () => {
+    stubConversation({ createdBy: 'user_me' })
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_5', role: 'assistant', content: `Es gibt keine Honorarvereinbarung; Konto ${IBAN}.` },
+    ])
+
+    expect(vi.mocked(insertMessages).mock.calls[0][0][0].content).toBe(
+      'Es gibt keine Honorarvereinbarung; Konto [IBAN entfernt].'
+    )
+  })
+
+  it('stores a typed answer carried in a new message\'s metadata masked and bounded', async () => {
+    stubConversation({ createdBy: 'user_me' })
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      {
+        id: 'msg_4',
+        role: 'assistant',
+        content: 'Welches Konto?',
+        metadata: { promptState: { response: `Konto ${IBAN}`, smuggled: 'x' } },
+      },
+    ])
+
+    const stored = vi.mocked(insertMessages).mock.calls[0][0][0].metadata as {
+      promptState: { response: string; smuggled?: string }
+    }
+    expect(stored.promptState.response).toBe('Konto [IBAN entfernt]')
+    expect(stored.promptState).not.toHaveProperty('smuggled')
+  })
+
+  it("stores a typed answer to Piloti's question masked", async () => {
+    stubConversation({ createdBy: 'user_me' })
+    vi.mocked(mergeMessageMetadata).mockResolvedValue({ id: 'msg_q' } as never)
+
+    await updateMessageDetail(session, CONVERSATION_ID, 'msg_q', {
+      promptState: { response: `Bitte an ${IBAN}, Honorarvereinbarung folgt` },
+    })
+
+    const [, , metadata] = vi.mocked(mergeMessageMetadata).mock.calls[0]
+    expect((metadata as { promptState: { response: string } }).promptState.response).toBe(
+      'Bitte an [IBAN entfernt], [Begriff entfernt] folgt'
+    )
+  })
+
+  it('stores a message the composer already masked unchanged', async () => {
+    stubConversation({ createdBy: 'user_me' })
+
+    await createConversationMessages(session, CONVERSATION_ID, [
+      { id: 'msg_1', role: 'user', content: 'Bitte überweise an [IBAN entfernt]' },
+    ])
+
+    expect(vi.mocked(insertMessages).mock.calls[0][0][0].content).toBe('Bitte überweise an [IBAN entfernt]')
+  })
+
+  it('masks a job prompt the backend writes as a user turn', async () => {
+    stubConversation()
+
+    await persistInternalConversationMessages('org_1', CONVERSATION_ID, [
+      { id: 'msg_q', role: 'user', content: `Prüfe Konto ${IBAN}`, messageType: 'user_message' },
+    ])
+
+    expect(vi.mocked(insertMessages).mock.calls[0][0][0].content).toBe('Prüfe Konto [IBAN entfernt]')
+  })
+
+  it("masks the user's turns before the opening exchange goes to the naming model", async () => {
+    stubConversation({ createdBy: 'user_me' })
+    vi.mocked(updateConversationMetaInOrg).mockResolvedValue({} as never)
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ title: 'Konto', tags: [] }),
+      text: async () => '',
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await generateConversationTitle(session, CONVERSATION_ID, {
+      messages: [
+        { role: 'user', content: `Konto ${IBAN}?` },
+        { role: 'assistant', content: 'Welches Projekt?' },
+      ],
+    })
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init.body)).messages).toEqual([
+      { role: 'user', content: 'Konto [IBAN entfernt]?' },
+      { role: 'assistant', content: 'Welches Projekt?' },
+    ])
+  })
+
+  it('masks a client-supplied assistant turn before it goes to the naming model', async () => {
+    stubConversation({ createdBy: 'user_me' })
+    vi.mocked(updateConversationMetaInOrg).mockResolvedValue({} as never)
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ title: 'Konto', tags: [] }),
+      text: async () => '',
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await generateConversationTitle(session, CONVERSATION_ID, {
+      messages: [
+        { role: 'user', content: 'Welches Konto?' },
+        { role: 'assistant', content: `Das Konto ${IBAN} aus dem Lohnzettel.` },
+      ],
+    })
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init.body)).messages[1]).toEqual({
+      role: 'assistant',
+      content: 'Das Konto [IBAN entfernt] aus dem [Begriff entfernt].',
+    })
   })
 })

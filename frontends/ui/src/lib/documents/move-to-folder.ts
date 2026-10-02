@@ -18,10 +18,14 @@
 import { and, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { documents, projectFolders } from '@/lib/db/schema'
+import { getProjectFolderAccess } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { collectionFileRef, collectionFileUrl, type CollectionFileRef } from '@/lib/documents/collection-file-ref'
+import { placeProjectDocuments } from '@/lib/projects/collection-placement'
+import { assertIfcMayBeFiledIn } from '@/lib/projects/ifc-folder-guard'
+import { findProjectInOrg } from '@/lib/projects/repository'
 
 /** Same ceiling the other backend mirrors in `@/lib/documents/service` use. */
 const BACKEND_MIRROR_TIMEOUT_MS = 10_000
@@ -71,6 +75,18 @@ export async function moveDocumentToFolder(
 
   await requireProjectAccess(session, document.projectId, ['project:documents:write', 'project:edit'])
 
+  // Both ends must be visible to the mover (ADR-0078): a document in a folder
+  // they are not cleared for does not exist for them, and neither does such a
+  // destination.
+  const project = await findProjectInOrg(document.projectId, session.organizationId)
+  if (!project) return { ok: false, error: 'Document not found.' }
+  const access = await getProjectFolderAccess(session, document.projectId, project.collectionName)
+  if (!access.isVisible(document.folderId)) return { ok: false, error: 'Document not found.' }
+  if (!access.isVisible(input.folderId)) return { ok: false, error: 'Folder not found in this project.' }
+  // Restricted folders do not hold IFC models until their building data is
+  // partitioned (ADR-0078). A 409, thrown: the route turns `ok: false` into 400.
+  assertIfcMayBeFiledIn(document.filename, access.collectionFor(input.folderId), project.collectionName)
+
   // The destination has to belong to the SAME project. Without this the folder
   // id is an unguessable-but-forgeable pointer into another project's tree, and
   // the document would vanish from the listing that filters by folder.
@@ -96,6 +112,14 @@ export async function moveDocumentToFolder(
     .set({ folderId: input.folderId, updatedAt: new Date() })
     .where(eq(documents.id, document.id))
     .returning({ id: documents.id, folderId: documents.folderId })
+
+  // Across a restriction boundary the document belongs in another collection:
+  // placement purges it from this one first, then re-reads it into the right
+  // one under its new path, so the path mirror below has nothing to add.
+  if (access.collectionFor(input.folderId) !== document.collectionName) {
+    await placeProjectDocuments(session.organizationId, document.projectId)
+    return { ok: true, document: { id: updated.id, folderId: updated.folderId } }
+  }
 
   const backendRef = collectionFileRef({
     collectionName: document.collectionName,

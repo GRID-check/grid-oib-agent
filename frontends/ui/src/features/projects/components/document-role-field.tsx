@@ -26,6 +26,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { useTranslations } from '@/i18n'
+import { loadUploadScreeningPolicy } from '@/adapters/api/upload-screening-policy'
+import { screenUploadName, type NameMatch } from '@/lib/upload-screening/name-screen'
+import { describeScreenedOut } from '@/lib/upload-screening/quarantine'
 import { documentRoleDefinition } from '@/lib/project-profile/document-roles'
 import type { DocumentRole } from '@/lib/project-profile/document-roles'
 import { useDocumentRoles } from '../lib/use-document-roles'
@@ -64,6 +68,7 @@ export function DocumentRoleField({
   deferred,
 }: DocumentRoleFieldProps) {
   const definition = documentRoleDefinition(role)
+  const tFiles = useTranslations('files')
   const { bindings, documents, refresh } = useDocumentRoles(projectId)
   const [busy, setBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
@@ -158,7 +163,18 @@ export function DocumentRoleField({
       if (list.length === 0) return
       setBusy(true)
       try {
+        // The office's name screen, before a byte leaves (ADR-0077): a file it
+        // holds back is not sent, exactly as on the Files page. The server
+        // repeats the check, but only after the bytes have arrived. The file
+        // lands at the project root, so its name is all there is to screen.
+        const policy = await loadUploadScreeningPolicy()
+        const screenedOut: Array<{ file: File; matches: NameMatch[] }> = []
         for (const file of list) {
+          const verdict = screenUploadName(policy, { filename: file.name })
+          if (verdict.blocked) {
+            screenedOut.push({ file, matches: verdict.matches })
+            continue
+          }
           const form = new FormData()
           form.append('file', file)
           form.append('projectId', projectId)
@@ -177,11 +193,13 @@ export function DocumentRoleField({
           }
           await bind(documentId, file.name)
         }
+        const screenedMessage = describeScreenedOut(screenedOut, tFiles)
+        if (screenedMessage) toast.error(screenedMessage)
       } finally {
         setBusy(false)
       }
     },
-    [bind, projectId]
+    [bind, projectId, tFiles]
   )
 
   // An upload for a building not saved yet binds when it answers; the wizard's

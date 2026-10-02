@@ -41,17 +41,33 @@ export interface UseCardDecisionOptions {
  * hook's selector and its post-write check can never disagree about where the
  * decision lives.
  */
+const owningConversation = (
+  state: Pick<ChatStore, 'currentConversation' | 'conversations'>,
+  messageId: string
+) =>
+  state.currentConversation?.messages.some((m) => m.id === messageId)
+    ? state.currentConversation
+    : state.conversations.find((c) => c.messages.some((m) => m.id === messageId))
+
 const selectCardDecision = (
   state: Pick<ChatStore, 'currentConversation' | 'conversations'>,
   messageId: string | undefined,
   cardKey: string
 ): CardDecision | null => {
   if (!messageId) return null
-  const conversation = state.currentConversation?.messages.some((m) => m.id === messageId)
-    ? state.currentConversation
-    : state.conversations.find((c) => c.messages.some((m) => m.id === messageId))
+  const conversation = owningConversation(state, messageId)
   return conversation?.messages.find((m) => m.id === messageId)?.cardInteractions?.[cardKey]?.decision ?? null
 }
+
+/**
+ * The conversation that holds the card's message, or null. A card whose answer
+ * writes something project-wide names it, so the server can refuse a proposal
+ * from a thread that drew on a restricted folder (ADR-0078).
+ */
+export const selectCardConversationId = (
+  state: Pick<ChatStore, 'currentConversation' | 'conversations'>,
+  messageId: string | undefined
+): string | null => (messageId ? (owningConversation(state, messageId)?.id ?? null) : null)
 
 /**
  * The persisted lifecycle state of one interactive card.

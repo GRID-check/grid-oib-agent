@@ -81,6 +81,7 @@ function envelopeHeaders(
     userId?: string
     organizationId?: string
     projectId?: string | null
+    collectionScope?: string[]
   } = {},
 ) {
   const { header, signature } = buildGridRequestContextEnvelope(
@@ -88,6 +89,7 @@ function envelopeHeaders(
       organizationId: overrides.organizationId ?? 'org_1',
       userId: overrides.userId ?? 'user_requester',
       ...(overrides.projectId === null ? {} : { projectId: overrides.projectId ?? PROJECT }),
+      ...(overrides.collectionScope ? { collectionScope: overrides.collectionScope } : {}),
       conversationId: 's_conv_1',
       issuedAt: overrides.issuedAt ?? Date.now(),
     },
@@ -317,6 +319,8 @@ describe('the research op — an escalated question becomes a run', () => {
       // And named nothing: no Rahmen, no Unterlagen.
       dataSources: null,
       documents: null,
+      // An open turn: its signed scope held no restricted folder's collection.
+      signedRestrictedCollections: [],
     })
     expect(delegateTask).not.toHaveBeenCalled()
   })
@@ -366,5 +370,36 @@ describe('the research op — an escalated question becomes a run', () => {
 
     expect(response.status).toBe(409)
     expect(commissionResearchRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('a turn signed a restricted folder hands nothing over (ADR-0078)', () => {
+  const RESTRICTED = 'proj_3333_r0123456789ab'
+  const restrictedTurn = () => envelopeHeaders({ collectionScope: ['oib_knowledge', 'proj_3333', RESTRICTED] })
+  const RESEARCH = { op: 'research', projectId: PROJECT, question: 'Welches Honorar gilt für LP 5?' }
+
+  it('gives the research commission the restricted collections of the SIGNED scope', async () => {
+    await call(RESEARCH, restrictedTurn())
+    expect(vi.mocked(commissionResearchRun).mock.calls[0][1]).toMatchObject({
+      signedRestrictedCollections: [RESTRICTED],
+    })
+  })
+
+  it('gives the delegation the same, so the service refuses it', async () => {
+    await call(CREATE, restrictedTurn())
+    expect(vi.mocked(delegateTask).mock.calls[0][1]).toMatchObject({ signedRestrictedCollections: [RESTRICTED] })
+  })
+
+  it('relays the service’s refusal as a typed 403 with its sentence', async () => {
+    const { ConversationConfinedError } = await import('@/lib/api/errors')
+    vi.mocked(commissionResearchRun).mockRejectedValueOnce(
+      new ConversationConfinedError('deepResearch', 'Aus dieser Unterhaltung lässt sich keine Tiefenrecherche starten.'),
+    )
+    const response = await call(RESEARCH, restrictedTurn())
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({
+      code: 'CONVERSATION_CONFINED',
+      error: 'Aus dieser Unterhaltung lässt sich keine Tiefenrecherche starten.',
+    })
   })
 })

@@ -81,6 +81,8 @@ export const collaboration: typeof en.collaboration = {
         'Zu viele Änderungen an der Freigabe. Bitte warten Sie einige Minuten und versuchen Sie es dann erneut.',
       rosterFull:
         'Dieser Chat hat bereits die maximale Anzahl an Personen. Entziehen Sie zuerst jemandem den Zugriff.',
+      restrictedContent:
+        'Dieser Chat stützt sich auf einen Ordner mit eingeschränktem Zugriff. Er kann deshalb nur von seinem Eigentümer gesehen und nicht freigegeben werden.',
       loadFailed: 'Die Freigabe-Einstellungen konnten nicht geladen werden.',
       saveFailed: 'Die Änderung konnte nicht gespeichert werden.',
       tryAgain: 'Erneut versuchen',
@@ -250,6 +252,21 @@ export const collaboration: typeof en.collaboration = {
       },
       // Ein Hintergrundauftrag ist zu Ende. {subject} ist der Name des Auftrags.
       // Kein {actor}: die Arbeit hat Piloti getan, nicht eine Person.
+      // ADR-0077: alles, was ein Upload gebracht hat, ist gelesen. {subject}
+      // ist der Projektname; ein Upload in die Büroablage oder einen Chat hat
+      // keinen und liest bodyNoSubject.
+      uploadCompleted: {
+        title: 'Ihr Upload ist gelesen',
+        body: '{subject}: Öffnen Sie die Übersicht, um zu sehen, was angekommen ist.',
+        bodyNoSubject: 'Öffnen Sie die Übersicht, um zu sehen, was angekommen ist.',
+      },
+      // ADR-0077: die Inhaltsprüfung hat Dateien zurückgehalten.
+      documentQuarantined: {
+        titleOne: '1 Datei wartet in der Quarantäne',
+        titleMany: '{count} Dateien warten in der Quarantäne',
+        titleNone: 'Dateien in der Quarantäne',
+        body: 'Kein Modell hat sie gelesen. Geben Sie sie frei oder löschen Sie sie.',
+      },
       jobCompleted: {
         title: '„{subject}" ist fertig',
         body: 'Piloti hat den Auftrag ausgeführt. Das Ergebnis liegt im Projekt unter Automatisierung.',

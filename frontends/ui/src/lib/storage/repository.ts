@@ -378,6 +378,8 @@ export async function replaceDocumentWithinQuota(
     contentHash: string | null
     folderId: string | null
     createdBy: string
+    /** The upload gesture these bytes came in with (migration 0103), or null. */
+    uploadBatchId?: string | null
   },
   quotaBytes: number | null,
 ): Promise<{ ok: true } | { ok: false; usedBytes: number }> {
@@ -410,6 +412,11 @@ export async function replaceDocumentWithinQuota(
         createdBy: next.createdBy,
         status: 'uploaded',
         errorMessage: null,
+        // New bytes have not been screened (ADR-0077): the previous version's
+        // verdict says nothing about them, and a stale `clean` in the upload
+        // summary would vouch for content nobody checked.
+        screeningOutcome: null,
+        uploadBatchId: next.uploadBatchId ?? null,
         updatedAt: new Date(),
       })
       .where(and(eq(documents.organizationId, organizationId), eq(documents.id, documentId)))

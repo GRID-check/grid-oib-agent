@@ -40,10 +40,12 @@ from aiq_agent.common.wire_v2 import RunFinishedBody
 from aiq_agent.common.wire_v2 import StatusStep
 from aiq_agent.common.wire_v2 import StepFinishedBody
 from aiq_agent.conversation_context import register_context_appender
+from aiq_agent.knowledge.inventory import get_turn_documents
 from aiq_agent.knowledge.inventory import set_inventory_drops
 from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import set_turn_documents
 from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
+from aiq_agent.memory.shown_notes import ShownNotes
 from aiq_agent.project_context import GridRequestContext
 from aiq_agent.stages import schedule_post_answer_stages
 from aiq_agent.turn.admission import PROFILE_AGENT_NAME
@@ -71,6 +73,7 @@ from aiq_agent.turn.payload import TurnInputs
 from aiq_agent.turn.payload import extract_turn_inputs
 from aiq_agent.turn.registries import TurnRegistries
 from aiq_agent.turn.registries import load_session_registry
+from aiq_agent.turn.registries import load_turn_shown_notes
 from aiq_agent.turn.registries import turn_registries
 from aiq_agent.turn.response import answer_message_id
 from aiq_agent.turn.response import build_result
@@ -253,6 +256,7 @@ def _turn_state(
         org_instructions=context.org_instructions,
         deep_research_allowed=context.deep_research_allowed,
         tasks_allowed=context.tasks_allowed,
+        confined=context.confined,
     )
 
 
@@ -281,6 +285,12 @@ def _finished(
         query_text=inputs.query_text,
         cards=cards,
         remembered_this_turn=registries.memory_writes,
+        registry_collections=registries.source_collections,
+        restricted_memory_writes=registries.restricted_memory_writes,
+        earlier_restricted_notes=registries.shown_notes,
+        # Every row the turn could list (`list_files` shows uncapped rows with
+        # their summaries), bound by `_prepare_turn` for this task.
+        listed_documents=get_turn_documents(),
     )
     schedule_post_answer_stages(facts, llms=stage_llms)
     return finished(build_result(outcome.state, cards, message_id))
@@ -294,7 +304,7 @@ async def _load_setup(
     conversation_id: str | None,
     thread_id: str,
     resolve_stages: bool,
-) -> tuple[TurnContext, Inventory, Any, StatusStep | None]:
+) -> tuple[TurnContext, Inventory, Any, StatusStep | None, ShownNotes]:
     """The four independent setup I/O paths, overlapped.
 
     Each fails open on its own (:mod:`aiq_agent.turn.context`,
@@ -309,7 +319,7 @@ async def _load_setup(
     the step that says whether it did — the file it writes IS the result, and
     the model finds it with `ls` exactly as it finds a draft it wrote itself.
     """
-    context, inventory, session_registry, subject_step = await asyncio.gather(
+    context, inventory, session_registry, subject_step, shown_notes = await asyncio.gather(
         spanned(
             "setup.project_context",
             load_turn_context(
@@ -329,8 +339,11 @@ async def _load_setup(
                 organization_id=request.organization_id,
             ),
         ),
+        # The restricted memory earlier turns were shown (ADR-0078): evidence
+        # for the memory restriction decision, kept beside the citation registry.
+        spanned("setup.shown_restricted_notes", load_turn_shown_notes(thread_id)),
     )
-    return context, inventory, session_registry, subject_step
+    return context, inventory, session_registry, subject_step, shown_notes
 
 
 @dataclass(frozen=True)
@@ -355,6 +368,8 @@ class _Turn:
     inputs: TurnInputs
     request: GridRequestContext
     runtime: _TurnRuntime
+    #: The restricted memory earlier turns were shown (ADR-0078).
+    shown_notes: ShownNotes = ShownNotes()
 
 
 async def _prepare_turn(
@@ -375,7 +390,7 @@ async def _prepare_turn(
     is announced before it is waited out.
     """
     scope = resolve_scope(header_scope, conversation_id)
-    context, inventory, session_registry, subject_step = await _load_setup(
+    context, inventory, session_registry, subject_step, shown_notes = await _load_setup(
         request,
         inputs,
         scope,
@@ -401,7 +416,7 @@ async def _prepare_turn(
     set_norm_families(inventory.norm_families)
     set_inventory_drops(inventory.inventory_drops)
     state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)
-    yield _Turn(agent, state, session_registry, context, inputs, request, runtime)
+    yield _Turn(agent, state, session_registry, context, inputs, request, runtime, shown_notes)
 
 
 async def _answer(turn: _Turn, *, message_id: str, stream: bool) -> AsyncIterator[EventBody]:
@@ -414,7 +429,13 @@ async def _answer(turn: _Turn, *, message_id: str, stream: bool) -> AsyncIterato
     """
     runtime = turn.runtime
     outcome: TurnOutcome[ConversationState] | None = None
-    async with turn_registries(runtime.thread_id, turn.session_registry) as registries:
+    async with turn_registries(
+        runtime.thread_id,
+        turn.session_registry,
+        memory_digest=turn.context.stage_facts.memory_digest,
+        shown_notes=turn.shown_notes,
+        restricted_scope=turn.context.restricted_scope,
+    ) as registries:
         answering = answer_turn(
             turn.agent,
             turn.state,

@@ -46,6 +46,9 @@ vi.mock('@/lib/auth/require-auth', () => ({
 }))
 
 vi.mock('@/lib/conversations/repository', () => ({
+  // ADR-0078: no turn of these threads ran with a restricted folder in scope.
+  listRestrictedAnswerCollections: vi.fn().mockResolvedValue([]),
+  hasRestrictedTurn: vi.fn().mockResolvedValue(false),
   deleteConversationInOrg: vi.fn(),
   findConversationInOrg: vi.fn(),
   findConversationRead: vi.fn(),

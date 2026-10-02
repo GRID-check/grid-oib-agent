@@ -260,3 +260,75 @@ describe('POST /api/internal/memory', () => {
     )
   })
 })
+
+/**
+ * ADR-0078: a finding from a turn that read a restricted folder is written as
+ * restricted project memory. The route checks the shape and the scope; the
+ * service checks each name is a current restricted collection of the project.
+ */
+describe('restricted memory', () => {
+  const RESTRICTED = 'proj_4f9c1d2e3b4a4c5d8e6f7a8b9c0d1e2f_r0123456789ab'
+
+  it('passes the restriction through to the project write', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(
+      makeMemoryItem({ id: 'item-r', restrictedCollections: [RESTRICTED] })
+    )
+
+    const response = await POST(
+      makeRequest({ ...validProjectPayload, restrictedCollections: [RESTRICTED] }, REAL_TOKEN)
+    )
+
+    expect(response.status).toBe(201)
+    expect(createProjectMemoryItemForProject).toHaveBeenCalledWith(
+      PROJECT_ID,
+      expect.objectContaining({ restrictedCollections: [RESTRICTED] }),
+      expect.anything()
+    )
+  })
+
+  it('writes open memory when no restriction is named', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(makeMemoryItem())
+
+    await POST(makeRequest(validProjectPayload, REAL_TOKEN))
+
+    const values = vi.mocked(createProjectMemoryItemForProject).mock.calls[0][1]
+    expect(values).not.toHaveProperty('restrictedCollections')
+  })
+
+  it('refuses restricted organization memory (400) — it reaches every project', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.stubEnv('GRID_ALLOW_AGENT_ORG_MEMORY', 'true')
+
+    const response = await POST(
+      makeRequest(
+        {
+          scope: 'organization',
+          organizationId: 'org_1',
+          kind: 'decision',
+          content: 'x',
+          restrictedCollections: [RESTRICTED],
+        },
+        REAL_TOKEN
+      )
+    )
+
+    expect(response.status).toBe(400)
+    expect(createProjectMemoryItem).not.toHaveBeenCalled()
+    expect(organizationExists).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['an empty list', []],
+    ['an open collection name', ['proj_4f9c1d2e3b4a4c5d8e6f7a8b9c0d1e2f']],
+    ['more than twenty', Array.from({ length: 21 }, (_, i) => `proj_x_r${String(i).padStart(12, '0')}`)],
+  ])('rejects %s (400)', async (_label, restrictedCollections) => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+
+    const response = await POST(makeRequest({ ...validProjectPayload, restrictedCollections }, REAL_TOKEN))
+
+    expect(response.status).toBe(400)
+    expect(createProjectMemoryItemForProject).not.toHaveBeenCalled()
+  })
+})

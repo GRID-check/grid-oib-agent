@@ -13,6 +13,21 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
+vi.mock('@/lib/authz/folder-access', () => ({
+  getProjectFolderAccess: vi.fn(async () => ({
+    hiddenFolderIds: new Set<string>(),
+    isVisible: () => true,
+    collectionFor: () => 'proj_collection',
+    clearedRestrictedCollections: [],
+    anyRestricted: false,
+  })),
+}))
+vi.mock('@/lib/authz/folder-access-repository', () => ({
+  listProjectDocumentCollections: vi.fn(async () => []),
+}))
+vi.mock('./collection-placement', () => ({
+  placeProjectDocuments: vi.fn(async () => ({ moved: 0, failed: [] })),
+}))
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn().mockResolvedValue(undefined),
 }))

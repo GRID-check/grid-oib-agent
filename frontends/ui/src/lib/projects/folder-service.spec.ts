@@ -3,6 +3,21 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('@/lib/authz/folder-access', () => ({
+  getProjectFolderAccess: vi.fn(async () => ({
+    hiddenFolderIds: new Set<string>(),
+    isVisible: () => true,
+    collectionFor: () => 'proj_collection',
+    clearedRestrictedCollections: [],
+    anyRestricted: false,
+  })),
+}))
+vi.mock('@/lib/authz/folder-access-repository', () => ({
+  listProjectDocumentCollections: vi.fn(async () => []),
+}))
+vi.mock('./collection-placement', () => ({
+  placeProjectDocuments: vi.fn(async () => ({ moved: 0, failed: [] })),
+}))
 vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
@@ -48,6 +63,7 @@ const row = (id: string) => ({
   parentId: null,
   name: 'Berichte',
   path: 'Berichte',
+  restrictedRoles: null,
   createdAt: new Date('2026-08-20T00:00:00Z'),
   updatedAt: new Date('2026-08-20T00:00:00Z'),
 })

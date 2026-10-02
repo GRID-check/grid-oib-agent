@@ -149,6 +149,18 @@ class TestWhatItRefuses:
 
         assert refusal.value.reason == reason
 
+    async def test_a_conversation_that_drew_on_a_restricted_folder_is_its_own_refusal(self, monkeypatch):
+        """ADR-0078: the BFF's typed 403, told apart from a tenant without deep research."""
+        _refusing(
+            monkeypatch,
+            DelegationError("Aus dieser Unterhaltung …", status=403, code="CONVERSATION_CONFINED"),
+        )
+
+        with pytest.raises(CommissionRefused) as refusal:
+            await commission_research_run(QUESTION)
+
+        assert refusal.value.reason == "confined"
+
     async def test_an_answer_without_a_run_is_not_a_run(self, monkeypatch):
         monkeypatch.setattr(commission.project_context, "get_project_id_from_context", lambda: "proj-1")
         monkeypatch.setattr(

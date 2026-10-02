@@ -113,6 +113,13 @@ vi.mock('../persistence', () => ({
   markSessionHasCollection: (...args: unknown[]) => mockMarkSessionHasCollection(...args),
 }))
 
+// The office's upload screening (ADR-0077): Piloti's suggested list, read
+// without a request, so the gate is exercised and nothing else changes.
+vi.mock('@/adapters/api/upload-screening-policy', async () => {
+  const { SUGGESTED_SCREENING_POLICY } = await import('@/lib/upload-screening/policy')
+  return { loadUploadScreeningPolicy: vi.fn().mockResolvedValue(SUGGESTED_SCREENING_POLICY) }
+})
+
 vi.mock('../validation', () => ({
   validateFileUpload: vi.fn((files: File[]) => ({
     validFiles: files,
@@ -532,6 +539,125 @@ describe('useFileUpload — durable document uploads', () => {
     expect(body.get('folderId')).toBe('folder-9')
   })
 
+  test('does not send a file the office screens out, and says which and why', async () => {
+    const { result } = renderUpload()
+    const invoice = new File(['x'], 'Schlussrechnung 03.pdf', { type: 'application/pdf' })
+    const plan = new File(['x'], 'Grundriss EG.pdf', { type: 'application/pdf' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([invoice, plan])
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.requests.forEach((request, i) => request.respond(200, uploadOk(`doc-${i}`)))
+      await pending
+    })
+
+    expect(xhr.requests.map((request) => (request.body as FormData).get('file'))).toEqual([plan])
+    expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(expect.stringContaining('Schlussrechnung 03.pdf'))
+    expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(expect.stringContaining('Rechnung'))
+  })
+
+  test('screens against the folder a file lands in', async () => {
+    const { result } = renderUpload()
+    const scan = new File(['x'], '0042.pdf', { type: 'application/pdf' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([scan], { folderPathFor: () => 'Verwaltung/Honorare' })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    // Answered if it was sent, so a missing gate fails this case and no other.
+    await act(async () => {
+      xhr.requests.forEach((request, i) => request.respond(200, uploadOk(`doc-${i}`)))
+      await pending
+    })
+
+    expect(xhr.requests).toHaveLength(0)
+    expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(expect.stringContaining('Honorare'))
+  })
+
+  test('sends a file the reader released, and tells the server it was released', async () => {
+    const { result } = renderUpload()
+    const contract = new File(['x'], 'Architektenvertrag.pdf', { type: 'application/pdf' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([contract], { screeningReleased: (file) => file === contract })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-1'))
+      await pending
+    })
+
+    expect(xhr.requests).toHaveLength(1)
+    expect((xhr.last().body as FormData).get('screeningRelease')).toBe('name')
+  })
+
+  test('records where each file went and what the reader released, for a retry to repeat', async () => {
+    const { result } = renderUpload({ folderId: 'folder-here' })
+    const contract = new File(['x'], 'Architektenvertrag.pdf', { type: 'application/pdf' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([contract], {
+        folderIdFor: () => 'folder-vertraege',
+        folderPathFor: () => 'Verwaltung/Verträge',
+        screeningReleased: (file) => file === contract,
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-1'))
+      await pending
+    })
+
+    expect(mockDocumentsStoreState.addTrackedFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadIntent: { folderId: 'folder-vertraege', folderPath: 'Verwaltung/Verträge', screeningReleased: true },
+      })
+    )
+  })
+
+  test('retries a released file into its own folder, released again, not where the reader stands now', async () => {
+    const contract = new File(['x'], 'Architektenvertrag.pdf', { type: 'application/pdf' })
+    mockDocumentsStoreState.trackedFiles = [
+      {
+        id: 'failed-1',
+        file: contract,
+        fileName: contract.name,
+        fileSize: contract.size,
+        status: 'failed',
+        progress: 0,
+        collectionName: 'proj-collection',
+        uploadedAt: new Date().toISOString(),
+        uploadIntent: { folderId: 'folder-vertraege', folderPath: 'Verwaltung/Verträge', screeningReleased: true },
+      },
+    ]
+    const { result } = renderUpload({ folderId: 'folder-elsewhere' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.retryFile('failed-1')
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-1'))
+      await pending
+    })
+
+    expect(xhr.requests).toHaveLength(1)
+    const body = xhr.last().body as FormData
+    expect(body.get('screeningRelease')).toBe('name')
+    expect(body.get('folderId')).toBe('folder-vertraege')
+  })
+
   test('carries the server’s „unchanged" answer onto the row, so it is not shown as a new upload', async () => {
     const { result } = renderUpload()
 
@@ -841,7 +967,8 @@ describe('useFileUpload — chat attachments', () => {
     expect(mockClient.getCollection).not.toHaveBeenCalled()
     expect(mockClient.createCollection).not.toHaveBeenCalled()
     expect(xhr.requests.some((request) => request.url.includes('/api/v1/'))).toBe(false)
-    expect(fetchMock).not.toHaveBeenCalled()
+    // The only request besides the upload is the upload's own batch (ADR-0077).
+    expect(fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => !url.startsWith('/api/upload-batches'))).toEqual([])
     // The marker that tells a later visit to list this chat's attachments.
     expect(mockMarkSessionHasCollection).toHaveBeenCalledWith(CHAT)
   })
@@ -943,5 +1070,88 @@ describe('useFileUpload — chat attachments', () => {
 
     expect(fetchMock).not.toHaveBeenCalled()
     expect(mockDocumentsStoreState.removeTrackedFile).toHaveBeenCalledWith('row-1')
+  })
+})
+
+/**
+ * ADR-0077: every upload is one batch — opened before the first file, named on
+ * each upload, sealed after the last answer — so its uploader can be told when
+ * everything was read. The batch records what the screening kept back by term
+ * and count only.
+ */
+describe('useFileUpload — upload batches', () => {
+  let xhr: FakeXhrHandle
+  const fetchMock = vi.fn()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    uuidState.count = 0
+    mockDocumentsStoreState.trackedFiles = []
+    mockClient.getCollection.mockResolvedValue({ name: 'proj-collection' })
+    fetchMock.mockReset().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    xhr = installFakeXhr()
+  })
+
+  afterEach(() => {
+    xhr.restore()
+    vi.unstubAllGlobals()
+  })
+
+  const pdf = (name: string) => new File(['x'], name, { type: 'application/pdf' })
+
+  test('opens a batch, names it on every upload, and seals it with what wrote no row', async () => {
+    const { result } = renderHook(() => useFileUpload({ collectionName: 'proj-collection', projectId: 'proj-1' }))
+    const files = [pdf('EG.pdf'), pdf('OG.pdf'), pdf('Rechnung 7.pdf')]
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(files, {
+        excludedByScreening: [[{ term: 'Personal', segment: 'Personalakten', kind: 'folder' }]],
+      })
+      for (let i = 0; i < 6; i += 1) await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.requests[0]?.respond(200, JSON.stringify({ documentId: 'doc-1', jobId: 'job-1', status: 'pending' }))
+      xhr.requests[1]?.respond(200, JSON.stringify({ documentId: 'doc-2', jobId: null, status: 'uploaded', unchanged: true }))
+      await pending
+    })
+
+    const [openUrl, openInit] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(openUrl).toBe('/api/upload-batches')
+    const opened = JSON.parse(String(openInit.body)) as Record<string, unknown>
+    expect(opened).toMatchObject({ scope: 'project', projectId: 'proj-1', expectedCount: 2 })
+    // The dialog's exclusion and the hook's own, by term; no file name.
+    expect(opened.excluded).toEqual([
+      { term: 'Personal', count: 1 },
+      { term: 'Rechnung', count: 1 },
+    ])
+    expect(JSON.stringify(opened)).not.toContain('Rechnung 7.pdf')
+
+    expect(xhr.requests.map((request) => (request.body as FormData).get('uploadBatchId'))).toEqual([opened.id, opened.id])
+
+    const [sealUrl, sealInit] = fetchMock.mock.calls[1] as [string, RequestInit]
+    expect(sealUrl).toBe(`/api/upload-batches/${String(opened.id)}/seal`)
+    expect(JSON.parse(String(sealInit.body))).toEqual({ unchanged: 1, failed: 0 })
+  })
+
+  test('uploads without a batch when it cannot be opened', async () => {
+    fetchMock.mockReset().mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}) })
+    const { result } = renderHook(() => useFileUpload({ collectionName: 'proj-collection', projectId: 'proj-1' }))
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([pdf('EG.pdf')])
+      for (let i = 0; i < 6; i += 1) await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, JSON.stringify({ documentId: 'doc-1', jobId: 'job-1', status: 'pending' }))
+      await pending
+    })
+
+    expect(xhr.requests).toHaveLength(1)
+    expect((xhr.last().body as FormData).get('uploadBatchId')).toBeNull()
+    // Nothing to seal.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

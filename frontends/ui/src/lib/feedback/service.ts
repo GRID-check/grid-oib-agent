@@ -39,6 +39,8 @@ import { getFeedbackDigest, type FeedbackDigestOptions, type FeedbackDigestResul
 import { resolveLessonsHoldout } from '@/lib/platform-lessons/holdout'
 import { reopenReportForRedistillation } from '@/lib/platform-lessons/service'
 import { implicateMemoryFromFeedback } from '@/lib/projects/memory-service'
+import { memoryClearance } from '@/lib/projects/service'
+import { maskChatText } from '@/lib/upload-screening/service'
 
 /** Upsert the caller's vote on one assistant answer. */
 export async function submitAnswerFeedback(
@@ -75,6 +77,15 @@ export async function submitAnswerFeedback(
   // penalize the same notes twice.
   const prior = await getAnswerFeedbackForUser(session.userId, input.messageId)
 
+  // The comment is typed text, and it goes on to the embedder (memory
+  // implication below, the lesson pipeline) and to the distilling model: stored
+  // masked against the office's „Sensible Daten" policy (ADR-0077), like a chat
+  // message. Masked before the comparison with `prior`, which was stored masked.
+  const comment =
+    input.verdict === 'down' && input.comment
+      ? (await maskChatText(session.organizationId, input.comment)).text
+      : null
+
   const row = await upsertAnswerFeedback({
     lessonsHoldout,
     organizationId: session.organizationId,
@@ -82,7 +93,7 @@ export async function submitAnswerFeedback(
     messageId: input.messageId,
     verdict: input.verdict,
     reason: input.verdict === 'down' ? (input.reason ?? null) : null,
-    comment: input.verdict === 'down' ? input.comment || null : null,
+    comment,
     conversationId: input.conversationId ?? null,
     projectId: input.projectId ?? null,
   })
@@ -100,14 +111,34 @@ export async function submitAnswerFeedback(
   // (the raw comment never leaves it). Fire-and-forget like the sweep kick —
   // the vote is the user's business, this is ours.
   if (row.verdict === 'down' && row.comment && row.comment !== prior?.comment) {
-    void implicateMemoryFromFeedback({
-      organizationId: session.organizationId,
-      projectId: row.projectId ?? null,
-      comment: row.comment,
-    })
+    void implicateFeedbackMemory(session, row.projectId ?? null, row.comment)
   }
 
   return toView(row)
+}
+
+/**
+ * Lower the salience of the notes a complaint sits next to, among the notes the
+ * voter may see (ADR-0078): a member not cleared for a restricted folder cannot
+ * see its notes, so their down-vote must not bury them for those who can.
+ * Fire-and-forget like the call itself; never throws.
+ */
+async function implicateFeedbackMemory(
+  session: AuthorizedSession,
+  projectId: string | null,
+  comment: string
+): Promise<void> {
+  try {
+    const { cleared } = projectId ? await memoryClearance(session, projectId) : { cleared: [] }
+    await implicateMemoryFromFeedback({
+      organizationId: session.organizationId,
+      projectId,
+      comment,
+      clearedRestrictedCollections: cleared,
+    })
+  } catch (error) {
+    console.warn('[feedback] Memory implication skipped (non-fatal):', error)
+  }
 }
 
 /**

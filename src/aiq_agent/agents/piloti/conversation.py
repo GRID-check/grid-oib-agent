@@ -107,6 +107,16 @@ absent, so this is the line for the turn where it asked anyway — not the
 normal path.
 """
 
+CONFINED_DEEP_RESEARCH_NOTE = (
+    "Hinweis: Aus dieser Unterhaltung lässt sich keine Tiefenrecherche starten, weil sie auf einen Ordner "
+    "mit eingeschränktem Zugriff zugreift: Recherche, Titel und Bericht wären für alle im Projekt sichtbar, "
+    "auch für Personen, die für diesen Ordner nicht freigegeben sind. Ich habe die Frage direkt beantwortet, "
+    "so weit die vorliegenden Quellen tragen."
+)
+"""The same line for a turn whose scope holds a restricted folder's collection
+(ADR-0078): the capability is there, this conversation may not use it, and the
+reader is told why rather than that the workspace lacks it."""
+
 #: State fields that survive the turn boundary. Everything else is reset on
 #: every ``run()`` so nothing from a previous turn's checkpoint — a stale job
 #: id, a prior self-assessment, last turn's routing — can leak onto this one.
@@ -226,6 +236,7 @@ def _finalize_answer(
     *,
     deep_research_allowed: bool = True,
     turn_messages: Sequence[BaseMessage] = (),
+    confined: bool = False,
 ) -> dict[str, Any]:
     """The node update for a finished research turn, from its answer message and
     the structured signals Piloti extracted in its own ``run()``.
@@ -260,11 +271,8 @@ def _finalize_answer(
         # distinguishable by matching on text, and a matcher would decide a
         # reader's answer by regex.
         handoff_only = result.answer_is_handoff or not clean_content.strip()
-        clean_content = (
-            DEEP_RESEARCH_UNAVAILABLE_NOTE
-            if handoff_only
-            else f"{clean_content.rstrip()}\n\n{DEEP_RESEARCH_UNAVAILABLE_NOTE}"
-        )
+        note = CONFINED_DEEP_RESEARCH_NOTE if confined else DEEP_RESEARCH_UNAVAILABLE_NOTE
+        clean_content = note if handoff_only else f"{clean_content.rstrip()}\n\n{note}"
     if not clean_content.strip() and not escalating:
         # An empty answer is a generation failure, not an escalation signal.
         logger.error("Research produced an empty answer")
@@ -456,6 +464,7 @@ class ConversationGraph:
             # when the model does not read it.
             deep_research_allowed=state.deep_research_allowed,
             tasks_allowed=state.tasks_allowed,
+            confined=state.confined,
         )
 
     async def _run_research(self, research_state: ResearchAgentState) -> ResearchAgentState | dict[str, Any]:
@@ -494,7 +503,11 @@ class ConversationGraph:
         if message is None:
             return {"messages": []}
         update = _finalize_answer(
-            message, result, deep_research_allowed=state.deep_research_allowed, turn_messages=new_messages
+            message,
+            result,
+            deep_research_allowed=state.deep_research_allowed,
+            turn_messages=new_messages,
+            confined=state.confined,
         )
         if isinstance(result, ResearchAgentState) and not update.get("already_read_digest"):
             # A result that carries no digest (a mocked research_fn, an older
@@ -547,6 +560,11 @@ class ConversationGraph:
                     "job_admission_rejected": True,
                     "retry_after_seconds": refusal.retry_after_seconds,
                 }
+            if refusal.reason == "confined":
+                # The thread drew on a restricted folder (ADR-0078): a run would
+                # be listed to the whole project. Never run it in process either.
+                logger.info("Research run refused: the conversation drew on a restricted folder")
+                return _answer_only(CONFINED_DEEP_RESEARCH_NOTE)
             if refusal.reason == "forbidden":
                 # A capability denial, not a transport failure. Falling back
                 # would run the very thing the route refused.

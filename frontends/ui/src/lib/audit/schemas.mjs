@@ -113,6 +113,45 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'model_config_version' }],
     metadata: { ...MODEL_GROUP_METADATA, reset: 'boolean', rollback: 'boolean' },
   },
+  // An office's own roles, kept in WorkOS (ADR-0078). The slug and the
+  // permission list the role holds after the change; a role is a bundle of
+  // permissions, so "who composed which bundle" is the trail that matters.
+  'org.role.created': {
+    targets: [{ type: 'organization' }],
+    metadata: { role: 'string', permissions: 'string' },
+  },
+  'org.role.updated': {
+    targets: [{ type: 'organization' }],
+    metadata: { role: 'string', permissions: 'string' },
+  },
+  'org.role.deleted': {
+    targets: [{ type: 'organization' }],
+    metadata: { role: 'string', permissions: 'string' },
+  },
+  // A project folder restricted to roles, or opened again (ADR-0078). The
+  // roles after the change, comma-separated; empty means open. Also emitted
+  // when a folder move or delete changes the restrictions over a subtree
+  // (`folder-service.ts`): then `roles` is every restricted folder now over the
+  // moved folder (or over a deleted one's contents), outermost first, each
+  // folder's roles comma-separated and the folders `;`-separated.
+  'project.folder.access_changed': {
+    targets: [{ type: 'project' }],
+    metadata: { folderId: 'string', roles: 'string', documentsMoved: 'number' },
+  },
+  // Upload screening (ADR-0077). Its own action rather than
+  // `org.settings.updated`, because "who widened what may be uploaded" has to
+  // be answerable on its own. Counts, not the lists: a term list can name
+  // what an office considers sensitive, which is itself sensitive.
+  'org.upload_screening.updated': {
+    targets: [{ type: 'organization' }],
+    metadata: {
+      enabled: 'string',
+      nameTerms: 'number',
+      nameExceptions: 'number',
+      contentTerms: 'number',
+      detectors: 'string',
+    },
+  },
   'model_config.zdr.updated': {
     targets: [{ type: 'organization' }],
     // Emitted as String(enabled) — a string, not a boolean.
@@ -234,6 +273,19 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   'document.uploaded': {
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', fileSize: 'number' },
+  },
+  // A file the name gate would have excluded, uploaded anyway because its
+  // uploader released it in the upload dialog (ADR-0077): the Bauvertrag in a
+  // folder called „Verträge". The terms say which rule was overridden.
+  'document.screening_overridden': {
+    targets: [{ type: 'document' }],
+    metadata: { projectId: 'string', filename: 'string', terms: 'string' },
+  },
+  // A quarantined document a reviewer released for indexing (ADR-0077). The
+  // reasons are the content gate's verdict as stored on the row.
+  'document.quarantine_released': {
+    targets: [{ type: 'document' }],
+    metadata: { projectId: 'string', filename: 'string', reasons: 'string' },
   },
   'document.deleted': {
     targets: [{ type: 'document' }],

@@ -1,0 +1,57 @@
+---
+features:
+  - >
+    Your office now decides what must not be uploaded, under Organisation →
+    Sensible Daten: terms for file and folder names, terms for the content, and
+    checks for IBANs, Austrian social security numbers and card numbers. Piloti
+    starts you on a suggested list you can keep, change or switch off.
+  - >
+    Before an upload starts, you see which files that list holds back and why,
+    and those files never leave your computer. A single file, such as a
+    Bauvertrag in a folder called „Verträge“, can be released with one tick.
+  - >
+    Piloti now checks the text of every upload on its own server before any
+    language model sees it. A file that matches waits in quarantine until an
+    office or project admin releases or deletes it under Organisation →
+    Quarantäne.
+  - >
+    The same content terms and number checks now cover what you type into the
+    chat: before a message with an IBAN or a listed term goes out, Piloti shows
+    what it found and sends it only masked, or lets you edit it first.
+  - >
+    When everything an upload brought in has been read, your inbox tells you,
+    with a summary of what arrived, where it was filed, what each file is, and
+    what was held back or failed. Project settings list every upload with its
+    outcome and who uploaded it.
+  - >
+    Your office can now build its own roles in Piloti, under Organisation →
+    Personen & Zugriff → Eigene Rollen, and restrict a project folder to them.
+    Only people holding one of its roles see that folder, its files and what
+    Piloti finds in them, and organization admins see everything.
+  - >
+    A chat whose answers draw on a restricted folder stays with the person who
+    asked, so it cannot be shared with colleagues who may not see that folder.
+  - >
+    Such a chat also cannot start a Tiefenrecherche or an Auftrag, change the
+    project context, or file a draft or diagram where colleagues not cleared for
+    the folder could open it; Piloti says why instead of offering it.
+  - >
+    What Piloti remembers from such a chat is kept for the people allowed to
+    know it. Only those cleared for the folder it came from see the note in
+    the project memory, where a lock names that folder, and only their chats are
+    given it.
+fixes:
+  - >
+    A chat in a project with a great deal of project information can no longer
+    fail to connect and wait forever.
+  - >
+    Sharing a chat with colleagues works again.
+  - >
+    Dropping a folder no longer uploads .DS_Store, Thumbs.db or Office lock
+    files (~$Vertrag.docx) with it.
+  - >
+    A link to a document in the Büroablage, such as a shared one, opens that
+    document again instead of the whole Büroablage.
+  - >
+    A CSV or text file exported from Excel on Windows previews with its €, „ “
+    and – again.

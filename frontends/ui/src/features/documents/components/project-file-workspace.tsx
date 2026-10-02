@@ -36,6 +36,8 @@ import { askAboutFile } from '../lib/ask-about-file'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
+import { FolderAccessDialog } from './folder-access-dialog'
+import { roleNamesFor, useOrganizationRoles } from '@/features/organization/hooks/use-organization-roles'
 import { UploadTray } from './upload-tray'
 import { ProjectSectionActions } from '@/components/shell/project-section-frame'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -121,6 +123,12 @@ interface ProjectFileWorkspaceProps {
    * over the corpus in the browser. Absent means complete, as before.
    */
   initialFilesComplete?: boolean
+  /**
+   * Whether this reader may change who sees a folder (`project:manage`,
+   * resolved on the server, ADR-0078). Shows „Zugriff…" in the folder menu; the
+   * route checks again.
+   */
+  canManageFolderAccess?: boolean
 }
 
 /**
@@ -143,6 +151,11 @@ export interface FolderItem {
   path: string
   createdAt?: string
   updatedAt?: string
+  /**
+   * The role slugs this folder is restricted to (ADR-0078), or null/absent
+   * when it is open. The listing only carries folders the reader may see.
+   */
+  restrictedRoles?: string[] | null
 }
 
 export interface FileItem {
@@ -247,7 +260,7 @@ type FileView = 'cards' | 'list'
 
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId, lifecyclePermissions, initialFolders, initialFiles, initialFilesComplete = true }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId, lifecyclePermissions, initialFolders, initialFiles, initialFilesComplete = true, canManageFolderAccess = false }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const router = useRouter()
   const pathname = usePathname()
@@ -363,6 +376,16 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const [isLoadingFiles, setIsLoadingFiles] = useState(initialFiles === undefined)
   const [foldersError, setFoldersError] = useState(false)
   const [filesError, setFilesError] = useState(false)
+  /** The folder whose access dialog is open (ADR-0078). */
+  const [accessFolderId, setAccessFolderId] = useState<string | null>(null)
+  // Role names are read only when something needs them: a lock to label, or
+  // the access dialog to fill.
+  const anyRestricted = folders.some((folder) => (folder.restrictedRoles?.length ?? 0) > 0)
+  const organizationRoles = useOrganizationRoles(anyRestricted || accessFolderId !== null)
+  const roleNames = useCallback(
+    (slugs: readonly string[]) => roleNamesFor(slugs, organizationRoles.data),
+    [organizationRoles.data]
+  )
   /** The drain stopped at its page ceiling: older documents are not loaded. */
   const [filesTruncated, setFilesTruncated] = useState(false)
 
@@ -786,15 +809,18 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ folderId }),
         })
-        if (!res.ok) throw new Error(`Move failed (${res.status})`)
+        if (!res.ok) throw new Error(`Move failed (${res.status})`, { cause: res.status })
         toast.success(
           t('actions.moved', { name: documentDisplayName(file), folder: folderName })
         )
-      } catch {
+      } catch (error) {
         setFiles((prev) =>
           prev.map((f) => (f.id === documentId ? { ...f, folderId: previousFolderId } : f))
         )
-        toast.error(t('actions.moveError'))
+        // 409: an IFC model bound for a restricted folder (ADR-0078). Retrying cannot help, so say why.
+        toast.error(
+          error instanceof Error && error.cause === 409 ? t('folders.access.ifcRefused') : t('actions.moveError')
+        )
       }
     },
     [files, folders, t]
@@ -832,14 +858,17 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ parentId }),
         })
-        if (!res.ok) throw new Error(`Move failed (${res.status})`)
+        if (!res.ok) throw new Error(`Move failed (${res.status})`, { cause: res.status })
         await loadFolders()
         toast.success(t('folders.movedFolder', { name: folder.name, parent: parentName }))
-      } catch {
+      } catch (error) {
         setFolders((prev) =>
           prev.map((f) => (f.id === draggedFolderId ? { ...f, parentId: previousParentId } : f))
         )
-        toast.error(t('folders.moveFolderError'))
+        // 409: the folder holds an IFC model and the destination is restricted (ADR-0078).
+        toast.error(
+          error instanceof Error && error.cause === 409 ? t('folders.access.ifcRefused') : t('folders.moveFolderError')
+        )
       }
     },
     [folders, projectId, loadFolders, t]
@@ -1031,6 +1060,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    */
   const {
     propose: proposeUpload,
+    setReleased: setUploadReleased,
     plan: folderPlan,
     kind: uploadDecisionKind,
     open: folderPlanOpen,
@@ -1054,6 +1084,16 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     [probeNames, projectId]
   )
 
+  /**
+   * The path of the folder the reader stands in, from the project root, or
+   * null at the root. The upload screening reads it (ADR-0077): a scan dropped
+   * into „Honorare" is screened as a fee document whatever its own name.
+   */
+  const currentFolderPath = useMemo(
+    () => (selectedFolderId ? (folders.find((folder) => folder.id === selectedFolderId)?.path ?? null) : null),
+    [folders, selectedFolderId]
+  )
+
   const handleUpload = useCallback(
     (incoming: File[]) => {
       proposeUpload(
@@ -1062,11 +1102,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           documents: corpusForPlan,
           folders,
           currentFolderId: selectedFolderId,
+          screeningBasePath: currentFolderPath,
         },
-        (direct) => void uploadFiles(direct)
+        (direct) => void uploadFiles(direct, { folderPathFor: () => currentFolderPath })
       ).catch(() => toast.error(t('folderUpload.compareError')))
     },
-    [proposeUpload, corpusForPlan, uploadFiles, folders, selectedFolderId, t]
+    [proposeUpload, corpusForPlan, uploadFiles, folders, selectedFolderId, currentFolderPath, t]
   )
 
   // A drop elsewhere in the project brought the reader here (`ProjectFileDrop`).
@@ -1169,9 +1210,22 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         }
 
         if (selected.length > 0) {
+          // What the server screens each file against: the folder it lands in
+          // (ADR-0077), and whether the reader released it in the dialog.
+          const plannedByFile = new Map(selected.map((planned) => [planned.file, planned]))
           await uploadFiles(
             selected.map((planned) => planned.file),
-            { folderIdFor: (file) => folderIdByFile.get(file) ?? null }
+            {
+              folderIdFor: (file) => folderIdByFile.get(file) ?? null,
+              folderPathFor: (file) => {
+                const target = plannedByFile.get(file)?.targetPath ?? ''
+                return [currentFolderPath, target].filter(Boolean).join('/') || null
+              },
+              screeningReleased: (file) => plannedByFile.get(file)?.screeningReleased === true,
+              excludedByScreening: folderPlan.files
+                .filter((planned) => planned.action === 'excluded')
+                .map((planned) => planned.screening ?? []),
+            }
           )
         }
         // The tree just grew; the breadcrumb and the folder tiles have to know.
@@ -1199,7 +1253,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         setFolderPlanPending(false)
       }
     },
-    [folderPlan, projectId, selectedFolderId, uploadFiles, loadFolders, loadFiles, t, setFolderPlanOpen, setFolderPlanPending]
+    [folderPlan, projectId, selectedFolderId, currentFolderPath, uploadFiles, loadFolders, loadFiles, t, setFolderPlanOpen, setFolderPlanPending]
   )
 
   // Drag-and-drop onto the workspace routes dropped files into the SAME upload
@@ -1499,6 +1553,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                       onCreateFolder: handleCreateFolder,
                       onRenameFolder: handleRenameFolder,
                       onDeleteFolder: handleDeleteFolder,
+                      onEditFolderAccess: canManageFolderAccess ? setAccessFolderId : undefined,
+                      roleNames,
                     },
                   })}
               uploadControl={
@@ -1527,6 +1583,22 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
 
       </div>
 
+      {/* Who may see a folder (ADR-0078). Saving moves and re-reads the
+          folder's documents, so both listings are read again. */}
+      <FolderAccessDialog
+        open={accessFolderId !== null}
+        onOpenChange={(next) => !next && setAccessFolderId(null)}
+        projectId={projectId}
+        folder={folders.find((folder) => folder.id === accessFolderId) ?? null}
+        roles={organizationRoles.data}
+        rolesFailed={organizationRoles.failed}
+        onRetryRoles={() => void organizationRoles.reload()}
+        onSaved={() => {
+          void loadFolders()
+          void loadFiles(true)
+        }}
+      />
+
       {/* „Wollen Sie aktualisieren?" — the plan a dropped folder opens, before
           anything moves. Rendered unconditionally so its own exit transition
           runs; `open` is what decides. */}
@@ -1542,6 +1614,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         onConfirm={applyFolderPlan}
         pending={folderPlanPending}
         kind={uploadDecisionKind}
+        onReleaseChange={setUploadReleased}
       />
 
       {/*

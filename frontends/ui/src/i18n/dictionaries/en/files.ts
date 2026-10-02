@@ -69,6 +69,9 @@ export const files = {
     // the knowledge base. Neither a success ("Citable" would promise a citation
     // retrieval cannot make) nor a failure — nothing went wrong.
     stored: 'Filed',
+    // The content check (ADR-0077) matched: the file is in the project, no
+    // model has seen it, and someone has to decide.
+    quarantined: 'Quarantined',
     unknown: 'Unknown',
     // Only the office's own uploads: inside one office the queue reads in
     // order, across offices it takes turns (ADR-0076).
@@ -274,8 +277,23 @@ export const files = {
     timeout: 'Reading took too long and was stopped. Try again. Splitting a very large file helps.',
     empty: 'No text was found in this file. It may be password-protected, damaged or empty.',
     deleted: 'The file was deleted while Piloti was reading it.',
+    quarantined:
+      'This file contains something your office marks as sensitive. Piloti showed it to no model. An office or project admin releases or deletes it.',
     unknown: "Piloti couldn't read this document, so search can't find it.",
     details: 'Details',
+  },
+  screening: {
+    // Why a file was held back, by the content check (in the text) or the
+    // name check (in the file or folder name), ADR-0077.
+    reasonTerm: '“{term}” in the text',
+    reasonIban: 'IBAN {sample}',
+    reasonSvnr: 'Social security number {sample}',
+    reasonCard: 'Card number {sample}',
+    reasonPages: '{count, plural, one {page {pages}} other {pages {pages}}}',
+    nameInFile: 'File name contains “{term}”',
+    nameInFolder: 'Folder “{segment}” contains “{term}”',
+    partial: 'Some pages had no text layer and were not checked.',
+    unchecked: 'The content could not be read without a model and was checked by name only.',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',
@@ -338,6 +356,43 @@ export const files = {
     breadcrumb: 'Folder path',
     movedFolder: '“{name}” moved to “{parent}”.',
     moveFolderError: 'The folder could not be moved. Please try again.',
+    /** Folder access (ADR-0078): restricting a folder to roles. */
+    access: {
+      menu: 'Access…',
+      restrictedTo: 'Restricted to: {roles}',
+      openRestricted: 'Open folder “{name}”, restricted to: {roles}',
+      title: 'Access to “{name}”',
+      description: 'Who in this project may see this folder, its subfolders and their documents.',
+      everyone: 'Everyone in the project',
+      everyoneHint: 'Anyone who can open the project sees the folder.',
+      restricted: 'Only certain roles',
+      restrictedHint:
+        'Only people holding one of the chosen roles see the folder, its documents and what Piloti answers from them. Organization admins always see it.',
+      roles: 'Roles',
+      customRole: 'Custom role',
+      pickOne: 'Choose at least one role.',
+      noRoles:
+        'Your organization has no roles to choose from yet. Custom roles are created under Organization → People & access.',
+      lockout:
+        'If you hold none of these roles yourself, the folder disappears for you too once you save, unless you are an organization admin.',
+      moveNotice:
+        'Saving moves the folder’s documents and has Piloti read them again. For a large folder that takes a few minutes; meanwhile the documents show as “Reading”.',
+      ifcNotice:
+        'Restricted folders cannot hold building models (IFC) yet, so a folder that holds one cannot be restricted. Keep IFC models in open folders.',
+      /** The 409 from the IFC guard (ADR-0078): restricting, uploading or moving into a restricted folder. */
+      ifcRefused:
+        'Building models (IFC) cannot be filed in a restricted folder yet: their building data is not protected by folder access. Keep IFC models in open folders.',
+      save: 'Save access',
+      saving: 'Saving…',
+      loadError: 'The roles could not be loaded.',
+      savedRestricted: '“{name}” is now restricted.',
+      savedOpen: '“{name}” is visible to everyone in the project again.',
+      moving: '{count, plural, one {# document is} other {# documents are}} being moved and read again.',
+      failed:
+        '{count, plural, one {# document} other {# documents}} could not be moved yet. Save again to retry.',
+      saveError: 'Access could not be changed. Please try again.',
+      forbidden: 'Only project admins can change who may see a folder.',
+    },
   },
   workspace: {
     renameFolderError: 'The folder could not be renamed. Please try again.',
@@ -485,6 +540,12 @@ export const files = {
     collisions: '{count} files share a name with another file in this upload',
     collisionsExplain:
       'A project holds one document per filename, so these are not uploaded. Rename them and drop them again.',
+    // Held back by the office's name screening (ADR-0077): the files do not
+    // leave this computer unless someone releases one of them.
+    excluded: '{count} file(s) stay on your computer',
+    excludedExplain:
+      'Your office marks these terms as sensitive, so these files are not uploaded. If one of them belongs in Piloti after all, tick it.',
+    releaseFile: 'Upload anyway',
     showAll: 'Show all {count} files',
     action: {
       new: 'New',
@@ -493,6 +554,7 @@ export const files = {
       collision: 'Conflict',
       duplicate: 'Already here',
       skipped: 'Skipped',
+      excluded: 'Excluded',
     },
     confirm: 'Upload {count} file(s)',
     // Nothing to upload, but the tree still says these belong elsewhere.
@@ -514,6 +576,10 @@ export const files = {
     uploadFiles: 'Choose files',
   },
   errors: {
+    // Held back by the office's name screening (ADR-0077) on a path with no
+    // upload dialog, such as a chat attachment.
+    screenedOut: '{count} file(s) not uploaded because your office marks them as sensitive: {files}',
+    screenedOutFile: '“{name}” ({reason})',
     validation: {
       duplicateInBatch: '“{name}” is in this selection more than once',
       duplicateExisting: '“{name}” has already been added',

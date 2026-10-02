@@ -16,6 +16,8 @@
  * `@/lib/api/errors`.
  */
 
+import { assertUploadNameAllowed, auditScreeningOverride } from '@/lib/upload-screening/service'
+import { acceptedUploadBatchId } from '@/lib/upload-batches/service'
 import 'server-only'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import {
@@ -201,8 +203,21 @@ export async function uploadArchivDocument(
   session: AuthorizedSession,
   file: File,
   request: Request,
+  /**
+   * `screeningRelease`: see `UploadDocumentInput.screeningRelease`.
+   * `originPath`: where the file sat on disk. The Büroablage keeps no folders,
+   * so it is not stored — but a file that came out of „Rechnungen" is screened
+   * as one (ADR-0077).
+   */
+  options: { screeningRelease?: boolean; originPath?: string | null; uploadBatchId?: string | null } = {},
 ): Promise<UploadArchivDocumentResult> {
   if (!canManageArchiv(session)) throw new ForbiddenError()
+  // The name gate's server-side repeat (ADR-0077), before a byte is stored.
+  const nameGate = await assertUploadNameAllowed(
+    session.organizationId,
+    { filename: file.name, originPath: options.originPath ?? null },
+    options.screeningRelease === true,
+  )
   await assertUploadTypeAllowed(session, file.name)
   assertFileSizeAllowed(file.size, file.name)
   // Same org ceiling as the project path — the Archiv shares the tenant's
@@ -210,6 +225,7 @@ export async function uploadArchivDocument(
   await assertWithinStorageQuota(session.organizationId, file.size)
 
   const collectionName = archivCollectionName(session.organizationId)
+  const uploadBatchId = await acceptedUploadBatchId(session, options.uploadBatchId, { scope: 'archiv', projectId: null })
   // Same replace-on-re-upload rule as the project path, for the same reason and
   // through the same helpers — see `uploadDocument`. The Archiv is not a
   // different filing system; it is the same table with `scope = 'archiv'`, so a
@@ -276,6 +292,7 @@ export async function uploadArchivDocument(
         contentHash,
         folderId: null,
         createdBy: session.userId,
+        uploadBatchId,
       })
       // Nothing is discarded: the previous bytes are the previous VERSION's now
       // (ADR-0054) and its row still names them. They go with the document.
@@ -296,6 +313,7 @@ export async function uploadArchivDocument(
         fileSize: file.size,
         contentType: file.type || null,
         contentHash,
+        uploadBatchId,
         status: 'uploaded',
       })
     }
@@ -336,6 +354,11 @@ export async function uploadArchivDocument(
     metadata: { filename: filename.slice(0, 200), fileSize: file.size, collectionName },
     request,
   })
+  await auditScreeningOverride(
+    session,
+    { documentId, projectId: null, filename, overridden: nameGate.overridden },
+    request,
+  )
 
   return { documentId, jobId, status, filename }
 }

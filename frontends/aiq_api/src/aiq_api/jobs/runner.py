@@ -2297,6 +2297,17 @@ async def _run_deep_research_reflection(
     """
     if not reflection_enabled or not reflection_llm_ref or not report:
         return
+    # ADR-0078: no restricted-folder check here, on purpose. A check on this
+    # job's scope could never fire: the BFF signs a restricted collection only
+    # into an interactive chat scope (`collection-scope-request.ts`, pinned by
+    # `collection-scope-request.restricted.spec.ts`), so a run's scope is always
+    # open. What could carry restricted content into a run is its INPUT, the
+    # question a confined chat turn wrote, and that is refused where the run is
+    # commissioned: `commissionResearchRun` and `delegateTask` refuse a
+    # conversation that drew on a restricted folder, and a turn whose signed
+    # scope held one (`lib/conversations/restricted-egress.ts`). So the input
+    # read below (`query`) and the report are open content, and reflecting them
+    # into open project memory is right.
     identity = (usage_context or {}).get("identity") or {}
     project_id = identity.get("project_id")
     if not project_id:

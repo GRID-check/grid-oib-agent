@@ -8,6 +8,8 @@ import {
   createStreaks,
   fireOne,
   reconcileRuns,
+  sweepUploads,
+  sweepPlacement,
   tick,
   INTERNAL_TOKEN_HEADER,
 } from './index.js'
@@ -298,9 +300,9 @@ describe('tick', () => {
   const base = { frontendUrl: 'http://frontend:3000', internalToken: 't', batch: 20, retentionDays: 90, pollMs: 30000 }
   const reconciled = () => vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ closed: 0, failed: 0 }) })
 
-  it('with the schedules gate off, fires nothing but still reconciles runs', async () => {
+  it('with the schedules gate off, fires nothing but still reconciles runs and sweeps uploads', async () => {
     // A run exists without Agent Skills (an escalated chat question), so its
-    // reconciliation cannot wait on the skills feature.
+    // reconciliation cannot wait on the skills feature; nor can an upload's.
     const sql = { begin: vi.fn() }
     const fetchImpl = reconciled()
 
@@ -308,8 +310,11 @@ describe('tick', () => {
 
     expect(fired).toBe(0)
     expect(sql.begin).not.toHaveBeenCalled()
-    expect(fetchImpl).toHaveBeenCalledTimes(1)
-    expect(fetchImpl.mock.calls[0][0]).toBe('http://frontend:3000/api/internal/runs/reconcile')
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      'http://frontend:3000/api/internal/runs/reconcile',
+      'http://frontend:3000/api/internal/upload-batches/sweep',
+      'http://frontend:3000/api/internal/folder-placement/sweep',
+    ])
   })
 
   it('with the gate on, a failed claim still leaves the reconciler its turn', async () => {
@@ -320,7 +325,11 @@ describe('tick', () => {
     await tick(sql, { ...base, schedulesEnabled: true }, fetchImpl, createStreaks(base))
 
     expect(sql.begin).toHaveBeenCalled()
-    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual(['http://frontend:3000/api/internal/runs/reconcile'])
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      'http://frontend:3000/api/internal/runs/reconcile',
+      'http://frontend:3000/api/internal/upload-batches/sweep',
+      'http://frontend:3000/api/internal/folder-placement/sweep',
+    ])
   })
 
   it('logs a claim the database outage refused at WARN, escalating once after ten ticks (#804)', async () => {
@@ -356,5 +365,49 @@ describe('tick', () => {
     await tick({ begin: vi.fn().mockRejectedValue(bad) }, { ...base, schedulesEnabled: true }, reconciled(), createStreaks(base))
     expect(error).toHaveBeenCalledTimes(1)
     expect(error.mock.calls[0][0]).toContain('claim transaction failed')
+  })
+})
+
+describe('sweepUploads (the upload sweep’s clock, ADR-0077)', () => {
+  const config = { frontendUrl: 'http://frontend:3000', internalToken: 'tok', pollMs: 30000 }
+  const streak = () => ({ failed: vi.fn(), succeeded: vi.fn() })
+
+  it('posts the sweep with the internal token and logs only when it settled something', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const quiet = { checked: 3, sealed: 0, completed: 0, failed: 0 }
+    const busy = { checked: 3, sealed: 1, completed: 2, failed: 0 }
+    const fetchImpl = vi.fn().mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(quiet) })
+    expect(await sweepUploads(config, fetchImpl, streak())).toEqual(quiet)
+    expect(fetchImpl.mock.calls[0][0]).toBe('http://frontend:3000/api/internal/upload-batches/sweep')
+    expect(fetchImpl.mock.calls[0][1].headers).toEqual({ [INTERNAL_TOKEN_HEADER]: 'tok' })
+    expect(log).not.toHaveBeenCalled()
+    await sweepUploads(config, vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(busy) }), streak())
+    expect(log.mock.calls[0].join(' ')).toContain('upload sweep: checked 3, sealed 1, completed 2, failed 0')
+    log.mockRestore()
+  })
+
+  it('treats a transport error as transient and never throws', async () => {
+    const s = streak()
+    expect(await sweepUploads(config, vi.fn().mockRejectedValue(new Error('ECONNREFUSED')), s)).toBeNull()
+    expect(s.failed).toHaveBeenCalled()
+  })
+})
+
+describe('sweepPlacement (retries a restriction an outage interrupted, ADR-0078)', () => {
+  const config = { frontendUrl: 'http://frontend:3000', internalToken: 'tok', pollMs: 30000 }
+  const streak = () => ({ failed: vi.fn(), succeeded: vi.fn() })
+
+  it('posts the sweep with the internal token and logs only when something moved or is still pending', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const quiet = { checked: 2, moved: 0, pending: 0, failed: 0 }
+    const busy = { checked: 2, moved: 3, pending: 1, failed: 0 }
+    const fetchImpl = vi.fn().mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(quiet) })
+    expect(await sweepPlacement(config, fetchImpl, streak())).toEqual(quiet)
+    expect(fetchImpl.mock.calls[0][0]).toBe('http://frontend:3000/api/internal/folder-placement/sweep')
+    expect(fetchImpl.mock.calls[0][1].headers).toEqual({ [INTERNAL_TOKEN_HEADER]: 'tok' })
+    expect(log).not.toHaveBeenCalled()
+    await sweepPlacement(config, vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(busy) }), streak())
+    expect(log.mock.calls[0].join(' ')).toContain('folder placement sweep: checked 2, moved 3, still pending 1, failed 0')
+    log.mockRestore()
   })
 })

@@ -34,6 +34,7 @@ import {
   listConversationIdsForProject,
   updateConversationVisibilityInOrg,
 } from '@/lib/conversations/repository'
+import { isConversationConfined } from '@/lib/conversations/restricted-egress'
 import {
   documentIdsExisting,
   findDocumentTenancy,
@@ -74,6 +75,12 @@ export interface ResourceProbe {
   createdBy: string | null
   /** Set when soft-deleted; callers decide whether that is a 404. */
   deletedAt: Date | null
+  /**
+   * The project folder the resource is filed in, for a resource that has one
+   * (a project document). A folder the session is not cleared for hides the
+   * resource whatever grant it holds (ADR-0078).
+   */
+  folderId?: string | null
 }
 
 export interface ShareableDescriptor {
@@ -120,6 +127,13 @@ export interface ShareableDescriptor {
   readonly exists: (ids: readonly string[]) => Promise<Set<string>>
   /** Ids of this type inside a project — project-member cleanup (§3.5). */
   readonly listIdsInProject: (projectId: string, organizationId: string) => Promise<string[]>
+  /**
+   * True when the resource must stay with its owner: no wider visibility, no
+   * grant, no escalation (ADR-0078). The sharing service asks before every
+   * widening and refuses with `restricted-content`. Absent: the type has no
+   * such content and may be shared as its roles allow.
+   */
+  readonly confinedToOwner?: (resourceId: string, organizationId: string) => Promise<boolean>
 }
 
 /**
@@ -165,6 +179,19 @@ const conversationDescriptor: ShareableDescriptor = {
   },
   exists: (ids) => conversationIdsExisting(ids),
   listIdsInProject: (projectId, organizationId) => listConversationIdsForProject(projectId, organizationId),
+  // A turn that ran with a restricted folder's collection in its scope may have
+  // put that folder's content into its prose, so the thread stays with its
+  // owner. The signal is the scope, not the citations: the inventory block puts
+  // every in-scope document's summary into the prompt, so an answer can use one
+  // and cite nothing. The confinement route marks the conversation at turn
+  // START (`admitRestrictedTurn`), so a share attempted while the answer streams
+  // is refused too. Stored sources naming a restricted collection are the second
+  // signal, for answers written before the mark existed. The scope builder keeps
+  // restricted collections out of any thread that is already shared, so the
+  // order "share, then ask" cannot get around it. The same predicate refuses a
+  // run, a task, a profile patch or a filing out of the thread
+  // (`restricted-egress.ts`).
+  confinedToOwner: (resourceId, organizationId) => isConversationConfined(resourceId, organizationId),
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
     // `?session=` — the parameter the chat surface ALREADY reads (`useSessionUrl`).
@@ -199,6 +226,7 @@ const documentDescriptor: ShareableDescriptor = {
       createdBy: row.createdBy,
       // Documents are hard-deleted (0077): a row that exists is live.
       deletedAt: null,
+      folderId: row.folderId,
     }
   },
   allowedVisibilities: DOCUMENT_VISIBILITIES,

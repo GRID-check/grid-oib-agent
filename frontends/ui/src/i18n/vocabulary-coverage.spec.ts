@@ -73,6 +73,16 @@ const ONE_FACT_ONE_WORD: Record<string, string[]> = {
     'research.fileSourceCard.statusIngesting',
   ],
 
+  /**
+   * A file of an upload matched what the project already holds, byte for
+   * byte, so it was not sent. The folder-upload plan labels the row before the
+   * upload, and the upload summary counts the same files after it (ADR-0077).
+   */
+  'upload: identical file, not sent again': [
+    'files.folderUpload.action.unchanged',
+    'uploadBatches.summary.counts.unchanged',
+  ],
+
   /** A document's processing broke. */
   'document: processing failed': [
     'files.uploads.row.failed',

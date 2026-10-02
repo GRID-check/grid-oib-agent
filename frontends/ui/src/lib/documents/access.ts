@@ -15,6 +15,7 @@
 import 'server-only'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { isFolderVisibleTo } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { requireResourceAccess } from '@/lib/sharing/access'
 import { canManageArchiv } from '@/lib/authz/organizations'
@@ -70,6 +71,9 @@ export async function getAccessibleDocument(
         doc.projectId,
         intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
       )
+      // A document under a folder this session is not cleared for does not
+      // exist for it (ADR-0078): not found, never forbidden.
+      if (!(await isFolderVisibleTo(session, doc.projectId, doc.folderId))) throw new NotFoundError()
       return doc
     }
     default: {

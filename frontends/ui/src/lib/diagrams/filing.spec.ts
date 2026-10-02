@@ -18,6 +18,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 
+// An open project: no folder of it is restricted (ADR-0078).
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('server-only', () => ({}))
 
 const s3Send = vi.fn()
@@ -60,6 +62,14 @@ vi.mock('@/lib/projects/repository', () => ({
 const getOrCreateProjectFolderByName = vi.fn()
 vi.mock('@/lib/projects/folder-service', () => ({
   getOrCreateProjectFolderByName: (...args: unknown[]) => getOrCreateProjectFolderByName(...args),
+  findRootProjectFolderByName: vi.fn(async () => null),
+}))
+
+// The restricted-folder mark (ADR-0078).
+const hasRestrictedTurn = vi.fn()
+vi.mock('@/lib/conversations/repository', () => ({
+  hasRestrictedTurn: (...args: unknown[]) => hasRestrictedTurn(...args),
+  listRestrictedAnswerCollections: vi.fn(async () => []),
 }))
 
 const findDocumentAuthoredByRef = vi.fn()
@@ -437,5 +447,21 @@ describe('a partial filing is recoverable rather than rolled back', () => {
     expect(filed.svg.alreadyFiled).toBe(true)
     expect(pdf.alreadyFiled).toBe(false)
     expect(admitted().map((row) => row.authoredByProducer)).toEqual(['diagram_pdf'])
+  })
+})
+
+describe('a diagram drawn in a conversation that drew on a restricted folder (ADR-0078)', () => {
+  it('files neither half into an open folder', async () => {
+    const { ConversationConfinedError } = await import('@/lib/api/errors')
+    const { currentRestrictedCollections } = await import('@/lib/authz/folder-access')
+    vi.mocked(currentRestrictedCollections).mockResolvedValue(['proj_abc_r0123456789ab'])
+    hasRestrictedTurn.mockResolvedValue(true)
+
+    await expect(file({ origin: { conversationId: 's_conv_1', locale: 'de' } })).rejects.toBeInstanceOf(
+      ConversationConfinedError,
+    )
+    expect(hasRestrictedTurn).toHaveBeenCalledWith('s_conv_1', 'org-1')
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+    expect(s3Send).not.toHaveBeenCalled()
   })
 })

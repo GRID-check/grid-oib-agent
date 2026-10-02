@@ -37,22 +37,34 @@ export const PATCH = apiRoute<Params>(
         ...(body.name !== undefined ? { name: body.name } : {}),
         ...(body.parentId !== undefined ? { parentId: body.parentId } : {}),
       },
-      session
+      session,
+      request
     )
     if (!result.ok) throw new BadRequestError(result.error)
     return { folder: result.folder }
   },
-  { authz: { enforcedBy: 'updateProjectFolder (requireProjectAccess project:documents:write)' } }
+  {
+    authz: {
+      enforcedBy:
+        'updateProjectFolder (requireProjectAccess project:documents:write; project:manage when the move changes a restriction)',
+    },
+  }
 )
 
 export const DELETE = apiRoute<Params>(
-  async ({ session, params }) => {
+  async ({ session, params, request }) => {
     const result = await deleteProjectFolder(
       { projectId: params.id, folderId: params.folderId },
-      session
+      session,
+      request
     )
     if (!result.ok) throw new BadRequestError(result.error)
     return result.result
   },
-  { authz: { enforcedBy: 'deleteProjectFolder (requireProjectAccess project:documents:write)' } }
+  {
+    authz: {
+      enforcedBy:
+        'deleteProjectFolder (requireProjectAccess project:documents:write; project:manage for a restricted folder)',
+    },
+  }
 )

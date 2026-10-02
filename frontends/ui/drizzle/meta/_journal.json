@@ -715,6 +715,41 @@
       "when": 1790985600007,
       "tag": "0101_usage_events_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1791072000007,
+      "tag": "0102_document_screening",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1791158400007,
+      "tag": "0103_upload_batches",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1791244800007,
+      "tag": "0104_folder_restrictions",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1791331200007,
+      "tag": "0105_conversation_restricted_turns",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1791417600007,
+      "tag": "0106_project_memory_restricted",
+      "breakpoints": true
     }
   ]
 }

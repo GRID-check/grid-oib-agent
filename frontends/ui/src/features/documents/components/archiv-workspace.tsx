@@ -314,6 +314,25 @@ export function ArchivWorkspace({
   }, [pathname, router, searchParams])
 
   /**
+   * A link to one Archiv document (`/app/archiv?doc=…`: a share, an upload
+   * summary) opens its preview once the corpus holds it, then lets go of the
+   * parameter, so closing the preview stays closed and a reload does not reopen
+   * it. An id the corpus does not hold (deleted, or not this reader's) is
+   * dropped the same way and opens nothing.
+   */
+  const docParam = searchParams?.get('doc') ?? null
+  useEffect(() => {
+    if (!docParam || isLoading) return
+    if (files.some((file) => file.id === docParam)) setSelectedFileId(docParam)
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    params.delete('doc')
+    const query = params.toString()
+    router.replace(query ? `${pathname ?? ARCHIV_MODEL_PATH}?${query}` : (pathname ?? ARCHIV_MODEL_PATH), {
+      scroll: false,
+    })
+  }, [docParam, isLoading, files, pathname, router, searchParams])
+
+  /**
    * One click handler, and the same one Dateien uses.
    *
    * Preview first by default, with the stage a button away inside it; straight
@@ -402,10 +421,21 @@ export function ArchivWorkspace({
   const applyUploadPlan = useCallback(
     async (includeUpdates: boolean) => {
       if (!uploadPlan) return
-      const selected = filesToUpload(uploadPlan, includeUpdates).map((planned) => planned.file)
+      const planned = filesToUpload(uploadPlan, includeUpdates)
+      const selected = planned.map((entry) => entry.file)
+      // The files the reader released from the upload screening (ADR-0077);
+      // the upload says so to the server, which would otherwise refuse them.
+      const released = new Set(planned.filter((entry) => entry.screeningReleased).map((entry) => entry.file))
       setUploadPlanOpen(false)
       setUploadPlanPending(false)
-      if (selected.length > 0) await uploadFiles(selected)
+      if (selected.length > 0) {
+        await uploadFiles(selected, {
+          screeningReleased: (file) => released.has(file),
+          excludedByScreening: uploadPlan.files
+            .filter((entry) => entry.action === 'excluded')
+            .map((entry) => entry.screening ?? []),
+        })
+      }
     },
     [uploadPlan, setUploadPlanOpen, setUploadPlanPending, uploadFiles]
   )
@@ -587,6 +617,7 @@ export function ArchivWorkspace({
         onConfirm={applyUploadPlan}
         pending={uploadDecision.pending}
         kind={uploadDecision.kind}
+        onReleaseChange={uploadDecision.setReleased}
       />
 
       {/*

@@ -4,17 +4,23 @@ Python never touches the database (``grid_app`` is single-writer); every write
 goes over the internal HTTP API with the shared ``GRID_INTERNAL_API_TOKEN``.
 The chat socket persists a finished turn through here (``chat_socket``), and so
 do the jobs runner and its notifiers (``jobs/``), so there is one place that
-knows how the backend writes a message.
+knows how the backend writes a message. The two reads a socket needs before a
+turn live here too: whether a restricted conversation is still private, and the
+office's chat screening.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
+from aiq_agent.common.content_screen import DETECTORS_ONLY
+from aiq_agent.common.content_screen import ScreeningRules
+from aiq_agent.common.content_screen import is_screening_config
 from aiq_api.internal_retry import send_with_retry
 
 logger = logging.getLogger(__name__)
@@ -199,3 +205,103 @@ async def post_internal_run_report(
     except Exception:  # noqa: BLE001 — the write happened; a missing id costs only the ledger's link
         message_id = None
     return message_id if isinstance(message_id, str) else ""
+
+
+#: The confinement check sits in front of a turn, so it gets one short attempt:
+#: a "no" closes the socket, and the client's reconnect is the retry.
+_CONFINEMENT_TIMEOUT_SECONDS = 5.0
+
+
+async def conversation_confined_to(*, conversation_id: str, organization_id: str | None, user_id: str | None) -> bool:
+    """Whether only ``user_id`` can read the conversation, as the BFF answers it now (ADR-0078).
+
+    ``POST /api/internal/conversations/{id}/confinement``. Fails CLOSED: anything
+    but an explicit ``{"confined": true}`` — no internal API, no organization or
+    asker to ask about, a transport error, a non-200, a body without the flag —
+    is ``False``. The caller withholds restricted content on ``False``, so a
+    broken check costs a reconnect, never a leak.
+    """
+    base_url = internal_base_url()
+    headers = internal_headers()
+    if not base_url or headers is None or not organization_id or not user_id:
+        logger.warning("Cannot check whether conversation %s is private: internal API or ids missing", conversation_id)
+        return False
+    url = f"{base_url.rstrip('/')}/api/internal/conversations/{conversation_id}/confinement"
+    try:
+        async with httpx.AsyncClient(timeout=_CONFINEMENT_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                url, json={"organizationId": organization_id, "userId": user_id}, headers=headers
+            )
+        confined = response.json().get("confined") if response.status_code == 200 else None
+    except Exception:  # noqa: BLE001 — any failure is a "no"; the reason is logged
+        logger.warning("Confinement check for conversation %s failed", conversation_id, exc_info=True)
+        return False
+    if confined is not True:
+        logger.info("Conversation %s is not confined to its asker (HTTP %s)", conversation_id, response.status_code)
+    return confined is True
+
+
+#: The policy read sits in front of a socket's first message, so it gets one
+#: short attempt: a failure masks with every detector, and the next message asks again.
+_CHAT_SCREENING_TIMEOUT_SECONDS = 3.0
+
+
+@dataclass(frozen=True)
+class ChatScreening:
+    """What a chat socket masks a message with (ADR-0077, "Chat messages are screened too").
+
+    ``rules`` is ``None`` when the office switched screening off or emptied both
+    lists. ``from_office`` is False for the fail-closed fallback, which a socket
+    does not keep: it asks again on its next message.
+    """
+
+    rules: ScreeningRules | None
+    from_office: bool
+
+
+#: Every detector and no terms: the answer whenever the office's own could not be had.
+CHAT_SCREENING_FALLBACK = ChatScreening(rules=DETECTORS_ONLY, from_office=False)
+
+
+def chat_screening_from(body: object) -> ChatScreening:
+    """The BFF's ``{enabled, content_terms, detectors}`` as rules. Pure; a malformed body is the fallback."""
+    if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
+        return CHAT_SCREENING_FALLBACK
+    if body["enabled"] is False:
+        return ChatScreening(rules=None, from_office=True)
+    if not is_screening_config(body):
+        return CHAT_SCREENING_FALLBACK
+    return ChatScreening(
+        rules=ScreeningRules.build(body.get("content_terms") or [], body.get("detectors") or []),
+        from_office=True,
+    )
+
+
+async def chat_screening_for(organization_id: str | None) -> ChatScreening:
+    """The office's chat screening, as the BFF reads it now. Fails CLOSED to every detector.
+
+    ``GET /api/internal/chat-screening?organizationId=…``: the office's content
+    terms and detectors (never its name terms, which are for file and folder
+    names and far too broad for prose). The BFF already answers with Piloti's
+    suggested list when it cannot read the organization's settings; this side
+    falls back to :data:`CHAT_SCREENING_FALLBACK` for everything else — no
+    organization, no internal API, a transport error, a non-200 (an older BFF
+    without the route answers 404), a body of the wrong shape.
+    """
+    base_url = internal_base_url()
+    headers = internal_headers()
+    if not base_url or headers is None or not organization_id:
+        logger.info("Chat screening uses every detector: no organization or internal API to ask")
+        return CHAT_SCREENING_FALLBACK
+    url = f"{base_url.rstrip('/')}/api/internal/chat-screening"
+    try:
+        async with httpx.AsyncClient(timeout=_CHAT_SCREENING_TIMEOUT_SECONDS) as client:
+            response = await client.get(url, params={"organizationId": organization_id}, headers=headers)
+        body = response.json() if response.status_code == 200 else None
+    except Exception:  # noqa: BLE001 — any failure screens with every detector; the reason is logged
+        logger.warning("Reading the chat screening of organization %s failed", organization_id, exc_info=True)
+        return CHAT_SCREENING_FALLBACK
+    screening = chat_screening_from(body)
+    if not screening.from_office:
+        logger.warning("Chat screening uses every detector: the BFF answered HTTP %s", response.status_code)
+    return screening

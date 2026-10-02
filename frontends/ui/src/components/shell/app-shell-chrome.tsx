@@ -46,7 +46,9 @@ import type { ProjectSwitcherProject } from './project-switcher'
 import type { SidebarUser } from './sidebar-user-menu'
 import type { TourEligibility } from '@/features/onboarding/lib/product-tour'
 
-const OVERLAY_ROUTES = ['/app/archiv', '/app/inbox'] as const
+// `/app/uploads/<id>` is the upload summary's dialog (ADR-0077), opened from
+// the Postfach over the page the reader was on.
+const OVERLAY_ROUTES = ['/app/archiv', '/app/inbox', '/app/uploads'] as const
 
 function isOverlayPath(pathname: string): boolean {
   return OVERLAY_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))

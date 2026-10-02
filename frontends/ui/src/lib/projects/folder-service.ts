@@ -6,10 +6,23 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { getProjectFolderAccess } from '@/lib/authz/folder-access'
+import { listProjectDocumentCollections, listProjectFolderTree } from '@/lib/authz/folder-access-repository'
+import type { AccessFolder } from '@/lib/authz/folder-access'
+import { recordAuditEvent } from '@/lib/audit/service'
+import { placeProjectDocuments } from './collection-placement'
+import { assertFolderMoveKeepsIfcOpen } from './ifc-folder-guard'
 import { validateFolderName, buildFolderPath, folderMatchKey, pathSegments } from './folders'
 
 /** Backend calls here are decoration on a committed write — keep them short. */
 const BACKEND_MIRROR_TIMEOUT_MS = 5_000
+
+/**
+ * A sibling already holds this exact name. Deliberately the one answer for a
+ * visible sibling and a hidden one (ADR-0078): it names neither, and says no
+ * more than `uniq_project_folders_parent_name` forces anyone to learn.
+ */
+const FOLDER_NAME_TAKEN = 'A folder with this name already exists here.'
 
 export interface CreateFolderInput {
   projectId: string
@@ -45,6 +58,12 @@ export interface FolderRow {
   parentId: string | null
   name: string
   path: string
+  /**
+   * The WorkOS roles this folder is restricted to (ADR-0078), or null when it
+   * is open. Only ever shown to someone who can see the folder: a folder a
+   * reader is not cleared for is not listed at all.
+   */
+  restrictedRoles: string[] | null
   createdAt: Date
   updatedAt: Date
 }
@@ -56,9 +75,21 @@ export function toFolderRow(row: typeof projectFolders.$inferSelect): FolderRow 
     parentId: row.parentId,
     name: row.name,
     path: row.path,
+    restrictedRoles: row.restrictedRoles ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
+}
+
+/**
+ * The reader's view of the project's folders (ADR-0078): a folder they are not
+ * cleared for, and everything below it, does not exist for them. Every function
+ * here that takes a folder id from a request asks this first, so a hidden
+ * folder answers like a missing one.
+ */
+async function folderAccessFor(session: AuthorizedSession, projectId: string) {
+  const project = await findProjectInOrg(projectId, session.organizationId)
+  return getProjectFolderAccess(session, projectId, project?.collectionName ?? '')
 }
 
 export async function listProjectFolders(
@@ -66,13 +97,14 @@ export async function listProjectFolders(
   session: AuthorizedSession
 ): Promise<FolderRow[]> {
   await requireProjectAccess(session, projectId, 'project:view')
+  const access = await folderAccessFor(session, projectId)
   const db = getDb()
   const rows = await db
     .select()
     .from(projectFolders)
     .where(eq(projectFolders.projectId, projectId))
     .orderBy(projectFolders.path)
-  return rows.map(toFolderRow)
+  return rows.filter((row) => access.isVisible(row.id)).map(toFolderRow)
 }
 
 export async function createProjectFolder(
@@ -87,6 +119,9 @@ export async function createProjectFolder(
 
   let parentPath = ''
   if (input.parentId) {
+    if (!(await folderAccessFor(session, input.projectId)).isVisible(input.parentId)) {
+      return { ok: false, error: 'Parent folder not found.' }
+    }
     const db = getDb()
     const [parent] = await db
       .select()
@@ -133,10 +168,26 @@ export async function createProjectFolder(
      * arrives as the validation result the caller already knows how to render.
      */
     if (!isUniqueViolation(error)) throw error
-    return { ok: false, error: 'A folder with this name already exists here.' }
+    return { ok: false, error: FOLDER_NAME_TAKEN }
   }
 
   return { ok: true, folder: inserted }
+}
+
+/**
+ * The root folder of this name, or null; never creates it. For a caller that
+ * must decide about the destination before anything exists (the restricted-
+ * folder filing check, `lib/conversations/restricted-egress.ts`). Like
+ * {@link getOrCreateProjectFolderByName} it does not authorize.
+ */
+export async function findRootProjectFolderByName(projectId: string, name: string): Promise<FolderRow | null> {
+  const db = getDb()
+  const [row] = await db
+    .select()
+    .from(projectFolders)
+    .where(and(eq(projectFolders.projectId, projectId), isNull(projectFolders.parentId), eq(projectFolders.name, name)))
+    .limit(1)
+  return row ? toFolderRow(row) : null
 }
 
 /**
@@ -169,20 +220,7 @@ export async function getOrCreateProjectFolderByName(
   name: string,
 ): Promise<FolderRow> {
   const db = getDb()
-  const find = async (): Promise<FolderRow | null> => {
-    const [row] = await db
-      .select()
-      .from(projectFolders)
-      .where(
-        and(
-          eq(projectFolders.projectId, projectId),
-          isNull(projectFolders.parentId),
-          eq(projectFolders.name, name),
-        ),
-      )
-      .limit(1)
-    return row ? toFolderRow(row) : null
-  }
+  const find = (): Promise<FolderRow | null> => findRootProjectFolderByName(projectId, name)
 
   const existing = await find()
   if (existing) return existing
@@ -261,6 +299,21 @@ const MAX_ENSURE_DEPTH = 12
  * real folders the caller can file into, while a rollback on the ninetieth path
  * would discard eighty-nine folders that are correct and that a retry would
  * simply recreate.
+ *
+ * ## Folders the reader may not see (ADR-0078)
+ *
+ * A hidden folder does not exist here: it is never matched, never descended
+ * into, and a hidden `parentId` is "not found". Matching it would hand back its
+ * id, and creating below it would echo its name in the new folder's path.
+ *
+ * What it cannot do is let a same-named sibling be created beside it, because
+ * `uniq_project_folders_parent_name` would refuse that insert anyway. So a
+ * segment whose EXACT name a hidden sibling holds is refused with
+ * {@link FOLDER_NAME_TAKEN}, the answer `createProjectFolder` already gives for
+ * the same collision: it names nothing and confirms no more than the index
+ * forces. A segment that only matches a hidden folder loosely (`honorare` for
+ * `Honorare`) is not a collision, and is created as the reader's own folder;
+ * refusing it would disclose a name the index would not.
  */
 export async function ensureProjectFolderPaths(
   input: EnsureFolderPathsInput,
@@ -275,9 +328,11 @@ export async function ensureProjectFolderPaths(
   }
 
   const db = getDb()
+  const access = await folderAccessFor(session, input.projectId)
 
   let root: FolderRow | null = null
   if (input.parentId) {
+    if (!access.isVisible(input.parentId)) return { ok: false, error: 'Parent folder not found.' }
     const [parent] = await db
       .select()
       .from(projectFolders)
@@ -299,7 +354,13 @@ export async function ensureProjectFolderPaths(
   const index = (row: FolderRow): void => {
     byParentAndKey.set(`${row.parentId ?? ''}\u0000${folderMatchKey(row.name)}`, row)
   }
-  for (const row of existing) index(toFolderRow(row))
+  // Exact names, as the unique index compares them, of the folders this reader
+  // may not see; never matched, only refused (see above).
+  const hiddenNames = new Set<string>()
+  for (const row of existing) {
+    if (access.isVisible(row.id)) index(toFolderRow(row))
+    else hiddenNames.add(`${row.parentId ?? ''}\u0000${row.name}`)
+  }
 
   const touched = new Map<string, FolderRow>()
   const folderIdByPath: Record<string, string> = {}
@@ -323,9 +384,14 @@ export async function ensureProjectFolderPaths(
         current = match
         continue
       }
+      if (hiddenNames.has(`${current?.id ?? ''}\u0000${name}`)) return { ok: false, error: FOLDER_NAME_TAKEN }
 
       const created = await insertFolder(db, input.projectId, current, name)
       if (!created.ok) return created
+      // A concurrent writer's folder, which may have been restricted meanwhile.
+      if (created.raced && !(await folderAccessFor(session, input.projectId)).isVisible(created.folder.id)) {
+        return { ok: false, error: FOLDER_NAME_TAKEN }
+      }
       index(created.folder)
       touched.set(created.folder.id, created.folder)
       current = created.folder
@@ -343,7 +409,7 @@ async function insertFolder(
   projectId: string,
   parent: FolderRow | null,
   name: string,
-): Promise<{ ok: true; folder: FolderRow } | { ok: false; error: string }> {
+): Promise<{ ok: true; folder: FolderRow; raced: boolean } | { ok: false; error: string }> {
   try {
     const [row] = await db
       .insert(projectFolders)
@@ -354,7 +420,7 @@ async function insertFolder(
         path: buildFolderPath(parent?.path ?? '', name),
       })
       .returning()
-    return { ok: true, folder: toFolderRow(row) }
+    return { ok: true, folder: toFolderRow(row), raced: false }
   } catch (error) {
     if (!isUniqueViolation(error)) throw error
     // The other run won. Its row is the one folder that exists, so this one
@@ -370,8 +436,8 @@ async function insertFolder(
         ),
       )
       .limit(1)
-    if (winner) return { ok: true, folder: toFolderRow(winner) }
-    return { ok: false, error: 'A folder with this name already exists here.' }
+    if (winner) return { ok: true, folder: toFolderRow(winner), raced: true }
+    return { ok: false, error: FOLDER_NAME_TAKEN }
   }
 }
 
@@ -447,18 +513,73 @@ export async function mirrorFolderPathRewrite(
   try {
     const project = await findProjectInOrg(projectId, organizationId)
     if (!project) return
-    await fetch(
-      `${getBackendUrl()}/v1/collections/${encodeURIComponent(project.collectionName)}/folder-paths`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from_path: fromPath, to_path: toPath || null }),
-        signal: AbortSignal.timeout(BACKEND_MIRROR_TIMEOUT_MS),
-      }
+    // Every collection the project's documents live in, not only its own: a
+    // restricted folder's documents are in theirs (ADR-0078), and a rename
+    // above it must reach them too. A failed read still mirrors the project's
+    // own collection rather than none.
+    const others = await listProjectDocumentCollections(organizationId, projectId).catch(() => [])
+    const collections = new Set([project.collectionName, ...others])
+    await Promise.all(
+      [...collections].map((collection) =>
+        fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(collection)}/folder-paths`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from_path: fromPath, to_path: toPath || null }),
+          signal: AbortSignal.timeout(BACKEND_MIRROR_TIMEOUT_MS),
+        }).catch(() => undefined)
+      )
     )
   } catch {
     // ignore — see the note above; the folder rows are the durable truth.
   }
+}
+
+/**
+ * The restricted folders at or above `folderId`, outermost first; empty for the
+ * project root or an open path. Clearance is decided over exactly this list
+ * (ADR-0078: a member must clear EVERY restricted folder on a path), so two
+ * places with the same list restrict their contents identically.
+ */
+function restrictionsAt(tree: ReadonlyMap<string, AccessFolder>, folderId: string | null): AccessFolder[] {
+  const chain: AccessFolder[] = []
+  const seen = new Set<string>()
+  for (let current = folderId ? tree.get(folderId) : undefined; current && !seen.has(current.id); ) {
+    seen.add(current.id)
+    if (current.restrictedRoles && current.restrictedRoles.length > 0) chain.unshift(current)
+    current = current.parentId ? tree.get(current.parentId) : undefined
+  }
+  return chain
+}
+
+/** The audit form of {@link restrictionsAt}: roles comma-joined per folder, folders `;`-joined. */
+function describeRestrictions(chain: readonly AccessFolder[]): string {
+  return chain.map((folder) => (folder.restrictedRoles ?? []).join(',')).join(';')
+}
+
+/**
+ * A rename, move or delete that changes which documents are restricted, or to
+ * whom, is a change of folder access: it needs what `setFolderRestriction`
+ * needs (`project:manage`) and leaves the same audit line. Without this,
+ * `project:documents:write` could lift a restriction by deleting the folder, or
+ * by moving a folder out from under a restricted one.
+ */
+async function recordFolderAccessChange(
+  session: AuthorizedSession,
+  projectId: string,
+  folderId: string,
+  roles: string,
+  documentsMoved: number,
+  request: Request | undefined
+): Promise<void> {
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'project.folder.access_changed',
+    targetType: 'project',
+    targetId: projectId,
+    metadata: { folderId, roles, documentsMoved },
+    request,
+  })
 }
 
 /**
@@ -472,7 +593,8 @@ export async function mirrorFolderPathRewrite(
  */
 export async function updateProjectFolder(
   input: UpdateFolderInput,
-  session: AuthorizedSession
+  session: AuthorizedSession,
+  request?: Request
 ): Promise<{ ok: true; folder: FolderRow } | { ok: false; error: string }> {
   await requireProjectAccess(session, input.projectId, ['project:documents:write', 'project:edit'])
   const db = getDb()
@@ -485,6 +607,9 @@ export async function updateProjectFolder(
     )
     .limit(1)
   if (!folder) return { ok: false, error: 'Folder not found.' }
+  const access = await folderAccessFor(session, input.projectId)
+  if (!access.isVisible(folder.id)) return { ok: false, error: 'Folder not found.' }
+  if (input.parentId && !access.isVisible(input.parentId)) return { ok: false, error: 'Parent folder not found.' }
 
   let name = folder.name
   if (input.name !== undefined) {
@@ -527,6 +652,26 @@ export async function updateProjectFolder(
   if (path === folder.path && parentId === folder.parentId) {
     return { ok: true, folder: toFolderRow(folder) }
   }
+  // A move changes the restrictions over the subtree exactly when the old and
+  // the new parent sit under different restricted folders (ADR-0078). The
+  // subtree's own restrictions travel with it, and a rename changes nothing.
+  let accessAfter: AccessFolder[] | null = null
+  if (parentId !== folder.parentId && access.anyRestricted) {
+    const tree = new Map(
+      (await listProjectFolderTree(session.organizationId, input.projectId)).map((entry) => [entry.id, entry])
+    )
+    const before = restrictionsAt(tree, folder.parentId)
+    const after = restrictionsAt(tree, parentId)
+    const unchanged = before.length === after.length && before.every((entry, i) => entry.id === after[i].id)
+    if (!unchanged) {
+      await requireProjectAccess(session, input.projectId, 'project:manage')
+      // What now governs the folder itself: its new ancestors' restrictions, then its own.
+      const own = folder.restrictedRoles && folder.restrictedRoles.length > 0 ? [folder] : []
+      accessAfter = [...after, ...own]
+    }
+  }
+  // Restricted folders do not hold IFC models (ADR-0078): a 409 when the move would put one under a restriction.
+  if (parentId !== folder.parentId) await assertFolderMoveKeepsIfcOpen(session.organizationId, input.projectId, folder.id, parentId)
 
   const updated = await db.transaction(async (tx) => {
     const [row] = await tx
@@ -539,6 +684,15 @@ export async function updateProjectFolder(
   })
 
   await mirrorFolderPathRewrite(input.projectId, session.organizationId, folder.path, path)
+  // A folder moved under (or out from under) a restricted one takes its
+  // documents into (or out of) that folder's collection (ADR-0078).
+  if (parentId !== folder.parentId) {
+    const placement = await placeProjectDocuments(session.organizationId, input.projectId)
+    if (accessAfter) {
+      const roles = describeRestrictions(accessAfter)
+      await recordFolderAccessChange(session, input.projectId, folder.id, roles, placement.moved, request)
+    }
+  }
 
   return { ok: true, folder: toFolderRow(updated) }
 }
@@ -559,7 +713,8 @@ export async function updateProjectFolder(
  */
 export async function deleteProjectFolder(
   input: DeleteFolderInput,
-  session: AuthorizedSession
+  session: AuthorizedSession,
+  request?: Request
 ): Promise<{ ok: true; result: DeleteFolderResult } | { ok: false; error: string }> {
   await requireProjectAccess(session, input.projectId, ['project:documents:write', 'project:edit'])
   const db = getDb()
@@ -572,6 +727,15 @@ export async function deleteProjectFolder(
     )
     .limit(1)
   if (!folder) return { ok: false, error: 'Folder not found.' }
+  if (!(await folderAccessFor(session, input.projectId)).isVisible(folder.id)) {
+    return { ok: false, error: 'Folder not found.' }
+  }
+  // Deleting a restricted folder lifts its restriction from everything it held:
+  // a change of folder access, not a tidy-up (ADR-0078). Deleting an open one
+  // changes nothing, since its children keep their own restrictions and its
+  // documents land beside the same restricted ancestors they already had.
+  const liftsRestriction = Boolean(folder.restrictedRoles && folder.restrictedRoles.length > 0)
+  if (liftsRestriction) await requireProjectAccess(session, input.projectId, 'project:manage')
 
   let parentPath = ''
   if (folder.parentId) {
@@ -625,6 +789,16 @@ export async function deleteProjectFolder(
   // `Brandschutz/Alt` becomes `Brandschutz`, carrying `Brandschutz/Alt/EG` to
   // `Brandschutz/EG` with it, exactly as the rows above just moved.
   await mirrorFolderPathRewrite(input.projectId, session.organizationId, folder.path, parentPath)
+  // Deleting a restricted folder lifts its restriction from what it held: the
+  // documents now sit under its parent and belong in that one's collection.
+  if (liftsRestriction) {
+    const placement = await placeProjectDocuments(session.organizationId, input.projectId)
+    const tree = new Map(
+      (await listProjectFolderTree(session.organizationId, input.projectId)).map((entry) => [entry.id, entry])
+    )
+    const roles = describeRestrictions(restrictionsAt(tree, folder.parentId))
+    await recordFolderAccessChange(session, input.projectId, folder.id, roles, placement.moved, request)
+  }
 
   return outcome
 }

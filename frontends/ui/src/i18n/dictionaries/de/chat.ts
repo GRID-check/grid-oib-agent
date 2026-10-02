@@ -1210,4 +1210,20 @@ export const chat: typeof en.chat = {
     copied: 'Kopiert',
     failed: 'Nachricht konnte nicht kopiert werden',
   },
+  /**
+   * Sensible Daten im Chat (ADR-0077): was der Composer vor dem Senden meldet.
+   * Die Platzhalter selbst sind Fachdaten und kommen aus `content-screen.ts`.
+   */
+  screening: {
+    title: 'Enthält {items} (Sensible Daten).',
+    body: 'Piloti sendet sie nicht an das Modell.',
+    preview: 'Das Modell sieht: „{text}“',
+    iban: '{count, plural, one {eine IBAN} other {# IBANs}}',
+    at_svnr: '{count, plural, one {eine Sozialversicherungsnummer} other {# Sozialversicherungsnummern}}',
+    credit_card: '{count, plural, one {eine Kartennummer} other {# Kartennummern}}',
+    term: 'den Begriff „{term}“',
+    withSample: '{item} {sample}',
+    sendMasked: 'Maskiert senden',
+    edit: 'Bearbeiten',
+  },
 }

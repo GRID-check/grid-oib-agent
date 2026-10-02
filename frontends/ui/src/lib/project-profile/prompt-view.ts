@@ -1,6 +1,7 @@
 import { findProjectProfile, findProjectPromptView } from '@/lib/projects/repository'
 import { loadDocumentRolesPromptSection } from '@/lib/document-roles/prompt-loader'
 import { getCached, invalidateCached } from '@/lib/cache'
+import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildProjectBriefView } from './brief-view'
 import { isValidBundeslandToken } from './intake-definition'
 import { ProjectProfileSchema } from './types'
@@ -40,30 +41,36 @@ const bundeslandCacheKey = (projectId: string, organizationId: string | null | u
  * every WS upgrade. Backed by the shared cache (ADR-0020), so a profile edit
  * on one replica invalidates for all replicas — the per-process Map this
  * replaces served stale project context for up to 5 minutes after an edit.
+ *
+ * The cached view is one per project, read by every member and by scheduled
+ * and deep-research runs, so it names no document in a restricted folder
+ * (ADR-0078). `cleared` is the session of a chat turn whose signed scope
+ * already carries its restricted collections: that turn gets a view built for
+ * it, uncached, naming what it is cleared for. Nothing else passes it.
  */
 export async function loadProjectPromptView(
   projectId: string | undefined,
-  organizationId: string | null | undefined
+  organizationId: string | null | undefined,
+  cleared?: AuthorizedSession | null
 ): Promise<string | null> {
   if (!projectId) return null
 
-  return getCached(
-    promptViewCacheKey(projectId, organizationId),
-    PROMPT_VIEW_CACHE_TTL_MS,
-    async () => {
-      const [stored, documents] = await Promise.all([
-        findProjectPromptView(projectId, organizationId),
-        // Appended here rather than baked into the stored view, because a role
-        // binding changes without the profile changing. `buildProjectPromptView`
-        // runs at profile-save; a document declared afterwards would never reach
-        // a view built there. Declaring or revoking a role invalidates this cache
-        // (`lib/document-roles/service`), so the block cannot go stale either.
-        loadDocumentRolesPromptSection(projectId, organizationId),
-      ])
-      const combined = [stored?.trim(), documents].filter(Boolean).join('\n\n').trim()
-      return combined || null
-    }
-  )
+  const build = async (): Promise<string | null> => {
+    const [stored, documents] = await Promise.all([
+      findProjectPromptView(projectId, organizationId),
+      // Appended here rather than baked into the stored view, because a role
+      // binding changes without the profile changing. `buildProjectPromptView`
+      // runs at profile-save; a document declared afterwards would never reach
+      // a view built there. Declaring or revoking a role invalidates this cache
+      // (`lib/document-roles/service`), so the block cannot go stale either.
+      loadDocumentRolesPromptSection(projectId, organizationId, cleared),
+    ])
+    const combined = [stored?.trim(), documents].filter(Boolean).join('\n\n').trim()
+    return combined || null
+  }
+
+  if (cleared) return build()
+  return getCached(promptViewCacheKey(projectId, organizationId), PROMPT_VIEW_CACHE_TTL_MS, build)
 }
 
 export async function invalidateProjectPromptViewCache(

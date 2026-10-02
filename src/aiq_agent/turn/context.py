@@ -17,6 +17,7 @@ from typing import Any
 from aiq_agent.auth import get_current_principal
 from aiq_agent.common.platform_lessons import get_platform_lessons_digest
 from aiq_agent.knowledge.project_memory import fetch_memory_digest
+from aiq_agent.knowledge.restricted_collections import restricted_collections_in
 from aiq_agent.project_context import GridRequestContext
 from aiq_agent.project_context import compose_project_context
 from aiq_agent.project_context import get_user_message_id_from_context
@@ -52,6 +53,20 @@ class TurnContext:
     #: Whether this turn may hand work over (`create_task`). Its own flag, see
     #: :class:`aiq_agent.stages.flags.TurnFlags`.
     tasks_allowed: bool = True
+    #: The restricted-folder collections of the turn's VERIFIED scope
+    #: (ADR-0078). Non-empty makes the turn :attr:`confined`.
+    restricted_scope: tuple[str, ...] = ()
+
+    @property
+    def confined(self) -> bool:
+        """The turn's scope holds a restricted folder's collection (ADR-0078).
+
+        Such a conversation may not commission a run, hand work over or propose
+        a profile patch, because each is read by the whole project, so both
+        flags above are False whenever this is True. The BFF refuses all three
+        on its own; this keeps the model from offering them.
+        """
+        return bool(self.restricted_scope)
 
 
 def thread_id_for_turn(conversation_id: str | None) -> str:
@@ -88,6 +103,19 @@ def user_info_from_principal() -> dict[str, Any] | None:
     return {"name": principal.name, "email": principal.email}
 
 
+def signed_restricted_collections(request: GridRequestContext) -> list[str]:
+    """The restricted-folder collections in the turn's VERIFIED envelope (ADR-0078).
+
+    What the live digest may serve restricted memory for. The BFF puts them in a
+    scope only for an interactive chat turn of a session cleared for them, on a
+    thread only its asker reads; a scope read from the unsigned header
+    fallback (no envelope) gets none, because nothing vouches for it.
+    """
+    if not request.envelope_header:
+        return []
+    return restricted_collections_in(request.collection_scope)
+
+
 async def _live_memory_digest(request: GridRequestContext, query_text: str) -> str | None:
     """This turn's project-memory digest.
 
@@ -104,6 +132,7 @@ async def _live_memory_digest(request: GridRequestContext, query_text: str) -> s
             project_id=request.project_id,
             organization_id=request.organization_id,
             query=query_text,
+            restricted_collections=signed_restricted_collections(request),
         )
     except (RuntimeError, OSError, ValueError):
         # The documented failure modes of fetch_memory_digest: configuration,
@@ -171,12 +200,14 @@ async def _load_turn_context(
         _live_memory_digest(request, query_text),
         _turn_flags(request, resolve_stages),
     )
+    restricted_scope = tuple(signed_restricted_collections(request))
     return TurnContext(
         project_context=compose_project_context(request.project_context, memory_digest),
         platform_lessons=platform_lessons,
         org_instructions=request.org_instructions,
-        deep_research_allowed=turn_flags.deep_research_allowed,
-        tasks_allowed=turn_flags.tasks_allowed,
+        deep_research_allowed=turn_flags.deep_research_allowed and not restricted_scope,
+        tasks_allowed=turn_flags.tasks_allowed and not restricted_scope,
+        restricted_scope=restricted_scope,
         stage_facts=TurnFacts(
             conversation_id=conversation_id,
             ws_parent_id=get_user_message_id_from_context(),
@@ -213,4 +244,15 @@ async def load_turn_context(
         )
     except Exception:  # noqa: BLE001 - see above; an answer without context beats no answer
         logger.warning("Project-context load failed; continuing without live context", exc_info=True)
-        return TurnContext(project_context=None, platform_lessons=None, org_instructions=None, stage_facts=TurnFacts())
+        # Fail-open for the context, never for the restriction: a turn whose
+        # signed scope holds a restricted collection stays confined.
+        restricted_scope = tuple(signed_restricted_collections(request))
+        return TurnContext(
+            project_context=None,
+            platform_lessons=None,
+            org_instructions=None,
+            stage_facts=TurnFacts(),
+            deep_research_allowed=not restricted_scope,
+            tasks_allowed=not restricted_scope,
+            restricted_scope=restricted_scope,
+        )

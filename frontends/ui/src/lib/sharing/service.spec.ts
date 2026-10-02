@@ -36,6 +36,8 @@ vi.mock('@/lib/conversations/repository', () => ({
   findConversationInOrg: vi.fn(),
   conversationIdsExisting: vi.fn(),
   listConversationIdsForProject: vi.fn(),
+  listRestrictedAnswerCollections: vi.fn(),
+  hasRestrictedTurn: vi.fn(),
 }))
 
 vi.mock('@/lib/documents/repository', () => ({
@@ -80,7 +82,12 @@ import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { canUserAccessProject, isUserInOrganization } from '@/lib/authz/project-membership'
-import { findConversationTenancy, updateConversationVisibilityInOrg } from '@/lib/conversations/repository'
+import {
+  findConversationTenancy,
+  hasRestrictedTurn,
+  listRestrictedAnswerCollections,
+  updateConversationVisibilityInOrg,
+} from '@/lib/conversations/repository'
 import type { ResourceRole, ResourceVisibility } from '@/lib/db/schema'
 import { publishToUsers } from '@/lib/events/bus'
 import { requireResourceAccess, resolveResourceAccess } from './access'
@@ -156,6 +163,8 @@ beforeEach(() => {
   vi.mocked(upsertGrant).mockResolvedValue({} as never)
   vi.mocked(deleteGrant).mockResolvedValue(true)
   vi.mocked(updateConversationVisibilityInOrg).mockResolvedValue({} as never)
+  vi.mocked(listRestrictedAnswerCollections).mockResolvedValue([])
+  vi.mocked(hasRestrictedTurn).mockResolvedValue(false)
 })
 
 describe('the last-owner invariant (spec SH-11)', () => {
@@ -405,5 +414,169 @@ describe('escalateToOwner (spec SH-10)', () => {
     expect(publishToUsers).not.toHaveBeenCalled()
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
+  })
+})
+
+describe('a conversation that drew on a restricted folder stays with its owner (ADR-0078)', () => {
+  const RESTRICTED = 'proj_8f2c3b1e_0000_4000_8000_000000000001_r0123456789ab'
+
+  beforeEach(() => {
+    vi.mocked(listRestrictedAnswerCollections).mockResolvedValue([RESTRICTED])
+  })
+
+  async function refusal(promise: Promise<unknown>): Promise<ConflictError> {
+    const error = await promise.catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(ConflictError)
+    return error as ConflictError
+  }
+
+  it('refuses to widen its visibility, with a machine-readable reason', async () => {
+    stubCallerAccess('owner', 'private')
+
+    const error = await refusal(setResourceVisibility(session, 'conversation', 'conv_1', 'project'))
+
+    expect(error.details).toMatchObject({ reason: 'restricted-content' })
+    expect(listRestrictedAnswerCollections).toHaveBeenCalledWith('conv_1', 'org_1')
+    expect(updateConversationVisibilityInOrg).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('still lets it narrow back to private', async () => {
+    stubCallerAccess('owner', 'project')
+
+    await setResourceVisibility(session, 'conversation', 'conv_1', 'private')
+
+    expect(updateConversationVisibilityInOrg).toHaveBeenCalledWith('conv_1', 'org_1', 'private')
+  })
+
+  it('refuses a grant — and so a mention that would invite — before spending the rate limit', async () => {
+    await refusal(
+      grantResourceAccess(session, 'conversation', 'conv_1', { subjectUserId: 'user_member', role: 'viewer' }),
+    )
+
+    expect(consumeLimit).not.toHaveBeenCalled()
+    expect(upsertGrant).not.toHaveBeenCalled()
+  })
+
+  it('refuses a project admin taking ownership: they need not be cleared for the folder', async () => {
+    vi.mocked(resolveResourceAccess).mockResolvedValue({
+      role: null,
+      reason: null,
+      visibility: 'private',
+      container: { organizationId: 'org_1', projectId: 'proj_1' },
+      canEscalate: true,
+    })
+
+    await refusal(escalateToOwner(session, 'conversation', 'conv_1'))
+
+    expect(upsertGrant).not.toHaveBeenCalled()
+  })
+
+  it('ignores a stored collection that only looks restricted to the SQL pre-filter', async () => {
+    // The repository's jsonpath filter is a pre-filter; the decision is the
+    // canonical name rule, which wants twelve hex digits after `_r`.
+    vi.mocked(listRestrictedAnswerCollections).mockResolvedValue(['proj_x_rNOTHEX000000'])
+
+    await grantResourceAccess(session, 'conversation', 'conv_1', { subjectUserId: 'user_member', role: 'viewer' })
+
+    expect(upsertGrant).toHaveBeenCalled()
+  })
+})
+
+describe('a conversation that ran a restricted turn stays with its owner, cited or not (ADR-0078)', () => {
+  // No stored answer names a restricted collection: the turn used a summary the
+  // inventory block put into the prompt, or its answer is still streaming.
+  beforeEach(() => {
+    vi.mocked(listRestrictedAnswerCollections).mockResolvedValue([])
+    vi.mocked(hasRestrictedTurn).mockResolvedValue(true)
+  })
+
+  async function refusal(promise: Promise<unknown>): Promise<ConflictError> {
+    const error = await promise.catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(ConflictError)
+    expect((error as ConflictError).details).toMatchObject({ reason: 'restricted-content' })
+    return error as ConflictError
+  }
+
+  it('refuses to widen its visibility on the mark alone', async () => {
+    stubCallerAccess('owner', 'private')
+
+    await refusal(setResourceVisibility(session, 'conversation', 'conv_1', 'project'))
+
+    expect(hasRestrictedTurn).toHaveBeenCalledWith('conv_1', 'org_1')
+    expect(updateConversationVisibilityInOrg).not.toHaveBeenCalled()
+  })
+
+  it('refuses a grant, and so a mention that would invite, on the mark alone', async () => {
+    await refusal(
+      grantResourceAccess(session, 'conversation', 'conv_1', { subjectUserId: 'user_member', role: 'viewer' }),
+    )
+
+    expect(upsertGrant).not.toHaveBeenCalled()
+  })
+
+  it('refuses a project admin taking ownership on the mark alone', async () => {
+    vi.mocked(resolveResourceAccess).mockResolvedValue({
+      role: null,
+      reason: null,
+      visibility: 'private',
+      container: { organizationId: 'org_1', projectId: 'proj_1' },
+      canEscalate: true,
+    })
+
+    await refusal(escalateToOwner(session, 'conversation', 'conv_1'))
+
+    expect(upsertGrant).not.toHaveBeenCalled()
+  })
+})
+
+describe('a share racing the thread\'s first restricted turn is undone (ADR-0078)', () => {
+  // The check before the write passed; the turn's admission marked the thread
+  // between that check and the write. The re-check after the write sees it.
+  beforeEach(() => {
+    vi.mocked(hasRestrictedTurn).mockResolvedValueOnce(false).mockResolvedValue(true)
+  })
+
+  it('puts the visibility back and announces nothing', async () => {
+    stubCallerAccess('owner', 'private')
+
+    const error = await setResourceVisibility(session, 'conversation', 'conv_1', 'project').catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect(vi.mocked(updateConversationVisibilityInOrg).mock.calls).toEqual([
+      ['conv_1', 'org_1', 'project'],
+      ['conv_1', 'org_1', 'private'],
+    ])
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+    expect(publishToUsers).not.toHaveBeenCalled()
+  })
+
+  it('removes the grant it just wrote and announces nothing', async () => {
+    const error = await grantResourceAccess(session, 'conversation', 'conv_1', {
+      subjectUserId: 'user_member',
+      role: 'viewer',
+    }).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect(upsertGrant).toHaveBeenCalledTimes(1)
+    expect(deleteGrant).toHaveBeenCalledWith('org_1', 'conversation', 'conv_1', 'user_member')
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+    expect(publishToUsers).not.toHaveBeenCalled()
+  })
+
+  it("removes a project admin's escalation it just wrote", async () => {
+    vi.mocked(resolveResourceAccess).mockResolvedValue({
+      role: null,
+      reason: null,
+      visibility: 'private',
+      container: { organizationId: 'org_1', projectId: 'proj_1' },
+      canEscalate: true,
+    })
+
+    const error = await escalateToOwner(session, 'conversation', 'conv_1').catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect(deleteGrant).toHaveBeenCalledWith('org_1', 'conversation', 'conv_1', 'user_me')
+    expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 })

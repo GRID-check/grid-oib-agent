@@ -8,6 +8,8 @@
  * Failures are signalled with typed errors from `@/lib/api/errors`.
  */
 
+import { assertUploadNameAllowed, auditScreeningOverride, ingestScreeningFor } from '@/lib/upload-screening/service'
+import { acceptedUploadBatchId } from '@/lib/upload-batches/service'
 import 'server-only'
 import {
   GetObjectCommand,
@@ -24,6 +26,7 @@ import {
   buildThumbnailStorageKey,
 } from '@/lib/s3'
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
+import { getHiddenFolderIds, getProjectFolderAccess } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -85,6 +88,7 @@ import {
   setDocumentIngestJob,
   setDocumentReconciledStatus,
   findLiveDocumentByFilename,
+  findProjectCollectionsHoldingFilename,
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
@@ -97,6 +101,7 @@ import { newVersionWriteId, versionWriteKey } from './version-content'
 import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
+import { assertIfcMayBeFiledIn } from '@/lib/projects/ifc-folder-guard'
 import {
   INLINE_PREVIEW_CONTENT_TYPES,
   TEXT_PREVIEW_CONTENT_TYPES as SHARED_TEXT_PREVIEW_CONTENT_TYPES,
@@ -413,6 +418,10 @@ export async function dispatchIngest(
   // Read from the row rather than threaded through every caller; a failed read
   // books the spend to the organization alone, never fails the dispatch.
   const attribution = await findDocumentInOrg(documentId, organizationId).catch(() => null)
+  // The content gate's rules (ADR-0077). Every path into the index passes this
+  // line — upload, re-ingest, re-index, Archiv, chat, the IFC digest — so the
+  // gate is not something a new caller has to remember.
+  const screening = await ingestScreeningFor(organizationId, attribution)
 
   const body = JSON.stringify({
     file_ref: presignedUrl,
@@ -432,6 +441,9 @@ export async function dispatchIngest(
     // only the bytes read differ, never the identity.
     extraction_ref: extras.extractionRef ?? null,
     folder_path: folderPath,
+    // Null when screening is off for the organization or a reviewer released
+    // these exact bytes from quarantine; the job then reads as it always did.
+    screening,
     // The document's IDENTITY inside the collection, stated rather than
     // left to be derived. Without it the backend reads the name off the
     // presigned URL's last path segment, which is the OBJECT KEY's
@@ -505,6 +517,7 @@ export async function listDocumentsPage(
   // `limit` is deliberately not passed: the repository's own default is the
   // page size, and a second copy of it here could drift from the real one.
   const page = await listProjectDocumentPage(projectId, session.organizationId, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
     authoredBy: options.authoredBy,
     // Archived documents have LEFT the working set, so they are absent unless
     // the caller says otherwise (ADR-0054).
@@ -558,7 +571,9 @@ export async function resolveProjectDocumentsByName(
   filenames: readonly string[]
 ): Promise<ListedDocument[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames)
+  const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+  })
   return toListedDocuments(session, rows)
 }
 
@@ -590,7 +605,11 @@ export async function probeProjectDocumentNames(
   names: readonly string[]
 ): Promise<DocumentNameMatchRow[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  return findProjectDocumentsByNames(projectId, session.organizationId, names)
+  // A name taken in a hidden folder is not reported: the upload refuses it
+  // without saying where (`assertNameFreeInProject`).
+  return findProjectDocumentsByNames(projectId, session.organizationId, names, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+  })
 }
 
 /**
@@ -779,14 +798,22 @@ export async function searchProjectDocuments(
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
 
-  const hits = await fetchSemanticHits(project.collectionName, query, topK)
+  // The project's own collection and every restricted one this reader is
+  // cleared for (ADR-0078); one ranking across them, cut to `topK`.
+  const access = await getProjectFolderAccess(session, projectId, project.collectionName)
+  const collections = [project.collectionName, ...access.clearedRestrictedCollections]
+  const hits = (await Promise.all(collections.map((collection) => fetchSemanticHits(collection, query, topK))))
+    .flat()
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK)
   if (hits.length === 0) return { hits: [] }
   // The canonical rows, hydrated exactly as the listing hydrates them, so a
   // semantic result is always a real, visible document with its live status.
   const rows = await findProjectDocumentsByFilenames(
     projectId,
     session.organizationId,
-    hits.map((hit) => hit.file_name)
+    hits.map((hit) => hit.file_name),
+    { hiddenFolderIds: [...access.hiddenFolderIds] }
   )
   return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows)) }
 }
@@ -802,6 +829,19 @@ export interface UploadDocumentInput {
    * for why this is not Piloti's own folder path.
    */
   originPath?: string | null
+  /**
+   * The uploader released this file in the upload dialog although the
+   * organization's name screening excludes it (ADR-0077) — the Bauvertrag in a
+   * folder called „Verträge". Honoured and audited; absent means "do not
+   * override", so a client that never asks is screened.
+   */
+  screeningRelease?: boolean
+  /**
+   * The upload gesture this file belongs to (migration 0103), as the browser
+   * opened it. Recorded on the row when it is the uploader's own open batch
+   * for this project; anything else is ignored rather than refused.
+   */
+  uploadBatchId?: string | null
 }
 
 /** Longest origin path recorded. Deep office trees exist; unbounded text does not belong in a row. */
@@ -924,6 +964,27 @@ export function assertFileSizeAllowed(sizeBytes: number, filename?: string): voi
 }
 
 /**
+ * One document per name in a project, whichever collection holds it
+ * (ADR-0078). A re-upload into the collection that already holds the name
+ * replaces it, as before; the same name filed under a different restriction is
+ * refused, because replacing it would move it across the boundary unseen. The
+ * message names no folder: the other one may be one this person cannot see.
+ */
+async function assertNameFreeElsewhereInProject(
+  organizationId: string,
+  projectId: string,
+  collectionName: string,
+  filename: string
+): Promise<void> {
+  const holders = await findProjectCollectionsHoldingFilename(organizationId, projectId, filename)
+  if (holders.some((holder) => holder !== collectionName)) {
+    throw new ConflictError(
+      `A document named "${filename}" already exists elsewhere in this project. Rename the file, or upload it where that document is filed.`
+    )
+  }
+}
+
+/**
  * Store an uploaded file in SeaweedFS, record it, and hand it to the backend for
  * ingestion. The ingest call is best-effort: the document is already durable
  * in SeaweedFS + Postgres, and status reads reconcile the outcome later.
@@ -944,16 +1005,32 @@ export async function uploadDocument(
   // refusal leaves no orphan object behind (ADR-0042).
   await assertWithinStorageQuota(session.organizationId, file.size)
 
+  const project = await findProjectInOrg(projectId, session.organizationId)
+  if (!project) throw new NotFoundError('Project not found')
+
+  // The folder decides the collection (ADR-0078): a restricted folder's
+  // documents live in its own. A folder this uploader is not cleared for does
+  // not exist for them, so this comes before anything reads its path: the name
+  // gate below would otherwise answer with the hidden folder's name.
+  const access = await getProjectFolderAccess(session, projectId, project.collectionName)
+  if (!access.isVisible(folderId)) throw new NotFoundError('Folder not found in project')
+  const collectionName = access.collectionFor(folderId)
+  // Restricted folders do not hold IFC models until their building data is
+  // partitioned (ADR-0078); refused before a byte is stored.
+  assertIfcMayBeFiledIn(file.name, collectionName, project.collectionName)
+
   let folderPath: string | null = null
   if (folderId) {
     folderPath = await findFolderPathInProject(folderId, projectId, session.organizationId)
     if (folderPath === null) throw new NotFoundError('Folder not found in project')
   }
-
-  const project = await findProjectInOrg(projectId, session.organizationId)
-  if (!project) throw new NotFoundError('Project not found')
-
-  const collectionName = project.collectionName
+  // The name gate's server-side repeat (ADR-0077), before a byte is stored.
+  const nameGate = await assertUploadNameAllowed(
+    session.organizationId,
+    { filename: file.name, originPath, folderPath },
+    input.screeningRelease === true
+  )
+  const uploadBatchId = await acceptedUploadBatchId(session, input.uploadBatchId, { scope: 'project', projectId })
 
   /*
    * A RE-UPLOAD REPLACES; IT DOES NOT ACCUMULATE.
@@ -990,6 +1067,7 @@ export async function uploadDocument(
    * written before this line exist. See `./name-match`.
    */
   const filename = documentNameKey(file.name)
+  await assertNameFreeElsewhereInProject(session.organizationId, projectId, collectionName, filename)
 
   // Create the organization's bucket if this is its first upload (ADR-0043).
   // A no-op — not even a round trip — when per-org buckets are off. Done before
@@ -1118,6 +1196,7 @@ export async function uploadDocument(
         contentHash,
         folderId: folderId ?? null,
         createdBy: session.userId,
+        uploadBatchId,
       })
       // NOTHING is discarded here any more. The previous bytes are the previous
       // VERSION's bytes now (ADR-0054), and a superseded version whose object was
@@ -1144,6 +1223,7 @@ export async function uploadDocument(
         contentType: file.type || null,
         contentHash,
         originPath,
+        uploadBatchId,
         status: 'uploaded',
       })
     }
@@ -1202,6 +1282,12 @@ export async function uploadDocument(
     },
     request,
   })
+
+  await auditScreeningOverride(
+    session,
+    { documentId, projectId, filename, overridden: nameGate.overridden },
+    request
+  )
 
   return {
     documentId,
@@ -1589,7 +1675,7 @@ async function signedRenditionRef(input: DispatchDocumentInput, fileName: string
  * silently un-file a document the user had filed, and only the agent would
  * notice.
  */
-async function resolveDocumentFolderPath(
+export async function resolveDocumentFolderPath(
   doc: Pick<Document, 'folderId' | 'projectId'>,
   organizationId: string
 ): Promise<string | null> {

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { FolderUploadDialog } from './folder-upload-dialog'
 import { buildFolderUploadPlan, type FolderUploadPlan } from '../lib/folder-upload-plan'
 import type { FileItem } from './project-file-workspace'
+import { SUGGESTED_SCREENING_POLICY } from '@/lib/upload-screening/policy'
 
 function pathed(relativePath: string, size = 100): File {
   const name = relativePath.split('/').pop()!
@@ -290,5 +291,59 @@ describe('FolderUploadDialog — loose files', () => {
     expect(screen.getByTestId('folder-upload-count-update')).toHaveTextContent('1')
     expect(screen.queryByTestId('folder-upload-count-folders')).not.toBeInTheDocument()
     expect(screen.getByTestId('folder-upload-include-updates')).toBeInTheDocument()
+  })
+})
+
+/**
+ * ADR-0077: before anything is sent, the reader sees what the office's upload
+ * screening holds back and why, and can release a single file.
+ */
+describe('FolderUploadDialog — upload screening', () => {
+  const screened = (released: File[] = []) => {
+    const contract = pathed('Akt/Verträge/Architektenvertrag.pdf')
+    const plan = buildFolderUploadPlan({
+      files: [pathed('Akt/Pläne/EG.pdf'), contract],
+      documents: [],
+      folders: [],
+      currentFolderId: null,
+      screening: { policy: SUGGESTED_SCREENING_POLICY, basePath: null, released: new Set(released) },
+    })
+    return { plan, contract }
+  }
+
+  it('lists the excluded file with the rule that caught it, and does not count it as uploading', () => {
+    const { plan } = screened()
+    render(
+      <FolderUploadDialog open onOpenChange={vi.fn()} plan={plan} currentFolderName={null} onConfirm={vi.fn()} onReleaseChange={vi.fn()} />
+    )
+    const section = screen.getByTestId('folder-upload-excluded')
+    expect(within(section).getByText('Akt/Verträge/Architektenvertrag.pdf')).toBeInTheDocument()
+    expect(within(section).getByText(/Vertrag/)).toBeInTheDocument()
+    expect(screen.getByTestId('folder-upload-confirm')).toHaveTextContent('1')
+  })
+
+  it('releases one file when the reader ticks it', async () => {
+    const { plan, contract } = screened()
+    const onReleaseChange = vi.fn()
+    render(
+      <FolderUploadDialog open onOpenChange={vi.fn()} plan={plan} currentFolderName={null} onConfirm={vi.fn()} onReleaseChange={onReleaseChange} />
+    )
+    await userEvent.click(screen.getByTestId('folder-upload-release'))
+    expect(onReleaseChange).toHaveBeenCalledWith(contract, true)
+  })
+
+  it('keeps a released file in the list, ticked, so the release can be taken back', () => {
+    const contract = pathed('Akt/Verträge/Architektenvertrag.pdf')
+    const plan = buildFolderUploadPlan({
+      files: [contract],
+      documents: [],
+      folders: [],
+      currentFolderId: null,
+      screening: { policy: SUGGESTED_SCREENING_POLICY, basePath: null, released: new Set([contract]) },
+    })
+    render(
+      <FolderUploadDialog open onOpenChange={vi.fn()} plan={plan} currentFolderName={null} onConfirm={vi.fn()} onReleaseChange={vi.fn()} />
+    )
+    expect(screen.getByTestId('folder-upload-release')).toHaveAttribute('data-state', 'checked')
   })
 })

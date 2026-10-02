@@ -12,6 +12,8 @@ export const organization = {
     models: 'Models',
     budgets: 'Usage & budgets',
     storage: 'Storage',
+    screening: 'Sensitive data',
+    quarantine: 'Quarantine',
     compliance: 'Compliance',
     enterprise: 'Enterprise',
   },
@@ -41,6 +43,14 @@ export const organization = {
       title: 'Storage',
       subtitle:
         'How much document storage this organization uses, and the quota that bounds it.',
+    },
+    screening: {
+      title: 'Sensitive data',
+      subtitle: 'What your office wants no language model to see, and how Piloti recognises it.',
+    },
+    quarantine: {
+      title: 'Quarantine',
+      subtitle: 'Files the content check held back. No model has read them. Whoever may review them releases or deletes them here.',
     },
     compliance: {
       title: 'Compliance',
@@ -100,6 +110,95 @@ export const organization = {
       title: 'You cannot manage people here',
       description:
         'Managing people and roles needs the “Manage people and roles” permission. An organization admin can grant it.',
+    },
+  },
+  /**
+   * Personen & Zugriff → Eigene Rollen (ADR-0078): roles an office builds in
+   * WorkOS, assigned on the People tab, named by restricted folders.
+   */
+  customRoles: {
+    title: 'Custom roles',
+    description:
+      'Roles your office builds itself, beside Piloti’s. A role bundles permissions under a name such as “Management”.',
+    howTo:
+      'You assign roles to people on the People tab. A project folder can be restricted to one or more roles: then only people holding one of them see the folder, its documents and what Piloti answers from them. Organization admins always see everything.',
+    oneRoleTitle: 'One role per person',
+    oneRoleBody:
+      'Unless your organization has multiple roles per person switched on, everyone holds exactly one role. A role you use for folders must then also carry the permissions its holders work with.',
+    create: 'New role',
+    customGroup: 'Your office’s roles',
+    environmentGroup: 'Piloti’s roles',
+    environmentHint: 'Provided by Piloti for every organization. They cannot be changed here.',
+    emptyTitle: 'No custom roles yet',
+    emptyDescription: 'Create a role such as “Management” to restrict folders to the people who hold it.',
+    permissionCount: '{count, plural, one {# permission} other {# permissions}}',
+    editRole: 'Edit role “{name}”',
+    deleteRole: 'Delete role “{name}”',
+    loadError: 'The roles could not be loaded right now.',
+    readOnly: 'Only people with the “Manage people and roles” permission can change custom roles.',
+    editor: {
+      createTitle: 'New role',
+      editTitle: 'Edit role “{name}”',
+      createDescription:
+        'Name the role and choose what it may do. You assign it to people on the People tab afterwards.',
+      editDescription: 'The identifier stays the same, and everyone who holds the role keeps it.',
+      name: 'Name',
+      namePlaceholder: 'e.g. Management',
+      nameHint:
+        'Piloti derives the role’s identifier from its name when you create it. The identifier stays the same afterwards, even if you rename the role.',
+      nameRequired: 'Give the role a name.',
+      description: 'Description (optional)',
+      descriptionPlaceholder: 'Who holds this role, and what for',
+      permissions: 'Permissions',
+      permissionsHint:
+        'These permissions apply across the whole organization. Access to individual projects is granted per project.',
+      notGrantable: 'You do not hold this permission yourself, so you cannot grant it.',
+      create: 'Create role',
+      save: 'Save',
+      saving: 'Saving…',
+      created: 'Role “{name}” created. Assign it on the People tab.',
+      saved: 'Role “{name}” saved.',
+      saveError: 'The role could not be saved. Please try again.',
+      nameTaken: 'A role with this name already exists.',
+      forbidden: 'You can only put permissions you hold yourself into a role.',
+      discardTitle: 'Discard your changes?',
+      discardDescription: 'What you entered for this role has not been saved.',
+      discardConfirm: 'Discard',
+      keepEditing: 'Keep editing',
+    },
+    deleteDialog: {
+      title: 'Delete the role “{name}”?',
+      description:
+        'A role can only be deleted once nobody holds it. A folder restricted to this role alone is then visible to organization admins only.',
+      confirm: 'Delete role',
+      deleted: 'Role “{name}” deleted.',
+      stillAssigned: 'Somebody still holds this role. Give them another role on the People tab first.',
+      error: 'The role could not be deleted. Please try again.',
+    },
+    /** One label and one line per organization permission, keyed by the slug after `org:` with `:` as `_`. */
+    permission: {
+      settings_manage: { name: 'Manage organization settings', hint: 'Name, language and defaults of the organization.' },
+      models_manage: { name: 'Manage AI models', hint: 'Which model each part of Piloti works with.' },
+      budgets_manage: { name: 'Manage budgets', hint: 'Spending limits and usage of the whole organization.' },
+      compliance_manage: { name: 'Manage compliance', hint: 'Legal holds and deletions.' },
+      audit_view: { name: 'View the audit log', hint: 'The record of every privileged change.' },
+      archiv_manage: {
+        name: 'Manage the Archiv',
+        hint: 'Upload, delete and re-read documents in the office Archiv. Everyone can read it.',
+      },
+      skills_manage: {
+        name: 'Manage skills',
+        hint: 'Write, change and delete the office’s skills. Everyone can use them.',
+      },
+      projects_create: { name: 'Create projects', hint: 'Start new projects.' },
+      projects_administer: {
+        name: 'Administer all projects',
+        hint: 'Reach every project without being added to it, and see every restricted folder.',
+      },
+      members_manage: {
+        name: 'Manage people and roles',
+        hint: 'Invite people, change their roles, and build roles here.',
+      },
     },
   },
   overview: {
@@ -416,5 +515,73 @@ export const organization = {
       'Every privileged change — budgets, model configuration, settings, legal holds — is recorded in your organization’s WorkOS audit trail. The viewer opens in a new tab and can export events.',
     open: 'View audit logs',
     error: 'Could not open the audit log viewer.',
+  },
+  /** Sensitive data: the lists Piloti checks every upload against (ADR-0077). */
+  screening: {
+    title: 'Screening list',
+    description:
+      'Piloti checks every upload against these lists, and chat messages against the content terms and numbers. No model reads what matches.',
+    enabled: 'Screen uploads and chat',
+    enabledHint: 'When off, Piloti checks nothing. Your lists stay saved.',
+    suggestedTitle: 'Piloti’s suggestion applies',
+    suggestedBody:
+      'Your office has not saved its own list yet. Until it does, Piloti checks with this one. Once you save, yours applies.',
+    namesTitle: 'Before upload: file and folder names',
+    namesHint:
+      'The browser checks names before it sends anything. A matching file is not sent unless the person uploading releases it on its own.',
+    nameTerms: 'Name terms',
+    nameTermsHint: 'Matches inside words too: “Rechnung” finds “Schlussrechnung”.',
+    nameExceptions: 'Exceptions',
+    nameExceptionsHint: 'Words that contain a term but mean something else: “Berechnung” contains “Rechnung”.',
+    contentTitle: 'After upload: content',
+    contentHint:
+      'Piloti reads the text on its own server and checks it before any model sees it. Matches wait in quarantine until someone releases or deletes them. The same terms and numbers apply to chat messages: before sending, Piloti shows what it found and sends the message to the model only masked.',
+    contentTerms: 'Content terms',
+    contentTermsHint: 'Matches words that start with the term: “Honorar” finds “Honorarnote”.',
+    detectors: 'Detect numbers',
+    detectorsHint: 'Piloti recomputes the check digit. A number that only looks right does not match.',
+    detector: {
+      iban: 'IBAN',
+      at_svnr: 'Social security number (AT)',
+      credit_card: 'Credit card number',
+    },
+    limits:
+      'The check sees words and numbers, not meaning. A fee agreement that contains none of your terms gets through. Piloti checks scanned pages and images without a text layer by name only.',
+    termPlaceholder: 'Type a term, press Enter',
+    removeTerm: 'Remove “{term}”',
+    emptyList: 'No terms',
+    useSuggestion: 'Use suggestion',
+    saved: 'List saved. It applies from the next upload, and in chat once the page is reloaded at the latest.',
+    saveError: 'Could not save the list. Please try again.',
+    saveForbidden: 'You cannot change this list. That needs the “Manage organization settings” permission.',
+    invalid: 'A term is too long. A term has at most 80 characters.',
+    readOnly: 'Only people with the “Manage organization settings” permission can change these lists.',
+    loadError: 'Could not load the lists.',
+  },
+  /** Quarantine: files the content check held back (ADR-0077). */
+  quarantine: {
+    listLabel: 'Files held back',
+    empty: 'Nothing is waiting for review',
+    emptyHint: 'When the content check holds a file back, it appears here. You see the files you may release.',
+    whereProject: 'Project {name}',
+    whereProjectUnknown: 'A project',
+    whereArchiv: 'Archiv',
+    whereSession: 'Chat attachment',
+    reasonsLabel: 'Reasons',
+    noReason: 'Reason could not be read',
+    release: 'Release',
+    releaseTitle: 'Release “{name}”?',
+    releaseDescription:
+      'Piloti then reads the file like any other upload: language models see its content, and search finds it. The release is logged under your name.',
+    released: '“{name}” is released and being read.',
+    releaseError: 'Could not release the file. Please try again.',
+    changed: 'Someone already acted on this file. The list is up to date now.',
+    delete: 'Delete',
+    deleteTitle: 'Delete “{name}”?',
+    deleteDescription: 'The file is removed from Piloti. This cannot be undone.',
+    deleted: '“{name}” was deleted.',
+    deleteError: 'Could not delete the file. Please try again.',
+    deleteErrorSession: 'Only people in that chat can delete a chat attachment.',
+    loadError: 'Could not load the quarantine.',
   },
 }
