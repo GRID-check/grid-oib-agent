@@ -53,6 +53,8 @@ interface Fixture {
     version: string
     whitespace: number[]
     decimal_zeros: number[]
+    /** `[first, last]` code points the fixture's Unicode version assigns. */
+    assigned_ranges: [number, number][]
     classes_sha256: string
     fold_sha256: string
   }
