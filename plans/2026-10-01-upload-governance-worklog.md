@@ -175,3 +175,23 @@ modal must fetch its own data. No type opens a modal today.
 - **Container restarts:** two, mid-run. Uncommitted work survived on disk both times;
   stopped agents were resumed from their transcripts. The full vitest run in one
   process exceeds the container's memory; run it in shards.
+- **Independent verification, round one.** A verifier that wrote none of the code tried
+  to refute eight claims against a throwaway Postgres with the full migration chain.
+  Four held: no model call before the screen (1), restricted collections only in an
+  interactive chat scope (4), no permission escalation through custom roles (7), tenant
+  isolation of the new tables (8). The rest were refuted in part, and `4ef628f` fixes
+  what they and the follow-up review turned up: placement stopped after its first page
+  of candidates and never reconciled a row in flight; two ingests of one file into
+  different collections shared a dispatch key; the overview, document roles and the
+  cached prompt view still counted documents in hidden folders; `folders/ensure` told a
+  caller a hidden folder existed; a folder delete or move could carry documents out of
+  a restriction without `project:manage`; the intake wizard's upload skipped the name
+  screen; BIM routes read models in hidden folders; and a restricted turn's mark lived
+  in memory only (now migration 0105, `conversation_restricted_turns`). Full UI suite
+  after the fix, four shards: 11,383 passed, 0 failed. CI green on `4ef628f`.
+- **Memory decision (product owner, 2 Oct).** Writing nothing from a restricted turn
+  felt broken: „Restricted shouldn't feel like that it should feel like a first
+  thought." Chosen: **restricted memory**. A memory carries the restricted collections
+  it came from and is served only to people cleared for all of them; what the turn
+  cited or read decides, and when that says nothing an LLM judge classifies, failing
+  closed to every restricted collection in scope. Migration 0106.
