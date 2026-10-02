@@ -146,9 +146,21 @@ function sha256(text: string): string {
 describe('content screen: the character tables Python is held to too', () => {
   const codePoints = allCodePoints()
 
-  it('runs on the Unicode version the fixture was made with', () => {
-    // A different version changes the tables below: regenerate them in Python on the same version.
-    expect(fixture.unicode.version.startsWith(process.versions.unicode ?? '(unknown)')).toBe(true)
+  // The fixture is Python's Unicode version. Node may be newer (CI follows the
+  // latest 22.x), and a newer version only ASSIGNS characters: Unicode's
+  // stability policy keeps the class and case mapping of assigned ones. So the
+  // tables compare over the fixture version's assigned code points, and a
+  // newer runtime may add digits only among code points that version left
+  // unassigned. An OLDER runtime would miss characters Python knows.
+  const assigned: number[] = fixture.unicode.assigned_ranges.flatMap(
+    ([start, end]: [number, number]) => Array.from({ length: end - start + 1 }, (_, i) => start + i)
+  )
+  const assignedSet = new Set(assigned)
+
+  it("runs on the fixture's Unicode version or a newer one", () => {
+    const [major, minor] = (process.versions.unicode ?? '0.0').split('.').map(Number)
+    const [wantMajor, wantMinor] = fixture.unicode.version.split('.').map(Number)
+    expect(major > wantMajor || (major === wantMajor && minor >= wantMinor)).toBe(true)
   })
 
   it('takes whitespace to be exactly the White_Space property, as Python does', () => {
@@ -170,13 +182,15 @@ describe('content screen: the character tables Python is held to too', () => {
       const value = decimalDigitValue(cp)
       if (value !== null) actual.set(cp, value)
     }
-    expect(actual.size).toBe(760)
-    expect(actual).toEqual(expected)
+    expect(expected.size).toBe(760)
+    for (const [cp, value] of expected) expect([cp, actual.get(cp)]).toEqual([cp, value])
+    const added = [...actual.keys()].filter((cp) => !expected.has(cp))
+    expect(added.filter((cp) => assignedSet.has(cp))).toEqual([])
   })
 
-  it('classes every code point as a letter, number or mark as Python does', () => {
+  it('classes every assigned code point as a letter, number or mark as Python does', () => {
     const [letter, number, mark] = [/\p{L}/u, /\p{N}/u, /\p{M}/u]
-    const classes = codePoints.map((cp) => {
+    const classes = assigned.map((cp) => {
       const char = String.fromCodePoint(cp)
       if (letter.test(char)) return 'L'
       if (number.test(char)) return 'N'
@@ -185,8 +199,8 @@ describe('content screen: the character tables Python is held to too', () => {
     expect(sha256(classes.join(''))).toBe(fixture.unicode.classes_sha256)
   })
 
-  it('folds every code point as Python does', { timeout: 60_000 }, () => {
-    const folded = codePoints.map((cp) => foldContent(String.fromCodePoint(cp)))
+  it('folds every assigned code point as Python does', { timeout: 60_000 }, () => {
+    const folded = assigned.map((cp) => foldContent(String.fromCodePoint(cp)))
     expect(sha256(folded.join('\n'))).toBe(fixture.unicode.fold_sha256)
   })
 

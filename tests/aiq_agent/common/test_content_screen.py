@@ -118,13 +118,29 @@ def test_every_decimal_digit_is_listed_by_its_zero() -> None:
     assert digits == {zero + value: value for zero in zeros for value in range(10)}
 
 
+def _assigned_chars() -> list[str]:
+    """The code points the fixture's Unicode version assigns: the ones the TS twin is compared on.
+
+    A newer runtime (CI's Node follows the latest 22.x) adds characters; Unicode's
+    stability policy keeps the class and case mapping of the assigned ones, so
+    the tables compare over these.
+    """
+    return [chr(cp) for start, end in _unicode()["assigned_ranges"] for cp in range(start, end + 1)]
+
+
+def test_the_assigned_ranges_are_this_versions() -> None:
+    assert [ord(char) for char in _assigned_chars()] == [
+        ord(char) for char in _ALL_CHARS if unicodedata.category(char) != "Cn"
+    ]
+
+
 def test_the_character_classes_are_the_fixtures() -> None:
-    classes = "".join(c if (c := unicodedata.category(char)[0]) in "LNM" else "-" for char in _ALL_CHARS)
+    classes = "".join(c if (c := unicodedata.category(char)[0]) in "LNM" else "-" for char in _assigned_chars())
     assert hashlib.sha256(classes.encode()).hexdigest() == _unicode()["classes_sha256"]
 
 
-def test_the_fold_of_every_code_point_is_the_fixtures() -> None:
-    folded = "\n".join(fold(char) for char in _ALL_CHARS)
+def test_the_fold_of_every_assigned_code_point_is_the_fixtures() -> None:
+    folded = "\n".join(fold(char) for char in _assigned_chars())
     assert hashlib.sha256(folded.encode()).hexdigest() == _unicode()["fold_sha256"]
 
 
