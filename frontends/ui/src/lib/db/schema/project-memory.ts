@@ -41,6 +41,9 @@ export const PROJECT_MEMORY_PROVENANCES = [
 ] as const
 export type ProjectMemoryProvenance = (typeof PROJECT_MEMORY_PROVENANCES)[number]
 
+/** At most this many restricted collections restrict one item: the 0106 CHECK (ADR-0078). */
+export const PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS = 20
+
 /**
  * Memory scope: 'project' items belong to one project; 'organization' items are
  * cross-cutting knowledge shared by every project in the org (project_id NULL).
@@ -78,6 +81,15 @@ export const projectMemory = pgTable(
      * pair and a person can resolve it. Null for the ordinary note.
      */
     conflictsWithId: uuid('conflicts_with_id'),
+    /**
+     * The restricted-folder collections this item depends on (ADR-0078,
+     * migration 0106). NULL is open memory. A restricted item is served and
+     * shown only to a session cleared for ALL of them; one that is no longer a
+     * current restricted collection of the project clears nobody. Project scope
+     * only, 1–20 entries, stored sorted and de-duplicated
+     * (`canonicalRestriction` in `lib/projects/memory-service.ts`).
+     */
+    restrictedCollections: text('restricted_collections').array(),
     salience: real('salience').notNull().default(0.5),
     pinned: boolean('pinned').notNull().default(false),
     createdBy: text('created_by'),

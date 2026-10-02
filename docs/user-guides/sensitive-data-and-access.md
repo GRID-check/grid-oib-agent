@@ -100,9 +100,17 @@ them again; for a large folder that takes a few minutes, and the documents show
 „Wird gelesen" meanwhile.
 
 **A chat that draws on a restricted folder stays with the person who asked.**
-It cannot be shared, and Piloti writes nothing from such a chat into the
-project's memory. A file name used in a restricted folder cannot be uploaded a
-second time elsewhere in the project.
+It cannot be shared. A file name used in a restricted folder cannot be uploaded
+a second time elsewhere in the project.
+
+**What Piloti remembers from such a chat is restricted too.** Piloti keeps
+notes from it in the project's memory as it does from any chat, but a note that
+draws on a restricted folder is shown, under Projektspeicher, only to people
+cleared for that folder, with a lock that names it, and only their chats are
+given it. Everyone else does not see the note at all. A note meant for the
+whole organization that draws on a restricted folder is kept in the project
+instead. If the folder's restriction is later lifted, or the folder deleted,
+the note is shown to nobody until someone adds it again.
 
 **Building models (IFC) stay in open folders.** A model's building data is
 kept per project, not per folder, so a restriction could not protect it.

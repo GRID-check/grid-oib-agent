@@ -24,7 +24,11 @@
 import 'server-only'
 import { rolesOf, type AuthorizedSession } from '@/lib/auth/types'
 import { hasPermission, ORG_PERMISSIONS } from './permissions'
-import { listProjectFolderTree, projectHasRestrictedFolders } from './folder-access-repository'
+import {
+  listProjectFolderTree,
+  listRestrictedFolderNames,
+  projectHasRestrictedFolders,
+} from './folder-access-repository'
 
 /** What the decision needs of a folder. */
 export interface AccessFolder {
@@ -231,4 +235,38 @@ export async function placementCollectionFor(
   if (folderId === null || !(await projectHasRestrictedFolders(organizationId, projectId))) return projectCollection
   const folders = await listProjectFolderTree(organizationId, projectId)
   return computeFolderAccess(folders, { roles: [], seesEverything: true }, projectCollection).collectionFor(folderId)
+}
+
+/**
+ * Every CURRENT restricted collection of a project, whoever asks: what a stored
+ * restriction (a memory item, ADR-0078) is validated and served against. A
+ * collection missing from this list belongs to a restriction that was lifted or
+ * a folder that was deleted, and clears nobody. Empty for a project that
+ * restricts nothing, at the cost of one probe.
+ */
+export async function currentRestrictedCollections(
+  organizationId: string,
+  projectId: string,
+  projectCollection: string
+): Promise<string[]> {
+  if (!(await projectHasRestrictedFolders(organizationId, projectId))) return []
+  const folders = await listProjectFolderTree(organizationId, projectId)
+  return [
+    ...computeFolderAccess(folders, { roles: [], seesEverything: true }, projectCollection)
+      .clearedRestrictedCollections,
+  ]
+}
+
+/**
+ * The name of each current restricted folder, keyed by its collection: how a
+ * surface names a restriction to someone already cleared for it (the memory
+ * panel's lock). Never call it to decide access.
+ */
+export async function restrictedFolderNamesByCollection(
+  organizationId: string,
+  projectId: string,
+  projectCollection: string
+): Promise<Map<string, string>> {
+  const folders = await listRestrictedFolderNames(organizationId, projectId)
+  return new Map(folders.map((folder) => [restrictedCollectionName(projectCollection, folder.id), folder.name]))
 }

@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { FolderAccessMark } from '@/features/documents/components/folder-access-mark'
 import { useLocale, useTranslations } from '@/i18n'
 import type { Translator } from '@/i18n'
 
@@ -51,6 +52,16 @@ type MemoryItem = Omit<ProjectMemoryItem, 'createdAt' | 'updatedAt' | 'lastRefer
   createdAt: string
   updatedAt: string
   lastReferencedAt: string | null
+  /** The folders a restricted note (ADR-0078) is restricted to; only ever sent to a cleared reader. */
+  restrictedFolderNames?: string[]
+}
+
+/** The tooltip on a restricted note's lock: the folders it came from, when known. */
+function restrictionTitle(item: MemoryItem, t: Translator): string {
+  const folders = item.restrictedFolderNames ?? []
+  return folders.length > 0
+    ? t('memory.restricted.title', { folders: folders.join(', ') })
+    : t('memory.restricted.titleUnknown')
 }
 
 interface ProjectMemoryPanelProps {
@@ -484,6 +495,19 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                             )}
                             <span className="min-w-0">{item.content}</span>
                           </p>
+                          {item.restrictedCollections && item.restrictedCollections.length > 0 && (
+                            <Badge
+                              variant="outline"
+                              className="text-muted-foreground mt-1.5"
+                              data-testid="memory-restricted"
+                            >
+                              <FolderAccessMark
+                                roleNames={item.restrictedFolderNames ?? []}
+                                label={restrictionTitle(item, t)}
+                              />
+                              {t('memory.restricted.badge')}
+                            </Badge>
+                          )}
                           {item.conflictsWithId && (
                             <Badge
                               variant="outline"

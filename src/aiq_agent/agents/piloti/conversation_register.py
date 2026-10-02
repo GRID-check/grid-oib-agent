@@ -40,6 +40,7 @@ from aiq_agent.common.wire_v2 import RunFinishedBody
 from aiq_agent.common.wire_v2 import StatusStep
 from aiq_agent.common.wire_v2 import StepFinishedBody
 from aiq_agent.conversation_context import register_context_appender
+from aiq_agent.knowledge.inventory import get_turn_documents
 from aiq_agent.knowledge.inventory import set_inventory_drops
 from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import set_turn_documents
@@ -281,6 +282,11 @@ def _finished(
         query_text=inputs.query_text,
         cards=cards,
         remembered_this_turn=registries.memory_writes,
+        registry_collections=registries.source_collections,
+        restricted_memory_writes=registries.restricted_memory_writes,
+        # Every row the turn could list (`list_files` shows uncapped rows with
+        # their summaries), bound by `_prepare_turn` for this task.
+        listed_documents=get_turn_documents(),
     )
     schedule_post_answer_stages(facts, llms=stage_llms)
     return finished(build_result(outcome.state, cards, message_id))
@@ -414,7 +420,9 @@ async def _answer(turn: _Turn, *, message_id: str, stream: bool) -> AsyncIterato
     """
     runtime = turn.runtime
     outcome: TurnOutcome[ConversationState] | None = None
-    async with turn_registries(runtime.thread_id, turn.session_registry) as registries:
+    async with turn_registries(
+        runtime.thread_id, turn.session_registry, memory_digest=turn.context.stage_facts.memory_digest
+    ) as registries:
         answering = answer_turn(
             turn.agent,
             turn.state,

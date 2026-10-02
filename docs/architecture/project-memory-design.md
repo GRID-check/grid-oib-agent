@@ -66,6 +66,8 @@ project_memory
   source_message_id       uuid  null
   source_document_id      uuid  null              -- when grounded in an uploaded doc
   supersedes_id     uuid  null  fk → project_memory(id)   -- updates, not appends
+  restricted_collections text[] null              -- ADR-0078: the restricted-folder collections it
+                                                  -- depends on; NULL = open (§3.6, migration 0106)
   salience          real  default 0.5             -- retrieval/budget ranking
   pinned            bool  default false           -- always-inject core memory
   embedding_synced  bool  default false           -- has it been pushed to the vector store
@@ -129,6 +131,16 @@ the correction is still recorded, both stay active, and the user resolves it in
 the panel. Still outstanding from this section: embedding-based similarity (so
 semantically-distant contradictions are caught without a quote) and LLM
 adjudication of genuine two-sided conflicts.
+
+**Consolidation never crosses a restriction** (§3.6). Every pass — exact
+duplicate, semantic and lexical paraphrase, the named supersede target — only
+considers rows with exactly the same `restricted_collections` (stored sorted and
+de-duplicated, so equal restrictions are equal arrays). An open note never
+merges into, supersedes or is retired by a restricted one, and neither do two
+restricted notes with different collections: either would make a fact appear
+for, or vanish from, people the other row is not shown to. The 0010 dedup index
+carries the restriction since 0106, so an open and a restricted note with the
+same text can both be live.
 
 ### 3.3 Serve — how it reaches the agent (two channels)
 - **Always-on "core memory" digest**: pinned + top-salience items, compacted to a
@@ -221,14 +233,12 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
   requires a `project_id`; an org-only conversation is skipped.
 - **Substantive answers only** — meta/error/insufficiency and deep-research
   job-stub turns are skipped (nothing durable to record).
-- **Nothing from a restricted folder** (ADR-0078) — a turn whose signed scope
-  holds a restricted folder's collection (`<project collection>_r<12 hex>`)
-  writes no memory at all: the stage skips with `restricted_content`, the
-  `remember` tool refuses (project and org scope alike) and emits no
-  `memory_proposal` card, and a deep-research run's reflection skips when its
-  scope holds one. The test is the scope, not the hits, because the inventory
-  block puts every in-scope document's summary into the prompt of every turn.
-  Recognised by `aiq_agent/knowledge/restricted_collections.py`.
+- **Restricted memory from a restricted turn** (ADR-0078, §3.6) — a turn whose
+  signed scope holds a restricted folder's collection (`<project collection>_r<12 hex>`)
+  still reflects; each finding is written as restricted memory when it depends
+  on restricted content, through the same decision the `remember` tool uses.
+  A deep-research run's reflection still skips when its scope holds one (it
+  never does: research scopes carry no restricted collection).
 - **Digest de-duplication** — a finding already present in the shown digest is
   dropped. This is a soft guard, not the §3.2 consolidation gate (still a
   follow-up), so it does not catch semantic paraphrase or items outside the
@@ -278,6 +288,72 @@ backed by two partial UNIQUE indexes on normalized content (migration
 `0010_project_memory_dedup.sql`) that close the race window. This is a
 pragmatic slice of the §3.2 gate; embed-based consolidation remains a follow-up.
 See [memory-reflection-audit.md](./memory-reflection-audit.md).
+
+### 3.6 Restricted memory (ADR-0078)
+"Restricted shouldn't feel like amnesia, it should feel like a first thought"
+(product owner, 2026-10-02). A turn whose signed scope holds restricted-folder
+collections `R` remembers as any other turn does; what it writes carries the
+restricted collections it depends on (`restricted_collections`), and only a
+session cleared for **all** of them is served it or shown it.
+
+**Deciding the restriction** — one function, `aiq_agent/memory/restriction.py`
+`decide_restrictions`, called by the `remember` tool and the reflection stage:
+1. `R` empty → open.
+2. The turn cited or read sources from collections in `R` (its captures, its
+   cited and read-uncited sources, and the conversation's citation registry,
+   whose passages are in the history) → restricted to those.
+3. Restricted documents the turn could list but did not read — the inventory
+   block and `list_files` both show their summaries — go to a **model judge**:
+   the memory text plus those documents' name and summary; it names the
+   documents the memory draws on (strict JSON, one verdict per note), and
+   their collections are added. The judge runs on the memory-reflection model
+   (`memory_reflection_llm`; the tool's `judge_llm`, both `card_llm`), with the
+   org's override and credential, bounded at 12 s, one call per batch.
+   Restricted MEMORY in the prompt is judged too — the digest's `restricted`
+   lines and what the turn already stored as restricted — and a memory drawing
+   on one is restricted to all of `R` (a digest line does not say which
+   collections it carries). Without it, a paraphrase of a restricted note would
+   be filed as open memory.
+4. **Fail closed**: no judge model, a timeout, an error, an unparseable or
+   partial reply, more than 150 unread restricted documents, or an unknown
+   inventory → restricted to all of `R`.
+
+Organization scope that depends on restricted content is filed as restricted
+memory of the turn's project (org memory reaches every project); the BFF
+refuses a restricted organization write, and the 0106 CHECK backs it. A
+restricted finding never becomes a `memory_proposal` card: accepting a card is
+an open write by the user's own session.
+
+**Writing** — `POST /api/internal/memory` takes `restrictedCollections`;
+`createProjectMemoryItemForProject` refuses (400) any name that is not a
+CURRENT restricted collection of the project (`currentRestrictedCollections` in
+`lib/authz/folder-access.ts`), rather than store a note nobody could be served.
+
+**Serving** — every reader passes the restricted collections it is cleared
+for, and the default is none (open memory only):
+- the handshake digest (`/api/auth/websocket-scope`): the restricted
+  collections the socket's signed scope carries, which the scope builder gave
+  only to a cleared session on a thread only its asker reads;
+- the live per-turn digest (`/api/internal/memory/digest`): the agent sends the
+  restricted collections in its VERIFIED envelope (`restrictedCollections`),
+  intersected with the project's current ones. Deep research, scheduled runs
+  and the job worker send none;
+- the Project Memory panel and its routes (`getProjectMemory`, edit, delete):
+  the session's `clearedRestrictedCollections` from `getProjectFolderAccess`
+  (admins: every current one). A note the session may not see is absent — not
+  counted, and an edit or delete by id is a 404. A cleared reader sees a lock
+  naming the folders;
+- the digest marks a restricted line `restricted`;
+- `PROPOSAL_DECISIONS` leaves out every conversation with a restricted turn
+  (`conversation_restricted_turns`): the block is project-wide and a card's
+  words can carry what a restricted folder said.
+
+A collection whose restriction is lifted, or whose folder is deleted, clears
+nobody: the note is then shown to nobody until a person re-files it (accepted
+in ADR-0078). The per-query `mem_<project>` namespace of §3.3 is not built;
+recall runs inside the digest query over the row's own vector, under the same
+filter. Whoever builds that namespace must keep restricted notes out of it or
+filter them the same way.
 
 ## 4. Provenance & trust — non-negotiable for a compliance product
 

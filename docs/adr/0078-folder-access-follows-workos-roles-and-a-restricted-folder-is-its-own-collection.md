@@ -111,12 +111,27 @@ that folder's collection.
 2026-10-02: Piloti should remember as it always does; restricted must not feel
 like amnesia). A memory written in a turn whose scope holds restricted
 collections carries the restricted collections it depends on, and only a
-session cleared for all of them is ever served it or shown it. What the turn
-cited or read decides which collections; when it read nothing restricted but a
-restricted summary was in the prompt, a model judge decides whether the memory
-depends on restricted content, and an unanswered judge counts as yes. Memory
-meant for the whole organization that depends on restricted content is kept as
-restricted project memory instead.
+session cleared for all of them is ever served it or shown it. Which collections:
+
+- What the conversation read decides first: this turn's citations and reads,
+  and the citation registry of its earlier turns.
+- A restricted document the turn could list (the inventory block or
+  `list_files`) but did not read goes to a model judge, with its name and
+  summary. The judge also sees any restricted memory the prompt carried; a note
+  drawing on one of those is restricted to every restricted collection in
+  scope, because a digest line does not say which folder it came from. Without
+  that, a paraphrase of a restricted note would be stored as open memory.
+- Every failure fails closed to every restricted collection in scope: no judge
+  model, a timeout, a reply that does not parse strictly, an unknown inventory,
+  more than 150 unread restricted entries.
+
+Memory meant for the whole organization that depends on restricted content is
+kept as restricted project memory instead, and a restricted finding never
+becomes a `memory_proposal` card, because accepting a card writes open memory.
+Open and restricted notes never consolidate with each other. The decision is
+one function, `src/aiq_agent/memory/restriction.py`, shared by the `remember`
+tool and the reflection stage; the BFF stores only collections that are
+currently restricted collections of the project (migration 0106).
 
 **Re-classified here as "roles outside WorkOS"** and fixed: third-party
 permission checks (invitations, quarantine reviewers, storage alerts) consulted
@@ -137,6 +152,11 @@ to them. They now ask WorkOS for the organization's roles first.
 * Bad, because a memory restricted to a folder whose restriction is later lifted or whose
   folder is deleted names a collection that no longer exists, and is then shown to nobody
   until a person re-files it: the safe direction, but a loss.
+* Bad, because restricted memory over-restricts: once a conversation has read folder A, every
+  later note from it is restricted to A, and a note drawing on a restricted digest line is
+  restricted to every restricted folder in scope. Colleagues not cleared lose such a note; the
+  cleared author keeps it. A `remember` call that needs the judge waits for it (about 3 s, at
+  most 12 s).
 * Bad, because a move whose purge fails (backend unreachable), a document whose ingest is
   still running, and a restriction over more documents than one call moves (100) leave
   documents in the open collection until a later call or the scheduler's placement sweep
@@ -178,6 +198,11 @@ to them. They now ask WorkOS for the organization's roles first.
   pins the `project:manage` rule for folder deletes and moves.
 * `test_chat_socket.py` and `test_internal_api_confinement.py` prove the per-turn confinement
   check closes a socket whose thread was shared, and fails closed.
+* `tests/aiq_agent/memory/test_restriction.py` pins the restriction decision and each
+  fail-closed case; `memory-restricted.integration.spec.ts` proves against Postgres that a
+  restricted note is served only to a cleared session, never consolidates with an open one, and
+  that migration 0106's CHECK and index hold; `rls-test-db.sh` checks its down migration deletes
+  restricted notes rather than opening them.
 * `authz-coverage.spec.ts` covers the new routes.
 * Nothing enforces yet that a NEW read path asks `folder-access.ts`; review is the gate for that.
 

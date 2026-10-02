@@ -14,8 +14,9 @@ scope. Two other kinds of reader do:
   read a restricted collection as its base project collection rather than as a
   second, competing project;
 - whoever writes something that outlives the turn and is read by people the
-  restriction excludes. Project memory is that (ADR-0078, "indirect leaks"):
-  a turn that could read restricted content writes none.
+  restriction excludes. Project memory is that (ADR-0078): what a turn with
+  restricted collections in scope remembers is restricted memory, carrying the
+  collections it depends on (``aiq_agent/memory/restriction.py``).
 
 Prefix readers need nothing either: the name keeps its ``proj_`` prefix, so
 :func:`aiq_agent.common.source_kinds.legacy_shelf_for_collection_name` already

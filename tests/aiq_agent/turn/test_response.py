@@ -155,9 +155,58 @@ class TestPostAnswerTurnFacts:
     def test_memory_writes_cross(self):
         assert self._facts(_state(), remembered_this_turn=("Firma: Grid",)).remembered_this_turn == ("Firma: Grid",)
 
-    def test_a_restricted_collection_in_scope_crosses_as_read_restricted(self):
-        """ADR-0078: the memory-reflection gate reads it; a default would let the stage write."""
-        restricted = _state(collection_scope=["oib_knowledge", "proj_1", "proj_1_r0123456789ab"])
-        assert self._facts(restricted).read_restricted is True
-        assert self._facts(_state(collection_scope=["oib_knowledge", "proj_1"])).read_restricted is False
-        assert self._facts(_state()).read_restricted is False
+    def test_an_open_scope_crosses_as_no_restriction(self):
+        assert self._facts(_state(collection_scope=["oib_knowledge", "proj_1"])).restriction.restricted is False
+        assert self._facts(_state()).restriction.restricted is False
+
+    def test_the_restriction_evidence_crosses(self):
+        """ADR-0078: the reflection stage restricts what it writes from this.
+
+        Read is what the turn cited, what it read uncited, and what the
+        conversation's registry holds; listed is the uncapped inventory, else
+        the prompt's rows. A default would let the stage write open memory.
+        """
+        restricted_a = "proj_1_r0123456789ab"
+        restricted_b = "proj_1_rba9876543210"
+        restricted_c = "proj_1_rcccccccccccc"
+        state = _state(
+            collection_scope=["oib_knowledge", "proj_1", restricted_a, restricted_b, restricted_c],
+            verified_sources=[{"collection": restricted_a}, {"collection": "oib_knowledge"}],
+            read_sources=[{"collection": "proj_1"}],
+            available_documents=[
+                {"collection": restricted_c, "file_name": "prompt.pdf", "summary": "in the prompt"},
+            ],
+        )
+        facts = self._facts(
+            state,
+            registry_collections=(restricted_b,),
+            listed_documents=(
+                {"collection": restricted_c, "file_name": "Vertrag.pdf", "summary": "Honorar"},
+                {"collection": "proj_1", "file_name": "Plan.pdf", "summary": "open"},
+            ),
+        )
+        evidence = facts.restriction
+        assert evidence.scope == (restricted_a, restricted_b, restricted_c)
+        assert evidence.read == (restricted_a, restricted_b)
+        assert [doc.name for doc in evidence.documents] == ["Vertrag.pdf"]
+
+    def test_restricted_memory_in_the_prompt_crosses_as_notes(self):
+        """The digest's restricted lines and the tool's restricted writes this turn."""
+        restricted = "proj_1_r0123456789ab"
+        digest = '- [restricted | decision | high | unverified] "Honorar pauschal."'
+        facts = post_answer_turn_facts(
+            TurnFacts(project_id="proj_1", memory_digest=digest),
+            state=_state(collection_scope=["proj_1", restricted]),
+            query_text="q",
+            cards=[],
+            restricted_memory_writes=("Vertragsstrafe 0,1 %",),
+        )
+        assert facts.restriction.notes == ("Honorar pauschal.", "Vertragsstrafe 0,1 %")
+
+    def test_the_prompt_rows_stand_in_when_no_listing_was_bound(self):
+        restricted = "proj_1_r0123456789ab"
+        state = _state(
+            collection_scope=["proj_1", restricted],
+            available_documents=[{"collection": restricted, "file_name": "prompt.pdf", "summary": "s"}],
+        )
+        assert [doc.name for doc in self._facts(state).restriction.documents] == ["prompt.pdf"]

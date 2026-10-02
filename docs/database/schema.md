@@ -33,6 +33,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
 | `conversation-restricted-turns.ts` | `conversation_restricted_turns` |
+| `project-memory.ts` | `project_memory` (documented in [`project-memory-design.md`](../architecture/project-memory-design.md); the restricted-memory column below) |
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
@@ -709,7 +710,30 @@ Primary key: `conversation_restricted_turns_pk (organization_id, conversation_id
 `deleteConversationInOrg` deletes the row with the conversation. Repository:
 `lib/conversations/repository.ts` (`recordRestrictedTurn`, `hasRestrictedTurn`,
 `withdrawFreshRestrictedTurn`); proven against Postgres in
-`restricted-turns.integration.spec.ts`.
+`restricted-turns.integration.spec.ts`. `listRecentMessagesWithCardDecisions`
+also reads it: a conversation with a row here keeps its card decisions out of
+the project-wide `PROPOSAL_DECISIONS` block.
+
+---
+
+## project_memory.restricted_collections (migration 0106, ADR-0078)
+
+The table itself is described in
+[`project-memory-design.md`](../architecture/project-memory-design.md) §2; this
+is the column 0106 adds.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `restricted_collections` | `text[]` | NULL, or CHECK 1–20 entries, none NULL, `scope = 'project'` (`project_memory_restricted_collections_check`; with 0008's scope CHECK that implies a `project_id`) | The restricted-folder collections (`<project collection>_r<12 hex>`) the note depends on; `NULL` = open. Stored sorted and de-duplicated (`canonicalRestriction`). Served and shown only to a session cleared for ALL of them (`memoryVisibleTo` in `lib/projects/memory-service.ts`); a collection that is no longer a current restricted collection of the project clears nobody |
+
+Index: `uniq_project_memory_project_content_active` (from 0010) now keys on
+`(project_id, coalesce(restricted_collections, '{}'), normalized content)`, so an
+open and a restricted note with the same text can both be live; consolidation
+never crosses a restriction. No index on the column itself: every serving read
+already narrows by `project_id` and `status`, and the restricted filter is a
+predicate on those rows. The down migration DELETES restricted notes rather than
+opening them. Proven against Postgres in `memory-restricted.integration.spec.ts`;
+the down in `scripts/rls-test-db.sh`.
 
 ---
 

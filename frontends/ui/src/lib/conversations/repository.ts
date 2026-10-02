@@ -631,6 +631,9 @@ export async function deleteConversationInOrg(conversationId: string, organizati
  * profile patch is not proposed again next turn (ADR-0030's open question).
  * Tenant-scoped through the conversation's organization, and bounded — a
  * project's whole history of decisions is not what the next turn needs.
+ * Conversations with a restricted turn (`conversation_restricted_turns`) are
+ * left out: their cards may restate a restricted folder, and this block is
+ * project-wide.
  */
 export async function listRecentMessagesWithCardDecisions(
   projectId: string,
@@ -648,6 +651,10 @@ export async function listRecentMessagesWithCardDecisions(
         eq(conversations.organizationId, organizationId),
         isNull(conversations.deletedAt),
         sql`${messages.metadata} ? 'cardInteractions'`,
+        // A conversation that ran a restricted turn (ADR-0078) keeps its
+        // proposals to itself: the block is read into every member's digest,
+        // and a card's words can carry what a restricted folder said.
+        sql`not exists (select 1 from ${conversationRestrictedTurns} r where r.organization_id = ${conversations.organizationId} and r.conversation_id = ${conversations.id})`,
       ),
     )
     .orderBy(desc(messages.createdAt), desc(messages.id))

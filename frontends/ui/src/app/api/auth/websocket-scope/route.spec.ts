@@ -146,6 +146,29 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
     expect(loadProjectPromptView).toHaveBeenCalledWith('proj_q', 'org_1', null)
   })
 
+  it('serves restricted memory only for the restricted collections the signed scope carries (ADR-0078)', async () => {
+    const restricted = 'proj_proj_q_r0123456789ab'
+    buildCollectionScopeFromRequest.mockResolvedValue({
+      ...scopeReturning('proj_q'),
+      scope: ['base', 'proj_proj_q', restricted, 'proj_other_r0123456789ab'],
+    })
+
+    await upgrade('?projectId=proj_q&conversationId=s_mine')
+    expect(buildProjectMemoryDigest).toHaveBeenCalledWith('proj_q', 'org_1', {
+      clearedRestrictedCollections: [restricted],
+    })
+
+    // An uncleared member, or a shared thread: the scope carries none, and the
+    // digest is built with no clearance at all — open memory only.
+    buildProjectMemoryDigest.mockClear()
+    buildCollectionScopeFromRequest.mockResolvedValue({
+      ...scopeReturning('proj_q'),
+      scope: ['base', 'proj_proj_q'],
+    })
+    await upgrade('?projectId=proj_q&conversationId=s_shared')
+    expect(buildProjectMemoryDigest).toHaveBeenCalledWith('proj_q', 'org_1')
+  })
+
   it('returns 403 without firing the project lookups when the budget is blocked', async () => {
     getBudgetStatus.mockResolvedValue({ ...OPEN_BUDGET, blocked: true, blockedScope: 'org' })
 

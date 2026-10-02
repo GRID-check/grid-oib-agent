@@ -36,8 +36,9 @@ def stubs(monkeypatch):
     def lessons(_conversation_id):
         return calls["lessons"]
 
-    def digest(*, project_id, organization_id, query):
+    def digest(*, project_id, organization_id, query, restricted_collections=()):
         calls["digest_args"] = (project_id, organization_id, query)
+        calls["digest_restricted"] = list(restricted_collections)
         value = calls["digest"]
         if isinstance(value, Exception):
             raise value
@@ -242,3 +243,30 @@ def test_turn_identity_is_the_parsed_request_in_ledger_shape():
         "project_id": "p",
         "conversation_id": "conv",
     }
+
+
+class TestRestrictedMemoryInTheLiveDigest:
+    """ADR-0078: the live digest serves restricted memory only for the restricted
+    collections the turn's VERIFIED envelope carries."""
+
+    _SCOPE = ["oib_knowledge", "proj_p1", "proj_p1_r0123456789ab", "s_c1"]
+
+    async def test_a_signed_scope_passes_its_restricted_collections(self, stubs):
+        request = _request(
+            project_id="p1", organization_id="org", collection_scope=self._SCOPE, envelope_header="signed"
+        )
+        await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=False)
+        assert stubs["digest_restricted"] == ["proj_p1_r0123456789ab"]
+
+    async def test_an_unsigned_scope_passes_none(self, stubs):
+        """The raw-header fallback has nothing vouching for it."""
+        request = _request(project_id="p1", organization_id="org", collection_scope=self._SCOPE)
+        await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=False)
+        assert stubs["digest_restricted"] == []
+
+    async def test_an_open_scope_passes_none(self, stubs):
+        request = _request(
+            project_id="p1", organization_id="org", collection_scope=["proj_p1"], envelope_header="signed"
+        )
+        await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=False)
+        assert stubs["digest_restricted"] == []

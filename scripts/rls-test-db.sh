@@ -101,13 +101,14 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, restricted-turn, run-reconciler and usage-ledger suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, restricted memory, profile-binding, legal-hold, chat-erasure, restricted-turn, run-reconciler and usage-ledger suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
     src/lib/bim/query.integration.spec.ts \
     src/lib/bim/model-shelf.integration.spec.ts \
     src/lib/projects/memory-service.integration.spec.ts \
+    src/lib/projects/memory-restricted.integration.spec.ts \
     src/lib/documents/document-versions.integration.spec.ts \
     src/lib/documents/list-page.integration.spec.ts \
     src/lib/upload-batches/upload-batches.integration.spec.ts \
@@ -356,3 +357,46 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
   npx vitest run src/lib/conversations/herleitung-steps-v2.migration.spec.ts
 
 echo "==> 0097 step rewrite and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0106: restricted project memory, and its DOWN migration.
+#
+# The down is lossy on purpose and in the safe direction: restricted notes are
+# DELETED, because dropping the column alone would serve them to everyone.
+# Checked on the fully migrated database, as the owner: an open and a
+# restricted note with the same text (which only the 0106 index allows), the
+# down, then 0106 again.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0106 restricted memory down migration on grid_app"
+$MIGRATE -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name)
+VALUES ('aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'Memory 0106', 'user_1', 'proj_0106');
+INSERT INTO project_memory (scope, project_id, organization_id, kind, content, restricted_collections) VALUES
+  ('project', 'aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'decision', 'Honorar pauschal', NULL),
+  ('project', 'aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'decision', 'Honorar pauschal', ARRAY['proj_0106_r0123456789ab']);
+SQL
+checkm() {
+  local got
+  got=$($MIGRATE -tAc "$1")
+  if [ "$got" != "$2" ]; then
+    echo "0106 ASSERTION FAILED: $3" >&2
+    echo "  query: $1" >&2
+    echo "  got:   $got" >&2
+    exit 1
+  fi
+}
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0106_project_memory_restricted.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0106 FAILED — re-run without -q to see the error" >&2
+  exit 1
+}
+checkm "SELECT count(*) FROM project_memory WHERE organization_id = 'org_0106'" "1" "down deleted the restricted note and kept the open one"
+checkm "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_collections'" "0" "down dropped the column"
+checkm "SELECT to_regclass('public.uniq_project_memory_project_content_active') IS NOT NULL" "t" "down restored the dedup index"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0106_project_memory_restricted.sql" >/dev/null || {
+  echo "MIGRATION 0106 FAILED on re-apply — re-run without -q to see the error" >&2
+  exit 1
+}
+checkm "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_collections'" "1" "0106 re-applies"
+$MIGRATE -q -c "DELETE FROM project_memory WHERE organization_id = 'org_0106'; DELETE FROM projects WHERE organization_id = 'org_0106';" >/dev/null
+
+echo "==> 0106 down migration verified"

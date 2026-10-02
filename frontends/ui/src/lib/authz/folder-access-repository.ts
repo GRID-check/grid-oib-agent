@@ -48,6 +48,28 @@ export async function listProjectFolderTree(organizationId: string, projectId: s
   return rows.map((row) => ({ id: row.id, parentId: row.parentId, restrictedRoles: row.restrictedRoles ?? null }))
 }
 
+/** The project's restricted folders by name — for labelling a restriction, never for deciding one. */
+export async function listRestrictedFolderNames(
+  organizationId: string,
+  projectId: string
+): Promise<Array<{ id: string; name: string }>> {
+  const db = getDb()
+  return withTenant({ organizationId }, () =>
+    db
+      .select({ id: projectFolders.id, name: projectFolders.name })
+      .from(projectFolders)
+      .innerJoin(projects, eq(projects.id, projectFolders.projectId))
+      .where(
+        and(
+          eq(projectFolders.projectId, projectId),
+          eq(projects.organizationId, organizationId),
+          isNotNull(projectFolders.restrictedRoles)
+        )
+      )
+      .limit(500)
+  )
+}
+
 /**
  * Every retrieval collection the project's documents live in: its own, and one
  * per restricted folder that holds something. What a change that must reach

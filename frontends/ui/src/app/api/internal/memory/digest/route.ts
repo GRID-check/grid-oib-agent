@@ -2,6 +2,9 @@ import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
+import { PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS } from '@/lib/db/schema'
+import { currentRestrictedCollections } from '@/lib/authz/folder-access'
+import { findProjectCollectionName } from '@/lib/projects/repository'
 import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/projects/proposal-decisions'
 import { buildReviewDecisionsBlock } from '@/lib/documents/review-decisions'
 
@@ -40,6 +43,17 @@ const digestQuerySchema = z
      * filed nothing looks like anyway.
      */
     conversationId: z.string().trim().max(200).optional(),
+    /**
+     * The restricted-folder collections in the turn's SIGNED scope (ADR-0078),
+     * comma-separated. The agent sends only what its verified envelope carries,
+     * and only for an interactive chat turn — the one scope the BFF ever puts
+     * them in, for a session cleared for them on a thread only its asker reads.
+     * Restricted memory is served when all of an item's collections are among
+     * them. Intersected below with the project's CURRENT restricted
+     * collections, so a lifted restriction clears nobody. Absent (deep
+     * research, scheduled runs, the handshake): open memory only.
+     */
+    restrictedCollections: z.string().trim().max(5000).optional(),
   })
   // Empty strings behave like absent params (previous `|| undefined` behavior).
   .transform((query) => ({
@@ -47,15 +61,40 @@ const digestQuerySchema = z
     organizationId: query.organizationId || undefined,
     query: query.query || undefined,
     conversationId: query.conversationId || undefined,
+    restrictedCollections: (query.restrictedCollections ?? '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .slice(0, PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS),
   }))
   .refine((query) => !!(query.projectId || query.organizationId), {
     message: 'projectId or organizationId is required',
   })
 
+/**
+ * The turn's restricted collections that are still CURRENT restricted
+ * collections of the project. A collection whose restriction was lifted, or
+ * whose folder was deleted, clears nobody (ADR-0078): the turn's scope was
+ * signed before that happened.
+ */
+async function currentClearance(
+  organizationId: string,
+  projectId: string,
+  requested: readonly string[]
+): Promise<string[]> {
+  const projectCollection = await findProjectCollectionName(projectId, organizationId)
+  if (!projectCollection) return []
+  const current = new Set(await currentRestrictedCollections(organizationId, projectId, projectCollection))
+  return requested.filter((name) => current.has(name))
+}
+
 export const GET = internalApiRoute(
   'Internal Memory Digest',
   async ({ request }) => {
-    const { projectId, organizationId, query, conversationId } = parseQuery(request, digestQuerySchema)
+    const { projectId, organizationId, query, conversationId, restrictedCollections } = parseQuery(
+      request,
+      digestQuerySchema
+    )
 
     // The schema accepts a projectId on its own, so the organization is not
     // always known here. It has to be RESOLVED rather than skipped: reading the
@@ -80,7 +119,14 @@ export const GET = internalApiRoute(
       // rather than recency-ordered; without it the digest is what it always
       // was. Optional on purpose — a caller that has no question (the WS
       // handshake) must still get a digest.
-      const digest = await buildProjectMemoryDigest(projectId, tenant, { query })
+      const clearedRestrictedCollections =
+        projectId && restrictedCollections.length > 0
+          ? await currentClearance(tenant, projectId, restrictedCollections)
+          : []
+      const digest = await buildProjectMemoryDigest(projectId, tenant, {
+        query,
+        clearedRestrictedCollections,
+      })
       // The decisions the project made about the agent's own proposals ride
       // the same channel, so a declined patch is not proposed again. Best
       // effort: a failure here must not cost the turn its memory.

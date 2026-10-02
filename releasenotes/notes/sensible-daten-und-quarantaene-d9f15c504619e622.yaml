@@ -27,6 +27,11 @@ features:
   - >
     A chat whose answers draw on a restricted folder stays with the person who
     asked, so it cannot be shared with colleagues who may not see that folder.
+  - >
+    What Piloti remembers from such a chat is kept for the people allowed to
+    know it. Only those cleared for the folder it came from see the note in
+    the project memory, where a lock names that folder, and only their chats are
+    given it.
 fixes:
   - >
     Sharing a chat with colleagues works again.

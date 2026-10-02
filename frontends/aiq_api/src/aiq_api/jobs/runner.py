@@ -2303,9 +2303,11 @@ async def _run_deep_research_reflection(
     restricted = restricted_collections_in(collection_scope)
     if restricted:
         # ADR-0078: a run's scope never carries a restricted folder's collection
-        # today (the BFF leaves it out of every research scope). Should one ever
-        # arrive, the report could hold restricted content, and project memory
-        # is read by people the restriction excludes. Same rule as the chat stage.
+        # (the BFF leaves it out of every research scope). Should one ever
+        # arrive, nothing is written: the chat stage files such findings as
+        # restricted memory, but that rests on a scope signed for one cleared
+        # session's private thread, and a run's report is filed for the whole
+        # project. Defense in depth, kept on purpose.
         logger.info("Job %s: memory reflection skipped, scope includes restricted %s", job_id, restricted)
         return
     identity = (usage_context or {}).get("identity") or {}

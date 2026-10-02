@@ -29,6 +29,7 @@ from aiq_agent.common.image_view_budget import end_image_view_budget
 from aiq_agent.knowledge.project_memory import begin_turn_memory_log
 from aiq_agent.knowledge.project_memory import end_turn_memory_log
 from aiq_agent.knowledge.project_memory import turn_memory_writes
+from aiq_agent.knowledge.project_memory import turn_restricted_memory_writes
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,13 @@ class TurnRegistries:
     #: What the ``remember`` tool wrote DURING the turn. Filled when the
     #: context exits — the log is unbound at that moment.
     memory_writes: tuple[str, ...] = field(default_factory=tuple)
+    #: The part of ``memory_writes`` stored as restricted memory (ADR-0078).
+    restricted_memory_writes: tuple[str, ...] = field(default_factory=tuple)
+    #: The retrieval collections of every source the conversation's citation
+    #: registry holds once the turn ended — this turn's and the earlier ones,
+    #: whose passages are in the history. Read by the memory restriction
+    #: decision (ADR-0078). Filled when the context exits.
+    source_collections: tuple[str, ...] = field(default_factory=tuple)
 
 
 async def load_session_registry(conversation_id: str | None) -> SourceRegistry:
@@ -61,20 +69,37 @@ async def load_session_registry(conversation_id: str | None) -> SourceRegistry:
         return SourceRegistry()
 
 
+def _registry_collections(registry: SourceRegistry) -> tuple[str, ...]:
+    """The distinct collections of a citation registry's sources; empty on any fault."""
+    try:
+        return tuple(dict.fromkeys(source.collection for source in registry.all_sources() if source.collection))
+    except Exception:  # noqa: BLE001 - a stage fact is never worth a failed turn
+        logger.warning("Could not read the citation registry's collections", exc_info=True)
+        return ()
+
+
 @asynccontextmanager
-async def turn_registries(conversation_id: str, session_registry: SourceRegistry) -> AsyncIterator[TurnRegistries]:
-    """Bind the four per-turn registries; unbind and persist on exit, however it exits."""
+async def turn_registries(
+    conversation_id: str, session_registry: SourceRegistry, *, memory_digest: str | None = None
+) -> AsyncIterator[TurnRegistries]:
+    """Bind the four per-turn registries; unbind and persist on exit, however it exits.
+
+    ``memory_digest`` is the memory digest the agent is shown this turn; the
+    memory log keeps it for the ``remember`` tool (ADR-0078).
+    """
     cards = get_or_create_card_registry(conversation_id)
     cards.clear()
     registries = TurnRegistries(cards=cards)
     session_token = set_session_registry(session_registry)
     card_token = set_card_registry(cards)
     image_token = begin_image_view_budget()
-    memory_token = begin_turn_memory_log()
+    memory_token = begin_turn_memory_log(memory_digest)
     try:
         yield registries
     finally:
         registries.memory_writes = turn_memory_writes()
+        registries.restricted_memory_writes = turn_restricted_memory_writes()
+        registries.source_collections = _registry_collections(session_registry)
         end_turn_memory_log(memory_token)
         end_image_view_budget(image_token)
         reset_card_registry(card_token)

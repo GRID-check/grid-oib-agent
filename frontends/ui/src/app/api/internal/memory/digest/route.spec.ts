@@ -15,6 +15,8 @@ vi.mock('@/lib/projects/memory-service', () => ({
 }))
 
 vi.mock('@/lib/documents/review-decisions', () => ({ buildReviewDecisionsBlock: vi.fn() }))
+vi.mock('@/lib/authz/folder-access', () => ({ currentRestrictedCollections: vi.fn(async () => []) }))
+vi.mock('@/lib/projects/repository', () => ({ findProjectCollectionName: vi.fn(async () => 'proj_x') }))
 vi.mock('@/lib/projects/proposal-decisions', () => ({
   buildProposalDecisionsBlock: vi.fn(async () => null),
   // The real function's shape, three blocks on one channel — kept in step with
@@ -27,6 +29,8 @@ vi.mock('@/lib/projects/proposal-decisions', () => ({
 import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
 import { buildProposalDecisionsBlock } from '@/lib/projects/proposal-decisions'
 import { buildReviewDecisionsBlock } from '@/lib/documents/review-decisions'
+import { currentRestrictedCollections } from '@/lib/authz/folder-access'
+import { findProjectCollectionName } from '@/lib/projects/repository'
 import { GET } from './route'
 
 const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
@@ -94,6 +98,7 @@ describe('GET /api/internal/memory/digest', () => {
     expect(body.digest).toContain('PROJECT_MEMORY v1')
     expect(buildProjectMemoryDigest).toHaveBeenCalledWith(PROJECT_ID, ORG_ID, {
       query: undefined,
+      clearedRestrictedCollections: [],
     })
   })
 
@@ -108,6 +113,7 @@ describe('GET /api/internal/memory/digest', () => {
     expect(body.digest).toBeNull()
     expect(buildProjectMemoryDigest).toHaveBeenCalledWith(undefined, ORG_ID, {
       query: undefined,
+      clearedRestrictedCollections: [],
     })
   })
 
@@ -140,6 +146,7 @@ describe('GET /api/internal/memory/digest', () => {
       // made the read unscoped.
       expect(buildProjectMemoryDigest).toHaveBeenCalledWith(PROJECT_ID, ORG_ID, {
       query: undefined,
+      clearedRestrictedCollections: [],
     })
     })
 
@@ -221,5 +228,62 @@ describe('what a person decided about the drafts this conversation filed', () =>
 
     const response = await GET(makeRequest(`?projectId=${PROJECT_ID}&conversationId=s_conv_1`, REAL_TOKEN))
     expect(await response.json()).toEqual({ digest: 'PROJECT_MEMORY v1\n- x' })
+  })
+})
+
+/**
+ * ADR-0078: the agent passes the restricted collections in its turn's SIGNED
+ * scope, and restricted memory is served only for those that are still
+ * current restricted collections of the project.
+ */
+describe('restricted memory in the per-turn digest', () => {
+  const CURRENT = 'proj_x_raaaaaaaaaaaa'
+  const LIFTED = 'proj_x_rbbbbbbbbbbbb'
+
+  it('is served for the turn\'s collections that are still restricted, and only those', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(buildProjectMemoryDigest).mockResolvedValue(null)
+    vi.mocked(currentRestrictedCollections).mockResolvedValueOnce([CURRENT])
+
+    const response = await GET(
+      makeRequest(
+        `?projectId=${PROJECT_ID}&organizationId=${ORG_ID}&restrictedCollections=${CURRENT},${LIFTED}`,
+        REAL_TOKEN
+      )
+    )
+
+    expect(response.status).toBe(200)
+    expect(findProjectCollectionName).toHaveBeenCalledWith(PROJECT_ID, ORG_ID)
+    expect(currentRestrictedCollections).toHaveBeenCalledWith(ORG_ID, PROJECT_ID, 'proj_x')
+    expect(buildProjectMemoryDigest).toHaveBeenCalledWith(PROJECT_ID, ORG_ID, {
+      query: undefined,
+      clearedRestrictedCollections: [CURRENT],
+    })
+  })
+
+  it('is not served without the param (deep research, scheduled runs)', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(buildProjectMemoryDigest).mockResolvedValue(null)
+
+    await GET(makeRequest(`?projectId=${PROJECT_ID}&organizationId=${ORG_ID}`, REAL_TOKEN))
+
+    expect(currentRestrictedCollections).not.toHaveBeenCalled()
+    expect(buildProjectMemoryDigest).toHaveBeenCalledWith(PROJECT_ID, ORG_ID, {
+      query: undefined,
+      clearedRestrictedCollections: [],
+    })
+  })
+
+  it('is not served for an organization-only digest', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(buildProjectMemoryDigest).mockResolvedValue(null)
+
+    await GET(makeRequest(`?organizationId=${ORG_ID}&restrictedCollections=${CURRENT}`, REAL_TOKEN))
+
+    expect(currentRestrictedCollections).not.toHaveBeenCalled()
+    expect(buildProjectMemoryDigest).toHaveBeenCalledWith(undefined, ORG_ID, {
+      query: undefined,
+      clearedRestrictedCollections: [],
+    })
   })
 })

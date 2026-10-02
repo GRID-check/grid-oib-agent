@@ -712,6 +712,86 @@ class TestRunMemoryReflection:
         assert ids == []
 
 
+class _ScriptedLLM:
+    """Answers each call with the next canned reply: the reflection, then the judge."""
+
+    def __init__(self, *replies: str) -> None:
+        self._replies = list(replies)
+        self.calls: list = []
+
+    def bind(self, **_kwargs):
+        return self
+
+    async def ainvoke(self, messages):
+        self.calls.append(messages)
+        return _FakeResponse(self._replies.pop(0))
+
+
+class TestRestrictedReflection:
+    """ADR-0078: a turn that could read a restricted folder still reflects, and
+    each finding goes through the one restriction decision before it is written."""
+
+    _RESTRICTED = "proj-1_r0123456789ab"
+    _FINDINGS = (
+        '{"findings": [{"kind": "decision", "content": "Honorar LP 5-8 ist pauschal 184.000 EUR.", '
+        '"confidence": "high"}, {"kind": "decision", "content": "Flachdach extensiv begrünt.", '
+        '"confidence": "high"}]}'
+    )
+
+    def _evidence(self, *, read=()):
+        from aiq_agent.memory.restriction import restriction_evidence
+
+        return restriction_evidence(
+            ["proj-1", self._RESTRICTED],
+            source_collections=read,
+            listed_documents=[{"collection": self._RESTRICTED, "file_name": "Vertrag.pdf", "summary": "Honorar"}],
+        )
+
+    async def _run(self, monkeypatch, llm, evidence):
+        recorded = []
+        monkeypatch.setattr(R, "insert_memory_item", lambda **k: recorded.append(k) or f"id-{len(recorded)}")
+        await R.run_memory_reflection(
+            llm=llm,
+            query="Was ist vereinbart?",
+            answer="Pauschal 184.000 EUR; Flachdach.",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest=None,
+            restriction=evidence,
+        )
+        return {k["content"]: k["restricted_collections"] for k in recorded}
+
+    @pytest.mark.asyncio
+    async def test_the_judge_restricts_only_the_finding_that_draws_on_the_folder(self, monkeypatch):
+        llm = _ScriptedLLM(self._FINDINGS, '{"notes": [{"note": 1, "documents": [1]}, {"note": 2, "documents": []}]}')
+        written = await self._run(monkeypatch, llm, self._evidence())
+        assert written == {
+            "Honorar LP 5-8 ist pauschal 184.000 EUR.": (self._RESTRICTED,),
+            "Flachdach extensiv begrünt.": None,
+        }
+        assert len(llm.calls) == 2, "one judge call for the whole batch"
+
+    @pytest.mark.asyncio
+    async def test_a_read_folder_restricts_every_finding_without_a_judge(self, monkeypatch):
+        llm = _ScriptedLLM(self._FINDINGS)
+        written = await self._run(monkeypatch, llm, self._evidence(read=[self._RESTRICTED]))
+        assert set(written.values()) == {(self._RESTRICTED,)}
+        assert len(llm.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_an_unparseable_judge_restricts_everything(self, monkeypatch):
+        llm = _ScriptedLLM(self._FINDINGS, "I think the first one, maybe")
+        written = await self._run(monkeypatch, llm, self._evidence())
+        assert set(written.values()) == {(self._RESTRICTED,)}
+
+    @pytest.mark.asyncio
+    async def test_an_open_turn_writes_open_memory(self, monkeypatch):
+        llm = _ScriptedLLM(self._FINDINGS)
+        written = await self._run(monkeypatch, llm, None)
+        assert set(written.values()) == {None}
+
+
 class TestMemoryReflectionAsAStage:
     """The same behaviours the bespoke scheduler used to guarantee, now going
     through the post-answer stage runner. This is the migration's own test: what

@@ -17,6 +17,7 @@ from typing import Any
 from aiq_agent.auth import get_current_principal
 from aiq_agent.common.platform_lessons import get_platform_lessons_digest
 from aiq_agent.knowledge.project_memory import fetch_memory_digest
+from aiq_agent.knowledge.restricted_collections import restricted_collections_in
 from aiq_agent.project_context import GridRequestContext
 from aiq_agent.project_context import compose_project_context
 from aiq_agent.project_context import get_user_message_id_from_context
@@ -88,6 +89,19 @@ def user_info_from_principal() -> dict[str, Any] | None:
     return {"name": principal.name, "email": principal.email}
 
 
+def signed_restricted_collections(request: GridRequestContext) -> list[str]:
+    """The restricted-folder collections in the turn's VERIFIED envelope (ADR-0078).
+
+    What the live digest may serve restricted memory for. The BFF puts them in a
+    scope only for an interactive chat turn of a session cleared for them, on a
+    thread only its asker reads; a scope read from the unsigned header
+    fallback (no envelope) gets none, because nothing vouches for it.
+    """
+    if not request.envelope_header:
+        return []
+    return restricted_collections_in(request.collection_scope)
+
+
 async def _live_memory_digest(request: GridRequestContext, query_text: str) -> str | None:
     """This turn's project-memory digest.
 
@@ -104,6 +118,7 @@ async def _live_memory_digest(request: GridRequestContext, query_text: str) -> s
             project_id=request.project_id,
             organization_id=request.organization_id,
             query=query_text,
+            restricted_collections=signed_restricted_collections(request),
         )
     except (RuntimeError, OSError, ValueError):
         # The documented failure modes of fetch_memory_digest: configuration,
