@@ -1,8 +1,11 @@
 import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
-import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
-import { PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS } from '@/lib/db/schema'
+import {
+  buildProjectMemoryDigest,
+  PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS,
+  resolveProjectOrganization,
+} from '@/lib/projects/memory-service'
 import { currentRestrictedCollections } from '@/lib/authz/folder-access'
 import { findProjectCollectionName } from '@/lib/projects/repository'
 import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/projects/proposal-decisions'

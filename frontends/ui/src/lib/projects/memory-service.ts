@@ -29,6 +29,9 @@ import {
 } from '@/lib/knowledge/embeddings'
 import { daysSince, fuseHybridRelevance, rankByRecallScore } from '@/lib/knowledge/recall-scoring'
 
+/** Re-exported so a route reads the bound without importing the schema (ADR-0017). */
+export { PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS }
+
 /**
  * Memory service — system-of-record CRUD plus the bounded "core digest"
  * that is injected into the agent's context on every WebSocket handshake.

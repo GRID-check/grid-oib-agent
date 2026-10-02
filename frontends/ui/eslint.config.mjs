@@ -3,6 +3,7 @@ import requireTenantScope from './eslint-rules/require-tenant-scope.mjs'
 import motionVocabulary from './eslint-rules/motion-vocabulary.mjs'
 import cardTypeScale from './eslint-rules/card-type-scale.mjs'
 import requireTenantCacheKey from './eslint-rules/require-tenant-cache-key.mjs'
+import { PRE_EXISTING_DB_IMPORTERS } from './eslint-rules/route-db-access-allowlist.mjs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -59,6 +60,9 @@ const CARDS_ON_THE_TYPE_RAMP = [
   'src/features/grid-cards/schematics/kit.tsx',
 ]
 
+const TRANSPORT_DOES_NOT_QUERY =
+  'Route handlers and server components call a service; the query lives there (ADR-0017). Re-export a constant from the service if the route needs one.'
+
 /** @type {import('eslint').Linter.Config[]} */
 export default [
   ...compat.extends('next/core-web-vitals', 'next/typescript'),
@@ -71,6 +75,30 @@ export default [
     files: ['src/app/**/*.{ts,tsx}'],
     ignores: ['src/**/*.spec.{ts,tsx}'],
     rules: { 'grid/require-tenant-scope': 'error' },
+  },
+  {
+    // Transport code does not query (ADR-0017). `server-component-db-access.spec.ts`
+    // holds the same rule, but it lives under src/lib/db, so a targeted test run
+    // of the area you changed never reaches it, and twice in one branch a route
+    // importing `@/lib/db/schema` was first caught by CI. Here it fails
+    // `eslint <file>` and the editor. Type-only imports stay allowed.
+    files: ['src/app/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.spec.{ts,tsx}', ...PRE_EXISTING_DB_IMPORTERS.map((file) => `src/${file.replace(/[[\]]/g, '\\$&')}`)],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          paths: [{ name: '@/lib/db', allowTypeImports: true, message: TRANSPORT_DOES_NOT_QUERY }],
+          patterns: [
+            {
+              group: ['@/lib/db/*', '!@/lib/db/tenant-context'],
+              allowTypeImports: true,
+              message: TRANSPORT_DOES_NOT_QUERY,
+            },
+          ],
+        },
+      ],
+    },
   },
   {
     // The other half of the tenant boundary, and the half row-level security

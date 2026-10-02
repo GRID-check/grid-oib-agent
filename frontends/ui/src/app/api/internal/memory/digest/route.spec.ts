@@ -11,6 +11,7 @@ vi.mock('@/lib/auth/require-auth', () => ({
 
 vi.mock('@/lib/projects/memory-service', () => ({
   buildProjectMemoryDigest: vi.fn(),
+  PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS: 20,
   resolveProjectOrganization: vi.fn(),
 }))
 
