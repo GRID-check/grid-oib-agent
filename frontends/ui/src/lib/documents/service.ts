@@ -101,6 +101,7 @@ import { newVersionWriteId, versionWriteKey } from './version-content'
 import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
+import { assertIfcMayBeFiledIn } from '@/lib/projects/ifc-folder-guard'
 import {
   INLINE_PREVIEW_CONTENT_TYPES,
   TEXT_PREVIEW_CONTENT_TYPES as SHARED_TEXT_PREVIEW_CONTENT_TYPES,
@@ -1014,6 +1015,9 @@ export async function uploadDocument(
   const access = await getProjectFolderAccess(session, projectId, project.collectionName)
   if (!access.isVisible(folderId)) throw new NotFoundError('Folder not found in project')
   const collectionName = access.collectionFor(folderId)
+  // Restricted folders do not hold IFC models until their building data is
+  // partitioned (ADR-0078); refused before a byte is stored.
+  assertIfcMayBeFiledIn(file.name, collectionName, project.collectionName)
 
   let folderPath: string | null = null
   if (folderId) {

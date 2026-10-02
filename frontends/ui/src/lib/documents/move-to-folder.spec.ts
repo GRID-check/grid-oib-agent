@@ -234,4 +234,35 @@ describe('moveDocumentToFolder across a restriction (ADR-0078)', () => {
     expect(placeProjectDocuments).toHaveBeenCalledWith('org-1', 'proj-1')
     expect(fetchSpy).not.toHaveBeenCalled()
   })
+
+  // Restricted folders do not hold IFC models (ADR-0078): the model's building
+  // data is keyed by project, so the move would hide the file and leave the
+  // building open.
+  it('refuses to move an IFC model into a restricted folder, with a 409', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(
+      access({ collectionFor: (id) => (id === 'f-locked' ? 'proj_1_r0123456789ab' : 'proj_1') })
+    )
+    db.selects = [[{ ...DOCUMENT, filename: 'Haus-A_V3.ifc' }], [{ id: 'f-locked', path: 'Verträge' }]]
+
+    const error = await moveDocumentToFolder({ documentId: 'doc-1', folderId: 'f-locked' }, SESSION).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toMatchObject({
+      status: 409,
+      message: expect.stringContaining('IFC models cannot be filed in a restricted folder yet'),
+      details: { code: 'IFC_IN_RESTRICTED_FOLDER' },
+    })
+    expect(db.updates).toHaveLength(0)
+    expect(placeProjectDocuments).not.toHaveBeenCalled()
+  })
+
+  it('moves an IFC model between open folders as before', async () => {
+    db.selects = [[{ ...DOCUMENT, filename: 'Haus-A_V3.ifc' }], [{ id: 'folder-1', path: 'Modelle' }]]
+
+    const result = await moveDocumentToFolder({ documentId: 'doc-1', folderId: 'folder-1' }, SESSION)
+
+    expect(result.ok).toBe(true)
+    expect(db.updates[0].folderId).toBe('folder-1')
+  })
 })

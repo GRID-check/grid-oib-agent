@@ -736,6 +736,13 @@
       "when": 1791244800007,
       "tag": "0104_folder_restrictions",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1791331200007,
+      "tag": "0105_conversation_restricted_turns",
+      "breakpoints": true
     }
   ]
 }

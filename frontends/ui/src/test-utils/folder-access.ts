@@ -18,6 +18,7 @@ import type * as FolderAccess from '@/lib/authz/folder-access'
 type FolderAccessModule = Pick<
   typeof FolderAccess,
   | 'getHiddenFolderIds'
+  | 'getRestrictedFolderIds'
   | 'isFolderVisibleTo'
   | 'isFolderVisibleToClearance'
   | 'placementCollectionFor'
@@ -38,6 +39,7 @@ export function openFolderAccess(projectCollection: string): FolderAccess.Projec
 export function openFolderAccessModule(): FolderAccessModule {
   return {
     getHiddenFolderIds: vi.fn(async () => []),
+    getRestrictedFolderIds: vi.fn(async () => []),
     isFolderVisibleTo: vi.fn(async () => true),
     isFolderVisibleToClearance: vi.fn(async () => true),
     placementCollectionFor: vi.fn(async (_org: string, _project: string, collection: string) => collection),

@@ -31,7 +31,7 @@ import { markSessionHasCollection } from '../persistence'
 import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 import { loadUploadScreeningPolicy } from '@/adapters/api/upload-screening-policy'
 import { screenUploadName, type NameMatch } from '@/lib/upload-screening/name-screen'
-import { describeNameMatch } from '@/lib/upload-screening/quarantine'
+import { describeScreenedOut } from '@/lib/upload-screening/quarantine'
 import { exclusionsByTerm, openUploadBatch, sealUploadBatch } from '../lib/upload-batch'
 
 /**
@@ -343,21 +343,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         if (verdict.blocked) screenedOut.push({ file, matches: verdict.matches })
         return !verdict.blocked
       })
-      const screenedMessage =
-        screenedOut.length > 0
-          ? t('errors.screenedOut', {
-              count: String(screenedOut.length),
-              files: screenedOut
-                .slice(0, 3)
-                .map(({ file, matches }) =>
-                  t('errors.screenedOutFile', {
-                    name: file.name,
-                    reason: matches.map((match) => describeNameMatch(match, t)).join(', '),
-                  })
-                )
-                .join(', '),
-            })
-          : null
+      const screenedMessage = describeScreenedOut(screenedOut, t)
       if (validFiles.length === 0) {
         setError(screenedMessage ?? localizedSummary)
         return

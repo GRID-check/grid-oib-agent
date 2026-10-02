@@ -129,7 +129,11 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     metadata: { role: 'string', permissions: 'string' },
   },
   // A project folder restricted to roles, or opened again (ADR-0078). The
-  // roles after the change, comma-separated; empty means open.
+  // roles after the change, comma-separated; empty means open. Also emitted
+  // when a folder move or delete changes the restrictions over a subtree
+  // (`folder-service.ts`): then `roles` is every restricted folder now over the
+  // moved folder (or over a deleted one's contents), outermost first, each
+  // folder's roles comma-separated and the folders `;`-separated.
   'project.folder.access_changed': {
     targets: [{ type: 'project' }],
     metadata: { folderId: 'string', roles: 'string', documentsMoved: 'number' },

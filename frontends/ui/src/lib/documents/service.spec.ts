@@ -406,6 +406,64 @@ describe('uploadDocument server-side name screening', () => {
 })
 
 /**
+ * Restricted folders do not hold IFC models (ADR-0078): the model's building
+ * data is keyed by project, so a restriction would hide the file and leave the
+ * building open. The upload is refused before anything is stored.
+ */
+describe('uploadDocument refuses an IFC model into a restricted folder', () => {
+  const restricted = (): ProjectFolderAccess => ({
+    hiddenFolderIds: new Set<string>(),
+    isVisible: () => true,
+    collectionFor: (folderId) => (folderId === 'f-restricted' ? 'proj_abc_r0123456789ab' : 'proj_abc'),
+    clearedRestrictedCollections: ['proj_abc_r0123456789ab'],
+    anyRestricted: true,
+  })
+
+  it('answers 409 with the reason, and stores nothing', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(restricted())
+    const error = await uploadDocument(
+      session,
+      { ...makeInput({ name: 'Haus-A.ifc', type: 'application/octet-stream' }), folderId: 'f-restricted' },
+      new Request('http://x')
+    ).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ConflictError)
+    expect(error).toMatchObject({
+      status: 409,
+      message: expect.stringContaining('IFC models cannot be filed in a restricted folder yet'),
+      details: { code: 'IFC_IN_RESTRICTED_FOLDER' },
+    })
+    expect(s3Client.send).not.toHaveBeenCalled()
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('refuses an .ifczip the same way', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(restricted())
+    await expect(
+      uploadDocument(
+        session,
+        { ...makeInput({ name: 'Haus-A.IFCZIP', type: 'application/zip' }), folderId: 'f-restricted' },
+        new Request('http://x')
+      )
+    ).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('still files any other document into the restricted folder', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(restricted())
+    vi.mocked(findFolderPathInProject).mockResolvedValueOnce('Leitung')
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-1' }) })
+    const result = await uploadDocument(
+      session,
+      { ...makeInput({ name: 'Bauzeitplan.pdf' }), folderId: 'f-restricted' },
+      new Request('http://x')
+    )
+    expect(result.status).toBe('pending')
+    expect(admitOrDiscard).toHaveBeenCalled()
+  })
+})
+
+/**
  * Per-organization buckets (ADR-0043). Three separate things have to hold, and
  * all three were provably untested before this block existed: the bytes go to
  * the tenant bucket, the ROW records which bucket that was, and the ingest

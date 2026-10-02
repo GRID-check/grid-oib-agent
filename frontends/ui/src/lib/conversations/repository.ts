@@ -17,6 +17,7 @@ import { getDb } from '@/lib/db'
 import { stripJsonNullBytes } from '@/lib/text/jsonb'
 import {
   conversationReads,
+  conversationRestrictedTurns,
   conversations,
   deletionQueue,
   messages,
@@ -349,6 +350,67 @@ export async function listRestrictedAnswerCollections(
 }
 
 /**
+ * Mark that a turn of this conversation is about to run with a restricted
+ * folder's collection in its scope (ADR-0078). Idempotent: the first call
+ * inserts, every later one bumps `last_at` and `turn_count`.
+ *
+ * Returns whether this call created the mark (`turn_count` is 1), which is what
+ * {@link withdrawFreshRestrictedTurn} needs to undo a refused first ask.
+ */
+export async function recordRestrictedTurn(
+  conversationId: string,
+  organizationId: string,
+): Promise<{ created: boolean }> {
+  const db = getDb()
+  const [row] = await db
+    .insert(conversationRestrictedTurns)
+    .values({ organizationId, conversationId })
+    .onConflictDoUpdate({
+      target: [conversationRestrictedTurns.organizationId, conversationRestrictedTurns.conversationId],
+      set: {
+        lastAt: sql`now()`,
+        turnCount: sql`${conversationRestrictedTurns.turnCount} + 1`,
+      },
+    })
+    .returning({ turnCount: conversationRestrictedTurns.turnCount })
+  return { created: Number(row?.turnCount) === 1 }
+}
+
+/**
+ * Remove a mark only its first asker wrote, after that ask was refused. A mark
+ * a second turn also wrote (`turn_count` above 1) stays: that turn may be
+ * running.
+ */
+export async function withdrawFreshRestrictedTurn(conversationId: string, organizationId: string): Promise<void> {
+  const db = getDb()
+  await db
+    .delete(conversationRestrictedTurns)
+    .where(
+      and(
+        eq(conversationRestrictedTurns.organizationId, organizationId),
+        eq(conversationRestrictedTurns.conversationId, conversationId),
+        eq(conversationRestrictedTurns.turnCount, 1),
+      ),
+    )
+}
+
+/** Whether a turn of this conversation ran with a restricted collection in its scope. */
+export async function hasRestrictedTurn(conversationId: string, organizationId: string): Promise<boolean> {
+  const db = getDb()
+  const [row] = await db
+    .select({ conversationId: conversationRestrictedTurns.conversationId })
+    .from(conversationRestrictedTurns)
+    .where(
+      and(
+        eq(conversationRestrictedTurns.organizationId, organizationId),
+        eq(conversationRestrictedTurns.conversationId, conversationId),
+      ),
+    )
+    .limit(1)
+  return row !== undefined
+}
+
+/**
  * Set a conversation's blanket visibility, scoped to the organization in SQL.
  * Returns null when the row does not exist in this org (caller maps to 404).
  */
@@ -525,15 +587,25 @@ export async function recordConversationErased(
 }
 
 /**
- * Delete a conversation (messages cascade). Tenant isolation lives in the
- * WHERE clause — deleting by id alone would let any signed-in user delete
- * another org's conversation by guessing ids.
+ * Delete a conversation (messages cascade) and its restricted-turn mark.
+ * Tenant isolation lives in the WHERE clause — deleting by id alone would let
+ * any signed-in user delete another org's conversation by guessing ids.
  */
 export async function deleteConversationInOrg(conversationId: string, organizationId: string): Promise<void> {
   const db = getDb()
   await db
     .delete(conversations)
     .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
+  // The restricted-turn mark has no foreign key (a first turn runs before the
+  // row exists), so it goes here, after the row it describes.
+  await db
+    .delete(conversationRestrictedTurns)
+    .where(
+      and(
+        eq(conversationRestrictedTurns.organizationId, organizationId),
+        eq(conversationRestrictedTurns.conversationId, conversationId),
+      ),
+    )
 }
 
 /**

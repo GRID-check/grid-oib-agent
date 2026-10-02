@@ -149,8 +149,12 @@ export interface ListProjectDocumentsOptions {
   hiddenFolderIds?: readonly string[]
 }
 
-/** Rows outside every hidden folder; nothing when none is hidden. */
-function outsideHiddenFolders(hiddenFolderIds: readonly string[] | undefined): SQL[] {
+/**
+ * Rows outside every hidden folder; nothing when none is hidden. Exported for
+ * the other queries over `documents` that serve a reader (the project
+ * overview), so "hidden" has one SQL spelling.
+ */
+export function outsideHiddenFolders(hiddenFolderIds: readonly string[] | undefined): SQL[] {
   if (!hiddenFolderIds || hiddenFolderIds.length === 0) return []
   const visible = or(isNull(documents.folderId), notInArray(documents.folderId, [...hiddenFolderIds]))
   return visible ? [visible] : []

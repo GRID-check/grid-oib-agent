@@ -112,7 +112,13 @@ const FolderAccessForm: FC<
       onClose()
     } catch (error) {
       const status = error instanceof ApiRequestError ? error.status : 0
-      toast.error(status === 403 || status === 404 ? t('folders.access.forbidden') : t('folders.access.saveError'))
+      toast.error(
+        status === 409
+          ? t('folders.access.ifcRefused')
+          : status === 403 || status === 404
+            ? t('folders.access.forbidden')
+            : t('folders.access.saveError')
+      )
     } finally {
       setSaving(false)
     }

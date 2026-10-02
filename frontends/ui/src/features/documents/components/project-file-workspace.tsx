@@ -809,15 +809,18 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ folderId }),
         })
-        if (!res.ok) throw new Error(`Move failed (${res.status})`)
+        if (!res.ok) throw new Error(`Move failed (${res.status})`, { cause: res.status })
         toast.success(
           t('actions.moved', { name: documentDisplayName(file), folder: folderName })
         )
-      } catch {
+      } catch (error) {
         setFiles((prev) =>
           prev.map((f) => (f.id === documentId ? { ...f, folderId: previousFolderId } : f))
         )
-        toast.error(t('actions.moveError'))
+        // 409: an IFC model bound for a restricted folder (ADR-0078). Retrying cannot help, so say why.
+        toast.error(
+          error instanceof Error && error.cause === 409 ? t('folders.access.ifcRefused') : t('actions.moveError')
+        )
       }
     },
     [files, folders, t]
@@ -855,14 +858,17 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ parentId }),
         })
-        if (!res.ok) throw new Error(`Move failed (${res.status})`)
+        if (!res.ok) throw new Error(`Move failed (${res.status})`, { cause: res.status })
         await loadFolders()
         toast.success(t('folders.movedFolder', { name: folder.name, parent: parentName }))
-      } catch {
+      } catch (error) {
         setFolders((prev) =>
           prev.map((f) => (f.id === draggedFolderId ? { ...f, parentId: previousParentId } : f))
         )
-        toast.error(t('folders.moveFolderError'))
+        // 409: the folder holds an IFC model and the destination is restricted (ADR-0078).
+        toast.error(
+          error instanceof Error && error.cause === 409 ? t('folders.access.ifcRefused') : t('folders.moveFolderError')
+        )
       }
     },
     [folders, projectId, loadFolders, t]

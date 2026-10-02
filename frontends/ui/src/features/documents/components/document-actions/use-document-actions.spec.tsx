@@ -107,3 +107,25 @@ describe('useDocumentActions — reingest refusals', () => {
     unsubscribe()
   })
 })
+
+describe('useDocumentActions — move refusals', () => {
+  it('says why an IFC model cannot go into a restricted folder, instead of "try again" (ADR-0078)', async () => {
+    server.use(
+      http.patch('/api/documents/doc-1/folder', () =>
+        HttpResponse.json({ error: 'IFC models cannot be filed in a restricted folder yet', code: 'CONFLICT' }, { status: 409 })
+      )
+    )
+    const error = vi.spyOn(toast, 'error')
+    const onMoved = vi.fn()
+    const hook = renderHook(() => useDocumentActions({ document: DOCUMENT, scope: 'files', onMoved }))
+
+    let moved: boolean | null = null
+    await act(async () => {
+      moved = await hook.result.current.move('f-restricted', 'Verwaltung')
+    })
+
+    expect(moved).toBe(false)
+    expect(error).toHaveBeenCalledWith(expect.stringMatching(/restricted folder yet|eingeschränkten Ordner/))
+    expect(onMoved).not.toHaveBeenCalled()
+  })
+})

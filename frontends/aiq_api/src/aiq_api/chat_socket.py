@@ -1150,6 +1150,11 @@ class ChatSocket:
         the question stays unacknowledged, the client reconnects, the new upgrade
         is signed a scope without the restricted collections, and the question
         goes out again on it. A client that does not reconnect gets nothing.
+
+        A yes is also the turn's admission: the BFF records that this
+        conversation ran a restricted turn before answering, and refuses to
+        share a conversation with that mark. So this ask must come before the
+        turn produces anything, which is why it runs before the claim.
         """
         if not self.restricted_scope:
             return

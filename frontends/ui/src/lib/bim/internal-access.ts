@@ -30,6 +30,7 @@ import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { FEATURE_FLAGS, enforcementOn, ifcModelsEnvEnabled } from '@/lib/authz/feature-flags'
 import { isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
 import { findDocumentInOrg } from '@/lib/documents/repository'
+import { getRestrictedFolderIds } from '@/lib/authz/folder-access'
 import { listBimModels, type BimModelHeader } from './repository'
 
 /**
@@ -120,6 +121,12 @@ export async function resolveInternalModel(
     // fact about the page size, and the `readable.length === 1` auto-selection
     // below picks from a clipped list without saying so.
     limit: 200,
+    // A model under a restricted folder is not the agent's to read (ADR-0078).
+    // There is no session here to clear, and a model's building data is keyed
+    // by project rather than by collection, so the answer is the one for a
+    // reader who holds no role: every restricted subtree is hidden, and a
+    // `modelId` naming a model inside one is not found.
+    hiddenFolderIds: input.projectId ? await getRestrictedFolderIds(input.organizationId, input.projectId) : [],
   })
   // Only `ready` models can answer anything. A model still extracting is
   // reported as such below rather than filtered into silence, because "the

@@ -9,9 +9,17 @@
  *   * every turn on that socket (`POST /api/internal/conversations/[id]/confinement`,
  *     asked by `aiq_api.chat_socket`), because the scope is signed once per
  *     socket and the owner can share the thread while the socket stays open.
+ *
+ * The per-turn ask is also where the conversation is marked as having run a
+ * restricted turn ({@link admitRestrictedTurn}), which is what the share refusal
+ * keys on.
  */
 
-import { findConversationTenancy } from '@/lib/conversations/repository'
+import {
+  findConversationTenancy,
+  recordRestrictedTurn,
+  withdrawFreshRestrictedTurn,
+} from '@/lib/conversations/repository'
 import { countGrantsForResource } from '@/lib/sharing/repository'
 
 export type ConversationTenancy = NonNullable<Awaited<ReturnType<typeof findConversationTenancy>>>
@@ -44,4 +52,31 @@ export async function conversationConfinedInOrg(
   const tenancy = await findConversationTenancy(conversationId)
   if (tenancy && tenancy.organizationId !== organizationId) return false
   return conversationConfinedTo(userId, conversationId, tenancy)
+}
+
+/**
+ * The per-turn admission of a turn whose signed scope holds a restricted
+ * collection: mark the conversation, then answer whether it is still its
+ * asker's alone. Yes keeps the mark, and the turn runs; no withdraws a mark this
+ * call created, and the agent closes the socket.
+ *
+ * The mark is written at turn START, before the answer exists, because the
+ * share refusal (`conversationDescriptor.confinedToOwner`) keys on it: the
+ * inventory block can put a restricted summary into an answer that cites
+ * nothing, and the owner can share while the answer streams.
+ *
+ * Mark first, read second. The sharing service writes first and re-reads the
+ * mark second (`confirmMayLeaveOwner`). Whichever of the two commits second
+ * sees the other's write, so a share and a restricted turn racing each other
+ * cannot both go through.
+ */
+export async function admitRestrictedTurn(
+  organizationId: string,
+  userId: string,
+  conversationId: string
+): Promise<boolean> {
+  const mark = await recordRestrictedTurn(conversationId, organizationId)
+  if (await conversationConfinedInOrg(organizationId, userId, conversationId)) return true
+  if (mark.created) await withdrawFreshRestrictedTurn(conversationId, organizationId)
+  return false
 }

@@ -88,6 +88,10 @@ const BOUNDARY_MIGRATIONS = [
   // Adds upload_batches — one upload gesture and when it was all read
   // (ADR-0077). Keyed directly by its organization.
   '0103_upload_batches.sql',
+  // Adds conversation_restricted_turns — a turn of this conversation ran with
+  // a restricted folder in its scope (ADR-0078). Keyed directly by its
+  // organization: the conversation row may not exist yet.
+  '0105_conversation_restricted_turns.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

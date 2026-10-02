@@ -11,6 +11,7 @@ import {
   clearanceOf,
   computeFolderAccess,
   getProjectFolderAccess,
+  getRestrictedFolderIds,
   isRestrictedCollectionOf,
   restrictedCollectionName,
   type AccessFolder,
@@ -137,5 +138,19 @@ describe('clearanceOf and the loader', () => {
     vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
     const access = await getProjectFolderAccess(session(['member']), 'proj-1', COLLECTION)
     expect(access.isVisible(F.vertraege)).toBe(false)
+  })
+})
+
+describe('getRestrictedFolderIds — the answer for a caller with no session', () => {
+  it('is every folder under a restriction, whatever roles anyone holds', async () => {
+    vi.mocked(projectHasRestrictedFolders).mockResolvedValue(true)
+    vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
+    expect((await getRestrictedFolderIds('org-1', 'proj-1')).sort()).toEqual([F.vertraege, F.honorare].sort())
+  })
+
+  it('does not read the tree for a project that restricts nothing', async () => {
+    vi.mocked(projectHasRestrictedFolders).mockResolvedValue(false)
+    expect(await getRestrictedFolderIds('org-1', 'proj-1')).toEqual([])
+    expect(listProjectFolderTree).not.toHaveBeenCalled()
   })
 })

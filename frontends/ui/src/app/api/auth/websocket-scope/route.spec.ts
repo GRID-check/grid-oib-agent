@@ -124,6 +124,28 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
     })
   })
 
+  it("names restricted folders' documents in the project context only for a scope that carries them", async () => {
+    // ADR-0078. The scope builder already decided clearance and confinement;
+    // the prompt view follows it. A scope without the restricted collection
+    // gets the shared view, which names none of their documents.
+    const restricted = 'proj_proj_q_r0123456789ab'
+    buildCollectionScopeFromRequest.mockResolvedValue({
+      ...scopeReturning('proj_q'),
+      scope: ['base', 'proj_proj_q', restricted],
+    })
+
+    await upgrade('?projectId=proj_q&conversationId=s_mine')
+    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_q', 'org_1', SESSION)
+
+    loadProjectPromptView.mockClear()
+    buildCollectionScopeFromRequest.mockResolvedValue({
+      ...scopeReturning('proj_q'),
+      scope: ['base', 'proj_proj_q'],
+    })
+    await upgrade('?projectId=proj_q&conversationId=s_shared')
+    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_q', 'org_1', null)
+  })
+
   it('returns 403 without firing the project lookups when the budget is blocked', async () => {
     getBudgetStatus.mockResolvedValue({ ...OPEN_BUDGET, blocked: true, blockedScope: 'org' })
 
@@ -155,7 +177,7 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
     // Before the effective-project fix every call below received `undefined`
     // here and silently missed the implicit project.
     expect(getBudgetStatus).toHaveBeenCalledWith('org_1', 'user_1', 'proj_implicit')
-    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_implicit', 'org_1')
+    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_implicit', 'org_1', null)
     expect(loadProjectBundesland).toHaveBeenCalledWith('proj_implicit', 'org_1')
     expect(buildProjectMemoryDigest).toHaveBeenCalledWith('proj_implicit', 'org_1')
     expect(buildProposalDecisionsBlock).toHaveBeenCalledWith('proj_implicit', 'org_1')
@@ -169,7 +191,7 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
 
     expect(response.status).toBe(200)
     expect(getBudgetStatus).toHaveBeenCalledWith('org_1', 'user_1', 'proj_q')
-    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_q', 'org_1')
+    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_q', 'org_1', null)
     expect(await response.json()).toMatchObject({ projectId: 'proj_q' })
   })
 

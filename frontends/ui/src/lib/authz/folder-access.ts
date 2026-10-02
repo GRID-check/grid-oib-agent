@@ -176,6 +176,18 @@ export async function getHiddenFolderIds(session: AuthorizedSession, projectId: 
   return [...computeFolderAccess(folders, clearanceOf(session), '').hiddenFolderIds]
 }
 
+/**
+ * Every folder of a project that sits under a restriction — what a caller with
+ * no session to clear (the agent's service-token routes) must treat as hidden.
+ * The answer for someone who holds no role and is not an admin, so it fails
+ * closed. Empty for a project that restricts nothing, at the cost of one probe.
+ */
+export async function getRestrictedFolderIds(organizationId: string, projectId: string): Promise<string[]> {
+  if (!(await projectHasRestrictedFolders(organizationId, projectId))) return []
+  const folders = await listProjectFolderTree(organizationId, projectId)
+  return [...computeFolderAccess(folders, { roles: [], seesEverything: false }, '').hiddenFolderIds]
+}
+
 /** Whether a row filed in `folderId` (null: the project root) is visible to this session. */
 export async function isFolderVisibleTo(
   session: AuthorizedSession,

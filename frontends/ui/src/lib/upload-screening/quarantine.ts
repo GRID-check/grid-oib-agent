@@ -64,3 +64,27 @@ export function describeNameMatch(match: NameMatch, t: Translator): string {
     ? t('screening.nameInFile', { term: match.term })
     : t('screening.nameInFolder', { term: match.term, segment: match.segment })
 }
+
+/**
+ * What a browser upload held back by the name gate, as one sentence naming the
+ * first three files and why (`files.errors.screenedOut`). `t` is the `files`
+ * translator. Null when nothing was held back.
+ */
+export function describeScreenedOut(
+  screenedOut: ReadonlyArray<{ file: { name: string }; matches: readonly NameMatch[] }>,
+  t: Translator
+): string | null {
+  if (screenedOut.length === 0) return null
+  return t('errors.screenedOut', {
+    count: String(screenedOut.length),
+    files: screenedOut
+      .slice(0, 3)
+      .map(({ file, matches }) =>
+        t('errors.screenedOutFile', {
+          name: file.name,
+          reason: matches.map((match) => describeNameMatch(match, t)).join(', '),
+        })
+      )
+      .join(', '),
+  })
+}

@@ -32,6 +32,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `inbox.ts` | `inbox_items` |
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
+| `conversation-restricted-turns.ts` | `conversation_restricted_turns` |
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
@@ -684,6 +685,31 @@ Indexes: `upload_batches_project_created_idx` (a project's history, newest
 first) and the partial `upload_batches_open_idx` (`WHERE completed_at IS NULL`,
 the sweep). Repository: `lib/upload-batches/repository.ts`; the completion guard
 is proven against Postgres in `upload-batches.integration.spec.ts`.
+
+---
+
+## conversation_restricted_turns (migration 0105, ADR-0078)
+
+A turn of this conversation ran with a restricted folder's collection in its
+signed scope. The confinement route (`POST /api/internal/conversations/[id]/confinement`,
+asked by the chat socket before every such turn) writes it before it answers
+yes, so the mark exists before the answer does. The sharing service refuses to
+widen a conversation with a row here (`confinedToOwner`): the inventory block
+can put a restricted summary into an answer that cites nothing, and the owner
+could otherwise share while the first restricted answer streams.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `organization_id` | `text` | NOT NULL, PK | RLS: `organization_id = grid_current_org()` |
+| `conversation_id` | `text` | NOT NULL, PK | No FK: the first turn of a new chat runs before its row exists |
+| `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | First and latest restricted turn |
+| `turn_count` | `integer` | NOT NULL, default 1, CHECK ≥ 1 | Restricted turns that asked. A refused first ask withdraws a mark only while it is 1, so a concurrent turn's mark stays |
+
+Primary key: `conversation_restricted_turns_pk (organization_id, conversation_id)`.
+`deleteConversationInOrg` deletes the row with the conversation. Repository:
+`lib/conversations/repository.ts` (`recordRestrictedTurn`, `hasRestrictedTurn`,
+`withdrawFreshRestrictedTurn`); proven against Postgres in
+`restricted-turns.integration.spec.ts`.
 
 ---
 

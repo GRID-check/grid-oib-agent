@@ -82,21 +82,41 @@ exists.
 **The BFF's read paths ask one decision point.** `lib/authz/folder-access.ts`
 answers, per session and project, which folders are hidden and which restricted
 collections are cleared. Listing, search, by-name resolution, the upload name
-probe, item routes, folder listing, the quarantine queue and resource access
-(inbox, sharing) all take its answer. A folder a member is not cleared for is
-absent, not greyed out.
+probe, item routes, folder listing, the folder-upload resolver
+(`folders/ensure`), the project overview, document-role bindings, every BIM
+read path, the quarantine queue and resource access (inbox, sharing) all take
+its answer. A folder a member is not cleared for is absent, not greyed out.
+Deleting a restricted folder, or moving a folder so the restricted folders
+above it change, is a change of folder access: it requires `project:manage`
+and is audited as `project.folder.access_changed`, like drawing a restriction.
 
-**Indirect leaks** are closed where the answer can travel. A conversation whose
-stored answers cite or read a restricted collection cannot be shared, escalated
-or widened beyond its owner, and a thread that is already shared never gets
-restricted collections in its scope. Because a socket's scope is signed once,
-the chat socket asks the BFF before every turn whose scope holds a restricted
-collection whether the thread is still its asker's alone, and closes the
-socket when it is not. The agent writes nothing to project or organization
-memory in a turn whose signed scope holds a restricted collection: the scope,
-not the hits, because the inventory block has put every in-scope document's
-summary into the prompt before the first tool call. A generated document filed
-into a restricted folder is indexed into that folder's collection.
+**Indirect leaks** are closed where the answer can travel. A conversation that
+ran a turn with a restricted collection in its signed scope cannot be shared,
+escalated or widened beyond its owner: the per-turn confinement check records
+the turn (`conversation_restricted_turns`, migration 0105) before the turn
+produces anything, because the inventory block can put a restricted summary
+into an answer that cites nothing, and because a share made while the answer
+streams must already be refused. Stored answers that cite or read a restricted
+collection remain a second signal, and a share that races the turn's check is
+undone after its write. A thread that is already shared never gets restricted
+collections in its scope; because a socket's scope is signed once, the chat
+socket asks the BFF before every such turn whether the thread is still its
+asker's alone, and closes the socket when it is not. The cached project
+context names no document in a restricted folder; a chat turn whose signed
+scope carries a restricted collection gets an uncached context built for its
+session. A generated document filed into a restricted folder is indexed into
+that folder's collection.
+
+**Memory from a restricted turn is restricted memory** (product owner,
+2026-10-02: Piloti should remember as it always does; restricted must not feel
+like amnesia). A memory written in a turn whose scope holds restricted
+collections carries the restricted collections it depends on, and only a
+session cleared for all of them is ever served it or shown it. What the turn
+cited or read decides which collections; when it read nothing restricted but a
+restricted summary was in the prompt, a model judge decides whether the memory
+depends on restricted content, and an unanswered judge counts as yes. Memory
+meant for the whole organization that depends on restricted content is kept as
+restricted project memory instead.
 
 **Re-classified here as "roles outside WorkOS"** and fixed: third-party
 permission checks (invitations, quarantine reviewers, storage alerts) consulted
@@ -114,19 +134,28 @@ to them. They now ask WorkOS for the organization's roles first.
 * Bad, because a WebSocket's signed scope is fixed for the socket's lifetime, so a withdrawn
   role takes effect on the next connection, not mid-conversation. (A thread shared mid-socket
   is caught: the per-turn confinement check closes the socket.)
-* Bad, because a cleared member gets no memory writes at all in a turn whose scope holds a
-  restricted collection, even when the turn used nothing from it.
-* Bad, because a move whose purge fails (backend unreachable) leaves the document's chunks in
-  the open collection until the scheduler's placement sweep moves it, on its next tick after
-  the backend is back.
+* Bad, because a memory restricted to a folder whose restriction is later lifted or whose
+  folder is deleted names a collection that no longer exists, and is then shown to nobody
+  until a person re-files it: the safe direction, but a loss.
+* Bad, because a move whose purge fails (backend unreachable), a document whose ingest is
+  still running, and a restriction over more documents than one call moves (100) leave
+  documents in the open collection until a later call or the scheduler's placement sweep
+  reaches them. The sweep walks every restricting project round-robin, 50 per tick.
+* Bad, because whoever holds `org:members:manage` assigns roles, and so can assign themselves
+  a clearance role. That is the trust WorkOS role assignment already carries; WorkOS records
+  each assignment.
 * Bad, because with "multiple roles" off, a clearance role must also carry its holder's working
   permissions; offices that want clearance separate from function need that switch on, which
   is environment-wide and set in the WorkOS dashboard.
 * Bad, because filename uniqueness is per collection in the database: two documents of the same
   name, one restricted and one open, are prevented by the upload path, not by a constraint.
-* Bad, because BIM model queries are keyed by project, not collection: an IFC model in a
-  restricted folder is listed as hidden but its building data is not partitioned. Restricted
-  folders should not hold IFC models until that is closed.
+* Bad, because BIM model data is keyed by project, not collection, and an IFC digest's chunks
+  are filed under `digest.md`, a name the placement purge does not address. Restricted folders
+  therefore refuse IFC models: an upload into one, a document moved into one, a folder holding
+  one moved under one, and a restriction drawn over one each answer 409
+  (`lib/projects/ifc-folder-guard.ts`). A model filed in a restricted folder before that
+  refusal existed is hidden on every BIM read path, but its digest may remain searchable in
+  the open collection until it is moved out.
 
 ### Confirmation
 
@@ -138,7 +167,15 @@ to them. They now ask WorkOS for the organization's roles first.
   member's chat scope and absent from an uncleared member's, from a shared thread's, and from
   every deep-research and scheduled scope.
 * `collection-placement.integration.spec.ts` proves against Postgres that the purge comes before
-  the re-point, a failed purge leaves the row, and the sweep finishes it.
+  the re-point, a failed purge leaves the row, the sweep finishes it, a misplaced row behind a
+  thousand placed ones is moved, an in-flight row waits, and a project beyond the first page of
+  restricting projects is swept.
+* `restricted-turn-sequence.spec.ts` proves a share made after a turn's confinement check
+  (mid-stream, nothing stored) is refused; `restricted-turns.integration.spec.ts` proves the
+  mark's upsert, RLS and erasure against Postgres.
+* `ifc-folder-guard.spec.ts`, `model-service.folder-access.spec.ts` and the IFC describe in
+  `folder-access.integration.spec.ts` pin the BIM side; `folder-service.access-change.spec.ts`
+  pins the `project:manage` rule for folder deletes and moves.
 * `test_chat_socket.py` and `test_internal_api_confinement.py` prove the per-turn confinement
   check closes a socket whose thread was shared, and fails closed.
 * `authz-coverage.spec.ts` covers the new routes.

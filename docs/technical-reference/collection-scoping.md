@@ -149,12 +149,24 @@ The same clearance gates the collection proxy: `/api/v1/collections/<name>` with
 a restricted name is authorized as its project's collection and then 404s
 unless the session is cleared for it (`lib/proxy/collection-authz.ts`).
 
-A conversation whose stored answers cite or read a restricted collection
-(`citations` / `readSources` carry each source's `collection`) cannot be shared
-beyond its owner: wider visibility, a grant (and so a mention that invites) and
-a project admin's escalation are refused with `409` and reason
-`restricted-content` (`confinedToOwner` on the conversation's sharing
-descriptor).
+A conversation that ran a turn with a restricted collection in its scope
+cannot be shared beyond its owner: wider visibility, a grant (and so a mention
+that invites) and a project admin's escalation are refused with `409` and
+reason `restricted-content` (`confinedToOwner` on the conversation's sharing
+descriptor). The signal is the scope, not the citations. The inventory block
+puts every in-scope document's summary into the prompt, so an answer can use a
+restricted summary and cite nothing; and nothing is stored while the first
+restricted answer streams. So the turn's admission marks the conversation
+(`conversation_restricted_turns`, migration 0105) before the turn produces a
+word, and the refusal keys on that mark. Stored answers whose `citations` or
+`readSources` name a restricted collection are the second signal, for answers
+written before the mark existed.
+
+The share and the turn's admission can race. The admission writes the mark
+first and then reads whether the thread is still private; the sharing service
+writes the widening first and then re-reads the mark, undoing its write when
+the mark has appeared (`confirmMayLeaveOwner`). Whichever commits second sees
+the other, so they cannot both go through.
 
 The scope is signed into the envelope once per socket, so a withdrawn role or a
 newly restricted folder takes effect on the next connection.
@@ -165,7 +177,9 @@ write restricted content into a thread others read and watch live. So before
 every turn on a socket whose signed scope carries a restricted collection, the
 chat socket (`aiq_api.chat_socket`, `_require_confinement`) asks the BFF
 (`POST /api/internal/conversations/[id]/confinement`, the same rule as the
-upgrade: `lib/conversations/confinement.ts`). On anything but a yes it closes
+upgrade: `lib/conversations/confinement.ts`). A yes is also the turn's
+admission and records the mark above (`admitRestrictedTurn`); a no withdraws a
+mark that ask had just created. On anything but a yes it closes
 the socket with `4412` before the turn is claimed; the client reconnects, the
 new upgrade is signed a scope without the restricted collections, and the
 unacknowledged question goes out again. A socket whose scope carries none asks

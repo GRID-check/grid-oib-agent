@@ -99,6 +99,17 @@ describe('FolderAccessDialog', () => {
       expect(toast.error).toHaveBeenCalledWith('Only project admins can change who may see a folder.')
     )
   })
+
+  it('says why when the folder holds IFC models (ADR-0078)', async () => {
+    stubPut({ roles: null, moved: 0, failed: [] }, 409)
+    const { dialog } = renderDialog(OPEN)
+    fireEvent.click(within(dialog).getByTestId('folder-access-restricted'))
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Geschäftsführung' }))
+    fireEvent.click(within(dialog).getByTestId('folder-access-save'))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('cannot be filed in a restricted folder yet'))
+    )
+  })
 })
 
 describe('restricted folder tiles', () => {

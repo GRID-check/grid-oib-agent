@@ -24,6 +24,7 @@ import { getBackendUrl } from '@/lib/backend-proxy'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { collectionFileRef, collectionFileUrl, type CollectionFileRef } from '@/lib/documents/collection-file-ref'
 import { placeProjectDocuments } from '@/lib/projects/collection-placement'
+import { assertIfcMayBeFiledIn } from '@/lib/projects/ifc-folder-guard'
 import { findProjectInOrg } from '@/lib/projects/repository'
 
 /** Same ceiling the other backend mirrors in `@/lib/documents/service` use. */
@@ -82,6 +83,9 @@ export async function moveDocumentToFolder(
   const access = await getProjectFolderAccess(session, document.projectId, project.collectionName)
   if (!access.isVisible(document.folderId)) return { ok: false, error: 'Document not found.' }
   if (!access.isVisible(input.folderId)) return { ok: false, error: 'Folder not found in this project.' }
+  // Restricted folders do not hold IFC models until their building data is
+  // partitioned (ADR-0078). A 409, thrown: the route turns `ok: false` into 400.
+  assertIfcMayBeFiledIn(document.filename, access.collectionFor(input.folderId), project.collectionName)
 
   // The destination has to belong to the SAME project. Without this the folder
   // id is an unguessable-but-forgeable pointer into another project's tree, and

@@ -24,6 +24,7 @@
 import { NextResponse } from 'next/server'
 import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { getGridSession } from '@/lib/auth/session'
+import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/projects/proposal-decisions'
@@ -36,6 +37,7 @@ import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { isAuthzError } from '@/lib/auth-utils'
 import { isAuthRequired } from '@/lib/backend-proxy'
+import { isRestrictedCollectionOf } from '@/lib/authz/folder-access'
 
 /** Run a best-effort lookup: its failure is logged and read as "absent". */
 async function bestEffort<T>(what: string, load: () => Promise<T>): Promise<T | null> {
@@ -59,8 +61,13 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { scope, scopedCollections, headerValue, projectId: authorizedProjectId } =
-      await buildCollectionScopeFromRequest(session, {
+    const {
+      scope,
+      scopedCollections,
+      headerValue,
+      projectId: authorizedProjectId,
+      projectCollectionName,
+    } = await buildCollectionScopeFromRequest(session, {
         projectId,
         conversationId,
         // The upgrade opens an interactive chat socket: the one scope that may
@@ -102,6 +109,19 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
     // project) with the raw query param as fallback. Using the query param
     // directly dropped the implicit project from every lookup after the scope.
     const effectiveProjectId = authorizedProjectId ?? projectId
+
+    // A socket whose signed scope carries this project's restricted-folder
+    // collections (ADR-0078) is the one turn that may also see those folders'
+    // documents named in the project context. The scope already answered the
+    // whole question — clearance, and a thread only its asker can read — so
+    // the prompt view follows it rather than asking again. Such a scope is only
+    // built for a session with an organization (`resolveRestrictedCollections`).
+    const clearedForRestricted =
+      session?.organizationId &&
+      projectCollectionName &&
+      scope.some((name) => isRestrictedCollectionOf(projectCollectionName, name))
+        ? (session as AuthorizedSession)
+        : null
 
     // Phase 1 — serial gates. Session and scope already ran above; then the
     // reflection flag and the budget status, in that order. They stay serial
@@ -187,7 +207,7 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
     const [projectContext, bundesland, memoryDigest, decisions, reviewDecisions] = await Promise.all([
       // Structured project facts for the envelope's `projectContext` field.
       effectiveProjectId
-        ? loadProjectPromptView(effectiveProjectId, organizationId).catch((error: unknown) => {
+        ? loadProjectPromptView(effectiveProjectId, organizationId, clearedForRestricted).catch((error: unknown) => {
             if (isAuthzError(error)) {
               promptViewAuthzError = error
               return null

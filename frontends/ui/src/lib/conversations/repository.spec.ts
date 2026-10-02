@@ -195,12 +195,24 @@ describe('deleteConversationInOrg', () => {
   it('carries tenancy in the WHERE clause, not only in the service above it', async () => {
     await deleteConversationInOrg('conv_1', 'org_1')
 
-    const { sql, params } = onlyQuery()
+    expect(captured).toHaveLength(2)
+    const { sql, params } = captured[0]
     // Regression: deleting by id alone let any signed-in user delete another
     // org's conversation by guessing ids.
     expect(sql).toContain('"conversations"."id" = $1')
     expect(sql).toContain('"conversations"."organization_id" = $2')
     expect(params).toEqual(['conv_1', 'org_1'])
+  })
+
+  it('takes the restricted-turn mark with the row, in the same organization (ADR-0078)', async () => {
+    await deleteConversationInOrg('conv_1', 'org_1')
+
+    // No foreign key reaches the mark: a first turn writes it before the row exists.
+    const { sql, params } = captured[1]
+    expect(sql).toContain('delete from "conversation_restricted_turns"')
+    expect(sql).toContain('"conversation_restricted_turns"."organization_id" = $1')
+    expect(sql).toContain('"conversation_restricted_turns"."conversation_id" = $2')
+    expect(params).toEqual(['org_1', 'conv_1'])
   })
 })
 

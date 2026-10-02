@@ -45,8 +45,13 @@ const rowsByOrg = new Map<string, { profile: unknown; profilePromptView: string 
  * `lib/document-roles/prompt-section.spec.ts`.
  */
 let rolesSection = ''
+/** The reader each block was built for (ADR-0078): absent means nobody's clearance. */
+const rolesReaders: unknown[] = []
 vi.mock('@/lib/document-roles/prompt-loader', () => ({
-  loadDocumentRolesPromptSection: async () => rolesSection,
+  loadDocumentRolesPromptSection: async (_projectId: string, _org: unknown, cleared?: unknown) => {
+    rolesReaders.push(cleared ?? null)
+    return cleared ? `${rolesSection}\n- Honorarvertrag: Honorarnote.pdf` : rolesSection
+  },
 }))
 
 vi.mock('@/lib/projects/repository', () => ({
@@ -278,5 +283,40 @@ describe('project profile cache is partitioned by tenant', () => {
     expect(store.map.has('promptview:org-a:proj-1')).toBe(false)
     expect(store.map.has('promptview:anon:proj-1')).toBe(false)
     expect(store.map.has('bundesland:org-a:proj-1')).toBe(false)
+  })
+})
+
+describe('restricted folders and the shared prompt view (ADR-0078)', () => {
+  let store: TestStore
+
+  beforeEach(() => {
+    store = new TestStore()
+    setCacheStore(store)
+    rolesReaders.length = 0
+    rolesSection = 'documents:\n- Bebauungsplan: bplan.pdf'
+  })
+
+  afterEach(() => {
+    rolesSection = ''
+  })
+
+  it('builds the cached view for nobody in particular', async () => {
+    dbRows = rowFor('wien', 'PROJECT_CONTEXT v1')
+    const view = await loadProjectPromptView('proj-1', 'org-1')
+
+    expect(rolesReaders).toEqual([null])
+    expect(view).not.toContain('Honorarnote.pdf')
+  })
+
+  it('builds a cleared turn its own view, and never caches it for the next caller', async () => {
+    dbRows = rowFor('wien', 'PROJECT_CONTEXT v1')
+    const cleared = { userId: 'user-gf', organizationId: 'org-1' } as never
+
+    expect(await loadProjectPromptView('proj-1', 'org-1', cleared)).toContain('Honorarnote.pdf')
+    expect(store.map.size).toBe(0)
+
+    // The next member's turn reads the shared view, which never held it.
+    expect(await loadProjectPromptView('proj-1', 'org-1')).not.toContain('Honorarnote.pdf')
+    expect(rolesReaders).toEqual([cleared, null])
   })
 })

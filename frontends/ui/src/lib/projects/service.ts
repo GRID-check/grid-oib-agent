@@ -29,6 +29,7 @@ import type {
   ProjectMemoryKind,
 } from '@/lib/db/schema'
 import { getProjectOverviewData } from './overview-query'
+import { getHiddenFolderIds } from '@/lib/authz/folder-access'
 import {
   createProjectMemoryItem,
   deleteProjectMemoryItem,
@@ -294,7 +295,9 @@ export async function restoreProject(
 
 export async function getProjectOverview(session: AuthorizedSession, projectId: string) {
   await requireProjectAccess(session, projectId, 'project:view')
-  const data = await getProjectOverviewData(projectId, session.organizationId)
+  const data = await getProjectOverviewData(projectId, session.organizationId, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+  })
   if (!data) throw new NotFoundError('Project not found')
   return data
 }

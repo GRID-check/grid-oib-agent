@@ -20,6 +20,8 @@ vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
 
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
+
 import { asDb } from '@/test-utils/db-fixtures'
 import { GET } from './route'
 
@@ -75,5 +77,8 @@ describe('GET /api/projects/[id]/overview', () => {
     expect(body).toHaveProperty('name', 'Test Project')
     expect(body).toHaveProperty('documentCount')
     expect(body).toHaveProperty('recentDocuments')
+    // The counts and the recent list leave out what this session may not see (ADR-0078).
+    const { getHiddenFolderIds } = await import('@/lib/authz/folder-access')
+    expect(getHiddenFolderIds).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user-1' }), 'proj-1')
   })
 })

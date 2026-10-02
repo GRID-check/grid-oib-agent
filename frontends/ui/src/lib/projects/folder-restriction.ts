@@ -26,6 +26,7 @@ import { withTenant } from '@/lib/db/tenant-context'
 import { projectFolders } from '@/lib/db/schema'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { placeProjectDocuments, type PlacementResult } from './collection-placement'
+import { assertRestrictionKeepsIfcOpen } from './ifc-folder-guard'
 
 /** Most roles one folder may name; mirrors the CHECK in migration 0104. */
 export const FOLDER_RESTRICTION_MAX_ROLES = 20
@@ -60,6 +61,9 @@ export async function setFolderRestriction(
     const unknown = roles.filter((role) => !known.has(role))
     if (unknown.length > 0) throw new BadRequestError(`Not a role of this organization: ${unknown.join(', ')}`)
   }
+  // Restricted folders do not hold IFC models until their building data is
+  // partitioned (ADR-0078): refused before the line is drawn.
+  await assertRestrictionKeepsIfcOpen(session.organizationId, input.projectId, input.folderId, roles)
 
   const db = getDb()
   const updated = await withTenant({ organizationId: session.organizationId }, () =>

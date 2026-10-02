@@ -104,7 +104,16 @@ It cannot be shared, and Piloti writes nothing from such a chat into the
 project's memory. A file name used in a restricted folder cannot be uploaded a
 second time elsewhere in the project.
 
-**Not yet covered:** building models (IFC) in a restricted folder are listed as
-hidden, but their building data is not yet separated. Keep IFC models in open
-folders. A role withdrawn from someone takes effect on their next connection,
-not in a chat they already have open.
+**Building models (IFC) stay in open folders.** A model's building data is
+kept per project, not per folder, so a restriction could not protect it.
+Piloti therefore refuses an IFC model in a restricted folder: uploading one
+there, moving one there, moving a folder that holds one under a restricted
+folder, and restricting a folder that holds one all fail with a message
+saying why. A model that was already in a restricted folder before this check
+existed is hidden from everyone not cleared for that folder, in the model list,
+the viewer and the download, and Piloti's model questions do not reach it; its
+summary may still be found by Piloti's search, so move such a model to an open
+folder.
+
+**Not yet covered:** a role withdrawn from someone takes effect on their next
+connection, not in a chat they already have open.

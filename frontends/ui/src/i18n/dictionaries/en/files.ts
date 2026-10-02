@@ -377,7 +377,11 @@ export const files = {
         'If you hold none of these roles yourself, the folder disappears for you too once you save, unless you are an organization admin.',
       moveNotice:
         'Saving moves the folder’s documents and has Piloti read them again. For a large folder that takes a few minutes; meanwhile the documents show as “Reading”.',
-      ifcNotice: 'Building models (IFC) are not yet fully protected in a restricted folder. Keep them in open folders.',
+      ifcNotice:
+        'Restricted folders cannot hold building models (IFC) yet, so a folder that holds one cannot be restricted. Keep IFC models in open folders.',
+      /** The 409 from the IFC guard (ADR-0078): restricting, uploading or moving into a restricted folder. */
+      ifcRefused:
+        'Building models (IFC) cannot be filed in a restricted folder yet: their building data is not protected by folder access. Keep IFC models in open folders.',
       save: 'Save access',
       saving: 'Saving…',
       loadError: 'The roles could not be loaded.',

@@ -874,6 +874,25 @@ describe('ProjectFileWorkspace — dragging a file into a folder', () => {
     expect(patched[0]).toMatchObject({ url: 'doc-1', body: { folderId: 'folder-1' } })
   })
 
+  it('says why when the server refuses an IFC model into a restricted folder (ADR-0078)', async () => {
+    server.use(
+      http.patch('/api/documents/:id/folder', () =>
+        HttpResponse.json({ error: 'IFC models cannot be filed in a restricted folder yet', code: 'CONFLICT' }, { status: 409 })
+      )
+    )
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    const folder = await screen.findByTestId('folder-card-folder-1')
+    fireEvent.dragOver(folder, { dataTransfer: dragTransfer('doc-1') })
+    fireEvent.drop(folder, { dataTransfer: dragTransfer('doc-1') })
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(expect.stringContaining('cannot be filed in a restricted folder yet'))
+    )
+  })
+
   it('does not raise the upload overlay for a drag that started in the page', async () => {
     renderWorkspace(
       <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
@@ -968,6 +987,23 @@ describe('ProjectFileWorkspace — dragging a folder into a folder', () => {
 
     await waitFor(() => expect(patched).toHaveLength(1))
     expect(patched[0]).toMatchObject({ url: 'f-a', body: { parentId: 'f-b' } })
+  })
+
+  it('says why when the server refuses moving IFC models under a restriction (ADR-0078)', async () => {
+    server.use(
+      http.patch('/api/projects/:projectId/folders/:folderId', () =>
+        HttpResponse.json({ error: 'IFC models cannot be filed in a restricted folder yet', code: 'CONFLICT' }, { status: 409 })
+      )
+    )
+    renderWithFolders()
+    const target = screen.getByTestId('folder-card-f-b')
+
+    fireEvent.dragOver(target, { dataTransfer: folderDragTransfer('f-a') })
+    fireEvent.drop(target, { dataTransfer: folderDragTransfer('f-a') })
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(expect.stringContaining('cannot be filed in a restricted folder yet'))
+    )
   })
 
   it('refuses a folder dropped on itself', async () => {

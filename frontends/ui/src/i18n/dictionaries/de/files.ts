@@ -353,7 +353,10 @@ export const files: typeof en.files = {
       moveNotice:
         'Beim Speichern verschiebt Piloti die Dokumente des Ordners und liest sie neu ein. Bei einem großen Ordner dauert das einige Minuten; so lange stehen die Dokumente auf „Wird gelesen“.',
       ifcNotice:
-        'Gebäudemodelle (IFC) sind in einem eingeschränkten Ordner noch nicht vollständig geschützt. Legen Sie sie in offene Ordner.',
+        'Eingeschränkte Ordner können noch keine Gebäudemodelle (IFC) enthalten; ein Ordner mit einem Modell lässt sich daher nicht einschränken. Legen Sie IFC-Modelle in offene Ordner.',
+      /** Der 409 der IFC-Sperre (ADR-0078): einschränken, hochladen oder verschieben in einen eingeschränkten Ordner. */
+      ifcRefused:
+        'Gebäudemodelle (IFC) können noch nicht in einem eingeschränkten Ordner liegen: Ihre Gebäudedaten schützt der Ordnerzugriff nicht. Legen Sie IFC-Modelle in offene Ordner.',
       save: 'Zugriff speichern',
       saving: 'Wird gespeichert…',
       loadError: 'Die Rollen konnten nicht geladen werden.',

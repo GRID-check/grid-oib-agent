@@ -31,6 +31,7 @@ import {
   conversationIdsExisting,
   findConversationInOrg,
   findConversationTenancy,
+  hasRestrictedTurn,
   listConversationIdsForProject,
   listRestrictedAnswerCollections,
   updateConversationVisibilityInOrg,
@@ -180,12 +181,18 @@ const conversationDescriptor: ShareableDescriptor = {
   },
   exists: (ids) => conversationIdsExisting(ids),
   listIdsInProject: (projectId, organizationId) => listConversationIdsForProject(projectId, organizationId),
-  // An answer that cited or read a restricted folder's collection carries that
-  // folder's content in its prose, so the thread stays with its owner. The
-  // stored sources name the collection they came from; that is the signal, and
-  // the scope builder keeps restricted collections out of any thread that is
-  // already shared, so the order "share, then ask" cannot get around it.
+  // A turn that ran with a restricted folder's collection in its scope may have
+  // put that folder's content into its prose, so the thread stays with its
+  // owner. The signal is the scope, not the citations: the inventory block puts
+  // every in-scope document's summary into the prompt, so an answer can use one
+  // and cite nothing. The confinement route marks the conversation at turn
+  // START (`admitRestrictedTurn`), so a share attempted while the answer streams
+  // is refused too. Stored sources naming a restricted collection are the second
+  // signal, for answers written before the mark existed. The scope builder keeps
+  // restricted collections out of any thread that is already shared, so the
+  // order "share, then ask" cannot get around it.
   confinedToOwner: async (resourceId, organizationId) =>
+    (await hasRestrictedTurn(resourceId, organizationId)) ||
     (await listRestrictedAnswerCollections(resourceId, organizationId)).some(
       (collection) => restrictedCollectionBase(collection) !== null
     ),
