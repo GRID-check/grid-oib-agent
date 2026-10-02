@@ -83,7 +83,7 @@ export default [
     // importing `@/lib/db/schema` was first caught by CI. Here it fails
     // `eslint <file>` and the editor. Type-only imports stay allowed.
     files: ['src/app/**/*.{ts,tsx}'],
-    ignores: ['src/**/*.spec.{ts,tsx}', ...PRE_EXISTING_DB_IMPORTERS.map((file) => `src/${file.replace(/[[\]]/g, '\\$&')}`)],
+    ignores: ['src/**/*.spec.{ts,tsx}', ...PRE_EXISTING_DB_IMPORTERS.map((file) => `src/${file.replace(/[\\[\]]/g, '\\$&')}`)],
     rules: {
       '@typescript-eslint/no-restricted-imports': [
         'error',
