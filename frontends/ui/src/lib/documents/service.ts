@@ -2855,4 +2855,3 @@ export async function findDocumentStorageKey(
 } | null> {
   return findStorageKeyByCollectionAndFilename(collectionName, filename, organizationId)
 }
-

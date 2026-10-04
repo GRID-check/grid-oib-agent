@@ -431,4 +431,3 @@ export const organization: typeof en.organization = {
     error: 'Der Audit-Log-Viewer konnte nicht geöffnet werden.',
   },
 }
-

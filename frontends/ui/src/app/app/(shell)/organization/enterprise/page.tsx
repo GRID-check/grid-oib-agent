@@ -64,5 +64,3 @@ export default async function OrganizationEnterprisePage(): Promise<JSX.Element>
     )
   })
 }
-
-

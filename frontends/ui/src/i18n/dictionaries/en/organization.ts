@@ -429,4 +429,3 @@ export const organization = {
     error: 'Could not open the audit log viewer.',
   },
 }
-
