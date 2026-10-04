@@ -1,0 +1,27 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+#
+#   - English. The German is generated from it; a German note fails the lint.
+#   - At most two sentences and 400 characters: what the reader can now do,
+#     or what stopped going wrong for them. The mechanism goes in the PR.
+#   - No RST, backticks, issue numbers, file paths or internal names.
+#   - Only the people running the platform can act on it (the Platform area,
+#     model defaults, a deployment step)? Put it under `operators`, which
+#     never reaches the public page.
+#
+# Good: Uploading a corrected plan under the same name now replaces the old
+#       one instead of adding a second copy.
+# Bad:  Fixed dedup in the ingest path so re-uploads no longer create a
+#       duplicate row.  (mechanism, not effect)
+#
+# Delete every section you do not need — an empty one fails the lint.
+fixes:
+  - >
+    Chats now connect reliably in projects with detailed profiles, and new
+    conversations can save and retrieve messages correctly.
+operators:
+  - >
+    Deploy the backend before the frontend when rolling out the new chat
+    context transport.

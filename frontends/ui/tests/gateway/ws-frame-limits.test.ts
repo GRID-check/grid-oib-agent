@@ -97,6 +97,8 @@ async function startGateway(env: Record<string, string> = {}): Promise<number> {
       PORT: String(port),
       NEXT_INTERNAL_URL: `http://127.0.0.1:${upstreamPort}`,
       BACKEND_URL: `http://127.0.0.1:${upstreamPort}`,
+      // Authenticated scopes require a signed compact turn-context capsule.
+      GRID_INTERNAL_API_TOKEN: 'gateway-frame-limits-test-token', // pragma: allowlist secret
       // Every request here comes from 127.0.0.1; the per-IP upgrade limit is a
       // different layer and would only add noise to what these tests assert.
       GRID_WS_UPGRADE_RATE_LIMIT: '0',
@@ -150,7 +152,10 @@ function openSocket(port: number, cookie: string): Promise<Duplex> {
       sock.on('error', () => {})
       resolve(sock)
     })
-    req.on('response', () => reject(new Error('upgrade refused')))
+    req.on('response', (res) => {
+      res.resume()
+      reject(new Error(`upgrade refused: ${res.statusCode}`))
+    })
     req.on('error', reject)
     req.end()
   })

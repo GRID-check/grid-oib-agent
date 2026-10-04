@@ -70,8 +70,9 @@ The `server.js` gateway handles WebSocket upgrade requests:
 2. **Scope resolution:** Calls `/api/auth/websocket-scope?projectId=xxx&conversationId=yyy` (internal HTTP request to the same server) to resolve:
    - `x-grid-collection-scope` header — passes collection scope to backend.
    - `x-grid-organization-id` / `x-grid-user-id` — forwards user context.
-   - `x-grid-project-id` / `x-grid-project-context` / `x-grid-project-memory` — project id + injected profile/memory (the latter two base64url-encoded).
-   - `x-grid-org-instructions` — the organization's standing instructions for this turn, base64url-encoded like the two above it. Preferences on form, focus and workflow; the backend bounds it at `ORG_INSTRUCTIONS_MAX_CHARS` (1500) on decode and appends a one-line marker when it had to cut, and the prompt renders it as `## Anweisungen des Büros` below the KV-cache boundary — never as a source, and never above the rules it may not override.
+   - `x-grid-project-id` — the authorized project. Authenticated handshakes do
+     not carry the project brief, memory or office instructions: those are
+     loaded over HTTP at turn setup (ADR-0077).
    - `x-grid-feature-memory-reflection` (`true`/`false`) — whether the async memory-reflection stage is enabled for the caller (per-org `memory-reflection` WorkOS flag; no env-var fallback). Fail-closed: absent → off.
    - `authorization: Bearer <accessToken>` — forwards backend access token.
 3. **Backend proxy:** Forwards the upgraded socket to `BACKEND_WS_URL + '/websocket'`.
@@ -85,12 +86,26 @@ Alongside every individual `x-grid-*` header above, `server.js` now also sends
 object, plus `bundesland` — a structured jurisdiction field with no
 individual-header equivalent) and `X-Grid-Request-Context-Sig` (hex
 HMAC-SHA256 of the envelope's raw JSON, keyed on `GRID_INTERNAL_API_TOKEN`).
-This is a **dual-write transition**: the individual headers are unchanged and
-still sent; the envelope rides alongside them. The same envelope is minted by
+Legacy HTTP/job callers keep the **dual-write transition**: individual headers
+and the envelope are still sent together. Authenticated WebSocket handshakes
+instead omit `projectContext`, `projectMemory` and `orgInstructions` from both
+carriers and sign `contextTransport: "bff"`. Remaining context headers have an
+encoded-byte budget so an oversized capsule is refused explicitly. The envelope is minted by
 every submission path (WS upgrade, the async-jobs REST proxy, the skill-run
 internal-submit path) via the shared builder
 (`frontends/ui/src/lib/request-context.ts`'s `buildGridRequestContextWireHeaders`,
 duplicated with a pinning comment in `server.js` since it is plain CommonJS).
+
+For compact WebSocket mode, the agent calls `POST /api/internal/turn-context`
+at the beginning of every turn, echoing the signed requester capsule and
+service authentication. Its optional JSON `query` is bounded to 2,000
+characters; user, organization, project and conversation are derived only from
+the verified capsule. The BFF resolves the current requester membership and
+checks project/conversation access, then returns the three prompt blocks in
+the JSON response body. An authenticated context read failure ends the turn
+with an explicit error instead of answering without its project context.
+Legacy and anonymous callers retain their previous inline-context behavior.
+Deploy backend support before the frontend starts emitting compact mode.
 
 Backend-side, `aiq_agent.project_context.GridRequestContext.from_context()`
 prefers a present-and-valid envelope over the individual headers; an

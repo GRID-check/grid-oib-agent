@@ -79,8 +79,8 @@ function buildGridRequestContextEnvelopeHeaders(input) {
   if (input.userId) payload.userId = input.userId
   if (input.projectId) payload.projectId = input.projectId
   if (input.collectionScope && input.collectionScope.length > 0) payload.collectionScope = input.collectionScope
-  if (input.projectContext) payload.projectContext = input.projectContext
-  if (input.projectMemory) payload.projectMemory = input.projectMemory
+  if (input.contextTransport !== 'bff' && input.projectContext) payload.projectContext = input.projectContext
+  if (input.contextTransport !== 'bff' && input.projectMemory) payload.projectMemory = input.projectMemory
   if (input.modelOverrides && Object.keys(input.modelOverrides).length > 0) {
     payload.modelOverrides = input.modelOverrides
   }
@@ -112,7 +112,8 @@ function buildGridRequestContextEnvelopeHeaders(input) {
   // last: every pre-existing signed payload stays byte-identical. Pinned to
   // `buildGridRequestContextEnvelopePayload` in request-context.ts, as this
   // whole function is.
-  if (input.orgInstructions) payload.orgInstructions = input.orgInstructions
+  if (input.contextTransport !== 'bff' && input.orgInstructions) payload.orgInstructions = input.orgInstructions
+  if (input.contextTransport) payload.contextTransport = input.contextTransport
 
   const json = JSON.stringify(payload)
   const headers = {
@@ -232,7 +233,7 @@ const { WS_UPGRADE_LIMIT, CHAT_TURN_LIMIT, WS_CONTROL_LIMIT } = require('./src/l
 const { createLimiter, consumeLimiter } = require('./src/lib/limits/factory.js')
 const { createFrameObserver, classifyFrame } = require('./src/lib/limits/ws-frames.js')
 // Inbound x-grid-* / authorization are the proxy's to set, never the client's.
-const { stripClientContextHeaders } = require('./src/lib/proxy/ws-upgrade-headers.js')
+const { stripClientContextHeaders, findOversizedWsHeader } = require('./src/lib/proxy/ws-upgrade-headers.js')
 
 // `GRID_WS_UPGRADE_RATE_LIMIT` predates the catalog and stays honoured: an
 // operator who tuned it should not have it silently reverted by this refactor.
@@ -413,6 +414,15 @@ backendProxy.on('error', (err, req, res) => {
 backendProxy.on('proxyReqWs', (proxyReq, req, socket) => {
   if (req.headers.cookie) {
     proxyReq.setHeader('Cookie', req.headers.cookie)
+  }
+  // Check the emitted headers too: http-proxy adds host/forwarded fields.
+  const oversized = findOversizedWsHeader(proxyReq.getHeaders())
+  if (oversized) {
+    console.warn('[WS Proxy] Header exceeds upstream line budget: %s (%d bytes)', oversized.name, oversized.bytes)
+    socket.write('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n')
+    socket.destroy()
+    proxyReq.destroy()
+    return
   }
   proxyReq.once('upgrade', (_proxyRes, proxySocket) => {
     proxySocket.setKeepAlive?.(true, 15000)
@@ -661,6 +671,12 @@ const startServer = async () => {
           return
         }
         if (result.ok && result.header) {
+          if (result.data?.organizationId && result.data?.userId && !process.env.GRID_INTERNAL_API_TOKEN) {
+            console.warn('[WS Proxy] Signed turn context unavailable: internal service token is not configured')
+            socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n')
+            socket.destroy()
+            return
+          }
           req.headers['x-grid-collection-scope'] = result.header
 
           // Forward user context so the Python backend knows who the caller is
@@ -671,41 +687,21 @@ const startServer = async () => {
           if (result.data?.accessToken) {
             req.headers['authorization'] = `Bearer ${result.data.accessToken}`
           }
-          // CRITICAL: projectContext and projectMemory are MULTI-LINE text.
-          // Node rejects '\n' in header values (ERR_INVALID_CHAR) and the
-          // throw would kill the upgrade (and, uncaught, the process). They
-          // are therefore base64url-encoded here and decoded by the Python
-          // backend (project_context.py) — same scheme as the collection
-          // scope header.
-          if (result.data?.projectContext) {
-            req.headers['x-grid-project-context'] = Buffer.from(
-              result.data.projectContext,
-              'utf8'
-            ).toString('base64url')
+          // Anonymous development keeps inline context; authenticated turns
+          // fetch prompt blocks from the BFF in an HTTP body instead.
+          if (!result.data?.organizationId || !result.data?.userId) {
+            for (const [field, header] of [
+              ['projectContext', 'x-grid-project-context'],
+              ['projectMemory', 'x-grid-project-memory'],
+              ['orgInstructions', 'x-grid-org-instructions'],
+            ]) {
+              if (result.data?.[field]) {
+                req.headers[header] = Buffer.from(result.data[field], 'utf8').toString('base64url')
+              }
+            }
           }
-          // Project id + core memory digest for the agent. The id lets backend
-          // tools (e.g. `remember`) write project-scoped rows; the digest is
-          // merged into the injected agent context alongside project context.
           if (result.data?.projectId) {
             req.headers['x-grid-project-id'] = result.data.projectId
-          }
-          if (result.data?.projectMemory) {
-            req.headers['x-grid-project-memory'] = Buffer.from(
-              result.data.projectMemory,
-              'utf8'
-            ).toString('base64url')
-          }
-          // The organization's standing instruction block — one bounded text an
-          // org admin writes under Organisation -> Anweisungen, carried on every
-          // turn. Base64url for the same reason projectContext/projectMemory are:
-          // it is multi-line, and Node rejects '\n' in a header value
-          // (ERR_INVALID_CHAR), which would kill the upgrade. Absent header =
-          // the organization has written none.
-          if (result.data?.orgInstructions) {
-            req.headers['x-grid-org-instructions'] = Buffer.from(
-              result.data.orgInstructions,
-              'utf8'
-            ).toString('base64url')
           }
           // Feature flag: whether the async memory-reflection stage is enabled
           // for this caller (WorkOS flag per-org, or the env fallback). Always
@@ -795,6 +791,7 @@ const startServer = async () => {
               // is the age of THIS handshake, and a builder that stamped its own
               // clock would silently refresh a payload a caller handed it.
               issuedAt: Date.now(),
+              contextTransport: result.data?.organizationId && result.data?.userId ? 'bff' : undefined,
             })
           )
         } else if (result.status === 401 || result.status === 403) {
@@ -823,6 +820,14 @@ const startServer = async () => {
         try {
           socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n')
         } catch {}
+        socket.destroy()
+        return
+      }
+
+      const oversized = findOversizedWsHeader(req.headers)
+      if (oversized) {
+        console.warn('[WS Proxy] Header exceeds upstream line budget: %s (%d bytes)', oversized.name, oversized.bytes)
+        socket.write('HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\n\r\n')
         socket.destroy()
         return
       }

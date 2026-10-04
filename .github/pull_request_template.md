@@ -19,6 +19,7 @@
 #### Related Issues
 
 <!-- Use Closes / Fixes / Resolves / Relates to when applicable, one keyword per issue:
-     "Fixes #1, fixes #2". "Fixes #1, #2" closes only #1 (the Closing keywords check rejects it). -->
+     "Fixes #1, fixes #2". A single keyword before several issue numbers closes
+     only the first (the Closing keywords check rejects that list form). -->
 
 - Relates to #
