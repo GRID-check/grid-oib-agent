@@ -12,6 +12,27 @@ export const platform = {
   },
   loadErrorHint: 'Something went wrong while fetching the data. Please try again.',
   retry: 'Retry',
+  orgBudgets: {
+    column: 'Allowance',
+    open: 'View allowance for {name}',
+    title: 'Allowance for {name}',
+    description: 'Set how much this organization can use each month. This overrides its default allowance, not the platform price list.',
+    credits: 'credits',
+    tokens: 'tokens',
+    daily: 'Daily limit ({unit})',
+    monthly: 'Monthly allowance ({unit})',
+    usage: 'Used today: {day} {unit}. This month: {month} {unit}.',
+    default: 'Default allowance',
+    explicit: 'Custom allowance',
+    limitHint: 'Leave blank for unlimited; 0 blocks new requests. Windows reset at midnight UTC and on the first of the month. Both limits apply; lowering one below current usage blocks new requests.',
+    note: 'Change note (optional)',
+    invalid: 'Enter a number from 0 to 99,999,999.9999, or leave blank for unlimited.',
+    readOnly: 'You can view this allowance, but do not have permission to change it.',
+    loadError: 'Could not load the organization allowance.',
+    saveError: 'Could not save the organization allowance.',
+    unitChanged: 'The organization changed its budget unit. Close and reopen this allowance before saving.',
+    saved: 'Organization allowance saved.',
+  },
   /**
    * Platform → base knowledge, rebuilt on the shared admin primitives
    * (SectionCard + DataToolbar + Table + Sheet + Pagination). Only the copy the

@@ -129,6 +129,24 @@ describe('PlatformOverview', () => {
     expect(screen.getByTestId('spend-trend-chart')).toBeDefined()
   })
 
+  test('opens the selected organization allowance from the directory', async () => {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => withOrganizations([
+        org({ id: 'org_1', name: 'Office One' }),
+        org({ id: 'org_2', name: 'Office Two' }),
+      ]) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({
+        organizationId: 'org_2', unit: 'credit', dailyLimit: 1000, monthlyLimit: 25000,
+        explicit: true, dayUsed: 0, monthUsed: 0, canManage: true,
+      }) })
+    vi.stubGlobal('fetch', fetchSpy)
+    render(<PlatformOverview />)
+    await userEvent.click(await screen.findByRole('button', { name: 'View allowance for Office Two' }))
+    expect(await screen.findByLabelText('Monthly allowance (credits)')).toHaveValue('25000')
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('Allowance for Office Two')
+    expect(fetchSpy).toHaveBeenLastCalledWith('/api/platform/organizations/org_2/budgets', { credentials: 'same-origin' })
+  })
+
   test('shows a retryable inline error instead of a permanent skeleton on failure', async () => {
     const fetchSpy = vi
       .fn()
