@@ -16,7 +16,7 @@
  * HIT a `{}` (or a string) wearing the declared type. Cache the array/plain
  * shape and rebuild the collection at the boundary — see `enabledSlugsForOrg`
  * (`@/lib/workos/feature-flags`), `loadOrganizationDirectory`
- * (`@/lib/sharing/directory`) and `fetchZdrModelIds`
+ * (`@/lib/sharing/directory`) and `fetchZdrEndpoints`
  * (`@/lib/model-config/openrouter`).
  */
 

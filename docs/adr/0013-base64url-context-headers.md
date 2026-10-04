@@ -1,6 +1,6 @@
 # ADR-0013: base64url-encoded context headers
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR-0077
 - **Date:** 2026-07-05
 - **Deciders:** Grid Agent team
 - **Related:** [ADR-0006](0006-knowledge-collection-scoping.md), [ADR-0009](0009-websocket-only-chat-transport.md)

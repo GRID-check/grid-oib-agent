@@ -51,6 +51,7 @@ const TOOL_LABEL_KEYS: Record<string, string> = {
   ifc_measure: 'measure',
   view_knowledge_image: 'drawing',
   surface_documents: 'documents',
+  list_files: 'documents',
   remember: 'note',
   emit_card: 'card',
   compliance_check: 'compliance',
@@ -61,9 +62,14 @@ const TOOL_LABEL_KEYS: Record<string, string> = {
   edit_file: 'draft',
   ls: 'draft',
   file_draft: 'filing',
+  // Merged into `file_draft` (its `submit` argument); the old name stays
+  // because stored turns carry it.
   submit_draft: 'filing',
   create_task: 'task',
-  // The file-operation tools propose and never write (ADR-0003).
+  // The file-operation tool proposes and never writes (ADR-0003). One tool
+  // with an `operation` since the merge; the four old names stay because
+  // stored turns carry them.
+  propose_file_change: 'fileProposal',
   move_document: 'fileProposal',
   rename_document: 'fileProposal',
   create_folder: 'fileProposal',

@@ -79,6 +79,14 @@
               "de": "Eine geöffnete Datei zeigt ihre Zusammenfassung, Seitenzahl und Tags, sobald die Indexierung abgeschlossen ist, ohne dass Sie sie schließen und erneut öffnen müssen."
             },
             {
+              "en": "Piloti can now go through every file in the project, the office archive and this chat the way Dateien does, by folder, name, document type and upload date, instead of seeing only the first 50 or so names. „Was ist diese Woche neu?“ or „Was liegt im Ordner Brandschutz?“ now get a complete answer, and files still being processed are named as such.",
+              "de": "Piloti kann jetzt jede Datei im Projekt, im Büroarchiv und in diesem Chat durchsuchen – so wie Dateien, nach Ordner, Name, Dokumenttyp und Upload-Datum, statt nur die ersten rund 50 Dateinamen anzuzeigen. Auf „Was ist diese Woche neu?“ oder „Was liegt im Ordner Brandschutz?“ erhalten Sie jetzt eine vollständige Antwort, und Dateien, die noch verarbeitet werden, werden als solche gekennzeichnet."
+            },
+            {
+              "en": "Piloti can now find every place a word, name or number appears in your files, like a search across the whole project: „Wo kommt BA-03 überall vor?“ lists each matching file, how often and on which pages, with passages it can quote. Capitals and spellings such as ä or ae, ß or ss count as the same.",
+              "de": "Piloti findet jetzt jede Stelle, an der ein Wort, Name oder eine Zahl in Ihren Dateien vorkommt – wie eine Suche im gesamten Projekt: „Wo kommt BA-03 überall vor?“ listet jede Datei mit Treffern, die Anzahl der Treffer und die Seiten auf und zeigt Textstellen, die Piloti zitieren kann. Groß- und Kleinschreibung sowie Schreibweisen wie ä oder ae und ß oder ss werden gleich behandelt."
+            },
+            {
               "en": "Opening a citation of a plan or photo now marks the drawing it refers to, such as the floor plan or the section, with a labelled box instead of only opening the page. The box shows which drawing on the sheet was read, not the exact object within it.",
               "de": "Beim Öffnen eines Verweises auf einen Plan oder ein Foto wird nun die zugehörige Zeichnung, etwa der Grundriss oder der Schnitt, mit einem beschrifteten Rahmen markiert, statt nur die Seite zu öffnen. Der Rahmen zeigt, welche Zeichnung auf dem Blatt gelesen wurde, nicht das genaue Objekt darin."
             },
@@ -108,8 +116,20 @@
           "key": "improvements",
           "notes": [
             {
+              "en": "Files you upload start being read right away, even while another office is importing a large folder, and a busy day brings more reading capacity instead of a longer wait.",
+              "de": "Dateien, die Sie uploaden, werden sofort eingelesen – auch während ein anderes Büro einen großen Ordner importiert. An stark ausgelasteten Tagen steht mehr Kapazität zum Einlesen zur Verfügung, statt dass sich die Wartezeit verlängert."
+            },
+            {
+              "en": "A file waiting to be read shows how many of your office's uploads are ahead of it, for example \"Wartet · 3 Dateien davor\".",
+              "de": "Eine Datei, die noch eingelesen werden muss, zeigt an, wie viele Uploads Ihres Büros noch vor ihr an der Reihe sind, z. B. „Wartet · 3 Dateien davor“."
+            },
+            {
               "en": "When a document cannot be read, the file card, the preview, the upload list and the chat's file list now say why in plain language and what helps, for example reading it again or asking the admins to set up a vision model for scanned pages. The original error text is still there under \"Details\".",
               "de": "Wenn ein Dokument nicht gelesen werden kann, zeigen die Dateikarte, die Vorschau, die Upload-Liste und die Dateiliste im Chat jetzt in klarer Sprache, woran es liegt und was hilft – zum Beispiel, es erneut einzulesen oder Ihre Admins zu bitten, ein Vision-Modell für gescannte Seiten einzurichten. Der ursprüngliche Fehlertext steht weiterhin unter „Details“."
+            },
+            {
+              "en": "File names Piloti writes in an answer open the file more reliably, because Piloti now writes each name exactly as it is stored.",
+              "de": "Dateien lassen sich zuverlässiger öffnen, da Piloti Dateinamen in Antworten jetzt exakt so schreibt, wie sie gespeichert sind."
             },
             {
               "en": "Reports, concepts and other PDFs uploaded to a project are now read section by section along their own headings, so an answer finds the passage that belongs to a heading even when it runs over a page break, and cites it by its section number and page.",
@@ -169,6 +189,14 @@
               "de": "Eine Frage, die nach einem kurzen Verbindungsabbruch erneut gesendet wird, wird nicht mehr doppelt beantwortet. Der Chat führt die bereits laufende Antwort fort."
             },
             {
+              "en": "A file that was still waiting to be read when Piloti restarted is now read afterwards instead of showing as failed.",
+              "de": "Eine Datei, deren Einlesen beim Neustart von Piloti noch ausstand, wird nun nachträglich eingelesen, statt als fehlgeschlagen angezeigt zu werden."
+            },
+            {
+              "en": "Reading and indexing an uploaded document now counts toward usage, booked to its project and to whoever uploaded it. Until now an office's spend left out everything an upload cost, though an upload in progress is still never stopped by a budget.",
+              "de": "Das Lesen und Indexieren eines hochgeladenen Dokuments zählt jetzt zur Nutzung und wird dem zugehörigen Projekt sowie der Person, die es hochgeladen hat, zugeordnet. Bisher waren Upload-Kosten nicht in den Ausgaben eines Büros enthalten; ein laufender Upload wird jedoch weiterhin nie durch ein Budget gestoppt."
+            },
+            {
               "en": "A file whose reading was cut short by a restart of the service that reads it now shows as failed with a retry, instead of staying in progress forever and refusing to be read again. A restart while a Word or PowerPoint file is still being converted is not covered: that file stays at Wird gelesen until you choose Erneut lesen.",
               "de": "Eine Datei, deren Einlesen durch einen Neustart des zuständigen Dienstes unterbrochen wurde, wird jetzt als fehlgeschlagen angezeigt und kann erneut eingelesen werden, statt dauerhaft auf „Wird gelesen“ zu bleiben und sich nicht erneut einlesen zu lassen. Ein Neustart während der Konvertierung einer Word- oder PowerPoint-Datei ist davon nicht abgedeckt: Diese Datei bleibt auf „Wird gelesen“, bis Sie „Erneut lesen“ auswählen."
             },
@@ -201,6 +229,10 @@
               "de": "Eine Übersicht zeigt ihre Bestandteile jetzt entweder als Tabelle oder als Mindmap, nie beides. Die doppelte Darstellung erscheint während der Antwort und verschwindet nach deren Abschluss."
             },
             {
+              "en": "In a large project, Piloti can now rename, move and assign files beyond the first 50 as well. It used to refuse them as unknown files.",
+              "de": "In großen Projekten kann Piloti jetzt auch Dateien ab der 51. umbenennen, verschieben und zuordnen. Bisher lehnt Piloti sie als unbekannte Dateien ab."
+            },
+            {
               "en": "Text and CSV files saved by Excel or older Windows programs keep their umlauts and ß. Before, those letters were silently dropped.",
               "de": "Text- und CSV-Dateien, die mit Excel oder älteren Windows-Programmen gespeichert werden, behalten ihre Umlaute und ihr ß. Bisher gehen diese Zeichen unbemerkt verloren."
             },
@@ -211,6 +243,26 @@
             {
               "en": "A project link with a mistyped or truncated address now shows the same \"no access\" page as any project you cannot open, instead of a general error page.",
               "de": "Ein Projektlink mit einer falsch eingegebenen oder abgeschnittenen Adresse zeigt jetzt dieselbe Seite „Kein Zugriff“ wie jedes Projekt, das Sie nicht öffnen können, statt einer allgemeinen Fehlerseite."
+            },
+            {
+              "en": "Assigning existing plans to a building under Projektgrundlagen no longer fails with an internal error when the project brief has not been saved yet. Plans for a building you have just added are shown as waiting and assigned when you save, and removing a building also removes its plan assignments.",
+              "de": "Das Zuweisen bestehender Pläne zu einem Gebäude unter Projektgrundlagen führt nicht mehr zu einem internen Fehler, wenn der Projektbrief noch nicht gespeichert wurde. Pläne für ein gerade hinzugefügtes Gebäude werden als wartend angezeigt und beim Speichern zugewiesen. Beim Entfernen eines Gebäudes werden auch die zugehörigen Planzuweisungen entfernt."
+            },
+            {
+              "en": "Dragging files into Dateien now uploads them even when they come straight from an email or a cloud-synced folder, where the drop used to do nothing.",
+              "de": "Das Ziehen von Dateien in Dateien lädt diese jetzt auch hoch, wenn sie direkt aus einer E-Mail oder einem cloud-synchronisierten Ordner stammen – zuvor blieb das Ablegen ohne Wirkung."
+            },
+            {
+              "en": "Dropping files on any other project page, such as Einstellungen, now opens Dateien and uploads them there, where the browser used to open the file in place of Piloti.",
+              "de": "Wenn Sie Dateien auf einer anderen Projektseite wie Einstellungen ablegen, öffnet sich jetzt die Seite Dateien und lädt die Dateien dort hoch, statt dass der Browser sie anstelle von Piloti öffnet."
+            },
+            {
+              "en": "A short overload at the language model provider no longer ends your question with an error; Piloti waits a moment and tries again.",
+              "de": "Bei einer kurzzeitigen Überlastung des Sprachmodell-Anbieters erhalten Sie für Ihre Frage keine Fehlermeldung mehr: Piloti wartet kurz und versucht es erneut."
+            },
+            {
+              "en": "Chats now connect reliably in projects with detailed profiles, and new conversations can save and retrieve messages correctly.",
+              "de": "Chats funktionieren jetzt in Projekten mit detaillierten Profilen zuverlässig, und neue Unterhaltungen können Nachrichten korrekt speichern und abrufen."
             },
             {
               "en": "A scanned PDF is now read word for word, up to 500 pages, tables included, and the file says how many pages were left. Before, only its first 20 pages were looked at and those were described rather than read, so the conditions in a scanned permit could not be found.",
@@ -247,6 +299,19 @@
             {
               "en": "In Safari, opening a citation now marks the quoted passage in the document, as it does in Chrome and Firefox.",
               "de": "Beim Öffnen eines Zitats in Safari wird die zitierte Passage jetzt im Dokument markiert – wie in Chrome und Firefox."
+            }
+          ]
+        },
+        {
+          "key": "security",
+          "notes": [
+            {
+              "en": "Langfuse moves to 4.48.0 and its ClickHouse to 26.8 LTS. Langfuse 3.x still shipped a Next.js version with a remote code execution flaw that no 3.x release fixes.",
+              "de": "Langfuse wird auf 4.48.0 und ClickHouse auf 26.8 LTS aktualisiert. Langfuse 3.x enthält weiterhin eine Next.js-Version mit einer Schwachstelle zur Remote-Code-Ausführung, die in keinem 3.x-Release behoben wird."
+            },
+            {
+              "en": "Zero data retention is now on for every organization and covers every request Piloti sends to an AI model, including document reading, search and research reports, not only chat answers. Where a model is also hosted in the EU, that location is preferred.",
+              "de": "Zero Data Retention ist jetzt für jede Organisation eingeschaltet und gilt für jede Anfrage, die Piloti an ein KI-Modell sendet – auch beim Lesen von Dokumenten, bei der Suche und bei Rechercheberichten, nicht nur bei Chat-Antworten. Wird ein Modell auch in der EU betrieben, wird dieser Standort bevorzugt."
             }
           ]
         }

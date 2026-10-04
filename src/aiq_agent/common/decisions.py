@@ -34,9 +34,11 @@ and criteria are written in English and the STATE carries the user's German
 verbatim, and the decision eval (``scripts/decision_eval.py``) measures the
 result on the loop-eval questions before a use is adopted (ADR-0064).
 
-Not a ZDR route: an org that enforces zero-data-retention routing skips
-every decision, as does an org whose own key (BYOK) points anywhere but
-OpenRouter, since the endpoint is OpenRouter's.
+Every decision is pinned to zero-data-retention endpoints
+(``openrouter.PLATFORM_FIXED``), whatever the organization's setting: Jev's
+one endpoint is ZDR, so the pin costs nothing. An org whose own key (BYOK)
+points anywhere but OpenRouter skips every decision, since the endpoint is
+OpenRouter's.
 """
 
 from __future__ import annotations
@@ -53,6 +55,8 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
 from urllib.parse import urlsplit
+
+from aiq_agent.common.openrouter import PLATFORM_FIXED
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +118,6 @@ USAGE_ROLE_DECISION = "decision"
 #: Why a decision was not made. Stable tokens for the technical record.
 SKIPPED_DISABLED = "disabled"
 SKIPPED_NO_KEY = "no_key"
-SKIPPED_ZDR = "zdr"
 SKIPPED_BYOK_HOST = "byok_host"
 SKIPPED_BREAKER = "breaker"
 SKIPPED_TIMEOUT = "timeout"
@@ -321,30 +324,12 @@ def _resolve_endpoint_blocking(organization_id: str | None) -> tuple[_Endpoint |
     return _Endpoint(url=url, api_key=api_key, model=model, byok=byok), None
 
 
-def _zdr_only_blocking(organization_id: str | None = None) -> bool:
-    """Whether the organization enforces ZDR routing.
-
-    By the id the caller named, not the request context: ingestion runs in a
-    detached thread with no request, so a context read would say "no org"
-    and send a ZDR org's document text to the endpoint.
-    """
-    try:
-        from aiq_agent.common.model_overrides import resolve_org_zdr_only
-
-        return bool(resolve_org_zdr_only(organization_id))
-    except Exception:  # noqa: BLE001 — an unknown policy is not a ZDR policy
-        return False
-
-
 async def _endpoint(organization_id: str | None) -> tuple[_Endpoint | None, str | None]:
     if not enabled():
         return None, SKIPPED_DISABLED
     if _breaker_open():
         return None, SKIPPED_BREAKER
     organization_id = organization_id or _context_organization_id()
-    zdr = await asyncio.to_thread(_zdr_only_blocking, organization_id)
-    if zdr:
-        return None, SKIPPED_ZDR
     return await asyncio.to_thread(_resolve_endpoint_blocking, organization_id)
 
 
@@ -405,7 +390,9 @@ async def _post(
 ) -> _Outcome:
     import httpx
 
-    body = {"model": endpoint.model, "state": state, "questions": dict(questions)}
+    # Pinned for every organization (`openrouter.PLATFORM_FIXED`): the decision
+    # model is the platform's, and its one endpoint (TypeSafe) is ZDR.
+    body = PLATFORM_FIXED.apply({"model": endpoint.model, "state": state, "questions": dict(questions)})
     started = time.monotonic()
     client, owned = _client(timeout, transport)
     try:
@@ -467,7 +454,10 @@ def _record_cost(decision: Decision, *, byok: bool) -> None:
             prompt_tokens=decision.input_tokens,
             completion_tokens=decision.output_tokens,
             cost_usd=decision.cost_usd or 0.0,
-            cost_source="provider" if decision.cost_usd is not None else "estimate",
+            # The ledger's vocabulary (`COST_SOURCES` in the BFF schema): a
+            # value outside it, as `"provider"` was, has the internal endpoint
+            # refuse the whole batch, and with it up to four other calls.
+            cost_source="usage_field" if decision.cost_usd is not None else "missing",
             is_byok=byok,
         )
     except Exception:  # noqa: BLE001 — accounting never takes a decision down
@@ -561,9 +551,12 @@ def decide_blocking(
     except RuntimeError:
         return _run()
     from concurrent.futures import ThreadPoolExecutor
+    from contextvars import copy_context
 
+    # In the caller's context, so the decision's cost reaches its tracker (a
+    # ContextVar a fresh thread would not see) and lands on the ledger.
     with ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(_run).result()
+        return pool.submit(copy_context().run, _run).result()
 
 
 async def decide_many(

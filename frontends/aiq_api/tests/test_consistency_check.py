@@ -418,9 +418,9 @@ def test_placeholder_openrouter_key_does_not_select_the_openrouter_endpoint(monk
     ):
         monkeypatch.delenv(name, raising=False)
 
-    model, api_key, base_url = _llm_settings()
+    cred = _llm_settings()
 
-    assert "openrouter.ai" not in base_url
-    assert base_url == "https://api.openai.com/v1"
-    assert model == "gpt-4o-mini"
-    assert api_key == "sk-some-other-provider"  # pragma: allowlist secret
+    assert "openrouter.ai" not in cred.base_url
+    assert cred.base_url == "https://api.openai.com/v1"
+    assert cred.model == "gpt-4o-mini"
+    assert cred.api_key == "sk-some-other-provider"  # pragma: allowlist secret

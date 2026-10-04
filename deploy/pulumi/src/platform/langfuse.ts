@@ -31,6 +31,25 @@ const SECRETS_NAME = "langfuse-secrets"; // pragma: allowlist secret (Kubernetes
  */
 const LANGFUSE_IMAGE_UID = 1001;
 
+/** The `LANGFUSE_*MIGRATION_V4*` env for a write mode (upstream's v3 -> v4 guide). */
+export function langfuseV4MigrationEnv(
+  writeMode: "legacy" | "dual" | "events_only",
+  historicBackfill: boolean,
+): k8s.types.input.core.v1.EnvVar[] {
+  return [
+    { name: "LANGFUSE_MIGRATION_V4_WRITE_MODE", value: writeMode },
+    {
+      name: "LANGFUSE_MIGRATION_V4_NATIVE_OTEL_BEHAVIOUR",
+      value: writeMode === "events_only" ? "direct" : "dual_write",
+    },
+    { name: "LANGFUSE_MIGRATION_V4_ALLOW_PREVIEW_OPT_IN", value: String(writeMode !== "legacy") },
+    {
+      name: "LANGFUSE_BACKGROUND_MIGRATION_V4_ENABLE_HISTORIC_BACKFILL",
+      value: String(historicBackfill),
+    },
+  ];
+}
+
 /**
  * startupProbe geometry for the web tier, in one place because two things read
  * it: the probe itself, and the plan-time assertion that it fits inside the
@@ -299,6 +318,13 @@ export function installLangfuse(
 
     { name: "TELEMETRY_ENABLED", value: "false" },
     { name: "LANGFUSE_LOG_LEVEL", value: "info" },
+
+    // The v3 -> v4 data migration (kubernetes.md §9b, "Upgrading to Langfuse
+    // v4"). Until `events_only`, spans go to v3's tables as well, which is what
+    // keeps a rollback to v3 possible; the OTLP spans the collector sends are
+    // propagated server-side in the same mode. Users may opt into the v4 views
+    // once something writes v4's tables, so not under `legacy`.
+    ...langfuseV4MigrationEnv(lf.v4WriteMode, lf.v4HistoricBackfill),
   ];
 
   /** Headless initialization (`LANGFUSE_INIT_*`) — see the config doc comment. */

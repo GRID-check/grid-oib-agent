@@ -403,3 +403,26 @@ class TestTheFamiliesLeaveTheGather:
 
         assert get_inventory_drops() == {}  # the var the read set did not survive the gather...
         assert inventory.inventory_drops == {Shelf.SESSION: 7}  # ...the field did
+
+
+class TestTheToolsSeeEveryRow:
+    """The prompt cap bounds what the model READS, never what a tool can RESOLVE.
+
+    A project's 51st file used to be „und N weitere" in the prompt AND unknown
+    to every tool that resolves a name against the turn's rows, so renaming or
+    moving it was refused on exactly the projects with the most files.
+    """
+
+    SCOPE = [ScopedCollection("proj_1", Shelf.PROJECT)]
+
+    async def test_the_inventory_carries_every_row_past_the_cap(self, monkeypatch):
+        monkeypatch.setenv("GRID_AVAILABLE_DOCUMENTS_MAX", "2")
+
+        async def fetch_one(_collection):
+            return [_Doc(f"plan_{index}.pdf") for index in range(5)]
+
+        inventory = await load_inventory(self.SCOPE, fetch_one=fetch_one, read_in_flight=lambda _n: {})
+
+        assert len(inventory.available_documents) == 2
+        assert sorted(d.file_name for d in inventory.all_documents) == [f"plan_{index}.pdf" for index in range(5)]
+        assert all(d.collection == "proj_1" and d.shelf == Shelf.PROJECT for d in inventory.all_documents)

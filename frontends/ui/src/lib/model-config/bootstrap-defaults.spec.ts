@@ -46,14 +46,16 @@ vi.mock('./backend-defaults', () => ({
 }))
 
 const fetchModelCatalog = vi.fn()
-const fetchZdrModelIds = vi.fn()
+const fetchZdrEndpoints = vi.fn()
 const validateOverrides = vi.fn()
 vi.mock('./openrouter', () => ({
   fetchModelCatalog: (): unknown => fetchModelCatalog(),
-  fetchZdrModelIds: (): unknown => fetchZdrModelIds(),
+  fetchZdrEndpoints: (): unknown => fetchZdrEndpoints(),
   validateOverrides: (...args: unknown[]): unknown => validateOverrides(...args),
-  baseModelId: (id: string): string => id.split(':')[0],
 }))
+
+const zdrIndex = (...ids: string[]): Map<string, unknown[]> =>
+  new Map(ids.map((modelId) => [modelId, [{ modelId, supportedParameters: ['tools'], contextLength: 1048576 }]]))
 
 const recordAuditEvent = vi.fn()
 vi.mock('@/lib/audit/service', () => ({
@@ -154,7 +156,7 @@ describe('bootstrapPlatformModelDefaults', () => {
     executeResults = []
     getWorkflowLlmBaseUrls.mockResolvedValue(allOn(OPENROUTER))
     fetchModelCatalog.mockResolvedValue([{ id: BOOTSTRAP_DEFAULT_MODEL }])
-    fetchZdrModelIds.mockResolvedValue(new Set([BOOTSTRAP_DEFAULT_MODEL]))
+    fetchZdrEndpoints.mockResolvedValue(zdrIndex(BOOTSTRAP_DEFAULT_MODEL))
     validateOverrides.mockImplementation((_catalog: unknown, defaults: Record<string, string>) => ({
       ok: true,
       errors: {},
@@ -175,9 +177,8 @@ describe('bootstrapPlatformModelDefaults', () => {
     const input = savePlatformModelDefaults.mock.calls[0][0]
     expect(new Set(Object.values(input.defaults))).toEqual(new Set([BOOTSTRAP_DEFAULT_MODEL]))
     expect(input.actorUserId).toBe(BOOTSTRAP_ACTOR)
-    // The ZDR signal is the control migration 0026 built so tenants enforcing
-    // Zero-Data-Retention can be warned; a seed that leaves it NULL disables it.
-    expect(input.modelSnapshot.shallow_research._zdr.safe).toBe(true)
+    // The validated catalog metadata, for the audit trail.
+    expect(input.modelSnapshot.shallow_research).toEqual({ id: BOOTSTRAP_DEFAULT_MODEL })
   })
 
   it('records an audit event for a decision no human made', async () => {
@@ -256,7 +257,15 @@ describe('bootstrapPlatformModelDefaults', () => {
     freshDeployment()
     validateOverrides.mockReturnValue({
       ok: false,
-      errors: { deep_research: 'context length 32768 is below the required 131072' },
+      errors: {
+        deep_research: [
+          {
+            code: 'context_too_small',
+            message: 'context length 32768 is below the required 131072',
+            params: { actual: 32768, required: 131072 },
+          },
+        ],
+      },
       snapshot: {},
     })
 
@@ -264,13 +273,42 @@ describe('bootstrapPlatformModelDefaults', () => {
     expect(savePlatformModelDefaults).not.toHaveBeenCalled()
   })
 
-  it('records ZDR as unknown, never as safe, when the listing is unreachable', async () => {
+  it('refuses to write anything when the ZDR list is unreachable (fail closed)', async () => {
+    // Every organization is ZDR by default: a default nobody could check
+    // against the ZDR list could have every one of them refused.
     freshDeployment()
-    fetchZdrModelIds.mockRejectedValue(new Error('zdr listing down'))
+    fetchZdrEndpoints.mockRejectedValue(new Error('zdr listing down'))
+
+    expect(await bootstrapPlatformModelDefaults()).toEqual([])
+    expect(savePlatformModelDefaults).not.toHaveBeenCalled()
+  })
+
+  it('refuses a bootstrap model without a zero-data-retention endpoint, and says so', async () => {
+    freshDeployment()
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    validateOverrides.mockReturnValue({
+      ok: false,
+      errors: {
+        deep_research: [{ code: 'not_zdr', message: 'no zero-data-retention endpoint', params: {} }],
+      },
+      snapshot: {},
+    })
+
+    expect(await bootstrapPlatformModelDefaults()).toEqual([])
+    expect(savePlatformModelDefaults).not.toHaveBeenCalled()
+    expect(String(error.mock.calls[0]?.[0])).toContain('no zero-data-retention endpoint')
+    error.mockRestore()
+  })
+
+  it('validates with the ZDR list before writing', async () => {
+    freshDeployment()
+    const zdr = zdrIndex(BOOTSTRAP_DEFAULT_MODEL)
+    fetchZdrEndpoints.mockResolvedValue(zdr)
 
     await bootstrapPlatformModelDefaults()
 
-    expect(savePlatformModelDefaults.mock.calls[0][0].modelSnapshot.shallow_research._zdr.safe).toBeNull()
+    expect(validateOverrides.mock.calls[0][3]).toBe(zdr)
+    expect(savePlatformModelDefaults).toHaveBeenCalled()
   })
 
   it('keeps the defaults when the audit sink fails', async () => {

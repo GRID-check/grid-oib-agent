@@ -19,6 +19,7 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import http from 'node:http'
 import path from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { verifyGridRequestContextEnvelope } from '../../src/lib/request-context'
 
 const UI_ROOT = path.resolve(__dirname, '../..')
 
@@ -27,8 +28,17 @@ let upstreamPort = 0
 let scopeHits = 0
 let slowScope = false
 let resetAfterUpgrade = false
+let scopeExtra: Record<string, unknown> = {}
+let backendHeaders: http.IncomingHttpHeaders = {}
+let anonymousScope = false
+const SECRET = 'gateway-turn-context-test-token' // pragma: allowlist secret
 const running: ChildProcess[] = []
 const openSockets = new Set<import('node:stream').Duplex>()
+
+function handleExpectedTeardown(error: NodeJS.ErrnoException): void {
+  // The harness deliberately destroys sockets and gateway processes.
+  if (error.code !== 'ECONNRESET' && error.code !== 'EPIPE') throw error
+}
 
 beforeAll(async () => {
   upstream = http.createServer((req, res) => {
@@ -39,9 +49,9 @@ beforeAll(async () => {
         res.end(
           JSON.stringify({
             header: 'c2NvcGU',
-            organizationId: 'org_1',
-            userId: 'user_1',
+            ...(!anonymousScope ? { organizationId: 'org_1', userId: 'user_1' } : {}),
             scope: ['col_a'],
+            ...scopeExtra,
           })
         )
       }
@@ -54,9 +64,11 @@ beforeAll(async () => {
   })
   upstream.on('connection', (sock) => {
     openSockets.add(sock)
+    sock.on('error', handleExpectedTeardown)
     sock.on('close', () => openSockets.delete(sock))
   })
-  upstream.on('upgrade', (_req, sock) => {
+  upstream.on('upgrade', (req, sock) => {
+    backendHeaders = req.headers
     openSockets.add(sock)
     sock.on('close', () => openSockets.delete(sock))
     sock.write(
@@ -83,6 +95,9 @@ afterEach(() => {
   while (running.length) running.pop()?.kill('SIGKILL')
   slowScope = false
   resetAfterUpgrade = false
+  scopeExtra = {}
+  backendHeaders = {}
+  anonymousScope = false
 })
 
 /** Let the OS pick a free port, then hand it to the gateway. */
@@ -116,6 +131,7 @@ async function startGateway(env: Record<string, string> = {}): Promise<number> {
       // Isolate the behaviour under test from the per-IP limiter: every request
       // here comes from 127.0.0.1, which is exactly the case it does cover.
       GRID_WS_UPGRADE_RATE_LIMIT: '0',
+      GRID_INTERNAL_API_TOKEN: SECRET,
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -165,6 +181,7 @@ function upgrade(port: number, cookie: string): Promise<number> {
       },
     })
     req.on('upgrade', (res, sock) => {
+      sock.on('error', handleExpectedTeardown)
       sock.destroy()
       resolve(res.statusCode ?? 101)
     })
@@ -173,6 +190,7 @@ function upgrade(port: number, cookie: string): Promise<number> {
       resolve(res.statusCode ?? 0)
     })
     req.on('error', () => resolve(0))
+    req.setTimeout(5000, () => req.destroy())
     req.end()
   })
 }
@@ -214,6 +232,71 @@ describe('gateway WS-upgrade scope memoisation', () => {
     await Promise.all(Array.from({ length: 10 }, () => upgrade(port, 'session=gamma')))
 
     expect(scopeHits).toBe(1)
+  })
+})
+
+describe('gateway compact turn-context transport', () => {
+  it('never forwards >6200-byte prompt blocks, even in the signed envelope', async () => {
+    scopeExtra = {
+      projectContext: 'ä'.repeat(4000),
+      projectMemory: 'memory'.repeat(4000),
+      orgInstructions: 'instructions'.repeat(4000),
+      projectId: 'proj_1', conversationId: 's_text-conversation',
+      bundesland: 'wien', memoryReflectionEnabled: true,
+    }
+    const port = await startGateway()
+    expect(await upgrade(port, 'session=large-profile')).toBe(101)
+    for (const name of ['x-grid-project-context', 'x-grid-project-memory', 'x-grid-org-instructions']) {
+      expect(backendHeaders).not.toHaveProperty(name)
+    }
+    const header = backendHeaders['x-grid-request-context'] as string
+    const payload = JSON.parse(Buffer.from(header, 'base64url').toString('utf8'))
+    expect(payload).toMatchObject({
+      organizationId: 'org_1', userId: 'user_1', projectId: 'proj_1',
+      conversationId: 's_text-conversation', contextTransport: 'bff', bundesland: 'wien',
+      memoryReflectionEnabled: true,
+    })
+    for (const field of ['projectContext', 'projectMemory', 'orgInstructions']) {
+      expect(payload).not.toHaveProperty(field)
+    }
+    expect(verifyGridRequestContextEnvelope(
+      header, backendHeaders['x-grid-request-context-sig'] as string, SECRET,
+    )).toMatchObject({ organizationId: 'org_1', userId: 'user_1' })
+    expect(Buffer.byteLength(header)).toBeLessThan(1000)
+  })
+
+  it('rejects an oversized remaining signed capsule with 431 before contacting the backend', async () => {
+    scopeExtra = { modelOverrides: { chat: 'a'.repeat(7000) } }
+    const port = await startGateway()
+    expect(await upgrade(port, 'session=oversized-policy')).toBe(431)
+    expect(backendHeaders).toEqual({})
+    expect(gatewayOutput).toContain('Header exceeds upstream line budget')
+    expect(gatewayOutput).not.toContain('a'.repeat(100))
+  })
+
+  it('fails closed for authenticated compact context when its service token is unavailable', async () => {
+    const port = await startGateway({ GRID_INTERNAL_API_TOKEN: '' })
+    expect(await upgrade(port, 'session=no-service-token')).toBe(503)
+    expect(backendHeaders).toEqual({})
+  })
+
+  it('does not emit the BFF transport marker for anonymous upgrades', async () => {
+    anonymousScope = true
+    scopeExtra = {
+      projectContext: 'legacy profile',
+      projectMemory: 'legacy memory',
+      orgInstructions: 'legacy instructions',
+    }
+    const port = await startGateway({ GRID_INTERNAL_API_TOKEN: '' })
+    expect(await upgrade(port, 'session=anonymous')).toBe(101)
+    const payload = JSON.parse(Buffer.from(backendHeaders['x-grid-request-context'] as string, 'base64url').toString('utf8'))
+    expect(payload).not.toHaveProperty('contextTransport')
+    expect(payload.projectContext).toBe('legacy profile')
+    expect(payload.projectMemory).toBe('legacy memory')
+    expect(payload.orgInstructions).toBe('legacy instructions')
+    expect(Buffer.from(backendHeaders['x-grid-project-context'] as string, 'base64url').toString('utf8')).toBe('legacy profile')
+    expect(Buffer.from(backendHeaders['x-grid-project-memory'] as string, 'base64url').toString('utf8')).toBe('legacy memory')
+    expect(Buffer.from(backendHeaders['x-grid-org-instructions'] as string, 'base64url').toString('utf8')).toBe('legacy instructions')
   })
 })
 

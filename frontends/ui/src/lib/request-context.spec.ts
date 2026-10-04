@@ -3,6 +3,7 @@
  */
 import fixtureData from '../../tests/fixtures/grid_request_context.json'
 import { readFileSync } from 'node:fs'
+import * as crypto from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -479,7 +480,7 @@ describe('server.js mints the same envelope payload this module does', () => {
     )
 
   it('carries every field, in the same key order — the signature is over the bytes', () => {
-    expect(serverFields()).toEqual(canonicalFields())
+    expect(serverFields()).toEqual([...canonicalFields(), 'contextTransport'])
   })
 
   it('signs the conversation and the mint time, which is what makes it a credential', () => {
@@ -497,5 +498,47 @@ describe('server.js mints the same envelope payload this module does', () => {
     // Signing `parsedUrl.query.conversationId` instead would put a caller-chosen
     // value inside a signature a write route trusts.
     expect(source).toContain('conversationId: result.data?.conversationId')
+  })
+
+  it('matches the signed bytes for compact capsules and every legacy fixture', () => {
+    const start = source.indexOf('function buildGridRequestContextEnvelopeHeaders(input)')
+    const end = source.indexOf('\nconst dev =', start)
+    const makeBuilder = new Function('crypto', 'process',
+      `${source.slice(start, end)}; return buildGridRequestContextEnvelopeHeaders`,
+    )
+    const serverBuilder = makeBuilder(crypto, { env: { GRID_INTERNAL_API_TOKEN: 'fixture-secret' } }) as (
+      input: GridRequestContextInput,
+    ) => Record<string, string>
+    for (const testCase of fixture.envelopeCases) {
+      const builder = makeBuilder(crypto, { env: { GRID_INTERNAL_API_TOKEN: testCase.secret } })
+      expect(builder(testCase.input)).toEqual({
+        'x-grid-request-context': testCase.header,
+        'x-grid-request-context-sig': testCase.signature,
+      })
+    }
+    const input: GridRequestContextInput = {
+      organizationId: 'org_1', userId: 'user_1', projectId: 'project_1',
+      conversationId: 's_conv_1', issuedAt: Date.now(), contextTransport: 'bff',
+      projectContext: 'ä'.repeat(3101), projectMemory: 'memory'.repeat(2000),
+      orgInstructions: 'instructions'.repeat(2000),
+    }
+    const canonical = buildGridRequestContextEnvelope(input, 'fixture-secret')
+    const serverHeaders = serverBuilder(input)
+    expect(serverHeaders['x-grid-request-context']).toBe(canonical.header)
+    expect(serverHeaders['x-grid-request-context-sig']).toBe(canonical.signature)
+    const payload = JSON.parse(Buffer.from(canonical.header, 'base64url').toString('utf8'))
+    expect(payload.contextTransport).toBe('bff')
+    expect(Object.keys(payload).at(-1)).toBe('contextTransport')
+    for (const field of ['projectContext', 'projectMemory', 'orgInstructions']) {
+      expect(payload).not.toHaveProperty(field)
+    }
+    expect(verifyGridRequestContextEnvelope(canonical.header, canonical.signature, 'fixture-secret')).toMatchObject({
+      organizationId: 'org_1', userId: 'user_1', conversationId: 's_conv_1',
+    })
+    const wire = buildGridRequestContextWireHeaders(input, 'fixture-secret')
+    for (const name of [GRID_HEADER_NAMES.PROJECT_CONTEXT, GRID_HEADER_NAMES.PROJECT_MEMORY, GRID_HEADER_NAMES.ORG_INSTRUCTIONS]) {
+      expect(wire).not.toHaveProperty(name)
+    }
+    expect(Buffer.byteLength(canonical.header)).toBeLessThan(1000)
   })
 })

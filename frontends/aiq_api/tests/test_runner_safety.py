@@ -363,6 +363,19 @@ class TestSanitizeJobError:
         assert message == "The LLM provider returned an error while running the job."
         assert "sk-abc" not in message
 
+    def test_a_zdr_refusal_is_named_not_generic(self):
+        """The one provider error only an admin can fix says so (ADR-0074)."""
+        from aiq_agent.common.canned_replies import ZDR_MODEL_REFUSED_MESSAGE
+
+        class FakeProviderError(Exception):
+            pass
+
+        FakeProviderError.__module__ = "openai.error"
+
+        refusal = FakeProviderError("Error code: 404 - No endpoints found matching your data policy")
+
+        assert sanitize_job_error(refusal) == ZDR_MODEL_REFUSED_MESSAGE
+
     def test_network_stack_error_classified_by_module(self):
         class FakeTransportError(Exception):
             pass

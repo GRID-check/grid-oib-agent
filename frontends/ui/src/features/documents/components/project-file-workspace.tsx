@@ -18,6 +18,7 @@ import { fetchListingPages } from '../lib/fetch-listing-pages'
 import { createDocumentNameProbeClient } from '@/lib/documents/name-probe-client'
 import { filesToUpload } from '../lib/folder-upload-plan'
 import { useUploadDecision } from '../hooks/use-upload-decision'
+import { takeDroppedFiles } from '../lib/dropped-file-handover'
 import { FolderUploadDialog } from './folder-upload-dialog'
 import { inferDocumentKind } from '../document-kind'
 import { FileBrowserPane } from './file-browser-pane'
@@ -190,6 +191,11 @@ export interface FileItem {
   contentTypes: string[] | null
   /** Controlled ingestion-generated tags (document type + OIB discipline). */
   tags: string[] | null
+  /**
+   * How many of this office's uploads wait ahead of this one in the ingest
+   * queue, or null when it is not waiting there (`DocumentMetadata.queueAhead`).
+   */
+  queueAhead?: number | null
   /** Who is on the hook. Empty = Unvergeben. Absent when collaboration is off. */
   assignees?: readonly FileAssignee[]
   /**
@@ -1062,6 +1068,16 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     },
     [proposeUpload, corpusForPlan, uploadFiles, folders, selectedFolderId, t]
   )
+
+  // A drop elsewhere in the project brought the reader here (`ProjectFileDrop`).
+  // Taken once, so a re-run of this effect finds nothing left to upload. Not
+  // before the folders are in: a dropped tree is planned against them, and an
+  // empty list would rebuild folders the project already has.
+  useEffect(() => {
+    if (isLoadingFolders || foldersError) return
+    const handedOver = takeDroppedFiles(projectId)
+    if (handedOver.length > 0) handleUpload(handedOver)
+  }, [projectId, handleUpload, isLoadingFolders, foldersError])
 
   /**
    * Apply the plan: make the folders, then send the files into them.

@@ -82,6 +82,15 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "path the inventory prints after 'Ordner:', e.g. Brandschutz/Fluchtwege) "
     "when the user scoped the question to a folder — it also covers everything "
     "filed beneath that folder.\n"
+    '`match="exact"` turns the search into Ctrl+F across the files: EVERY '
+    "passage that contains the query literally, plus a table of every matching "
+    "file with its count and pages — for a company or person, a room or door "
+    "number, a Brandabschnitt, a Bauteil code, a Geschäftszahl, a wording, and "
+    "to prove something is NOT written anywhere. Several spellings of one thing "
+    "go into one query separated by '|' ('BA-03 | BA 03'); case, ä/ae and ß/ss, "
+    "and a line break, space or hyphen between words are matched for you "
+    "('OIB Richtlinie' finds 'OIB-Richtlinie'). A term of two or three "
+    "characters ('EG') matches as a whole word only. The reader's own files come first.\n"
     "WHEN NOT TO CALL — to put a file on screen (the user asked to SEE or "
     "BROWSE files, no legal question): that is `surface_documents`. After "
     "you cite a project or Büroarchiv file, do not also call "
@@ -218,7 +227,10 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     )
     reranker_model: str | None = Field(
         default=None,
-        description="Cross-encoder model id (default cohere/rerank-v3.5, multilingual — a German corpus needs one).",
+        description=(
+            "Cross-encoder model id (default qwen/qwen3-reranker-8b: multilingual, which a German corpus "
+            "needs, and with a zero-data-retention endpoint, which every rerank is pinned to)."
+        ),
     )
     rerank_candidates: int = Field(
         default=15,
@@ -1775,22 +1787,31 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     created and reused for all subsequent queries. The ingestor singleton
     is also made available to the Knowledge API routes via the factory.
     """
+
+    # The summary, judge and requery models have no agent group: no organization
+    # can choose them, and every tenant's documents and questions pass through
+    # them. So they are pinned to zero-data-retention endpoints here, once, for
+    # every request (``openrouter.PLATFORM_FIXED``); a model that cannot carry
+    # the pin fails here rather than send unpinned.
+    async def _platform_llm(ref):
+        from aiq_agent.common import get_langchain_llm
+        from aiq_agent.common.openrouter import PLATFORM_FIXED
+        from aiq_agent.common.openrouter import pin_chat_model
+
+        return pin_chat_model(await get_langchain_llm(_builder, ref), PLATFORM_FIXED)
+
     # Resolve summary LLM if specified (enterprise approach)
     summary_llm_obj = None
     if config.summary_model and config.generate_summary:
-        from aiq_agent.common import get_langchain_llm
-
-        summary_llm_obj = await get_langchain_llm(_builder, config.summary_model)
+        summary_llm_obj = await _platform_llm(config.summary_model)
         logger.info("Resolved summary model: %s", config.summary_model)
 
     # Resolve the LLM-judge reranker model (fail-open: search still works when
     # unset or unresolvable — rerank_chunks degrades to the original order).
     rerank_llm_obj = None
     if config.rerank_llm:
-        from aiq_agent.common import get_langchain_llm
-
         try:
-            rerank_llm_obj = await get_langchain_llm(_builder, config.rerank_llm)
+            rerank_llm_obj = await _platform_llm(config.rerank_llm)
             logger.info("Resolved rerank model: %s", config.rerank_llm)
         except Exception as e:
             logger.warning(f"Could not resolve rerank_llm '{config.rerank_llm}', reranking disabled: {e}")
@@ -1802,10 +1823,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         if config.requery_llm == config.rerank_llm and rerank_llm_obj is not None:
             requery_llm_obj = rerank_llm_obj
         else:
-            from aiq_agent.common import get_langchain_llm
-
             try:
-                requery_llm_obj = await get_langchain_llm(_builder, config.requery_llm)
+                requery_llm_obj = await _platform_llm(config.requery_llm)
                 logger.info("Resolved requery model: %s", config.requery_llm)
             except Exception as e:
                 logger.warning(f"Could not resolve requery_llm '{config.requery_llm}', retrieval loop disabled: {e}")
@@ -1874,6 +1893,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         title_contains: str | None = None,
         file_name: str | None = None,
         folder: str | None = None,
+        match: str = "meaning",
         conclusion: str = "",
     ) -> str:
         """Read and cite passages from the ingested knowledge base.
@@ -1905,6 +1925,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             filters (dict | None): Rare. Metadata filter on the base
                 collection only (e.g. {"content_type": "text"}). Session and
                 project collections are never filtered.
+            match (str): "meaning" (default) ranks passages by what they say.
+                "exact" returns EVERY passage whose text contains the query
+                literally (case, ä/ae, ß/ss spellings and line breaks or
+                hyphens between words matched; a term of up to three
+                characters as a whole word; several spellings separated by
+                "|"), with a per-file count of all matches — for a name, a
+                number, a code or a wording.
 
         Returns:
             str: Numbered excerpts with a Citation key to copy verbatim.
@@ -1967,6 +1994,24 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         target_collections = _restrict_scope_to_turn(
             _resolve_scoped_collections(config, session_collection, base_collection)
         )
+
+        # The literal mode: same scope, same narrowing, no ranking at all.
+        if (match or "meaning").strip().lower() == "exact":
+            from .browse import exact_search
+
+            return await exact_search(
+                target_collections,
+                query,
+                search_config=config,
+                retriever=retriever,
+                file_name=file_name,
+                folder=folder,
+                doc_class=doc_class,
+                title_contains=title_contains,
+                filters=filters,
+            )
+        if (match or "meaning").strip().lower() != "meaning":
+            return '`match` must be "meaning" (ranked by what a passage says) or "exact" (every literal occurrence).'
 
         # Cross-lingual bridge. The corpus is German; an English question reaches it
         # only weakly by embedding and not at all lexically. Measured on the golden

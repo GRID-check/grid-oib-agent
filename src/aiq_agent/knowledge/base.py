@@ -12,6 +12,7 @@ import time
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -29,6 +30,30 @@ logger = logging.getLogger(__name__)
 # e.g. "s_<uuid>". Only collections with this prefix are subject to TTL reaping;
 # base/project corpora (e.g. "oib_knowledge") are persistent and never auto-deleted.
 SESSION_COLLECTION_PREFIX = "s_"
+
+
+@dataclass
+class PreparedIngestJob:
+    """An ingestion job validated and recorded PENDING, not yet running anywhere.
+
+    ``BaseIngestor.prepare_job`` makes one; whoever holds it decides where it
+    runs: ``submit_prepared`` in this process's pool, or the durable queue for
+    any worker that claims it (``aiq_api.jobs.ingest_queue``), which runs it
+    with ``run_prepared``. ``file_paths`` are local paths or deferred downloads,
+    as ``submit_job`` takes them.
+    """
+
+    job_id: str
+    status: IngestionJobStatus
+    file_paths: list[Any]
+    collection_name: str
+    config: dict[str, Any]
+
+    @property
+    def organization_id(self) -> str | None:
+        """The organisation the job is scheduled for, when it has one."""
+        value = self.config.get("organization_id")
+        return value if isinstance(value, str) and value else None
 
 
 class TTLCleanupMixin:
@@ -196,6 +221,28 @@ class BaseRetriever(ABC):
         """Prepare ``query`` for a search about to be made (its embedding). Optional; never raises."""
         return None
 
+    async def find_text(
+        self,
+        collection_name: str,
+        pattern: str,
+        filters: dict[str, Any] | None = None,
+        limit: int = 500,
+    ) -> list[Chunk] | None:
+        """Every chunk whose text matches the regular expression ``pattern`` anywhere.
+
+        Exhaustive, unranked and embedding-free: the answer to "which files say
+        X", which a top-k similarity search cannot give. At most ``limit``
+        chunks. ``None`` means the backend cannot do it, never "no match": a
+        caller must be able to tell an empty result from an unsupported one.
+
+        ``pattern`` is written in the subset Rust's ``regex`` and Python's
+        ``re`` read alike (no lookaround, no backreference), because the
+        caller re-checks every chunk with the same string. Case-insensitivity,
+        spelling variants and word boundaries are the CALLER's, expressed in
+        the pattern (``(?i)``, alternation, ``\\b``); a backend matches it as given.
+        """
+        return None
+
     @abstractmethod
     def normalize(self, raw_result: Any) -> Chunk:
         """
@@ -283,6 +330,39 @@ class BaseIngestor(ABC):
         Returns:
             IngestionJobStatus with current state.
         """
+
+    #: Whether ``prepare_job``/``run_prepared``/``attach_job_source`` work, so a
+    #: job can run in another process than the one that accepted it.
+    supports_durable_jobs = False
+
+    def prepare_job(
+        self,
+        file_paths: list[str | Callable[[], str]],
+        collection_name: str,
+        config: dict[str, Any] | None = None,
+    ) -> "PreparedIngestJob":
+        """Validate a job and record it PENDING without running it (see ``PreparedIngestJob``)."""
+        raise NotImplementedError
+
+    def submit_prepared(self, prepared: "PreparedIngestJob") -> None:
+        """Queue a prepared job in this process."""
+        raise NotImplementedError
+
+    def run_prepared(self, prepared: "PreparedIngestJob", still_owner: Callable[[], bool] | None = None) -> None:
+        """Run a prepared job on the calling thread; ``still_owner`` says whether its claim is still held."""
+        raise NotImplementedError
+
+    def attach_job_source(self, source: Callable[[], Callable[[], None] | None]) -> None:
+        """Let this process's free workers claim jobs from ``source``."""
+        raise NotImplementedError
+
+    def detach_job_source(self) -> None:
+        """Stop claiming from the attached source."""
+
+    @property
+    def busy_workers(self) -> int:
+        """Workers running a job right now."""
+        return 0
 
     def find_live_job(self, dispatch_key: str) -> str | None:
         """The id of a pending or processing job submitted under ``dispatch_key``, or None.

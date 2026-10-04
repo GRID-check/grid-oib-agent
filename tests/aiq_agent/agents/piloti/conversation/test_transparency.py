@@ -545,6 +545,24 @@ class TestEscalationReasonEndToEnd:
         contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
         assert GENERIC_ERROR_MESSAGE in contents
 
+    @pytest.mark.asyncio
+    async def test_a_zdr_refusal_names_the_fix_instead_of_asking_for_a_retry(self):
+        """No endpoint satisfies the org's ZDR setting: a retry cannot help (ADR-0074)."""
+        from aiq_agent.common.canned_replies import ZDR_MODEL_REFUSED_MESSAGE
+
+        async def refused(state):
+            raise RuntimeError("Error code: 404 - No endpoints found matching your data policy")
+
+        async def deep(state):
+            raise AssertionError("deep research must not run on a refusal")
+
+        agent = _agent(refused, deep_fn=deep)
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Frage")]), thread_id="t")
+
+        contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
+        assert ZDR_MODEL_REFUSED_MESSAGE in contents
+        assert GENERIC_ERROR_MESSAGE not in contents
+
 
 class TestCitationsRemovedEndToEnd:
     """A populated upstream citations_removed reaches the terminal state."""

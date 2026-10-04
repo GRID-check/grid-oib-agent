@@ -84,9 +84,9 @@ def add_note_embedding_routes(router: APIRouter) -> None:
                 logger.warning("No embeddings API key resolved; notes stay on the lexical path")
                 return NoteEmbeddingResponse(vectors=[], fingerprint="", dimensions=0, error="embedder_not_configured")
 
-            from llama_index.embeddings.nvidia import NVIDIAEmbedding
+            from knowledge_layer.llamaindex.adapter import make_embed_model
 
-            embedder = NVIDIAEmbedding(base_url=base_url, model=model, api_key=api_key)
+            embedder = make_embed_model(base_url=base_url, model=model, api_key=api_key)
             # Synchronous HTTP inside; keep it off the event loop like the
             # retriever's own embed call does.
             vectors = await asyncio.to_thread(embedder.get_text_embedding_batch, texts)

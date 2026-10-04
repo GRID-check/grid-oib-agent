@@ -41,12 +41,12 @@ import logging
 from typing import Any
 
 from aiq_agent.common.message_contract import normalize_chat_request
+from aiq_agent.common.openrouter import targets_openrouter
 from nat.plugin_api import LLMFrameworkEnum
 from nat.utils.exception_handlers.automatic_retries import patch_with_retry
 
 logger = logging.getLogger(__name__)
 
-_OPENROUTER_HOST = "openrouter.ai"
 _RESPONSE_HEALING_PLUGIN = {"id": "response-healing"}
 
 #: Marks a chat-model class as already carrying the request contract, so
@@ -56,6 +56,21 @@ _CONTRACT_MARKER = "__grid_request_contract__"
 #: One contract subclass per base chat-model class, not per instance — keeps
 #: ``type(llm)`` stable and cheap across the fleet's many resolutions.
 _CONTRACT_SUBCLASSES: dict[type, type] = {}
+
+#: A rate limit that arrives INSIDE a Responses stream, as an ``error`` event.
+#: langchain-openai raises it as a bare ``ValueError("rate_limit_exceeded: …")``
+#: that carries no status code and no "429", so NAT's default filters (status
+#: codes, "Too Many Requests", "429") let it through and the turn ends on the
+#: generic error (GRID-check/grid-oib-agent#826). Matched on the provider's
+#: error code, which is what OpenRouter puts in front of the message.
+_STREAMED_RATE_LIMIT_MESSAGES = ("rate_limit_exceeded",)
+
+
+def retry_messages(configured: list[str] | None) -> list[str]:
+    """The config's retry substrings plus the streamed rate-limit code, once each."""
+    merged = list(configured or [])
+    merged.extend(m for m in _STREAMED_RATE_LIMIT_MESSAGES if m not in merged)
+    return merged
 
 
 def _llm_base_url(llm: Any) -> str:
@@ -101,7 +116,7 @@ def llm_targets_openrouter(llm: Any) -> bool:
     Shared with the per-request ZDR seam (``model_overrides``) so both use the
     same base-URL detection.
     """
-    return _OPENROUTER_HOST in _llm_base_url(llm)
+    return targets_openrouter(_llm_base_url(llm))
 
 
 def apply_openrouter_structured_defaults(llm: Any) -> Any:
@@ -112,7 +127,7 @@ def apply_openrouter_structured_defaults(llm: Any) -> Any:
     dropping them); the defaults are identical for every caller, so sharing a
     resolved instance is safe.
     """
-    if _OPENROUTER_HOST not in _llm_base_url(llm):
+    if not llm_targets_openrouter(llm):
         return llm
     if not hasattr(llm, "extra_body"):
         return llm
@@ -306,7 +321,7 @@ async def get_langchain_llm(builder: Any, ref: Any) -> Any:
         wrapped.default,
         retries=config.num_retries,
         retry_codes=config.retry_on_status_codes,
-        retry_on_messages=config.retry_on_errors,
+        retry_on_messages=retry_messages(config.retry_on_errors),
     )
     hardened = disable_previous_response_id(apply_openrouter_structured_defaults(llm))
     return enforce_chat_request_contract(hardened)

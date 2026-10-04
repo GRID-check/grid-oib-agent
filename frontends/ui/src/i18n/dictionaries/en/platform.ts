@@ -12,6 +12,27 @@ export const platform = {
   },
   loadErrorHint: 'Something went wrong while fetching the data. Please try again.',
   retry: 'Retry',
+  orgBudgets: {
+    column: 'Allowance',
+    open: 'View allowance for {name}',
+    title: 'Allowance for {name}',
+    description: 'Set how much this organization can use each month. This overrides its default allowance, not the platform price list.',
+    credits: 'credits',
+    tokens: 'tokens',
+    daily: 'Daily limit ({unit})',
+    monthly: 'Monthly allowance ({unit})',
+    usage: 'Used today: {day} {unit}. This month: {month} {unit}.',
+    default: 'Default allowance',
+    explicit: 'Custom allowance',
+    limitHint: 'Leave blank for unlimited; 0 blocks new requests. Windows reset at midnight UTC and on the first of the month. Both limits apply; lowering one below current usage blocks new requests.',
+    note: 'Change note (optional)',
+    invalid: 'Enter a number from 0 to 99,999,999.9999, or leave blank for unlimited.',
+    readOnly: 'You can view this allowance, but do not have permission to change it.',
+    loadError: 'Could not load the organization allowance.',
+    saveError: 'Could not save the organization allowance.',
+    unitChanged: 'The organization changed its budget unit. Close and reopen this allowance before saving.',
+    saved: 'Organization allowance saved.',
+  },
   /**
    * Platform → base knowledge, rebuilt on the shared admin primitives
    * (SectionCard + DataToolbar + Table + Sheet + Pagination). Only the copy the
@@ -708,8 +729,12 @@ export const platform = {
     change: 'Change',
     clear: 'Back to the workflow config',
     zdrWarning:
-      'No zero-data-retention endpoint — organizations with that policy on keep their own model instead.',
-    noZdr: 'No zero-data-retention endpoint',
+      'No zero-data-retention endpoint that serves this task. Every organization is ZDR unless it opted out, and those that have not chosen their own model inherit this default, so their requests for this task are refused until it is changed.',
+    zdrUnknown:
+      'The zero-data-retention list could not be loaded, so it is unknown whether this model has a ZDR endpoint.',
+    zdrListUnavailable:
+      'The zero-data-retention list could not be loaded, so no model can be checked. Nothing is offered or saved until it is back.',
+    noZdrResults: 'No model with a zero-data-retention endpoint matches.',
     // Thinking level per group — the second lever on the same row.
     effortPinnedBadge: 'Platform level',
     effortInherit: 'Workflow config',
@@ -787,6 +812,7 @@ export const platform = {
     costMonth: 'Cost this month',
     revenueMonth: 'Revenue this month',
     marginHint: 'Gross margin {margin}',
+    ingestShare: 'of which ingestion {amount}',
     ownKeyExcluded: 'Excludes {amount} on organizations’ own keys',
     requestsMonth: '{count} requests this month',
   },
@@ -798,6 +824,7 @@ export const platform = {
     colProjects: 'Projects',
     colToday: 'Cost today',
     colMonth: 'Cost this month',
+    colIngest: 'Ingestion this month',
     colRevenue: 'Revenue this month',
     colCreated: 'Created',
     platformBadge: 'Platform',

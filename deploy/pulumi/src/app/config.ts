@@ -21,6 +21,8 @@ export interface AppWiring {
     db: string;
     driver?: string;
     as?: { user: string; password: pulumi.Output<string> };
+    /** Host by FQDN, for a client in another namespace (KEDA). */
+    clusterWide?: boolean;
   }) => pulumi.Output<string>;
   /**
    * imagePullSecrets for every app pod spec — references the registry pull
@@ -29,7 +31,7 @@ export interface AppWiring {
   imagePullSecrets: { name: string }[];
 }
 
-const SECRET_NAME = "grid-secrets"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+export const SECRET_NAME = "grid-secrets"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
 export const PULL_SECRET_NAME = "grid-registry-pull"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
 
 /**
@@ -127,6 +129,9 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
     AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
     AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
+    // The same database for KEDA's postgresql scaler, which runs in the `keda`
+    // namespace and cannot resolve the bare service name. Read by no pod.
+    KEDA_INGEST_QUEUE_DB_URL: w.dsn({ db: "aiq_jobs", clusterWide: true }),
     AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
     // The app tier connects as the least-privilege role, so row-level security
     // applies to it (ADR-0041). Migrations get the owner credential below —
@@ -136,6 +141,9 @@ export function buildSecrets(w: AppWiring): AppSecrets {
       as: { user: "grid_app_rw", password: cfg.postgres.runtimePassword },
     }),
     GRID_APP_MIGRATION_DATABASE_URL: w.dsn({ db: "grid_app" }),
+    // err2issue's PAT, for the BFF filing bug reports as issues. Absent rather
+    // than empty when that is off, so the Secret holds no credential it needn't.
+    ...(cfg.feedbackIssues.enabled ? { GRID_GITHUB_TOKEN: cfg.feedbackIssues.githubToken } : {}),
   };
 
   const secret = new k8s.core.v1.Secret(
@@ -237,6 +245,10 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "GRID_MAX_ACTIVE_JOBS", value: String(cfg.backend.maxActiveJobs) },
     { name: "GRID_MAX_ACTIVE_JOBS_PER_ORG", value: String(cfg.backend.maxActiveJobsPerOrg) },
     { name: "AIQ_INGEST_MAX_WORKERS", value: String(cfg.backend.ingestMaxWorkers) },
+    // With the ingest tier running, the chat pods take no queued ingestion
+    // (ADR-0076); their pool still runs the jobs with local files.
+    { name: "GRID_INGEST_QUEUE_CLAIM", value: String(!cfg.ingestWorker.enabled) },
+    { name: "GRID_INGEST_MAX_PER_ORG", value: String(cfg.ingestWorker.maxPerOrg) },
     // LLM / embeddings / VLM (all via OpenRouter).
     sref("OPENROUTER_API_KEY"),
     sref("TAVILY_API_KEY"),
@@ -284,6 +296,23 @@ export function workerEnv(w: AppWiring): EnvVar[] {
     ...backendEnv(w, "grid-agent-worker"),
     { name: "GRID_ROLE", value: "worker" },
     { name: "GRID_RESEARCH_WORKERS", value: String(w.cfg.agentWorker.concurrency) },
+  ];
+}
+
+/**
+ * Ingest worker (ADR-0076) environment: the full backend env (it builds the same
+ * ingestor: summary model, shared Chroma, object store, DSNs) plus the role, its
+ * per-process concurrency and the claim switch forced on.
+ */
+export function ingestWorkerEnv(w: AppWiring, livenessFile: string): EnvVar[] {
+  const overridden = new Set(["AIQ_INGEST_MAX_WORKERS", "GRID_INGEST_QUEUE_CLAIM"]);
+  return [
+    ...backendEnv(w, "grid-ingest-worker").filter((e) => !(typeof e.name === "string" && overridden.has(e.name))),
+    { name: "GRID_ROLE", value: "ingest-worker" },
+    { name: "AIQ_INGEST_MAX_WORKERS", value: String(w.cfg.ingestWorker.concurrency) },
+    { name: "GRID_INGEST_QUEUE_CLAIM", value: "true" },
+    { name: "GRID_INGEST_WORKER_DRAIN_SECONDS", value: String(w.cfg.ingestWorker.drainSeconds) },
+    { name: "GRID_WORKER_LIVENESS_FILE", value: livenessFile },
   ];
 }
 
@@ -358,6 +387,11 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "GRID_DISABLE_SELF_SERVE_ORGS", value: String(cfg.auth.disableSelfServeOrgs) },
     { name: "GRID_AUDIT_LOGS_ENABLED", value: String(cfg.auth.auditLogsEnabled) },
     { name: "GRID_ENFORCE_FEATURE_FLAGS", value: String(cfg.auth.enforceFeatureFlags) },
+    // Bug reports → GitHub issues. Both or neither: the repo variable is the
+    // switch the BFF reads, and without it the token is never used.
+    ...(cfg.feedbackIssues.enabled
+      ? [sref("GRID_GITHUB_TOKEN"), { name: "GRID_FEEDBACK_ISSUES_REPO", value: cfg.feedbackIssues.repo }]
+      : []),
     // Shared cache + WS rate limiting (needed for >1 replica correctness).
     // Authenticated: the URL carries the password, so it comes from the Secret.
     sref("REDIS_URL"),

@@ -56,7 +56,10 @@ PROVIDER = "openrouter"
 _REMOVED_PROVIDERS = ("cohere", "voyage", "jina", "nvidia")
 _PATH = "/rerank"
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
-_DEFAULT_MODEL = "cohere/rerank-v3.5"
+#: Every request is pinned to zero-data-retention endpoints, and
+#: `cohere/rerank-v3.5` (the default until 2026-09) has none. Qwen3-Reranker
+#: is multilingual, and its one OpenRouter endpoint (Fireworks) is ZDR.
+_DEFAULT_MODEL = "qwen/qwen3-reranker-8b"
 _KEY_ENV = "OPENROUTER_API_KEY"
 _RESULTS_KEY = "results"
 _SCORE_KEY = "relevance_score"
@@ -113,10 +116,11 @@ DEFAULT_PROVIDER = os.environ.get("AIQ_RERANKER_PROVIDER", "none").strip().lower
 # @environment_variable AIQ_RERANKER_MODEL
 # @category Knowledge Layer
 # @type str
-# @default cohere/rerank-v3.5
+# @default qwen/qwen3-reranker-8b
 # @required false
 # Reranking model id on OpenRouter. The corpus is German, so a multilingual
-# model is not optional.
+# model is not optional, and every rerank is pinned to zero-data-retention
+# endpoints, so the model must have one (`/api/v1/endpoints/zdr`).
 DEFAULT_MODEL = os.environ.get("AIQ_RERANKER_MODEL", "").strip()
 
 # @environment_variable AIQ_RERANKER_BASE_URL
@@ -291,6 +295,24 @@ def _resolve_credential(base_url: str, model: str, organization_id: str | None) 
 def _resolve_api_key(base_url: str, model: str, organization_id: str | None) -> str:
     """The key only — what the constructor needs to answer :attr:`configured`."""
     return _resolve_credential(base_url, model, organization_id).api_key
+
+
+def _pinned_body(body: dict[str, Any], base_url: str) -> dict[str, Any] | None:
+    """``body`` pinned to zero-data-retention endpoints, or ``None`` to skip the rerank.
+
+    The reranker is the platform's, not an organization's choice, so an
+    OpenRouter rerank is always pinned (``openrouter.PLATFORM_FIXED``, ADR-0074)
+    and its model must have a ZDR endpoint (the default does). Imported here,
+    not at module level, because this package imports without ``aiq_agent``;
+    without the seam the rerank is skipped rather than sent unpinned.
+    """
+    try:
+        from aiq_agent.common.openrouter import PLATFORM_FIXED
+        from aiq_agent.common.openrouter import targets_openrouter
+    except ImportError:
+        _throttled_warning("Cross-encoder skipped: the zero-data-retention seam (aiq_agent) is not installed")
+        return None
+    return PLATFORM_FIXED.apply(body) if targets_openrouter(base_url) else body
 
 
 def _organization_id_in_scope() -> str | None:
@@ -502,6 +524,9 @@ class CrossEncoderReranker:
         documents = [str(getattr(chunk, "content", ""))[: self.max_doc_chars] for chunk in chunks]
         credential = await self._credential_for_search()
         url = f"{credential.base_url}{_PATH}"
+        body = _pinned_body(self._build_body(query, documents, top_n), credential.base_url)
+        if body is None:
+            return None
         try:
             # Imported inside the guard: httpx is an optional transitive dependency, and
             # an ImportError here must degrade to "no opinion" like every other failure.
@@ -515,7 +540,7 @@ class CrossEncoderReranker:
                         "Content-Type": "application/json",
                         "Accept": "application/json",
                     },
-                    json=self._build_body(query, documents, top_n),
+                    json=body,
                 )
                 response.raise_for_status()
                 payload = response.json()

@@ -394,6 +394,26 @@ describe('RunBlock — the line and the affordances', () => {
     expect(screen.queryByTestId('run-action-retry')).not.toBeInTheDocument()
   })
 
+  it('failed under zero data retention: the reason says what to do, and there is no Retry', () => {
+    // `ZDR_MODEL_REFUSED_MESSAGE` (src/aiq_agent/common/canned_replies.py), as
+    // deep-research jobs persist it: a retry fails identically until an admin
+    // chooses a ZDR model.
+    const reason =
+      'Diese Frage konnte nicht beantwortet werden, weil das eingestellte Modell keinen Anbieter ohne Datenspeicherung hat und Ihre Organisation Zero Data Retention verlangt.'
+    let ledger = closePhase(researching(), 'recherchieren', at(60))
+    ledger = failRun(ledger, reason, at(70))
+    render(<RunBlock ledger={ledger} title={TITLE} defaultOpen onRetry={vi.fn()} />)
+    expect(screen.getByTestId('run-status-line')).toHaveTextContent('keinen Anbieter ohne Datenspeicherung')
+    expect(screen.queryByTestId('run-action-retry')).not.toBeInTheDocument()
+  })
+
+  it('failed with an internal fault that merely mentions ZDR: Retry stays', () => {
+    let ledger = closePhase(researching(), 'recherchieren', at(60))
+    ledger = failRun(ledger, 'ZDR policy lookup failed', at(70))
+    render(<RunBlock ledger={ledger} title={TITLE} defaultOpen onRetry={vi.fn()} />)
+    expect(screen.getAllByTestId('run-action-retry').length).toBeGreaterThan(0)
+  })
+
   it('cancelled: stopped at your request, and what was done by then', () => {
     render(
       <RunBlock

@@ -130,10 +130,12 @@ def build_summary_llm() -> _OpenAICompatLLM:
     ``BACKFILL_SUMMARY_BASE_URL`` (``OPENROUTER_API_KEY`` for the default
     OpenRouter base URL). Runs outside NAT
     with no request context, so BYOK is not applicable here (org id is None).
+    It reads every tenant's documents, so every request is pinned to
+    zero-data-retention endpoints as if each tenant had ZDR on.
     """
-    from openai import OpenAI
-
     from aiq_agent.common.credential_resolution import resolve_llm_credential
+    from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
+    from aiq_agent.common.openrouter import openai_client
 
     cred = resolve_llm_credential(
         primary_env="BACKFILL_SUMMARY_API_KEY",
@@ -142,6 +144,7 @@ def build_summary_llm() -> _OpenAICompatLLM:
         base_url_env="BACKFILL_SUMMARY_BASE_URL",
         model_env="BACKFILL_SUMMARY_MODEL",
         organization_id=None,
+        data_policy=ZERO_DATA_RETENTION,
     )
     if not cred.api_key:
         raise RuntimeError(
@@ -150,7 +153,8 @@ def build_summary_llm() -> _OpenAICompatLLM:
             "model configured in configs/config_*.yml."
         )
     logger.info("Tagging LLM: model=%s base_url=%s", cred.model, cred.base_url)
-    return _OpenAICompatLLM(OpenAI(base_url=cred.base_url, api_key=cred.api_key), cred.model)
+    client = openai_client(base_url=cred.base_url, api_key=cred.api_key, policy=cred.data_policy)
+    return _OpenAICompatLLM(client, cred.model)
 
 
 # =============================================================================

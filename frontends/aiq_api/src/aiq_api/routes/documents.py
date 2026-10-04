@@ -33,6 +33,7 @@ from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.schema import FileInfo
 from aiq_agent.knowledge.schema import IngestionJobStatus
 
+from ..jobs import ingest_dispatch
 from ..models.requests import DeleteFilesRequest
 from ..models.requests import UploadResponse
 from .collections import _require_ingestor
@@ -79,6 +80,7 @@ def _job_statuses(ingestor: BaseIngestor, job_ids: list[str]) -> dict[str, Any]:
             statuses[job_id] = status.model_dump(mode="json") if status is not None else None
         except Exception:
             statuses[job_id] = None
+    ingest_dispatch.stamp_queue_ahead(statuses)
     return statuses
 
 

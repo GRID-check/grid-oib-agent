@@ -63,6 +63,7 @@ interface SpendWindow {
   credits: number
   tokens: number
   events: number
+  ingestCostUsd?: number
 }
 
 interface Organization {
@@ -126,6 +127,24 @@ describe('PlatformOverview', () => {
     expect(await screen.findByText('3')).toBeDefined()
     expect(screen.getByText('7')).toBeDefined()
     expect(screen.getByTestId('spend-trend-chart')).toBeDefined()
+  })
+
+  test('opens the selected organization allowance from the directory', async () => {
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => withOrganizations([
+        org({ id: 'org_1', name: 'Office One' }),
+        org({ id: 'org_2', name: 'Office Two' }),
+      ]) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({
+        organizationId: 'org_2', unit: 'credit', dailyLimit: 1000, monthlyLimit: 25000,
+        explicit: true, dayUsed: 0, monthUsed: 0, canManage: true,
+      }) })
+    vi.stubGlobal('fetch', fetchSpy)
+    render(<PlatformOverview />)
+    await userEvent.click(await screen.findByRole('button', { name: 'View allowance for Office Two' }))
+    expect(await screen.findByLabelText('Monthly allowance (credits)')).toHaveValue('25000')
+    expect(screen.getByRole('dialog')).toHaveAccessibleName('Allowance for Office Two')
+    expect(fetchSpy).toHaveBeenLastCalledWith('/api/platform/organizations/org_2/budgets', { credentials: 'same-origin' })
   })
 
   test('shows a retryable inline error instead of a permanent skeleton on failure', async () => {
@@ -306,5 +325,24 @@ describe('PlatformOverview', () => {
     expect(within(team).getByRole('button', { name: /Audit logs/i })).toBeDefined()
     // The team widget must not sit inside the organization directory card.
     expect(within(directory()).queryByTestId('users-management')).toBeNull()
+  })
+
+  test('shows what ingestion cost, per organization and within the headline cost', async () => {
+    const ingesting = org({ id: 'org_1', name: 'Baumeister Wien', monthUsd: 40 })
+    ingesting.month.ingestCostUsd = 12.5
+    stubFetch(
+      withOrganizations([ingesting, org({ id: 'org_2', name: 'Ohne Upload', monthUsd: 5 })], {
+        totals: { ...overview.totals, day: window(1, 4), month: { ...window(45, 42), ingestCostUsd: 12.5 } },
+      }),
+    )
+
+    render(<PlatformOverview />)
+
+    const table = within(await screen.findByTestId('platform-organizations'))
+    expect(table.getByRole('columnheader', { name: /Ingestion this month/i })).toBeDefined()
+    expect(table.getByText('$12.50')).toBeDefined()
+    // Part of the month's cost, not on top of it; today had none, so no hint.
+    expect(screen.getByText('of which ingestion $12.50')).toBeDefined()
+    expect(screen.getAllByText(/of which ingestion/)).toHaveLength(1)
   })
 })

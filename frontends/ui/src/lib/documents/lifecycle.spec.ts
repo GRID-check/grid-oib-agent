@@ -530,7 +530,7 @@ describe('transitionDocumentVersion — effects', () => {
 
   it('submits an Unvergeben draft rather than refusing it', async () => {
     // A Piloti draft is unassigned by construction (ADR-0047), and the draft
-    // card, the panel and `submit_draft` all submit without naming anybody.
+    // card, the panel and `file_draft` with `submit` all submit without naming anybody.
     // Refusing that made the lifecycle unreachable for the documents it exists
     // for.
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))

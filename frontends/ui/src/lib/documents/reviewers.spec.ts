@@ -8,7 +8,7 @@
  * (ADR-0047), so the assignment fallback resolved to nobody and `submit` was
  * refused with „name a reviewer or assign the document first" on every path
  * that had no way to name one — the draft card, the lifecycle panel, and the
- * agent's own `submit_draft`.
+ * agent's own `file_draft` submit.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'

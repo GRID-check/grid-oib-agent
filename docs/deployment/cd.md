@@ -102,6 +102,13 @@ Before `pulumi up` touches the cluster, `deploy.yml` plans once and checks that
 plan twice:
 - **`scripts/validate-crs.mjs`** — schema-validates every CustomResource against
   the real upstream CRD schemas (tsc cannot type `apiextensions.CustomResource`).
+  KEDA's `keda.sh/v1alpha1` resources use the CRDs from its pinned v2.21.0
+  release, including the ingest worker's `TriggerAuthentication` and
+  `ScaledObject`. Like CNPG, these schemas are fetched once and cached under
+  `deploy/pulumi/.schemas-cache/`, keyed by release URL and kind set. A schema
+  download or validation failure blocks deployment; `ALLOW_SKIP` does not
+  bypass a registered validator. When upgrading KEDA, review the schema pin
+  alongside the chart version.
 - **CrossGuard policy pack** (`deploy/pulumi/policy`, `--policy-pack ./policy`) —
   rollout safety (surge-only updates, readiness soaks, progress deadlines,
   shutdown budgets), CPU/memory bounds on every container, and pull-policy
@@ -211,6 +218,13 @@ rollback can never quietly take the data tier with it.
 
 Traps this pipeline has actually hit. Each one broke a real run — the code that
 avoids them looks odd without the reason, so don't "simplify" it back.
+
+- **A new custom-resource group needs a plan validator too.** Adding KEDA's
+  ingest autoscaler without registering `keda.sh/v1alpha1` let the manifest
+  tests pass but stopped staging at `no validator wired`. The regression suite
+  now sends the ingest module's emitted resources through the same validator
+  CLI that deployment runs. Register a validator when adding a CR group;
+  setting `ALLOW_SKIP=1` only hides the missing check.
 
 - **A shallow checkout with `persist-credentials: false` cannot diff a push.**
   `paths-filter` compares against `github.event.before`; that commit is absent

@@ -29,6 +29,7 @@ from tests.fixtures.drafting_turns import REVISE
 from tests.fixtures.drafting_turns import SEEDED_DRAFT_PATH
 from tests.fixtures.drafting_turns import assert_turn_shape
 from tests.fixtures.drafting_turns import draft_cards
+from tests.fixtures.drafting_turns import traced_tool_name
 
 
 async def _run_with_captured_registry(agent, state):
@@ -3461,7 +3462,7 @@ class TestTheWorkingDirectoryBlock:
         """The cut itself. Each of these was a sentence about how to hold a
         tool, charged on every call of every turn (ADR-0060 (d))."""
         block = _entwuerfe_block()
-        for teaching in ("`write_file`", "`edit_file`", "`file_draft`", "`submit_draft`", "`reviewer`"):
+        for teaching in ("`write_file`", "`edit_file`", "`file_draft`", "`submit=true`", "`reviewer`"):
             assert teaching not in block, teaching
 
     def test_the_block_follows_the_tools_and_not_a_second_switch(self):
@@ -3533,16 +3534,18 @@ class TestTheDraftingRulesLiveInTheTools:
         assert "ENTWURF" in _FILE_DRAFT_DESCRIPTION
         assert "niemand hat ihn freigegeben" in _FILE_DRAFT_DESCRIPTION
 
-    def test_submit_draft_needs_a_filed_draft_and_an_explicit_request(self):
-        from aiq_agent.tools.documents.register import _SUBMIT_DRAFT_DESCRIPTION
+    def test_submitting_needs_an_explicit_request(self):
+        """`submit_draft` merged into `file_draft(submit=true)`; its rules came with it."""
+        from aiq_agent.tools.documents.register import _FILE_DRAFT_DESCRIPTION
 
-        assert "bereits im Projekt abgelegten Entwurf" in _SUBMIT_DRAFT_DESCRIPTION
-        assert "Nur aufrufen, wenn die Nutzerin um Freigabe" in _SUBMIT_DRAFT_DESCRIPTION
+        assert "Nur mit `submit=true` aufrufen, wenn die Nutzerin um Freigabe" in _FILE_DRAFT_DESCRIPTION
+        # „ablegen" alone must not flip the flag.
+        assert "„ablegen“ allein ist keine solche Bitte" in _FILE_DRAFT_DESCRIPTION
         # The reviewer name is passed through and never guessed…
-        assert "unverändert" in _SUBMIT_DRAFT_DESCRIPTION
+        assert "unverändert" in _FILE_DRAFT_DESCRIPTION
         # …and without one the draft goes to the project's editors, which the
         # answer has to be able to say.
-        assert "an die Bearbeiter des Projekts" in _SUBMIT_DRAFT_DESCRIPTION
+        assert "an die Bearbeiter des Projekts" in _FILE_DRAFT_DESCRIPTION
 
 
 class TestTheDelegationRulesLiveInTheTool:
@@ -3924,53 +3927,53 @@ class TestATurnThatWritesADraft:
 def _file_verb_descriptions() -> dict[str, str]:
     from aiq_agent.tools.files import register as files_register
 
-    return {
-        "move_document": files_register._MOVE_DESCRIPTION,
-        "rename_document": files_register._RENAME_DESCRIPTION,
-        "create_folder": files_register._CREATE_FOLDER_DESCRIPTION,
-        "assign_document": files_register._ASSIGN_DESCRIPTION,
-    }
+    # One tool since the merge; the rules below are what its description must
+    # still carry for every operation it proposes.
+    return {"propose_file_change": files_register._DESCRIPTION}
 
 
 class TestTheTidyingRulesLiveInTheTools:
-    """`<aufraeumen>` is gone; the four descriptions carry what it said.
+    """`<aufraeumen>` is gone; the tool's description carries what it said.
 
-    The block taught four tools how to behave, in a paragraph charged on every
-    call of every turn. A tool owns its whole contract (ADR-0060 (d)), and
-    these four already said most of it — the assertions below are what the
-    move had to leave intact, plus the one rule two of them lacked.
+    The block taught the tidying verbs how to behave, in a paragraph charged on
+    every call of every turn. A tool owns its whole contract (ADR-0060 (d)); the
+    four verbs are one tool with an `operation` now, and the assertions below
+    are what its description has to keep.
     """
 
     def test_the_prompt_no_longer_teaches_tidying(self):
         assert "<aufraeumen>" not in _render_researcher_prompt(drafting_enabled=True)
 
-    def test_every_verb_says_it_changes_nothing(self):
+    def test_the_tool_says_it_changes_nothing(self):
         """The one failure this rule exists to prevent: „ist verschoben"."""
         for name, description in _file_verb_descriptions().items():
-            assert "SCHLÄGT VOR" in description, name
+            assert "SCHLÄGT" in description and "VOR" in description, name
+            assert "ändert selbst nichts" in description, name
             assert "Karte" in description, name
 
-    def test_every_verb_says_the_user_decides(self):
+    def test_the_tool_says_the_user_decides(self):
         for name, description in _file_verb_descriptions().items():
-            decides = "die Nutzerin annimmt oder verwirft" in description or "Die Nutzerin entscheidet" in description
-            assert decides, name
+            assert "die Nutzerin annimmt oder verwirft" in description, name
 
-    def test_every_verb_is_asked_for_and_not_volunteered(self):
-        """The rule the block carried and `move_document` / `create_folder`
-        lacked: these answer a request, they are not a tidy-up nobody asked
-        for."""
+    def test_it_is_asked_for_and_not_volunteered(self):
+        """These answer a request; they are not a tidy-up nobody asked for."""
         for name, description in _file_verb_descriptions().items():
-            assert "Nur vorschlagen" in description or "nur vorschlagen" in description, name
+            assert "Nur vorschlagen, wenn die Nutzerin darum bittet" in description, name
 
-    def test_no_verb_offers_one_that_is_not_bound(self):
-        """`set_doc_class` is gone; a description still naming it teaches a tool
-        call that fails, and a Dokumentart the reader could never accept."""
+    def test_it_offers_no_operation_that_is_not_bound(self):
+        """`set_doc_class` is gone; a description still naming it teaches a call
+        that fails, and a Dokumentart the reader could never accept."""
         for name, description in _file_verb_descriptions().items():
-            assert "set_doc_class" not in description, name
+            assert "set_doc_class" not in description and "doc_class" not in description, name
 
-    def test_a_name_is_taken_from_the_inventory_and_never_invented(self):
-        moved = _file_verb_descriptions()["move_document"]
-        assert "genau so, wie er in der Dateiübersicht steht" in moved
+    def test_every_operation_is_described(self):
+        (description,) = _file_verb_descriptions().values()
+        for operation in ("`move`", "`rename`", "`create_folder`", "`assign`"):
+            assert operation in description
+
+    def test_a_name_is_taken_from_the_overview_and_never_invented(self):
+        (description,) = _file_verb_descriptions().values()
+        assert "genau so, wie ihn die Übersicht oder `list_files` zeigt" in description
 
 
 class TestTheThreeDraftingTurnShapes:
@@ -4189,6 +4192,7 @@ def _scripted_tool_names(scripted_llm) -> list[str]:
     for call in scripted_llm.ainvoke.await_args_list:
         for message in call.args[0]:
             for tool_call in getattr(message, "tool_calls", None) or []:
-                if tool_call["name"] not in names:
-                    names.append(tool_call["name"])
+                name = traced_tool_name(tool_call["name"], tool_call.get("args"))
+                if name not in names:
+                    names.append(name)
     return names

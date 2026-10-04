@@ -24,6 +24,46 @@
 # the last (amqp091-go). It is empty now; keep it that way by bumping the pin,
 # not by boxing what a newer tag already fixes.
 vulnerabilities:
+  # Operator-approved, 24-hour risk acceptance to unblock staging for PR #841.
+  # These are known vulnerabilities, not findings assessed as non-exploitable.
+  - id: CVE-2026-84782
+    expired_at: &staging_exception_expiry 2026-10-05T20:44:07Z
+    statement: &staging_exception_statement |
+      Operator requested a one-day exception on 2026-10-04 for the exact
+      findings in PR #841's image scan, run 37232587542, to unblock staging.
+      Risk is explicitly accepted, not resolved or declared non-exploitable.
+      Affected pinned images are ClickHouse (OpenSSL), Langfuse web and worker
+      (axios), Langfuse web (piscina), and err2issue (PCRE2).
+      Upgrade the affected image digests before expiry. Do not renew this
+      exception automatically; Trivy resumes reporting these findings at expiry.
+  - id: CVE-2026-101898
+    expired_at: *staging_exception_expiry
+    statement: *staging_exception_statement
+  - id: CVE-2026-101901
+    expired_at: *staging_exception_expiry
+    statement: *staging_exception_statement
+  - id: CVE-2026-101903
+    expired_at: *staging_exception_expiry
+    statement: *staging_exception_statement
+  - id: CVE-2026-101905
+    expired_at: *staging_exception_expiry
+    statement: *staging_exception_statement
+  - id: CVE-2026-101906
+    expired_at: *staging_exception_expiry
+    statement: *staging_exception_statement
+  - id: CVE-2026-101907
+    expired_at: *staging_exception_expiry
+    statement: *staging_exception_statement
+  - id: CVE-2026-101909
+    expired_at: *staging_exception_expiry
+    statement: *staging_exception_statement
+  - id: CVE-2026-102992
+    expired_at: *staging_exception_expiry
+    statement: *staging_exception_statement
+  - id: CVE-2026-103111
+    expired_at: *staging_exception_expiry
+    statement: *staging_exception_statement
+
   - id: CVE-2026-49451
     expired_at: 2026-10-31
     statement: |

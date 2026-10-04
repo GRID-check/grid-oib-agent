@@ -779,7 +779,8 @@ services:
   # prompt management, the schema — not to reproduce the ingestion path. Point
   # a local `nat run` at it directly if you need spans.
   clickhouse:
-    image: clickhouse/clickhouse-server:25.8
+    # 26.8 LTS: Langfuse v4 needs ClickHouse 25.12 or newer.
+    image: clickhouse/clickhouse-server:26.8
     container_name: aiq-clickhouse
     profiles: [langfuse]
     environment:
@@ -836,7 +837,10 @@ services:
     restart: unless-stopped
 
   langfuse-web:
-    image: ghcr.io/langfuse/langfuse:3
+    # v4 with its default write mode, events_only: a local volume left from v3
+    # is cut over on first start. Local traces are disposable; the cluster
+    # migrates in stages (kubernetes.md §9b, "Upgrading to Langfuse v4").
+    image: ghcr.io/langfuse/langfuse:4
     container_name: aiq-langfuse-web
     profiles: [langfuse]
     ports:
@@ -904,7 +908,7 @@ services:
     restart: unless-stopped
 
   langfuse-worker:
-    image: ghcr.io/langfuse/langfuse-worker:3
+    image: ghcr.io/langfuse/langfuse-worker:4
     container_name: aiq-langfuse-worker
     profiles: [langfuse]
     environment:

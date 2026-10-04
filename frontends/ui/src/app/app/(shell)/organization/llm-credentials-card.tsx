@@ -52,7 +52,12 @@ interface ListResponse {
   secretBackend: string
 }
 
-const PROVIDERS = ['openrouter', 'openai', 'azure-openai', 'custom'] as const
+export const PROVIDERS = ['openrouter', 'openai', 'azure-openai', 'custom'] as const
+
+/** Whether `id` is a provider the dictionary has a display name for (`byok.providers.*`). */
+export function isKnownProvider(id: string | null): id is (typeof PROVIDERS)[number] {
+  return id !== null && (PROVIDERS as readonly string[]).includes(id)
+}
 const NEEDS_BASE_URL = new Set(['azure-openai', 'custom'])
 
 export const LlmCredentialsCard: FC = () => {
