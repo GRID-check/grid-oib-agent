@@ -261,6 +261,10 @@
               "de": "Bei einer kurzzeitigen Überlastung des Sprachmodell-Anbieters erhalten Sie für Ihre Frage keine Fehlermeldung mehr: Piloti wartet kurz und versucht es erneut."
             },
             {
+              "en": "Chats now connect reliably in projects with detailed profiles, and new conversations can save and retrieve messages correctly.",
+              "de": "Chats funktionieren jetzt in Projekten mit detaillierten Profilen zuverlässig, und neue Unterhaltungen können Nachrichten korrekt speichern und abrufen."
+            },
+            {
               "en": "A scanned PDF is now read word for word, up to 500 pages, tables included, and the file says how many pages were left. Before, only its first 20 pages were looked at and those were described rather than read, so the conditions in a scanned permit could not be found.",
               "de": "Ein gescanntes PDF wird jetzt bis zu 500 Seiten wortgetreu gelesen, Tabellen inklusive. Die Datei zeigt außerdem an, wie viele Seiten noch übrig sind. Bisher wurden nur die ersten 20 Seiten betrachtet und beschrieben statt gelesen, sodass Auflagen in einem gescannten Bescheid nicht gefunden werden konnten."
             },

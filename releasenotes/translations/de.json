@@ -764,6 +764,10 @@
     "de": "Der Chat bleibt auf dem Telefon auch mit langem Verlauf flüssig: Eine entstehende Antwort zeichnet frühere Antworten nicht mehr bei jedem Wort neu, und Tippen speichert nicht mehr den ganzen Verlauf im Browser."
   },
   {
+    "en": "Chats now connect reliably in projects with detailed profiles, and new conversations can save and retrieve messages correctly.",
+    "de": "Chats funktionieren jetzt in Projekten mit detaillierten Profilen zuverlässig, und neue Unterhaltungen können Nachrichten korrekt speichern und abrufen."
+  },
+  {
     "en": "Check tables show their result up front, such as „2 erfüllt · 1 offen“, and on a phone wide tables stack row by row instead of scrolling sideways.",
     "de": "Prüftabellen zeigen ihr Ergebnis vorab, etwa „2 erfüllt · 1 offen“, und am Telefon stehen breite Tabellen zeilenweise untereinander, statt seitlich zu scrollen."
   },
