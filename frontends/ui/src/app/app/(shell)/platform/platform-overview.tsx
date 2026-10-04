@@ -38,6 +38,7 @@ import {
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { DataToolbar } from '@/components/ui/data-toolbar'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Pagination } from '@/components/ui/pagination'
@@ -54,6 +55,7 @@ import { cn } from '@/lib/utils'
 import { AuditLogButton } from '@/components/audit/audit-log-button'
 import { SpendTrendChart } from '@/components/charts/spend-trend-chart'
 import { PlatformPricingCard } from './platform-pricing-card'
+import { PlatformOrgBudgetDialog } from './platform-org-budget-dialog'
 
 interface SpendWindowDto {
   /** USD as OpenRouter charged it, whoever's key it was. */
@@ -170,6 +172,7 @@ export const PlatformOverview: FC = () => {
   const [error, setError] = useState(false)
   const [query, setQuery] = useState('')
   const [offset, setOffset] = useState(0)
+  const [budgetOrganization, setBudgetOrganization] = useState<PlatformOrganizationDto | null>(null)
   // Mirrors the backend's own ordering, so the first render matches what the
   // service already sorted for us.
   const [sortKey, setSortKey] = useState<SortKey>('revenue')
@@ -273,6 +276,13 @@ export const PlatformOverview: FC = () => {
   return (
     <TooltipProvider delayDuration={100}>
       <div className="animate-in fade-in-0 flex flex-col gap-6 duration-base ease-out motion-reduce:animate-none">
+        {budgetOrganization ? (
+          <PlatformOrgBudgetDialog
+            key={budgetOrganization.id}
+            organization={budgetOrganization}
+            onClose={() => setBudgetOrganization(null)}
+          />
+        ) : null}
         {/* Headline stats — min-h reserves the optional hint line so a capped
             directory does not grow the row after the first paint. */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -398,6 +408,7 @@ export const PlatformOverview: FC = () => {
                       {sortableColumn('ingest', t('orgs.colIngest'), 'text-right')}
                       {sortableColumn('revenue', t('orgs.colRevenue'), 'text-right')}
                       {sortableColumn('created', t('orgs.colCreated'), 'text-right')}
+                      <TableHead className="text-right">{t('orgBudgets.column')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -445,6 +456,12 @@ export const PlatformOverview: FC = () => {
                         </TableCell>
                         <TableCell className="whitespace-nowrap text-right text-sm tabular-nums text-muted-foreground">
                           {new Date(org.createdAt).toLocaleDateString(locale)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="outline" size="sm" onClick={() => setBudgetOrganization(org)}
+                            aria-label={t('orgBudgets.open', { name: org.name })}>
+                            {t('orgBudgets.column')}
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
