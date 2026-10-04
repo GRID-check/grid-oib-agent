@@ -293,7 +293,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 ```bash
 npm run typecheck   # tsc: every typed manifest, incl. Gateway/Envoy CRD specs
 npm run validate    # pulumi preview → schema-check every CustomResource in the
-                    # plan against the real upstream CRD schemas (CNPG included)
+                    # plan against the real upstream CRD schemas (CNPG + KEDA)
 npm run policy      # pulumi preview --policy-pack ./policy → CrossGuard
                     # guardrails (rollout safety, resource bounds, pull policy)
 ```
