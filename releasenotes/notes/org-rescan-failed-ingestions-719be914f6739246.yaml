@@ -1,0 +1,6 @@
+---
+features:
+  - >
+    Organization admins can now rescan all failed ingestions at once from
+    Organization, Enterprise: every file that could not be read is sent back
+    through reading under its own name.

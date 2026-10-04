@@ -1115,3 +1115,38 @@ export async function setDocumentReconciledStatus(
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
   )
 }
+/**
+ * Ids of documents whose ingestion failed and is worth retrying, org-wide.
+ *
+ * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
+ * every row stuck at `failed`/`error` - plus rows stranded at the `uploaded`
+ * birth status that never dispatched - is a file that was stored but never
+ * read. Bounded like every other list query; the service re-dispatches each id
+ * through `reingestDocument`, so access checks and status guards stay in one
+ * place instead of being restated here.
+ */
+export const FAILED_INGEST_RESCAN_STATUSES = ['failed', 'error', 'uploaded'] as const
+
+/** Hard cap on one org-wide failed-ingestion rescan. */
+export const FAILED_INGEST_RESCAN_LIMIT = 200
+
+export async function listFailedDocumentIdsInOrg(
+  organizationId: string,
+  limit: number = FAILED_INGEST_RESCAN_LIMIT,
+): Promise<string[]> {
+  const bounded = Math.min(Math.max(1, Math.trunc(limit)), FAILED_INGEST_RESCAN_LIMIT)
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({ id: documents.id })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          inArray(documents.status, [...FAILED_INGEST_RESCAN_STATUSES]),
+        ),
+      )
+      .limit(bounded),
+  )
+  return rows.map((row) => row.id)
+}

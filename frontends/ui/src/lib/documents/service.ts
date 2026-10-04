@@ -85,6 +85,7 @@ import {
   setDocumentIngestJob,
   setDocumentReconciledStatus,
   findLiveDocumentByFilename,
+  listFailedDocumentIdsInOrg,
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
@@ -1868,6 +1869,77 @@ export async function reindexProject(
 }
 
 /**
+/**
+ * Re-dispatch every failed ingestion in the organization.
+ *
+ * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
+ * all files that were stored but could never be read (`failed`/`error`, plus
+ * rows stranded at the `uploaded` birth status) go back through the ingest
+ * pipeline under their own ids, so citations, chat subjects and assignments
+ * pointing at them keep working.
+ *
+ * Each id goes through `reingestDocument`, so per-document access checks and
+ * the status guards stay in exactly one place. Rows that are not retryable
+ * (still running, already finished behind the row's back, not eligible, or no
+ * longer visible to this session) count as `skipped`, never as failures - a
+ * rescan that reports failures must mean retries that actually went wrong,
+ * not rows that were never eligible. One document's failure never abandons
+ * the rest, and the fan-out is bounded like `reindexProject`.
+ */
+export interface ReingestFailedOrgResult {
+  /** Failed ids seen at the start of the rescan. */
+  total: number
+  /** Documents sent back through ingestion. */
+  queued: number
+  /** Rows that were not retryable - running, already done, ineligible, or out of reach. */
+  skipped: number
+  /** Ids whose retry itself went wrong. */
+  failed: string[]
+}
+
+function reingestRefusalCode(error: unknown): string | null {
+  if (error instanceof ConflictError) {
+    const details = error.details as { code?: unknown } | undefined
+    return typeof details?.code === 'string' ? details.code : null
+  }
+  return null
+}
+
+export async function reingestFailedOrgDocuments(
+  session: AuthorizedSession,
+): Promise<ReingestFailedOrgResult> {
+  const ids = await listFailedDocumentIdsInOrg(session.organizationId)
+  const result: ReingestFailedOrgResult = { total: ids.length, queued: 0, skipped: 0, failed: [] }
+
+  const redispatch = async (id: string): Promise<void> => {
+    try {
+      await reingestDocument(session, id)
+      result.queued += 1
+    } catch (error) {
+      const code = reingestRefusalCode(error)
+      if (code === INGEST_RUNNING || code === INGEST_ALREADY_DONE || code === INGEST_NOT_ELIGIBLE) {
+        result.skipped += 1
+        return
+      }
+      if (error instanceof NotFoundError || error instanceof ForbiddenError) {
+        result.skipped += 1
+        return
+      }
+      result.failed.push(id)
+    }
+  }
+
+  let next = 0
+  const workers = Array.from({ length: Math.min(REINDEX_CONCURRENCY, ids.length) }, async () => {
+    while (next < ids.length) {
+      const id = ids[next++]
+      await redispatch(id)
+    }
+  })
+  await Promise.all(workers)
+  return result
+}
+/**
  * Replace a document's controlled tags. Requires `project:edit`. The document
  * row maps to the backend's `(collectionName, filename)` summary key; the edit
  * is proxied to the Python tag endpoint, which is the authority on the
@@ -2783,3 +2855,4 @@ export async function findDocumentStorageKey(
 } | null> {
   return findStorageKeyByCollectionAndFilename(collectionName, filename, organizationId)
 }
+

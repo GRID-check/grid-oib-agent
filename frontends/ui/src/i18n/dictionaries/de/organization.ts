@@ -171,6 +171,17 @@ export const organization: typeof en.organization = {
     domainsDescription: 'Verifizieren Sie Domains, die Ihrer Organisation gehören.',
     auditLogs: 'Audit-Log-Streaming',
     auditLogsDescription: 'Streamen Sie Audit-Ereignisse an Ihr SIEM oder Ihren Logging-Anbieter.',
+    reingestFailed: {
+      title: 'Fehlgeschlagene Erfassungen erneut lesen',
+      description:
+        'Liest jede Datei erneut, die nicht gelesen werden konnte. Was bereits funktioniert, bleibt unangetastet.',
+      action: 'Fehlgeschlagene Erfassungen erneut lesen',
+      busy: 'Wird erneut gelesen.',
+      done: '{count, plural, one {# Dokument erneut zum Lesen eingereiht} other {# Dokumente erneut zum Lesen eingereiht}}',
+      nothing: 'Nichts erneut zu lesen - jedes Dokument wurde gelesen.',
+      partial: '{count, plural, one {# Dokument konnte nicht eingereiht werden} other {# Dokumente konnten nicht eingereiht werden}}',
+      failed: 'Die erneute Lesung konnte nicht gestartet werden. Bitte versuchen Sie es erneut.',
+    },
   },
   notAdmin: {
     title: 'Sie benötigen Administratorrechte',
@@ -420,3 +431,4 @@ export const organization: typeof en.organization = {
     error: 'Der Audit-Log-Viewer konnte nicht geöffnet werden.',
   },
 }
+
