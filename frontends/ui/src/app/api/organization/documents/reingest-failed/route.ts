@@ -14,6 +14,6 @@ import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { reingestFailedOrgDocuments } from '@/lib/documents/service'
 
 export const POST = apiRoute(
-  async ({ session }) => reingestFailedOrgDocuments(session),
+  async ({ session, request }) => reingestFailedOrgDocuments(session, request),
   { authz: { permission: ORG_PERMISSIONS.settingsManage } }
 )

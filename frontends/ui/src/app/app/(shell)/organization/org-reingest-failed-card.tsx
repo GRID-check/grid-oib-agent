@@ -23,6 +23,7 @@ interface ReingestFailedOrgResult {
   queued: number
   skipped: number
   failed: string[]
+  truncated: boolean
 }
 
 export function OrgReingestFailedCard(): JSX.Element {
@@ -40,11 +41,23 @@ export function OrgReingestFailedCard(): JSX.Element {
 
       if (result.total === 0) {
         toast.info(t('advanced.reingestFailed.nothing'))
-      } else if (result.queued > 0) {
-        toast.success(t('advanced.reingestFailed.done', { count: result.queued }))
-      }
-      if (result.failed.length > 0) {
-        toast.error(t('advanced.reingestFailed.partial', { count: result.failed.length }))
+      } else {
+        if (result.queued > 0) {
+          toast.success(t('advanced.reingestFailed.done', { count: result.queued }))
+        }
+        if (result.failed.length > 0) {
+          toast.error(t('advanced.reingestFailed.partial', { count: result.failed.length }))
+        }
+        // Neither queued nor failed means every selected row turned out to be
+        // unretryable - say so, so a silent-looking rescan reads as complete.
+        if (result.queued === 0 && result.failed.length === 0) {
+          toast.info(t('advanced.reingestFailed.skipped'))
+        }
+        // The walk stops at a cap; a count that looked like the whole failed
+        // set when it was not would be the silent cap this replaces.
+        if (result.truncated) {
+          toast.warning(t('advanced.reingestFailed.truncated'))
+        }
       }
     } catch {
       toast.error(t('advanced.reingestFailed.failed'))

@@ -183,6 +183,8 @@ export const organization = {
       nothing: 'Nothing to rescan - every document was read.',
       partial: '{count, plural, one {# document could not be queued} other {# documents could not be queued}}',
       failed: 'The rescan could not be started. Please try again.',
+      skipped: 'Nothing was eligible - every failed document is still being read, already done, or out of reach.',
+      truncated: 'The rescan hit its limit - run it again for the rest.',
     },
   },
   notAdmin: {

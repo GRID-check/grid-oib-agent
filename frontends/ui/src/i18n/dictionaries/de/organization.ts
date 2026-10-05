@@ -181,6 +181,8 @@ export const organization: typeof en.organization = {
       nothing: 'Nichts erneut zu lesen - jedes Dokument wurde gelesen.',
       partial: '{count, plural, one {# Dokument konnte nicht eingereiht werden} other {# Dokumente konnten nicht eingereiht werden}}',
       failed: 'Die erneute Lesung konnte nicht gestartet werden. Bitte versuchen Sie es erneut.',
+      skipped: 'Nichts war geeignet - jedes fehlgeschlagene Dokument wird noch gelesen, ist bereits fertig oder nicht erreichbar.',
+      truncated: 'Die erneute Lesung hat ihr Limit erreicht - starten Sie sie erneut für den Rest.',
     },
   },
   notAdmin: {
