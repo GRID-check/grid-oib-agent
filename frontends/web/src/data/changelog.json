@@ -32,6 +32,25 @@
   },
   "releases": [
     {
+      "id": "2026-W41",
+      "kind": "week",
+      "version": null,
+      "date": "2026-10-05",
+      "dateEnd": "2026-10-11",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Organization admins can now rescan all failed ingestions at once from Organization, Enterprise: every file that could not be read is sent back through reading under its own name.",
+              "de": "Organisationsadmins können unter Organisation, Enterprise jetzt alle fehlgeschlagenen Einlesevorgänge auf einmal erneut scannen: Jede Datei, die nicht gelesen werden konnte, wird unter ihrem eigenen Namen erneut eingelesen."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-W40",
       "kind": "week",
       "version": null,

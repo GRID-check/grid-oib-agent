@@ -1404,6 +1404,10 @@
     "de": "Ein geteilter Link, der nach einer Projektdatei fragt, funktioniert wieder, auch wenn er den Dateinamen enthält. Der Chat findet die Datei und zeigt ihren Status, statt einen Fehler zu melden."
   },
   {
+    "en": "Organization admins can now rescan all failed ingestions at once from Organization, Enterprise: every file that could not be read is sent back through reading under its own name.",
+    "de": "Organisationsadmins können unter Organisation, Enterprise jetzt alle fehlgeschlagenen Einlesevorgänge auf einmal erneut scannen: Jede Datei, die nicht gelesen werden konnte, wird unter ihrem eigenen Namen erneut eingelesen."
+  },
+  {
     "en": "Organizations that use Piloti with their own provider key see tokens instead of points, and can set their limits in tokens.",
     "de": "Organisationen, die Piloti mit einem eigenen Anbieterschlüssel nutzen, sehen Tokens statt Punkten und können ihre Limits in Tokens festlegen."
   },
