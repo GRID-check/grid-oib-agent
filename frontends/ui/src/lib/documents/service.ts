@@ -85,6 +85,8 @@ import {
   setDocumentIngestJob,
   setDocumentReconciledStatus,
   findLiveDocumentByFilename,
+  FAILED_INGEST_RESCAN_LIMIT,
+  listFailedDocumentIdsInOrg,
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
@@ -1864,6 +1866,163 @@ export async function reindexProject(
     cursor = nextCursor
   }
   result.truncated = true
+  return result
+}
+
+/**
+/**
+ * Re-dispatch every failed ingestion in the organization.
+ *
+ * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
+ * all files that were stored but could never be read (`failed`/`error`, plus
+ * rows stranded at the `uploaded` birth status) go back through the ingest
+ * pipeline under their own ids, so citations, chat subjects and assignments
+ * pointing at them keep working.
+ *
+ * Each id goes through `reingestDocument`, so per-document access checks and
+ * the status guards stay in exactly one place. Rows that are not retryable
+ * (still running, already finished behind the row's back, not eligible, or no
+ * longer visible to this session) count as `skipped`, never as failures - a
+ * rescan that reports failures must mean retries that actually went wrong,
+ * not rows that were never eligible. One document's failure never abandons
+ * the rest, and the fan-out is bounded like `reindexProject`.
+ */
+/**
+ * Re-dispatch every failed ingestion in the organization.
+ *
+ * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
+ * all files that were stored but could never be read (`failed`/`error`, plus
+ * rows stranded at the `uploaded` birth status) go back through the ingest
+ * pipeline under their own ids, so citations, chat subjects and assignments
+ * pointing at them keep working.
+ *
+ * The selection is PAGED past the cap rather than read once: each page
+ * excludes the ids already attempted, so rows that stay failed cannot starve
+ * the rows behind them, and `truncated` says when the cap stopped the walk
+ * before the failed set was exhausted. Each id still goes through
+ * `reingestDocument`, so per-document access checks and the status guards
+ * stay in exactly one place. Rows that are not retryable (still running,
+ * already finished behind the row's back, not eligible, or no longer visible
+ * to this session) count as `skipped`, never as failures - and a dispatch
+ * that yields no job resolves as `failed` rather than `queued`, because
+ * `dispatchIngest` marks the row failed itself in that case. One document's
+ * failure never abandons the rest, and the fan-out is bounded like
+ * `reindexProject`.
+ *
+ * The rescan itself is audited (`org.documents.reingested`) with its outcome,
+ * because it is an organization-wide mutating admin action.
+ */
+export interface ReingestFailedOrgResult {
+  /** Failed ids this rescan picked up, bounded by the cap. */
+  total: number
+  /** Documents sent back through ingestion. */
+  queued: number
+  /** Rows that were not retryable - running, already done, ineligible, or out of reach. */
+  skipped: number
+  /** Ids whose retry itself went wrong. */
+  failed: string[]
+  /** True when the cap stopped the walk before the failed set was exhausted. */
+  truncated: boolean
+}
+
+/** One page of the failed-id walk - small enough to stay a point query. */
+const REINGEST_RESCAN_PAGE = 50
+
+function reingestRefusalCode(error: unknown): string | null {
+  if (error instanceof ConflictError) {
+    const details = error.details as { code?: unknown } | undefined
+    return typeof details?.code === 'string' ? details.code : null
+  }
+  return null
+}
+
+export async function reingestFailedOrgDocuments(
+  session: AuthorizedSession,
+  request?: Request,
+): Promise<ReingestFailedOrgResult> {
+  // Walk the failed set a page at a time, excluding what was already
+  // attempted: without the exclusion the cap would re-read the same first
+  // page on every rescan while the rows behind it never surface.
+  const attempted: string[] = []
+  while (attempted.length < FAILED_INGEST_RESCAN_LIMIT) {
+    const page = await listFailedDocumentIdsInOrg(session.organizationId, {
+      limit: Math.min(REINGEST_RESCAN_PAGE, FAILED_INGEST_RESCAN_LIMIT - attempted.length),
+      excludeIds: attempted,
+    })
+    if (page.length === 0) break
+    attempted.push(...page)
+  }
+  // Capped mid-set: one probe says whether anything was left behind, so the
+  // reader is told to run again rather than handed a count that looks whole.
+  const truncated =
+    attempted.length >= FAILED_INGEST_RESCAN_LIMIT &&
+    (
+      await listFailedDocumentIdsInOrg(session.organizationId, {
+        limit: 1,
+        excludeIds: attempted,
+      })
+    ).length > 0
+
+  const result: ReingestFailedOrgResult = {
+    total: attempted.length,
+    queued: 0,
+    skipped: 0,
+    failed: [],
+    truncated,
+  }
+
+  const redispatch = async (id: string): Promise<void> => {
+    try {
+      const outcome = await reingestDocument(session, id)
+      // No job id means the dispatch recorded the failure itself: the retry
+      // went wrong, it did not queue.
+      if (outcome.status === 'failed') {
+        result.failed.push(id)
+        return
+      }
+      result.queued += 1
+    } catch (error) {
+      const code = reingestRefusalCode(error)
+      if (code === INGEST_RUNNING || code === INGEST_ALREADY_DONE || code === INGEST_NOT_ELIGIBLE) {
+        result.skipped += 1
+        return
+      }
+      if (error instanceof NotFoundError || error instanceof ForbiddenError) {
+        result.skipped += 1
+        return
+      }
+      result.failed.push(id)
+    }
+  }
+
+  let next = 0
+  const workers = Array.from(
+    { length: Math.min(REINDEX_CONCURRENCY, attempted.length) },
+    async () => {
+      while (next < attempted.length) {
+        const id = attempted[next++]
+        await redispatch(id)
+      }
+    },
+  )
+  await Promise.all(workers)
+
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'org.documents.reingested',
+    targetType: 'organization',
+    targetId: session.organizationId,
+    metadata: {
+      total: result.total,
+      queued: result.queued,
+      skipped: result.skipped,
+      failed: result.failed.length,
+      truncated: result.truncated,
+    },
+    request,
+  })
+
   return result
 }
 

@@ -11,7 +11,7 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
 import { documentAliasKey, documentNameKey, documentNameVariants } from './name-match'
@@ -1114,4 +1114,52 @@ export async function setDocumentReconciledStatus(
       .set({ status: resolution.status, errorMessage: resolution.errorMessage, updatedAt: new Date() })
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
   )
+}
+/**
+ * Ids of documents whose ingestion failed and is worth retrying, org-wide.
+ *
+ * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
+ * every row stuck at `failed`/`error` - plus rows stranded at the `uploaded`
+ * birth status that never dispatched - is a file that was stored but never
+ * read. Bounded like every other list query; the service re-dispatches each id
+ * through `reingestDocument`, so access checks and status guards stay in one
+ * place instead of being restated here.
+ */
+export const FAILED_INGEST_RESCAN_STATUSES = ['failed', 'error', 'uploaded'] as const
+
+/** Hard cap on one org-wide failed-ingestion rescan. */
+export const FAILED_INGEST_RESCAN_LIMIT = 200
+
+export interface FailedIngestRescanQuery {
+  limit?: number
+  /**
+   * Ids already attempted by this rescan - the page advances past rows that
+   * stay failed, so the rows behind them are still reached.
+   */
+  excludeIds?: readonly string[]
+}
+
+export async function listFailedDocumentIdsInOrg(
+  organizationId: string,
+  { limit = FAILED_INGEST_RESCAN_LIMIT, excludeIds = [] }: FailedIngestRescanQuery = {},
+): Promise<string[]> {
+  const bounded = Math.min(Math.max(1, Math.trunc(limit)), FAILED_INGEST_RESCAN_LIMIT)
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({ id: documents.id })
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          inArray(documents.status, [...FAILED_INGEST_RESCAN_STATUSES]),
+          ...(excludeIds.length > 0 ? [notInArray(documents.id, [...excludeIds])] : []),
+        ),
+      )
+      // Oldest first, id as tiebreak: paging with `excludeIds` walks the
+      // whole failed set instead of re-reading the first page.
+      .orderBy(asc(documents.createdAt), asc(documents.id))
+      .limit(bounded),
+  )
+  return rows.map((row) => row.id)
 }
