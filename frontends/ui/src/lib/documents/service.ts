@@ -85,6 +85,7 @@ import {
   setDocumentIngestJob,
   setDocumentReconciledStatus,
   findLiveDocumentByFilename,
+  FAILED_INGEST_RESCAN_LIMIT,
   listFailedDocumentIdsInOrg,
   type DocumentListRow,
 } from './repository'
