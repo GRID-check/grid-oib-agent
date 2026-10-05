@@ -15,5 +15,7 @@ export function makeProvider(cfg: GridConfig): k8s.Provider {
     // Server-side apply gives us cleaner diffs and avoids the last-applied
     // annotation bloat on large manifests (CNPG/ingress CRs).
     enableServerSideApply: true,
+    // Fixed-name ConfigMaps must update without replacing protected consumers.
+    enableConfigMapMutable: true,
   });
 }
