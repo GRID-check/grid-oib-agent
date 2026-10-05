@@ -28,8 +28,8 @@ describe("Kubernetes provider", () => {
       (resource) => resource.type === "pulumi:providers:kubernetes" && resource.name === "grid-k8s",
     );
     expect(registered?.inputs).toMatchObject({
-      enableConfigMapMutable: true,
-      enableServerSideApply: true,
+      enableConfigMapMutable: "true",
+      enableServerSideApply: "true",
     });
   });
 });
