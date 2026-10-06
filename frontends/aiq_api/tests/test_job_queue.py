@@ -1,10 +1,13 @@
 """Tests for the DB-claimed research-job queue (ADR-0021, jobs/queue.py).
 
-Exercises the claim state machine on SQLite: enqueue → claim → heartbeat →
-done, plus stale reclaim, retry exhaustion, cancellation, and payload fidelity.
+Exercises the research queue on the claim substrate (ADR-0078) on SQLite:
+enqueue → claim → heartbeat → done, plus stale reclaim, retry exhaustion into
+dead rows, cancellation, payload fidelity, and what makes it research's own:
+fairness across organizations, priority inside one, the per-organization cap,
+release on drain, and the in-place upgrade of a table written before lanes.
 Cross-worker claim exclusivity in production rests on Postgres
-``FOR UPDATE SKIP LOCKED`` (the proven purger pattern); here we pin the
-transitions a single claimer must honor.
+``FOR UPDATE SKIP LOCKED``; the substrate's own scenarios, on both databases,
+are ``tests/aiq_agent/common/test_claim_queue.py``.
 """
 
 from __future__ import annotations
@@ -25,7 +28,20 @@ def db_url(tmp_path):
     url = f"sqlite:///{tmp_path}/jobs.db"
     queue.ensure_research_queue_table(url)
     yield url
-    queue._queue_schema_initialized.discard(url)
+    queue._queues.pop(url, None)
+
+
+def _insert_raw(db_url: str, job_id: str, stored_payload: str) -> None:
+    """A row written straight into the table, as an attacker or a torn write would leave it."""
+    with queue._connection(db_url) as conn:
+        conn.execute(
+            text(
+                "INSERT INTO research_job_queue (job_id, lane, payload, status, attempts, created_at) "
+                "VALUES (:j, 'org-a', :p, 'queued', 0, '2000-01-01 00:00:00')"
+            ),
+            {"j": job_id, "p": stored_payload},
+        )
+        conn.commit()
 
 
 def _age_heartbeat(db_url: str, job_id: str, seconds_ago: int) -> None:
@@ -72,6 +88,11 @@ def test_stale_claim_is_reclaimed(db_url):
     assert reclaimed["attempts"] == 2
 
 
+def _status_of(db_url: str, job_id: str) -> str | None:
+    with queue._connection(db_url) as conn:
+        return conn.execute(text("SELECT status FROM research_job_queue WHERE job_id = :j"), {"j": job_id}).scalar()
+
+
 def test_retries_exhaust_then_reaped(db_url):
     queue.enqueue(db_url, "job-1", {"input_text": "x"})
     for _ in range(3):  # max_attempts=3 → three claims exhaust it
@@ -110,15 +131,29 @@ def test_mark_done_ownership_guard(db_url):
     assert remaining == 0
 
 
-def test_reap_exhausted_deletes_rows(db_url):
+def test_reap_exhausted_keeps_a_dead_row_that_is_no_work(db_url):
     queue.enqueue(db_url, "job-1", {"input_text": "x"})
     for _ in range(3):
         queue.claim_next(db_url, "w", 30, 3)
         _age_heartbeat(db_url, "job-1", 120)
     assert queue.reap_exhausted(db_url, 30, 3) == ["job-1"]
+
+    # Kept as the trace of what failed, payload blanked, and never counted as work.
+    assert _status_of(db_url, "job-1") == queue.DEAD
+    assert queue.counts(db_url) == {"queued": 0, "claimed": 0, "dead": 1}
+    assert queue.claim_next(db_url, "w", 30, 3) is None
+    assert queue.reap_exhausted(db_url, 30, 3) == []
+
+
+def test_purge_dead_deletes_only_rows_past_their_retention(db_url):
+    queue.enqueue(db_url, "job-1", {"input_text": "x"})
+    queue.mark_dead(db_url, "job-1", "attempts_exhausted")
+    assert queue.purge_dead(db_url, older_than_seconds=3600) == 0
     with queue._connection(db_url) as conn:
-        remaining = conn.execute(text("SELECT count(*) FROM research_job_queue")).scalar()
-    assert remaining == 0  # exhausted rows are removed, not left as 'failed'
+        conn.execute(text("UPDATE research_job_queue SET dead_at = datetime('now', '-2 days')"))
+        conn.commit()
+    assert queue.purge_dead(db_url, older_than_seconds=3600) == 1
+    assert queue.counts(db_url)["dead"] == 0
 
 
 def test_forged_plaintext_row_quarantined_with_kek(db_url, monkeypatch):
@@ -134,20 +169,16 @@ def test_forged_plaintext_row_quarantined_with_kek(db_url, monkeypatch):
     # Attacker writes dev-format plaintext straight into the table.
     stored = "json:" + base64.b64encode(json.dumps(forged).encode()).decode()
     monkeypatch.setenv("GRID_JOB_PAYLOAD_KEK", base64.b64encode(os.urandom(32)).decode())
-    with queue._connection(db_url) as conn:
-        conn.execute(
-            text("INSERT INTO research_job_queue (job_id, payload, status, attempts) VALUES (:j, :p, 'queued', 0)"),
-            {"j": "forged-1", "p": stored},
-        )
-        conn.commit()
+    _insert_raw(db_url, "forged-1", stored)
     claim = queue.claim_next(db_url, "worker-A", stale_seconds=30, max_attempts=3)
     assert claim is not None
     assert claim["job_id"] == "forged-1"
     assert claim.get(queue.POISON_CLAIM_MARKER) is True
     assert "payload" not in claim  # nothing executable ever leaves the queue
+    # Retired as dead with its payload blanked: the trace stays, the forgery does not.
+    assert _status_of(db_url, "forged-1") == queue.DEAD
     with queue._connection(db_url) as conn:
-        remaining = conn.execute(text("SELECT count(*) FROM research_job_queue")).scalar()
-    assert remaining == 0  # quarantined, never CLAIMED
+        assert conn.execute(text("SELECT payload FROM research_job_queue")).scalar() == ""
     # A second claim never sees the poison again — no crash loop.
     assert queue.claim_next(db_url, "worker-A", stale_seconds=30, max_attempts=3) is None
 
@@ -159,14 +190,9 @@ def test_corrupt_enc_blob_quarantined_and_healthy_claimed_next(db_url, monkeypat
     healthy row behind it."""
     monkeypatch.setenv("GRID_JOB_PAYLOAD_KEK", base64.b64encode(os.urandom(32)).decode())
     corrupt = "enc:" + base64.b64encode(b"truncated-ciphertext").decode()
-    with queue._connection(db_url) as conn:
-        conn.execute(
-            text("INSERT INTO research_job_queue (job_id, payload, status, attempts) VALUES (:j, :p, 'queued', 0)"),
-            {"j": "poison-1", "p": corrupt},
-        )
-        conn.commit()
+    _insert_raw(db_url, "poison-1", corrupt)
     healthy = {"input_text": "healthy"}
-    queue.enqueue(db_url, "healthy-1", healthy)
+    queue.enqueue(db_url, "healthy-1", healthy, "org-a")
 
     first = queue.claim_next(db_url, "worker-A", stale_seconds=30, max_attempts=3)
     assert first is not None and first["job_id"] == "poison-1"
@@ -179,9 +205,7 @@ def test_corrupt_enc_blob_quarantined_and_healthy_claimed_next(db_url, monkeypat
     assert second["payload"] == healthy
     assert second["attempts"] == 1
 
-    with queue._connection(db_url) as conn:
-        remaining = conn.execute(text("SELECT job_id FROM research_job_queue")).scalars().all()
-    assert "poison-1" not in remaining  # quarantined row is gone for good
+    assert _status_of(db_url, "poison-1") == queue.DEAD  # retired for good, never run
 
 
 def test_worker_poll_loop_survives_poison_claim(monkeypatch, tmp_path):
@@ -197,7 +221,7 @@ def test_worker_poll_loop_survives_poison_claim(monkeypatch, tmp_path):
     monkeypatch.setenv("NAT_JOB_STORE_DB_URL", db_url)
     monkeypatch.setenv("GRID_WORKER_LIVENESS_FILE", str(tmp_path / "alive"))
 
-    def _poison(db_url_, worker_id_, stale_seconds_, max_attempts_):
+    def _poison(db_url_, worker_id_, stale_seconds_, max_attempts_, per_lane_cap_=0):
         raise payload_crypto.PayloadKeyError("payload is not encrypted but GRID_JOB_PAYLOAD_KEK is set")
 
     monkeypatch.setattr(worker_mod.queue, "claim_next", _poison)
@@ -232,13 +256,8 @@ async def test_worker_quarantines_poison_and_runs_healthy(monkeypatch, tmp_path)
     monkeypatch.setenv("GRID_JOB_PAYLOAD_KEK", base64.b64encode(os.urandom(32)).decode())
 
     corrupt = "enc:" + base64.b64encode(b"truncated-ciphertext").decode()
-    with queue._connection(db_url) as conn:
-        conn.execute(
-            text("INSERT INTO research_job_queue (job_id, payload, status, attempts) VALUES (:j, :p, 'queued', 0)"),
-            {"j": "poison-1", "p": corrupt},
-        )
-        conn.commit()
-    queue.enqueue(db_url, "healthy-1", {"input_text": "healthy"})
+    _insert_raw(db_url, "poison-1", corrupt)
+    queue.enqueue(db_url, "healthy-1", {"input_text": "healthy"}, "org-a")
 
     engine = EventStore._get_or_create_sync_engine(db_url)
     with engine.connect() as conn:
@@ -298,7 +317,7 @@ async def test_worker_quarantines_poison_and_runs_healthy(monkeypatch, tmp_path)
         return poison_failed
 
     poison_failed = await _main()  # returns, never raises: the worker survived
-    queue._queue_schema_initialized.discard(db_url)
+    queue._queues.pop(db_url, None)
 
     assert poison_failed, "poison row was never quarantined to FAILURE"
     assert [c.get("input_text") for c in ran] == ["healthy"], f"healthy row not processed exactly once: {ran}"
@@ -315,9 +334,10 @@ async def test_worker_quarantines_poison_and_runs_healthy(monkeypatch, tmp_path)
         ).all()
     assert any(t == "job.error" and worker_mod.POISON_PAYLOAD_ERROR in (d or "") for t, d in events)
 
+    # The healthy job finished (row deleted); the poison one is the only row left, dead.
     with queue._connection(db_url) as conn:
-        remaining = conn.execute(text("SELECT job_id FROM research_job_queue")).scalars().all()
-    assert remaining == [], f"queue not drained: {remaining}"
+        rows = conn.execute(text("SELECT job_id, status FROM research_job_queue")).all()
+    assert rows == [("poison-1", queue.DEAD)], f"queue not drained: {rows}"
 
 
 def test_reap_exhausted_leader_lock_id_is_distinct():
