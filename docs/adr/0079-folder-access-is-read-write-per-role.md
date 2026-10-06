@@ -61,6 +61,26 @@ broken path is `none`. This is one pure function, `effectiveFolderLevel` in
 is audited as `project.folder.access_changed` with each entry's level. An own
 list is never empty, and holds at most 20 entries.
 
+**Changing a list is the strongest write on a folder**, so it needs
+`project:manage` AND write on the folder (404 if unreadable, a typed 403 if
+only readable; organization admins write everywhere). A manager with only Lesen
+could otherwise give themselves Bearbeiten. Write on the folder is also what
+stops a change granting the caller more than they hold: the level is the minimum
+over the path, so whoever writes the folder already holds the most any list on it
+could give, and no separate "not above your own level" check exists to drift.
+
+**A move that changes which lists govern a subtree needs `project:manage`, and
+is refused unless the mover can read every folder in it.** The subtree's own
+lists travel with it, but the lists above change: taking a folder out from under
+a restricting one widens who reads a custom subfolder the mover cannot see, and
+putting it under one narrows it. Either is a change of who reads a folder made
+blind. The rule is the narrow one: it applies only when the chain of own lists
+above the folder differs before and after, and only when the subtree holds a
+folder `effectiveFolderLevel` says the mover cannot read (`unreadableFoldersBelow`;
+403, `reason: folder-subtree-unreadable`, naming no folder). Organization admins
+read everything and are never refused. A move that leaves the lists above as they
+were, or whose subtree the mover reads in full, is unaffected.
+
 **Retrieval keys on READ.** A folder restricts reading when it has its own list
 without `*`. Only such a folder gets its own collection
 (`<project collection>_r<12 hex>`), and a document lives in the collection of
@@ -80,7 +100,14 @@ affordances.
 **Roles for access decisions come from the WorkOS membership**, cached at most
 60 s (`lib/auth/membership-roles.ts`), with the token's roles claim as the
 fallback when WorkOS cannot be asked. A role taken away stops opening a folder
-within a minute, not at the next token refresh.
+within a minute, not at the next token refresh. **The admin bypass is derived
+the same way**: `clearanceOf` asks what the membership's roles hold now
+(`orgRoleHoldsPermission`, whose role-to-permission map is cached at most 60 s)
+rather than reading `org:projects:administer` from the token, so a demoted
+admin stops reaching every folder within a minute. Only when WorkOS cannot be
+asked is the token's permission the answer, as it is for the roles. This
+covers the folder decision; the project-level admin reach of
+`requireProjectAccess` still reads the token.
 
 **Deleting a folder leaves a tombstone.** The row is soft-deleted (`deleted_at`)
 and keeps its mode and grants; its documents and subfolders move up as before.
@@ -124,6 +151,20 @@ judged against the current grants when it is read:
   who may read all of its folders now, and served into a chat only after its folders are
   admitted for that conversation.
 
+**The cached prompt view is dropped by placement.** The `documents:` block of
+the project prompt view (`lib/project-profile/prompt-view.ts`, cached 5 min, one
+per project for every member) names no document in a folder not every member
+reads. Every change of who reads what ends in `placeProjectDocuments` (a list
+set, a folder or document moved, a folder deleted), which therefore drops the
+project's prompt view first and last. The sweep calls `retryProjectPlacement`
+instead, which changes nothing about access and leaves the cache alone.
+
+**Review rounds and the projects grid follow folder read.** Who a version is
+offered to for review is the editors who may also read the document's folder
+(`filterUsersWhoMayReadFolder`), and the grid's per-project document count
+leaves out the documents in folders the viewer cannot read, as the project's own
+list does.
+
 A folder opened to every member stops restricting what was recorded from it; a
 narrowed one restricts it to fewer people. Nothing is rewritten when access
 changes. Deep research and tasks from a conversation that recorded a restricted
@@ -160,6 +201,24 @@ recorded folders.
 * Bad, because a conversation that recorded a restricted folder still cannot commission deep
   research or a task, even after the folder is opened again, until that rule is revisited.
 * Bad, because tombstones accumulate; nothing purges them yet.
+* Good, because a manager cannot widen their own access: changing a list needs write on the
+  folder, so a project admin with only Lesen is refused (403) and the UI offers no „Zugriff …"
+  on a read-only folder. Bad, because a list that names nobody who holds a role can then only be
+  repaired by an organization admin, which is what the bypass is for.
+* Good, because a move cannot change who reads a folder its mover cannot see. Bad, because a
+  project admin who is not an organization admin cannot move a subtree containing a folder
+  hidden from them out from under (or under) a restricting folder, and must ask one.
+* Good, because the document-roles block of the prompt view follows an access change at once
+  instead of for up to five minutes. Bad, because every placement now costs two cache deletes,
+  and a view built by a turn that began before the change can still be served from a build
+  that finished between the two (the second drop closes all but a race of milliseconds).
+* Good, because the admin bypass follows the membership within a minute. Bad, because
+  `requireProjectAccess` still reads `org:projects:administer` from the token, so a demoted
+  admin keeps the project-level reach until the token refreshes; only what they may read and
+  write inside a restricted folder changed. Bad, because the role-to-permission cache is now
+  60 s instead of 10 min, one more WorkOS listing per minute and organization at most.
+* Bad, because the reviewer fan-out filters by folder read, but a person named by the caller or
+  assigned to the document (`resource_assignments`) is not checked against the folder.
 
 ### Confirmation
 
@@ -177,6 +236,20 @@ recorded folders.
 * `projects/folder-access-settings.spec.ts`: validation (empty, over 20, a role twice, an unknown
   role), `project:manage` first, the audit metadata with levels, the IFC guard only for a list
   that restricts reading; `collection-placement.integration.spec.ts`: a `*` list moves nothing.
+* `projects/folder-access-settings.spec.ts` also pins that a manager who may only read the folder
+  is refused with the typed 403 and nothing is written, and that an admin and a writer pass.
+* `projects/collection-placement.prompt-view.spec.ts`: placement drops the project's prompt view
+  before and after, also when it fails, and the sweep's `retryProjectPlacement` does not.
+* `authz/folder-access.spec.ts`: `clearanceOf` takes the bypass from the membership's roles, not
+  the token (a demoted admin loses it, a promoted one gains it, WorkOS down falls back to the
+  token); `unreadableFoldersBelow`; `filterUsersWhoMayReadFolder`. `authz/org-role-permissions.spec.ts`:
+  the role-to-permission cache lives at most 60 s.
+* `projects/folder-service.access-change.spec.ts` also pins the move rule: a subtree holding a
+  folder the mover cannot read is refused when the lists above change, an admin is not, a move
+  that leaves them as they were is not. `documents/reviewers.spec.ts`: review candidates are
+  filtered by folder read. `projects/service.spec.ts` and
+  `projects/folder-visibility.integration.spec.ts` (real Postgres): the grid's count leaves out
+  hidden folders.
 * `projects/folder-service.access-change.spec.ts`: rename, move and delete refuse a read-only
   folder with 403 and a hidden one with 404 under the real rule, the project ceiling, the admin,
   the tombstone; `folder-service.ensure.spec.ts`: nothing is created below a read-only folder.

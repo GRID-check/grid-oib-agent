@@ -32,7 +32,11 @@ features:
   - >
     A subfolder can only narrow what its parent allows, and someone who may only
     read a folder sees it marked „Nur lesen“, without upload, rename, move or
-    delete.
+    delete. Only a project admin who may edit a folder can change who may read
+    or edit it, a folder holding subfolders they cannot read is moved by an
+    organization admin, and an admin who is demoted stops reaching every folder
+    within a minute. Review requests go only to people who may read the folder,
+    and the projects overview counts only the documents you may read.
   - >
     A chat whose answers drew on a folder not everyone may read can be shared
     only with colleagues who may read that folder too. A chat that is already

@@ -129,7 +129,10 @@ live in WorkOS, where Piloti's own roles live; you assign them to people on the
 ## Who may read and edit a folder
 
 In a project's Files, a project admin opens a folder's **⋯ → Zugriff …** and
-chooses one of two answers:
+chooses one of two answers. Only someone who both manages the project and may
+**edit that folder** can do this: a project admin who may only read a folder
+cannot change who may read or edit it, so they cannot give themselves
+„Bearbeiten". An organization admin can always:
 
 - **Wie der übergeordnete Ordner**: the folder has no list of its own. A
   folder at the top of the project follows the project, so everyone keeps what
@@ -149,7 +152,10 @@ decide what someone may do in it:
   rename, move, delete and file into the folder as far as their project
   permissions already allow; a project reader with „Bearbeiten" still only
   reads.
-- **Organization admins may read and edit every folder.**
+- **Organization admins may read and edit every folder.** Whether someone is an
+  organization admin is read from your organization's people settings at most a
+  minute ago, like their roles: an admin who is demoted stops reaching every
+  folder within a minute, not when they next sign in.
 
 Someone who may only read a folder sees it marked **Nur lesen**: they can open
 and search its documents, and there is no upload, new folder, rename, move or
@@ -173,6 +179,18 @@ only who may edit moves nothing.
 Who holds which role is read from your organization's people settings at most a
 minute ago, so a role taken from someone stops opening a folder within a
 minute.
+
+**Moving a folder** needs „Bearbeiten" on it and on the folder it goes into. A
+move that changes which folder lists apply to it (out from under a folder with
+its own list, or under one) also needs project admin rights, and is refused
+unless you may read every folder inside it: otherwise it would change who may
+read folders you cannot see. Ask an organization admin to move such a folder.
+
+**Review rounds** are offered only to people who may edit the project and may
+read the folder the document is in, so nobody is asked to review something
+they cannot open. A change of a folder's access shows in Piloti's project
+context (the list of documents with a role, such as the Bebauungsplan) right
+away, and the projects overview counts only the documents you may read.
 
 **Deleting a folder** moves its documents and subfolders into the folder above,
 as before. The folder keeps its access list out of sight, so what Piloti
