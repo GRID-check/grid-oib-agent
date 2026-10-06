@@ -51,7 +51,7 @@ def slug(question: str) -> str:
     """A stable id: the first words of the question plus a short hash, so two questions never collide."""
     folded = question.casefold().translate(str.maketrans("äöüß", "aous"))
     words = re.sub(r"[^a-z0-9]+", "-", folded).strip("-").split("-")[:6]
-    digest = hashlib.sha1(question.strip().encode("utf-8")).hexdigest()[:6]
+    digest = hashlib.sha256(question.strip().encode("utf-8")).hexdigest()[:6]
     return "-".join([*words, digest]).strip("-")
 
 
