@@ -188,8 +188,8 @@ specs and flips pullPolicy to `Always`) — never a bare `pulumi up --refresh`.
 
 **Size worker groups against the HPA ceilings.** The autoscaler only adds
 nodes within a worker group's min/max. If frontend `maxReplicas` (6) +
-agent-worker `maxReplicas` (8) + ingest-worker `maxReplicas` (12, KEDA) + the
-fixed tiers exceed the group's max
+agent-worker `maxReplicas` (8) + ingest-worker `maxReplicas` (12, KEDA) +
+bff-jobs `maxReplicas` (4, KEDA) + the fixed tiers exceed the group's max
 capacity, the extra pods sit Pending forever. Check the sum of limits at max
 scale against the group product when sizing.
 
@@ -1026,6 +1026,54 @@ lost on restart. Now, with `jobExecution: db`:
 Sizing: at `ingestWorkerMaxReplicas` the tier asks for max × the ingest-worker
 limits; make the worker group's max hold that (below), or the extra replicas
 sit Pending and add nothing.
+
+### 6.3c BFF background jobs — a pool of frontend-image pods on `bff_job_queue` (ADR-0078)
+
+A project reindex and "Rescan failed ingestions" used to walk up to ten
+thousand documents inside one HTTP request on a frontend pod: a request that
+died half way left no record of which half. Both are now jobs:
+
+- **The request enqueues and answers 202.** `POST /api/projects/{id}/reindex`
+  and `POST /api/organization/documents/reingest-failed` check access, insert
+  one `bff_job_queue` row (app database, migration 0102) in the organisation's
+  lane, and return `{ jobId }`. A second click returns the open job. The UI
+  says the work started; each document's own status is where it reports.
+- **A job is a sequence of slices.** A slice is one page of 25 documents,
+  re-dispatched to `/v1/ingest` with `priority: "bulk"` (so an upload in the
+  same organisation is claimed first); the job saves its place (a keyset
+  cursor and the counts) after every slice, so whichever worker claims it next
+  resumes there.
+- **The `bff-jobs` Deployment runs them.** The frontend image, command
+  `node workers/jobs/index.js`: one container that supervises the BFF and a
+  claim loop. The loop claims fairly across organisations (fewest running
+  first, fleet-wide; then the lane served longest ago; inside a lane
+  interactive before bulk, then oldest), heartbeats, and POSTs each slice to
+  its own pod's `/api/internal/jobs/run`. **There is no Service and no
+  HTTPRoute**, and the work runs here, never on the pods that proxy chat.
+- **A drain never costs an attempt.** On SIGTERM the loop stops claiming, lets
+  the slice in hand finish (`bffJobsDrainSeconds`, 60), gives every claim back
+  without spending an attempt, and only then stops the BFF; the pod's grace
+  period is the drain plus 30 s. A claim that lost its worker is taken again
+  after `GRID_BFF_JOBS_STALE_SECONDS`; after `GRID_BFF_JOBS_MAX_ATTEMPTS` the
+  row is marked `dead` with its reason in `last_error`, not deleted.
+- **KEDA scales it on the queue.** A `postgresql` trigger (its own
+  TriggerAuthentication, on the app database) counts the rows whose status is
+  not `dead` and asks for ceil(jobs / `bffJobsConcurrency`) replicas between
+  `bffJobsMinReplicas` and `bffJobsMaxReplicas` (prod 1 to 4, dev 0 to 2).
+  Out at once, in a pod a minute. The scaler connects as the schema owner,
+  because the queue is row-level secured per organisation; a read-only scaler
+  role is the phase-3 hardening of every ScaledObject.
+
+Debugging a stuck job:
+
+```sql
+-- as the schema owner; RLS does not apply to it
+SELECT job_id, kind, lane, status, attempts, claimed_by, heartbeat_at, last_error
+FROM bff_job_queue ORDER BY created_at;
+```
+
+A `dead` row is a job that failed every attempt: `last_error` says why. Fix
+the cause, then delete the row and run the action again from the UI.
 
 ### 6.4 Multi-replica chat/web tier — IMPLEMENTED (`jobExecution: db`)
 
