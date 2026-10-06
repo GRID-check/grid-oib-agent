@@ -18,14 +18,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useTranslations } from '@/i18n'
 
-interface ReingestFailedOrgResult {
-  total: number
-  queued: number
-  skipped: number
-  failed: string[]
-  truncated: boolean
-}
-
 export function OrgReingestFailedCard(): JSX.Element {
   const t = useTranslations('organization')
   const [isRescanning, setIsRescanning] = useState(false)
@@ -37,28 +29,9 @@ export function OrgReingestFailedCard(): JSX.Element {
         method: 'POST',
       })
       if (!response.ok) throw new Error(String(response.status))
-      const result = (await response.json()) as ReingestFailedOrgResult
-
-      if (result.total === 0) {
-        toast.info(t('advanced.reingestFailed.nothing'))
-      } else {
-        if (result.queued > 0) {
-          toast.success(t('advanced.reingestFailed.done', { count: result.queued }))
-        }
-        if (result.failed.length > 0) {
-          toast.error(t('advanced.reingestFailed.partial', { count: result.failed.length }))
-        }
-        // Neither queued nor failed means every selected row turned out to be
-        // unretryable - say so, so a silent-looking rescan reads as complete.
-        if (result.queued === 0 && result.failed.length === 0) {
-          toast.info(t('advanced.reingestFailed.skipped'))
-        }
-        // The walk stops at a cap; a count that looked like the whole failed
-        // set when it was not would be the silent cap this replaces.
-        if (result.truncated) {
-          toast.warning(t('advanced.reingestFailed.truncated'))
-        }
-      }
+      // 202: the rescan is queued and runs on its own, so there is no count
+      // to show. Each document's own status is where it reports.
+      toast.success(t('advanced.reingestFailed.started'))
     } catch {
       toast.error(t('advanced.reingestFailed.failed'))
     } finally {

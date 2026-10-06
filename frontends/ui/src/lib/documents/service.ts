@@ -85,14 +85,24 @@ import {
   setDocumentIngestJob,
   setDocumentReconciledStatus,
   findLiveDocumentByFilename,
-  FAILED_INGEST_RESCAN_LIMIT,
-  listFailedDocumentIdsInOrg,
+  listFailedDocumentPageInOrg,
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
 import { decodeTextBytes } from '@/lib/text/decode-text'
 import { encodeDocumentListCursor, type DocumentListCursor } from './list-cursor'
 import { runBimExtraction } from '@/lib/bim/service'
+import { enqueueJob } from '@/lib/jobs-queue/enqueue'
+import { findOpenJobId } from '@/lib/jobs-queue/repository'
+import {
+  emptyCounts,
+  FAILED_NAMES_KEPT,
+  requesterOf,
+  type JobCounts,
+  type JobSliceResult,
+  type ReindexProjectPayload,
+  type ReingestFailedPayload,
+} from '@/lib/jobs-queue/types'
 import { getAccessibleDocument } from './access'
 import { nextVersionNumber, recordUploadedVersionOrDiscard } from './lifecycle'
 import { newVersionWriteId, versionWriteKey } from './version-content'
@@ -329,7 +339,17 @@ export interface DispatchIngestExtras {
    * the dispatch's decision (`extractsFromRendition`), never the backend's.
    */
   extractionRef?: string | null
+  /**
+   * `bulk` for work nobody is waiting on (a reindex, a rescan): inside one
+   * organization the backend claims an interactive ingest first (ADR-0078).
+   * Absent is interactive, and the field is then not sent at all, so a person's
+   * upload is byte for byte what it was before the field existed.
+   */
+  priority?: IngestPriority
 }
+
+/** The two priorities `POST /v1/ingest` accepts. */
+export type IngestPriority = 'interactive' | 'bulk'
 
 /**
  * What a published Piloti document carries into the retrieval index.
@@ -445,6 +465,8 @@ export async function dispatchIngest(
     // old derivation for the one caller that genuinely ingests a different
     // file than the row names — the IFC digest.
     file_name: extras.fileName ?? null,
+    // Only a bulk dispatch says so: the backend's default is interactive.
+    ...(extras.priority === 'bulk' ? { priority: 'bulk' } : {}),
     // Absent for every human document, and the Python side treats absent,
     // null and a non-agent author identically (`parse_agent_provenance`).
     // Spread so the four keys are the four keys, never a nested object the
@@ -1228,6 +1250,8 @@ export interface BeginModelExtractionInput {
    * have no folders and simply omit it.
    */
   folderPath?: string | null
+  /** See {@link DispatchIngestExtras.priority}. Set by the reindex and rescan jobs. */
+  priority?: IngestPriority
 }
 
 /**
@@ -1387,7 +1411,7 @@ export async function dispatchDocument(
     // The ROW's filename, not the caller's: the join key belongs to the row,
     // and this is the same "never trust the caller" argument the guard above
     // makes about authorship.
-    { fileName: row.filename, provenance: input.provenance ?? null }
+    { fileName: row.filename, provenance: input.provenance ?? null, priority: input.priority }
   )
 }
 
@@ -1452,7 +1476,8 @@ export async function beginModelExtraction(
         digestStorageKey,
         input.organizationId,
         input.storageBucket,
-        input.folderPath ?? null
+        input.folderPath ?? null,
+        { priority: input.priority }
       ),
   })
     .then(async (outcome) => {
@@ -1549,6 +1574,7 @@ async function ingestThroughRendition(input: DispatchDocumentInput, fileName: st
       // A spreadsheet's rendition is a thumbnail only: its text keeps the
       // structure-preserving extractor (see `extractsFromRendition`).
       extractionRef: indexesRendition ? renditionRef : null,
+      priority: input.priority,
     }
   )
 }
@@ -1629,7 +1655,8 @@ export interface ReingestDocumentResult {
  */
 export async function reingestDocument(
   session: AuthorizedSession,
-  documentId: string
+  documentId: string,
+  options: { priority?: IngestPriority } = {}
 ): Promise<ReingestDocumentResult> {
   const doc = await getAccessibleDocument(session, documentId, 'write')
 
@@ -1717,37 +1744,65 @@ export async function reingestDocument(
     storageBucket: doc.storageBucket,
     collectionName: doc.collectionName,
     folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
+    priority: options.priority,
   })
   return { id: doc.id, status, jobId }
 }
 
 export interface ReindexProjectResult {
   projectId: string
-  /** Documents sent back through ingestion; their current chunks stay until the new ones index. */
-  queued: number
-  /** Rows with no stored object, or still mid-flight — nothing to rebuild from. */
-  skipped: number
-  /** Display names whose dispatch failed. Their previous chunks are untouched. */
-  failed: string[]
   /**
-   * True when the page ceiling ({@link REINDEX_MAX_PAGES}) stopped the walk
-   * before the project's last document: the rest was NOT rebuilt, and the
-   * reader is told so rather than handed a count that looks like the project.
+   * The job doing the work, on the `bff-jobs` pool (ADR-0078). It outlives this
+   * request and the process that took it: a restart gives its claim back and
+   * the next worker resumes from the page it stopped at.
    */
-  truncated: boolean
+  jobId: string
 }
+
+/**
+ * Documents one reindex slice re-dispatches. Small on purpose: a slice is the
+ * unit a draining worker waits for, so it is seconds of work, and the page the
+ * job has got to is saved after every one.
+ */
+export const REINDEX_SLICE_DOCUMENTS = 25
 
 /** Re-dispatch runs this many documents at a time. */
 const REINDEX_CONCURRENCY = 4
 
 /**
- * Listing pages one reindex walks — 20 of `DOCUMENT_LIST_LIMIT`, ten thousand
- * documents. Each page is bounded by the repository; this bounds the request.
+ * Run `work` over `items`, at most `concurrency` at a time. One item's failure
+ * is `work`'s to handle: this never rejects on its account.
  */
-export const REINDEX_MAX_PAGES = 20
+async function forEachBounded<T>(
+  items: readonly T[],
+  concurrency: number,
+  work: (item: T) => Promise<void>
+): Promise<void> {
+  let next = 0
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (next < items.length) await work(items[next++])
+  })
+  await Promise.all(workers)
+}
+
+/** Keep the names of the first few failures for the log; the count stays exact. */
+function recordFailure(counts: JobCounts, name: string): void {
+  counts.failed += 1
+  if (counts.failedNames.length < FAILED_NAMES_KEPT) counts.failedNames.push(name)
+}
 
 /**
- * Rebuild every document's chunks in one project.
+ * Rebuild every document's chunks in one project: authorize, then hand the walk
+ * to a job.
+ *
+ * The walk used to run inside this request: up to ten thousand documents in
+ * one POST, and a request that died half way left no record of which half.
+ * Now the request checks that the caller may rebuild this project and enqueues
+ * ONE job (`reindex_project`, bulk), answered 202 with its id. The job pages
+ * through the documents on a `bff-jobs` pod, saves its place after every page
+ * and dispatches each document to the backend with `priority: "bulk"`, so a
+ * person's upload in the same organization is claimed first. A second click
+ * while one is open returns that job instead of starting another.
  *
  * The project-wide form of re-reading an indexed document (`reingestDocument`
  * does it for one): every person-authored document with stored bytes goes
@@ -1784,149 +1839,138 @@ export async function reindexProject(
 ): Promise<ReindexProjectResult> {
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
 
-  const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [], truncated: false }
+  const open = await findOpenJobId({
+    kind: 'reindex_project',
+    organizationId: session.organizationId,
+    matching: { projectId },
+  })
+  if (open) return { projectId, jobId: open }
 
-  const redispatch = async (row: DocumentListRow): Promise<void> => {
-    // Re-resolved rather than trusted from the list: this is the same read the
-    // single-document path uses, it carries the storage key and bucket the list
-    // row does not, and it re-checks access per document.
-    const doc = await getAccessibleDocument(session, row.id, 'write')
-    // Mid-flight rows are skipped: a second dispatch would double the work of
-    // one that is running. Every in-flight spelling, not just two of them.
-    if (!doc.storageKey || IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status)) {
-      result.skipped += 1
-      return
-    }
-
-    // Belt to the query's braces. The listing below already asks for `'user'`
-    // only, so this is never null in practice; a row that somehow arrives here
-    // machine-authored is skipped, not reported failed: it was never eligible,
-    // exactly as the `'user'` filter below says, and `dispatchDocument` would
-    // refuse it anyway.
-    if (!collectionFileRef(doc)) {
-      result.skipped += 1
-      return
-    }
-
-    // The bucket the object is ACTUALLY in — see `reingestDocument` for why
-    // defaulting this breaks per-organization documents in two directions.
-    const { status } = await dispatchDocument({
-      organizationId: session.organizationId,
-      projectId: doc.projectId,
-      documentId: doc.id,
-      filename: doc.filename,
-      storageKey: doc.storageKey,
-      storageBucket: doc.storageBucket,
-      collectionName: doc.collectionName,
-      folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
-    })
-    // A dispatch the backend refused comes back `failed` rather than throwing;
-    // the row says so, and the reindex summary has to as well.
-    if (status === 'failed') throw new Error('dispatch failed')
-    result.queued += 1
+  const payload: ReindexProjectPayload = {
+    projectId,
+    requester: requesterOf(session),
+    cursor: null,
+    counts: emptyCounts(),
   }
-
-  // Bounded rather than unbounded: a project with hundreds of documents would
-  // otherwise open that many backend connections at once and time the request out.
-  const redispatchPage = async (rows: DocumentListRow[]): Promise<void> => {
-    let next = 0
-    const workers = Array.from({ length: Math.min(REINDEX_CONCURRENCY, rows.length) }, async () => {
-      while (next < rows.length) {
-        const row = rows[next++]
-        try {
-          await redispatch(row)
-        } catch {
-          // One document's failure must not abandon the rest of the project.
-          result.failed.push(documentDisplayName(row))
-        }
-      }
-    })
-    await Promise.all(workers)
-  }
-
-  // Every page, not the first: this read the newest `DOCUMENT_LIST_LIMIT` rows
-  // and stopped, so a project-wide reindex of a large project silently left
-  // its oldest documents on the old chunks. The keyset order is `created_at`,
-  // which a dispatch never touches, so re-dispatching a page cannot move a row
-  // across the cursor.
-  //
-  // `'user'` explicitly, not "everything": a machine-authored document must not
-  // be indexed (see `dispatchDocument`), and reaching the dispatcher's refusal
-  // would report a project-wide reindex as partially FAILED for rows that were
-  // never eligible. The dispatcher is the invariant; this is the caller not
-  // asking a question it already knows the answer to.
-  let cursor: DocumentListCursor | undefined
-  for (let page = 0; page < REINDEX_MAX_PAGES; page++) {
-    const { rows, nextCursor } = await listProjectDocumentPage(projectId, session.organizationId, {
-      authoredBy: 'user',
-      cursor,
-    })
-    await redispatchPage(rows)
-    if (!nextCursor) return result
-    cursor = nextCursor
-  }
-  result.truncated = true
-  return result
+  const { jobId } = await enqueueJob({
+    kind: 'reindex_project',
+    organizationId: session.organizationId,
+    payload,
+  })
+  return { projectId, jobId }
 }
 
 /**
-/**
- * Re-dispatch every failed ingestion in the organization.
- *
- * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
- * all files that were stored but could never be read (`failed`/`error`, plus
- * rows stranded at the `uploaded` birth status) go back through the ingest
- * pipeline under their own ids, so citations, chat subjects and assignments
- * pointing at them keep working.
- *
- * Each id goes through `reingestDocument`, so per-document access checks and
- * the status guards stay in exactly one place. Rows that are not retryable
- * (still running, already finished behind the row's back, not eligible, or no
- * longer visible to this session) count as `skipped`, never as failures - a
- * rescan that reports failures must mean retries that actually went wrong,
- * not rows that were never eligible. One document's failure never abandons
- * the rest, and the fan-out is bounded like `reindexProject`.
+ * Re-dispatch one document of a reindex. `skipped` for a row there is nothing
+ * to rebuild from; a dispatch the backend refused throws.
  */
+async function redispatchForReindex(
+  session: AuthorizedSession,
+  row: DocumentListRow
+): Promise<'queued' | 'skipped'> {
+  // Re-resolved rather than trusted from the list: this is the same read the
+  // single-document path uses, it carries the storage key and bucket the list
+  // row does not, and it re-checks access per document.
+  const doc = await getAccessibleDocument(session, row.id, 'write')
+  // Mid-flight rows are skipped: a second dispatch would double the work of
+  // one that is running. Every in-flight spelling, not just two of them.
+  if (!doc.storageKey || IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status)) return 'skipped'
+
+  // Belt to the query's braces. The listing already asks for `'user'` only, so
+  // this is never null in practice; a row that somehow arrives here
+  // machine-authored is skipped, not reported failed: it was never eligible,
+  // and `dispatchDocument` would refuse it anyway.
+  if (!collectionFileRef(doc)) return 'skipped'
+
+  // The bucket the object is ACTUALLY in — see `reingestDocument` for why
+  // defaulting this breaks per-organization documents in two directions.
+  const { status } = await dispatchDocument({
+    organizationId: session.organizationId,
+    projectId: doc.projectId,
+    documentId: doc.id,
+    filename: doc.filename,
+    storageKey: doc.storageKey,
+    storageBucket: doc.storageBucket,
+    collectionName: doc.collectionName,
+    folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
+    priority: 'bulk',
+  })
+  // A dispatch the backend refused comes back `failed` rather than throwing;
+  // the row says so, and the reindex summary has to as well.
+  if (status === 'failed') throw new Error('dispatch failed')
+  return 'queued'
+}
+
 /**
- * Re-dispatch every failed ingestion in the organization.
+ * One slice of a `reindex_project` job: the next page of the project's
+ * documents, re-dispatched, and the position to resume from.
  *
- * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
- * all files that were stored but could never be read (`failed`/`error`, plus
- * rows stranded at the `uploaded` birth status) go back through the ingest
- * pipeline under their own ids, so citations, chat subjects and assignments
- * pointing at them keep working.
+ * `payload` is the job's state, read back from the queue row, and this returns
+ * the state to save. Re-running a slice (its worker died after the dispatches
+ * and before the save) re-dispatches the same documents, which the backend
+ * accepts: ingestion is idempotent per document and object.
  *
- * The selection is PAGED past the cap rather than read once: each page
- * excludes the ids already attempted, so rows that stay failed cannot starve
- * the rows behind them, and `truncated` says when the cap stopped the walk
- * before the failed set was exhausted. Each id still goes through
- * `reingestDocument`, so per-document access checks and the status guards
- * stay in exactly one place. Rows that are not retryable (still running,
- * already finished behind the row's back, not eligible, or no longer visible
- * to this session) count as `skipped`, never as failures - and a dispatch
- * that yields no job resolves as `failed` rather than `queued`, because
- * `dispatchIngest` marks the row failed itself in that case. One document's
- * failure never abandons the rest, and the fan-out is bounded like
- * `reindexProject`.
- *
- * The rescan itself is audited (`org.documents.reingested`) with its outcome,
- * because it is an organization-wide mutating admin action.
+ * Every page, not the first: the keyset order is `created_at`, which a dispatch
+ * never touches, so re-dispatching a page cannot move a row across the cursor.
+ * `'user'` explicitly, not "everything": a machine-authored document must not be
+ * indexed (see `dispatchDocument`), and reaching the dispatcher's refusal would
+ * report a project-wide reindex as partially FAILED for rows that were never
+ * eligible. The dispatcher is the invariant; this is the caller not asking a
+ * question it already knows the answer to.
  */
+export async function runReindexSlice(
+  session: AuthorizedSession,
+  payload: ReindexProjectPayload
+): Promise<JobSliceResult<ReindexProjectPayload>> {
+  try {
+    // The caller's rights are checked again: a job can wait, and a person who
+    // lost their role in the meantime must not have it rebuild the project.
+    await requireProjectAccess(session, payload.projectId, ['project:documents:write', 'project:edit'])
+  } catch (error) {
+    if (!(error instanceof NotFoundError) && !(error instanceof ForbiddenError)) throw error
+    console.warn(`[reindex] project ${payload.projectId}: the requester no longer has access; stopping`)
+    return { done: true, payload }
+  }
+
+  const { rows, nextCursor } = await listProjectDocumentPage(payload.projectId, session.organizationId, {
+    authoredBy: 'user',
+    cursor: payload.cursor ?? undefined,
+    limit: REINDEX_SLICE_DOCUMENTS,
+  })
+
+  const counts: JobCounts = { ...payload.counts, failedNames: [...payload.counts.failedNames] }
+  await forEachBounded(rows, REINDEX_CONCURRENCY, async (row) => {
+    try {
+      const outcome = await redispatchForReindex(session, row)
+      counts[outcome] += 1
+    } catch {
+      // One document's failure must not abandon the rest of the project.
+      recordFailure(counts, documentDisplayName(row))
+    }
+  })
+
+  const next = { ...payload, cursor: nextCursor, counts }
+  if (!nextCursor) logReindexSummary(next)
+  return { done: !nextCursor, payload: next }
+}
+
+function logReindexSummary(payload: ReindexProjectPayload): void {
+  const { queued, skipped, failed, failedNames } = payload.counts
+  const line =
+    `[reindex] project ${payload.projectId}: ${queued} re-dispatched, ${skipped} skipped, ${failed} failed` +
+    (failed > 0 ? ` (${failedNames.join(', ')}${failed > failedNames.length ? ', …' : ''})` : '')
+  // A failure is something an operator should see; a clean run is not.
+  if (failed > 0) console.warn(line)
+  else console.debug(line)
+}
+
 export interface ReingestFailedOrgResult {
-  /** Failed ids this rescan picked up, bounded by the cap. */
-  total: number
-  /** Documents sent back through ingestion. */
-  queued: number
-  /** Rows that were not retryable - running, already done, ineligible, or out of reach. */
-  skipped: number
-  /** Ids whose retry itself went wrong. */
-  failed: string[]
-  /** True when the cap stopped the walk before the failed set was exhausted. */
-  truncated: boolean
+  /** The job doing the work, on the `bff-jobs` pool (ADR-0078). */
+  jobId: string
 }
 
-/** One page of the failed-id walk - small enough to stay a point query. */
-const REINGEST_RESCAN_PAGE = 50
+/** Failed documents one rescan slice sends back; see {@link REINDEX_SLICE_DOCUMENTS}. */
+export const REINGEST_SLICE_DOCUMENTS = 25
 
 function reingestRefusalCode(error: unknown): string | null {
   if (error instanceof ConflictError) {
@@ -1936,76 +1980,95 @@ function reingestRefusalCode(error: unknown): string | null {
   return null
 }
 
+/**
+ * Re-dispatch every failed ingestion in the organization: authorize, then hand
+ * the walk to a job.
+ *
+ * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
+ * all files that were stored but could never be read (`failed`/`error`, plus
+ * rows stranded at the `uploaded` birth status) go back through the ingest
+ * pipeline under their own ids, so citations, chat subjects and assignments
+ * pointing at them keep working.
+ *
+ * Like the reindex, the walk runs as a `bff-jobs` job (`reingest_failed`,
+ * bulk), answered 202 with the job id. It pages through the failed set with a
+ * keyset, so rows that stay failed cannot starve the rows behind them and the
+ * job's whole state is one position. Each id still goes through
+ * `reingestDocument`, so per-document access checks and the status guards stay
+ * in exactly one place. Rows that are not retryable (still running, already
+ * finished behind the row's back, not eligible, or no longer visible to the
+ * requester) count as `skipped`, never as failures - and a dispatch that yields
+ * no job resolves as `failed` rather than `queued`, because `dispatchIngest`
+ * marks the row failed itself in that case. One document's failure never
+ * abandons the rest.
+ *
+ * The rescan itself is audited (`org.documents.reingested`) with its outcome
+ * when the job ends, because it is an organization-wide mutating admin action.
+ */
 export async function reingestFailedOrgDocuments(
-  session: AuthorizedSession,
-  request?: Request,
+  session: AuthorizedSession
 ): Promise<ReingestFailedOrgResult> {
-  // Walk the failed set a page at a time, excluding what was already
-  // attempted: without the exclusion the cap would re-read the same first
-  // page on every rescan while the rows behind it never surface.
-  const attempted: string[] = []
-  while (attempted.length < FAILED_INGEST_RESCAN_LIMIT) {
-    const page = await listFailedDocumentIdsInOrg(session.organizationId, {
-      limit: Math.min(REINGEST_RESCAN_PAGE, FAILED_INGEST_RESCAN_LIMIT - attempted.length),
-      excludeIds: attempted,
-    })
-    if (page.length === 0) break
-    attempted.push(...page)
-  }
-  // Capped mid-set: one probe says whether anything was left behind, so the
-  // reader is told to run again rather than handed a count that looks whole.
-  const truncated =
-    attempted.length >= FAILED_INGEST_RESCAN_LIMIT &&
-    (
-      await listFailedDocumentIdsInOrg(session.organizationId, {
-        limit: 1,
-        excludeIds: attempted,
-      })
-    ).length > 0
+  const open = await findOpenJobId({
+    kind: 'reingest_failed',
+    organizationId: session.organizationId,
+    matching: {},
+  })
+  if (open) return { jobId: open }
 
-  const result: ReingestFailedOrgResult = {
-    total: attempted.length,
-    queued: 0,
-    skipped: 0,
-    failed: [],
-    truncated,
+  const payload: ReingestFailedPayload = {
+    requester: requesterOf(session),
+    cursor: null,
+    counts: emptyCounts(),
   }
+  const { jobId } = await enqueueJob({
+    kind: 'reingest_failed',
+    organizationId: session.organizationId,
+    payload,
+  })
+  return { jobId }
+}
 
-  const redispatch = async (id: string): Promise<void> => {
-    try {
-      const outcome = await reingestDocument(session, id)
-      // No job id means the dispatch recorded the failure itself: the retry
-      // went wrong, it did not queue.
-      if (outcome.status === 'failed') {
-        result.failed.push(id)
-        return
-      }
-      result.queued += 1
-    } catch (error) {
-      const code = reingestRefusalCode(error)
-      if (code === INGEST_RUNNING || code === INGEST_ALREADY_DONE || code === INGEST_NOT_ELIGIBLE) {
-        result.skipped += 1
-        return
-      }
-      if (error instanceof NotFoundError || error instanceof ForbiddenError) {
-        result.skipped += 1
-        return
-      }
-      result.failed.push(id)
-    }
+/** How one failed document's retry came out. */
+async function retryFailedDocument(
+  session: AuthorizedSession,
+  id: string
+): Promise<'queued' | 'skipped' | 'failed'> {
+  try {
+    const outcome = await reingestDocument(session, id, { priority: 'bulk' })
+    // No job id means the dispatch recorded the failure itself: the retry
+    // went wrong, it did not queue.
+    return outcome.status === 'failed' ? 'failed' : 'queued'
+  } catch (error) {
+    const code = reingestRefusalCode(error)
+    if (code === INGEST_RUNNING || code === INGEST_ALREADY_DONE || code === INGEST_NOT_ELIGIBLE) return 'skipped'
+    if (error instanceof NotFoundError || error instanceof ForbiddenError) return 'skipped'
+    return 'failed'
   }
+}
 
-  let next = 0
-  const workers = Array.from(
-    { length: Math.min(REINDEX_CONCURRENCY, attempted.length) },
-    async () => {
-      while (next < attempted.length) {
-        const id = attempted[next++]
-        await redispatch(id)
-      }
-    },
-  )
-  await Promise.all(workers)
+/**
+ * One slice of a `reingest_failed` job: the next page of the failed set, sent
+ * back through ingestion, and the position to resume from. The audit event is
+ * written by the slice that finds the end of the set.
+ */
+export async function runReingestFailedSlice(
+  session: AuthorizedSession,
+  payload: ReingestFailedPayload
+): Promise<JobSliceResult<ReingestFailedPayload>> {
+  const { ids, nextCursor } = await listFailedDocumentPageInOrg(session.organizationId, {
+    limit: REINGEST_SLICE_DOCUMENTS,
+    cursor: payload.cursor,
+  })
+
+  const counts: JobCounts = { ...payload.counts, failedNames: [...payload.counts.failedNames] }
+  await forEachBounded(ids, REINDEX_CONCURRENCY, async (id) => {
+    const outcome = await retryFailedDocument(session, id)
+    if (outcome === 'failed') recordFailure(counts, id)
+    else counts[outcome] += 1
+  })
+
+  const next = { ...payload, cursor: nextCursor, counts }
+  if (nextCursor) return { done: false, payload: next }
 
   await recordAuditEvent({
     organizationId: session.organizationId,
@@ -2014,16 +2077,14 @@ export async function reingestFailedOrgDocuments(
     targetType: 'organization',
     targetId: session.organizationId,
     metadata: {
-      total: result.total,
-      queued: result.queued,
-      skipped: result.skipped,
-      failed: result.failed.length,
-      truncated: result.truncated,
+      total: counts.queued + counts.skipped + counts.failed,
+      queued: counts.queued,
+      skipped: counts.skipped,
+      failed: counts.failed,
+      truncated: false,
     },
-    request,
   })
-
-  return result
+  return { done: true, payload: next }
 }
 
 /**

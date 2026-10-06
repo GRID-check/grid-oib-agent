@@ -40,6 +40,7 @@ import { installGotenberg } from "./src/app/gotenberg";
 import { installWorkers } from "./src/app/workers";
 import { installAgentWorker } from "./src/app/agent-worker";
 import { installIngestWorker } from "./src/app/ingest-worker";
+import { installBffJobs } from "./src/app/bff-jobs";
 import { installKeda } from "./src/platform/keda";
 import { installHttpRoutes } from "./src/app/httproutes";
 import { installObservabilityDashboard } from "./src/platform/observability";
@@ -236,7 +237,7 @@ const agentWorker =
 
 // Ingestion tier (ADR-0076) — claims the durable ingest queue fairly across
 // organisations, scaled by KEDA on the queue's depth.
-const keda = cfg.ingestWorker.enabled && cfg.keda.install ? installKeda(provider) : undefined;
+const keda = (cfg.ingestWorker.enabled || cfg.bffJobs.enabled) && cfg.keda.install ? installKeda(provider) : undefined;
 const ingestWorker = cfg.ingestWorker.enabled
   ? installIngestWorker(wiring, cfg, secrets, [
       postgres.initJob,
@@ -245,6 +246,13 @@ const ingestWorker = cfg.ingestWorker.enabled
       ...(chroma ? [chroma.service] : []),
       ...(keda ? [keda] : []),
     ])
+  : undefined;
+
+// BFF background pool (ADR-0078) — claims bff_job_queue fairly across
+// organisations and runs project reindex and rescan jobs in its own BFF,
+// scaled by KEDA on the queue's depth. Internal only: no Service, no route.
+const bffJobs = cfg.bffJobs.enabled
+  ? installBffJobs(wiring, cfg, secrets, [migrations, backend.service, ...(keda ? [keda] : [])])
   : undefined;
 
 // ── Edge (Gateway API) ───────────────────────────────────────────────────────
@@ -384,6 +392,9 @@ export const deployedImages = {
 export const ingestWorkerDeployment = ingestWorker
   ? ingestWorker.deployment.metadata.name
   : pulumi.output("(none: ingestion runs in the backend pods)");
+export const bffJobsDeployment = bffJobs
+  ? bffJobs.deployment.metadata.name
+  : pulumi.output("(none: reindex and rescan jobs are not run)");
 export const agentWorkerDeployment = agentWorker
   ? agentWorker.deployment.metadata.name
   : pulumi.output("(none: dask mode)");

@@ -322,6 +322,23 @@ The scheduler also reuses `GRID_APP_DATABASE_URL`, `FRONTEND_INTERNAL_URL`, and 
 
 ---
 
+## BFF Jobs Pool (ADR-0078)
+
+Read by `frontends/ui/workers/jobs/index.js`, the entry point of the `bff-jobs` pod: the frontend image, internal only, supervising the BFF (`node server.js`) and the claim loop over `bff_job_queue`. The pod also needs the frontend's whole environment (the jobs call the same services the routes do), which Pulumi and Compose give it. `GRID_APP_DATABASE_URL` and `GRID_INTERNAL_API_TOKEN` are required; every variable below has a default.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GRID_BFF_JOBS_URL` | No | `http://127.0.0.1:$PORT` | The pod's own BFF, which the loop asks to run each slice (`POST /api/internal/jobs/run`). Leave unset: nothing else may run a job's work. |
+| `GRID_BFF_JOBS_CONCURRENCY` | No | `2` | Jobs one replica runs at once. Pulumi `bffJobsConcurrency`, also KEDA's jobs-per-replica target. |
+| `GRID_BFF_JOBS_POLL_MS` | No | `2000` | Idle wait between claims. |
+| `GRID_BFF_JOBS_DRAIN_SECONDS` | No | `60` | After SIGTERM the loop lets the slice in hand finish for up to this long, gives every claim back **without spending an attempt**, then stops the BFF. Pulumi `bffJobsDrainSeconds`; the pod's grace period is this plus 30 s. |
+| `GRID_BFF_JOBS_STALE_SECONDS` | No | `180` | A claim whose worker has sent no heartbeat for this long is claimed again by another worker. Never below four heartbeats (60 s). |
+| `GRID_BFF_JOBS_MAX_ATTEMPTS` | No | `3` | Claims of one job before it is marked `dead` (its reason kept in `last_error`; nothing deletes it). |
+| `GRID_BFF_JOBS_MAX_PER_ORG` | No | `0` | Most jobs one organisation may run **across the whole fleet**; 0 for no cap. The claim is fair without it. Hard: a claim that raced past the cap gives its job back. Pulumi `bffJobsMaxPerOrg`. |
+| `GRID_BFF_JOBS_SLICE_TIMEOUT_MS` | No | `300000` | Ceiling on one slice's request to the BFF; a slice that outlives it is a failed attempt. |
+
+---
+
 ## Decision model (ADR-0064)
 
 | Variable | Required | Default | Description |

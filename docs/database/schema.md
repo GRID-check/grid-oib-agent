@@ -35,6 +35,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
+| `bff-job-queue.ts` | `bff_job_queue`, `bff_job_lane_turns` — the BFF's durable background work (migration 0102, ADR-0078) |
 
 ---
 
@@ -1002,6 +1003,41 @@ never detaches them. Tenant predicate with a NULL arm —
 write-guard policies: the tenant role reads platform rows but writes only its
 own org's (the helper installs one policy per table for every command, so the
 split is stated explicitly).
+
+---
+
+## bff_job_queue / bff_job_lane_turns (migration 0102, ADR-0078)
+
+The BFF's durable background work: one row is one job a `bff-jobs` replica
+claims and runs (project reindex, failed-ingestion rescan; IFC extraction,
+office rendition and report filing follow). The claim is SQL in
+`frontends/ui/workers/job-queue.js`, in the order ADR-0076 proved for
+ingestion: the lane with the fewest live claims, then the lane served longest
+ago (`bff_job_lane_turns`), then inside a lane `priority` (0 interactive, 1
+bulk), then oldest, with `FOR UPDATE SKIP LOCKED`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `job_id` | uuid PK | Returned to the caller as the job's id. |
+| `kind` | text | Shape-checked (`^[a-z][a-z0-9_]{0,63}$`); the kinds a worker knows live in `lib/jobs-queue/types.ts`, so a new kind is a code change. |
+| `lane` | text | The organization id: the unit of fairness AND of tenancy. |
+| `priority` | smallint | `0` interactive, `1` bulk (CHECK). |
+| `payload` | jsonb | The job's whole state: what was asked and how far it got (a keyset cursor, the counts). Saved after every slice and read back by whichever worker claims it next. Holds the requester's identity and permissions, never an access token. |
+| `status` | text | `queued`, `claimed` or `dead` (CHECK). A finished job is **deleted**; a job that failed every attempt is `dead` and stays, with its reason. |
+| `attempts` | integer | Claims spent. A drain or a cap gives a claim back without spending one. |
+| `claimed_by`, `claimed_at`, `heartbeat_at` | text, timestamptz | A `claimed` row always has a holder and a heartbeat (CHECK); a claim silent for `GRID_BFF_JOBS_STALE_SECONDS` is claimed again. |
+| `created_at`, `last_error` | timestamptz, text | |
+
+Indexes: `(lane, priority, created_at)` over the rows that are not dead (the
+claim's second step) and `(heartbeat_at)` over claimed rows (the stale test and
+the reaper). `bff_job_lane_turns` is one row per lane with `last_claimed_at`.
+
+RLS: both are tenant tables whose predicate compares `lane` (not an
+`organization_id` column) to `grid_current_org()`, so a request enqueues and
+reads only its own organization's jobs. The runner is cross-tenant by nature
+and steps up to `grid_app_platform` per transaction
+(`workers/platform-scope.js`), as the purger and the scheduler do. KEDA counts
+the table as the schema owner, to which RLS does not apply.
 
 ---
 

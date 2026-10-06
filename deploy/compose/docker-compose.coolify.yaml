@@ -586,6 +586,44 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  bff-jobs:
+    # The BFF's background pool (ADR-0078): the frontend image, internal only.
+    # `workers/jobs/index.js` supervises the BFF (`node server.js`) and a claim
+    # loop that takes jobs from bff_job_queue fairly across organizations and
+    # has that BFF run them a bounded slice at a time. Without it a project
+    # reindex or a failed-ingestion rescan is queued and never runs.
+    #
+    # `extends` rather than a second copy of the frontend's environment, which
+    # a job needs in full (it calls the same services the routes do). It
+    # inherits `SERVICE_FQDN_FRONTEND_3000` too, which is only a pass-through
+    # name for docker compose; Coolify reads that magic variable off the
+    # `frontend` service. The inherited `expose` is only a note that the port
+    # exists inside the network: nothing is published for this service.
+    extends:
+      service: frontend
+    command: ["node", "workers/jobs/index.js"]
+    environment:
+      - GRID_BFF_JOBS_CONCURRENCY=${GRID_BFF_JOBS_CONCURRENCY:-2}
+      - GRID_BFF_JOBS_DRAIN_SECONDS=${GRID_BFF_JOBS_DRAIN_SECONDS:-30}
+      - GRID_BFF_JOBS_MAX_PER_ORG=${GRID_BFF_JOBS_MAX_PER_ORG:-0}
+      # The runner stops the BFF only after it has drained.
+      - GRID_SHUTDOWN_DRAIN_MS=5000
+    # The runner gives claims back for up to the drain budget; docker's default
+    # 10 s would kill it first.
+    stop_grace_period: 60s
+    depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
+      aiq-agent:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   purger:
     build:
       context: ./frontends/ui

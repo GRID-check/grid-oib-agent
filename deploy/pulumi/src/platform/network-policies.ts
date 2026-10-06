@@ -349,9 +349,10 @@ export function installNetworkPolicies(
     : undefined;
 
   // 14. KEDA (its own namespace) reads the ingest queue's depth to scale the
-  //     ingest-worker tier (ADR-0076). Postgres only, and only when that tier
-  //     runs: the operator runs one COUNT(*) there and needs nothing else.
-  const kedaToPostgres = cfg.ingestWorker.enabled
+  //     ingest-worker tier (ADR-0076) and the bff_job_queue's to scale the
+  //     bff-jobs pool (ADR-0078). Postgres only, and only when one of those
+  //     tiers runs: the operator runs one COUNT(*) there and needs nothing else.
+  const kedaToPostgres = cfg.ingestWorker.enabled || cfg.bffJobs.enabled
     ? mk("allow-keda-to-postgres", {
         podSelector: { matchLabels: { "cnpg.io/cluster": POSTGRES_CLUSTER } },
         policyTypes: ["Ingress"],

@@ -771,8 +771,30 @@ export interface GridConfig {
   };
 
   /**
-   * KEDA, the event-driven autoscaler the ingest tier scales with. Installed by
-   * this program unless the cluster already runs one (`installKeda=false`).
+   * The BFF's background pool (ADR-0078): internal-only replicas of the frontend
+   * image that claim jobs from `bff_job_queue` fairly across organizations and
+   * run them in their own BFF, so a reindex, a rescan (and later IFC parsing and
+   * rendition) never shares a pod with the chat gateway. Scaled by KEDA on the
+   * queue's depth, like the ingest tier.
+   */
+  bffJobs: {
+    enabled: boolean;
+    resources: ResourceSpec;
+    /** Floor; 0 lets the pool scale to nothing while no job waits. */
+    minReplicas: number;
+    maxReplicas: number;
+    /** Jobs one replica runs at once (`GRID_BFF_JOBS_CONCURRENCY`); also KEDA's jobs-per-replica target. */
+    concurrency: number;
+    /** SIGTERM budget to finish the slice in hand; the claim is then given back without costing an attempt. */
+    drainSeconds: number;
+    /** Most jobs one organisation may run fleet-wide at once; 0 = no cap (the claim is fair regardless). */
+    maxPerOrg: number;
+  };
+
+  /**
+   * KEDA, the event-driven autoscaler the ingest and bff-jobs tiers scale with.
+   * Installed by this program unless the cluster already runs one
+   * (`installKeda=false`).
    */
   keda: { install: boolean };
 
@@ -2454,6 +2476,23 @@ export function loadConfig(): GridConfig {
       concurrency: Math.max(1, num(cfg, "ingestWorkerConcurrency", 3)),
       drainSeconds: Math.max(30, num(cfg, "ingestWorkerDrainSeconds", 600)),
       maxPerOrg: Math.max(0, num(cfg, "ingestMaxPerOrg", 0)),
+    },
+    bffJobs: {
+      enabled: cfg.getBoolean("bffJobsEnabled") !== false,
+      // A reindex or a rescan only pages and POSTs, so this is a frontend pod's
+      // size. The IFC and rendition kinds of phase 2 are what will want more:
+      // raise `bffJobsLimitsMemory` with them, not before.
+      resources: {
+        requestsCpu: cfg.get("bffJobsRequestsCpu") ?? "250m",
+        requestsMemory: cfg.get("bffJobsRequestsMemory") ?? "512Mi",
+        limitsCpu: cfg.get("bffJobsLimitsCpu") ?? "1",
+        limitsMemory: cfg.get("bffJobsLimitsMemory") ?? "1Gi",
+      },
+      minReplicas: Math.max(0, num(cfg, "bffJobsMinReplicas", 1)),
+      maxReplicas: Math.max(1, num(cfg, "bffJobsMaxReplicas", 4)),
+      concurrency: Math.max(1, num(cfg, "bffJobsConcurrency", 2)),
+      drainSeconds: Math.max(15, num(cfg, "bffJobsDrainSeconds", 60)),
+      maxPerOrg: Math.max(0, num(cfg, "bffJobsMaxPerOrg", 0)),
     },
     keda: { install: cfg.getBoolean("installKeda") ?? true },
 
