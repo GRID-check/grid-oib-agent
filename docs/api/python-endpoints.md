@@ -192,6 +192,7 @@ These routes are **not registered by custom code** — they are provided by the 
 | Method | Path | Description | Response | Handler |
 |--------|------|-------------|----------|---------|
 | `GET` | `/health` | Health check endpoint registered by async job routes. Validates DB connectivity and Dask availability. Returns `200 OK` or `503 degraded`. | `{ status, dask_available, db }` | `register_job_routes` in `aiq_api.routes.jobs` |
+| `GET` | `/v1/internal/chat-occupancy` | **Internal** (`_require_internal_token`). The chat tier's scaling signal (ADR-0079): the global admission pool in Dragonfly, which every replica keeps, so any replica answers with the fleet's number. KEDA's `metrics-api` trigger reads `activeTurns` and asks for ceil(activeTurns / `backendTurnsPerReplica`) replicas. `503` when the shared store is configured but unreachable, so the scaler falls back instead of reading this replica's share as a quiet fleet. With no `REDIS_URL` it is this process's own count. | `{ activeTurns, maxActiveTurns }` | `add_chat_occupancy_routes` in `aiq_api.routes.chat_occupancy` |
 
 ## Auth middleware
 

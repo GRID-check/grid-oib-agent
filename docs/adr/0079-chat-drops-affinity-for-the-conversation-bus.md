@@ -72,11 +72,12 @@ Chosen option 3.
   conversation-level running marker (`conv:<id>:running`, its replica and turn
   id, with a TTL it renews while the turn runs and deletes when the turn ends).
   A new turn first publishes `SUPERSEDE`, then waits, bounded, for the marker to
-  clear. It takes the marker atomically (`SET NX`) before it enters LangGraph;
-  of two turns racing from an empty marker exactly one wins, and the other
-  waits or is refused. If the marker does not clear in time the question is
-  refused as "still finishing the previous answer", never run concurrently. A
-  marker whose owner died expires with its TTL.
+  clear or to name itself. It takes the marker atomically (`SET NX`) before it
+  enters LangGraph; of two turns racing from an empty marker exactly one wins,
+  and the other waits or is refused. If the marker does not clear in time the
+  question is refused as "still finishing the previous answer", never run
+  concurrently. A marker whose owner died expires with its TTL. With the bus
+  down the fence fails open only while affinity is on.
 * **The owner fences itself.** A marker can be lost while its owner still runs
   (a renewal that finds it gone, or Dragonfly unreachable from that replica for
   longer than the TTL). The owner then cancels its own turn, through the same
@@ -128,3 +129,43 @@ Chosen option 3.
   ADR-0078 (claim substrate), ADR-0080 (provider limiter).
 * Open gap: a check against a real Dragonfly for the multi-replica path, run in
   CI or as a dev-cluster smoke test.
+* Where it lives: the BFF's routing rule is `frontends/ui/src/lib/proxy/backend-target.js`;
+  the running marker is `ConversationBus.acquire_running` and
+  `ChatRegistry.hold_conversation` (`GRID_CHAT_RUNNING_TTL_SECONDS`,
+  `GRID_CHAT_SUPERSEDE_WAIT_SECONDS`); the drain is `drain_chat_turns`
+  (`GRID_CHAT_DRAIN_SECONDS`); the scaling signal is
+  `GET /v1/internal/chat-occupancy` (`turn_admission.active_turns`); the
+  ScaledObject is `deploy/pulumi/src/app/backend-scaling.ts`.
+* How the owner fences itself: `aiq_api/turn_fence.py` holds the deadline,
+  `ChatRegistry.keep_conversation` renews and cancels, and every write path
+  asks it first (`aiq_agent/common/write_fence.py`; the checkpointer is wrapped
+  by `FencedCheckpointer`, the frames by `TurnWire`, the outcome by
+  `persist_turn_result`). The deadline is the start of the last successful
+  renewal plus the TTL minus a margin, and each guard compares
+  `time.monotonic()` with it directly, so a renewal task that never ran cannot
+  leave a stale answer. The margin is one guarded write (bounded at 3 s) plus
+  1 s for the cancel and clock skew; the TTL must exceed it. The persist of the
+  outcome is checked but not cut short: it is the turn's own message row, which
+  cannot collide with a newer turn's. A marker deleted before its TTL (a
+  Dragonfly that lost its data) can be taken at once and no local clock sees
+  it; the renewal's `False` fences the turn the next time it runs.
+* The TTL trade-off. A longer `GRID_CHAT_RUNNING_TTL_SECONDS` rides out longer
+  Dragonfly blips (the window is the TTL minus 4 s) and costs a longer wait
+  behind a replica that died mid-turn, which must stay under
+  `GRID_CHAT_SUPERSEDE_WAIT_SECONDS` and so under the client's 15 s
+  acknowledgement bound. 12 s keeps the wait at 13.5 s, rides out a 5 s blip
+  whatever the renewal phase, and renews four times per TTL.
+* One difference from the order written above: the turn id is claimed first,
+  then the marker is taken. A resent question that is a duplicate must never
+  publish `SUPERSEDE`, or a late resend of an old question would stop the newer
+  turn that is running. A question the fence refuses is therefore a claimed,
+  finished turn (`RUN_STARTED`, then `RUN_FINISHED` with outcome `refused`, the
+  wire's existing refusal shape, retry hint 5 s), not a `rejected` frame, so no
+  new wire code is needed. The marker is `SET NX`, so of two questions racing
+  from two replicas exactly one runs first; the renewal and the release are
+  compare-and-write on the marker's own `{replica, turn_id}` value.
+* A replica holds no disk state a conversation depends on: checkpoints are in
+  Postgres, vectors in the shared Chroma. The one per-replica file set is the
+  base-corpus admin upload (`OIB_UPLOADS_DIR` on the data PVC, kubernetes.md
+  §6.4), which chat never reads. Scale-in keeps the PVC (`whenScaled: Retain`),
+  so that source PDF is back when the ordinal returns.

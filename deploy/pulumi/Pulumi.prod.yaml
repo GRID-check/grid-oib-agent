@@ -445,3 +445,9 @@ config:
   # SIGTERM budget to finish the slice in hand; the claim is then given back
   # without costing an attempt. The pod's grace period is this plus 30 s.
   grid-oib:bffJobsDrainSeconds: "60"
+  # Chat tier scale-out (ADR-0079). Affinity stays on and the ceiling at the floor
+  # until the cross-replica path (reconnect, clarifier answer, cancel, supersede, a
+  # replica draining mid-turn) is validated on the dev cluster with affinity off and
+  # at least two replicas. Flip these two together, never one.
+  grid-oib:chatAffinity: "true"
+  grid-oib:backendMaxReplicas: "1"

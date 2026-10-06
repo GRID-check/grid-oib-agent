@@ -1,11 +1,11 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig, appPullPolicy, backendImage, toResourceRequirements } from "../config";
+import { GridConfig, appPullPolicy, backendAutoscaled, backendImage, toResourceRequirements } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedContainerSecurityContext } from "../platform/security";
 import {
-  ROLLOUT,
+  backendRollout,
   gracefulShutdown,
   orderedRollout,
   secretChecksumAnnotations,
@@ -44,8 +44,12 @@ export function installBackend(
   dependsOn: pulumi.Resource[],
 ): Backend {
   const labels = commonLabels("aiq-agent");
-  const multiReplica = cfg.jobExecution === "db" && cfg.backend.replicas > 1;
-  const shutdown = gracefulShutdown(ROLLOUT.backend, "python");
+  const autoscaled = backendAutoscaled(cfg);
+  const multiReplica = cfg.jobExecution === "db" && (cfg.backend.replicas > 1 || autoscaled);
+  // The grace period is the chat drain plus the endpoint drain and slack: a
+  // terminating replica finishes the turns it claimed (ADR-0079).
+  const profile = backendRollout(cfg.backend.drainSeconds);
+  const shutdown = gracefulShutdown(profile, "python");
 
   const statefulSet = new k8s.apps.v1.StatefulSet(
     "aiq-agent",
@@ -57,13 +61,14 @@ export function installBackend(
         // conversation affinity so a chat pins to its owning replica.
         serviceName: "aiq-agent-headless",
         // Singleton in dask mode; multi-replica chat tier in db mode (safe with
-        // conversation affinity — ADR-0028).
+        // conversation affinity, ADR-0028, or the conversation bus, ADR-0079).
+        // The floor when KEDA scales it (backend-scaling.ts).
         replicas: cfg.jobExecution === "db" ? cfg.backend.replicas : 1,
         selector: { matchLabels: labels },
         // One pod at a time, highest ordinal first, and each replacement must
         // stay Ready for minReadySeconds before the next is touched — the
         // ordering the conversation-affinity routing (ADR-0028) depends on.
-        ...orderedRollout(ROLLOUT.backend),
+        ...orderedRollout(profile),
         // StatefulSet PVCs must survive the StatefulSet: the /app/data volume
         // holds the base OIB corpus + (in dask mode) the only Chroma store, and
         // the provider's StorageClasses all reclaim `Delete`, so a controller
@@ -143,13 +148,19 @@ export function installBackend(
       provider: w.provider,
       dependsOn: [secrets.secret, ...dependsOn],
       // Immutable volumeClaimTemplates — see seaweedfs.ts; grow via PVC patch.
-      ignoreChanges: ["spec.volumeClaimTemplates"],
+      // KEDA owns the replica count once its ScaledObject exists, so a count
+      // this program wrote would be reverted on the next `pulumi up`.
+      ignoreChanges: ["spec.volumeClaimTemplates", ...(autoscaled ? ["spec.replicas"] : [])],
       // Fixed-name StatefulSet: replaces must delete first (see chroma.ts).
       deleteBeforeReplace: true,
       // First boot = multi-GB image pull + Dask/Chroma init + optional corpus
       // sync; the startupProbe alone allows 10 min. Give the await headroom so
       // a healthy-but-slow first deploy doesn't fail on Pulumi's default 10m.
-      customTimeouts: { create: "25m", update: "25m" },
+      // An update also waits out every replica's drain, one pod at a time.
+      customTimeouts: {
+        create: "25m",
+        update: `${Math.ceil(profile.terminationGracePeriodSeconds / 60) * cfg.backend.maxReplicas + 25}m`,
+      },
     },
   );
 

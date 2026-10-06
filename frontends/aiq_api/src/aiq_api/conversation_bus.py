@@ -11,6 +11,12 @@ may sit on another replica, so the bus decouples two roles (ADR-0028):
   ``cancel_turn`` to the owner on the input channel, with who sent them, so the
   owner authorises them itself.
 
+Ownership is per turn (``claim_turn``), and a conversation runs ONE turn at a
+time across replicas: the owner holds ``conv:<id>:running`` for as long as its
+turn runs (:meth:`ConversationBus.acquire_running`, ADR-0079). A newer question
+asks the owner to stop with ``SUPERSEDE`` and starts only once the marker is
+gone, so two turns never write one LangGraph thread from two replicas.
+
 Spectators (ADR-0039) are one more subscriber of the events channel (the BFF's
 ``/live`` route), and ``attach`` reads a turn back from the stream by its own
 ``(turn_id, seq)``.
@@ -70,6 +76,7 @@ _EVENTS = "conv:{id}:events"  # owner publishes, relays and spectators subscribe
 _INPUT = "conv:{id}:input"  # relays publish, owner subscribes
 _STREAM = "conv:{id}:stream"  # Redis stream: replayable copy of every frame, read by `attach`
 _TURN = "conv:{id}:turn:{turn}"  # SET NX: the one replica that runs this turn id
+_RUNNING = "conv:{id}:running"  # SET NX + TTL: the one turn of the conversation running now, and where
 
 # Every frame of a turn lands here, and a socket that `attach`es reads back what
 # it missed by `(turn_id, seq)`. A v2 turn is a few dozen frames, so the cap
@@ -77,12 +84,40 @@ _TURN = "conv:{id}:turn:{turn}"  # SET NX: the one replica that runs this turn i
 _STREAM_MAXLEN = int(os.environ.get("GRID_CONV_STREAM_MAXLEN", "2000") or "2000")
 _STREAM_TTL_SECONDS = int(os.environ.get("GRID_CONV_STREAM_TTL_SECONDS", "3600") or "3600")
 
+# @environment_variable GRID_CHAT_RUNNING_TTL_SECONDS
+# @category Server
+# @type float
+# @default 12
+# @required false
+# How long the conversation's running marker (`conv:<id>:running`) survives
+# without its owner renewing it. The owner renews every quarter of this while
+# the turn runs and deletes the marker when the turn ends. It bounds two
+# things in opposite directions. How long a newer question waits behind a
+# replica that died mid-turn: up to this value, and it must stay under
+# `GRID_CHAT_SUPERSEDE_WAIT_SECONDS`, which must stay under the client's 15 s
+# acknowledgement bound. And, with `GRID_CHAT_AFFINITY` off, how long a Dragonfly
+# blip the owner survives: it stops writing and cancels its turn once a
+# successful renewal is older than this minus a 4 s margin (one guarded write,
+# 3 s, plus 1 s), so a blip shorter than about this value minus 7 s is ridden
+# out and a longer one ends the answer. It must be above 4.
+RUNNING_TTL_SECONDS = float(os.environ.get("GRID_CHAT_RUNNING_TTL_SECONDS", "12") or "12")
+
 #: The bound on one bus command a turn waits on. RedisTransport's own client
 #: timeout is the same second; this one holds for any transport.
 BUS_CALL_TIMEOUT_S = 1.0
 #: How long a failed bus stays marked down, refusing without I/O, before the
 #: next command tries it again.
 BUS_RETRY_AFTER_S = 5.0
+
+
+def running_ttl() -> float:
+    """The marker's TTL now (read per call, so a test or a restart's new value is the one used)."""
+    return RUNNING_TTL_SECONDS
+
+
+def running_renew_interval() -> float:
+    """Renew the running marker four times per TTL, so a missed renewal or two still leaves the owner its window."""
+    return max(running_ttl() / 4, 0.01)
 
 
 class BusUnavailable(ConnectionError):
@@ -110,6 +145,22 @@ class Envelope:
         )
 
 
+@dataclass(frozen=True)
+class RunningMarker:
+    """The value of ``conv:<id>:running``: the replica and the turn that hold the conversation."""
+
+    replica: str
+    turn_id: str
+
+    @staticmethod
+    def decode(raw: str) -> RunningMarker | None:
+        try:
+            d = json.loads(raw)
+            return RunningMarker(replica=str(d["replica"]), turn_id=str(d["turn_id"]))
+        except (ValueError, KeyError, TypeError):
+            return None
+
+
 class BusTransport(Protocol):
     """Minimal transport the bus needs. Two impls: in-memory and Redis."""
 
@@ -120,8 +171,20 @@ class BusTransport(Protocol):
 
     async def xadd(self, stream: str, data: str, maxlen: int, ttl: int) -> None: ...
     async def xrange(self, stream: str) -> list[str]: ...
-    async def set_nx(self, key: str, value: str, ttl: int) -> bool:
+    async def set_nx(self, key: str, value: str, ttl: int | float) -> bool:
         """Set ``key`` unless it exists, expiring after ``ttl`` seconds. Whether this call set it."""
+        ...
+
+    async def get(self, key: str) -> str | None:
+        """The value of ``key``, or None when it is not set (or has expired)."""
+        ...
+
+    async def expire_if_value(self, key: str, value: str, ttl: int | float) -> bool:
+        """Restart ``key``'s expiry, only while it still holds ``value``. Whether it did."""
+        ...
+
+    async def delete_if_value(self, key: str, value: str) -> bool:
+        """Delete ``key``, only while it still holds ``value``. Whether it did."""
         ...
 
     async def close(self) -> None: ...
@@ -141,7 +204,7 @@ class InMemoryTransport:
     def __init__(self) -> None:
         self._subs: dict[str, list[asyncio.Queue[str]]] = {}
         self._streams: OrderedDict[str, list[str]] = OrderedDict()
-        self._keys: dict[str, float] = {}
+        self._keys: dict[str, tuple[str, float]] = {}
 
     async def publish(self, channel: str, data: str) -> None:
         for q in list(self._subs.get(channel, ())):
@@ -171,12 +234,36 @@ class InMemoryTransport:
     async def xrange(self, stream: str) -> list[str]:
         return list(self._streams.get(stream, ()))
 
-    async def set_nx(self, key: str, value: str, ttl: int) -> bool:
+    def _live_keys(self) -> dict[str, tuple[str, float]]:
         now = time.monotonic()
-        self._keys = {k: expires for k, expires in self._keys.items() if expires > now}
-        if key in self._keys:
+        self._keys = {k: held for k, held in self._keys.items() if held[1] > now}
+        return self._keys
+
+    async def set_nx(self, key: str, value: str, ttl: int | float) -> bool:
+        keys = self._live_keys()
+        if key in keys:
             return False
-        self._keys[key] = now + ttl
+        keys[key] = (value, time.monotonic() + ttl)
+        return True
+
+    async def get(self, key: str) -> str | None:
+        held = self._live_keys().get(key)
+        return held[0] if held else None
+
+    async def expire_if_value(self, key: str, value: str, ttl: int | float) -> bool:
+        keys = self._live_keys()
+        held = keys.get(key)
+        if held is None or held[0] != value:
+            return False
+        keys[key] = (value, time.monotonic() + ttl)
+        return True
+
+    async def delete_if_value(self, key: str, value: str) -> bool:
+        keys = self._live_keys()
+        held = keys.get(key)
+        if held is None or held[0] != value:
+            return False
+        del keys[key]
         return True
 
     async def close(self) -> None:
@@ -245,8 +332,40 @@ class RedisTransport:
         entries = await self._redis.xrange(stream)
         return [fields["d"] for _id, fields in entries if "d" in fields]
 
-    async def set_nx(self, key: str, value: str, ttl: int) -> bool:
-        return bool(await self._redis.set(key, value, nx=True, ex=ttl))
+    async def set_nx(self, key: str, value: str, ttl: int | float) -> bool:
+        # PX, not EX: the running marker's TTL is a few seconds, and may be fractional.
+        return bool(await self._redis.set(key, value, nx=True, px=max(1, int(ttl * 1000))))
+
+    async def get(self, key: str) -> str | None:
+        return await self._redis.get(key)
+
+    async def expire_if_value(self, key: str, value: str, ttl: int | float) -> bool:
+        return await self._if_value(key, value, lambda pipe: pipe.pexpire(key, max(1, int(ttl * 1000))))
+
+    async def delete_if_value(self, key: str, value: str) -> bool:
+        return await self._if_value(key, value, lambda pipe: pipe.delete(key))
+
+    async def _if_value(self, key: str, value: str, write: Callable[[Any], Any]) -> bool:
+        """Run ``write`` on a transaction pipeline only while ``key`` still holds ``value``.
+
+        WATCH/MULTI rather than a Lua script: it is one compare-and-write on
+        one key, it needs no scripting engine (fakeredis has none without
+        ``lupa``), and Dragonfly runs it. A write that loses the race to
+        another replica is a ``WatchError``: the key changed, so it is not ours.
+        """
+        from redis.exceptions import WatchError
+
+        async with self._redis.pipeline(transaction=True) as pipe:
+            try:
+                await pipe.watch(key)
+                if await pipe.get(key) != value:
+                    return False
+                pipe.multi()
+                write(pipe)
+                await pipe.execute()
+            except WatchError:
+                return False
+        return True
 
     async def close(self) -> None:
         with contextlib.suppress(Exception):
@@ -323,6 +442,34 @@ class ConversationBus:
         """
         key = _TURN.format(id=conv, turn=turn_id)
         return await self._call("claim_turn", lambda: self._t.set_nx(key, self.replica_id, _STREAM_TTL_SECONDS))
+
+    # ---- one running turn per conversation ------------------------------
+    def _running_value(self, turn_id: str) -> str:
+        return json.dumps({"replica": self.replica_id, "turn_id": turn_id}, sort_keys=True)
+
+    async def acquire_running(self, conv: str, turn_id: str) -> bool:
+        """Mark ``turn_id`` as the conversation's running turn, unless another holds it. Whether it was set."""
+        key = _RUNNING.format(id=conv)
+        return await self._call(
+            "acquire_running", lambda: self._t.set_nx(key, self._running_value(turn_id), RUNNING_TTL_SECONDS)
+        )
+
+    async def running_holder(self, conv: str) -> RunningMarker | None:
+        """Who holds the conversation's running marker now: None when nobody does, or its value is not ours to read."""
+        raw = await self._call("running_holder", lambda: self._t.get(_RUNNING.format(id=conv)))
+        return RunningMarker.decode(raw) if raw else None
+
+    async def renew_running(self, conv: str, turn_id: str) -> bool:
+        """Restart the marker's expiry, while it still names this replica and turn. False once it has been lost."""
+        key = _RUNNING.format(id=conv)
+        return await self._call(
+            "renew_running", lambda: self._t.expire_if_value(key, self._running_value(turn_id), RUNNING_TTL_SECONDS)
+        )
+
+    async def release_running(self, conv: str, turn_id: str) -> bool:
+        """Delete the marker the turn ended under, only while it still names this replica and turn."""
+        key = _RUNNING.format(id=conv)
+        return await self._call("release_running", lambda: self._t.delete_if_value(key, self._running_value(turn_id)))
 
     # ---- relays -> owner (answers / control) ----------------------------
     async def publish_input(self, conv: str, input_type: str, payload: dict[str, Any]) -> None:

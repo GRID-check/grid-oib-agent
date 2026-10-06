@@ -685,6 +685,31 @@ export interface GridConfig {
      * see the base-corpus-upload caveat in docs/deployment/kubernetes.md §6.4.
      */
     replicas: number;
+    /**
+     * Replica ceiling once the chat tier autoscales (ADR-0079): `replicas` is
+     * the floor, KEDA moves the count between the two on the fleet's running
+     * turns. Autoscaling needs `chatAffinity` off; with it on the count is the
+     * hash's modulus and stays `replicas`, whatever this says.
+     */
+    maxReplicas: number;
+    /** Running chat turns, fleet-wide, per replica that KEDA aims for (its metrics-api AverageValue target). */
+    turnsPerReplica: number;
+    /** CPU utilisation (% of requests) at which the KEDA cpu trigger adds replicas. */
+    cpuTargetPercent: number;
+    /**
+     * `GRID_CHAT_DRAIN_SECONDS`: how long a terminating replica waits for its
+     * turns before cancelling them. The pod's grace period is this plus the
+     * endpoint drain and slack (`backendRollout`), so it must cover the longest
+     * chat turn, `GRID_CHAT_TURN_DEADLINE_SECONDS` (2700).
+     */
+    drainSeconds: number;
+    /**
+     * `GRID_CHAT_AFFINITY` (ADR-0079): the BFF pins a conversation to one
+     * replica by hash (on, ADR-0028) or hands the socket to the aiq-agent
+     * Service and lets the conversation bus decide per turn (off). Prod stays
+     * on until the cross-replica path is validated on dev.
+     */
+    chatAffinity: boolean;
   };
 
   frontend: {
@@ -1378,6 +1403,26 @@ export function loadConfig(): GridConfig {
 
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
+
+  // ── Chat tier scale-out (ADR-0079) ────────────────────────────────────────
+  const backendReplicas = Math.max(1, num(cfg, "backendReplicas", 2));
+  const backendMaxReplicas = Math.max(1, num(cfg, "backendMaxReplicas", 3));
+  const chatAffinity = bool(cfg, "chatAffinity", true);
+  if (backendMaxReplicas < backendReplicas) {
+    throw new Error(
+      `grid-oib:backendMaxReplicas (${backendMaxReplicas}) must be >= backendReplicas ` +
+        `(${backendReplicas}), the floor the chat tier scales between.`,
+    );
+  }
+  // Affinity off hands every socket to the Service and leans on the bus to keep
+  // one turn running per conversation. Without the bus nothing does: two
+  // replicas would each run the question they were handed.
+  if (!chatAffinity && !conversationBus) {
+    throw new Error(
+      "grid-oib:chatAffinity=false needs grid-oib:conversationBus=true: without the Dragonfly " +
+        "conversation bus no replica can relay a turn it does not run, or stop a stale one (ADR-0079).",
+    );
+  }
   const imageTag = cfg.get("imageTag") ?? "latest";
 
   // Fail fast: the web PDB allows maxUnavailable 1, so a webMinReplicas of 1
@@ -2388,7 +2433,16 @@ export function loadConfig(): GridConfig {
       // conversation to its owning replica by hash (conversation affinity,
       // ADR-0028), so the in-process WS/HITL/task state is always reachable. The
       // headless service (backend.ts) provides the per-pod DNS this needs.
-      replicas: num(cfg, "backendReplicas", 2),
+      replicas: backendReplicas,
+      maxReplicas: backendMaxReplicas,
+      turnsPerReplica: Math.max(1, num(cfg, "backendTurnsPerReplica", 8)),
+      cpuTargetPercent: num(cfg, "backendCpuTargetPercent", 70),
+      // The longest chat turn (+ its 30 s cancel grace) once the tier scales: scale-in
+      // picks a pod whatever it is running. With affinity on the count is static
+      // and a singleton serves nobody while it drains, so the short drain that
+      // fits the 90 s grace period the tier has always had stays the default.
+      drainSeconds: Math.max(10, num(cfg, "backendDrainSeconds", chatAffinity ? 20 : 2730)),
+      chatAffinity,
     },
 
     frontend: {
@@ -2673,6 +2727,19 @@ export function loadConfig(): GridConfig {
       githubToken: feedbackIssuesEnabled && err2issueGithubToken ? err2issueGithubToken : pulumi.output(""),
     },
   };
+}
+
+/**
+ * Whether the chat tier autoscales (ADR-0079).
+ *
+ * Only with affinity off. With it on, the BFF routes by
+ * `hash(conversationId) % BACKEND_REPLICAS`, so the replica count is part of the
+ * routing: changing it remaps live conversations, and a replica the hash names
+ * that does not exist yet is a dead socket. The count is then whatever
+ * `backendReplicas` says, and the stack's own `replicas` field owns it.
+ */
+export function backendAutoscaled(c: GridConfig): boolean {
+  return c.jobExecution === "db" && !c.backend.chatAffinity && c.backend.maxReplicas > c.backend.replicas;
 }
 
 /** Resolve the concrete backend image reference. */

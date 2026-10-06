@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    When you send a new question while Piloti is still answering the previous
+    one, the earlier answer is now stopped completely before the new one
+    starts, so the two can no longer mix in one conversation. In the rare case
+    that the earlier answer does not stop within a few seconds, Piloti says it
+    is still finishing and asks you to send the question again.

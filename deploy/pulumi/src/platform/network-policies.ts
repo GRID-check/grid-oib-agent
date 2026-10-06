@@ -1,6 +1,6 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig } from "../config";
+import { GridConfig, backendAutoscaled } from "../config";
 import { EDGE_RATE_LIMIT, GOTENBERG, LANGFUSE, PORT } from "../constants";
 import { KEDA_NAMESPACE } from "./keda";
 import { CLUSTER_NAME as POSTGRES_CLUSTER } from "../data/postgres";
@@ -360,11 +360,23 @@ export function installNetworkPolicies(
       })
     : undefined;
 
+  // 15. KEDA reads the fleet's running turns from the backend's internal
+  //     occupancy route to scale the chat tier (ADR-0079). The backend port
+  //     only, on the backend pods only, and only when that tier autoscales.
+  const kedaToBackend = backendAutoscaled(cfg)
+    ? mk("allow-keda-to-aiq-agent", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": "aiq-agent" } },
+        policyTypes: ["Ingress"],
+        ingress: [{ from: [nsLabel(KEDA_NAMESPACE)], ports: [{ protocol: "TCP", port: PORT.backend }] }],
+      })
+    : undefined;
+
   return [
     deny,
     intra,
     cnpg,
     ...(kedaToPostgres ? [kedaToPostgres] : []),
+    ...(kedaToBackend ? [kedaToBackend] : []),
     edgeFrontend,
     edgeS3,
     edgeWeb,

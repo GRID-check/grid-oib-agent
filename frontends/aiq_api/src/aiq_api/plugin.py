@@ -45,10 +45,12 @@ from nat.runtime.session import SessionManager
 
 from .chat_socket import chat_socket_endpoint
 from .chat_socket import configure_websocket_auth
+from .chat_socket import drain_chat_turns
 from .chat_socket import send_stage
 from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
 from .routes.cards import add_card_catalog_routes
+from .routes.chat_occupancy import add_chat_occupancy_routes
 from .routes.collections import add_collection_routes
 from .routes.config_info import add_config_info_routes
 from .routes.consistency_check import add_consistency_check_routes
@@ -287,6 +289,9 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_config_info_routes(knowledge_router, self.config.llms)
         # The card catalog for the platform surface: what the agent can render.
         add_card_catalog_routes(knowledge_router)
+        # The chat tier's scaling signal, read by KEDA (ADR-0079). Internal-token
+        # only, so it stays off the external allowlist like the maintenance routes.
+        add_chat_occupancy_routes(knowledge_router)
         app.include_router(knowledge_router)
         logger.info("Knowledge API routes registered")
 
@@ -362,7 +367,11 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
 
         @app.on_event("shutdown")
         async def shutdown_sse_connections():
-            """Gracefully close all active SSE connections and background tasks on shutdown."""
+            """Let running chat turns finish, then close all active SSE connections and background tasks."""
+            # First: the turns keep publishing to the conversation stream while
+            # the pod's grace period runs, which is what lets a reader on
+            # another replica stream them to the end (ADR-0079).
+            await drain_chat_turns()
             logger.info("Shutting down SSE connections...")
             connection_manager = get_connection_manager()
             await connection_manager.shutdown(timeout=5.0)
