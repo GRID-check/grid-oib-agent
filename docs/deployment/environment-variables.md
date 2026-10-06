@@ -422,6 +422,32 @@ deployment that wants prompt management injects them from that Secret.
 | `LANGFUSE_PROMPT_LABEL` | No | `production` | Which Langfuse label the fleet serves. `production` is what runs; other labels exist for experiments, and pointing a deployment at one is how an experiment is run without touching what everyone else gets. |
 | `LANGFUSE_PROMPT_CACHE_TTL_SECONDS` | No | `60` | How long a fetched version is served before the SDK refreshes it in the background (stale-while-revalidate: the turn is served immediately from cache either way). Also the window for which a FAILED fetch is not retried, which is what keeps a Langfuse outage from costing a network attempt on every turn. A change in Langfuse therefore reaches the fleet within this many seconds, not instantly. |
 
+## Trace deletion (Langfuse, purger and scheduler, ADR-0044)
+
+Langfuse keeps every prompt and answer a turn produced, and its automatic
+retention is Enterprise-only, so two of Piloti's own workers delete traces
+through Langfuse's public API (`frontends/ui/workers/langfuse-traces.js`): the
+**purger** deletes the traces of a conversation it erases (a chat's own erasure,
+and every chat of a purged project), and the **scheduler** deletes traces older
+than the retention window once a day. Both read the SAME three variables as
+the prompt-management section above, with one difference: there is **no default
+host**. All three must be set or the step is a logged no-op, because a deletion
+sent to Langfuse Cloud, the SDK's default, would be the wrong place.
+`deploy/pulumi` injects them on both Deployments from the Langfuse Secret
+whenever the Langfuse tier is deployed; Compose does not (nothing sends traces
+there, see ADR-0044), so they stay unset and both steps no-op.
+
+The Langfuse behind them must run a v4 write mode (`dual` or `events_only`):
+the traces are found through `GET /api/public/v2/observations`, which answers
+404 otherwise.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LANGFUSE_HOST` | No | unset (step off) | Base URL of the Langfuse web tier, for the purger and scheduler services (Pulumi: `http://langfuse-web:3000`). |
+| `LANGFUSE_PUBLIC_KEY` | No | unset (step off) | Langfuse project public key (HTTP Basic user). Purger and scheduler services. |
+| `LANGFUSE_SECRET_KEY` | No | unset (step off) | Langfuse project secret key (HTTP Basic password). Purger and scheduler services. |
+| `GRID_LANGFUSE_TRACE_RETENTION_DAYS` | No | `30` | How long a trace lives before the scheduler's daily sweep asks Langfuse to delete it. Never below `3`, Langfuse's own minimum: a smaller number, zero, or text is corrected (to 3, or to the default) and the boot line says so. Each run sends at most 50 delete batches of 1,000 traces and stops after two minutes, so a backlog drains over days. Scheduler service. |
+
 ## Data-tier authentication (Kubernetes/Pulumi-injected)
 
 Set by the Pulumi stack on infrastructure containers, not on any first-party
