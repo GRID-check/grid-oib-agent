@@ -74,7 +74,7 @@ Chosen option 3, `aiq_agent.common.provider_limiter`.
 * The invariant that every model and embedding call passes the limiter: a
   call-site test beside `tests/aiq_agent/common/test_openrouter_call_sites.py`
   that fails when a chat model or an embedding client is built outside the
-  limited seam. Until it lands, nothing enforces this yet; review is the only
+  limited seam. Until it lands: Nothing enforces this yet; review is the only
   gate.
 
 ## More Information

@@ -72,10 +72,17 @@ Chosen option 3.
   conversation-level running marker (`conv:<id>:running`, its replica and turn
   id, with a TTL it renews while the turn runs and deletes when the turn ends).
   A new turn first publishes `SUPERSEDE`, then waits, bounded, for the marker to
-  clear or to name itself, and only then claims and runs. If the marker does not
-  clear in time the question is refused as "still finishing the previous
-  answer", never run concurrently. A marker whose owner died expires with its
-  TTL. With the bus down the fence fails open only while affinity is on.
+  clear. It takes the marker atomically (`SET NX`) before it enters LangGraph;
+  of two turns racing from an empty marker exactly one wins, and the other
+  waits or is refused. If the marker does not clear in time the question is
+  refused as "still finishing the previous answer", never run concurrently. A
+  marker whose owner died expires with its TTL.
+* **The owner fences itself.** A marker can be lost while its owner still runs
+  (a renewal that finds it gone, or Dragonfly unreachable from that replica for
+  longer than the TTL). The owner then cancels its own turn, through the same
+  path a cancel takes, so it ends with a terminal and writes nothing after a
+  new turn could have started. With affinity on the fence fails open, as the
+  bus does, because affinity already keeps both turns in one process.
 * **Scaling signal.** The fleet-wide active-turn count Dragonfly already holds
   for admission, served by an internal backend endpoint any replica can answer,
   read by KEDA's `metrics-api` scaler, beside a CPU trigger. Scale-in is slow
@@ -106,9 +113,11 @@ Chosen option 3.
 * Protocol: the bus's existing two-replica tests (`test_conversation_bus.py`,
   `test_websocket_bus_wiring.py`, `test_conversation_bus_redis.py`), extended
   with a relay that stays idle across turns, an owner that drains mid-turn,
-  and a second question on another replica while a turn runs: the new turn
-  starts only after the old one stopped, or is refused.
-* Multi-replica behaviour against real Dragonfly: nothing enforces this yet;
+  a second question on another replica while a turn runs (the new turn starts
+  only after the old one stopped, or is refused), two turns racing from an
+  empty marker (one enters LangGraph), and an owner that keeps running past its
+  marker's expiry (it is cancelled and never writes after the new turn starts).
+* Multi-replica behaviour against real Dragonfly: Nothing enforces this yet;
   review is the only gate. The dev-cluster validation above is the step that
   closes it, before prod's flag changes.
 
