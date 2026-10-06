@@ -129,7 +129,8 @@ config:
   grid-oib:backendDataStorageSize: 10Gi
   # ── Research execution ──
   grid-oib:jobExecution: db
-  grid-oib:agentWorkerMinReplicas: "1"
+  # KEDA scales the tier on research_job_queue (ADR-0078): zero while no job waits.
+  grid-oib:agentWorkerMinReplicas: "0"
   grid-oib:agentWorkerMaxReplicas: "3"
   grid-oib:agentWorkerConcurrency: "1"
   # Drain budget for in-flight research jobs on shutdown (see Pulumi.prod.yaml).

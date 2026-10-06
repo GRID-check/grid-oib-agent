@@ -60,7 +60,7 @@ There is also a fourth, less structural but more immediate finding:
 |---|---|---|---|---|---|
 | 1 | `frontends/ui/server.js` (WS upgrade) | per client IP | fixed window, atomic `INCR` | Dragonfly | fail open |
 | 2 | `frontends/ui/src/lib/sharing/rate-limit.ts` | per subject/action | fixed window, **non-atomic** read-modify-write | Dragonfly via cache | fail open |
-| 3 | `frontends/aiq_api/.../jobs/submit.py` | global + per org | **concurrency** (`MAX_ACTIVE_JOBS` 8 / `…_PER_ORG` 3) | Postgres count | fail open |
+| 3 | `frontends/aiq_api/.../jobs/submit.py`, `jobs/queue.py` | per org | db execution: a **claim cap** (`…_PER_ORG` 3) plus a **queued-length bound** (`MAX_QUEUED_JOBS_PER_ORG` 50), the only 429; Dask: **concurrency** (`MAX_ACTIVE_JOBS` 8 / `…_PER_ORG` 3) | Postgres | fail open |
 | 4 | `common/cost_tracking.py` + ADR-0015 | org / member / project | EUR budget, daily+monthly | Postgres ledger + rollups | read fails open, refusal fails closed |
 | 5 | `GRID_MAX_RUN_COMPLETION_TOKENS`, `GRID_MAX_QUERY_SUBMISSIONS` | per run | hard ceilings | in-process | n/a |
 
@@ -585,6 +585,36 @@ that chat, research, ingestion and embeddings all draw from
 Not built, on purpose: a tokens-per-minute bucket (output tokens are unknown
 until the call ends, and the upstream limit moves by model) and an egress AI
 gateway (the back-pocket option of section 5).
+
+### L3d — research fair share (ADR-0078)
+
+With `GRID_JOB_EXECUTION=db` research is not refused for capacity either: it
+waits, so its L3 is the same order and ceiling ingestion has.
+
+- **Capacity waits, it never fails.** `GRID_MAX_ACTIVE_JOBS` stops being a 429
+  (it still caps Dask, which has no queue). A submit is a row in
+  `research_job_queue` and the job is `SUBMITTED` until a worker claims it; the
+  UI reads that as `queued`.
+- **Fair share.** The claim is the same `aiq_agent.common.claim_queue`: a free
+  worker takes the next job of the organisation with the fewest research jobs
+  running fleet-wide, then the one served longest ago. One office's sweep of
+  twenty scheduled runs does not make another office's question wait for all of
+  them.
+- **The per-organisation cap is a claim cap.** `GRID_MAX_ACTIVE_JOBS_PER_ORG` is
+  how many of an organisation's jobs run at once; the rest wait their turn.
+- **Priority inside an office.** A scheduled fire is `bulk`; an escalated
+  question and a person pressing "run now" are `interactive`. The scheduler no
+  longer records "skipped" for a full queue: a queued job is a queued run.
+- **One 429 is left, as abuse protection.** `GRID_MAX_QUEUED_JOBS_PER_ORG` bounds
+  how many jobs one organisation may have waiting. Past it a submit is refused
+  (a scheduled occurrence is then recorded `skipped`).
+- **A claim is given back, not lost.** A drain that runs out of time requeues
+  what it holds without spending an attempt; a job that crashed every worker is
+  kept as a `dead` row and is not counted as work.
+- **Elastic.** The `agent-worker` tier scales through KEDA on the queue's depth,
+  not on CPU, which a job that waits on a model never moves
+  (`deploy/pulumi/src/app/agent-worker.ts`). Measured as
+  `grid.queue.*{queue="research"}`.
 
 ### L4 — cost
 

@@ -666,10 +666,24 @@ export interface GridConfig {
     resources: ResourceSpec;
     daskWorkers: number;
     daskThreads: number;
-    /** Global cap on non-terminal async research jobs (0 disables). */
+    /**
+     * Global cap on non-terminal async research jobs (0 disables). Dask only:
+     * with `jobExecution: db` a full cluster makes a job wait in the queue
+     * (ADR-0078), so nothing reads it.
+     */
     maxActiveJobs: number;
-    /** Per-org cap on non-terminal async research jobs (0 disables). */
+    /**
+     * Research jobs one organization runs at once (0 disables). With
+     * `jobExecution: db` it is the workers' per-organization claim cap and a job
+     * over it waits; with Dask it refuses the submit.
+     */
     maxActiveJobsPerOrg: number;
+    /**
+     * Research jobs one organization may have WAITING (`jobExecution: db`; 0
+     * disables). Abuse protection and the only 429 left: capacity makes a job
+     * wait, never fail.
+     */
+    maxQueuedJobsPerOrg: number;
     /** Max concurrent document-ingestion workers in the backend process. */
     ingestMaxWorkers: number;
     /** Backend web config file (baked into the image under /app/configs). */
@@ -748,24 +762,26 @@ export interface GridConfig {
     resources: ResourceSpec;
     minReplicas: number;
     maxReplicas: number;
-    hpaCpuTargetPercent: number;
-    /** Concurrent research jobs per worker process (GRID_RESEARCH_WORKERS). */
+    /** Concurrent research jobs per worker process (GRID_RESEARCH_WORKERS); also KEDA's jobs-per-replica target. */
     concurrency: number;
     /**
      * Seconds a terminating worker may spend finishing the research jobs it has
-     * already claimed, before the kubelet SIGKILLs it
-     * (`terminationGracePeriodSeconds`).
+     * already claimed (`GRID_RESEARCH_WORKER_DRAIN_SECONDS`). The pod's
+     * `terminationGracePeriodSeconds` is this plus 30 s, so the worker has time
+     * to give back what it did not finish before the kubelet SIGKILLs it.
      *
      * This is the single most consequential rollout knob in the stack. On
      * SIGTERM the worker stops claiming and awaits its in-flight jobs
      * (`aiq_api/jobs/worker.py`); Kubernetes' 30s default kills that drain
-     * part-way, so *every* deploy and *every* node drain destroyed research a
-     * user was waiting on. Set it at or above the p99 job duration.
+     * part-way. A job still running when the budget ends is given back to the
+     * queue without costing an attempt and another worker starts it over, so the
+     * budget now decides how much work is repeated, not whether any is lost. Set
+     * it at or above the p99 job duration to repeat none.
      *
      * The cost is deploy latency: workers roll one at a time and a draining one
      * can hold its slot for this long, so `pulumi up` may take
-     * (drain × replicas) in the worst case. Lower it only if you would rather
-     * lose in-flight research than wait.
+     * (drain x replicas) in the worst case. Lower it only if you would rather
+     * repeat in-flight research than wait.
      */
     drainSeconds: number;
   };
@@ -2425,6 +2441,7 @@ export function loadConfig(): GridConfig {
       daskThreads: num(cfg, "backendDaskThreads", 4),
       maxActiveJobs: num(cfg, "backendMaxActiveJobs", 8),
       maxActiveJobsPerOrg: num(cfg, "backendMaxActiveJobsPerOrg", 3),
+      maxQueuedJobsPerOrg: num(cfg, "backendMaxQueuedJobsPerOrg", 50),
       ingestMaxWorkers: num(cfg, "backendIngestMaxWorkers", 2),
       configFile: cfg.get("backendConfigFile") ?? "/app/configs/config_oib_openrouter.yml",
       chromaDir: cfg.get("backendChromaDir") ?? "/app/data/chroma_data",
@@ -2504,10 +2521,12 @@ export function loadConfig(): GridConfig {
         limitsCpu: cfg.get("agentWorkerLimitsCpu") ?? "4",
         limitsMemory: cfg.get("agentWorkerLimitsMemory") ?? "8Gi",
       },
-      minReplicas: num(cfg, "agentWorkerMinReplicas", 2),
-      maxReplicas: num(cfg, "agentWorkerMaxReplicas", 8),
-      hpaCpuTargetPercent: num(cfg, "agentWorkerHpaCpuTargetPercent", 70),
-      concurrency: num(cfg, "agentWorkerConcurrency", 1),
+      // KEDA scales the tier on the research queue's depth (ADR-0078), not on
+      // CPU, which an LLM-bound job barely moves. A floor of zero lets it idle
+      // while nothing waits.
+      minReplicas: Math.max(0, num(cfg, "agentWorkerMinReplicas", 1)),
+      maxReplicas: Math.max(1, num(cfg, "agentWorkerMaxReplicas", 8)),
+      concurrency: Math.max(1, num(cfg, "agentWorkerConcurrency", 1)),
       // 10 minutes: long enough for a typical deep-research run to land, short
       // enough that a rolling deploy of the tier stays inside the CD timeout.
       // Clamped to a sane floor — a value below the default 30s would be a

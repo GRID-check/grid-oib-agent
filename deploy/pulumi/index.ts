@@ -41,6 +41,7 @@ import { installGotenberg } from "./src/app/gotenberg";
 import { installWorkers } from "./src/app/workers";
 import { installAgentWorker } from "./src/app/agent-worker";
 import { installIngestWorker } from "./src/app/ingest-worker";
+import { installJobsQueueAuth } from "./src/app/jobs-queue-auth";
 import { installBffJobs } from "./src/app/bff-jobs";
 import { installKeda } from "./src/platform/keda";
 import { installHttpRoutes } from "./src/app/httproutes";
@@ -225,7 +226,23 @@ const web = installWeb(cfg, provider, namespace, wiring.imagePullSecrets, [
   ...(pullSecret ? [pullSecret] : []),
 ]);
 
-// Research worker tier — only when execution is DB-claimed (ADR-0021).
+// KEDA, installed once when any tier it scales runs: the research and ingest
+// workers and the BFF job pool (queue depth, ADR-0078/0076) and the chat tier
+// (running turns, ADR-0079).
+const keda =
+  (cfg.jobExecution === "db" || cfg.ingestWorker.enabled || cfg.bffJobs.enabled || backendAutoscaled(cfg)) &&
+  cfg.keda.install
+    ? installKeda(provider)
+    : undefined;
+
+// How KEDA reads the two Python claim queues, which share one database. Created
+// once, because the research tier runs whether or not the ingest tier does.
+const jobsQueueAuth = cfg.jobExecution === "db" ? installJobsQueueAuth(wiring, keda ? [keda] : []) : undefined;
+const queueScalerDeps = [...(keda ? [keda] : []), ...(jobsQueueAuth ? [jobsQueueAuth] : [])];
+
+// Research worker tier — only when execution is DB-claimed (ADR-0021). Claims
+// the research queue fairly across organizations (ADR-0078), scaled by KEDA on
+// the queue's depth.
 const agentWorker =
   cfg.jobExecution === "db"
     ? installAgentWorker(wiring, cfg, secrets, [
@@ -233,15 +250,8 @@ const agentWorker =
         dragonfly.service,
         seaweed.bucketInitJob,
         ...(chroma ? [chroma.service] : []),
+        ...queueScalerDeps,
       ])
-    : undefined;
-
-// KEDA, installed once when any tier it scales runs: the ingest worker and the
-// BFF job pool (queue depth, ADR-0076/0078) and the chat tier (running turns,
-// ADR-0079).
-const keda =
-  (cfg.ingestWorker.enabled || cfg.bffJobs.enabled || backendAutoscaled(cfg)) && cfg.keda.install
-    ? installKeda(provider)
     : undefined;
 
 // Ingestion tier (ADR-0076) — claims the durable ingest queue fairly across
@@ -252,7 +262,7 @@ const ingestWorker = cfg.ingestWorker.enabled
       dragonfly.service,
       seaweed.bucketInitJob,
       ...(chroma ? [chroma.service] : []),
-      ...(keda ? [keda] : []),
+      ...queueScalerDeps,
     ])
   : undefined;
 

@@ -264,6 +264,7 @@ config:
 
   # jobs, scaling the token-heavy workload horizontally. Requires chromaEnabled.
   grid-oib:jobExecution: db
+  # KEDA scales the tier on research_job_queue (ADR-0078); one worker stays warm.
   grid-oib:agentWorkerMinReplicas: "1"
   grid-oib:agentWorkerMaxReplicas: "3"
   grid-oib:agentWorkerConcurrency: "1"

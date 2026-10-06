@@ -21,16 +21,26 @@ validates the JWT and reads the context headers; it does not look up who you
 are. The BFF decided that (ADR-0003, ADR-0007). Anything that needs to *decide*
 access belongs in the BFF, not here.
 
-**Job workers are claimed in the database, not assigned.** `jobs/queue.py` and
-`jobs/worker.py` implement the claim for research; the reaper and the checkpoint
+**Job workers are claimed in the database, not assigned.** Both queues are
+tables on one claim, `aiq_agent.common.claim_queue` (ADR-0078): fewest running in
+the lane (the organization) fleet-wide first, then the lane served longest ago,
+then `interactive` before `bulk`, then oldest; a heartbeat, a reclaim of stale
+claims, `release_claims` on a drain (no attempt spent), and `dead` rows kept as a
+trace instead of a `DELETE`. A change to the order, the heartbeat or the dead
+rows is made there, once. `jobs/queue.py` and `jobs/worker.py` are research's
+table, encrypted payload and poison verdict on it; the reaper and the checkpoint
 retention sweep assume it. Ingestion claims from its own table,
-`aiq_agent.knowledge.ingest_queue`, in fewest-running-first order across
-organisations rather than FIFO; `jobs/ingest_dispatch.py` puts jobs there and
-`jobs/ingest_worker.py` is its dedicated tier (ADR-0076). The claim algorithm
-itself is `aiq_agent.common.claim_queue` (ADR-0078): a queue is a table on it,
-and a change to the order, the heartbeat or the dead rows is made there, once.
-New work of either kind joins by claiming through its queue, never by an
-in-process pool alone.
+`aiq_agent.knowledge.ingest_queue`; `jobs/ingest_dispatch.py` puts jobs there and
+`jobs/ingest_worker.py` is its dedicated tier (ADR-0076). New work of either kind
+joins by claiming through its queue, never by an in-process pool alone.
+
+**Research waits, it is not refused.** With `GRID_JOB_EXECUTION=db` capacity
+never makes `jobs/submit.py` raise: `GRID_MAX_ACTIVE_JOBS` is a Dask-only cap,
+`GRID_MAX_ACTIVE_JOBS_PER_ORG` is the claim's per-lane cap (read by the worker),
+and the one 429 left is `GRID_MAX_QUEUED_JOBS_PER_ORG`, abuse protection on how
+many jobs one organization may have waiting. A scheduled fire is `bulk`. Do not
+turn a full cluster back into a refusal: a scheduled task that meets one is
+skipped, not retried.
 
 ## Reference
 

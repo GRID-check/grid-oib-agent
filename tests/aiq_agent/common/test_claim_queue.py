@@ -110,3 +110,40 @@ def test_priority_names_rank_interactive_before_bulk(name, rank):
 def test_an_unknown_priority_is_a_value_error():
     with pytest.raises(ValueError, match="unknown priority 'now'"):
         claim_queue.priority_rank("now")
+
+
+def test_queued_in_lane_counts_only_what_still_waits(url):
+    queue = _queue(url)
+    queue.enqueue("a0", "org-a", "p")
+    queue.enqueue("a1", "org-a", "p")
+    queue.enqueue("b0", "org-b", "p")
+    queue.claim_next("w1", **CLAIM)
+
+    waiting = {lane: queue.queued_in_lane(lane) for lane in ("org-a", "org-b", "org-c")}
+
+    assert sum(waiting.values()) == 2
+    assert waiting["org-c"] == 0
+
+
+def test_a_table_from_before_lanes_gains_one_and_its_rows_wait_in_a_lane_of_their_own(url):
+    postgres = url.startswith("postgres")
+    ts, now = ("TIMESTAMP WITH TIME ZONE", "NOW()") if postgres else ("DATETIME", "CURRENT_TIMESTAMP")
+    queue = _queue(url)
+    with queue._engine_for(url).begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE research_claims (job_id VARCHAR PRIMARY KEY, payload TEXT NOT NULL, "
+                f"status VARCHAR NOT NULL DEFAULT 'queued', claimed_by VARCHAR, claimed_at {ts}, "
+                f"heartbeat_at {ts}, attempts INTEGER NOT NULL DEFAULT 0, created_at {ts} DEFAULT {now})"
+            )
+        )
+        conn.execute(text("INSERT INTO research_claims (job_id, payload) VALUES ('old', 'p')"))
+
+    queue.ensure_table(url)
+
+    claim = queue.claim_next("w1", **CLAIM)
+    assert (claim.job_id, claim.lane, claim.priority) == ("old", claim_queue.NO_LANE, claim_queue.PRIORITY_INTERACTIVE)
+    # A replica on the code that wrote the old table inserts no lane and still enqueues.
+    with queue._engine_for(url).begin() as conn:
+        conn.execute(text("INSERT INTO research_claims (job_id, payload) VALUES ('older-code', 'p')"))
+    assert queue.counts()["queued"] == 1

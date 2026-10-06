@@ -358,6 +358,31 @@ export async function updateRun(
   return row ?? null
 }
 
+/**
+ * Move a run from `queued` to `running` once a worker has started it, and stamp
+ * when. Conditional on `queued`: a run that already moved (a second flush) or
+ * ended is left alone, so the first flush wins and a late one cannot reopen it.
+ */
+export async function markRunStarted(
+  runId: string,
+  organizationId: string,
+  startedAt: Date,
+): Promise<boolean> {
+  const db = getDb()
+  const rows = await db
+    .update(taskRuns)
+    .set({ status: 'running', startedAt, updatedAt: new Date() })
+    .where(
+      and(
+        eq(taskRuns.id, runId),
+        eq(taskRuns.organizationId, organizationId),
+        eq(taskRuns.status, 'queued'),
+      ),
+    )
+    .returning({ id: taskRuns.id })
+  return rows.length > 0
+}
+
 /** The statuses a run is still in the worker's hands in; see `isActiveTaskRunStatus`. */
 const ACTIVE_RUN_STATUSES = ['queued', 'running'] as const satisfies readonly TaskRunStatus[]
 

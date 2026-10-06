@@ -44,11 +44,13 @@ describe("the ingest-worker tier", () => {
   it("gives KEDA a DSN it can resolve from its own namespace", () => {
     // The operator runs in `keda`; a bare `grid-pg-rw` resolves there to
     // nothing, the scaler errors on every poll, and the tier never scales out.
-    const key = read("deploy", "pulumi", "src", "app", "ingest-worker.ts").match(
-      /parameter: "connection", name: SECRET_NAME, key: "([A-Z_]+)"/,
+    // The TriggerAuthentication is shared with the research tier (one database).
+    const key = read("deploy", "pulumi", "src", "app", "jobs-queue-auth.ts").match(
+      /JOBS_QUEUE_DSN_KEY = "([A-Z_]+)"/,
     )?.[1];
     expect(key).toBeDefined();
     expect(configSource).toMatch(new RegExp(`${key}: w\\.dsn\\(\\{[^}]*clusterWide: true`));
+    expect(read("deploy", "pulumi", "src", "app", "ingest-worker.ts")).toContain("JOBS_QUEUE_AUTH");
   });
 
   it("runs the role the entrypoint knows", () => {

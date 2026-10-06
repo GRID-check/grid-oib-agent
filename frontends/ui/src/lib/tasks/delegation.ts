@@ -55,6 +55,7 @@ import { minIntervalMinutesFromEnv, nextOccurrence, validateCron } from '@/lib/j
 import { emptySkillSnapshot } from '@/lib/jobs/types'
 import { isEmptyPlanDocuments, type PlanDocuments } from '@/lib/runs/plan-documents'
 import * as repository from './repository'
+import { submittedRunStatus } from './task-vocabulary'
 import { TASK_GOAL_MAX_CHARS } from './wire'
 
 // Re-exported so a caller reaching for the bound has one place to look, while
@@ -622,7 +623,15 @@ async function submitQueuedRun(run: TaskRun, target: DispatchTarget): Promise<Ta
   // threw as well. The worker's run ledger addresses the run by its id, so the
   // row catches up when the database is back.
   const { backendJobId, conversationId, runMessageId } = submitted
-  return recordRun(run, { status: 'running', backendJobId, conversationId, runMessageId, startedAt: new Date() })
+  const status = submittedRunStatus(submitted)
+  return recordRun(run, {
+    status,
+    backendJobId,
+    conversationId,
+    runMessageId,
+    // A queued run has not started: the worker's first flush stamps it (`applyRunLedgerOp`).
+    startedAt: status === 'running' ? new Date() : null,
+  })
 }
 
 /**
