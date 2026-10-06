@@ -252,7 +252,7 @@ export async function lockedConversationIds(
   )
   const locked = new Set<string>()
   if (recorded.size === 0) return locked
-  const clearance = clearanceOf(session)
+  const clearance = await clearanceOf(session)
   const trees = new Map<string | null, FolderTree>()
   for (const conversation of conversations) {
     const folders = recorded.get(conversation.id)

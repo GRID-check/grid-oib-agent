@@ -236,12 +236,12 @@ const conversationDescriptor: ShareableDescriptor = {
   widenAudience: (session, resourceId, widening, write) =>
     widenConversationAudience(session, resourceId, widening, write),
   // The same record, asked per person at read time: who may still read it.
-  readersAmong: (organizationId, resourceId, userIds, asker) =>
+  readersAmong: async (organizationId, resourceId, userIds, asker) =>
     peopleWhoMayRead(
       organizationId,
       resourceId,
       userIds,
-      asker ? new Map([[asker.userId, clearanceOf(asker)]]) : undefined,
+      asker ? new Map([[asker.userId, await clearanceOf(asker)]]) : undefined,
     ),
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
