@@ -132,6 +132,12 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     // The same database for KEDA's postgresql scaler, which runs in the `keda`
     // namespace and cannot resolve the bare service name. Read by no pod.
     KEDA_INGEST_QUEUE_DB_URL: w.dsn({ db: "aiq_jobs", clusterWide: true }),
+    // The app database, for the postgresql scaler of the bff-jobs pool. The
+    // schema owner, deliberately: `bff_job_queue` is row-level secured per
+    // organization, and the scaler runs one COUNT(*) over every lane, which only
+    // a role that RLS does not apply to can see. A read-only scaler role is the
+    // phase-3 hardening of every ScaledObject (ADR-0078).
+    ...(cfg.bffJobs.enabled ? { KEDA_BFF_QUEUE_DB_URL: w.dsn({ db: "grid_app", clusterWide: true }) } : {}),
     AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
     // The app tier connects as the least-privilege role, so row-level security
     // applies to it (ADR-0041). Migrations get the owner credential below —
@@ -457,6 +463,36 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
           { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318" },
         ]
       : []),
+  ];
+}
+
+/**
+ * Names the bff-jobs pod sets differently from the frontend it is built from.
+ * The BFF in that pod is not the gateway: it logs as its own service, and the
+ * runner stops it only after the jobs in hand are given back, so it needs no
+ * long WebSocket drain of its own.
+ */
+const BFF_JOBS_OVERRIDES = new Set(["OTEL_SERVICE_NAME", "GRID_SHUTDOWN_DRAIN_MS"]);
+
+/**
+ * bff-jobs pool environment (ADR-0078): the whole frontend environment, because
+ * the jobs call the same services the routes do (the database, object storage,
+ * the backend, WorkOS), plus what the runner reads. Every `GRID_BFF_JOBS_` name
+ * here must be one `frontends/ui/workers/jobs/index.js` reads; `bff-jobs.spec.ts`
+ * holds the two together.
+ */
+export function bffJobsEnv(w: AppWiring): EnvVar[] {
+  const { cfg } = w;
+  return [
+    ...frontendEnv(w).filter((env) => typeof env.name !== "string" || !BFF_JOBS_OVERRIDES.has(env.name)),
+    { name: "GRID_BFF_JOBS_CONCURRENCY", value: String(cfg.bffJobs.concurrency) },
+    { name: "GRID_BFF_JOBS_DRAIN_SECONDS", value: String(cfg.bffJobs.drainSeconds) },
+    { name: "GRID_BFF_JOBS_MAX_PER_ORG", value: String(cfg.bffJobs.maxPerOrg) },
+    // The BFF is stopped AFTER the runner has drained, so it only has to close
+    // its own idle connections.
+    { name: "GRID_SHUTDOWN_DRAIN_MS", value: "5000" },
+    // The collector endpoint came with the frontend's; only the name differs.
+    ...(cfg.observability.enabled ? [{ name: "OTEL_SERVICE_NAME", value: "grid-bff-jobs" }] : []),
   ];
 }
 
