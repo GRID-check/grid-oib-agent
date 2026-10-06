@@ -1217,6 +1217,199 @@ async def test_a_newer_question_on_another_replica_stops_the_stale_turn(harness)
     assert gate.torn_down
 
 
+# ---------------------------------------------------------------------------
+# One running turn per conversation across replicas (ADR-0079)
+# ---------------------------------------------------------------------------
+
+
+async def _holder(bus: ConversationBus):
+    return await bus.running_holder(CONV)
+
+
+def _marker_held(bus: ConversationBus) -> bool:
+    return bus._t._live_keys().get(f"conv:{CONV}:running") is not None
+
+
+async def test_a_second_question_on_another_replica_starts_only_after_the_first_turn_stopped(harness):
+    owner, relay, relay_bus = _replicas()
+    gate = Gate()
+    started_after_stop: list[bool] = []
+
+    async def second(request, ask):
+        started_after_stop.append(gate.torn_down)  # the stale turn's graph run is gone by now
+        async for body in answering(request, ask):
+            yield body
+
+    first = harness(gate.turn, owner).connect()
+    first.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: gate.calls)
+    await asyncio.sleep(0.02)  # the owner's input subscription lands
+    assert (await _holder(relay_bus)).turn_id == "t1"
+
+    elsewhere = harness(second, relay).connect()
+    elsewhere.client(type="user_message", message_id="t2", text="!")
+    await until(lambda: _last(elsewhere, "t2") == "RUN_FINISHED")
+
+    assert started_after_stop == [True]
+    assert first.events("t1")[-1]["outcome"] == "cancelled"
+    await until(lambda: not _marker_held(relay_bus))  # the second turn gave the marker back too
+
+
+async def test_a_question_is_refused_when_the_running_turn_does_not_stop_in_time(harness, monkeypatch):
+    """Never run beside a turn that may still write the thread: the question ends refused, runs nothing."""
+    monkeypatch.setattr(chat_socket, "SUPERSEDE_WAIT_SECONDS", 0.3)
+    owner, relay, relay_bus = _replicas()
+    ghost = ConversationBus(relay_bus._t, replica_id="ghost")  # a replica that holds the marker and answers nobody
+    await ghost.acquire_running(CONV, "t0")
+
+    h = harness(answering, relay)
+    sock = h.connect()
+    sock.client(type="user_message", message_id="t2", text="!")
+    await until(lambda: _last(sock, "t2") == "RUN_FINISHED")
+
+    finished = sock.events("t2")[-1]
+    assert _types(sock.events("t2")) == ["RUN_STARTED", "RUN_FINISHED"]
+    assert finished["outcome"] == "refused"
+    assert "still finishing the previous answer" in finished["result"]["text"]
+    assert finished["result"]["retry_after_seconds"] > 0
+    assert h.sessions.opened == []
+    assert (await _holder(relay_bus)).replica == "ghost"  # not ours to take or delete
+
+
+async def test_a_dead_owner_s_marker_expires_and_the_question_runs(harness, monkeypatch):
+    from aiq_api import conversation_bus
+
+    monkeypatch.setattr(conversation_bus, "RUNNING_TTL_SECONDS", 0.2)
+    owner, relay, relay_bus = _replicas()
+    await ConversationBus(relay_bus._t, replica_id="dead").acquire_running(CONV, "t0")
+
+    sock = harness(answering, relay).connect()
+    sock.client(type="user_message", message_id="t2", text="!")
+    await until(lambda: _last(sock, "t2") == "RUN_FINISHED")
+
+    assert sock.events("t2")[-1]["outcome"] == "answered"
+
+
+async def test_a_running_turn_keeps_its_marker_past_the_ttl_and_gives_it_back_at_the_end(harness, monkeypatch):
+    from aiq_api import conversation_bus
+
+    monkeypatch.setattr(conversation_bus, "RUNNING_TTL_SECONDS", 0.15)
+    owner, relay, relay_bus = _replicas()
+    gate = Gate()
+    sock = harness(gate.turn, owner).connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: gate.calls)
+
+    await asyncio.sleep(0.5)  # three TTLs: only the renewals hold it
+    assert (await _holder(relay_bus)).turn_id == "t1"
+
+    gate.release.set()
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+    await until(lambda: not _marker_held(relay_bus))
+
+
+async def test_a_relay_idle_across_turns_neither_holds_the_marker_nor_blocks_the_next_turn(harness):
+    owner, relay, relay_bus = _replicas()
+    on_owner = harness(answering, owner)
+    on_relay = harness(answering, relay)
+    asker = on_owner.connect()
+    idle = on_relay.connect()
+    idle.client(type="attach", turn_id="t0", after_seq=0)  # a socket that only follows
+    await until(lambda: idle.rejected())
+
+    asker.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: _last(idle) == "RUN_FINISHED")
+    await until(lambda: not _marker_held(relay_bus))
+
+    idle.client(type="user_message", message_id="t2", text="again")  # the next question lands on the idle replica
+    await until(lambda: _last(idle, "t2") == "RUN_FINISHED")
+
+    assert len(on_relay.sessions.opened) == 1
+    assert len(on_owner.sessions.opened) == 1
+    await until(lambda: _last(asker, "t2") == "RUN_FINISHED")  # the first replica relays what the second runs
+    await until(lambda: not _marker_held(relay_bus))
+
+
+async def test_a_draining_owner_finishes_its_turn_while_another_replica_streams_it(harness):
+    owner, relay, relay_bus = _replicas()
+    gate = Gate()
+    asker = harness(gate.turn, owner).connect()
+    asker.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: gate.calls)
+
+    draining = asyncio.create_task(owner.drain(timeout=5))
+    reader = harness(answering, relay).connect()  # the socket uvicorn closed reconnects elsewhere
+    reader.client(type="attach", turn_id="t1", after_seq=0)
+    await until(lambda: reader.events())
+    assert not draining.done()  # it waits for the turn, it does not cut it
+
+    gate.release.set()
+    await until(lambda: _last(reader) == "RUN_FINISHED")
+
+    assert await draining == 0
+    assert reader.events()[-1]["outcome"] == "answered"
+    await until(lambda: not _marker_held(relay_bus))
+
+
+async def test_a_drain_that_runs_out_cancels_the_turn_with_a_terminal(harness):
+    owner, relay, relay_bus = _replicas()
+    gate = Gate()
+    asker = harness(gate.turn, owner).connect()
+    asker.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: gate.calls)
+
+    assert await owner.drain(timeout=0.05) == 1
+
+    assert asker.events()[-1]["type"] == "RUN_FINISHED"
+    assert asker.events()[-1]["outcome"] == "cancelled"
+    assert gate.torn_down
+    await until(lambda: not _marker_held(relay_bus))
+
+
+async def test_with_the_bus_down_and_affinity_on_the_fence_fails_open(harness, monkeypatch):
+    owner, _, shared = _replicas()
+    monkeypatch.delenv("GRID_CHAT_AFFINITY", raising=False)
+    _bus_down(monkeypatch, shared, "set_nx", "get", "publish", "xadd")
+    sock = harness(answering, owner).connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert sock.events()[-1]["outcome"] == "answered"
+
+
+async def test_with_the_bus_down_and_affinity_off_a_question_is_refused_not_run(harness, monkeypatch):
+    owner, _, shared = _replicas()
+    monkeypatch.setenv("GRID_CHAT_AFFINITY", "0")
+    _bus_down(monkeypatch, shared, "set_nx", "get", "publish", "xadd")
+    h = harness(answering, owner)
+    sock = h.connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert sock.events()[-1]["outcome"] == "refused"
+    assert h.sessions.opened == []
+
+
+async def test_a_duplicate_never_asks_the_running_turn_to_stop(harness):
+    """A late resend of a question must not cancel the turn that is running for it, or a newer one."""
+    owner, relay, _ = _replicas()
+    gate = Gate()
+    first = harness(gate.turn, owner).connect()
+    first.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: gate.calls)
+    await asyncio.sleep(0.02)
+    elsewhere = harness(answering, relay).connect()
+    elsewhere.client(type="user_message", message_id="t1", text="?")  # resent while t1 runs
+    await until(lambda: elsewhere.rejected())
+
+    await asyncio.sleep(0.05)
+
+    assert elsewhere.rejected() == [{"of": "user_message", "code": "duplicate_turn"}]
+    assert not gate.torn_down  # t1 was not told to stop
+
+
 async def test_the_chat_session_manager_has_no_nat_semaphore(monkeypatch):
     """NAT's semaphore queued a turn after RUN_STARTED, heartbeating, behind turns waiting on a person.
 

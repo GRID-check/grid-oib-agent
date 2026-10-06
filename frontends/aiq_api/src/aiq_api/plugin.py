@@ -45,6 +45,7 @@ from nat.runtime.session import SessionManager
 
 from .chat_socket import chat_socket_endpoint
 from .chat_socket import configure_websocket_auth
+from .chat_socket import drain_chat_turns
 from .chat_socket import send_stage
 from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
@@ -362,7 +363,11 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
 
         @app.on_event("shutdown")
         async def shutdown_sse_connections():
-            """Gracefully close all active SSE connections and background tasks on shutdown."""
+            """Let running chat turns finish, then close all active SSE connections and background tasks."""
+            # First: the turns keep publishing to the conversation stream while
+            # the pod's grace period runs, which is what lets a reader on
+            # another replica stream them to the end (ADR-0079).
+            await drain_chat_turns()
             logger.info("Shutting down SSE connections...")
             connection_manager = get_connection_manager()
             await connection_manager.shutdown(timeout=5.0)

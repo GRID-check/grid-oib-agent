@@ -98,6 +98,8 @@ from aiq_agent.conversation_context import format_context_turn
 from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_HEADER
 from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_SIG_HEADER
 from aiq_agent.project_context import GridRequestContext
+from aiq_agent.turn.admission import TurnRefusal
+from aiq_agent.turn.admission import refused
 from aiq_agent.turn.response import answer_message_id
 from aiq_agent.turn.streaming import TurnTextFold
 from aiq_api.auth.errors import AuthError
@@ -115,6 +117,7 @@ from aiq_api.conversation_bus import ConversationBus
 from aiq_api.conversation_bus import Envelope
 from aiq_api.conversation_bus import get_bus
 from aiq_api.conversation_bus import is_multi_replica_bus
+from aiq_api.conversation_bus import running_renew_interval
 from aiq_api.internal_api import post_internal_conversation_message
 from aiq_api.startup_banner import deployed_sha
 from aiq_api.workflow_stream import stream_workflow
@@ -158,6 +161,62 @@ TURN_DEADLINE_SECONDS = float(os.getenv("GRID_CHAT_TURN_DEADLINE_SECONDS", "2700
 #: replica running a turn can replay it without the bus. The bus stream keeps
 #: the same number per conversation (``GRID_CONV_STREAM_MAXLEN``'s default).
 LOCAL_REPLAY_FRAMES = 2000
+
+# @environment_variable GRID_CHAT_SUPERSEDE_WAIT_SECONDS
+# @category Server
+# @type float
+# @default 12
+# @required false
+# How long a newer question waits for the conversation's running turn to stop
+# (and its `conv:<id>:running` marker to clear) before it is refused as "still
+# finishing the previous answer". Keep it under the client's 15 s acknowledgement
+# bound (`ACK_TIMEOUT_MS`) so the reader hears an answer, and above
+# `GRID_CHAT_RUNNING_TTL_SECONDS`, so a replica that died mid-turn never costs a
+# refusal. Only used while the conversation bus spans replicas.
+SUPERSEDE_WAIT_SECONDS = float(os.getenv("GRID_CHAT_SUPERSEDE_WAIT_SECONDS", "12") or "12")
+
+# @environment_variable GRID_CHAT_DRAIN_SECONDS
+# @category Server
+# @type float
+# @default 2700
+# @required false
+# How long a terminating replica waits for the turns it is running before it
+# cancels them (each then ends with a cancelled terminal and is persisted). It
+# must fit inside the pod's grace period, and cover the longest turn:
+# `GRID_CHAT_TURN_DEADLINE_SECONDS`. Pulumi derives both from one number.
+DRAIN_SECONDS = float(os.getenv("GRID_CHAT_DRAIN_SECONDS", "2700") or "2700")
+
+#: How long a drain waits for cancelled turns to unwind and publish their terminal.
+DRAIN_CANCEL_GRACE_SECONDS = 10.0
+
+#: How often the wait looks at the running marker, and how often it asks the
+#: owner to stop again: a pub/sub message sent while the owner's input
+#: subscription was restarting is lost, so one ask is not enough.
+SUPERSEDE_POLL_SECONDS = 0.2
+SUPERSEDE_REPUBLISH_SECONDS = 2.0
+
+#: What a refused question says, and how soon the reader may ask again.
+PREVIOUS_TURN_REFUSAL = (
+    "The assistant is still finishing the previous answer. Please send your message again in a moment."
+)
+FENCE_UNAVAILABLE_REFUSAL = (
+    "The assistant cannot start a new answer right now. Please send your message again in a moment."
+)
+REFUSAL_RETRY_AFTER_SECONDS = 5
+
+
+def chat_affinity_enabled() -> bool:
+    """Whether the BFF still pins a conversation to one replica (``GRID_CHAT_AFFINITY``, on by default).
+
+    The backend reads the flag the BFF routes by, for one decision: what a
+    question does when the bus cannot say whether another replica is running
+    the conversation's turn. With affinity on, every turn of a conversation
+    reaches one process, whose own registry has already stopped the stale turn,
+    so the fence fails open. With it off, nothing else knows, and the question
+    is refused instead.
+    """
+    return os.getenv("GRID_CHAT_AFFINITY", "1").strip().lower() not in ("0", "false", "no", "off", "")
+
 
 #: How soon a dead bus loop (a relay's frames, an owner's inputs) is restarted,
 #: doubling per failure up to the maximum.
@@ -462,6 +521,20 @@ class TurnDeadline:
         timeout.reschedule(asyncio.get_running_loop().time() + left)
 
 
+@dataclass(frozen=True)
+class Fence:
+    """What a question got from the conversation's running marker (:meth:`ChatRegistry.hold_conversation`).
+
+    ``held``: this turn set the marker, so it renews and deletes it. A turn
+    that did not (single process, the bus down with affinity on, a marker that
+    already names it) has nothing to give back. ``refusal`` is the reason the
+    question may not run, never both.
+    """
+
+    held: bool = False
+    refusal: str | None = None
+
+
 @dataclass
 class PendingInteraction:
     prompt: InteractionPrompt
@@ -480,6 +553,8 @@ class RunningTurn:
     settled_sources: list[WireSource] = field(default_factory=list)
     pending: PendingInteraction | None = None
     deadline: TurnDeadline = field(default_factory=TurnDeadline)
+    #: This turn holds the conversation's running marker: it renews it while it runs and deletes it when it ends.
+    holds_marker: bool = False
 
     @property
     def message_id(self) -> str:
@@ -725,6 +800,100 @@ class ChatRegistry:
         with contextlib.suppress(BusUnavailable):
             await self.bus().publish_input(conversation_id, SUPERSEDE, {"turn_id": newer_turn_id})
 
+    async def hold_conversation(self, conversation_id: str, turn_id: str) -> Fence:
+        """Take the conversation's running marker for ``turn_id``, once the turn running now has stopped.
+
+        A newer question used to start its turn and then tell the stale one to
+        stop, best-effort, which is safe only while both are one process's
+        tasks. With the socket on any replica they can be two replicas writing
+        one LangGraph thread. So: stop the stale turn here, ask the other
+        replicas to stop theirs, and run only once the marker
+        (``conv:<id>:running``) is gone. The set is ``SET NX``: of two
+        questions racing from two replicas, exactly one gets it.
+
+        Refused, never run beside the stale turn, when it has not stopped
+        within ``SUPERSEDE_WAIT_SECONDS``. A replica that died mid-turn stops
+        renewing, and its marker expires on its own TTL. Nothing to fence
+        without a bus that spans replicas; with the bus down the answer is
+        :meth:`_fence_without_bus`.
+        """
+        if not is_multi_replica_bus():
+            return Fence()
+        self._supersede_local(conversation_id, turn_id)
+        try:
+            return await self._wait_for_marker(conversation_id, turn_id)
+        except BusUnavailable:
+            return self._fence_without_bus(conversation_id)
+
+    async def _wait_for_marker(self, conversation_id: str, turn_id: str) -> Fence:
+        bus = self.bus()
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + SUPERSEDE_WAIT_SECONDS
+        next_ask = 0.0
+        while True:
+            if loop.time() >= next_ask:
+                await self.supersede_elsewhere(conversation_id, turn_id)
+                next_ask = loop.time() + SUPERSEDE_REPUBLISH_SECONDS
+            if await bus.acquire_running(conversation_id, turn_id):
+                return Fence(held=True)
+            holder = await bus.running_holder(conversation_id)
+            if holder is not None and holder.turn_id == turn_id:
+                return Fence()  # a resend of the turn that holds it: the claim decides what it is
+            if holder is not None and loop.time() >= deadline:
+                logger.warning("Conversation %s still runs turn %s; refusing %s", conversation_id, holder, turn_id)
+                return Fence(refusal=PREVIOUS_TURN_REFUSAL)
+            if holder is not None:
+                await asyncio.sleep(SUPERSEDE_POLL_SECONDS)
+
+    def _fence_without_bus(self, conversation_id: str) -> Fence:
+        if chat_affinity_enabled():
+            logger.warning("Conversation %s runs unfenced: the bus is down", conversation_id)
+            return Fence()
+        return Fence(refusal=FENCE_UNAVAILABLE_REFUSAL)
+
+    async def keep_conversation(self, conversation_id: str, turn_id: str) -> None:
+        """While the turn runs, renew its running marker every third of the TTL. Ends when cancelled."""
+        while True:
+            await asyncio.sleep(running_renew_interval())
+            try:
+                renewed = await self.bus().renew_running(conversation_id, turn_id)
+            except BusUnavailable:
+                continue  # the marker lives a TTL; the next round tries again
+            if not renewed:
+                logger.warning("Turn %s lost the running marker of conversation %s", turn_id, conversation_id)
+                return
+
+    async def release_conversation(self, conversation_id: str, turn_id: str) -> None:
+        """The turn ended: give the marker back, so the next question starts at once rather than at its TTL."""
+        try:
+            await self.bus().release_running(conversation_id, turn_id)
+        except BusUnavailable:
+            logger.debug("Could not release the running marker of conversation %s", conversation_id)
+
+    async def drain(self, timeout: float) -> int:
+        """SIGTERM: let the turns this replica runs finish, for up to ``timeout`` seconds. How many were cut short.
+
+        The replica is already out of its Service's endpoints (a terminating
+        pod is), so no new socket arrives, and uvicorn has closed the sockets
+        it held: their readers reconnect to another replica and ``attach``.
+        The turns are tasks of their own and go on publishing every frame to
+        the conversation's stream, which is what keeps those readers
+        streaming. A turn still running at the end is cancelled, so it ends
+        with a terminal and its answer is persisted, instead of vanishing
+        with the process.
+        """
+        running = [turn.task for turn in list(self._turns.values()) if turn.task is not None and not turn.task.done()]
+        if not running:
+            return 0
+        logger.info("Draining %d chat turn(s), up to %.0fs", len(running), timeout)
+        _, pending = await asyncio.wait(running, timeout=timeout)
+        for task in pending:
+            task.cancel()
+        if pending:
+            logger.warning("Cancelling %d chat turn(s) still running after the drain", len(pending))
+            await asyncio.wait(pending, timeout=DRAIN_CANCEL_GRACE_SECONDS)
+        return len(pending)
+
     def _supersede_local(self, conversation_id: str, newer_turn_id: str) -> None:
         stale = self._turns.get(conversation_id)
         if stale is None or stale.wire.turn_id == newer_turn_id or stale.task is None or stale.task.done():
@@ -859,6 +1028,11 @@ def _stop(tasks: dict[str, asyncio.Task[None]], key: str) -> None:
 _registry = ChatRegistry()
 
 
+async def drain_chat_turns(timeout: float | None = None) -> int:
+    """Wait for this process's running chat turns at shutdown (``GRID_CHAT_DRAIN_SECONDS``). How many were cut short."""
+    return await _registry.drain(DRAIN_SECONDS if timeout is None else timeout)
+
+
 async def send_stage(conversation_id: str, turn_id: str, value: StageValue) -> bool:
     """The ``aiq_agent.stages.delivery.StageFrameSink`` this front end publishes."""
     return await _registry.send_stage(conversation_id, turn_id, value)
@@ -944,14 +1118,23 @@ async def run_turn(turn: RunningTurn, request: UserMessage, *, registry: ChatReg
     it. A turn with no terminal is a spinner that never stops.
     """
     heartbeat = asyncio.create_task(_beat(turn.wire))
+    keeper = (
+        asyncio.create_task(registry.keep_conversation(turn.wire.conversation_id, turn.wire.turn_id))
+        if turn.holds_marker
+        else None
+    )
     try:
         await _end_turn(turn, request, **drive)
     finally:
-        heartbeat.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await heartbeat
+        for background in (heartbeat, keeper):
+            if background is not None:
+                background.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await background
         await _ensure_terminal(turn)
         registry.finish_turn(turn)
+        if turn.holds_marker:
+            await registry.release_conversation(turn.wire.conversation_id, turn.wire.turn_id)
 
 
 async def _end_turn(turn: RunningTurn, request: UserMessage, **drive: Any) -> None:
@@ -1100,10 +1283,20 @@ class ChatSocket:
             # Running or ran, here or on another replica: the client attaches instead.
             await self._reject(message.model_dump(), "user_message", "duplicate_turn")
             return
+        # Claimed first, so a duplicate never asks the running turn to stop.
+        fence = await self.registry.hold_conversation(conversation_id, message.message_id)
         self.registry.set_socket(conversation_id, self.socket)
         wire = TurnWire(conversation_id, message.message_id, self.registry.publish)
-        turn = RunningTurn(wire=wire, asker_subject=self.subject, organization_id=_org_id_from_scope(self.socket.scope))
+        turn = RunningTurn(
+            wire=wire,
+            asker_subject=self.subject,
+            organization_id=_org_id_from_scope(self.socket.scope),
+            holds_marker=fence.held,
+        )
         await wire.send(RunStartedBody(message_id=turn.message_id))
+        if fence.refusal is not None:
+            await self._refuse(turn, fence.refusal)
+            return
         turn.task = asyncio.create_task(
             run_turn(
                 turn,
@@ -1117,7 +1310,12 @@ class ChatSocket:
         )
         turn.task.add_done_callback(_log_unexpected_end)
         self.registry.start_turn(turn)
-        await self.registry.supersede_elsewhere(conversation_id, message.message_id)
+
+    async def _refuse(self, turn: RunningTurn, text: str) -> None:
+        """End a question that may not run with a refused terminal, as admission does, and keep its sequencer."""
+        refusal = TurnRefusal(text, retry_after_seconds=REFUSAL_RETRY_AFTER_SECONDS)
+        await turn.finish(refused(refusal, message_id=turn.message_id))
+        self.registry.finish_turn(turn)
 
     async def on_interaction_response(self, message: InteractionResponse) -> None:
         self.registry.set_socket(message.conversation_id, self.socket)

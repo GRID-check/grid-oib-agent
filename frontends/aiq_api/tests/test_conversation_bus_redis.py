@@ -119,3 +119,32 @@ async def test_ready_is_set_by_the_server_s_subscribe_confirmation():
     await owner.publish_frame(CONV, {"i": 0})
     await asyncio.wait_for(task, 3.0)
     assert got[0].payload == {"i": 0}
+
+
+@pytest.mark.asyncio
+async def test_the_running_marker_is_one_compare_and_write_over_real_redis():
+    owner, relay = _redis_replicas()
+
+    assert await owner.acquire_running(CONV, "t1")  # SET NX PX
+    assert not await relay.acquire_running(CONV, "t2")
+    assert (await relay.running_holder(CONV)).turn_id == "t1"
+    assert not await relay.renew_running(CONV, "t1")  # WATCH sees another value: not the relay's
+    assert not await relay.release_running(CONV, "t1")
+    assert await owner.renew_running(CONV, "t1")
+    assert await owner.release_running(CONV, "t1")
+    assert await relay.running_holder(CONV) is None
+    assert await relay.acquire_running(CONV, "t2")
+
+
+@pytest.mark.asyncio
+async def test_a_running_marker_expires_on_its_ttl_over_real_redis(monkeypatch):
+    from aiq_api import conversation_bus
+
+    monkeypatch.setattr(conversation_bus, "RUNNING_TTL_SECONDS", 0.1)
+    owner, relay = _redis_replicas()
+    await owner.acquire_running(CONV, "t1")
+
+    await asyncio.sleep(0.25)
+
+    assert await relay.running_holder(CONV) is None
+    assert await relay.acquire_running(CONV, "t2")
