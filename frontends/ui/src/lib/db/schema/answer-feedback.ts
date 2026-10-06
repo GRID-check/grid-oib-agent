@@ -43,6 +43,11 @@ export const answerFeedback = pgTable(
     /** Optional free-text from a down-vote — the chips are not the whole story. */
     comment: text('comment'),
     /**
+     * Optional free-text from a down-vote: what a good answer would have
+     * contained (migration 0103). The half of a test case a thumb cannot give.
+     */
+    expectedAnswer: text('expected_answer'),
+    /**
      * Which side of the platform-lessons experiment this turn fell on
      * (migration 0069), stamped from the same pure holdout function both tiers
      * use to decide injection. NULL when the holdout is off (the default) or

@@ -10,8 +10,10 @@
  *   ✓ Danke für Ihr Feedback.            ← lands on that SAME line after a vote
  *   Was war das Problem?                 ← down only, disclosed below it
  *   [Ungenau] [Zu langsam] [Falsche Quelle] [Sonstiges]
- *   ┌ Noch etwas? ────────┐              ← disclosed once a reason is chosen
- *   └─────────────────────┘  [Hinweis senden]
+ *   ┌ Noch etwas? ────────┐              ← down only, with the reasons
+ *   └─────────────────────┘
+ *   Was hätte in einer guten Antwort stehen sollen?   ← optional, one line
+ *   [ z. B. Brüstungshöhe 1,00 m laut OIB-RL 4 ]  [Hinweis senden]
  *
  * Two placements, one shape: standalone it is that block; `compact` hands the
  * row and the disclosure to the answer's meta row as two items, so the row keeps
@@ -20,8 +22,11 @@
  * The vote is the whole transaction: `useAnswerFeedback` persists it the moment
  * a thumb is pressed, so the confirmation is the truth about what happened and
  * is stated once, on the vote's own line. The reason and the note are a
- * SEPARATE, optional second act, disclosed one step at a time — never an open
- * form sitting under a "thanks" that claims the same act is already finished.
+ * SEPARATE, optional second act — never an open form sitting under a "thanks"
+ * that claims the same act is already finished. Reason and note are each
+ * optional and neither waits for the other: when the note waited for a chip,
+ * a voter who skipped the chips never saw it, and the October 2026 export had
+ * down-votes with neither, nothing the cause labelling could read.
  *
  * ── Weight ───────────────────────────────────────────────────────────────────
  * This sits under EVERY answer, including one-line ones, so at rest it is a
@@ -52,6 +57,7 @@ import { motion, springPress, springSnap } from '@/components/motion'
 import { Button } from '@/components/ui/button'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { FOCUS_RING } from '@/components/ui/focus-ring'
+import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useTranslations } from '@/i18n'
@@ -109,24 +115,34 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
   const projectId = useChatStore((s) => s.projectId)
   const { state, setFeedback } = useAnswerFeedback(messageId, conversationId, projectId)
   const [comment, setComment] = useState('')
+  const [expected, setExpected] = useState('')
 
   const verdict = state?.verdict ?? null
   const reason = state?.reason ?? null
-  /** The note is the LAST step and only exists once a reason names the problem;
-   *  a persisted comment means the second act is finished, so it collapses. */
-  const showNote = verdict === 'down' && reason !== null && !state?.comment
+  /** The note sits beside the reasons, not behind them; a persisted comment
+   *  means the second act is finished, so it collapses. */
+  const showNote = verdict === 'down' && !state?.comment && !state?.expectedAnswer
   const promptId = `answer-feedback-reason-${messageId}`
   const commentId = `answer-feedback-comment-${messageId}`
+  const expectedId = `answer-feedback-expected-${messageId}`
 
   const handleUp = useCallback(() => {
     setComment('')
+    setExpected('')
     // Toggle-off deletes; anything else is an upsert.
-    setFeedback(verdict === 'up' ? null : { verdict: 'up', reason: null, comment: null })
+    setFeedback(
+      verdict === 'up' ? null : { verdict: 'up', reason: null, comment: null, expectedAnswer: null },
+    )
   }, [verdict, setFeedback])
 
   const handleDown = useCallback(() => {
     setComment('')
-    setFeedback(verdict === 'down' ? null : { verdict: 'down', reason: null, comment: null })
+    setExpected('')
+    setFeedback(
+      verdict === 'down'
+        ? null
+        : { verdict: 'down', reason: null, comment: null, expectedAnswer: null },
+    )
   }, [verdict, setFeedback])
 
   const handleReason = useCallback(
@@ -137,20 +153,30 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
         verdict: 'down',
         reason: next ? (next as AnswerFeedbackReason) : null,
         comment: state?.comment ?? null,
+        expectedAnswer: state?.expectedAnswer ?? null,
       })
     },
-    [setFeedback, state?.comment],
+    [setFeedback, state?.comment, state?.expectedAnswer],
   )
 
   const handleCommentSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault()
-      const next = comment.trim()
-      if (!next) return
-      setFeedback({ verdict: 'down', reason: reason ?? 'other', comment: next })
+      const nextComment = comment.trim()
+      const nextExpected = expected.trim()
+      if (!nextComment && !nextExpected) return
+      // A note without a chip keeps its reason null: "other" would be a
+      // reason the voter never chose.
+      setFeedback({
+        verdict: 'down',
+        reason,
+        comment: nextComment || null,
+        expectedAnswer: nextExpected || null,
+      })
       setComment('')
+      setExpected('')
     },
-    [comment, setFeedback, reason],
+    [comment, expected, setFeedback, reason],
   )
 
   /* The footnote itself. `min-h-6` is reserved so the confirmation swapping in
@@ -279,13 +305,24 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
                 // comment box is exactly where somebody is typing prose.
                 className="min-h-14 resize-none rounded-lg py-2 text-xs"
               />
+              <FieldLabel htmlFor={expectedId} className="text-[11px] font-normal text-muted-foreground">
+                {t('feedback.expectedLabel')}
+              </FieldLabel>
+              <Input
+                id={expectedId}
+                value={expected}
+                onChange={(event) => setExpected(event.target.value)}
+                placeholder={t('feedback.expectedPlaceholder')}
+                maxLength={2000}
+                className="h-8 rounded-lg text-xs"
+              />
               {/* Full ink when it will do something, 40% when it will not:
                   the difference is a contrast jump, not grey vs. grey. */}
               <Button
                 type="submit"
                 size="sm"
                 className="h-7 w-fit px-3 text-xs disabled:opacity-40"
-                disabled={comment.trim() === ''}
+                disabled={comment.trim() === '' && expected.trim() === ''}
               >
                 {t('feedback.commentSubmit')}
               </Button>

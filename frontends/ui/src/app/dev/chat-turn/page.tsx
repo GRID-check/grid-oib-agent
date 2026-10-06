@@ -94,6 +94,7 @@ import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import { useChatStore } from '@/features/chat/store'
 
 const step: StoredThinkingStep = {
   id: 'kb',
@@ -806,6 +807,27 @@ Für Wien konkretisiert § 111 BO die Ausführung: die Breite ist über den gesa
 
 ${STAIR_SOURCES}`
 
+/**
+ * Gives the down-voted panel what "Gründlicher neu beantworten" needs to show:
+ * the question it answered and a send path. The send is a no-op here; the
+ * preview is about where the action sits in the footer, beside the thumbs.
+ */
+function SeedRetryAction() {
+  useEffect(() => {
+    useChatStore.setState({
+      chatSendFn: () => undefined,
+      currentConversation: {
+        id: 'conv-feedback-down',
+        messages: [
+          { id: 'msg-feedback-down-q', role: 'user', messageType: 'user', content: feedbackQuestion },
+          { id: 'msg-feedback-down', role: 'assistant', messageType: 'assistant', content: feedbackAnswer },
+        ],
+      } as never,
+    })
+  }, [])
+  return null
+}
+
 const ANSWER_VARIANTS = [
   'feedback-open',
   'lede-card',
@@ -834,6 +856,7 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
     // empty left half, and hung the chips and the note off the right end.
     return (
       <>
+        <SeedRetryAction />
         <AnswerTurn
           label="↓ AT REST — the footnote is one 24px line: copy, export, the question, two thumbs"
           question={feedbackQuestion}
@@ -844,7 +867,7 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
           conversationId="conv-feedback-rest"
         />
         <AnswerTurn
-          label="↓ NOT HELPFUL, REASON CHOSEN — the disclosure takes the next line, the row above it does not move"
+          label="↓ NOT HELPFUL, REASON CHOSEN — 'Gründlicher neu beantworten' sits beside the thumbs; the disclosure takes the next line, the row above it does not move"
           question={feedbackQuestion}
           answer={feedbackAnswer}
           citations={stairCitations}

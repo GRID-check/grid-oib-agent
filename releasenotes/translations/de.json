@@ -320,6 +320,10 @@
     "de": "Eine Frage nach einer ganzen Richtlinie wie „Was weißt du über die OIB 2?“ beantwortet Piloti jetzt aus einem Suchlauf über alle vorhandenen Teile: je Teil der Geltungsbereich als zitierfähige Passage, darunter dessen Gliederung."
   },
   {
+    "en": "A question about building regulations no longer comes back empty just because a document was open beside the chat. Only the file you chose with \"Asking about this file\" narrows the search now, and when a search in that file finds nothing on a regulation question, Piloti searches the guidelines again without it.",
+    "de": "Eine Frage zu Bauvorschriften liefert keine leeren Ergebnisse mehr, nur weil neben dem Chat ein Dokument geöffnet war. Nur die Datei, die Sie über „Fragen zu dieser Datei“ ausgewählt haben, schränkt die Suche jetzt ein. Findet die Suche in dieser Datei bei einer Frage zu Vorschriften nichts, durchsucht Piloti die Richtlinien erneut ohne diese Einschränkung."
+  },
+  {
     "en": "A question about several paragraphs, such as „§§ 3 bis 8“, now reads up to six of them in one step instead of only the first.",
     "de": "Bei einer Frage zu mehreren Paragraphen, etwa „§§ 3 bis 8“, werden jetzt bis zu sechs in einem Schritt gelesen statt nur der erste."
   },
@@ -488,12 +492,24 @@
     "de": "Administratorinnen und Administratoren können wieder Kolleginnen und Kollegen in ein Projekt einladen. Bei einigen Administratorrollen schlug die Einladung fehl."
   },
   {
+    "en": "After a thumbs-down you can now say what a good answer should have contained, for example the value and the guideline it comes from. The field is optional and is sent together with your note.",
+    "de": "Nach einer Bewertung mit Daumen nach unten können Sie jetzt angeben, was eine gute Antwort enthalten hätte, zum Beispiel den Wert und die Richtlinie, aus der er stammt. Das Feld ist optional und wird zusammen mit Ihrer Notiz gesendet."
+  },
+  {
+    "en": "After a thumbs-down, the note field now opens straight away, so you can say what went wrong without first picking a reason.",
+    "de": "Wenn Sie auf den Daumen nach unten klicken, öffnet sich das Notizfeld jetzt sofort. So können Sie beschreiben, was schiefgelaufen ist, ohne zuerst einen Grund auszuwählen."
+  },
+  {
     "en": "After creating an organization, a short tour walks through the project overview, and after the first project a second tour shows Frag Piloti, Dateien, the Archiv and how answers show their sources. Both can be skipped and restarted from the account menu.",
     "de": "Nach dem Anlegen einer Organisation führt eine kurze Tour durch die Projektübersicht, nach dem ersten Projekt zeigt eine zweite Tour Frag Piloti, Dateien, das Archiv und wie Antworten ihre Quellen zeigen. Beide lassen sich überspringen und über das Kontomenü neu starten."
   },
   {
     "en": "After you answer a clarifying question, a note at the bottom of the chat now shows that Piloti is still working. The chat used to look finished while the answer was still coming.",
     "de": "Nachdem Sie eine Rückfrage beantwortet haben, zeigt ein Hinweis unten im Chat jetzt, dass Piloti weiterarbeitet. Bisher wirkte der Chat fertig, obwohl die Antwort noch kam."
+  },
+  {
+    "en": "After you mark an answer as not helpful, \"Answer again, more thoroughly\" asks the same question again with more reasoning effort for that one answer. Your chat's effort setting stays as it was.",
+    "de": "Nachdem Sie eine Antwort als nicht hilfreich markiert haben, wird mit „Antwort erneut, ausführlicher“ dieselbe Frage noch einmal gestellt – mit mehr Denkaufwand für diese Antwort. Die Denkaufwandseinstellung Ihres Chats bleibt unverändert."
   },
   {
     "en": "Almost every answer now opens with a one- or two-sentence summary of the result and its decisive limitation, right under the verdict when there is one.",
@@ -602,6 +618,10 @@
   {
     "en": "Answers in chat arrive sooner: Piloti now prepares its project memory, feedback lessons and settings at the same time instead of one after another.",
     "de": "Antworten im Chat kommen früher: Piloti lädt Projektgedächtnis, Hinweise aus dem Feedback und Einstellungen jetzt gleichzeitig statt nacheinander."
+  },
+  {
+    "en": "Answers no longer occasionally end in a block of raw technical data after the list of sources.",
+    "de": "Antworten enden nach der Quellenliste nicht mehr gelegentlich mit einem Block aus Rohdaten."
   },
   {
     "en": "Answers no longer show source references that were removed during safety checks, and interactive answer cards stay in place even when one card cannot be displayed.",
@@ -2310,6 +2330,10 @@
   {
     "en": "When Piloti files a draft, creates a task, gathers documents or suggests something to remember, its cards now appear while the answer is still being checked, instead of all at the very end.",
     "de": "Legt Piloti einen Entwurf ab, erstellt eine Aufgabe, stellt Dokumente zusammen oder schlägt etwas zum Merken vor, erscheinen die Karten jetzt, während die Antwort noch geprüft wird, statt alle erst ganz am Schluss."
+  },
+  {
+    "en": "When Piloti finds nothing to answer from, it no longer advises you to stop narrowing the question to one file unless you had actually chosen a file or shelf. If a search function is unavailable, it now says that instead.",
+    "de": "Wenn Piloti keine Antwort findet, rät es Ihnen nicht mehr, die Frage auf eine einzelne Datei einzugrenzen, es sei denn, Sie haben tatsächlich eine Datei oder Ablage ausgewählt. Ist eine Suchfunktion nicht verfügbar, weist Piloti jetzt darauf hin."
   },
   {
     "en": "When Piloti hands a question to deep research, it now says why in its own words, shown in the Herleitung.",

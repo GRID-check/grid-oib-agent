@@ -144,7 +144,7 @@ correctness of its answer: how many retrieval rounds it took, whether the
 locator (`read_passage`) was used instead of a second search, whether the cited
 Punkt is the one the question is about, whether the Herleitung checkpoint came
 from the tool argument or from prose or from nowhere, and whether the research
-budget ran out. Twenty-nine realistic German questions from a Wiener Planungsbüro
+budget ran out. Thirty-one realistic German questions from a Wiener Planungsbüro
 live in [`tests/fixtures/herleitung/loop_eval_questions.yaml`](../../tests/fixtures/herleitung/loop_eval_questions.yaml)
 — every expected Punkt in it is read off the committed structural index rather
 than remembered — and [`scripts/loop_eval.py`](../../scripts/loop_eval.py) runs
@@ -320,6 +320,17 @@ its passage; this asks what the reader waited for and what they got.
 task be:eval:answer-suite -- --out /tmp/suite/before         # on the base branch
 task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before/results.json
 ```
+
+**From a down-vote to a case.** Every down-voted answer can become a case, so a
+failure users reported cannot return unnoticed. Export the feedback CSV and run
+`.venv/bin/python scripts/feedback_to_cases.py feedback.csv --out /tmp/draft.yaml`:
+it drafts a case for each down-vote that has a question and an `expected_answer`
+and writes no organisation, conversation or answer text. Nothing is appended to
+the golden set. What the user says the answer should be is a claim: check it
+against the corpus, fill `family`, `punkt` and `expect` from the PDF, and add
+the case to `tests/fixtures/herleitung/loop_eval_questions.yaml` with a
+`Source: answer feedback <date>` comment. A question answered from the web has no
+`family`, which the suite treats as needing a project, so it cannot be a case.
 
 It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus in
 `data/oib` ingested into `AIQ_CHROMA_DIR` (`-- --ingest` runs the sync

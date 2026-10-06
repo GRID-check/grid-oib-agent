@@ -1194,6 +1194,15 @@ def _empty_search_message(
         "Retry once with a shorter topic query"
         + (", a different `file_name` from the inventory" if file_name else ", or `file_name=` an exact inventory name")
         + ", or `title_contains=` a fragment. "
+        # A name taken from the reader's open file filtered a norm question down
+        # to nothing (answer feedback, October 2026): say that the law is not in
+        # that file, so the retry can drop the filter instead of guessing names.
+        + (
+            "If the question is about the law (OIB, Bauordnung) rather than this file's own content, "
+            "retry WITHOUT `file_name=`: the norms are not filed under the reader's documents. "
+            if file_name
+            else ""
+        )
         + (
             f"Nothing is filed under {folder!r}, or nothing there matched — drop `folder=` "
             "to search the whole shelf, or take the exact folder from the inventory. "

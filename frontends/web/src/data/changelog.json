@@ -43,6 +43,14 @@
           "key": "features",
           "notes": [
             {
+              "en": "After a thumbs-down you can now say what a good answer should have contained, for example the value and the guideline it comes from. The field is optional and is sent together with your note.",
+              "de": "Nach einer Bewertung mit Daumen nach unten können Sie jetzt angeben, was eine gute Antwort enthalten hätte, zum Beispiel den Wert und die Richtlinie, aus der er stammt. Das Feld ist optional und wird zusammen mit Ihrer Notiz gesendet."
+            },
+            {
+              "en": "After you mark an answer as not helpful, \"Answer again, more thoroughly\" asks the same question again with more reasoning effort for that one answer. Your chat's effort setting stays as it was.",
+              "de": "Nachdem Sie eine Antwort als nicht hilfreich markiert haben, wird mit „Antwort erneut, ausführlicher“ dieselbe Frage noch einmal gestellt – mit mehr Denkaufwand für diese Antwort. Die Denkaufwandseinstellung Ihres Chats bleibt unverändert."
+            },
+            {
               "en": "The Archiv now has folders, just like a project's files: create, rename, move and delete them, drop in a whole folder structure, and move documents between them. Deleting a folder never deletes what was in it, and Piloti knows which folder a document is in.",
               "de": "Das Archiv hat jetzt Ordner, wie bei den Dateien eines Projekts: Sie können Ordner erstellen, umbenennen, verschieben und löschen, eine ganze Ordnerstruktur hochladen und Dokumente zwischen Ordnern verschieben. Beim Löschen eines Ordners bleiben die darin enthaltenen Inhalte erhalten, und Piloti weiß, in welchem Ordner sich ein Dokument befindet."
             },
@@ -56,6 +64,10 @@
           "key": "improvements",
           "notes": [
             {
+              "en": "After a thumbs-down, the note field now opens straight away, so you can say what went wrong without first picking a reason.",
+              "de": "Wenn Sie auf den Daumen nach unten klicken, öffnet sich das Notizfeld jetzt sofort. So können Sie beschreiben, was schiefgelaufen ist, ohne zuerst einen Grund auszuwählen."
+            },
+            {
               "en": "The Archiv's file list now offers the same filters as a project's, so archived files can be shown again and files written by Piloti can be told apart from your team's.",
               "de": "Die Dateiliste im Archiv bietet jetzt dieselben Filter wie die eines Projekts. So können Sie archivierte Dateien wieder anzeigen und von Piloti erstellte Dateien von denen Ihres Teams unterscheiden."
             }
@@ -65,8 +77,20 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "When Piloti finds nothing to answer from, it no longer advises you to stop narrowing the question to one file unless you had actually chosen a file or shelf. If a search function is unavailable, it now says that instead.",
+              "de": "Wenn Piloti keine Antwort findet, rät es Ihnen nicht mehr, die Frage auf eine einzelne Datei einzugrenzen, es sei denn, Sie haben tatsächlich eine Datei oder Ablage ausgewählt. Ist eine Suchfunktion nicht verfügbar, weist Piloti jetzt darauf hin."
+            },
+            {
+              "en": "Answers no longer occasionally end in a block of raw technical data after the list of sources.",
+              "de": "Antworten enden nach der Quellenliste nicht mehr gelegentlich mit einem Block aus Rohdaten."
+            },
+            {
               "en": "Renaming or moving a folder that has subfolders no longer fails with an error.",
               "de": "Beim Umbenennen oder Verschieben eines Ordners mit Unterordnern tritt kein Fehler mehr auf."
+            },
+            {
+              "en": "A question about building regulations no longer comes back empty just because a document was open beside the chat. Only the file you chose with \"Asking about this file\" narrows the search now, and when a search in that file finds nothing on a regulation question, Piloti searches the guidelines again without it.",
+              "de": "Eine Frage zu Bauvorschriften liefert keine leeren Ergebnisse mehr, nur weil neben dem Chat ein Dokument geöffnet war. Nur die Datei, die Sie über „Fragen zu dieser Datei“ ausgewählt haben, schränkt die Suche jetzt ein. Findet die Suche in dieser Datei bei einer Frage zu Vorschriften nichts, durchsucht Piloti die Richtlinien erneut ohne diese Einschränkung."
             }
           ]
         }
