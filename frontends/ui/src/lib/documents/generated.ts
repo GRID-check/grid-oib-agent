@@ -545,7 +545,7 @@ export async function fileGeneratedDocument(
   // After the render, so a producer that fails leaves no empty `Berichte`
   // folder standing in a project that never got a report.
   const destination = resolveGeneratedDocumentDestination(producer)
-  const folder = await getOrCreateProjectFolderByName(projectId, destination.folderName)
+  const folder = await getOrCreateProjectFolderByName(projectId, destination.folderName, session.organizationId)
 
   const documentId = crypto.randomUUID()
   const storedName = generatedFilename(title, rendered.contentType, new Date())

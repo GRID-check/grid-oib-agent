@@ -1,7 +1,10 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
+import type { ShelfEndpoints } from '../lib/file-shelf'
 import { useSemanticSearch, type SemanticSearchState } from './use-semantic-search'
+
+type SearchScope = Pick<ShelfEndpoints, 'search' | 'searchBody'>
 
 /**
  * The two-mode file search, as one value a caller can hold and hand around.
@@ -31,15 +34,18 @@ export interface FileSearch {
 }
 
 /**
- * @param projectId Corpus the semantic search queries. Omit to offer the
- * substring filter alone — `canSearch` then reports false and the run control
- * is not drawn.
+ * @param scope The shelf's semantic search route and fixed body fields
+ * (`projectSearchScope`, `ARCHIV_SEARCH_SCOPE`). Omit to offer the substring
+ * filter alone — `canSearch` then reports false and the run control is not
+ * drawn.
  */
-export function useFileSearch({ projectId }: { projectId?: string }): FileSearch {
+export function useFileSearch(scope?: SearchScope): FileSearch {
   const [query, setQueryState] = useState('')
-  const extraBody = useMemo(() => ({ projectId }), [projectId])
-  const semantic = useSemanticSearch({ endpoint: '/api/documents/search', extraBody })
-  const canSearch = projectId !== undefined
+  const endpoint = scope?.search
+  const bodyKey = JSON.stringify(scope?.searchBody ?? {})
+  const extraBody = useMemo(() => JSON.parse(bodyKey) as Record<string, unknown>, [bodyKey])
+  const semantic = useSemanticSearch({ endpoint: endpoint ?? '', extraBody })
+  const canSearch = endpoint !== undefined
 
   const setQuery = useCallback(
     (value: string) => {

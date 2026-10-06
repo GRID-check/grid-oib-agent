@@ -52,7 +52,7 @@ Right-click a file, a folder, or the empty listing — the same operations as th
 
 The **detail view** (the list toggle) is a dense sortable table for a corpus past what a card grid can hold. It is fully keyboard-navigable: one tab stop into the list, then arrows to walk it and Home/End to jump to either end — and the tab stop stays on the row you walked to, so tabbing away and back does not return you to the top. Enter opens the row.
 
-A **search field** above the grid filters the current listing client-side by file name, ingestion tags, and the AI description. Top-level folders additionally appear as a quick-filter **chip row** above the grid (the same selection the sidebar folder tree drives — no separate navigation model).
+A **search field** above the grid filters the current listing client-side by file name, ingestion tags, and the AI description. Folders are the drill-down inside the listing itself (breadcrumb, tiles, `?folder=` in the URL); a search escapes the current folder and runs over everything.
 
 Semantic results arrive in whichever view you are in. In the detail view the ranking is preserved rather than being re-sorted by upload date: **Relevance** is the column the list opens sorted by (and can be sorted the other way), and each row carries the passage that matched with its page number in place of the document's summary.
 
@@ -323,31 +323,39 @@ project in your organization** — every project's chat automatically searches t
 Archiv alongside its own documents and the base corpus, with no per-project
 re-upload. Any member can browse, preview, and download Archiv documents;
 uploading and deleting require the **`org:archiv:manage`** permission (org admins
-have it). It reuses the exact same upload/ingestion/preview experience as the
-project Files tab. The feature is gated by the `organization-archiv` feature flag
+have it). It is the same workspace as the project Files tab — upload, ingestion, preview and folders. The feature is gated by the `organization-archiv` feature flag
 (available to all orgs while flag enforcement is off; targeted per-org once on).
 
-The Archiv presents itself as the office's **knowledge library** (gold archive
-mark = the Büroarchiv provenance signal used across the app):
+The Archiv is the project Files workspace over the office's shelf: **one
+component, two shelves** (`FileWorkspace`; see
+[`docs/ux/file-upload-and-explorer.md`](../ux/file-upload-and-explorer.md#one-workspace-two-shelves)).
+Everything described for a project's Dateien above — folders, moving files by
+menu or drag, uploading a whole folder, the cards/list toggle, filters and sort,
+search, the preview and its `?doc=` link — works the same here, with the same
+words. It keeps the gold archive mark (the Büroarchiv provenance signal used
+across the app) and what is specific to the office:
 
-- **Card grid** — the same content-aware skeleton thumbnails, extension chips,
-  one-line AI descriptions, and ingestion-status badges as the project file
-  grid; failed cards show the failure reason inline.
-- **Category chips** — a filter row derived from the controlled ingestion tags
-  actually present on the archive's documents (document type + OIB discipline),
-  plus an "All" chip. Categories come from the documents themselves; creating
-  custom categories is not (yet) supported.
-- **Provenance footer** — cards whose documents carry ingestion tags show them
-  as an "Aus: …"/"From: …" line with the gold archive mark. Documents without
-  tags simply show none, and there is no "verified" marker — the Archiv has no
-  review workflow.
-- **Search** — filters the listing client-side by file name, ingestion tags,
-  and the AI description, combinable with the category chips. Pressing Enter
-  runs the semantic search over the corpus instead. A semantic search that
-  cannot RUN (the index is unreachable, the request times out) says so and
-  offers to run the same query again — it is never reported as "no matches",
-  which is a claim about your own files that a search which never ran has no
-  business making.
+- **Folders** — the office's own tree, separate from every project's. Members
+  with `org:archiv:manage` create, rename, move and delete folders and re-file
+  documents; deleting a folder never deletes documents, it re-files them into the
+  parent. Everyone else can open folders, search, filter, preview and download
+  but sees no upload, drag, create, rename, move or delete.
+- **Gold kind chip and provenance footer** — a card shows the document's kind
+  (floor plan, notice, …) on a gold chip, and cards whose documents carry
+  ingestion tags show them as an "Aus: …"/"From: …" line. Documents without
+  tags show none, and there is no "verified" marker — the Archiv has no review
+  workflow.
+- **Category filter** — the filter menu offers „Kategorie", derived from the
+  controlled ingestion tags actually present on the loaded documents (document
+  type + OIB discipline). Categories come from the documents themselves;
+  creating custom categories is not (yet) supported. This filter is on every
+  shelf, not only the Archiv.
+- **Search** — as in a project: typing filters the listing by file name, ingestion
+  tags and the AI description, across every folder; Enter runs the semantic
+  search over the whole Archiv. A semantic search that cannot RUN says so and
+  offers to run the same query again — it is never reported as "no matches".
+- **No assignments and no „Frage zur Datei"** — collaboration is project-scoped
+  and the Archiv has no project chat to ask in.
 - **A document that failed to index** carries the reason on its card, and the
   card's ⋯ menu offers „Erneut lesen“ for it, the same retry the preview
   has, where the failure is actually read. An indexed document gets the same

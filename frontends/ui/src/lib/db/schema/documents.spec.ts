@@ -485,6 +485,35 @@ describe('the indexes drizzle cannot declare', () => {
   it('drops the folder index again on the way down', () => {
     expect(DOWN_MIGRATION_0063).toContain('DROP INDEX IF EXISTS "uniq_project_folders_parent_name"')
   })
+
+  it('widens the folder index to both shelves in 0102, COALESCE-keyed on the project too', () => {
+    // An Archiv folder has no project, so `project_id` is NULL for the whole
+    // shelf and needs the same sentinel `parent_id` has — without it the Archiv
+    // is the one shelf the index silently stops protecting.
+    const widened = readFileSync(join(process.cwd(), 'drizzle/0102_archiv_folders.sql'), 'utf8')
+    expect(widened).toMatch(
+      /CREATE UNIQUE INDEX "uniq_project_folders_parent_name"[\s\S]*?"organization_id"[\s\S]*?coalesce\("project_id"[\s\S]*?coalesce\("parent_id"/
+    )
+    // And the way down restores 0063's key.
+    const down = readFileSync(join(process.cwd(), 'drizzle/0102_archiv_folders.down.sql'), 'utf8')
+    expect(down).toMatch(/CREATE UNIQUE INDEX "uniq_project_folders_parent_name"[\s\S]*?"project_id"/)
+  })
+
+  it('declares the shelf constraints the migration adds, so provisioning from the schema builds them', () => {
+    const folders = getTableConfig(projectFolders)
+    expect(folders.uniqueConstraints.map((entry) => entry.name)).toContain(
+      'project_folders_id_organization_id_scope_key'
+    )
+    expect(folders.checks.map((entry) => entry.name)).toEqual(
+      expect.arrayContaining(['project_folders_scope_check', 'project_folders_scope_owner_check'])
+    )
+    expect(folders.foreignKeys.map((entry) => entry.getName())).toContain(
+      'project_folders_parent_id_organization_id_scope_fkey'
+    )
+    expect(getTableConfig(documents).foreignKeys.map((entry) => entry.getName())).toContain(
+      'documents_folder_id_organization_id_scope_fkey'
+    )
+  })
 })
 
 /**

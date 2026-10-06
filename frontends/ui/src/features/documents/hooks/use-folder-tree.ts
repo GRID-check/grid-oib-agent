@@ -1,0 +1,197 @@
+'use client'
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
+import { useTranslations } from '@/i18n'
+import type { FileItem, FolderItem } from '../file-types'
+
+export interface FolderTreeOptions {
+  /** The shelf's folder collection (`/api/projects/{id}/folders`, `/api/archiv/folders`). */
+  foldersUrl: string
+  /** The tree as the server already read it, for the first paint. */
+  initialFolders?: readonly FolderItem[]
+  /** What deleting a folder needs to name: how much is inside it. */
+  files: readonly FileItem[]
+  selectedFolderId: string | null
+  onSelectFolder: (id: string | null) => void
+  /** Re-read the documents after a change that moved some (a delete re-files them). */
+  reloadFiles: (quiet?: boolean) => Promise<unknown>
+}
+
+/**
+ * One shelf's folder tree: read it, and the four things a reader does to it.
+ *
+ * Every sentence is a `files` key. The Archiv has folders now, and a second set
+ * of strings for „Ordner löschen" in another namespace would be the first thing
+ * to drift.
+ *
+ * Rename and move re-read the tree rather than patching it: `path` is
+ * materialised on every row, so changing one folder rewrites everything beneath
+ * it, and guessing that here would be a second implementation of the server's
+ * rule.
+ */
+export function useFolderTree({
+  foldersUrl,
+  initialFolders,
+  files,
+  selectedFolderId,
+  onSelectFolder,
+  reloadFiles,
+}: FolderTreeOptions) {
+  const t = useTranslations('files')
+  const [folders, setFolders] = useState<FolderItem[]>(() => [...(initialFolders ?? [])])
+  const [isLoading, setIsLoading] = useState(initialFolders === undefined)
+  const [error, setError] = useState(false)
+
+  const load = useCallback(() => {
+    setIsLoading(true)
+    setError(false)
+    return fetch(foldersUrl)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Failed to load folders (${response.status})`)
+        return response.json()
+      })
+      .then((data) => setFolders(data.folders ?? []))
+      .catch(() => {
+        setFolders([])
+        setError(true)
+      })
+      .finally(() => setIsLoading(false))
+  }, [foldersUrl])
+
+  // The seeded first render is already the answer: skip the mount load once.
+  const seeded = useRef(initialFolders !== undefined)
+  useEffect(() => {
+    if (seeded.current) {
+      seeded.current = false
+      return
+    }
+    void load()
+  }, [load])
+
+  const parentName = useCallback(
+    (parentId: string | null) =>
+      parentId ? (folders.find((f) => f.id === parentId)?.name ?? '') : t('folders.allFiles'),
+    [folders, t]
+  )
+
+  const create = useCallback(
+    async (name: string, parentId?: string) => {
+      const response = await fetch(foldersUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, parentId }),
+      })
+      if (!response.ok) {
+        toast.error(t('workspace.createFolderError'))
+        return false
+      }
+      const data = await response.json()
+      setFolders((prev) => [...prev, data.folder])
+      return true
+    },
+    [foldersUrl, t]
+  )
+
+  const rename = useCallback(
+    async (folderId: string, name: string) => {
+      const response = await fetch(`${foldersUrl}/${folderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!response.ok) {
+        toast.error(t('workspace.renameFolderError'))
+        return false
+      }
+      const data = await response.json()
+      await load()
+      setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, ...data.folder } : f)))
+      return true
+    },
+    [foldersUrl, t, load]
+  )
+
+  /**
+   * A folder dragged onto another folder — or onto „Alle Dateien", the way back
+   * out to the root. Optimistic on the PARENT (the tile moves in the frame the
+   * finger let go) and then re-read for the paths. The pane refuses a move into
+   * a folder's own subtree before the drop, so the failure this puts back is a
+   * network one.
+   */
+  const move = useCallback(
+    async (draggedFolderId: string, parentId: string | null) => {
+      const folder = folders.find((candidate) => candidate.id === draggedFolderId)
+      if (!folder || (folder.parentId ?? null) === parentId) return
+      const previousParentId = folder.parentId ?? null
+      const setParent = (next: string | null) =>
+        setFolders((prev) => prev.map((f) => (f.id === draggedFolderId ? { ...f, parentId: next } : f)))
+
+      setParent(parentId)
+      try {
+        const response = await fetch(`${foldersUrl}/${draggedFolderId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ parentId }),
+        })
+        if (!response.ok) throw new Error(`Move failed (${response.status})`)
+        await load()
+        toast.success(t('folders.movedFolder', { name: folder.name, parent: parentName(parentId) }))
+      } catch {
+        setParent(previousParentId)
+        toast.error(t('folders.moveFolderError'))
+      }
+    },
+    [folders, foldersUrl, load, parentName, t]
+  )
+
+  /**
+   * NAME WHAT HAPPENS TO THE WORK. A folder is a label somebody put on a set of
+   * documents, and the one question in this reader's head is "does this delete
+   * my files?" — so the confirm answers it, with the count and where they will
+   * be, instead of a generic "this cannot be undone" that would be frightening
+   * and false.
+   */
+  const remove = useCallback(
+    async (folderId: string) => {
+      const folder = folders.find((f) => f.id === folderId)
+      if (!folder) return false
+      const inside = files.filter((f) => f.folderId === folderId).length
+      const nested = folders.filter((f) => f.parentId === folderId).length
+      const parent = folder.parentId
+        ? (folders.find((f) => f.id === folder.parentId)?.name ?? t('folders.allFiles'))
+        : t('folders.allFiles')
+      const confirmed = window.confirm(
+        inside > 0 || nested > 0
+          ? t('workspace.deleteFolderConfirmWithContents', {
+              name: folder.name,
+              documents: String(inside),
+              folders: String(nested),
+              parent,
+            })
+          : t('workspace.deleteFolderConfirm', { name: folder.name })
+      )
+      if (!confirmed) return false
+
+      const response = await fetch(`${foldersUrl}/${folderId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        toast.error(t('workspace.deleteFolderError'))
+        return false
+      }
+      const moved = (await response.json().catch(() => ({}))) as { documentsMoved?: number }
+      // The selection cannot stay on a folder that no longer exists — it would
+      // filter the grid to nothing and read as an empty shelf.
+      if (selectedFolderId === folderId) onSelectFolder(folder.parentId ?? null)
+      await Promise.all([load(), reloadFiles(true)])
+      toast.success(
+        moved.documentsMoved
+          ? t('workspace.deleteFolderMoved', { count: String(moved.documentsMoved), parent })
+          : t('workspace.deleteFolderDone', { name: folder.name })
+      )
+      return true
+    },
+    [foldersUrl, t, folders, files, selectedFolderId, onSelectFolder, load, reloadFiles]
+  )
+
+  return { folders, isLoading, error, load, create, rename, move, remove }
+}
