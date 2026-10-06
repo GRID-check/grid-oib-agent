@@ -646,6 +646,21 @@ def test_a_waiter_held_by_its_model_does_not_block_a_lower_class_of_another_mode
     assert poll("bulk-b", pl.BULK, "vendor/b")
 
 
+def test_more_than_a_page_of_waiters_blocked_on_another_model_does_not_hold_back_a_free_model(
+    store, clock, monkeypatch
+):
+    monkeypatch.setenv(pl._CEILING_ENV, "8")
+    monkeypatch.setenv(pl._FLOOR_ENV, "8")
+    monkeypatch.setenv(pl._MODEL_CEILING_ENV, "1")
+    monkeypatch.setenv(pl._MODEL_FLOOR_ENV, "1")
+    assert poll("holder", pl.BULK, "vendor/x")  # model X is browned out: one slot, held
+    for n in range(40):  # more than one ZRANGE page, all ahead in the bulk class and all blocked on X
+        assert not poll(f"x-{n}", pl.BULK, "vendor/x")
+        clock.advance(0.001)
+
+    assert poll("y", pl.BULK, "vendor/y")  # model Y has room: it is not held back by X's queue
+
+
 def test_a_freed_model_slot_goes_to_the_highest_class_waiting_for_that_model(store, clock, monkeypatch):
     monkeypatch.setenv(pl._MODEL_CEILING_ENV, "1")
     monkeypatch.setenv(pl._MODEL_FLOOR_ENV, "1")

@@ -113,7 +113,10 @@ return 1
 # so one model at its limit never holds back the others; it always counts ahead
 # of a caller of its own pool, where priority is the point. A waiter that stops
 # polling is dropped after `ticket_ttl`, from every set at once: its ticket would
-# otherwise hold back every class below it.
+# otherwise hold back every class below it. The head is found a page of 32 at a
+# time until a ticket that counts: a window of only skipped tickets says nothing
+# about the ones behind it, and in the caller's own class the scan ends at the
+# caller at the latest.
 #
 # Returns {taken, limit, in flight, scoped limit, scoped in flight}.
 RANKED_ADMISSION_LUA = (
@@ -162,15 +165,20 @@ redis.call('ZREM', blocked, member)
 redis.call('HDEL', blocked_on, member)
 
 local function head_of(class_index)
-  local ids = redis.call('ZRANGE', KEYS[4 + class_index], 0, 31)
-  for _, id in ipairs(ids) do
-    local since = redis.call('ZSCORE', blocked, id)
-    local fresh = since and tonumber(since) >= now - ticket_ttl
-    if not fresh or redis.call('HGET', blocked_on, id) == model then
-      return id
+  local set = KEYS[4 + class_index]
+  local start = 0
+  while true do
+    local ids = redis.call('ZRANGE', set, start, start + 31)
+    if #ids == 0 then return nil end
+    for _, id in ipairs(ids) do
+      local since = redis.call('ZSCORE', blocked, id)
+      local fresh = since and tonumber(since) >= now - ticket_ttl
+      if not fresh or redis.call('HGET', blocked_on, id) == model then
+        return id
+      end
     end
+    start = start + 32
   end
-  return nil
 end
 local first = true
 for i = 1, rank - 1 do
