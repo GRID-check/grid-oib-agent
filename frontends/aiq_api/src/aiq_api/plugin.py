@@ -187,6 +187,24 @@ class AIQAPIConfig(FastApiFrontEndConfig, name="aiq_api"):
 _shutdown_signal_received = False
 
 
+async def drain_owned_work() -> None:
+    """The web tier's drain, in order: stop claiming ingestion, wait for the chat turns, give back what is held.
+
+    With no ingest-worker tier this process claims ingestion jobs too
+    (``GRID_INGEST_QUEUE_CLAIM``). It must stop taking new ones before the chat
+    drain, which may run for most of the grace period, and hand back the ones
+    still running after it, at no cost in attempts: a claim left to the kubelet's
+    kill goes stale and is charged an attempt, three kills and the job is dead.
+    """
+    from .jobs import ingest_dispatch
+
+    ingest_dispatch.stop_claiming()
+    await drain_chat_turns()
+    released = ingest_dispatch.release_held()
+    if released:
+        logger.warning("Gave %d ingestion claim(s) back to the queue at shutdown", released)
+
+
 def _create_shutdown_signal_handler(
     original_handler: Callable | signal.Handlers | None,
     sig: signal.Signals,
@@ -371,7 +389,7 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
             # First: the turns keep publishing to the conversation stream while
             # the pod's grace period runs, which is what lets a reader on
             # another replica stream them to the end (ADR-0079).
-            await drain_chat_turns()
+            await drain_owned_work()
             logger.info("Shutting down SSE connections...")
             connection_manager = get_connection_manager()
             await connection_manager.shutdown(timeout=5.0)

@@ -447,6 +447,10 @@ class QueueSource:
             run.stop.set()
         return ingest_queue.release_claims(job_ids, self._worker)
 
+    def stop_claiming(self) -> None:
+        """Take no new job from here on (a drain); the jobs in hand run on."""
+        self._ingestor.detach_job_source()
+
     def release_held(self) -> int:
         """Give back every claim this process still holds (a drain that ran out of time)."""
         with self._held_lock:
@@ -477,6 +481,19 @@ _active: QueueSource | None = None
 def worker_id() -> str:
     """This process as a claim's ``claimed_by``."""
     return ingest_status_store.OWNER
+
+
+def stop_claiming() -> None:
+    """Stop this process claiming ingestion jobs, for a drain; the jobs it holds run on.
+
+    The web tier claims too when no ingest-worker tier runs, so its shutdown
+    calls this before it waits for its chat turns, and :func:`release_held`
+    after: otherwise it keeps claiming through the whole chat drain, and every
+    claim still held when the pod is killed goes stale and costs an attempt.
+    """
+    source = _active
+    if source is not None:
+        source.stop_claiming()
 
 
 def release_held() -> int:

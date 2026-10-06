@@ -1046,7 +1046,9 @@ lost on restart. Now, with `jobExecution: db`:
   `priority` (`interactive`, the default, or `bulk`) orders the claim. Claims
   heartbeat and are taken again when a worker dies, up to three times, and then
   kept as a `dead` row with a reason (ADR-0078). A worker that must exit hands
-  its claims back without spending an attempt.
+  its claims back without spending an attempt; so does a web-tier replica that
+  claims (no ingest-worker tier), which stops claiming before it waits for its
+  chat turns and gives back what it still holds after.
 - **A dedicated `ingest-worker` tier** (same image, `GRID_ROLE=ingest-worker`,
   no port, no PVC) claims them. The web tier stops claiming
   (`GRID_INGEST_QUEUE_CLAIM=false`) while the tier runs, so a PDF's parse no

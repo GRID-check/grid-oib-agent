@@ -616,3 +616,31 @@ def test_a_failed_count_leaves_the_statuses_alone(db, monkeypatch):
     ingest_dispatch.stamp_queue_ahead(statuses)
 
     assert statuses == {"job-1": {"status": "pending", "metadata": {}}}
+
+
+async def test_the_web_tier_stops_claiming_before_its_chat_drain_and_gives_back_what_it_holds(db, monkeypatch):
+    from aiq_api import plugin
+
+    ingest_dispatch.dispatch(FakeIngestor(), _prepared("job-1"))
+    ingest_dispatch.dispatch(FakeIngestor(), _prepared("job-2"))
+    order: list[str] = []
+
+    class WebTier(FakeIngestor):
+        def detach_job_source(self) -> None:
+            order.append("detached")
+            self.source = None
+
+    web = WebTier()
+    ingest_dispatch.attach(web)
+    web.source()  # running when SIGTERM lands
+
+    async def chat_drain() -> int:
+        order.append("chat drained")
+        assert web.source is None  # nothing claims while the turns finish
+        return 0
+
+    monkeypatch.setattr(plugin, "drain_chat_turns", chat_drain)
+    await plugin.drain_owned_work()
+
+    assert order == ["detached", "chat drained"]
+    assert _queue_rows(db) == {"job-1": ("queued", 0, 0), "job-2": ("queued", 0, 0)}  # no attempt spent
