@@ -288,6 +288,8 @@ tables.
 
 - While the PDF is being made, the upload shows „Wird gelesen“. It turns into
   Ready once the file is indexed, which for a large deck can take a few minutes.
+  The conversion is a background job that survives a server restart; a folder of
+  hundreds of files is worked through in turn and does not delay other offices.
 - Files uploaded before this change keep their old index: their text is
   searchable, their pictures are not, and a Word citation opens at page 1.
   Choose „Erneut lesen“ in the file's ⋯ menu to have it read the new way.

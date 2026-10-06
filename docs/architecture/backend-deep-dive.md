@@ -1483,9 +1483,9 @@ the way in (`lib/bim/ifc-archive.ts`), and everything downstream sees STEP.
 That module also enforces the extraction ceiling on the archive's DECLARED
 uncompressed size, read from the zip directory before a byte is inflated: the
 limit exists to keep a 1 GiB pod alive, and measuring it on the compressed
-object let a 40 MB upload become a 300 MB allocation. Extraction is detached from
-the request (a 60 MB model takes tens of seconds) and every terminal outcome
-writes the document row: success → the digest dispatch sets `pending` + a job
+object let a 40 MB upload become a 300 MB allocation. Extraction is a `bim_extract` job on the
+`bff-jobs` pool, not part of the request (a 60 MB model takes tens of seconds;
+ADR-0078) and every terminal outcome writes the document row: success → the digest dispatch sets `pending` + a job
 id, failure → `failed` with the reason, plus a `bim_models` row recording the
 same thing.
 

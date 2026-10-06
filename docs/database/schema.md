@@ -1009,8 +1009,9 @@ split is stated explicitly).
 ## bff_job_queue / bff_job_lane_turns (migration 0102, ADR-0078)
 
 The BFF's durable background work: one row is one job a `bff-jobs` replica
-claims and runs (project reindex, failed-ingestion rescan; IFC extraction,
-office rendition and report filing follow). The claim is SQL in
+claims and runs (project reindex, failed-ingestion rescan; and, one step each,
+IFC extraction `bim_extract`, office conversion `office_rendition` and research
+report filing `file_research_report`). The claim is SQL in
 `frontends/ui/workers/job-queue.js`, in the order ADR-0076 proved for
 ingestion: the lane with the fewest live claims, then the lane served longest
 ago (`bff_job_lane_turns`), then inside a lane `priority` (0 interactive, 1
@@ -1022,11 +1023,16 @@ bulk), then oldest, with `FOR UPDATE SKIP LOCKED`.
 | `kind` | text | Shape-checked (`^[a-z][a-z0-9_]{0,63}$`); the kinds a worker knows live in `lib/jobs-queue/types.ts`, so a new kind is a code change. |
 | `lane` | text | The organization id: the unit of fairness AND of tenancy. |
 | `priority` | smallint | `0` interactive, `1` bulk (CHECK). |
-| `payload` | jsonb | The job's whole state: what was asked and how far it got (a keyset cursor, the counts). Saved after every slice and read back by whichever worker claims it next. Holds the requester's identity and permissions, never an access token. |
+| `payload` | jsonb | The job's whole state: what was asked and how far it got (a keyset cursor, the counts). Saved after every slice and read back by whichever worker claims it next. Holds the requester's identity, permissions and feature flags, never an access token. A `file_research_report` job carries the finished report itself (the backend forgets a run after a day), so it is the one payload that can be large. |
 | `status` | text | `queued`, `claimed` or `dead` (CHECK). A finished job is **deleted**; a job that failed every attempt is `dead` and stays, with its reason. |
 | `attempts` | integer | Claims spent. A drain or a cap gives a claim back without spending one. |
 | `claimed_by`, `claimed_at`, `heartbeat_at` | text, timestamptz | A `claimed` row always has a holder and a heartbeat (CHECK); a claim silent for `GRID_BFF_JOBS_STALE_SECONDS` is claimed again. |
 | `created_at`, `last_error` | timestamptz, text | |
+
+A document at `processing` remembers its job as `documents.metadata.bffJobId`,
+which the sweep joins on. Migration 0103 lets `task_runs.filing_status` be
+`queued` (a `file_research_report` job holds the report) and adds the partial
+index `ix_task_runs_filing_queued` the filing sweep reads.
 
 Indexes: `(lane, priority, created_at)` over the rows that are not dead (the
 claim's second step) and `(heartbeat_at)` over claimed rows (the stale test and
