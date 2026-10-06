@@ -139,6 +139,7 @@ Consequences, where a reader looks for them.
 | [0078](0078-background-work-runs-on-one-claim-substrate.md) | Background work runs on one claim substrate, in worker pools KEDA scales on their queues | Proposed |
 | [0079](0079-chat-drops-affinity-for-the-conversation-bus.md) | Chat drops conversation affinity for the conversation bus, and the backend scales on turn occupancy | Proposed |
 | [0080](0080-every-model-call-passes-one-priority-aware-provider-limiter.md) | Every model call passes one priority-aware provider limiter that adapts to 429s | Proposed |
+| [0081](0081-backend-roles-are-split-by-job-and-named-after-it.md) | Backend roles are split by job, and named after it | Proposed |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off
