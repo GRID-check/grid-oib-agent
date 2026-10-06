@@ -362,23 +362,23 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
 echo "==> 0097 step rewrite and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0107: restricted project memory, and its DOWN migration.
+# Migration 0108: restricted project memory, and its DOWN migration.
 #
 # The down is lossy on purpose and in the safe direction: restricted notes are
 # DELETED, because dropping the column alone would serve them to everyone.
 # Checked on the fully migrated database, as the owner: an open and a
-# restricted note with the same text (which only the 0107 index allows), the
-# down, then 0107 again. 0110 replaced the column 0107 adds, so 0110 goes down
+# restricted note with the same text (which only the 0108 index allows), the
+# down, then 0108 again. 0111 replaced the column 0108 adds, so 0111 goes down
 # first and comes back last; its own backfill is checked on grid_restricted.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0107 restricted memory down migration on grid_app"
-$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0110_project_memory_restricted_folders.down.sql" >/dev/null || {
-  echo "DOWN MIGRATION 0110 FAILED on grid_app — re-run without -q to see the error" >&2
+echo "==> verifying the 0108 restricted memory down migration on grid_app"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0111_project_memory_restricted_folders.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0111 FAILED on grid_app — re-run without -q to see the error" >&2
   exit 1
 }
 $MIGRATE -v ON_ERROR_STOP=1 -q <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
-VALUES ('aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'Memory 0107', 'user_1', 'proj_0106');
+VALUES ('aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'Memory 0108', 'user_1', 'proj_0106');
 INSERT INTO project_memory (scope, project_id, organization_id, kind, content, restricted_collections) VALUES
   ('project', 'aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'decision', 'Honorar pauschal', NULL),
   ('project', 'aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'decision', 'Honorar pauschal', ARRAY['proj_0106_r0123456789ab']);
@@ -387,61 +387,61 @@ checkm() {
   local got
   got=$($MIGRATE -tAc "$1")
   if [ "$got" != "$2" ]; then
-    echo "0107 ASSERTION FAILED: $3" >&2
+    echo "0108 ASSERTION FAILED: $3" >&2
     echo "  query: $1" >&2
     echo "  got:   $got" >&2
     exit 1
   fi
 }
-$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0107_project_memory_restricted.down.sql" >/dev/null || {
-  echo "DOWN MIGRATION 0107 FAILED — re-run without -q to see the error" >&2
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0108_project_memory_restricted.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0108 FAILED — re-run without -q to see the error" >&2
   exit 1
 }
 checkm "SELECT count(*) FROM project_memory WHERE organization_id = 'org_0106'" "1" "down deleted the restricted note and kept the open one"
 checkm "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_collections'" "0" "down dropped the column"
 checkm "SELECT to_regclass('public.uniq_project_memory_project_content_active') IS NOT NULL" "t" "down restored the dedup index"
-$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0107_project_memory_restricted.sql" >/dev/null || {
-  echo "MIGRATION 0107 FAILED on re-apply — re-run without -q to see the error" >&2
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0108_project_memory_restricted.sql" >/dev/null || {
+  echo "MIGRATION 0108 FAILED on re-apply — re-run without -q to see the error" >&2
   exit 1
 }
-checkm "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_collections'" "1" "0107 re-applies"
+checkm "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_collections'" "1" "0108 re-applies"
 $MIGRATE -q -c "DELETE FROM project_memory WHERE organization_id = 'org_0106'; DELETE FROM projects WHERE organization_id = 'org_0106';" >/dev/null
-$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0110_project_memory_restricted_folders.sql" >/dev/null || {
-  echo "MIGRATION 0110 FAILED on re-apply over grid_app — re-run without -q to see the error" >&2
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0111_project_memory_restricted_folders.sql" >/dev/null || {
+  echo "MIGRATION 0111 FAILED on re-apply over grid_app — re-run without -q to see the error" >&2
   exit 1
 }
-checkm "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "1" "0110 re-applies on top"
+checkm "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "1" "0111 re-applies on top"
 
-echo "==> 0107 down migration verified"
+echo "==> 0108 down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0108: the restricted-turn marks (0106) become per-folder rows,
+# Migration 0109: the restricted-turn marks (0107) become per-folder rows,
 # and its DOWN migration.
 #
-# A database migrated only as far as 0107, seeded in the 0106 shape, then
-# handed 0108 and checked: a mark becomes a row for every folder of the
+# A database migrated only as far as 0108, seeded in the 0107 shape, then
+# handed 0109 and checked: a mark becomes a row for every folder of the
 # conversation's project that was restricted then, a stored answer that read a
 # restricted collection adds that collection's FOLDER (and nothing of another
-# project), a mark with no conversation row is dropped, and the 0106 table is
-# gone. The down gives every conversation with a row its mark back; 0108 then
-# re-applies. 0109 and 0110 are checked on the same database afterwards.
+# project), a mark with no conversation row is dropped, and the 0107 table is
+# gone. The down gives every conversation with a row its mark back; 0109 then
+# re-applies. 0110 and 0111 are checked on the same database afterwards.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0108 restricted-use backfill and its down migration on grid_restricted"
+echo "==> verifying the 0109 restricted-use backfill and its down migration on grid_restricted"
 $PSQL -q -v ON_ERROR_STOP=1 -c "CREATE DATABASE grid_restricted OWNER grid_app_owner;"
 MIGRATE_R="$PGBIN/psql -h $WORKDIR -p $PORT -U grid_app_owner -d grid_restricted"
 node -e '
   const j = require("./drizzle/meta/_journal.json");
   console.log(j.entries.map((e) => e.tag).join("\n"));
 ' | while read -r tag; do
-  [ "$tag" = "0108_conversation_restricted_folders" ] && break
+  [ "$tag" = "0109_conversation_restricted_folders" ] && break
   $MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/$tag.sql" >/dev/null || {
-    echo "0108 SETUP FAILED at $tag — re-run without -q to see the error" >&2
+    echo "0109 SETUP FAILED at $tag — re-run without -q to see the error" >&2
     exit 1
   }
 done
 $MIGRATE_R -v ON_ERROR_STOP=1 -q <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
-VALUES ('aaaaaaaa-0000-4000-8000-000000000107', 'org_0107', 'Restricted 0108', 'user_1', 'proj_0107');
+VALUES ('aaaaaaaa-0000-4000-8000-000000000107', 'org_0107', 'Restricted 0109', 'user_1', 'proj_0107');
 INSERT INTO project_folders (id, organization_id, project_id, name, path, restricted_roles, restricted_by, restricted_at) VALUES
   ('a1a1a1a1-a1a1-4000-8000-000000000107', 'org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Verträge', 'Verträge', ARRAY['org-gf'], 'user_1', now()),
   ('b2b2b2b2-b2b2-4000-8000-000000000107', 'org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Personal', 'Personal', ARRAY['org-gf'], 'user_1', now()),
@@ -458,8 +458,8 @@ INSERT INTO messages (conversation_id, organization_id, role, content, metadata)
    '{"readSources": {"sources": [{"collection": "proj_0107_ra1a1a1a1a1a1"}, {"collection": "proj_other_r0123456789ab"}]}}'::jsonb),
   ('s_open', 'org_0107', 'assistant', 'x', '{"citations": {"sources": [{"collection": "proj_0107"}]}}'::jsonb);
 SQL
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0108_conversation_restricted_folders.sql" >/dev/null || {
-  echo "MIGRATION 0108 FAILED on the seeded database — re-run without -q to see the error" >&2
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0109_conversation_restricted_folders.sql" >/dev/null || {
+  echo "MIGRATION 0109 FAILED on the seeded database — re-run without -q to see the error" >&2
   exit 1
 }
 checkr() {
@@ -489,41 +489,41 @@ refusedr() {
 checkr "SELECT string_agg(folder_id::text, ',' ORDER BY folder_id) FROM conversation_restricted_folders WHERE conversation_id = 's_marked'" "a1a1a1a1-a1a1-4000-8000-000000000107,b2b2b2b2-b2b2-4000-8000-000000000107" "a mark became every restricted folder of its project"
 checkr "SELECT string_agg(folder_id::text, ',' ORDER BY folder_id) FROM conversation_restricted_folders WHERE conversation_id = 's_answered'" "a1a1a1a1-a1a1-4000-8000-000000000107" "a stored answer added the folder of the restricted collection it read, and no other project's"
 checkr "SELECT count(*) FROM conversation_restricted_folders WHERE conversation_id IN ('s_open', 's_never_created')" "0" "an open answer and a mark without a conversation recorded nothing"
-checkr "SELECT to_regclass('public.conversation_restricted_turns') IS NULL" "t" "0108 dropped the 0106 table"
+checkr "SELECT to_regclass('public.conversation_restricted_turns') IS NULL" "t" "0109 dropped the 0107 table"
 checkr "SELECT relrowsecurity FROM pg_class WHERE relname = 'conversation_restricted_folders'" "t" "the new table is inside the tenant boundary"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0108_conversation_restricted_folders.down.sql" >/dev/null || {
-  echo "DOWN MIGRATION 0108 FAILED — re-run without -q to see the error" >&2
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0109_conversation_restricted_folders.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0109 FAILED — re-run without -q to see the error" >&2
   exit 1
 }
 checkr "SELECT string_agg(conversation_id, ',' ORDER BY conversation_id) FROM conversation_restricted_turns" "s_answered,s_marked" "down gave every conversation with a row its mark back"
 checkr "SELECT to_regclass('public.conversation_restricted_folders') IS NULL" "t" "down dropped the new table"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0108_conversation_restricted_folders.sql" >/dev/null || {
-  echo "MIGRATION 0108 FAILED on re-apply — re-run without -q to see the error" >&2
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0109_conversation_restricted_folders.sql" >/dev/null || {
+  echo "MIGRATION 0109 FAILED on re-apply — re-run without -q to see the error" >&2
   exit 1
 }
-checkr "SELECT count(*) FROM conversation_restricted_folders WHERE organization_id = 'org_0107'" "4" "0108 re-applies, from the marks and the answers"
+checkr "SELECT count(*) FROM conversation_restricted_folders WHERE organization_id = 'org_0107'" "4" "0109 re-applies, from the marks and the answers"
 
-echo "==> 0108 backfill and down migration verified"
+echo "==> 0109 backfill and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0109: read/write grants per folder (ADR-0081), and its DOWN.
+# Migration 0110: read/write grants per folder (ADR-0081), and its DOWN.
 #
-# On grid_restricted, still holding the 0105 shape: each restricted role
+# On grid_restricted, still holding the 0106 shape: each restricted role
 # becomes a WRITE grant and the folder `custom`; an open folder inherits. Then
 # what the database itself holds: a custom list may not be emptied (the
 # deferred trigger), may be REPLACED in one transaction, refuses a level or a
 # slug it does not know; a tombstone frees its name. The down maps every grant
 # back to a role (read-vs-write is lost) and a `*` list to open, and drops the
-# tombstones; 0109 then re-applies.
+# tombstones; 0110 then re-applies.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0109 grant backfill, its constraints and its down migration on grid_restricted"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0109_project_folder_grants.sql" >/dev/null || {
-  echo "MIGRATION 0109 FAILED on the seeded database — re-run without -q to see the error" >&2
+echo "==> verifying the 0110 grant backfill, its constraints and its down migration on grid_restricted"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0110_project_folder_grants.sql" >/dev/null || {
+  echo "MIGRATION 0110 FAILED on the seeded database — re-run without -q to see the error" >&2
   exit 1
 }
 checkr "SELECT string_agg(name || '=' || access_mode, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000107'" "Personal=custom,Pläne=inherit,Verträge=custom" "a restricted folder became custom, an open one inherits"
 checkr "SELECT string_agg(f.name || ':' || g.role_slug || ':' || g.level, ',' ORDER BY f.name) FROM project_folder_grants g JOIN project_folders f ON f.id = g.folder_id" "Personal:org-gf:write,Verträge:org-gf:write" "each restricted role became a write grant"
-checkr "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name = 'restricted_roles'" "0" "0109 dropped restricted_roles"
+checkr "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name = 'restricted_roles'" "0" "0110 dropped restricted_roles"
 checkr "SELECT relrowsecurity FROM pg_class WHERE relname = 'project_folder_grants'" "t" "the grants table is inside the tenant boundary"
 refusedr "DELETE FROM project_folder_grants WHERE folder_id = 'a1a1a1a1-a1a1-4000-8000-000000000107';" "it needs 1 to 20" "a custom list may not be emptied"
 refusedr "INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) VALUES ('org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'a1a1a1a1-a1a1-4000-8000-000000000107', 'org-pl', 'admin');" "project_folder_grants_level_check" "a level is read or write"
@@ -551,32 +551,32 @@ SQL
 checkr "SELECT count(*) FROM project_folder_grants WHERE folder_id = 'b2b2b2b2-b2b2-4000-8000-000000000107'" "1" "a tombstone keeps its list"
 refusedr "INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) SELECT 'org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'd4d4d4d4-d4d4-4000-8000-000000000107', 'org-extra-' || n, 'read' FROM generate_series(1, 19) AS n;" "it needs 1 to 20" "a list holds at most 20 entries"
 refusedr "INSERT INTO project_folders (organization_id, project_id, name, path) VALUES ('org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Personal', 'Personal');" "uniq_project_folders_parent_name" "two living folders still cannot share a name"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0109_project_folder_grants.down.sql" >/dev/null || {
-  echo "DOWN MIGRATION 0109 FAILED — re-run without -q to see the error" >&2
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0110_project_folder_grants.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0110 FAILED — re-run without -q to see the error" >&2
   exit 1
 }
 checkr "SELECT string_agg(name || '=' || coalesce(array_to_string(restricted_roles, '|'), 'open'), ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000107'" "Honorare=org-gf|org-pl,Personal=open,Pläne=open,Verträge=open" "down: every role at either level restricts, a * list is open, the tombstone is gone"
 checkr "SELECT count(*) FROM project_folders WHERE id = 'b2b2b2b2-b2b2-4000-8000-000000000107'" "0" "down removed the tombstone"
 checkr "SELECT to_regclass('public.project_folder_grants') IS NULL" "t" "down dropped the grants table"
 checkr "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('access_mode', 'deleted_at', 'deleted_by')" "0" "down dropped the new columns"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0109_project_folder_grants.sql" >/dev/null || {
-  echo "MIGRATION 0109 FAILED on re-apply — re-run without -q to see the error" >&2
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0110_project_folder_grants.sql" >/dev/null || {
+  echo "MIGRATION 0110 FAILED on re-apply — re-run without -q to see the error" >&2
   exit 1
 }
-checkr "SELECT string_agg(f.name || ':' || g.role_slug || ':' || g.level, ',' ORDER BY f.name, g.role_slug) FROM project_folder_grants g JOIN project_folders f ON f.id = g.folder_id" "Honorare:org-gf:write,Honorare:org-pl:write" "0109 re-applies (the read grant came back as write: the documented loss)"
+checkr "SELECT string_agg(f.name || ':' || g.role_slug || ':' || g.level, ',' ORDER BY f.name, g.role_slug) FROM project_folder_grants g JOIN project_folders f ON f.id = g.folder_id" "Honorare:org-gf:write,Honorare:org-pl:write" "0110 re-applies (the read grant came back as write: the documented loss)"
 
-echo "==> 0109 backfill, constraints and down migration verified"
+echo "==> 0110 backfill, constraints and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0110: restricted memory names its source folders, and its DOWN.
+# Migration 0111: restricted memory names its source folders, and its DOWN.
 #
-# Notes in the 0107 shape: one naming Honorare's collection becomes Honorare's
+# Notes in the 0108 shape: one naming Honorare's collection becomes Honorare's
 # id; one naming a collection no folder answers to becomes the nil UUID (shown
 # to nobody, as before); a second such note with the same text collides with
 # the first under the new index and is superseded; an open note stays open.
-# The down maps ids back to collection names, and 0110 re-applies.
+# The down maps ids back to collection names, and 0111 re-applies.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0110 restricted memory backfill and its down migration on grid_restricted"
+echo "==> verifying the 0111 restricted memory backfill and its down migration on grid_restricted"
 $MIGRATE_R -v ON_ERROR_STOP=1 -q <<'SQL'
 INSERT INTO project_memory (id, scope, project_id, organization_id, kind, content, restricted_collections, created_at) VALUES
   ('f0000000-0000-4000-8000-0000000001a1', 'project', 'aaaaaaaa-0000-4000-8000-000000000107', 'org_0107', 'decision', 'Honorar pauschal', ARRAY['proj_0107_rd4d4d4d4d4d4'], now() - interval '3 minutes'),
@@ -584,39 +584,39 @@ INSERT INTO project_memory (id, scope, project_id, organization_id, kind, conten
   ('f0000000-0000-4000-8000-0000000001c3', 'project', 'aaaaaaaa-0000-4000-8000-000000000107', 'org_0107', 'decision', 'Gehälter vertraulich', ARRAY['proj_0107_reeeeeeeeeeee'], now() - interval '1 minute'),
   ('f0000000-0000-4000-8000-0000000001d4', 'project', 'aaaaaaaa-0000-4000-8000-000000000107', 'org_0107', 'decision', 'Plan im Maßstab 1:100', NULL, now());
 SQL
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0110_project_memory_restricted_folders.sql" >/dev/null || {
-  echo "MIGRATION 0110 FAILED on the seeded database — re-run without -q to see the error" >&2
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0111_project_memory_restricted_folders.sql" >/dev/null || {
+  echo "MIGRATION 0111 FAILED on the seeded database — re-run without -q to see the error" >&2
   exit 1
 }
 checkr "SELECT string_agg(right(id::text, 2) || '=' || coalesce(array_to_string(restricted_folder_ids, '|'), 'open') || ':' || status, ',' ORDER BY id) FROM project_memory WHERE organization_id = 'org_0107'" "a1=d4d4d4d4-d4d4-4000-8000-000000000107:active,b2=00000000-0000-0000-0000-000000000000:active,c3=00000000-0000-0000-0000-000000000000:superseded,d4=open:active" "a collection became its folder, an unknown one the nil UUID, the later twin superseded"
-checkr "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_collections'" "0" "0110 dropped restricted_collections"
+checkr "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_collections'" "0" "0111 dropped restricted_collections"
 refusedr "INSERT INTO project_memory (scope, project_id, organization_id, kind, content, restricted_folder_ids) VALUES ('project', 'aaaaaaaa-0000-4000-8000-000000000107', 'org_0107', 'decision', 'leer', '{}');" "project_memory_restricted_folders_check" "an empty folder list is not a restriction"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0110_project_memory_restricted_folders.down.sql" >/dev/null || {
-  echo "DOWN MIGRATION 0110 FAILED — re-run without -q to see the error" >&2
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0111_project_memory_restricted_folders.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0111 FAILED — re-run without -q to see the error" >&2
   exit 1
 }
 checkr "SELECT string_agg(right(id::text, 2) || '=' || coalesce(array_to_string(restricted_collections, '|'), 'open'), ',' ORDER BY id) FROM project_memory WHERE organization_id = 'org_0107' AND status = 'active'" "a1=proj_0107_rd4d4d4d4d4d4,b2=proj_0107_r000000000000,d4=open" "down named each folder's collection again"
 checkr "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "0" "down dropped restricted_folder_ids"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0110_project_memory_restricted_folders.sql" >/dev/null || {
-  echo "MIGRATION 0110 FAILED on re-apply — re-run without -q to see the error" >&2
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0111_project_memory_restricted_folders.sql" >/dev/null || {
+  echo "MIGRATION 0111 FAILED on re-apply — re-run without -q to see the error" >&2
   exit 1
 }
-checkr "SELECT string_agg(right(id::text, 2) || '=' || coalesce(array_to_string(restricted_folder_ids, '|'), 'open'), ',' ORDER BY id) FROM project_memory WHERE organization_id = 'org_0107' AND status = 'active'" "a1=d4d4d4d4-d4d4-4000-8000-000000000107,b2=00000000-0000-0000-0000-000000000000,d4=open" "0110 re-applies"
+checkr "SELECT string_agg(right(id::text, 2) || '=' || coalesce(array_to_string(restricted_folder_ids, '|'), 'open'), ',' ORDER BY id) FROM project_memory WHERE organization_id = 'org_0107' AND status = 'active'" "a1=d4d4d4d4-d4d4-4000-8000-000000000107,b2=00000000-0000-0000-0000-000000000000,d4=open" "0111 re-applies"
 
-echo "==> 0110 backfill and down migration verified"
+echo "==> 0111 backfill and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0111: the download log, and its DOWN.
+# Migration 0112: the download log, and its DOWN.
 #
-# On grid_restricted, after 0110: the table is inside the tenant boundary, the
+# On grid_restricted, after 0111: the table is inside the tenant boundary, the
 # database refuses an open outside an own list, a shelf that disagrees with its
 # project and any UPDATE, and the down drops the table and its guard function;
-# 0111 then re-applies. The platform role's delete and the retention sweep are
+# 0112 then re-applies. The platform role's delete and the retention sweep are
 # proved against the real chain by download-log.integration.spec.ts above.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0111 download log, its constraints and its down migration on grid_restricted"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0111_document_access_log.sql" >/dev/null || {
-  echo "MIGRATION 0111 FAILED on the seeded database — re-run without -q to see the error" >&2
+echo "==> verifying the 0112 download log, its constraints and its down migration on grid_restricted"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0112_document_access_log.sql" >/dev/null || {
+  echo "MIGRATION 0112 FAILED on the seeded database — re-run without -q to see the error" >&2
   exit 1
 }
 checkr "SELECT relrowsecurity FROM pg_class WHERE relname = 'document_access_log'" "t" "the download log is inside the tenant boundary"
@@ -626,19 +626,19 @@ refusedr "INSERT INTO document_access_log (organization_id, user_id, kind, scope
 $MIGRATE_R -v ON_ERROR_STOP=1 -q -c "INSERT INTO document_access_log (organization_id, user_id, kind, scope, document_id, document_name) VALUES ('org_0110', 'u', 'download', 'archiv', gen_random_uuid(), 'Plan.pdf');" >/dev/null
 refusedr "UPDATE document_access_log SET user_id = 'v';" "never changed" "a row is never changed, not even by its owner"
 refusedr "DELETE FROM document_access_log;" "deleted only by the retention sweep" "only the platform role deletes"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0111_document_access_log.down.sql" >/dev/null || {
-  echo "DOWN MIGRATION 0111 FAILED — re-run without -q to see the error" >&2
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0112_document_access_log.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0112 FAILED — re-run without -q to see the error" >&2
   exit 1
 }
 checkr "SELECT to_regclass('public.document_access_log') IS NULL" "t" "down dropped the download log"
 checkr "SELECT to_regprocedure('grid_document_access_log_guard()') IS NULL" "t" "down dropped the guard function"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0111_document_access_log.sql" >/dev/null || {
-  echo "MIGRATION 0111 FAILED on re-apply — re-run without -q to see the error" >&2
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0112_document_access_log.sql" >/dev/null || {
+  echo "MIGRATION 0112 FAILED on re-apply — re-run without -q to see the error" >&2
   exit 1
 }
-checkr "SELECT count(*) FROM document_access_log" "0" "0111 re-applies, empty"
+checkr "SELECT count(*) FROM document_access_log" "0" "0112 re-applies, empty"
 
-echo "==> 0111 download log and down migration verified"
+echo "==> 0112 download log and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0113: the Papierkorb, and its DOWN.

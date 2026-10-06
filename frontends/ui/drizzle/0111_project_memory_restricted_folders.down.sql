@@ -1,10 +1,10 @@
--- Reverse 0110. ORDER: roll the frontend back first; the newer build reads and
+-- Reverse 0111. ORDER: roll the frontend back first; the newer build reads and
 -- writes `restricted_folder_ids`.
 --
 -- Each folder id becomes its collection name again
 -- (`<project collection>_r<12 hex of the folder id>`), which the older build
 -- serves only while that is a current restricted collection: a note whose
--- folder was loosened since is then shown to nobody, the 0107 behaviour.
+-- folder was loosened since is then shown to nobody, the 0108 behaviour.
 ALTER TABLE "project_memory" ADD COLUMN IF NOT EXISTS "restricted_collections" text[];
 UPDATE "project_memory" m
 SET "restricted_collections" = (

@@ -121,7 +121,7 @@ modal must fetch its own data. No type opens a modal today.
   reconcile mapping 3 red, hook gate 2 red, Python hook 7/10 red, raster
   `partial` 2 red. Found on the way: Windows-1252 previews decoded C1 controls on
   Node 22 (`ee5f7a9`, 3 red on revert).
-- **Upload batches and the inbox (migration 0104).** `5ce3bdf`, `19b0e69`. Settlement
+- **Upload batches and the inbox (migration 0105).** `5ce3bdf`, `19b0e69`. Settlement
   runs on reconcile and on the scheduler sweep; the completion SQL guard is
   proven against Postgres (1 red on revert, RLS suite 136/136).
 - **Summary dialog and history.** `e666a48` (built by a subagent, reviewed and extended):
@@ -187,11 +187,11 @@ modal must fetch its own data. No type opens a modal today.
   caller a hidden folder existed; a folder delete or move could carry documents out of
   a restriction without `project:manage`; the intake wizard's upload skipped the name
   screen; BIM routes read models in hidden folders; and a restricted turn's mark lived
-  in memory only (now migration 0106, `conversation_restricted_turns`). Full UI suite
+  in memory only (now migration 0107, `conversation_restricted_turns`). Full UI suite
   after the fix, four shards: 11,383 passed, 0 failed. CI green on `4ef628f`.
 - **Memory decision (product owner, 2 Oct).** Writing nothing from a restricted turn
   felt broken: „Restricted shouldn't feel like that it should feel like a first
   thought." Chosen: **restricted memory**. A memory carries the restricted collections
   it came from and is served only to people cleared for all of them; what the turn
   cited or read decides, and when that says nothing an LLM judge classifies, failing
-  closed to every restricted collection in scope. Migration 0107.
+  closed to every restricted collection in scope. Migration 0108.

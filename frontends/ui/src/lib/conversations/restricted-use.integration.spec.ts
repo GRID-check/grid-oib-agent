@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * A conversation's restricted use (ADR-0080, migration 0108) against a REAL
+ * A conversation's restricted use (ADR-0080, migration 0109) against a REAL
  * Postgres, through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -78,7 +78,7 @@ describe('the restricted-use suite is not silently skipped in CI', () => {
   })
 })
 
-describe.skipIf(!url)('restricted use against Postgres (migrations 0108, 0109)', () => {
+describe.skipIf(!url)('restricted use against Postgres (migrations 0109, 0110)', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
@@ -177,7 +177,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0108, 0109)',
       )
     )
     projectId = String(project.id)
-    // One statement: the 0109 trigger checks at commit that a custom list is
+    // One statement: the 0110 trigger checks at commit that a custom list is
     // not empty, and every statement here commits on its own.
     const [folder] = Array.from(
       await inOrg(ORG, () =>

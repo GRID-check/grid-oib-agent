@@ -48,7 +48,7 @@ export { PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS }
 
 
 /**
- * A restriction in its stored form (ADR-0081, migration 0110): the source
+ * A restriction in its stored form (ADR-0081, migration 0111): the source
  * folder ids, trimmed, lower-cased, de-duplicated, sorted, and null when nothing
  * is left. Two items carry the same restriction exactly when these arrays are
  * equal, which is what consolidation and the unique index key on.
@@ -450,7 +450,7 @@ export async function listOrganizationMemory(
   const conditions = [
     eq(projectMemory.scope, 'organization'),
     eq(projectMemory.organizationId, organizationId),
-    // Organization memory is never restricted (0107 CHECK); said here too, so
+    // Organization memory is never restricted (0108 CHECK); said here too, so
     // this listing stays open-only if that ever changes.
     isNull(projectMemory.restrictedFolderIds),
   ]
@@ -512,7 +512,7 @@ export async function createProjectMemoryItem(
 ): Promise<ProjectMemoryItem> {
   const db = getDb()
   // Stored canonical, so equal restrictions compare equal (consolidation, the
-  // 0107 index). Organization memory reaches every project and is never
+  // 0108 index). Organization memory reaches every project and is never
   // restricted: the caller demotes such a finding to its project first.
   const restrictedFolderIds = canonicalRestriction(input.restrictedFolderIds)
   if (restrictedFolderIds && input.scope !== 'project') {

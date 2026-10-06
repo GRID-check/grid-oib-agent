@@ -402,7 +402,7 @@ export const documents = pgTable('documents', {
   metadata: jsonb('metadata'),
   /**
    * What the content gate concluded about the CURRENT bytes (ADR-0079,
-   * migration 0103). NULL: not screened. `quarantined` pairs with
+   * migration 0104). NULL: not screened. `quarantined` pairs with
    * `status = 'quarantined'`; `released` with a complete release below.
    */
   screeningOutcome: text('screening_outcome').$type<DocumentScreeningOutcome>(),
@@ -415,7 +415,7 @@ export const documents = pgTable('documents', {
   screeningReleasedBy: text('screening_released_by'),
   screeningReleasedAt: timestamp('screening_released_at', { withTimezone: true }),
   /**
-   * The upload gesture that last wrote this document's bytes (migration 0104),
+   * The upload gesture that last wrote this document's bytes (migration 0105),
    * or NULL for a row no batch wrote. No foreign key: the batch is a pointer
    * for the upload summary, and pruning it must not take the document along.
    */

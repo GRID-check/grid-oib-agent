@@ -41,7 +41,7 @@ export const PROJECT_MEMORY_PROVENANCES = [
 ] as const
 export type ProjectMemoryProvenance = (typeof PROJECT_MEMORY_PROVENANCES)[number]
 
-/** At most this many source folders restrict one item: the 0110 CHECK (ADR-0081). */
+/** At most this many source folders restrict one item: the 0111 CHECK (ADR-0081). */
 export const PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS = 20
 
 /**
@@ -83,12 +83,12 @@ export const projectMemory = pgTable(
     conflictsWithId: uuid('conflicts_with_id'),
     /**
      * The source folders this item depends on (ADR-0080, ADR-0081, migrations
-     * 0107 and 0110): folders not every project member could read when it was
+     * 0108 and 0111): folders not every project member could read when it was
      * written. NULL is open memory. A restricted item is served and shown only
      * to a session that may read ALL of them NOW (`effectiveFolderLevel`), so a
      * loosened folder opens it and a tightened one closes it; a deleted
      * folder's tombstone keeps answering, and an id no folder has (the nil
-     * UUID a 0110 backfill wrote) is read by nobody. Project scope only, 1–20
+     * UUID a 0111 backfill wrote) is read by nobody. Project scope only, 1–20
      * entries, stored sorted and de-duplicated (`canonicalRestriction` in
      * `lib/projects/memory-service.ts`).
      */

@@ -1,4 +1,4 @@
--- Reverse 0109. ORDER: roll the frontend back first; the newer build reads and
+-- Reverse 0110. ORDER: roll the frontend back first; the newer build reads and
 -- writes `project_folder_grants`, `access_mode` and the tombstones.
 --
 -- Lossy, and in the safe direction for READING:

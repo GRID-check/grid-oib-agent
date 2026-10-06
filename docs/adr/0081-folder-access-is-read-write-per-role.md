@@ -155,7 +155,7 @@ project, a document's creator or the organization blocks the purge.
 **What is derived from restricted content records SOURCE FOLDER IDS** and is
 judged against the current grants when it is read:
 
-* a conversation's use, per person (`conversation_restricted_folders`, migration 0108): content
+* a conversation's use, per person (`conversation_restricted_folders`, migration 0109): content
   from a folder not every member may read enters the model's context only after the BFF
   admitted that use against the asker and everyone the conversation is shared with, under the
   advisory lock every widening takes (`POST /api/internal/conversations/[id]/restricted-use`).
@@ -185,7 +185,7 @@ judged against the current grants when it is read:
   folder's collection only when the asker and the conversation's audience may read the folder
   now. Without an envelope (a job worker) that route never answers for a restricted folder's
   collection;
-* restricted memory (`project_memory.restricted_folder_ids`, migration 0110), shown to a person
+* restricted memory (`project_memory.restricted_folder_ids`, migration 0111), shown to a person
   who may read all of its folders now, and served into a chat only after its folders are
   admitted for that conversation.
 
@@ -245,7 +245,7 @@ recorded folders.
   shape (level CHECK, role CHECK, 1–20 entries by a deferred constraint trigger, RLS).
 * Good, because a change of a folder's list takes effect for conversations and memory derived
   from it at the next read, with no revocation job.
-* Bad, because read-vs-write is lost on the 0109 down migration: every grant becomes a role in
+* Bad, because read-vs-write is lost on the 0110 down migration: every grant becomes a role in
   `restricted_roles` and a `*` list becomes open, so an older build lets every reader write.
 * Bad, because roles are looked up in WorkOS per person and organization at most once a minute;
   an outage falls back to the token's roles, which may be up to the token's lifetime stale.
@@ -317,10 +317,10 @@ recorded folders.
 * `lib/authz/folder-access.integration.spec.ts` (real Postgres): listings per level, RLS on the
   grants, the deferred trigger refusing an emptied list, the level and role CHECKs, the
   tombstone that frees its name and still answers.
-* `scripts/rls-test-db.sh`: 0108 backfill to folder ids, its down and re-apply; 0109 backfill
+* `scripts/rls-test-db.sh`: 0109 backfill to folder ids, its down and re-apply; 0110 backfill
   (each role a write grant), its constraints (empty and 21-entry lists refused), a list
   replaced in one transaction, a tombstone freeing its name, the down (read-vs-write lost, `*` open, tombstones removed) and re-apply;
-  0110 backfill (collection to folder, unknown to the nil UUID, twin superseded), down and
+  0111 backfill (collection to folder, unknown to the nil UUID, twin superseded), down and
   re-apply.
 * `projects/folder-access-settings.spec.ts`: validation (empty, over 20, a role twice, an unknown
   role), `project:manage` first, the audit metadata with levels, the IFC guard only for a list
@@ -442,7 +442,7 @@ recorded folders.
 * User guide: [`sensitive-data-and-access.md`](../user-guides/sensitive-data-and-access.md#who-may-read-and-edit-a-folder).
 * The download log is built: [`user-guides/download-log.md`](../user-guides/download-log.md) (what it records,
   retention, who reads it, the works-council note), the table in
-  [`database/schema.md`](../database/schema.md#document_access_log-migration-0111-adr-0079), and
+  [`database/schema.md`](../database/schema.md#document_access_log-migration-0112-adr-0079), and
   `lib/download-log/service.ts` — `recordDocumentAccess` is called by every function that hands a
   document's bytes to a person, held to the list by `coverage.spec.ts`.
 * Decided by the product owner on 6 Oct 2026 (`plans/2026-10-06-folder-access-lifecycle.md`):

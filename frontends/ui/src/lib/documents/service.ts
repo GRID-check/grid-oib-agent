@@ -794,7 +794,7 @@ export interface UploadDocumentInput {
    */
   screeningRelease?: boolean
   /**
-   * The upload gesture this file belongs to (migration 0104), as the browser
+   * The upload gesture this file belongs to (migration 0105), as the browser
    * opened it. Recorded on the row when it is the uploader's own open batch
    * for this project; anything else is ignored rather than refused.
    */

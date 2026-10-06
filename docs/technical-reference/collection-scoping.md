@@ -124,7 +124,7 @@ async function buildCollectionScopeFromRequest(
 ## Restricted folders (ADR-0080, ADR-0081)
 
 A folder whose own access list does not include every project member
-(`project_folder_grants` without `*`, migration 0109) restricts READING. A
+(`project_folder_grants` without `*`, migration 0110) restricts READING. A
 document under it lives in the collection of its nearest such folder,
 `<project collection>_r<12 hex of the folder id>` (`restrictedCollectionName`
 in `lib/authz/folder-access-rule.ts`). Who may WRITE never moves anything:
@@ -152,7 +152,7 @@ the session may read the folder (`lib/proxy/collection-authz.ts`).
 ### Per person, by what the conversation used
 
 A conversation is restricted by what it USED, recorded per source folder in
-`conversation_restricted_folders` (migration 0108): content from a folder not
+`conversation_restricted_folders` (migration 0109): content from a folder not
 every member may read entered the model's context. Being able to search a
 folder is not use. Each use is ADMITTED by the BFF
 (`POST /api/internal/conversations/[id]/restricted-use`) before the content
@@ -179,7 +179,7 @@ share and an admission cannot both go through:
 
 Sharing (`assertMayWidenConversation`, `widenConversationAudience`) allows a
 new reader exactly when they may read every recorded folder NOW; a folder
-opened to every member drops out, and a deleted folder's tombstone (0109) keeps
+opened to every member drops out, and a deleted folder's tombstone (0110) keeps
 answering with the access it had. The doors that write something the whole
 project reads refuse a conversation with a record
 (`lib/conversations/restricted-egress.ts`); deep research and tasks stay

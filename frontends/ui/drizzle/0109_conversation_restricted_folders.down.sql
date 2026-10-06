@@ -1,8 +1,8 @@
--- Reverse 0108. ORDER: roll the frontend back first; the newer build writes and
+-- Reverse 0109. ORDER: roll the frontend back first; the newer build writes and
 -- reads `conversation_restricted_folders`.
 --
 -- Not lossless, and in the safe direction: every conversation with a recorded
--- folder gets back its 0106 mark, which the older build reads as "stays with
+-- folder gets back its 0107 mark, which the older build reads as "stays with
 -- its owner". Which folders it drew on is lost; the older build never knew it.
 CREATE TABLE IF NOT EXISTS "conversation_restricted_turns" (
   "organization_id" text NOT NULL,

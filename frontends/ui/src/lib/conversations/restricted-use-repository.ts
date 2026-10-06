@@ -1,6 +1,6 @@
 /**
  * The SQL behind a conversation's restricted use (ADR-0080, ADR-0081, migration
- * 0108): which folders not every member can read it drew on, who it is shared with, and the lock that
+ * 0109): which folders not every member can read it drew on, who it is shared with, and the lock that
  * makes a check of the one against the other a single step.
  *
  * Repository rules: drizzle only, organization in every WHERE, lists bounded.

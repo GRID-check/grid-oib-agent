@@ -1,4 +1,4 @@
--- 0106: conversation_restricted_turns — a turn of this conversation ran with a
+-- 0107: conversation_restricted_turns — a turn of this conversation ran with a
 -- restricted folder's collection in its scope (ADR-0080).
 --
 -- ## Why a row of its own, written at turn START

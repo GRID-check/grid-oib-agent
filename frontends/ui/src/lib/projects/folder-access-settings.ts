@@ -49,7 +49,7 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { placeProjectDocuments, type PlacementResult } from './collection-placement'
 import { assertRestrictionKeepsIfcOpen } from './ifc-folder-guard'
 
-/** Most entries one folder's own list may hold; mirrors the 0109 constraint trigger. */
+/** Most entries one folder's own list may hold; mirrors the 0110 constraint trigger. */
 export const FOLDER_ACCESS_MAX_GRANTS = 20
 
 /** A folder's access, as it is set. */
@@ -160,7 +160,7 @@ export async function setFolderAccess(
 
   const db = getDb()
   const updated = await withTenant({ organizationId: session.organizationId }, () =>
-    // One transaction: the 0109 trigger checks at commit that a custom list is
+    // One transaction: the 0110 trigger checks at commit that a custom list is
     // never empty, so the old list may go before the new one arrives.
     db.transaction(async (tx) => {
       await tx.delete(projectFolderGrants).where(eq(projectFolderGrants.folderId, input.folderId))
@@ -206,7 +206,7 @@ export async function setFolderAccess(
       folderId: input.folderId,
       mode: grants ? 'custom' : 'inherit',
       grants: grants ? describeGrants(grants) : '',
-      // The roles alone, as the 0105 entries named them, so a reader of the
+      // The roles alone, as the 0106 entries named them, so a reader of the
       // trail across the change finds the same field.
       roles: (grants ?? []).map((grant) => grant.role).join(','),
       documentsMoved: placement.moved,

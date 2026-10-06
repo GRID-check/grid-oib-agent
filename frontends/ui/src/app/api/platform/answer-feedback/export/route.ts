@@ -16,7 +16,7 @@ import { NextResponse } from 'next/server'
 import { ForbiddenError } from '@/lib/api/errors'
 import { apiRoute } from '@/lib/api/handler'
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
-import { getAnswerFeedbackHealth } from '@/lib/feedback/service'
+import { getAnswerFeedbackHealth, getAnswerFeedbackWeeklySummary } from '@/lib/feedback/service'
 import { parseFeedbackFilters } from '@/lib/feedback/query'
 
 /** RFC 4180: quote every cell, double embedded quotes. Answers contain commas. */
@@ -37,12 +37,49 @@ const COLUMNS = [
   'topics',
   'question',
   'answer',
+  // What the voter says a good answer would have contained. The column name is
+  // a contract: the answer-suite converter reads it by name.
+  'expected_answer',
 ] as const
+
+/** The weekly summary's columns: the numerator and denominator of a failure rate. */
+const WEEKLY_COLUMNS = ['organization_id', 'iso_week', 'week_start', 'answers', 'up', 'down'] as const
+
+function csvResponse(rows: string[], columns: readonly string[], filename: string): NextResponse {
+  // A BOM so Excel opens UTF-8 correctly. These answers are German and full of
+  // umlauts; a mojibake export is one nobody trusts a second time.
+  const body = `\uFEFF${columns.join(',')}\n${rows.join('\n')}\n`
+  return new NextResponse(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-store',
+    },
+  })
+}
 
 export const GET = apiRoute(
   async ({ request, session }) => {
-    const filters = parseFeedbackFilters(new URL(request.url).searchParams)
+    const searchParams = new URL(request.url).searchParams
+    const filters = parseFeedbackFilters(searchParams)
     try {
+      // `?summary=weekly`: the denominator. The drill-in lists votes only, so it
+      // cannot say how often an answer fails; this is answers/up/down per
+      // organization and ISO week, behind the same gate and `days`/`org` filters.
+      if (searchParams.get('summary') === 'weekly') {
+        const weeks = await getAnswerFeedbackWeeklySummary(session, filters)
+        const stamp = new Date().toISOString().slice(0, 10)
+        return csvResponse(
+          weeks.map((w) =>
+            [w.organizationId, w.isoWeek, w.weekStart, w.answers, w.up, w.down]
+              .map(csvCell)
+              .join(',')
+          ),
+          WEEKLY_COLUMNS,
+          `answer-feedback-weekly-${stamp}.csv`
+        )
+      }
       const health = await getAnswerFeedbackHealth(session, filters)
 
       const rows = health.turns.map((turn) =>
@@ -56,28 +93,21 @@ export const GET = apiRoute(
           turn.topics.join(' '),
           turn.question,
           turn.answer,
+          turn.expectedAnswer,
         ]
           .map(csvCell)
           .join(',')
       )
 
-      // A BOM so Excel opens UTF-8 correctly. These answers are German and full of
-      // umlauts; a mojibake export is one nobody trusts a second time.
-      const body = `﻿${COLUMNS.join(',')}\n${rows.join('\n')}\n`
       const stamp = new Date().toISOString().slice(0, 10)
 
       // The verdict is in the FILENAME as well as the column, because the two
       // exports are otherwise one download folder away from being the same file.
-      const filename = `answer-feedback-${filters.verdict ?? 'down'}-${stamp}.csv`
-
-      return new NextResponse(body, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/csv; charset=utf-8',
-          'Content-Disposition': `attachment; filename="${filename}"`,
-          'Cache-Control': 'no-store',
-        },
-      })
+      return csvResponse(
+        rows,
+        COLUMNS,
+        `answer-feedback-${filters.verdict ?? 'down'}-${stamp}.csv`
+      )
     } catch (error) {
       if (error instanceof PlatformAccessDeniedError) throw new ForbiddenError()
       throw error
