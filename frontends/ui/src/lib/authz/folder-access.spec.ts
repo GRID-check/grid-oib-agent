@@ -32,6 +32,7 @@ import {
   requireFolderWrite,
   restrictedCollectionName,
   withProjectCeiling,
+  unreadableFoldersBelow,
   type AccessFolder,
   type FolderClearance,
   type FolderGrant,
@@ -100,6 +101,20 @@ const tree = folderTree(TREE)
 const who = (roles: string[], seesEverything = false): FolderClearance => ({ roles, seesEverything })
 
 describe('effectiveFolderLevel — the one rule (ADR-0079)', () => {
+describe('unreadableFoldersBelow — what a move of a subtree may not do blind', () => {
+  it.each([
+    ['a role the lists do not name sees none of the custom folders below', who(['member']), F.verwaltung, [F.vertraege, F.honorare]],
+    ['BH reads both (Honorare narrows to read by nesting)', who([BH]), F.verwaltung, []],
+    ['GF reads everything below Verwaltung', who([GF]), F.verwaltung, []],
+    ['an admin reads everything', who([], true), F.verwaltung, []],
+    ['only what is BELOW the folder, not the folder itself', who(['member']), F.vertraege, [F.honorare]],
+    ['a folder with no children', who(['member']), F.plaene, []],
+    ['a tombstone below is not counted', who(['member']), F.statik, []],
+  ])('%s', (_label, clearance, folderId, expected) => {
+    expect(unreadableFoldersBelow(tree, clearance, folderId).sort()).toEqual([...expected].sort())
+  })
+})
+
   // [who, folder, expected level]
   const cases: Array<[string, FolderClearance, string | null, FolderLevel]> = [
     // The project root and inheriting folders: the project decides.

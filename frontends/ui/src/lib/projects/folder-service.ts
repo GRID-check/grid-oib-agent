@@ -10,9 +10,11 @@ import {
   computeFolderAccess,
   clearanceOf,
   folderReadOnlyError,
+  folderSubtreeUnreadableError,
   getProjectFolderAccess,
   projectMayWriteDocuments,
   requireFolderWrite,
+  unreadableFoldersBelow,
   withProjectCeiling,
   type AccessFolder,
   type FolderGrant,
@@ -694,6 +696,14 @@ export async function updateProjectFolder(
     const unchanged = before.length === after.length && before.every((entry, i) => entry.id === after[i].id)
     if (!unchanged) {
       await requireProjectAccess(session, input.projectId, 'project:manage')
+      // The subtree's own lists travel with it, but the lists above it change:
+      // moving it out from under a restricting folder widens who reads a custom
+      // subfolder the mover cannot see, and moving it under one narrows it.
+      // Either way a change to who reads a folder, made blind. Refused while
+      // the subtree holds one; an organization admin reads everything.
+      if (unreadableFoldersBelow(tree, await clearanceOf(session), folder.id).length > 0) {
+        throw folderSubtreeUnreadableError()
+      }
       // What now governs the folder itself: its new ancestors' lists, then its own.
       const own = tree.get(folder.id)
       accessAfter = [...after, ...(own && own.accessMode === 'custom' ? [own] : [])]

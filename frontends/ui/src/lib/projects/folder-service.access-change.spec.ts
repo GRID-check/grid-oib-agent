@@ -16,6 +16,8 @@
  *   Verwaltung/           inherits
  *     Verträge/           org-gf: write, org-bh: read
  *       Alt/              inherits (narrowed by Verträge)
+ *       Sub/              inherits (narrowed by Verträge)
+ *         Geheim/         org-hr: write (the session may not read it)
  *     Projektordner/      inherits
  *   Ablage/               inherits
  *   Honorare/             org-hr: write (the session may not read it)
@@ -50,6 +52,8 @@ const TREE = {
     { role: 'org-bh', level: 'read' },
   ]),
   alt: folder('f-alt', 'Alt', 'Verwaltung/Verträge/Alt', 'f-vertraege'),
+  sub: folder('f-sub', 'Sub', 'Verwaltung/Verträge/Sub', 'f-vertraege'),
+  geheim: folder('f-geheim', 'Geheim', 'Verwaltung/Verträge/Sub/Geheim', 'f-sub', [{ role: 'org-hr', level: 'write' }]),
   projektordner: folder('f-projektordner', 'Projektordner', 'Verwaltung/Projektordner', 'f-verwaltung'),
   ablage: folder('f-ablage', 'Ablage', 'Ablage', null),
   honorare: folder('f-honorare', 'Honorare', 'Honorare', null, [{ role: 'org-hr', level: 'write' }]),
@@ -207,6 +211,50 @@ describe('moving a folder', () => {
       folderId: TREE.projektordner.id,
       grants: 'org-bh:read,org-gf:write',
       documentsMoved: 3,
+    })
+  })
+
+  describe('a subtree holding a folder the mover cannot read', () => {
+    // Sub sits under Verträge (org-gf, org-bh) and holds Geheim, whose own list names org-hr only. The
+    // path's minimum leaves nobody reading Geheim. Taking Sub out from under Verträge makes org-hr read
+    // it, and the mover could not see what they changed.
+    it('refuses to move it out from under a restricting folder, even for a manager, and writes nothing', async () => {
+      state.granted = new Set(MANAGER)
+      reads(TREE.sub, TREE.ablage)
+
+      const error = await updateProjectFolder(
+        { projectId: 'proj-1', folderId: TREE.sub.id, parentId: TREE.ablage.id },
+        session
+      ).catch((caught: unknown) => caught)
+
+      expect(error).toMatchObject({ status: 403, details: { reason: 'folder-subtree-unreadable' } })
+      expect(state.transactions).toBe(0)
+      expect(recordAuditEvent).not.toHaveBeenCalled()
+    })
+
+    it('lets an organization admin, who reads everything, move it', async () => {
+      state.granted = new Set(MANAGER)
+      reads(TREE.sub, TREE.ablage)
+      const admin = { ...session, permissions: ['org:projects:administer'] } as unknown as AuthorizedSession
+
+      const result = await updateProjectFolder(
+        { projectId: 'proj-1', folderId: TREE.sub.id, parentId: TREE.ablage.id },
+        admin
+      )
+
+      expect(result.ok).toBe(true)
+    })
+
+    it('does not stop a move that leaves the lists above it as they were', async () => {
+      state.granted = new Set(WRITE_ONLY)
+      reads(TREE.sub, TREE.alt)
+      // Sub into Alt: both sit under Verträge, so who reads Geheim does not change.
+      const result = await updateProjectFolder(
+        { projectId: 'proj-1', folderId: TREE.sub.id, parentId: TREE.alt.id },
+        session
+      )
+
+      expect(result.ok).toBe(true)
     })
   })
 

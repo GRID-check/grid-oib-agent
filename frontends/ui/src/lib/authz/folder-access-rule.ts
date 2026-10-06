@@ -107,6 +107,27 @@ export function effectiveFolderLevel(tree: FolderTree, clearance: FolderClearanc
   return level
 }
 
+/**
+ * The living folders below `folderId`, at any depth, that `clearance` may not
+ * read. What a change that decides who reads a whole subtree (a move) must not
+ * make blind: the folders it cannot see are the ones whose readers it would
+ * change without knowing.
+ */
+export function unreadableFoldersBelow(tree: FolderTree, clearance: FolderClearance, folderId: string): string[] {
+  const isBelow = (folder: AccessFolder): boolean => {
+    const seen = new Set<string>([folder.id])
+    for (let parent = folder.parentId; parent !== null && !seen.has(parent); parent = tree.get(parent)?.parentId ?? null) {
+      if (parent === folderId) return true
+      seen.add(parent)
+    }
+    return false
+  }
+  return [...tree.values()]
+    .filter((folder) => !folder.deleted && isBelow(folder))
+    .filter((folder) => !atLeast(effectiveFolderLevel(tree, clearance, folder.id), 'read'))
+    .map((folder) => folder.id)
+}
+
 /** The project permission caps writing: without it, `write` is `read`. */
 export function withProjectCeiling(level: FolderLevel, projectMayWrite: boolean): FolderLevel {
   return level === 'write' && !projectMayWrite ? 'read' : level
@@ -230,6 +251,21 @@ export function computeFolderAccess(
       .map((folder) => restrictedCollectionName(projectCollection, folder.id)),
     anyRestricted: living.some((folder) => folder.accessMode === 'custom'),
   }
+}
+
+/** The machine-readable reason a move is refused because the subtree holds a folder the mover cannot read. */
+export const FOLDER_SUBTREE_UNREADABLE_REASON = 'folder-subtree-unreadable'
+
+/**
+ * The refusal of a move that would change who reads a subtree containing a
+ * folder the mover cannot read. It names no folder: the mover may not know it
+ * exists.
+ */
+export function folderSubtreeUnreadableError(): ForbiddenError {
+  return new ForbiddenError(
+    'This folder contains folders you cannot read, so you cannot change who may read it. Ask an organization admin to move it.',
+    { reason: FOLDER_SUBTREE_UNREADABLE_REASON }
+  )
 }
 
 /** The refusal of a write into a folder the session may read but not write. */
