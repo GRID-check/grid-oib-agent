@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    A question about building regulations no longer comes back empty just
+    because a document was open beside the chat. Only the file you chose with
+    "Asking about this file" narrows the search now, and a file name that
+    matches nothing no longer hides the OIB guidelines.
