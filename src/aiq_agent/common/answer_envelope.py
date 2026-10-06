@@ -939,7 +939,10 @@ def _salvage_headless(content: str) -> tuple[str, AnswerMeta | None] | None:
     if split is None or payload is None:
         return None
     prose = body[: split.start()].strip()
-    if not prose:
+    # The prose of a real headless envelope is the body of the `answer` string,
+    # so it never leaves an object open. One that does was cut inside a JSON
+    # example in the prose (`Beispiel: {"name": "x", "confidence": {…}}`).
+    if not prose or prose.count("{") > prose.count("}"):
         return None
     logger.warning(
         "answer_envelope_headless: salvaged an envelope whose opening was missing (%d chars of prose)", len(prose)

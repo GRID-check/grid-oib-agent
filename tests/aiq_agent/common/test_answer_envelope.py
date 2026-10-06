@@ -755,6 +755,12 @@ class TestHeadlessSalvage:
         content = 'Beispiel: {"a": "x", "confidence": 1, "rows": 3}'
         assert extract_answer_envelope(content) == (content, None)
 
+    def test_a_json_example_in_the_prose_is_not_cut_at_its_own_keys(self):
+        # Review finding: the example's "confidence" looked like a headless tail
+        # and the reply was cut inside the example.
+        content = 'Beispiel: {"name": "test", "confidence": {"level": "medium"}}'
+        assert extract_answer_envelope(content) == (content, None)
+
     def test_a_tail_with_a_kind_that_is_no_answer_kind_is_not_salvaged(self):
         content = 'Text.", "kind":"hinweis", "summary":"x"}'
         assert extract_answer_envelope(content) == (content, None)
