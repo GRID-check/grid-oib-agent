@@ -11,13 +11,14 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
+import { withOptionalTenant, withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { documentAliasKey, documentNameKey, documentNameVariants } from './name-match'
 import { FILENAME_LOOKUP_MAX_NAMES } from './filename-lookup'
 import { CURSOR_TIMESTAMP_FORMAT, type DocumentListCursor } from './list-cursor'
 import {
+  bffJobQueue,
   documents,
   projectFolders,
   type Document,
@@ -999,6 +1000,7 @@ export async function setDocumentIngestJob(
  * the re-ingest heal) then answered with the OLD job's outcome — a retry of a
  * failed file flipped back to failed while its new conversion was running.
  * Clearing it at the one writer of `processing` fixes both readers at once.
+ * The queue job of the previous round goes with it ({@link setDocumentBackgroundJob}).
  */
 export async function markDocumentProcessing(
   documentId: string,
@@ -1011,11 +1013,95 @@ export async function markDocumentProcessing(
       .set({
         status: 'processing',
         errorMessage: null,
-        metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId'`,
+        metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId' - 'bffJobId'`,
         updatedAt: new Date(),
       })
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
   )
+}
+
+/**
+ * Remember which `bff_job_queue` job is working on a document that sits at
+ * `processing` (IFC extraction, office conversion).
+ *
+ * The sweep that recovers stranded rows ({@link listStuckProcessingDocuments})
+ * joins on this id: a row whose job is queued or running is waiting its turn,
+ * not lost, and without the id telling the two apart a backlog of thousands of
+ * waiting rows would crowd the lost ones out of every sweep's batch. The id
+ * leaves with the status: `setDocumentIngestJob` replaces the metadata when the
+ * dispatch succeeds, and `markDocumentProcessing` drops it for the next round.
+ */
+export async function setDocumentBackgroundJob(
+  documentId: string,
+  organizationId: string,
+  jobId: string,
+): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({ metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) || ${JSON.stringify({ bffJobId: jobId })}::text::jsonb` })
+      .where(
+        and(
+          eq(documents.id, documentId),
+          eq(documents.organizationId, organizationId),
+          eq(documents.status, 'processing'),
+        ),
+      ),
+  )
+}
+
+/** A document left at `processing` with no live job behind it. */
+export interface StuckProcessingDocument {
+  id: string
+  organizationId: string
+  /** `dead` when its job failed every attempt, `null` when it has none (a row from before jobs, or a lost enqueue). */
+  jobStatus: 'dead' | null
+  lastError: string | null
+}
+
+/**
+ * Documents at `processing` since before `before` whose job is gone or dead,
+ * oldest first. Platform scope by nature: the caller is a sweep over every
+ * organization, and acts on each row inside its own.
+ *
+ * A row whose job is still `queued` or `claimed` is left out in the query, so
+ * the batch is always rows that need something done.
+ */
+export async function listStuckProcessingDocuments(
+  before: Date,
+  limit: number,
+): Promise<StuckProcessingDocument[]> {
+  const db = getDb()
+  const rows = await withPlatformAccess('document sweep: finding rows left at processing without a live job', () =>
+    db
+      .select({
+        id: documents.id,
+        organizationId: documents.organizationId,
+        jobStatus: bffJobQueue.status,
+        lastError: bffJobQueue.lastError,
+      })
+      .from(documents)
+      .leftJoin(
+        bffJobQueue,
+        sql`${bffJobQueue.jobId} = nullif(${documents.metadata}->>'bffJobId', '')::uuid`,
+      )
+      .where(
+        and(
+          eq(documents.status, 'processing'),
+          lt(documents.updatedAt, before),
+          or(isNull(bffJobQueue.jobId), eq(bffJobQueue.status, 'dead')),
+        ),
+      )
+      .orderBy(asc(documents.updatedAt))
+      .limit(limit),
+  )
+  return rows.map((row) => ({
+    id: row.id,
+    organizationId: row.organizationId,
+    jobStatus: row.jobStatus === 'dead' ? 'dead' : null,
+    lastError: row.lastError ?? null,
+  }))
 }
 
 /**

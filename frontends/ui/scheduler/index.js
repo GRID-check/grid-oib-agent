@@ -11,7 +11,12 @@
  *   4. POSTs the BFF's run reconciler (`/api/internal/runs/reconcile`), which
  *      closes the runs whose ending never reached the BFF by asking the job
  *      store, and settles the block of any closed run that still reads
- *      „läuft" (`lib/runs/reconcile.ts`, backlog T3-11).
+ *      „läuft" (`lib/runs/reconcile.ts`, backlog T3-11);
+ *   5. POSTs the BFF's background-work sweep (`/api/internal/maintenance/
+ *      reconcile-background-work`), which gives a document left at `processing`
+ *      without a live `bff_job_queue` job a new one, and ends a report filing
+ *      left `queued` whose job is gone (`lib/documents/stuck-processing.ts`,
+ *      `lib/tasks/filing-sweep.ts`, ADR-0078).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
@@ -23,7 +28,7 @@
  *   GRID_SKILL_RUNS_RETENTION_DAYS     - run-history retention (default 90)
  *
  * Schedules gate (steps 1-3): only when GRID_SKILLS_ENABLED=true or
- * GRID_ENFORCE_FEATURE_FLAGS=true. Step 4 runs regardless, because runs exist
+ * GRID_ENFORCE_FEATURE_FLAGS=true. Steps 4 and 5 run regardless, because runs exist
  * without Agent Skills: a chat question escalated to deep research is a
  * `task_runs` row with no definition behind it (ADR-0062). With the gate off the
  * container is a reconcile-only worker rather than exiting.
@@ -56,7 +61,7 @@ const RECONCILE_TIMEOUT_MS = 120000
  * The schedules gate. Due definitions are claimed and fired only when the
  * skills feature is turned on for this deployment — either the dark-launch env
  * opt-in (GRID_SKILLS_ENABLED) or enforced WorkOS flags
- * (GRID_ENFORCE_FEATURE_FLAGS). The run reconciler runs either way.
+ * (GRID_ENFORCE_FEATURE_FLAGS). The two sweeps run either way.
  */
 function schedulesEnabled(env) {
   // Case-insensitive, matching how the BFF reads these vars
@@ -92,6 +97,7 @@ function createStreaks(config) {
   const escalateAfter = escalationTicks(config.pollMs)
   return {
     reconcile: createFailureStreak({ label: `${LOG} run reconcile`, escalateAfter }),
+    background: createFailureStreak({ label: `${LOG} background work sweep`, escalateAfter }),
     database: createFailureStreak({ label: `${LOG} schedule claim`, escalateAfter }),
   }
 }
@@ -112,7 +118,60 @@ function createStreaks(config) {
  * body (`describeFailedResponse`).
  */
 async function reconcileRuns(config, fetchImpl, streak) {
-  const url = `${config.frontendUrl}/api/internal/runs/reconcile`
+  const counts = await postSweep(config, fetchImpl, streak, {
+    path: '/api/internal/runs/reconcile',
+    label: 'run reconcile',
+  })
+  if (counts && (counts.closed > 0 || counts.healed > 0 || counts.failed > 0)) {
+    console.log(
+      `${LOG} run reconcile: checked ${counts.checked}, closed ${counts.closed}, ` +
+        `already closed ${counts.alreadyClosed}, waiting ${counts.waiting}, ` +
+        `healed ${counts.healed ?? 0}, failed ${counts.failed}`,
+    )
+  }
+  return counts
+}
+
+/**
+ * One background-work sweep: POST {frontendUrl}/api/internal/maintenance/
+ * reconcile-background-work. Same contract as {@link reconcileRuns}: the BFF
+ * owns the work (a stranded document gets a new `bff_job_queue` job or says why
+ * it cannot; a report filing whose job is gone is ended), this container
+ * supplies the clock. Logs only when it changed something or failed; never
+ * throws. Returns the counts `{ documents, filings }`, or null.
+ */
+async function reconcileBackgroundWork(config, fetchImpl, streak) {
+  const counts = await postSweep(config, fetchImpl, streak, {
+    path: '/api/internal/maintenance/reconcile-background-work',
+    label: 'background work sweep',
+  })
+  const documents = counts?.documents
+  const filings = counts?.filings
+  if (documents && (documents.requeued > 0 || documents.failed > 0 || documents.errors > 0)) {
+    console.log(
+      `${LOG} background work sweep, documents: checked ${documents.checked}, requeued ${documents.requeued}, ` +
+        `failed ${documents.failed}, gone ${documents.gone}, errors ${documents.errors}`,
+    )
+  }
+  if (filings && (filings.filed > 0 || filings.failed > 0 || filings.errors > 0)) {
+    console.log(
+      `${LOG} background work sweep, report filings: checked ${filings.checked}, filed ${filings.filed}, ` +
+        `failed ${filings.failed}, waiting ${filings.waiting}, errors ${filings.errors}`,
+    )
+  }
+  return counts
+}
+
+/**
+ * POST one of the BFF's internal sweeps and read its counts.
+ *
+ * A transport error, or a 404/502/503/504 (a rollout's old frontend pod, the
+ * BFF answering a database outage), goes to `streak` as transient. Any other
+ * status is a real fault and logs at ERROR at once. No failure logs an HTML
+ * body (`describeFailedResponse`). Returns the counts, or null.
+ */
+async function postSweep(config, fetchImpl, streak, { path, label }) {
+  const url = `${config.frontendUrl}${path}`
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), RECONCILE_TIMEOUT_MS)
   try {
@@ -126,25 +185,17 @@ async function reconcileRuns(config, fetchImpl, streak) {
       if (isTransientStatus(res.status)) {
         streak.failed(failure)
       } else {
-        console.error(`${LOG} run reconcile failed: ${failure.detail}`)
+        console.error(`${LOG} ${label} failed: ${failure.detail}`)
       }
       return null
     }
     streak.succeeded()
-    let counts = null
     try {
-      counts = await res.json()
+      return await res.json()
     } catch {
       /* non-JSON 200 — nothing to report */
+      return null
     }
-    if (counts && (counts.closed > 0 || counts.healed > 0 || counts.failed > 0)) {
-      console.log(
-        `${LOG} run reconcile: checked ${counts.checked}, closed ${counts.closed}, ` +
-          `already closed ${counts.alreadyClosed}, waiting ${counts.waiting}, ` +
-          `healed ${counts.healed ?? 0}, failed ${counts.failed}`,
-      )
-    }
-    return counts
   } catch (error) {
     streak.failed(describeTransportError(error))
     return null
@@ -213,13 +264,14 @@ async function fireOne(config, scheduleId, fetchImpl = fetch) {
 
 /**
  * One scheduler tick: the schedules (when their gate is on), then the run
- * reconciler (always). Neither can throw out of the tick. Returns the count
+ * reconciler and the background-work sweep (always). Neither can throw out of the tick. Returns the count
  * fired (for logs). `streaks` must outlive the tick (`createStreaks`): a fresh
  * one per tick would never reach its escalation.
  */
 async function tick(sql, config, fetchImpl, streaks) {
   const fired = config.schedulesEnabled ? await fireDue(sql, config, streaks.database) : 0
   await reconcileRuns(config, fetchImpl, streaks.reconcile)
+  await reconcileBackgroundWork(config, fetchImpl, streaks.background)
   return fired
 }
 
@@ -317,6 +369,7 @@ module.exports = {
   createStreaks,
   fireOne,
   reconcileRuns,
+  reconcileBackgroundWork,
   tick,
   INTERNAL_TOKEN_HEADER,
 }
