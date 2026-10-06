@@ -110,6 +110,61 @@ export async function listCustomFolderNames(
   )
 }
 
+/** One living folder whose own access list names a role. */
+export interface FolderNamingRole {
+  folderId: string
+  folderName: string
+  projectId: string
+  projectName: string
+}
+
+/** Most folders one role's deletion confirmation lists; the total is still counted. */
+export const ROLE_USAGE_LIST_LIMIT = 50
+
+/**
+ * The living folders of the organization's living projects whose own list names
+ * `roleSlug`: what deleting the role would leave without that grant. The first
+ * {@link ROLE_USAGE_LIST_LIMIT} by project and folder name, and how many there
+ * are in all.
+ */
+export async function listFoldersNamingRole(
+  organizationId: string,
+  roleSlug: string
+): Promise<{ folders: FolderNamingRole[]; total: number }> {
+  const db = getDb()
+  const where = and(
+    eq(projectFolderGrants.organizationId, organizationId),
+    eq(projectFolderGrants.roleSlug, roleSlug),
+    eq(projects.organizationId, organizationId),
+    isNull(projectFolders.deletedAt),
+    isNull(projects.deletedAt)
+  )
+  const [rows, totals] = await withTenant({ organizationId }, () =>
+    Promise.all([
+      db
+        .select({
+          folderId: projectFolders.id,
+          folderName: projectFolders.name,
+          projectId: projects.id,
+          projectName: projects.name,
+        })
+        .from(projectFolderGrants)
+        .innerJoin(projectFolders, eq(projectFolders.id, projectFolderGrants.folderId))
+        .innerJoin(projects, eq(projects.id, projectFolders.projectId))
+        .where(where)
+        .orderBy(asc(projects.name), asc(projectFolders.name))
+        .limit(ROLE_USAGE_LIST_LIMIT),
+      db
+        .select({ total: count() })
+        .from(projectFolderGrants)
+        .innerJoin(projectFolders, eq(projectFolders.id, projectFolderGrants.folderId))
+        .innerJoin(projects, eq(projects.id, projectFolders.projectId))
+        .where(where),
+    ])
+  )
+  return { folders: rows, total: Number(totals[0]?.total ?? 0) }
+}
+
 /**
  * Every retrieval collection the project's documents live in: its own, and one
  * per restricted folder that holds something. What a change that must reach
