@@ -5,34 +5,9 @@ export const archiv = {
   backToApp: 'Zurück zu den Projekten',
   backToProject: 'Zurück zum Projekt',
   backToNamedProject: 'Zurück zu {name}',
+  // What only the Büroarchiv card says: the gold kind chip and where it came from.
   library: {
-    searchPlaceholder: 'Archiv durchsuchen…',
-    searchLabel: 'Archivdokumente durchsuchen',
-    resetSearch: 'Suche zurücksetzen',
-    categoriesLabel: 'Nach Kategorie filtern',
-    allCategories: 'Alle',
-    emptyTitle: 'Das Archiv ist leer',
-    emptyDescription:
-      'Hier abgelegte Dokumente werden zu Bürowissen und stehen jedem Projekt Ihrer Organisation zur Verfügung.',
-    noMatchTitle: 'Keine passenden Dokumente',
-    noMatchDescription: 'Kein Archivdokument entspricht Ihrer Suche oder der gewählten Kategorie.',
-    clearFilters: 'Filter zurücksetzen',
     provenance: 'Aus „{source}“',
-    semantic: {
-      searchPlaceholder: 'Archiv durchsuchen – Enter für semantische Suche …',
-      run: 'Suchen',
-      reset: 'Alle Dokumente anzeigen',
-      banner: 'Semantische Suche: {count} Treffer für „{query}“',
-      searching: 'Archiv wird nach „{query}“ durchsucht …',
-      noResults: 'Keine semantischen Treffer für „{query}“',
-      failed: 'Die Suche konnte nicht ausgeführt werden',
-      failedDescription:
-        'Auf dem Weg zum Index ist etwas schiefgegangen. Das Archiv ist unverändert — versuchen Sie dieselbe Suche erneut oder kehren Sie zu allen Dokumenten zurück.',
-      retry: 'Erneut versuchen',
-      failedBanner: 'Semantische Suche nach „{query}“ konnte nicht ausgeführt werden',
-      noResultsDescription:
-        'Nichts im Archiv entsprach dem Sinn Ihrer Anfrage. Versuchen Sie eine andere Formulierung oder löschen Sie die Suche, um alle Dokumente zu durchsuchen.',
-    },
     kind: {
       floorplan: 'Grundriss',
       section: 'Schnitt / Ansicht',
@@ -55,12 +30,6 @@ export const archiv = {
   },
   workspace: {
     dropToUpload: 'Dateien hier ablegen, um sie ins Archiv aufzunehmen',
-    dropUnsupported: 'Einige Dateien haben einen nicht unterstützten Typ',
-    uploadProblem: 'Upload-Problem',
-    dismissError: 'Fehler ausblenden',
-    loadError: 'Das Archiv konnte nicht geladen werden.',
-    listTruncated: 'Angezeigt werden die neuesten {count} Dokumente. Ältere fehlen in dieser Liste und in der Suche nach Namen.',
-    tryAgain: 'Erneut versuchen',
   },
   actions: {
     label: 'Dateiaktionen für „{name}“',
@@ -78,6 +47,8 @@ export const archiv = {
     open: 'Öffnen',
     ask: 'Danach fragen',
     copyOriginPath: 'Herkunftspfad kopieren',
+    moved: '„{name}“ nach {folder} verschoben',
+    moveError: 'Das Dokument konnte nicht verschoben werden. Bitte versuchen Sie es erneut.',
     move: 'In Ordner verschieben',
     rename: 'Umbenennen…',
     delete: 'Löschen…',

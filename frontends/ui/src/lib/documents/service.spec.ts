@@ -93,6 +93,7 @@ vi.mock('./repository', () => ({
   setDocumentIngestJob: vi.fn().mockResolvedValue(undefined),
   markDocumentIngestFailed: vi.fn().mockResolvedValue(undefined),
   findFolderPathInProject: vi.fn().mockResolvedValue(null),
+  findFolderPathInArchiv: vi.fn().mockResolvedValue(null),
   findDocumentInOrg: vi.fn(),
   // Default: no collision, so the upload path is the insert path it has always
   // been. The replace path is driven per-test.
@@ -135,6 +136,7 @@ import {
   findDocumentInOrg,
   findLiveDocumentByFilename,
   findFolderPathInProject,
+  findFolderPathInArchiv,
   listProjectDocumentPage,
   findProjectDocumentsByFilenames,
   findProjectDocumentsByNames,
@@ -1332,6 +1334,30 @@ describe('the folder a document is filed in reaches the ingest dispatch', () => 
     await reingestDocument(session, 'doc-99')
 
     expect(ingestBody().folder_path).toBe('Brandschutz')
+  })
+
+  // ADR-0078: an Archiv document can be filed too, and a re-ingest that dropped
+  // its folder would un-file it on the backend while the database still has it.
+  it('re-supplies an ARCHIV document\u2019s folder path on re-ingest', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({
+        id: 'doc-99',
+        status: 'failed',
+        storageKey: 'org/org-1/archiv/doc/doc-99/norm.pdf',
+        projectId: null,
+        scope: 'archiv',
+        collectionName: 'archiv_org-1',
+        folderId: 'folder-1',
+      })
+    )
+    vi.mocked(findFolderPathInArchiv).mockResolvedValue('Normen/Brandschutz')
+
+    // An admin holds `org:archiv:manage`, which re-ingesting an Archiv document takes.
+    await reingestDocument({ ...session, role: 'admin' }, 'doc-99')
+
+    expect(findFolderPathInArchiv).toHaveBeenCalledWith('folder-1', 'org-1')
+    expect(findFolderPathInProject).not.toHaveBeenCalled()
+    expect(ingestBody().folder_path).toBe('Normen/Brandschutz')
   })
 
   it('sends null on re-ingest for a document that was never filed', async () => {

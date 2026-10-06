@@ -113,6 +113,42 @@ export interface FileFilters {
   kinds: readonly DocumentKind[]
   /** Empty means every status, for the same reason. */
   statuses: readonly FileStatusGroup[]
+  /**
+   * Ingestion tags, lower-cased — a document matches when it carries ANY of
+   * them. The Archiv's category chips were this, as a row of their own over a
+   * grid of their own; as a filter they work on every shelf and under every
+   * folder, and an empty set is no constraint like the others.
+   */
+  tags: readonly string[]
+}
+
+/** One tag the loaded documents really carry, and how many do. */
+export interface TagOption {
+  /** Lower-cased: what `FileFilters.tags` holds. */
+  key: string
+  /** As the first document spelled it. */
+  label: string
+  count: number
+}
+
+/**
+ * The tags actually present on the loaded documents, most frequent first (ties:
+ * locale alphabetical). Nothing is invented: a shelf without tagged documents
+ * offers no tag filter at all.
+ */
+export function tagOptions(files: readonly FileItem[], locale: string): TagOption[] {
+  const counts = new Map<string, TagOption>()
+  for (const file of files) {
+    for (const tag of file.tags ?? []) {
+      const key = tag.toLowerCase()
+      const entry = counts.get(key)
+      if (entry) entry.count += 1
+      else counts.set(key, { key, label: tag, count: 1 })
+    }
+  }
+  return [...counts.values()].sort(
+    (a, b) => b.count - a.count || a.label.localeCompare(b.label, locale)
+  )
 }
 
 export const NO_FILE_FILTERS: FileFilters = {
@@ -122,6 +158,7 @@ export const NO_FILE_FILTERS: FileFilters = {
   includeArchived: false,
   kinds: [],
   statuses: [],
+  tags: [],
 }
 
 /**
@@ -141,6 +178,7 @@ export function activeFilterCount(filters: FileFilters, canCollaborate: boolean)
   if (filters.includeArchived) count += 1
   if (filters.kinds.length > 0) count += 1
   if (filters.statuses.length > 0) count += 1
+  if (filters.tags.length > 0) count += 1
   return count
 }
 
@@ -170,7 +208,8 @@ export function applyFileFilters<T extends FileItem>(
     assignment !== 'all' ||
     filters.reviewPendingOnly ||
     filters.kinds.length > 0 ||
-    filters.statuses.length > 0
+    filters.statuses.length > 0 ||
+    filters.tags.length > 0
   if (!constrained) return files
 
   return files.filter((file) => {
@@ -186,6 +225,9 @@ export function applyFileFilters<T extends FileItem>(
     }
     // A row whose version state is unknown (a listing that did not read it) is
     // not „ausstehend": the honest answer to a question nobody asked is no.
+    if (filters.tags.length > 0 && !file.tags?.some((tag) => filters.tags.includes(tag.toLowerCase()))) {
+      return false
+    }
     if (filters.reviewPendingOnly && file.versionState !== 'in_review') return false
     if (filters.kinds.length > 0) {
       const kind = inferDocumentKind({

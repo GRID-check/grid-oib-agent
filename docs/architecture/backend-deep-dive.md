@@ -536,7 +536,9 @@ internal client (its URL is backend-consumed). Compose sets `SEAWEED_PUBLIC_ENDP
 ### Folders
 
 Nested folders are fully supported (self-referential `project_folders.parent_id`,
-`folder-service.ts` builds the nested path, the API accepts `parentId`, and the
+`folder-service.ts` builds the nested path — since ADR-0078 on both shelves that
+have folders, a project's Dateien and the org-wide Archiv, through one
+shelf-parameterised core in `lib/documents/shelf-folders.ts`, the API accepts `parentId`, and the
 tree renders recursively). The prior "can't nest" symptom was **UX only** — there
 was no per-folder affordance. **Fix**: `folder-tree-pane.tsx` now shows an "add
 subfolder" `+` on each folder row and makes root creation explicit.

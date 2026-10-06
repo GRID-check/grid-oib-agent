@@ -1,0 +1,19 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+features:
+  - >
+    The Archiv now has folders, just like a project's files: create, rename, move
+    and delete them, drop in a whole folder structure, and move documents
+    between them. Deleting a folder never deletes what was in it, and Piloti
+    knows which folder a document is in.
+improvements:
+  - >
+    The Archiv's file list now offers the same filters as a project's, so
+    archived files can be shown again and files written by Piloti can be told
+    apart from your team's.
+fixes:
+  - >
+    Renaming or moving a folder that has subfolders no longer fails with an
+    error.

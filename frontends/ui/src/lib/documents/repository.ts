@@ -14,6 +14,7 @@ import 'server-only'
 import { and, asc, count, desc, eq, inArray, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
+import { ARCHIV_SHELF, projectShelf, shelfDocumentWhere, shelfFolderWhere, type DocumentShelf } from './shelf'
 import { documentAliasKey, documentNameKey, documentNameVariants } from './name-match'
 import { FILENAME_LOOKUP_MAX_NAMES } from './filename-lookup'
 import { CURSOR_TIMESTAMP_FORMAT, type DocumentListCursor } from './list-cursor'
@@ -168,23 +169,20 @@ export const documentListColumns = {
   metadata: documents.metadata,
 }
 
-function projectListingWhere(
-  projectId: string,
+/**
+ * The rows a listing of `shelf` shows — the one definition behind a project's
+ * Dateien and the org-wide Archiv (ADR-0078), so the two cannot disagree about
+ * what a document listing is. The shelf (`shelfDocumentWhere`) names the scope
+ * for both, rather than leaving one of them correct by the accident of a NULL
+ * project; `authoredBy` and the lifecycle rule are the same predicates on both.
+ */
+function listingWhere(
+  shelf: DocumentShelf,
   organizationId: string,
   { authoredBy, includeArchived = false }: Pick<ListProjectDocumentsOptions, 'authoredBy' | 'includeArchived'>,
 ): SQL | undefined {
   return and(
-    eq(documents.projectId, projectId),
-    eq(documents.organizationId, organizationId),
-    // The shelf, stated. This query used to filter on `project_id` alone
-    // and be correct by accident: the only other shelf was the Archiv,
-    // whose rows carry a NULL project, so `project_id = $1` excluded them
-    // without ever saying that was the intent. `session` is a third shelf
-    // that also has a NULL project (ADR-0047 Phase 2) — so the accident
-    // still holds, and one row that ever carries both a project and a
-    // non-project scope would end it silently. A project listing lists
-    // project documents; that is now what it asks for.
-    eq(documents.scope, 'project'),
+    shelfDocumentWhere(shelf, organizationId),
     ...(authoredBy ? [eq(documents.authoredBy, authoredBy)] : []),
     ...(includeArchived ? [] : [eq(documents.lifecycle, 'active')]),
   )
@@ -206,7 +204,7 @@ export async function listProjectDocuments(
     db
       .select(documentListColumns)
       .from(documents)
-      .where(projectListingWhere(projectId, organizationId, { authoredBy, includeArchived }))
+      .where(listingWhere(projectShelf(projectId), organizationId, { authoredBy, includeArchived }))
       // Newest first, with the id as tiebreak: createdAt ties are real (a
       // batch import lands on one timestamp), and under offset pagination an
       // unstable order drops rows from one page and repeats them on the next.
@@ -267,15 +265,16 @@ export async function readDocumentListPage(
 export const cursorCreatedAtColumn = sql<string>`to_char(${documents.createdAt} AT TIME ZONE 'UTC', ${CURSOR_TIMESTAMP_FORMAT})`
 
 /**
- * One keyset page of a project's documents — the listing the Files pane
- * drains, page after page, so no document past the first `DOCUMENT_LIST_LIMIT`
- * falls off it.
+ * One keyset page of a shelf's documents — the listing the Files pane drains,
+ * page after page, so no document past the first `DOCUMENT_LIST_LIMIT` falls
+ * off it. A project's Dateien and the org-wide Archiv are this one query
+ * (ADR-0078): same columns, same order, same lifecycle and author filters.
  *
  * Each query stays bounded; completeness comes from following `nextCursor`,
  * never from a larger limit.
  */
-export async function listProjectDocumentPage(
-  projectId: string,
+export async function listDocumentPage(
+  shelf: DocumentShelf,
   organizationId: string,
   {
     limit = DOCUMENT_LIST_LIMIT,
@@ -293,7 +292,7 @@ export async function listProjectDocumentPage(
           .from(documents)
           .where(
             and(
-              projectListingWhere(projectId, organizationId, { authoredBy, includeArchived }),
+              listingWhere(shelf, organizationId, { authoredBy, includeArchived }),
               ...(cursor ? [afterDocumentListCursor(cursor)] : []),
             ),
           )
@@ -302,6 +301,15 @@ export async function listProjectDocumentPage(
       ),
     limit,
   )
+}
+
+/** One keyset page of a project's documents — see {@link listDocumentPage}. */
+export function listProjectDocumentPage(
+  projectId: string,
+  organizationId: string,
+  options: Omit<ListProjectDocumentsOptions, 'offset'> & { cursor?: DocumentListCursor } = {},
+): Promise<DocumentListPage> {
+  return listDocumentPage(projectShelf(projectId), organizationId, options)
 }
 
 /**
@@ -327,16 +335,19 @@ export function filenameLookupWhere(filenames: readonly string[]): SQL | undefin
 }
 
 /**
- * The project documents named `filenames` — the rows a listing would show
+ * The documents of a shelf named `filenames` — the rows a listing would show
  * (same shelf, same lifecycle rule), found by name rather than by paging.
  *
  * For the readers that need SPECIFIC documents: the semantic search's join and
  * the by-name resolve behind citations and surfaced-document cards. Reading the
  * first listing page for them dropped every hit past the newest 500 as if it
  * did not exist. Bounded by its input and by `DOCUMENT_LIST_LIMIT`.
+ *
+ * Folders do not enter into it: a document is unique per filename per
+ * collection, so a name finds it wherever it is filed.
  */
-export async function findProjectDocumentsByFilenames(
-  projectId: string,
+export async function findDocumentsByFilenames(
+  shelf: DocumentShelf,
   organizationId: string,
   filenames: readonly string[],
   { includeArchived = false }: Pick<ListProjectDocumentsOptions, 'includeArchived'> = {},
@@ -348,10 +359,20 @@ export async function findProjectDocumentsByFilenames(
     db
       .select(documentListColumns)
       .from(documents)
-      .where(and(projectListingWhere(projectId, organizationId, { includeArchived }), byName))
+      .where(and(listingWhere(shelf, organizationId, { includeArchived }), byName))
       .orderBy(desc(documents.createdAt), asc(documents.id))
       .limit(DOCUMENT_LIST_LIMIT),
   )
+}
+
+/** The project documents named `filenames` — see {@link findDocumentsByFilenames}. */
+export function findProjectDocumentsByFilenames(
+  projectId: string,
+  organizationId: string,
+  filenames: readonly string[],
+  options: Pick<ListProjectDocumentsOptions, 'includeArchived'> = {},
+): Promise<DocumentListRow[]> {
+  return findDocumentsByFilenames(projectShelf(projectId), organizationId, filenames, options)
 }
 
 /** One row of a name probe (`name-probe-types.ts` is its wire shape). */
@@ -422,9 +443,9 @@ export async function probeDocumentNames(
   return [...byId.values()]
 }
 
-/** The project documents answering to any of `names` — see {@link nameProbeWhere}. */
-export async function findProjectDocumentsByNames(
-  projectId: string,
+/** The documents of a shelf answering to any of `names` — see {@link nameProbeWhere}. */
+export async function findDocumentsByNames(
+  shelf: DocumentShelf,
   organizationId: string,
   names: readonly string[],
 ): Promise<DocumentNameMatchRow[]> {
@@ -434,18 +455,20 @@ export async function findProjectDocumentsByNames(
       db
         .select(documentNameMatchColumns)
         .from(documents)
-        .where(
-          and(
-            eq(documents.projectId, projectId),
-            eq(documents.organizationId, organizationId),
-            eq(documents.scope, 'project'),
-            where,
-          ),
-        )
+        .where(and(shelfDocumentWhere(shelf, organizationId), where))
         .orderBy(desc(documents.createdAt), asc(documents.id))
         .limit(limit),
     ),
   )
+}
+
+/** The project documents answering to any of `names` — see {@link nameProbeWhere}. */
+export function findProjectDocumentsByNames(
+  projectId: string,
+  organizationId: string,
+  names: readonly string[],
+): Promise<DocumentNameMatchRow[]> {
+  return findDocumentsByNames(projectShelf(projectId), organizationId, names)
 }
 
 /**
@@ -1039,12 +1062,13 @@ export async function markDocumentIngestFailed(
 }
 
 /**
- * Resolve a folder's storage path, scoped to the project so a folder id from
- * another project can never redirect an upload.
+ * A folder's path on a shelf, scoped to it so a folder id from another project,
+ * another shelf or another tenant can never redirect an upload or re-file a
+ * document under a tree it is not in.
  */
-export async function findFolderPathInProject(
+async function findFolderPathOnShelf(
+  shelf: DocumentShelf,
   folderId: string,
-  projectId: string,
   organizationId: string,
 ): Promise<string | null> {
   const db = getDb()
@@ -1052,10 +1076,24 @@ export async function findFolderPathInProject(
     db
       .select({ path: projectFolders.path })
       .from(projectFolders)
-      .where(and(eq(projectFolders.id, folderId), eq(projectFolders.projectId, projectId)))
+      .where(and(eq(projectFolders.id, folderId), shelfFolderWhere(shelf, organizationId)))
       .limit(1),
   )
   return row?.path ?? null
+}
+
+/** A project folder's path — see {@link findFolderPathOnShelf}. */
+export function findFolderPathInProject(
+  folderId: string,
+  projectId: string,
+  organizationId: string,
+): Promise<string | null> {
+  return findFolderPathOnShelf(projectShelf(projectId), folderId, organizationId)
+}
+
+/** An Archiv folder's path — see {@link findFolderPathOnShelf}. */
+export function findFolderPathInArchiv(folderId: string, organizationId: string): Promise<string | null> {
+  return findFolderPathOnShelf(ARCHIV_SHELF, folderId, organizationId)
 }
 
 /**
