@@ -38,6 +38,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from aiq_agent.common.provider_limiter import priority_scope
 from aiq_agent.knowledge import ingest_queue
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.base import BaseIngestor
@@ -371,7 +372,9 @@ class QueueSource:
         beat = threading.Thread(target=self._beat, args=(job_id, run), daemon=True, name=f"ingest-claim-{job_id[:8]}")
         beat.start()
         try:
-            self._ingestor.run_prepared(prepared, still_owner=lambda: self._still_owner(job_id, run))
+            # Its class at the provider limiter is the job's own priority (ADR-0080).
+            with priority_scope(prepared.priority):
+                self._ingestor.run_prepared(prepared, still_owner=lambda: self._still_owner(job_id, run))
         finally:
             run.stop.set()
             self._finish(job_id, run)

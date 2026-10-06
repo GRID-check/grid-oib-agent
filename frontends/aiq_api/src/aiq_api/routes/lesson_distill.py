@@ -37,8 +37,10 @@ import logging
 import httpx
 from fastapi import APIRouter
 
+from aiq_agent.common import provider_limiter
 from aiq_agent.common.credential_resolution import ResolvedCredential
 from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
+from aiq_agent.common.openrouter import limited_async_http_client
 
 from ..models.requests import LessonDistillRequest
 from ..models.requests import LessonDistillResponse
@@ -234,7 +236,7 @@ def add_lesson_distill_routes(router: APIRouter) -> None:
         report_block = _build_report_block(request)
 
         try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
+            async with limited_async_http_client(cls=provider_limiter.BULK, timeout=45.0) as client:
                 distilled = await _chat_json(client, cred, DISTILL_SYSTEM_PROMPT, report_block, 600)
 
                 match_id = distilled.get("match_lesson_id")

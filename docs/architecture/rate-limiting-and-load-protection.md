@@ -300,6 +300,7 @@ share the 429 vocabulary of L1–L3 so the UI has one story.
 | L0/L1 | **fail open** (`failClosed: false`, RLS timeout 250 ms) | a Redis blip must not be an outage; these are abuse bounds |
 | L2 | fail open | same |
 | L3 | fail open (already is) | protective, not load-bearing |
+| L3c provider limiter | fail open | ordering and a ceiling, not a gate; a cache outage must not stop answers |
 | L4 budget **refusal** | **fail closed** | it is the money gate — already correct |
 
 One exception worth considering: fail *closed* on L1 for the **unauthenticated**
@@ -499,7 +500,89 @@ than an admission.
 - **A fixed ceiling at the provider.** However many workers run, at most
   `AIQ_VLM_FLEET_CONCURRENCY` vision calls are in flight, a Dragonfly lease pool
   sharing L3's scripts (`common/lease_slots.py`). A 429 backs off outside its
-  slot. Fails open like L3.
+  slot. Fails open like L3. It is the narrow, ingestion-only ceiling; L3c below
+  is the one every model call passes, and the VLM pool sits outside it.
+
+### L3c — the provider limiter (ADR-0080)
+
+L3 and L3b bound how much *work* runs. None of them knows what the provider will
+take, or that a person waiting on an answer should go before a bulk reindex when
+it will not. The provider limiter is the one pool of *model calls in flight*
+that chat, research, ingestion and embeddings all draw from
+(`aiq_agent.common.provider_limiter`).
+
+- **Priority classes, served in order.** `chat`, `interactive`, `research`,
+  `bulk`. A caller that finds the pool full takes a ticket in the sorted set of
+  its class, and a free slot goes to the oldest ticket of the highest class
+  waiting. The order is the tickets', not whoever polls first, so a `bulk`
+  waiter yields to a `chat` waiter however the polls interleave. The scripts
+  extend L3's (`lease_slots.RANKED_ADMISSION_LUA`): a lease that is not renewed
+  ages out, and a waiter that stops polling loses its ticket after five seconds.
+- **Adaptive limits (AIMD), one per quota, shared by the fleet.** A limit starts
+  at its ceiling. A 429 halves it, not below its floor, once per two seconds so
+  the calls that fail together count once. Each
+  `GRID_PROVIDER_LIMIT_INTERVAL_SECONDS` without a 429 adds one. They live in
+  Dragonfly next to the leases, so a new replica starts from the fleet's limits
+  and scaling out adds callers, not 429s.
+- **Scoped to the quota that said 429.** A call holds a slot in the key-wide pool
+  (`GRID_PROVIDER_LIMIT_CEILING` / `_FLOOR`) and in the pool of its model
+  (`GRID_PROVIDER_MODEL_LIMIT_CEILING` / `_FLOOR`). OpenRouter wraps an upstream
+  provider's refusal in its own 429 and names the provider in
+  `error.metadata.provider_name`: that halves that model's limit only, so a
+  Gemini brown-out leaves every other model's capacity alone. A 429 with
+  OpenRouter's own `code: 429` and no provider is the key's limit and halves the
+  key-wide pool. One that cannot be classified (an in-stream `error` event has no
+  body; so has a reply that is not JSON) counts against the model. The classifier
+  reads the OpenAI SDK's `RateLimitError.body` on the chat seam and the response
+  body in the transport (`provider_limiter.scope_of_error`). A waiter held back by
+  its own model's limit does not hold back the other models queued behind it.
+- **The class comes from the task, not the call site.** A ContextVar
+  (`provider_class`): a chat turn sets `chat` (`turn/admission.answer_turn`),
+  a research job `research` (`jobs/runner.run_agent_job`), an ingest job its
+  priority (`interactive` or `bulk`), and anything else is `interactive`.
+- **Three seams, each single.** Every chat-model call passes the contract
+  subclass in `common/llm_factory.py` (streams hold their slot to the last
+  chunk). Every OpenAI-SDK client the embeddings and the vision model use rides
+  the pinned transport in `common/openrouter.py`, which holds a slot from the
+  request to the end of the response body. A call that shapes its own JSON body
+  uses `limited_async_http_client` from the same module: the BFF-called utility
+  routes `generate_summary`, `consistency_check`, `generate_conversation_title`
+  and `skill_review` (`interactive`), the background `feedback_digest` and
+  `lesson_distill` (`bulk`), and the decision model (`common/decisions.py`) and
+  the reranker (`knowledge_layer/cross_encoder.py`), which take the class of the
+  task that makes them. It is the same transport without the zero-data-retention
+  pin: those bodies already carry the organization's own policy
+  (`ResolvedCredential.request_body`), and an organization that switched ZDR off
+  keeps that choice. A call to a host that is not OpenRouter takes no slot. The
+  VLM pool of L3b stays outside it: a vision call has the right to call before it
+  waits for a provider slot.
+- **A 429 waits outside the slot.** The slot is released first and the
+  `Retry-After` is waited out after, so a rate-limited call never holds capacity
+  another call could use. The chat seam sleeps it before re-raising (the retry
+  above it does not read the header); the SDK clients retry with it themselves,
+  and each retry queues up again.
+- **A chat call keeps its latency budget.** A chat-class request through the
+  transport waits for a slot no longer than its own pool timeout (three seconds
+  for a query embedding) and then fails like an exhausted connection pool;
+  retrieval already fails open on that. Every other class waits as long as the
+  pool stays full: failing starved bulk work would turn the limiter into lost
+  ingestion.
+- **Fails open.** No Dragonfly, a script it refuses or `GRID_PROVIDER_LIMITER=off`
+  means every call proceeds, as in every layer but L4.
+- **Enforced.** `tests/aiq_agent/common/test_provider_limiter_call_sites.py`
+  fails when a module builds a chat model (`ChatOpenAI(`, `init_chat_model(`, a
+  raw `builder.get_llm(`) or an embedding client by hand, when a file that talks
+  to a model opens a raw `httpx` client instead of the limited one, and when a
+  call through the seams stops holding a slot. Its sibling `test_openrouter_call_sites.py` is
+  the same ratchet for zero data retention.
+- **Measured.** `grid.provider.inflight`, `grid.provider.limit{scope,model}`,
+  `grid.provider.wait_seconds{class}` and
+  `grid.provider.throttled_total{model,scope}`. The ceilings and floors are
+  guesses until these have run for a week: read the wait by class and the 429
+  count by model and scope before moving any.
+Not built, on purpose: a tokens-per-minute bucket (output tokens are unknown
+until the call ends, and the upstream limit moves by model) and an egress AI
+gateway (the back-pocket option of section 5).
 
 ### L4 — cost
 

@@ -32,6 +32,8 @@ from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common.plan_documents import PlanDocument
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.plan_documents import sanitize_plan_documents
+from aiq_agent.common.provider_limiter import RESEARCH
+from aiq_agent.common.provider_limiter import with_provider_class
 from aiq_agent.common.turn_status import DEGRADED_CARDS_GENERATION_FAILED
 from aiq_agent.project_context import ORGANIZATION_ID_HEADER
 from aiq_agent.project_context import PROJECT_ID_HEADER
@@ -929,6 +931,7 @@ def _workflow_reflection_llm_ref(config: Any) -> str | None:
     return str(ref) if ref else None
 
 
+@with_provider_class(RESEARCH)
 async def run_agent_job(
     configure_logging: bool,
     log_level: int,

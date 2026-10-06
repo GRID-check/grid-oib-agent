@@ -4200,14 +4200,23 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         No budget is enforced here: a document half-read because a limit ran out
         mid-job is worse than the overrun, and the spend still lands in the
         budgets it counts toward.
+
+        The job's ``priority`` (``interactive`` or ``bulk``) is its class at the
+        provider limiter (ADR-0080): a reindex yields to an office's own upload,
+        and both yield to a person waiting on an answer.
         """
         from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
         from aiq_agent.common.openrouter import data_policy_for
         from aiq_agent.common.openrouter import data_policy_scope
+        from aiq_agent.common.provider_limiter import priority_scope
 
         organization_id = config.get("organization_id")
         policy = data_policy_for(organization_id) if organization_id else ZERO_DATA_RETENTION
-        with data_policy_scope(policy), _ingest_cost_scope(job_id, config):
+        with (
+            data_policy_scope(policy),
+            _ingest_cost_scope(job_id, config),
+            priority_scope(config.get("priority")),
+        ):
             self._ingest_job(job_id, file_paths, collection_name, config)
 
     def _ingest_job(
