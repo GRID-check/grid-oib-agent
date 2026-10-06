@@ -20,8 +20,8 @@
  * of its NEAREST such folder. Only a session that may read that folder gets the
  * collection in its signed scope. Write never affects retrieval.
  *
- * Deleted folders stay in the tree (migration 0109): in the Papierkorb, then as
- * purged tombstones (0112). They are hidden from every listing and from
+ * Deleted folders stay in the tree (migration 0110): in the Papierkorb, then as
+ * purged tombstones (0113). They are hidden from every listing and from
  * placement, what is filed in them is hidden from everyone, and
  * {@link effectiveFolderLevel} still answers for them, because content derived
  * from a deleted folder is judged by the access it had (once purged, as the

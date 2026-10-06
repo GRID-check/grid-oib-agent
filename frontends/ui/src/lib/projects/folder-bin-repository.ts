@@ -1,5 +1,5 @@
 /**
- * The SQL behind the Papierkorb (migration 0112): moving a folder's subtree to
+ * The SQL behind the Papierkorb (migration 0113): moving a folder's subtree to
  * the bin and back, its queue row, its listing, the purge marker, and the
  * search for what was derived from a folder.
  *
@@ -106,7 +106,7 @@ export async function findFolderByIdInOrg(
 
 /**
  * Every folder of a bin entry, purged ones included: what a retry of a
- * purged folder still reaches. A tombstone older than 0112 has no entry and is
+ * purged folder still reaches. A tombstone older than 0113 has no entry and is
  * its own.
  */
 export async function listEntryFolderIds(executor: DbExecutor, root: BinFolderRow): Promise<string[]> {

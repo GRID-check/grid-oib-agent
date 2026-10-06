@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The Papierkorb against a REAL Postgres (migration 0112, ADR-0081), through
+ * The Papierkorb against a REAL Postgres (migration 0113, ADR-0081), through
  * the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -96,7 +96,7 @@ const admin = sessionOf('user_admin', [], ['org:projects:administer'])
 
 class Rollback extends Error {}
 
-describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0112)', () => {
+describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
@@ -289,7 +289,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0112)', (
       await db.execute(sql`DELETE FROM conversations WHERE organization_id = ${ORG} AND id <> ${CHAT}`)
       await db.execute(sql`DELETE FROM documents WHERE organization_id = ${ORG}`)
       // The grants go with their folders (ON DELETE CASCADE); deleting them
-      // first would leave a custom list empty, which 0109 refuses.
+      // first would leave a custom list empty, which 0110 refuses.
       await db.execute(sql`DELETE FROM project_folders WHERE project_id = ${projectId}::uuid`)
       await db.execute(sql`DELETE FROM legal_holds WHERE organization_id = ${ORG}`)
     })
@@ -449,7 +449,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0112)', (
     })
   })
 
-  describe('nothing lands in a deleted folder (the triggers, migration 0112)', () => {
+  describe('nothing lands in a deleted folder (the triggers, migration 0113)', () => {
     it('refuses an upload, a move and a new subfolder into a folder in the bin', async () => {
       await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
       await expect(insertDocument('Neu.pdf', folder.archiv)).rejects.toMatchObject({ cause: { code: 'GFD01' } })

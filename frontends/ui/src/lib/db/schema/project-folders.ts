@@ -77,11 +77,11 @@ export const projectFolders = pgTable('project_folders', {
   accessChangedBy: text('access_changed_by'),
   accessChangedAt: timestamp('access_changed_at', { withTimezone: true }),
   /**
-   * Set when the folder was deleted (migration 0109): the row stays so its
+   * Set when the folder was deleted (migration 0110): the row stays so its
    * access still decides who may read what was derived from it. Every listing,
    * path lookup and placement skips it, and a document filed in it is hidden
    * from everyone; only `effectiveFolderLevel` reads it. With `purgedAt` unset
-   * it is in the Papierkorb (migration 0112), restorable until its queue row is
+   * it is in the Papierkorb (migration 0113), restorable until its queue row is
    * purged. A project folder only: an Archiv folder's delete removes the row,
    * and `project_folders_bin_state_check` refuses a deleted Archiv folder.
    */
@@ -90,7 +90,7 @@ export const projectFolders = pgTable('project_folders', {
   /**
    * The folder a person deleted, on every folder that went to the Papierkorb
    * with it (itself included); what a restore puts back together. NULL for a
-   * living folder and for a tombstone older than 0112.
+   * living folder and for a tombstone older than 0113.
    */
   binRootId: uuid('bin_root_id'),
   /**

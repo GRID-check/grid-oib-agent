@@ -110,7 +110,7 @@ covers the folder decision; the project-level admin reach of
 `requireProjectAccess` still reads the token.
 
 **Deleting a folder puts it in the Papierkorb, then leaves a tombstone**
-(migration 0112, `lib/projects/folder-bin.ts`, decided 6 Oct 2026). A project
+(migration 0113, `lib/projects/folder-bin.ts`, decided 6 Oct 2026). A project
 folder only: the Archiv's folders (ADR-0078) keep the shelf's delete, which
 re-files the contents into the parent and removes the row, and have no bin,
 purge or tombstone (`project_folders_bin_state_check`). The folder goes with its subfolders and their documents, as one entry: moving the contents
@@ -405,10 +405,10 @@ recorded folders.
   retry.
 * `authz/folder-access.spec.ts`: the four settings on a purged folder, the bin hidden even
   without own lists. `purger/purge-folder.spec.mjs`: the purger's folder step.
-* `scripts/rls-test-db.sh`: 0112's backfill, its down refusing while the bin holds a folder, the
+* `scripts/rls-test-db.sh`: 0113's backfill, its down refusing while the bin holds a folder, the
   down and the re-apply.
 * Nothing enforces that a NEW write path calls `requireFolderWrite`; review is the gate. The
-  0112 triggers are the backstop for filing into a deleted folder.
+  0113 triggers are the backstop for filing into a deleted folder.
 
 ## Pros and Cons of the Options
 

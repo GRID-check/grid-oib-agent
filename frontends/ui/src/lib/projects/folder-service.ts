@@ -236,7 +236,7 @@ async function recordFolderAccessChange(
     action: 'project.folder.access_changed',
     targetType: 'project',
     targetId: projectId,
-    // `roles`, the lists' roles alone, as the 0105 entries named them.
+    // `roles`, the lists' roles alone, as the 0106 entries named them.
     metadata: { folderId, grants, roles: grants.replace(/:(read|write)/g, ''), documentsMoved },
     request,
   })

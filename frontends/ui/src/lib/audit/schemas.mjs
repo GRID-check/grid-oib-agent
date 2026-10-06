@@ -142,7 +142,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   // (`folder-service.ts`): then `grants` is every folder with its own list now
   // over the moved folder, outermost first, each folder's `role:level` entries
   // comma-separated and the folders `;`-separated, and `roles` the same lists'
-  // roles alone (the 0105 field, so a reader of the trail finds it).
+  // roles alone (the 0106 field, so a reader of the trail finds it).
   'project.folder.access_changed': {
     targets: [{ type: 'project' }],
     metadata: { folderId: 'string', grants: 'string', roles: 'string', documentsMoved: 'number' },
