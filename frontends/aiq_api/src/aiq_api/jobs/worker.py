@@ -359,42 +359,79 @@ class ResearchWorker:
             await self._give_back(unfinished)
 
     async def _give_back(self, unfinished: set[asyncio.Task]) -> None:
-        """Requeue the claims of jobs that did not finish in the drain, then stop their runs.
+        """Requeue the claims of jobs that did not finish in the drain, stop their runs, then mark them waiting.
 
         The claims go back first: a run that stops while its row is still its own
         would delete the row on its way out, and a job that is neither running nor
-        queued is lost. Each aborted run sees its row QUEUED again, which is a
-        positive loss of the claim (``runner._lost_claim``), so it publishes
-        nothing and the next worker's run is the one the reader sees. The job
-        waits as ``submitted`` meanwhile, so the ghost-job reaper leaves it alone.
+        queued is lost. The runs are cancelled straight after, with nothing
+        awaited in between, because a released row is any idle worker's to claim:
+        every round trip before the cancel is time two runs of one job spend
+        provider budget. Each aborted run sees its row QUEUED again, or claimed
+        by another worker, which is a positive loss of the claim
+        (``runner._lost_claim``), so it publishes nothing and the next worker's
+        run is the one the reader sees. Only then is the job marked ``submitted``
+        (so the ghost-job reaper leaves it alone), and only while nobody has
+        claimed it since: a new owner's ``running`` is not set back.
         """
         held = dict(self._held)
         job_ids = list(held)
         released = await asyncio.to_thread(queue.release_claims, self.db_url, job_ids, self.worker_id)
+        for task in held.values():
+            task.cancel()
         logger.warning(
             "Research worker %s stopping with %d job(s) running; %d claim(s) given back to the queue",
             self.worker_id,
             len(job_ids),
             released,
         )
-        await self._mark_waiting(job_ids)
-        for task in held.values():
-            task.cancel()
         await asyncio.gather(*unfinished, return_exceptions=True)
+        await self._mark_waiting(job_ids)
 
     async def _mark_waiting(self, job_ids: list[str]) -> None:
-        """Put the status of requeued jobs back to ``submitted``: they wait in the queue like any other."""
+        """Put requeued jobs back to ``submitted``: they wait in the queue like any other."""
         if not job_ids:
             return
-        from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
         from nat.front_ends.fastapi.async_jobs.job_store import JobStore
 
         store = JobStore(scheduler_address="", db_url=self.db_url)
         for job_id in job_ids:
             try:
-                await _update_status_if_not_terminal(store, job_id, JobStatus.SUBMITTED)
+                await _mark_waiting_while_unclaimed(store, job_id)
             except Exception:
                 logger.warning("Could not mark requeued job %s as waiting (non-fatal)", job_id, exc_info=True)
+
+
+async def _mark_waiting_while_unclaimed(store, job_id: str) -> bool:
+    """``running`` -> ``submitted`` in one statement, only while the job's queue row is still unclaimed.
+
+    The row was released a moment ago. A worker that has claimed it since may
+    already have written ``running`` for its own run, and that must stand: the
+    reaper ignores ``submitted``, and the reader would see the job waiting.
+    """
+    from datetime import UTC as _UTC
+    from datetime import datetime as _datetime
+
+    from sqlalchemy import column
+    from sqlalchemy import exists
+    from sqlalchemy import table
+    from sqlalchemy import update
+
+    from nat.front_ends.fastapi.async_jobs.job_store import JobInfo
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+    row = table(queue.TABLE, column("job_id"), column("status"))
+    stmt = (
+        update(JobInfo)
+        .where(
+            JobInfo.job_id == job_id,
+            JobInfo.status == JobStatus.RUNNING.value,
+            exists().where(row.c.job_id == job_id, row.c.status == queue.QUEUED),
+        )
+        .values(status=JobStatus.SUBMITTED.value, updated_at=_datetime.now(_UTC))
+    )
+    async with store.session() as session:
+        result = await session.execute(stmt)
+    return (result.rowcount or 0) > 0
 
 
 def main() -> None:

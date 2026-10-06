@@ -96,6 +96,50 @@ async def test_a_job_that_outlasts_the_drain_goes_back_to_the_queue_without_an_a
     assert _job_status(async_url, "job-1") == "submitted"
 
 
+async def test_a_given_back_run_stops_before_any_status_write_and_a_new_owners_running_stands(fleet, monkeypatch):
+    db_url, async_url = fleet
+    queue.enqueue(db_url, "job-1", {"input_text": "long"}, "org-a")
+    _seed_job_info(db_url, "job-1", "running")
+    started, cancelled = asyncio.Event(), asyncio.Event()
+    real_release = queue.release_claims
+
+    async def run_forever(**_kwargs):
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    def release_then_another_worker_claims(db, job_ids, worker_id):
+        released = real_release(db, job_ids, worker_id)
+        assert queue.claim_next(db, "worker-B", 90, 3)["job_id"] == "job-1"  # an idle worker's next poll
+        return released
+
+    real_mark_waiting = worker_mod.ResearchWorker._mark_waiting
+    order: list[str] = []
+
+    async def mark_waiting(self, job_ids):
+        order.append("cancelled" if cancelled.is_set() else "still running")
+        await real_mark_waiting(self, job_ids)
+
+    monkeypatch.setattr(worker_mod, "run_agent_job", run_forever)
+    monkeypatch.setattr(worker_mod.queue, "release_claims", release_then_another_worker_claims)
+    monkeypatch.setattr(worker_mod.ResearchWorker, "_mark_waiting", mark_waiting)
+    worker = worker_mod.ResearchWorker()
+    worker.poll_seconds = 0.01
+    worker.drain_seconds = 0.1
+
+    task = asyncio.create_task(worker.run())
+    await asyncio.wait_for(started.wait(), timeout=10)
+    worker.request_stop()
+    await asyncio.wait_for(task, timeout=15)
+
+    assert order == ["cancelled"]  # the old run had stopped before the status was touched
+    assert queue.claim_state(db_url, "job-1") == (queue.CLAIMED, "worker-B")
+    assert _job_status(async_url, "job-1") == "running"  # worker-B's run: not set back to waiting
+
+
 async def test_a_job_that_finishes_inside_the_drain_is_not_given_back(fleet, monkeypatch):
     db_url, async_url = fleet
     queue.enqueue(db_url, "job-1", {"input_text": "short"}, "org-a")
