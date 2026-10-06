@@ -122,6 +122,10 @@ function shareableTarget(type: ShareableResourceType): InboxTargetDescriptor {
     resolve: async (session, resourceId) => {
       const access = await resolveResourceAccess(session, type, resourceId)
       if (!access.role) return null
+      // An item names its resource (a mention carries the thread's title). For a
+      // reader who may no longer read what the resource was drawn from, that
+      // line is content: the row renders redacted, like a revoked one.
+      if (access.contentLocked) return null
       return {
         deepLink: (context) =>
           describeResource(type).deepLink(resourceId, {

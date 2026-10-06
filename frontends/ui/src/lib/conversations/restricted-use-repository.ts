@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { DbExecutor } from '@/lib/db/executor'
 import {
   conversationRestrictedFolders,
@@ -67,6 +67,42 @@ export async function listRecordedSourceFolders(
     .orderBy(conversationRestrictedFolders.folderId)
     .limit(RECORDED_FOLDERS_LIMIT)
   return rows.map((row) => String(row.folderId))
+}
+
+/** Rows read back for a whole list of conversations: a list is at most `CONVERSATION_LIST_LIMIT`, each with a handful of folders. */
+const RECORDED_FOLDERS_BATCH_LIMIT = 5_000
+
+/**
+ * The source folders each of these conversations recorded, for the
+ * conversations that recorded any: how a list asks "which of these did
+ * restricted content enter" in one read. Absent from the map means none.
+ */
+export async function listRecordedSourceFoldersFor(
+  executor: DbExecutor,
+  organizationId: string,
+  conversationIds: readonly string[],
+): Promise<Map<string, string[]>> {
+  const recorded = new Map<string, string[]>()
+  if (conversationIds.length === 0) return recorded
+  const rows = await executor
+    .select({
+      conversationId: conversationRestrictedFolders.conversationId,
+      folderId: conversationRestrictedFolders.folderId,
+    })
+    .from(conversationRestrictedFolders)
+    .where(
+      and(
+        eq(conversationRestrictedFolders.organizationId, organizationId),
+        inArray(conversationRestrictedFolders.conversationId, [...conversationIds]),
+      ),
+    )
+    .limit(RECORDED_FOLDERS_BATCH_LIMIT)
+  for (const row of rows) {
+    const folders = recorded.get(String(row.conversationId)) ?? []
+    folders.push(String(row.folderId))
+    recorded.set(String(row.conversationId), folders)
+  }
+  return recorded
 }
 
 /** Record that the conversation drew on these folders; a repeat bumps `last_at`. */

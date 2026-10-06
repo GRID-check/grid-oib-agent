@@ -44,6 +44,7 @@ vi.mock('@/lib/conversations/repository', () => ({
 const widenings = vi.hoisted(() => ({ executor: { tx: true } }))
 vi.mock('@/lib/conversations/restricted-use', () => ({
   assertMayWidenConversation: vi.fn(),
+  peopleWhoMayRead: vi.fn(),
   widenConversationAudience: vi.fn(
     async (_session: unknown, _id: string, _widening: unknown, write: (executor: unknown) => Promise<unknown>) =>
       write(widenings.executor),
@@ -67,6 +68,7 @@ vi.mock('@/lib/inbox/service', () => ({
 
 vi.mock('./access', () => ({
   requireResourceAccess: vi.fn(),
+  requireResourceWriteAccess: vi.fn(),
   resolveResourceAccess: vi.fn(),
 }))
 
@@ -88,16 +90,20 @@ vi.mock('./repository', () => ({
   SHARE_ROSTER_LIMIT: 200,
 }))
 
-import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { canUserAccessProject, isUserInOrganization } from '@/lib/authz/project-membership'
 import { findConversationTenancy, updateConversationVisibilityInOrg } from '@/lib/conversations/repository'
 import { findDocumentTenancy } from '@/lib/documents/repository'
-import { assertMayWidenConversation, widenConversationAudience } from '@/lib/conversations/restricted-use'
+import {
+  assertMayWidenConversation,
+  peopleWhoMayRead,
+  widenConversationAudience,
+} from '@/lib/conversations/restricted-use'
 import type { ResourceRole, ResourceVisibility } from '@/lib/db/schema'
 import { publishToUsers } from '@/lib/events/bus'
-import { requireResourceAccess, resolveResourceAccess } from './access'
+import { requireResourceAccess, requireResourceWriteAccess, resolveResourceAccess } from './access'
 import { loadOrganizationDirectory } from './directory'
 import { SHARE_LIMIT, consumeLimit } from '@/lib/limits'
 import { allowedDecision } from '@/test-utils/limit-fixtures'
@@ -105,6 +111,7 @@ import { countGrantsForResource, deleteGrant, listGrantsForResource, upsertGrant
 import {
   changeResourceRole,
   escalateToOwner,
+  getSharingState,
   grantResourceAccess,
   revokeResourceAccess,
   setResourceVisibility,
@@ -114,6 +121,9 @@ const session = {
   userId: 'user_me',
   organizationId: 'org_1',
   email: 'me@grid.test',
+  role: 'member',
+  roles: ['member'],
+  permissions: [],
 } as unknown as AuthorizedSession
 
 /** The caller's own access, as `./access` would have resolved it. */
@@ -124,6 +134,7 @@ function stubCallerAccess(role: ResourceRole, visibility: ResourceVisibility = '
     visibility,
     container: { organizationId: 'org_1', projectId: 'proj_1' },
     canEscalate: false,
+    contentLocked: false,
   })
 }
 
@@ -171,6 +182,8 @@ beforeEach(() => {
   vi.mocked(deleteGrant).mockResolvedValue(true)
   vi.mocked(updateConversationVisibilityInOrg).mockResolvedValue({} as never)
   vi.mocked(assertMayWidenConversation).mockResolvedValue(undefined)
+  vi.mocked(peopleWhoMayRead).mockImplementation(async (_org, _id, userIds) => new Set(userIds))
+  vi.mocked(requireResourceWriteAccess).mockResolvedValue(undefined)
 })
 
 describe('the last-owner invariant (spec SH-11)', () => {
@@ -382,6 +395,7 @@ describe('escalateToOwner (spec SH-10)', () => {
       visibility: 'private',
       container: { organizationId: 'org_1', projectId: 'proj_1' },
       canEscalate: true,
+      contentLocked: false,
     })
     stubConversation('user_creator')
     // The roster as it reads once the admin's own owner grant has landed.
@@ -514,6 +528,7 @@ describe('a conversation that drew on a restricted folder reaches only people cl
       visibility: 'private',
       container: { organizationId: 'org_1', projectId: 'proj_1' },
       canEscalate: true,
+      contentLocked: false,
     })
     vi.mocked(assertMayWidenConversation).mockRejectedValueOnce(
       new ConflictError('self', { reason: 'restricted-content-self' }),
@@ -542,5 +557,111 @@ describe('a conversation that drew on a restricted folder reaches only people cl
 
     expect(assertMayWidenConversation).not.toHaveBeenCalled()
     expect(upsertGrant).toHaveBeenCalledWith(expect.objectContaining({ resourceId: 'doc_1' }), undefined)
+  })
+})
+
+describe('the roster says who can no longer read what the chat drew on (ADR-0079)', () => {
+  const person = (userId: string) => ({ userId, email: null, name: userId, profilePictureUrl: null })
+
+  it('flags a grantee and the creator whose roles no longer reach a recorded folder, and nobody else', async () => {
+    stubConversation('user_owner')
+    stubGrants([
+      { subjectUserId: 'user_ina', role: 'viewer' },
+      { subjectUserId: 'user_bob', role: 'collaborator' },
+    ])
+    vi.mocked(loadOrganizationDirectory).mockResolvedValue(
+      new Map([person('user_owner'), person('user_ina'), person('user_bob')].map((p) => [p.userId, p])),
+    )
+    vi.mocked(peopleWhoMayRead).mockResolvedValue(new Set(['user_bob']))
+
+    const state = await getSharingState(session, 'conversation', 'conv_1')
+
+    expect(Object.fromEntries(state.entries.map((entry) => [entry.person.userId, entry.lostAccess]))).toEqual({
+      user_owner: true,
+      user_ina: true,
+      user_bob: false,
+    })
+    // One question for the whole roster, asked of the caller's own clearance too.
+    expect(peopleWhoMayRead).toHaveBeenCalledTimes(1)
+    expect(peopleWhoMayRead).toHaveBeenCalledWith('org_1', 'conv_1', ['user_owner', 'user_ina', 'user_bob'], expect.any(Map))
+  })
+
+  it('reads the roster for a caller who is locked out of the content themselves, and offers them no management', async () => {
+    vi.mocked(requireResourceAccess).mockResolvedValue({
+      role: 'owner',
+      reason: 'creator',
+      visibility: 'private',
+      container: { organizationId: 'org_1', projectId: 'proj_1' },
+      canEscalate: false,
+      contentLocked: true,
+    })
+
+    const state = await getSharingState(session, 'conversation', 'conv_1')
+
+    expect(requireResourceAccess).toHaveBeenCalledWith(session, 'conversation', 'conv_1', 'viewer', { allowLocked: true })
+    expect(state.canManage).toBe(false)
+  })
+
+  it('flags nobody for a document, whose content no record judges', async () => {
+    vi.mocked(findDocumentTenancy).mockResolvedValue({
+      organizationId: 'org_1',
+      projectId: 'proj_1',
+      visibility: 'private',
+      createdBy: 'user_owner',
+      folderId: null,
+    } as never)
+
+    const state = await getSharingState(session, 'document', 'doc_1')
+
+    expect(state.entries.every((entry) => entry.lostAccess === undefined)).toBe(true)
+    expect(peopleWhoMayRead).not.toHaveBeenCalled()
+  })
+
+  it('lets a locked caller leave without any right to write', async () => {
+    await revokeResourceAccess(session, 'conversation', 'conv_1', session.userId)
+    expect(requireResourceAccess).toHaveBeenLastCalledWith(session, 'conversation', 'conv_1', 'viewer', {
+      allowLocked: true,
+    })
+    expect(requireResourceWriteAccess).not.toHaveBeenCalled()
+  })
+})
+
+describe('sharing a document is a write in its folder (ADR-0079)', () => {
+  const readOnly = () => new ForbiddenError('You can read this folder but not change it.', { reason: 'folder-read-only' })
+
+  beforeEach(() => {
+    vi.mocked(findDocumentTenancy).mockResolvedValue({
+      organizationId: 'org_1',
+      projectId: 'proj_1',
+      visibility: 'private',
+      createdBy: 'user_owner',
+      folderId: 'folder_vertraege',
+    } as never)
+    vi.mocked(requireResourceWriteAccess).mockRejectedValue(readOnly())
+  })
+
+  it.each([
+    ['a grant', () => grantResourceAccess(session, 'document', 'doc_1', { subjectUserId: 'user_member', role: 'viewer' })],
+    ['a visibility change', () => setResourceVisibility(session, 'document', 'doc_1', 'project')],
+    ['a role change', () => changeResourceRole(session, 'document', 'doc_1', { subjectUserId: 'user_member', role: 'viewer' })],
+    ['removing someone else', () => revokeResourceAccess(session, 'document', 'doc_1', 'user_member')],
+    ['taking ownership', () => escalateToOwner(session, 'document', 'doc_1')],
+  ])('refuses %s from a reader of a read-only folder, before anything is written or limited', async (_name, act) => {
+    stubCallerAccess('owner')
+    vi.mocked(resolveResourceAccess).mockResolvedValue({
+      role: null,
+      reason: null,
+      visibility: 'private',
+      container: { organizationId: 'org_1', projectId: 'proj_1' },
+      canEscalate: true,
+      contentLocked: false,
+    })
+
+    await expect(act()).rejects.toMatchObject({ status: 403, details: { reason: 'folder-read-only' } })
+
+    expect(requireResourceWriteAccess).toHaveBeenCalledWith(session, 'document', 'doc_1')
+    expect(consumeLimit).not.toHaveBeenCalled()
+    expect(upsertGrant).not.toHaveBeenCalled()
+    expect(deleteGrant).not.toHaveBeenCalled()
   })
 })

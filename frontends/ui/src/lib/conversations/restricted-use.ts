@@ -60,6 +60,7 @@ import { loadOrganizationDirectory } from '@/lib/sharing/directory'
 import { SHARING_ERROR_REASONS } from '@/lib/sharing/types'
 import {
   listRecordedSourceFolders,
+  listRecordedSourceFoldersFor,
   lockConversationAudience,
   readConversationAudience,
   recordSourceFolders,
@@ -124,19 +125,28 @@ async function treeOf(organizationId: string, project: ProjectRef): Promise<Fold
   return folderTree(await listProjectFolderTree(organizationId, project.projectId))
 }
 
+/** How many people one clearance read asks WorkOS about at the same time. */
+const CLEARANCE_CONCURRENCY = 20
+
 /**
  * Each person's clearance. `known` supplies one the caller already holds (the
- * session's own); everyone else is asked of WorkOS (at most a minute old).
+ * session's own); everyone else is asked of WorkOS (at most a minute old), a
+ * bounded number at a time so a question about a whole roster is not a burst.
  */
 async function clearancesOf(
   organizationId: string,
   people: readonly string[],
   known: ReadonlyMap<string, FolderClearance> = new Map()
 ): Promise<Map<string, FolderClearance>> {
-  const clearances = await Promise.all(
-    people.map((person) => known.get(person) ?? clearanceOfMember(organizationId, person))
-  )
-  return new Map(people.map((person, index) => [person, clearances[index]]))
+  const clearances = new Map<string, FolderClearance>()
+  for (let start = 0; start < people.length; start += CLEARANCE_CONCURRENCY) {
+    const chunk = people.slice(start, start + CLEARANCE_CONCURRENCY)
+    const found = await Promise.all(
+      chunk.map((person) => known.get(person) ?? clearanceOfMember(organizationId, person))
+    )
+    chunk.forEach((person, index) => clearances.set(person, found[index]))
+  }
+  return clearances
 }
 
 /** The recorded folders that still restrict someone: not readable by every member now, or unknown. */
@@ -163,6 +173,95 @@ export async function recordedRestrictedFolders(conversationId: string, organiza
   // without a project there is no access to read, so all of it counts.
   if (!project) return recorded
   return stillRestricting(await treeOf(organizationId, project), recorded)
+}
+
+/** The folder tree of a project; a conversation with no project reads every folder as unknown, so nobody may read any. */
+async function treeForProject(organizationId: string, projectId: string | null): Promise<FolderTree> {
+  return projectId ? folderTree(await listProjectFolderTree(organizationId, projectId)) : new Map()
+}
+
+/** Whether `clearance` may read every one of `folderIds` now. */
+function mayReadAll(tree: FolderTree, clearance: FolderClearance, folderIds: readonly string[]): boolean {
+  return folderIds.every((folderId) => mayReadFolder(tree, clearance, folderId))
+}
+
+/**
+ * How many people one question about who may read a conversation evaluates.
+ * The roster of a conversation is capped at 200 and a project has fewer
+ * members; anybody beyond the bound is reported as not reading, the safe side
+ * for a share (the server refuses a grant on its own check regardless).
+ */
+export const READERS_MAX_PEOPLE = 200
+
+/**
+ * The people among `userIds` who may read what this conversation drew on NOW:
+ * every source folder it recorded that still restricts someone, by their roles
+ * as WorkOS reports them (at most a minute old), or by `known` for those the
+ * caller already holds a clearance for (the session's own).
+ *
+ * The question behind the share dialog's picker, the roster's "no longer has
+ * access" and the open chat's "you no longer have the rights". Nothing is
+ * stored about who reads: a role given back opens the chat again. A
+ * conversation that recorded nothing restricting costs one indexed read and
+ * answers everyone; one with a record the tree cannot answer (no project, an
+ * unknown folder) answers nobody.
+ */
+export async function peopleWhoMayRead(
+  organizationId: string,
+  conversationId: string,
+  userIds: readonly string[],
+  known: ReadonlyMap<string, FolderClearance> = new Map()
+): Promise<Set<string>> {
+  const recorded = await listRecordedSourceFolders(getDb(), organizationId, conversationId)
+  if (recorded.length === 0) return new Set(userIds)
+  const audience = await readConversationAudience(getDb(), organizationId, conversationId)
+  const tree = await treeForProject(organizationId, audience.projectId)
+  const restricting = stillRestricting(tree, recorded)
+  if (restricting.length === 0) return new Set(userIds)
+  const asked = [...new Set(userIds)].slice(0, READERS_MAX_PEOPLE)
+  const clearances = await clearancesOf(organizationId, asked, known)
+  return new Set(
+    asked.filter((person) => {
+      const clearance = clearances.get(person)
+      return clearance !== undefined && mayReadAll(tree, clearance, restricting)
+    })
+  )
+}
+
+/** A conversation as a list knows it. */
+export interface ListedConversationRef {
+  id: string
+  projectId: string | null
+}
+
+/**
+ * The conversations of a list whose content the session may not read now: each
+ * recorded a folder, still restricting someone, that the session's roles do not
+ * reach. One read for the whole list, and the folder tree once per project; a
+ * list in which nothing recorded a folder costs the one read. Judged at read
+ * time: there is no stored "locked", so a role given back unlocks the chat.
+ */
+export async function lockedConversationIds(
+  session: AuthorizedSession,
+  conversations: readonly ListedConversationRef[]
+): Promise<Set<string>> {
+  const recorded = await listRecordedSourceFoldersFor(
+    getDb(),
+    session.organizationId,
+    conversations.map((conversation) => conversation.id)
+  )
+  const locked = new Set<string>()
+  if (recorded.size === 0) return locked
+  const clearance = clearanceOf(session)
+  const trees = new Map<string | null, FolderTree>()
+  for (const conversation of conversations) {
+    const folders = recorded.get(conversation.id)
+    if (!folders) continue
+    const tree = trees.get(conversation.projectId) ?? (await treeForProject(session.organizationId, conversation.projectId))
+    trees.set(conversation.projectId, tree)
+    if (!mayReadAll(tree, clearance, stillRestricting(tree, folders))) locked.add(conversation.id)
+  }
+  return locked
 }
 
 /** Who asks about a conversation's restricted use, and in which project. */

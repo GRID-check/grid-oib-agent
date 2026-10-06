@@ -38,9 +38,11 @@ import {
 } from '@/lib/conversations/repository'
 import {
   assertMayWidenConversation,
+  peopleWhoMayRead,
   widenConversationAudience,
   type AudienceWidening,
 } from '@/lib/conversations/restricted-use'
+import { clearanceOf, requireFolderWrite } from '@/lib/authz/folder-access'
 import {
   documentIdsExisting,
   findDocumentTenancy,
@@ -152,6 +154,34 @@ export interface ShareableDescriptor {
     widening: AudienceWidening,
     write: (executor: DbExecutor) => Promise<T>,
   ) => Promise<T>
+  /**
+   * Refuse a change to who may reach the resource, or who is on the hook for
+   * it, from someone who may not WRITE it. For a type whose write is decided
+   * somewhere finer than the role (a project document: the folder it is filed
+   * in, ADR-0079): sharing and assigning are changes to it, and a reader of a
+   * read-only folder may not make them whatever role they hold on the document.
+   * Absent: the role decides, as it always did.
+   */
+  readonly requireWriteAccess?: (session: AuthorizedSession, resourceId: string) => Promise<void>
+  /**
+   * Which of `userIds` may read the resource's CONTENT now, for a type whose
+   * content is judged against something that changes after it was shared (a
+   * conversation: the folders it drew on, ADR-0079). `asker` is the session,
+   * whose own clearance is already held. Judged at read time and never stored,
+   * so a role given back opens the resource again.
+   *
+   * Absent: the role alone decides, as it always did. Present: a person who
+   * holds a role but is not among the readers is LOCKED
+   * (`ResourceAccess.contentLocked`), every default read refuses them
+   * (`ResourceRightsLostError`), the roster flags them and the invite picker
+   * disables them.
+   */
+  readonly readersAmong?: (
+    organizationId: string,
+    resourceId: string,
+    userIds: readonly string[],
+    asker?: AuthorizedSession,
+  ) => Promise<ReadonlySet<string>>
 }
 
 /**
@@ -205,6 +235,14 @@ const conversationDescriptor: ShareableDescriptor = {
   assertMayWiden: (session, resourceId, widening) => assertMayWidenConversation(session, resourceId, widening),
   widenAudience: (session, resourceId, widening, write) =>
     widenConversationAudience(session, resourceId, widening, write),
+  // The same record, asked per person at read time: who may still read it.
+  readersAmong: (organizationId, resourceId, userIds, asker) =>
+    peopleWhoMayRead(
+      organizationId,
+      resourceId,
+      userIds,
+      asker ? new Map([[asker.userId, clearanceOf(asker)]]) : undefined,
+    ),
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
     // `?session=` — the parameter the chat surface ALREADY reads (`useSessionUrl`).
@@ -256,6 +294,12 @@ const documentDescriptor: ShareableDescriptor = {
     const row = await findDocumentTenancy(resourceId)
     if (!row || row.organizationId !== organizationId) return null
     return { title: documentDisplayName(row) }
+  },
+  // Sharing and assigning change a document: a write in its folder (ADR-0079).
+  requireWriteAccess: async (session, resourceId) => {
+    const row = await findDocumentTenancy(resourceId)
+    if (!row?.projectId) return
+    await requireFolderWrite(session, row.projectId, [row.folderId ?? null])
   },
   exists: (ids) => documentIdsExisting(ids),
   listIdsInProject: (projectId, organizationId) => listDocumentIdsForProject(projectId, organizationId),

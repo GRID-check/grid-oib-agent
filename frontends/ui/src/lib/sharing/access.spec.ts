@@ -26,6 +26,17 @@ vi.mock('@/lib/authz/projects', () => ({
 
 vi.mock('@/lib/authz/folder-access', () => ({
   isFolderVisibleTo: vi.fn(),
+  clearanceOf: vi.fn(() => ({ roles: [], seesEverything: false })),
+  requireFolderWrite: vi.fn(),
+}))
+
+// What the conversation recorded, judged per person at read time, has its own
+// specs (`restricted-use.spec.ts`). Here it is a stub whose answer each test
+// sets: by default everybody may read.
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  peopleWhoMayRead: vi.fn(async (_organizationId: string, _conversationId: string, userIds: readonly string[]) => new Set(userIds)),
+  assertMayWidenConversation: vi.fn(),
+  widenConversationAudience: vi.fn(),
 }))
 
 vi.mock('@/lib/documents/repository', async (importOriginal) => ({
@@ -33,7 +44,8 @@ vi.mock('@/lib/documents/repository', async (importOriginal) => ({
   findDocumentTenancy: vi.fn(),
 }))
 
-import { NotFoundError } from '@/lib/api/errors'
+import { NotFoundError, ResourceRightsLostError } from '@/lib/api/errors'
+import { peopleWhoMayRead } from '@/lib/conversations/restricted-use'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { isFolderVisibleTo } from '@/lib/authz/folder-access'
@@ -98,6 +110,8 @@ function stubGrant(role: ResourceRole | null): void {
 }
 
 beforeEach(() => {
+  vi.mocked(peopleWhoMayRead).mockImplementation(async (_organizationId, _conversationId, userIds) => new Set(userIds))
+  vi.mocked(peopleWhoMayRead).mockClear()
   stubConversation()
   stubContainer('project-editor')
   stubGrant(null)
@@ -288,5 +302,86 @@ describe('resolveResourceAccess — a document in a restricted folder (ADR-0078)
     stubDocument(null)
     await expect(resolveResourceAccess(session, 'document', 'doc_1')).resolves.toMatchObject({ role: 'owner' })
     expect(isFolderVisibleTo).not.toHaveBeenCalled()
+  })
+})
+
+describe('the read gate: a role is not the right to read what the conversation drew on (ADR-0079)', () => {
+  /** The folders the conversation recorded are no longer ones the asker may read. */
+  function lockFor(...locked: string[]): void {
+    vi.mocked(peopleWhoMayRead).mockImplementation(async (_organizationId, _conversationId, userIds) =>
+      new Set(userIds.filter((userId) => !locked.includes(userId))),
+    )
+  }
+
+  it('locks the CREATOR who lost a recorded folder: ownership is a role, not a right to read', async () => {
+    stubConversation({ createdBy: session.userId })
+    lockFor(session.userId)
+
+    const access = await resolveResourceAccess(session, 'conversation', 'conv_1')
+    expect(access).toMatchObject({ role: 'owner', reason: 'creator', contentLocked: true })
+    await expect(requireResourceAccess(session, 'conversation', 'conv_1', 'viewer')).rejects.toBeInstanceOf(
+      ResourceRightsLostError,
+    )
+  })
+
+  it('locks a grantee, at every minimum, not only the weakest', async () => {
+    stubGrant('collaborator')
+    lockFor(session.userId)
+
+    for (const minimum of ['viewer', 'collaborator'] as const) {
+      await expect(requireResourceAccess(session, 'conversation', 'conv_1', minimum)).rejects.toBeInstanceOf(
+        ResourceRightsLostError,
+      )
+    }
+  })
+
+  it('locks a member who reads the thread through project visibility', async () => {
+    stubConversation({ visibility: 'project' })
+    lockFor(session.userId)
+
+    await expect(requireResourceAccess(session, 'conversation', 'conv_1', 'viewer')).rejects.toBeInstanceOf(
+      ResourceRightsLostError,
+    )
+  })
+
+  it('asks the record about the CALLER, with the caller as the asker (their own clearance)', async () => {
+    stubGrant('viewer')
+
+    await requireResourceAccess(session, 'conversation', 'conv_1', 'viewer')
+
+    expect(peopleWhoMayRead).toHaveBeenCalledWith('org_1', 'conv_1', [session.userId], expect.anything())
+  })
+
+  it('lets a caller who only manages their own place through: the roster, leaving, deleting their own', async () => {
+    stubGrant('viewer')
+    lockFor(session.userId)
+
+    await expect(
+      requireResourceAccess(session, 'conversation', 'conv_1', 'viewer', { allowLocked: true }),
+    ).resolves.toMatchObject({ role: 'viewer', contentLocked: true })
+  })
+
+  it('does not look at the record for someone with no role: that stays a plain 404', async () => {
+    stubGrant(null)
+    stubConversation({ visibility: 'private' })
+
+    await expect(requireResourceAccess(session, 'conversation', 'conv_1', 'viewer')).rejects.toBeInstanceOf(NotFoundError)
+    expect(peopleWhoMayRead).not.toHaveBeenCalled()
+  })
+
+  it('never locks a document: its content is judged by its folder, not by a record', async () => {
+    vi.mocked(findDocumentTenancy).mockResolvedValue({
+      organizationId: 'org_1',
+      projectId: 'proj_1',
+      folderId: null,
+      visibility: 'project',
+      createdBy: session.userId,
+      filename: 'Plan.pdf',
+      displayName: null,
+    })
+    lockFor(session.userId)
+
+    await expect(resolveResourceAccess(session, 'document', 'doc_1')).resolves.toMatchObject({ contentLocked: false })
+    expect(peopleWhoMayRead).not.toHaveBeenCalled()
   })
 })

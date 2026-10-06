@@ -30,6 +30,13 @@ vi.mock('@/lib/auth/require-auth', () => ({
 }))
 
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+// Which people may read what the conversation recorded is `restricted-use.spec.ts`'s
+// subject; here nothing it recorded restricts anybody.
+vi.mock('@/lib/conversations/restricted-use', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/conversations/restricted-use')>()),
+  peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),
+  lockedConversationIds: vi.fn(async () => new Set<string>()),
+}))
 // No legal hold in play here; the gate is `compliance/holds`, the predicate SQL.
 vi.mock('@/lib/compliance/repository', () => ({
   isCoveredByActiveHold: vi.fn().mockResolvedValue(false),

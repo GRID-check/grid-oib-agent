@@ -49,6 +49,8 @@ const state = vi.hoisted(() => ({
   /** The audience the first read sees, and the one read under the lock. */
   audiences: [] as ConversationAudienceRow[],
   recorded: [] as string[],
+  /** What each of a list's conversations recorded. */
+  recordedFor: new Map<string, string[]>(),
   written: [] as string[][],
   members: new Map<string, FolderClearance>(),
   tree: [] as AccessFolder[],
@@ -61,6 +63,10 @@ vi.mock('@/lib/db', () => ({
 vi.mock('./restricted-use-repository', () => ({
   lockConversationAudience: vi.fn(async () => undefined),
   listRecordedSourceFolders: vi.fn(async () => [...state.recorded]),
+  listRecordedSourceFoldersFor: vi.fn(
+    async (_executor: unknown, _org: string, ids: readonly string[]) =>
+      new Map(ids.filter((id) => state.recordedFor.has(id)).map((id) => [id, [...(state.recordedFor.get(id) ?? [])]]))
+  ),
   recordSourceFolders: vi.fn(async (_executor: unknown, _org: string, _id: string, folders: string[]) => {
     state.written.push([...folders])
     state.recorded = [...new Set([...state.recorded, ...folders])]
@@ -87,12 +93,17 @@ vi.mock('@/lib/authz/folder-access', async (importOriginal) => ({
   ),
 }))
 
+import { clearanceOfMember } from '@/lib/authz/folder-access'
+import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
 import {
   admitRestrictedUse,
   admitSourceFolders,
   assertMayWidenConversation,
   drawableRestrictedCollections,
   foldersEveryoneMayRead,
+  lockedConversationIds,
+  peopleWhoMayRead,
+  READERS_MAX_PEOPLE,
   recordedRestrictedFolders,
   widenConversationAudience,
 } from './restricted-use'
@@ -125,6 +136,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   state.audiences = [audience()]
   state.recorded = []
+  state.recordedFor = new Map()
   state.written = []
   state.tree = TREE
   state.members = new Map([
@@ -317,5 +329,137 @@ describe('widening a conversation — per person', () => {
       reason: 'restricted-content',
     })
     expect(write).not.toHaveBeenCalled()
+  })
+})
+
+describe('peopleWhoMayRead: who may read the conversation now (ADR-0079)', () => {
+  const PEOPLE = [OWNER, 'user_vertraege', 'user_nobody']
+
+  it('answers everybody for a conversation that recorded nothing, with one read and no question to WorkOS', async () => {
+    const readers = await peopleWhoMayRead(ORG, CONV, PEOPLE)
+
+    expect([...readers].sort()).toEqual([...PEOPLE].sort())
+    expect(vi.mocked(clearanceOfMember)).not.toHaveBeenCalled()
+  })
+
+  it('answers those whose roles reach EVERY recorded folder, and no one else', async () => {
+    state.recorded = [VERTRAEGE_ID, PERSONAL_ID]
+
+    const readers = await peopleWhoMayRead(ORG, CONV, PEOPLE)
+
+    // Verträge reads „Verträge" and Geschäftsführung; Personal only Geschäftsführung.
+    expect([...readers]).toEqual([OWNER])
+  })
+
+  it('lets a person back in when their role comes back: nothing was stored about who read it', async () => {
+    state.recorded = [VERTRAEGE_ID]
+    state.members.set('user_nobody', { roles: [], seesEverything: false })
+    expect([...(await peopleWhoMayRead(ORG, CONV, ['user_nobody']))]).toEqual([])
+
+    state.members.set('user_nobody', { roles: ['org-vertraege'], seesEverything: false })
+    expect([...(await peopleWhoMayRead(ORG, CONV, ['user_nobody']))]).toEqual(['user_nobody'])
+  })
+
+  it('judges a folder opened to everyone since as no restriction, and a narrowed one as a new one', async () => {
+    state.recorded = [OPENED_ID]
+    expect((await peopleWhoMayRead(ORG, CONV, ['user_nobody'])).has('user_nobody')).toBe(true)
+
+    state.tree = TREE.map((folder) =>
+      folder.id === OPENED_ID
+        ? { ...folder, accessMode: 'custom' as const, grants: [{ role: 'org-gf', level: 'read' as const }] }
+        : folder
+    )
+    expect((await peopleWhoMayRead(ORG, CONV, ['user_nobody'])).has('user_nobody')).toBe(false)
+  })
+
+  it('keeps a deleted folder as restrictive as it was, and reads an unknown folder as nobody’s', async () => {
+    state.recorded = [DELETED_ID]
+    expect((await peopleWhoMayRead(ORG, CONV, ['user_vertraege'])).size).toBe(0)
+
+    state.recorded = ['00000000-0000-4000-8000-00000000dead']
+    expect((await peopleWhoMayRead(ORG, CONV, [OWNER])).size).toBe(0)
+  })
+
+  it('uses a clearance the caller already holds instead of asking WorkOS about that person', async () => {
+    state.recorded = [VERTRAEGE_ID]
+
+    const readers = await peopleWhoMayRead(ORG, CONV, ['user_asker'], new Map([['user_asker', GF]]))
+
+    expect([...readers]).toEqual(['user_asker'])
+    expect(vi.mocked(clearanceOfMember)).not.toHaveBeenCalled()
+  })
+
+  it('reads a conversation without a project as readable by nobody once it recorded something', async () => {
+    state.recorded = [VERTRAEGE_ID]
+    state.audiences = [{ ...audience(), projectId: null }]
+
+    expect((await peopleWhoMayRead(ORG, CONV, [OWNER])).size).toBe(0)
+  })
+
+  it('asks WorkOS about a bounded number of people at a time and answers no one beyond the bound', async () => {
+    state.recorded = [VERTRAEGE_ID]
+    const many = Array.from({ length: READERS_MAX_PEOPLE + 30 }, (_, index) => `user_${index}`)
+    state.members = new Map(many.map((id) => [id, GF]))
+    let inFlight = 0
+    let peak = 0
+    vi.mocked(clearanceOfMember).mockImplementation(async (_org: string, userId: string) => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      await Promise.resolve()
+      inFlight -= 1
+      return state.members.get(userId) ?? NOBODY
+    })
+
+    const readers = await peopleWhoMayRead(ORG, CONV, many)
+
+    expect(readers.size).toBe(READERS_MAX_PEOPLE)
+    expect(peak).toBeLessThanOrEqual(20)
+  })
+})
+
+describe('lockedConversationIds: which of a list the session may no longer read (ADR-0079)', () => {
+  const asGf = { ...session, role: 'org-gf', roles: ['org-gf'] } as AuthorizedSession
+  const asNobody = { ...session, userId: 'user_nobody', role: 'member', roles: ['member'] } as AuthorizedSession
+  const list = [
+    { id: 'c_plain', projectId: PROJECT },
+    { id: 'c_vertraege', projectId: PROJECT },
+    { id: 'c_personal', projectId: PROJECT },
+    { id: 'c_opened', projectId: PROJECT },
+    { id: 'c_orphan', projectId: null },
+  ]
+
+  beforeEach(() => {
+    state.recordedFor = new Map([
+      ['c_vertraege', [VERTRAEGE_ID]],
+      ['c_personal', [PERSONAL_ID]],
+      ['c_opened', [OPENED_ID]],
+      ['c_orphan', [VERTRAEGE_ID]],
+    ])
+  })
+
+  it('locks the chats whose recorded folders the roles no longer reach, creator or not, and leaves the rest', async () => {
+    expect([...(await lockedConversationIds(asNobody, list))].sort()).toEqual(['c_orphan', 'c_personal', 'c_vertraege'])
+    expect([...(await lockedConversationIds(asGf, list))].sort()).toEqual(['c_orphan'])
+  })
+
+  it('opens a chat again when the folder is opened to everyone, with nothing rewritten', async () => {
+    state.tree = TREE.map((folder) =>
+      folder.id === VERTRAEGE_ID ? { ...folder, accessMode: 'inherit' as const, grants: [] } : folder
+    )
+
+    expect([...(await lockedConversationIds(asNobody, list))].sort()).toEqual(['c_orphan', 'c_personal'])
+  })
+
+  it('costs one read, and no folder tree, for a list in which nothing recorded a folder', async () => {
+    state.recordedFor = new Map()
+
+    expect((await lockedConversationIds(asNobody, list)).size).toBe(0)
+    expect(vi.mocked(listProjectFolderTree)).not.toHaveBeenCalled()
+  })
+
+  it('reads the folder tree once per project, not once per chat', async () => {
+    await lockedConversationIds(asNobody, list)
+
+    expect(vi.mocked(listProjectFolderTree)).toHaveBeenCalledTimes(1)
   })
 })

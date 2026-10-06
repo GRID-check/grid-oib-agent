@@ -37,8 +37,11 @@ export const LIVE_REAUTHORIZE_MS = 30_000
 
 /**
  * Prove the caller may watch this conversation. Throws `NotFoundError` when not
- * (never a 403: a denial must not confirm the thread exists — same rule as every
- * other conversation read).
+ * a party to it (a denial must not confirm the thread exists — same rule as every
+ * other conversation read), and `ResourceRightsLostError` (403) for a party who
+ * may no longer read a folder it drew on (ADR-0079): the frames are its content,
+ * so the stream is refused, and an open one is closed by
+ * {@link stillMayWatchConversation}.
  */
 export async function requireConversationSpectator(
   session: AuthorizedSession,
