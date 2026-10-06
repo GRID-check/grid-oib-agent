@@ -348,8 +348,12 @@ export interface DispatchIngestExtras {
   priority?: IngestPriority
 }
 
-/** The two priorities `POST /v1/ingest` accepts. */
-export type IngestPriority = 'interactive' | 'bulk'
+/**
+ * The two priorities `POST /v1/ingest` accepts. `ingest-priority-contract.spec.ts`
+ * pins this list to the backend's `IngestRequest.priority`.
+ */
+export const INGEST_PRIORITIES = ['interactive', 'bulk'] as const
+export type IngestPriority = (typeof INGEST_PRIORITIES)[number]
 
 /**
  * What a published Piloti document carries into the retrieval index.

@@ -236,12 +236,16 @@ const agentWorker =
       ])
     : undefined;
 
-// Ingestion tier (ADR-0076) — claims the durable ingest queue fairly across
-// organisations, scaled by KEDA on the queue's depth.
+// KEDA, installed once when any tier it scales runs: the ingest worker and the
+// BFF job pool (queue depth, ADR-0076/0078) and the chat tier (running turns,
+// ADR-0079).
 const keda =
   (cfg.ingestWorker.enabled || cfg.bffJobs.enabled || backendAutoscaled(cfg)) && cfg.keda.install
     ? installKeda(provider)
     : undefined;
+
+// Ingestion tier (ADR-0076) — claims the durable ingest queue fairly across
+// organisations, scaled by KEDA on the queue's depth.
 const ingestWorker = cfg.ingestWorker.enabled
   ? installIngestWorker(wiring, cfg, secrets, [
       postgres.initJob,
