@@ -38,7 +38,6 @@ from langgraph.types import Command
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common.canned_replies import GENERIC_ERROR_MESSAGE
-from aiq_agent.common.canned_replies import NO_SOURCES_MESSAGE
 from aiq_agent.common.canned_replies import ZDR_MODEL_REFUSED_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.job_admission import JobAdmissionError
@@ -46,7 +45,7 @@ from aiq_agent.common.openrouter import is_data_policy_refusal
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.profiler import profiled_node
-from aiq_agent.common.tool_validation import format_user_facing_tool_error
+from aiq_agent.common.tool_validation import format_no_sources_message
 from aiq_agent.common.turn_status import ToolStepCallback
 from aiq_agent.common.turn_status import emit_escalation
 from aiq_agent.common.wire_v2 import EventBody
@@ -152,9 +151,7 @@ def _error_update(message: str) -> dict[str, Any]:
 def _no_sources_message(research_type: str, exc: EmptySourceRegistryError) -> str:
     """Only fires when a data-source tool was actually queried and yielded
     nothing citable — it must not blame the search tools for unrelated failures."""
-    if exc.unavailable_tools:
-        return format_user_facing_tool_error(research_type, exc.unavailable_tools, exc.available_count)
-    return NO_SOURCES_MESSAGE
+    return format_no_sources_message(research_type, exc.unavailable_tools, exc.available_count)
 
 
 def _escalation_update(message: BaseMessage, result: ResearchAgentState) -> dict[str, Any]:
