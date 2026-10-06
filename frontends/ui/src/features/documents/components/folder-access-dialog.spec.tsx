@@ -215,4 +215,14 @@ describe('folderActionEntries', () => {
     expect(entries.find((entry) => 'id' in entry && entry.id === 'read-only')).toMatchObject({ disabled: true })
     expect(ids(folderActionEntries(base))).toEqual(expect.arrayContaining(['new-inside', 'rename', 'delete']))
   })
+
+  it('offers no „Zugriff…" on a read-only folder even to a project manager: the list is changed by who may write it', () => {
+    const entries = folderActionEntries({
+      ...base,
+      labels: { ...base.labels, access: 'Access…' },
+      onAccess: vi.fn(),
+      readOnly: true,
+    })
+    expect(ids(entries)).not.toContain('access')
+  })
 })

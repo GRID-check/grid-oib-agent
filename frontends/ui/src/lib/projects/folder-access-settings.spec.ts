@@ -194,6 +194,53 @@ describe('setFolderAccess', () => {
     expect(writes.updates).toEqual([])
   })
 
+  describe('a manager is held to the level they have on the folder', () => {
+    // Plaene has a list of its own, on which the manager's role holds `level`.
+    const asManager = async (roles: string[], seesEverything: boolean, level: 'read' | 'write' = 'read') => {
+      const { computeFolderAccess } = await vi.importActual<typeof import('@/lib/authz/folder-access')>(
+        '@/lib/authz/folder-access'
+      )
+      const tree = [
+        { id: 'plaene', parentId: null, accessMode: 'custom' as const, grants: [{ role: 'org-geschaeftsfuehrung', level }] },
+        { id: 'modelle', parentId: null, accessMode: 'inherit' as const, grants: [] },
+      ]
+      vi.mocked(getProjectFolderAccess).mockResolvedValueOnce(computeFolderAccess(tree, { roles, seesEverything }, 'proj_1'))
+    }
+    const giveSelfWrite = {
+      projectId: 'proj-1',
+      folderId: 'plaene',
+      access: { mode: 'custom' as const, grants: [{ role: 'org-geschaeftsfuehrung', level: 'write' as const }] },
+    }
+
+    it('refuses a project manager who may only read the folder, with a typed 403, and writes nothing', async () => {
+      await asManager(['org-geschaeftsfuehrung'], false)
+
+      const error = await setFolderAccess(SESSION, giveSelfWrite, request()).catch((caught: unknown) => caught)
+
+      expect(error).toMatchObject({ status: 403, details: { reason: 'folder-read-only' } })
+      expect(writes.deletes).toBe(0)
+      expect(writes.updates).toEqual([])
+      expect(recordAuditEvent).not.toHaveBeenCalled()
+      expect(placeProjectDocuments).not.toHaveBeenCalled()
+    })
+
+    it('lets an organization admin change it, whatever its list names', async () => {
+      await asManager([], true)
+
+      await setFolderAccess(SESSION, giveSelfWrite, request())
+
+      expect(writes.updates[0]).toMatchObject({ accessMode: 'custom' })
+    })
+
+    it('lets a manager who may write the folder change it', async () => {
+      await asManager(['org-geschaeftsfuehrung'], false, 'write')
+
+      await setFolderAccess(SESSION, giveSelfWrite, request())
+
+      expect(writes.updates[0]).toMatchObject({ accessMode: 'custom' })
+    })
+  })
+
   it('refuses a list that keeps a member from reading a folder holding IFC models, and writes nothing', async () => {
     vi.mocked(countIfcDocumentsInFolders).mockResolvedValueOnce(3)
 

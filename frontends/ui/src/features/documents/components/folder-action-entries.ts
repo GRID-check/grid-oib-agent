@@ -77,17 +77,8 @@ export function folderActionEntries({
       onSelect: () => undefined,
       testId: `folder-action-read-only-${folder.id}`,
     })
-    if (onAccess && labels.access) {
-      entries.push({ type: 'separator' })
-      entries.push({
-        type: 'item',
-        id: 'access',
-        label: labels.access,
-        icon: Lock,
-        onSelect: onAccess,
-        testId: `folder-action-access-${folder.id}`,
-      })
-    }
+    // No „Zugriff …" here either: changing a folder's list needs write on the
+    // folder, so the server would refuse it (ADR-0079).
     return entries
   }
 

@@ -7,10 +7,16 @@
  * access away from what the parent gives and never add to it.
  *
  * Who may change it: whoever manages the project (`project:manage`, which an
- * organization admin holds through `org:projects:administer`). A project admin
- * who may not read a folder cannot see it, so cannot change it either; an
- * organization admin always can, which is what keeps a list naming a role
- * nobody holds from locking a folder away for good.
+ * organization admin holds through `org:projects:administer`) AND may write the
+ * folder. Changing its list is the strongest write there is on it: a manager
+ * who could do it with only Lesen could give themselves Bearbeiten. One who may
+ * not read the folder cannot see it, so cannot change it either. An
+ * organization admin writes everywhere, which is what keeps a list naming a
+ * role nobody holds from locking a folder away for good.
+ *
+ * Writing the folder is also what keeps a change from granting the caller more
+ * than they hold: the level on a folder is the minimum over its path, so
+ * someone who writes it already holds the most any list on it could give.
  *
  * Changing who may READ moves the subtree's documents into the collection the
  * new tree puts them in (`./collection-placement`), so the change holds in
@@ -24,7 +30,12 @@ import { BadRequestError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { organizationRoleSlugs } from '@/lib/authz/custom-roles'
-import { EVERY_PROJECT_MEMBER, getProjectFolderAccess, type FolderGrant } from '@/lib/authz/folder-access'
+import {
+  EVERY_PROJECT_MEMBER,
+  folderReadOnlyError,
+  getProjectFolderAccess,
+  type FolderGrant,
+} from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
@@ -78,10 +89,11 @@ async function validatedGrants(organizationId: string, grants: readonly FolderGr
 }
 
 /**
- * Set a folder's access: inherit, or its own list. Refuses a role the
- * organization does not have, an empty list (inherit is the way to say
- * "everyone, as the parent"), and a list that would put an IFC model in a
- * folder not every member may read.
+ * Set a folder's access: inherit, or its own list. Needs `project:manage` and
+ * write on the folder (404 when the folder is not readable, a typed 403 when
+ * it is only readable). Refuses a role the organization does not have, an
+ * empty list (inherit is the way to say "everyone, as the parent"), and a list
+ * that would put an IFC model in a folder not every member may read.
  */
 export async function setFolderAccess(
   session: AuthorizedSession,
@@ -93,6 +105,9 @@ export async function setFolderAccess(
   if (!project) throw new NotFoundError('Project not found')
   const current = await getProjectFolderAccess(session, input.projectId, project.collectionName)
   if (!current.isVisible(input.folderId)) throw new NotFoundError('Folder not found')
+  // The level before the project ceiling: `project:manage` was asked above, and
+  // a manager is who this change is for.
+  if (current.levelOf(input.folderId) !== 'write') throw folderReadOnlyError()
 
   const grants = input.access.mode === 'custom' ? await validatedGrants(session.organizationId, input.access.grants) : null
   // Folders not every member may read do not hold IFC models until their
