@@ -52,6 +52,7 @@ export type PostHogEvent =
   | 'skill_updated'
   | 'skill_deleted'
   | 'skill_enabled_changed'
+  | 'answer_retry_thorough'
 
 let initialized = false
 

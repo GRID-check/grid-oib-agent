@@ -729,13 +729,41 @@ class TestHeadlessSalvage:
         assert prose == "Die Antwort."
         assert meta is not None and meta.kind == "ruling"
 
-    def test_a_headless_tail_whose_only_kind_is_a_nested_cards_is_not_salvaged(self):
-        # The last `", "kind":` is the callout's: cutting there shipped a JSON
-        # fragment as prose under an invented kind.
+    def test_a_headless_tail_whose_only_kind_is_a_nested_cards_is_cut_at_the_cards(self):
+        # The only `", "kind":` is the callout's: cutting there shipped a JSON
+        # fragment as prose under an invented kind. The cut is at `"cards"`,
+        # the envelope's own key, and the callout's kind invents nothing.
         content = 'Mehr Text hier.", "cards":[{"type":"callout", "kind":"hinweis", "text":"Achtung"}]}\n```'
         prose, meta = extract_answer_envelope(content)
-        assert meta is None
-        assert "callout" in prose
+        assert prose == "Mehr Text hier."
+        assert meta is not None and meta.kind is None
+
+    def test_a_headless_tail_without_a_kind_is_salvaged(self):
+        # Answer feedback, October 2026: the model never wrote `kind`, so the
+        # tail opened at `confidence` and the reader got the JSON under the answer.
+        content = (
+            "Für eine sichere Einordnung bräuchte es die Fensterbeschreibung [1].\n\n## Quellen\n"
+            '- [1] [KB] F18 Brandschutzfenster.pdf, p.1", "confidence":{"level":"medium",'
+            '"reason":"Das Schnittblatt zeigt den Anschluss."}}\n```'
+        )
+        prose, meta = extract_answer_envelope(content)
+        assert prose.endswith("F18 Brandschutzfenster.pdf, p.1")
+        assert "confidence" not in prose
+        assert meta is not None and meta.confidence is not None and meta.confidence.level == "medium"
+
+    def test_a_tail_with_a_key_the_envelope_does_not_have_is_not_salvaged(self):
+        content = 'Beispiel: {"a": "x", "confidence": 1, "rows": 3}'
+        assert extract_answer_envelope(content) == (content, None)
+
+    def test_a_json_example_in_the_prose_is_not_cut_at_its_own_keys(self):
+        # Review finding: the example's "confidence" looked like a headless tail
+        # and the reply was cut inside the example.
+        content = 'Beispiel: {"name": "test", "confidence": {"level": "medium"}}'
+        assert extract_answer_envelope(content) == (content, None)
+
+    def test_a_tail_with_a_kind_that_is_no_answer_kind_is_not_salvaged(self):
+        content = 'Text.", "kind":"hinweis", "summary":"x"}'
+        assert extract_answer_envelope(content) == (content, None)
 
     def test_an_unparseable_object_with_its_opening_is_not_cut_at_a_nested_kind(self):
         # Not JSON (``\q``), and the callout's own "kind" looks like a headless
