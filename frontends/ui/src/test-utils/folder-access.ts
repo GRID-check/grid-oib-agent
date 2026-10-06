@@ -23,6 +23,7 @@ type FolderAccessModule = Pick<
   | 'getRestrictedFolderIds'
   | 'isFolderVisibleTo'
   | 'isFolderVisibleToClearance'
+  | 'filterUsersWhoMayReadFolder'
   | 'placementCollectionFor'
   | 'getProjectFolderAccess'
   | 'currentRestrictedCollections'
@@ -60,6 +61,9 @@ export function openFolderAccessModule(): FolderAccessModule & typeof rule {
     getRestrictedFolderIds: vi.fn(async () => []),
     isFolderVisibleTo: vi.fn(async () => true),
     isFolderVisibleToClearance: vi.fn(async () => true),
+    filterUsersWhoMayReadFolder: vi.fn(
+      async (_org: string, _project: string, _folder: string | null, userIds: readonly string[]) => new Set(userIds)
+    ),
     placementCollectionFor: vi.fn(async (_org: string, _project: string, collection: string) => collection),
     getProjectFolderAccess: vi.fn(async (_session, _project: string, collection: string) => openFolderAccess(collection)),
     currentRestrictedCollections: vi.fn(async () => []),

@@ -155,6 +155,29 @@ export async function isFolderVisibleToClearance(
   return computeFolderAccess(folders, clearance, '').isVisible(folderId)
 }
 
+/**
+ * Which of `userIds` may read `folderId` (null: the project root) now, each by
+ * the roles WorkOS reports for their membership. For a caller that picks other
+ * people for something filed in a folder (who is asked to review a version):
+ * someone who may not open the folder cannot open what they were asked about.
+ * Reads the tree once, and not at all for the root or a project with no own
+ * list. Fails closed per person, as {@link clearanceOfMember} does.
+ */
+export async function filterUsersWhoMayReadFolder(
+  organizationId: string,
+  projectId: string,
+  folderId: string | null,
+  userIds: readonly string[]
+): Promise<Set<string>> {
+  if (folderId === null || userIds.length === 0) return new Set(userIds)
+  const folders = await loadCustomFolderTree(organizationId, projectId)
+  if (!folders) return new Set(userIds)
+  const clearances = await Promise.all(userIds.map((userId) => clearanceOfMember(organizationId, userId)))
+  return new Set(
+    userIds.filter((_userId, index) => computeFolderAccess(folders, clearances[index], '').isVisible(folderId))
+  )
+}
+
 /** Whether the session may change the project's documents at all: the write ceiling. Never throws. */
 export async function projectMayWriteDocuments(session: AuthorizedSession, projectId: string): Promise<boolean> {
   try {

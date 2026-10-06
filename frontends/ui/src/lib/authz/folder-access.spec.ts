@@ -22,6 +22,7 @@ import {
   clearanceOfMember,
   computeFolderAccess,
   effectiveFolderLevel,
+  filterUsersWhoMayReadFolder,
   folderTree,
   getProjectFolderAccess,
   getRestrictedFolderIds,
@@ -31,8 +32,8 @@ import {
   readableFolderIdsFor,
   requireFolderWrite,
   restrictedCollectionName,
-  withProjectCeiling,
   unreadableFoldersBelow,
+  withProjectCeiling,
   type AccessFolder,
   type FolderClearance,
   type FolderGrant,
@@ -100,7 +101,6 @@ const tree = folderTree(TREE)
 
 const who = (roles: string[], seesEverything = false): FolderClearance => ({ roles, seesEverything })
 
-describe('effectiveFolderLevel — the one rule (ADR-0079)', () => {
 describe('unreadableFoldersBelow — what a move of a subtree may not do blind', () => {
   it.each([
     ['a role the lists do not name sees none of the custom folders below', who(['member']), F.verwaltung, [F.vertraege, F.honorare]],
@@ -115,6 +115,7 @@ describe('unreadableFoldersBelow — what a move of a subtree may not do blind',
   })
 })
 
+describe('effectiveFolderLevel — the one rule (ADR-0079)', () => {
   // [who, folder, expected level]
   const cases: Array<[string, FolderClearance, string | null, FolderLevel]> = [
     // The project root and inheriting folders: the project decides.
@@ -278,6 +279,8 @@ describe('the session loaders', () => {
     vi.mocked(listProjectFolderTree).mockReset()
     vi.mocked(requireProjectAccess).mockReset()
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
+    // WorkOS cannot be asked unless a test says what it answers: the token decides.
+    vi.mocked(resolveMembershipRoles).mockResolvedValue(null)
   })
 
   it("reads every role the session holds; with WorkOS unreachable the admin bypass is the token's permission", async () => {
@@ -317,8 +320,6 @@ describe('the session loaders', () => {
   })
 
   it('getRestrictedFolderIds: what a caller with no session must hide is what not every member may read', async () => {
-    // WorkOS cannot be asked unless a test says what it answers: the token decides.
-    vi.mocked(resolveMembershipRoles).mockResolvedValue(null)
     vi.mocked(projectHasCustomFolders).mockResolvedValue(true)
     vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
     expect((await getRestrictedFolderIds('org-1', 'proj-1')).sort()).toEqual([F.vertraege, F.honorare, F.waise].sort())
@@ -330,6 +331,27 @@ describe('the session loaders', () => {
       [F.verwaltung, F.vertraege, F.honorare, F.plaene, F.statik, F.statikAlt, F.archiviert].sort()
     )
     expect(await readableFolderIdsFor('org-1', 'proj-1', ANY_MEMBER)).not.toContain(F.vertraege)
+  })
+
+  it('filterUsersWhoMayReadFolder: each person by the roles WorkOS reports for them, the tree read once', async () => {
+    vi.mocked(projectHasCustomFolders).mockResolvedValue(true)
+    vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
+    const rolesOf: Record<string, string[] | null> = { gf: [GF], bh: [BH], nobody: ['member'], admin: ['admin'], down: null }
+    vi.mocked(resolveMembershipRoles).mockImplementation(async (_org, userId) => rolesOf[userId])
+
+    const readers = await filterUsersWhoMayReadFolder('org-1', 'proj-1', F.vertraege, ['gf', 'bh', 'nobody', 'admin', 'down'])
+
+    expect([...readers].sort()).toEqual(['admin', 'bh', 'gf'])
+    expect(listProjectFolderTree).toHaveBeenCalledTimes(1)
+  })
+
+  it('filterUsersWhoMayReadFolder: asks nobody for the root or a project with no own list', async () => {
+    vi.mocked(projectHasCustomFolders).mockResolvedValue(false)
+    vi.mocked(resolveMembershipRoles).mockClear()
+
+    expect([...(await filterUsersWhoMayReadFolder('org-1', 'proj-1', F.vertraege, ['a', 'b']))]).toEqual(['a', 'b'])
+    expect([...(await filterUsersWhoMayReadFolder('org-1', 'proj-1', null, ['a']))]).toEqual(['a'])
+    expect(resolveMembershipRoles).not.toHaveBeenCalled()
   })
 
   it('clearanceOfMember: WorkOS roles, every one of them, and admin from any', async () => {
@@ -347,6 +369,7 @@ describe('requireFolderWrite — the one write check', () => {
     vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
     vi.mocked(requireProjectAccess).mockReset()
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
+    vi.mocked(resolveMembershipRoles).mockResolvedValue(null)
   })
 
   it('lets a writer write', async () => {
@@ -384,7 +407,6 @@ describe('requireFolderWrite — the one write check', () => {
     await expect(requireFolderWrite(session([GF]), 'proj-1', [F.archiviert])).rejects.toBeInstanceOf(NotFoundError)
   })
 
-    vi.mocked(resolveMembershipRoles).mockResolvedValue(null)
   it('needs only the project permission at the root', async () => {
     await expect(requireFolderWrite(session([]), 'proj-1', [null])).resolves.toBeUndefined()
     expect(listProjectFolderTree).not.toHaveBeenCalled()
