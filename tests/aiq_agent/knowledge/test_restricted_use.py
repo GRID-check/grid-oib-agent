@@ -137,11 +137,163 @@ def _result(text: str, call_id: str = "call-1") -> ToolMessage:
 
 
 class TestAToolRoundIsAdmittedBeforeTheModelReadsIt:
-    async def test_outside_a_restricted_turn_nothing_is_asked(self, bff):
+    async def test_restricted_content_outside_a_restricted_turn_is_withheld_without_asking(self, bff):
+        """No use bound: nothing could admit it, so it fails closed (ADR-0079)."""
         messages = [_result(f"Collection: {VERTRAEGE}\nHonorar pauschal")]
+        with bound(None):
+            out = await admit_tool_results(messages)
+        assert out[0].content == WITHHELD_NOTICE
+        assert bff.asked == []
+
+    async def test_outside_a_restricted_turn_an_open_result_is_untouched(self, bff):
+        messages = [_result("Collection: proj_p1\nPlan EG")]
         with bound(None):
             assert await admit_tool_results(messages) is messages
         assert bff.asked == []
+
+    async def test_a_collection_the_turn_may_not_draw_on_is_withheld_without_asking(self, bff):
+        """Only drawable collections are put to the BFF; any other restricted one is withheld."""
+        bff.answer = {"admitted": [VERTRAEGE], "refused": []}
+        personal = _result(f"Collection: {PERSONAL}\nGehalt", "call-1")
+        contract = _result(f"Collection: {VERTRAEGE}\nHonorar pauschal", "call-2")
+        with bound(_use(drawable={VERTRAEGE})):
+            out = await admit_tool_results([personal, contract])
+        assert [message.content for message in out] == [WITHHELD_NOTICE, contract.content]
+        assert bff.asked == [{"admit": [VERTRAEGE]}]
+
+    async def test_an_image_result_is_judged_by_its_text_block(self, bff):
+        message = ToolMessage(
+            content=[
+                {"type": "text", "text": f"Uploaded image 'Gehalt.png' from collection '{PERSONAL}'"},
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,AAAA"}},
+            ],
+            tool_call_id="call-1",
+        )
+        with bound(_use(drawable=set(), confined=True)):
+            out = await admit_tool_results([message])
+        assert out[0].content == WITHHELD_NOTICE
+
+
+def _reported(text: str, collections: set[str], call_id: str = "call-1") -> ToolMessage:
+    return _result(text, call_id).model_copy(
+        update={"response_metadata": {ru.COLLECTIONS_READ_KEY: sorted(collections)}}
+    )
+
+
+class TestToolsReportWhatTheyRead:
+    """The side channel: admission does not depend on a tool naming its collection in the text."""
+
+    async def test_a_reported_read_is_admitted_though_the_text_names_no_collection(self, bff):
+        bff.answer = {"admitted": [VERTRAEGE], "refused": []}
+        message = _reported("Das Honorar beträgt pauschal 48.000 €.", {VERTRAEGE, "proj_p1"})
+        with bound(_use(drawable={VERTRAEGE})) as use:
+            assert await admit_tool_results([message]) == [message]
+        assert bff.asked == [{"admit": [VERTRAEGE]}]
+        assert use is not None and use.confined is True and use.admitted == {VERTRAEGE}
+
+    async def test_a_reported_read_the_bff_refuses_is_withheld(self, bff):
+        bff.answer = {"admitted": [], "refused": [VERTRAEGE]}
+        message = _reported("Das Honorar beträgt pauschal 48.000 €.", {VERTRAEGE})
+        with bound(_use(drawable={VERTRAEGE})):
+            out = await admit_tool_results([message])
+        assert out[0].content == WITHHELD_NOTICE
+
+    async def test_a_reported_read_outside_a_restricted_turn_is_withheld(self, bff):
+        message = _reported("Gehalt 182.000 EUR", {PERSONAL})
+        with bound(None):
+            out = await admit_tool_results([message])
+        assert out[0].content == WITHHELD_NOTICE
+
+    async def test_the_wrapper_stamps_what_the_call_noted_onto_its_result(self):
+        async def execute(_request):
+            ru.note_collections_read([VERTRAEGE, None, ""])
+            ru.note_collections_read(["proj_p1"])
+            return _result("Honorar")
+
+        message = await ru.report_collections_read(None, execute)
+        assert ru.collections_read(message) == {VERTRAEGE, "proj_p1"}
+        assert message.content == "Honorar"
+
+    async def test_a_call_that_noted_nothing_is_returned_as_it_was(self):
+        original = _result("Plan EG")
+
+        async def execute(_request):
+            return original
+
+        assert await ru.report_collections_read(None, execute) is original
+
+    async def test_two_calls_never_share_what_they_read(self):
+        import asyncio
+
+        async def call(collection: str) -> ToolMessage:
+            async def execute(_request):
+                await asyncio.sleep(0)
+                ru.note_collections_read([collection])
+                await asyncio.sleep(0)
+                return _result(collection)
+
+            return await ru.report_collections_read(None, execute)
+
+        first, second = await asyncio.gather(call(VERTRAEGE), call(PERSONAL))
+        assert ru.collections_read(first) == {VERTRAEGE}
+        assert ru.collections_read(second) == {PERSONAL}
+
+    async def test_a_note_in_a_worker_thread_reaches_the_call(self):
+        """``asyncio.to_thread`` copies the context; the set is the same object."""
+        import asyncio
+
+        async def execute(_request):
+            await asyncio.to_thread(ru.note_collections_read, [VERTRAEGE])
+            return _result("Honorar")
+
+        assert ru.collections_read(await ru.report_collections_read(None, execute)) == {VERTRAEGE}
+
+    def test_a_note_outside_any_call_is_dropped(self):
+        ru.note_collections_read([VERTRAEGE])
+
+
+class TestTheTextBackstop:
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Datei plan_r0123456789ab.pdf",  # a file name shaped like a suffix, no project collection
+            "proj_p1 und Seite 3",
+            "Collection: proj_p1_r0123",  # too short to be a folder's collection
+        ],
+    )
+    async def test_text_that_names_no_restricted_collection_passes(self, bff, text):
+        messages = [_result(text)]
+        with bound(None):
+            assert await admit_tool_results(messages) is messages
+
+    async def test_a_restricted_collection_in_any_case_is_caught(self, bff):
+        messages = [_result(f"Collection: {VERTRAEGE.upper()}")]
+        with bound(None):
+            out = await admit_tool_results(messages)
+        assert out[0].content == WITHHELD_NOTICE
+
+
+class TestNaming:
+    def test_an_open_collection_may_always_be_named(self):
+        with bound(None):
+            assert ru.may_name("proj_p1") is True
+            assert ru.may_name(None) is True
+
+    def test_a_restricted_collection_is_named_only_once_admitted_this_turn(self):
+        with bound(_use(drawable={VERTRAEGE})) as use:
+            assert ru.may_name(VERTRAEGE) is False
+            assert use is not None
+            use.admitted.add(VERTRAEGE)
+            assert ru.may_name(VERTRAEGE) is True
+        with bound(None):
+            assert ru.may_name(VERTRAEGE) is False
+
+    async def test_admission_records_what_it_admitted(self, bff):
+        bff.answer = {"admitted": [VERTRAEGE], "refused": [PERSONAL]}
+        with bound(_use(drawable={VERTRAEGE, PERSONAL})) as use:
+            assert use is not None
+            assert ru.admit(use, [VERTRAEGE, PERSONAL]) == {VERTRAEGE}
+            assert use.admitted == {VERTRAEGE} and use.drawable == {VERTRAEGE}
 
     async def test_a_result_without_restricted_content_asks_nobody(self, bff):
         messages = [_result("Collection: proj_p1\nPlan EG")]

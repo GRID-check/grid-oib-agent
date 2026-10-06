@@ -182,8 +182,10 @@ who could read it.
 **A chat that draws on a folder not everyone may read is shared per person.**
 It can be shared with someone who may read every such folder it drew on, and
 with nobody else. It counts as drawing on a folder once content from it reached
-Piloti's answer: a search hit, an opened document, a remembered note. Being
-able to search the folder is not enough. If the chat is shared with someone who
+Piloti's answer: a search hit, an opened document, an image, a remembered note.
+Being able to search the folder is not enough, and until then Piloti does not
+list the folder's files, suggest their names or say that one exists; it finds
+them by searching. If the chat is shared with someone who
 may not read the folder, Piloti stops searching that folder in the chat from
 the next question on. A file name used in such a folder cannot be uploaded a
 second time elsewhere in the project.

@@ -97,7 +97,29 @@ judged against the current grants when it is read:
   The agent narrows each turn's scope to what may be drawn on, admits each tool round before
   the model reads it, and keeps restricted collections out of every listing. Sharing allows a
   person who may read every recorded folder now. This replaces ADR-0078's per-socket
-  confinement check and its `4412` close;
+  confinement check and its `4412` close.
+
+  **The admission (amended 6 October 2026).** Every tool call REPORTS the collections it returns
+  content from (`note_collections_read`): the grounding-block renderer reports every hit, the
+  exact search every file its match table names, `view_knowledge_image` the collection of the
+  image it returns. The Piloti `ToolNode`'s call wrapper (`report_collections_read`) stamps that
+  set onto the call's result, beside NAT's text. Before anything reads a round,
+  `admit_tool_results` takes, per result, what was reported plus any restricted collection its
+  text names (the backstop for a producer that forgot to report), puts only the ones the turn may
+  draw on to the BFF, and replaces every result carrying a restricted collection that was not
+  admitted with a notice: not drawable this turn, refused, the BFF unreachable, or no restricted
+  use bound at all. It fails closed whether or not a use is bound. Listing is not use, fallbacks
+  included: `list_files` filters a restricted folder's rows out of whatever it lists (the
+  inventory, or the scope when the inventory failed to load), and `read_passage` neither
+  suggests nor counts a restricted folder's file, nor confirms one exists ("no such Punkt",
+  "registered but empty"), until this turn admitted its collection (`may_name`).
+  `view_knowledge_image` takes its collection from the model, so it refuses one outside the
+  turn's scope, and a restricted one the turn may not draw on, before any lookup; it echoes the
+  turn's signed envelope to `GET /api/internal/document-file`, which then answers only for a
+  collection in the scope that envelope signs, in its organization, and for a restricted
+  folder's collection only when the asker and the conversation's audience may read the folder
+  now. Without an envelope (a job worker) that route never answers for a restricted folder's
+  collection;
 * restricted memory (`project_memory.restricted_folder_ids`, migration 0109), shown to a person
   who may read all of its folders now, and served into a chat only after its folders are
   admitted for that conversation.
@@ -120,10 +142,18 @@ recorded folders.
   `restricted_roles` and a `*` list becomes open, so an older build lets every reader write.
 * Bad, because roles are looked up in WorkOS per person and organization at most once a minute;
   an outage falls back to the token's roles, which may be up to the token's lifetime stale.
-* Bad, because the agent detects restricted content in a tool result by the collection name it
-  carries (`Collection:` in the grounding block). A future tool that returns restricted content
-  without naming its collection would bypass the admission; such a tool must be added to the
-  admission or list nothing restricted.
+* Bad, because the admission is only as complete as the reporting: a future tool that returns a
+  restricted folder's content outside the grounding block, without calling
+  `note_collections_read` and without naming the collection, would still pass it. What stands in
+  the way is a test, not the type system: every registered NAT function must be classified in
+  `tests/aiq_agent/knowledge/test_collection_read_inventory.py`, and a tool that reads must name
+  the test proving it reports. A tool bound outside Piloti's `ToolNode` gets no admission at
+  all; deep research is one, and stays safe only because a run's scope never holds a restricted
+  collection (ADR-0078).
+* Bad, because `GET /api/internal/document-file` still answers by name for an open collection
+  when no envelope is presented (a job worker has none to forward); the envelope check binds the
+  chat tool, which always echoes one, and the internal token is the same secret that signs
+  envelopes anyway.
 * Bad, because listing is not use, so restricted files do not appear in the inventory block,
   `list_files` or the document cards at all, even for a reader who may open them; they are
   found by search.
@@ -159,7 +189,23 @@ recorded folders.
 * `auth/membership-roles.spec.ts`: the membership lookup, the 60 s key, the fallback.
 * `tests/aiq_agent/knowledge/test_restricted_use.py`, `turn/test_context.py`,
   `turn/test_subject_document.py`, `agents/piloti/test_confined_turn.py`: the agent asks before
-  reading the scope, narrows it, admits and withholds tool results, and stays confined.
+  reading the scope, narrows it, admits and withholds tool results, and stays confined;
+  `test_restricted_use.py` also pins the fail-closed admission (no use bound, not drawable, an
+  image result), the side channel (a reported read admitted or withheld whatever the text says,
+  calls never sharing what they read, a note from a worker thread) and the text backstop.
+* `agents/piloti/test_restricted_tool_round.py`: through NAT's LangChain wrapper and the compiled
+  graph, a read reported only on the side channel is admitted, or withheld when refused.
+* `tests/knowledge_layer_tests/test_restricted_reads.py`: `list_files` lists no restricted file,
+  the failed-inventory fallback included; `read_passage` neither suggests, counts nor confirms
+  one before admission, and reports what it reads; the exact search reports its match table;
+  `view_knowledge_image` refuses a collection outside the turn (or restricted and not drawable)
+  before any lookup, reports what it returns and echoes the envelope.
+* `tests/aiq_agent/knowledge/test_collection_read_inventory.py`: every registered NAT function is
+  classified by how it keeps restricted content from the model, and a tool that reads names the
+  test proving it reports.
+* `app/api/internal/document-file/route.spec.ts`: with an envelope, only a signed collection in the
+  signed organization, a restricted one only when drawable now, a bad envelope a 401; without
+  one, never a restricted collection.
 * `features/documents/components/folder-access-dialog.spec.tsx` and the `/dev/folder-access`
   preview: the dialog and the „Nur lesen" marks.
 * Nothing enforces that a NEW write path calls `requireFolderWrite`; review is the gate.

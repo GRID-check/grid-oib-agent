@@ -19,16 +19,24 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
+import nat.plugins.langchain.tool_wrapper  # noqa: F401  registers the LangChain wrapper
 from aiq_agent.agents.piloti.agent import PilotiAgent
 from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.common import LLMProvider
+from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.knowledge import restricted_use as ru
 from aiq_agent.knowledge.restricted_use import WITHHELD_NOTICE
 from aiq_agent.knowledge.restricted_use import RestrictedUse
 from aiq_agent.knowledge.restricted_use import bind_restricted_use
+from aiq_agent.knowledge.restricted_use import note_collections_read
 from aiq_agent.knowledge.restricted_use import reset_restricted_use
+from nat.builder.workflow_builder import WorkflowBuilder
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import register_function
 
 VERTRAEGE = "proj_p1_r0123456789ab"
 _RESULT = (
@@ -63,7 +71,7 @@ def _bypass_citation_pipeline():
         yield
 
 
-def _agent() -> PilotiAgent:
+def _agent(tools: list[Any] | None = None) -> PilotiAgent:
     llm = MagicMock()
     llm.bind_tools = MagicMock(return_value=llm)
     llm.bind = MagicMock(return_value=llm)
@@ -75,7 +83,7 @@ def _agent() -> PilotiAgent:
     )
     provider = MagicMock(spec=LLMProvider)
     provider.get = MagicMock(return_value=llm)
-    return PilotiAgent(llm_provider=provider, tools=[knowledge_search], max_tool_iterations=4)
+    return PilotiAgent(llm_provider=provider, tools=tools or [knowledge_search], max_tool_iterations=4)
 
 
 async def _run(monkeypatch, answer: dict[str, Any] | None) -> tuple[list[str], RestrictedUse, list[dict]]:
@@ -113,3 +121,72 @@ async def test_an_admitted_result_reaches_the_model_and_confines_the_conversatio
 
     assert len(contents) == 1 and "48.000" in contents[0]
     assert use.confined is True
+
+
+# ---------------------------------------------------------------------------
+# The side channel, through NAT's real tool wrapper and the compiled graph
+# ---------------------------------------------------------------------------
+#
+# A tool reports what it read (`note_collections_read`); the ToolNode's call
+# wrapper stamps it onto the result; the tools node admits it. Each half has a
+# unit test, and each would pass with the join broken: a wrapper the ToolNode
+# never runs, or a note the wrapper's context never sees because NAT ran the
+# tool in a context of its own. Only a call through NAT's LangChain wrapper and
+# the compiled graph can fail on that (docs/contributing/gotchas.md).
+
+
+class _QuietReaderConfig(FunctionBaseConfig, name="grid_test_quiet_restricted_reader"):
+    pass
+
+
+@register_function(config_type=_QuietReaderConfig)
+async def _quiet_reader(config: _QuietReaderConfig, builder: Builder):
+    async def _read(query: str) -> str:
+        """Read a restricted folder and say so only on the side channel."""
+        note_collections_read([VERTRAEGE])
+        # No `Collection:` line: the text alone would let this through.
+        return "Das Honorar beträgt pauschal 48.000 € netto."
+
+    yield FunctionInfo.from_fn(_read, description="Search the project's documents.")
+
+
+async def _run_nat(monkeypatch, answer: dict[str, Any] | None) -> tuple[list[str], RestrictedUse, list[dict]]:
+    asked: list[dict] = []
+
+    def post(_use, body):
+        asked.append(body)
+        return answer
+
+    monkeypatch.setattr(ru, "_post", post)
+    use = RestrictedUse(
+        organization_id="org", user_id="u1", conversation_id="c1", project_id="p1", drawable={VERTRAEGE}
+    )
+    async with WorkflowBuilder() as builder:
+        await builder.add_function("knowledge_search", _QuietReaderConfig())
+        tools = await load_agent_tools(builder, ["knowledge_search"])
+        agent = _agent(tools)
+        token = bind_restricted_use(use)
+        try:
+            result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Was ist das Honorar?")]))
+        finally:
+            reset_restricted_use(token)
+    return [str(m.content) for m in result.messages if isinstance(m, ToolMessage)], use, asked
+
+
+@pytest.mark.asyncio
+async def test_a_read_reported_only_on_the_side_channel_is_admitted(monkeypatch):
+    contents, use, asked = await _run_nat(monkeypatch, {"admitted": [VERTRAEGE], "refused": []})
+
+    assert asked == [{"admit": [VERTRAEGE]}]
+    assert len(contents) == 1 and "48.000" in contents[0]
+    assert use.confined is True
+
+
+@pytest.mark.asyncio
+async def test_a_read_reported_only_on_the_side_channel_is_withheld_when_refused(monkeypatch):
+    contents, use, asked = await _run_nat(monkeypatch, {"admitted": [], "refused": [VERTRAEGE]})
+
+    assert asked == [{"admit": [VERTRAEGE]}]
+    assert contents == [WITHHELD_NOTICE]
+    assert all("48.000" not in content for content in contents)
+    assert use.drawable == set()
