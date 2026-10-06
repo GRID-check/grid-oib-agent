@@ -1,5 +1,7 @@
 # Upload & filing tickets — triage, 2026-10-01
 
+> **Superseded for the unbuilt tickets (6 Oct 2026).** Tickets 1, 2, 3, 7, 8 and 10 were triaged again against the code after develop gave the Archiv folders: [`upload-and-filing-retriage-2026-10-06.md`](upload-and-filing-retriage-2026-10-06.md). What tickets 4, 5 and 6 delivered is traced to code and tests in [`upload-governance-traceability-2026-10-06.md`](upload-governance-traceability-2026-10-06.md).
+
 Ten tickets („Tickets & Backlog — Upload & Datenablage", Jonathan, 1 Oct 2026),
 each checked against the code at `f62552a` before anything was built. Three were
 built in the same branch (4, 5, 6); one is out of scope by the product owner's
