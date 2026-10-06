@@ -61,6 +61,7 @@ from aiq_agent.knowledge.factory import register_ingestor
 from aiq_agent.knowledge.factory import register_retriever
 from aiq_agent.knowledge.ingest_scheduler import FairIngestScheduler
 from aiq_agent.knowledge.ingest_scheduler import JobSource
+from aiq_agent.knowledge.ingest_scheduler import per_org_cap_from_env
 from aiq_agent.knowledge.schema import Chunk
 from aiq_agent.knowledge.schema import CollectionInfo
 from aiq_agent.knowledge.schema import ContentType
@@ -2540,17 +2541,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # (job status stays PENDING) instead of each spawning a thread.
     INGEST_MAX_WORKERS = max(1, _env_int("AIQ_INGEST_MAX_WORKERS", 2))
 
-    # @environment_variable AIQ_INGEST_MAX_PER_ORG
-    # @category Knowledge Layer
-    # @type int
-    # @default 0
-    # @required false
-    # Most ingestion jobs one organisation may run at once in this process; 0
-    # for no cap. Workers are shared fairly without it (the organisation with
-    # the fewest running jobs goes next, `ingest_scheduler`); a cap also keeps
-    # workers free for newcomers, at the price of idling them when one
-    # organisation is alone.
-    INGEST_MAX_PER_ORG = max(0, _env_int("AIQ_INGEST_MAX_PER_ORG", 0))
+    # Most ingestion jobs one organisation may run at once in this process's
+    # own pool; 0 for no cap. `GRID_INGEST_MAX_PER_ORG`, the one name of the
+    # setting the durable queue also reads (`per_org_cap_from_env`, which
+    # accepts the deprecated `AIQ_INGEST_MAX_PER_ORG`).
+    INGEST_MAX_PER_ORG = per_org_cap_from_env()
 
     # @environment_variable AIQ_EXTRACT_IMAGES
     # @category Knowledge Layer

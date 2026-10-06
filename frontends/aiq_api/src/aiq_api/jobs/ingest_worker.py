@@ -13,9 +13,11 @@ ingestion is waiting, the depth of ``ingest_job_queue``, from zero workers when
 nothing is queued to as many as the provider's rate limit allows.
 
 On SIGTERM it stops claiming and waits up to ``GRID_INGEST_WORKER_DRAIN_SECONDS``
-for the jobs it holds. A job still running when the pod dies is claimed again
-by another worker once its heartbeat is stale; re-indexing replaces a file's
-chunks, so the second run is the one that counts.
+for the jobs it holds (a claim in flight counts as held). A job still running
+when that budget ends is given back to the queue at no cost in attempts, and
+another worker claims it at once; re-indexing replaces a file's chunks, so the
+second run is the one that counts. A pod that is killed instead (OOM, node loss)
+leaves its claims to go stale and be claimed again.
 
 Config (env):
   CONFIG_FILE / NAT_CONFIG_FILE        the NAT config the web tier runs
@@ -91,8 +93,14 @@ async def _drain(ingestor) -> None:
         await asyncio.sleep(1)
         waited += 1
     if ingestor.busy_workers:
+        # Not lost, and not a failed attempt: another worker takes them now,
+        # where a claim left to go stale would wait out the stale window and
+        # count against the job's attempts.
+        released = ingest_dispatch.release_held()
         logger.warning(
-            "Ingest worker stopping with %d job(s) running; they will be claimed again", ingestor.busy_workers
+            "Ingest worker stopping with %d job(s) running; %d claim(s) given back to the queue",
+            ingestor.busy_workers,
+            released,
         )
 
 

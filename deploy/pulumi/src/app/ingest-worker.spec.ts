@@ -10,6 +10,8 @@ const read = (...parts: string[]) => readFileSync(join(repoRoot, ...parts), "utf
 const pythonSources = [
   read("frontends", "aiq_api", "src", "aiq_api", "jobs", "ingest_dispatch.py"),
   read("frontends", "aiq_api", "src", "aiq_api", "jobs", "ingest_worker.py"),
+  // The per-organisation cap is read where the in-process pool and the queue share it.
+  read("src", "aiq_agent", "knowledge", "ingest_scheduler.py"),
 ].join("\n");
 const configSource = read("deploy", "pulumi", "src", "app", "config.ts");
 
@@ -33,7 +35,10 @@ describe("the ingest-worker tier", () => {
   it("scales on the table the queue actually writes", () => {
     const table = read("src", "aiq_agent", "knowledge", "ingest_queue.py").match(/^TABLE = "([a-z_]+)"$/m)?.[1];
     expect(table).toBeDefined();
-    expect(QUEUE_DEPTH_QUERY).toBe(`SELECT COUNT(*) FROM ${table}`);
+    const dead = read("src", "aiq_agent", "common", "claim_queue.py").match(/^DEAD = "([a-z_]+)"$/m)?.[1];
+    expect(dead).toBeDefined();
+    // Dead rows stay in the table as a trace; they must not keep replicas up.
+    expect(QUEUE_DEPTH_QUERY).toBe(`SELECT COUNT(*) FROM ${table} WHERE status <> '${dead}'`);
   });
 
   it("gives KEDA a DSN it can resolve from its own namespace", () => {

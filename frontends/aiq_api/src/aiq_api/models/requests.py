@@ -37,6 +37,15 @@ class IngestRequest(BaseModel):
         max_length=120,
         description="The member who put the document there, so its ingestion spend is booked to them.",
     )
+    priority: Literal["interactive", "bulk"] = Field(
+        "interactive",
+        description=(
+            "Who is waiting on this file. `interactive` (the default): a person uploaded it and watches "
+            "it index. `bulk`: a reindex or a rescan of many documents. Inside one organisation an "
+            "interactive job is claimed before a bulk one; between organisations the fair claim order "
+            "decides, whatever the priority."
+        ),
+    )
     thumbnail_upload_url: str | None = Field(None, description="Presigned URL for uploading a generated thumbnail")
     preview_ref: str | None = Field(
         None,

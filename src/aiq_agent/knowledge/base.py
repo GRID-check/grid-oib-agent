@@ -55,6 +55,11 @@ class PreparedIngestJob:
         value = self.config.get("organization_id")
         return value if isinstance(value, str) and value else None
 
+    @property
+    def priority(self) -> str:
+        """``interactive`` (a person is waiting on this file) or ``bulk`` (a reindex, a rescan)."""
+        return "bulk" if self.config.get("priority") == "bulk" else "interactive"
+
 
 class TTLCleanupMixin:
     """

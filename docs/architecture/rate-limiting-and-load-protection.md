@@ -465,19 +465,37 @@ turns answered with a friendly message the way a budget refusal already is.
   forever with increment/decrement, shrinking the pool until nobody can chat. A
   lease self-heals.
 
-### L3b — ingestion fair share and the provider ceiling (ADR-0076)
+### L3b — ingestion fair share and the provider ceiling (ADR-0076, ADR-0078)
 
 Ingestion is not refused, it waits, so its L3 is an order and a ceiling rather
 than an admission.
 
 - **Fair share, not a cap.** `/v1/ingest` jobs sit in `ingest_job_queue`, and a
   free worker claims the next job of the organisation with the fewest jobs
-  running fleet-wide, then the one served longest ago
-  (`aiq_agent.knowledge.ingest_queue`). A lone office uses every worker; a
-  second office's upload takes the next worker that frees up.
-  `GRID_INGEST_MAX_PER_ORG` adds a hard cap, off by default.
+  running fleet-wide, then the one served longest ago. A lone office uses every
+  worker; a second office's upload takes the next worker that frees up.
+  `GRID_INGEST_MAX_PER_ORG` adds a hard cap, off by default. The claim is the
+  generic `aiq_agent.common.claim_queue` (ADR-0078); `ingest_queue` is the
+  ingestion table on it.
+- **Priority inside an office.** `POST /v1/ingest` takes
+  `priority: "interactive" | "bulk"` (default `interactive`). An office's own
+  upload is claimed before its older reindex jobs; priority never lets one
+  office pass another.
+- **A claim is given back, not lost.** A drain that runs out of time releases
+  what it holds at no cost in attempts (`release_claims`). A job past
+  `GRID_INGEST_MAX_JOB_SECONDS`, or silent for
+  `GRID_INGEST_PROGRESS_TIMEOUT_SECONDS`, is no longer heartbeat and is claimed
+  again. A job that fails every claim is kept as a `dead` row with its reason,
+  and is not counted as work.
 - **Elastic.** The ingest-worker tier scales on the queue's depth through
-  KEDA, not on CPU (`deploy/pulumi/src/app/ingest-worker.ts`).
+  KEDA, not on CPU (`deploy/pulumi/src/app/ingest-worker.ts`); dead rows are
+  excluded from that depth.
+- **Measured.** `grid.queue.depth{queue,status}`,
+  `grid.queue.oldest_age_seconds`, `grid.queue.claim_latency_ms`,
+  `grid.queue.job_duration_seconds{kind}` and `grid.queue.dead_total`, through
+  the collector the logs use (`aiq_agent.observability.metrics`; export every
+  `OTEL_METRIC_EXPORT_INTERVAL`, 60 s by default). A queue is tuned from these,
+  not from guesses.
 - **A fixed ceiling at the provider.** However many workers run, at most
   `AIQ_VLM_FLEET_CONCURRENCY` vision calls are in flight, a Dragonfly lease pool
   sharing L3's scripts (`common/lease_slots.py`). A 429 backs off outside its

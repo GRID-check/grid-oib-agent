@@ -1007,14 +1007,18 @@ lost on restart. Now, with `jobExecution: db`:
 - **`/v1/ingest` jobs go into `ingest_job_queue`** (Postgres, beside the status
   rows). A free worker claims the next job of the organisation with the fewest
   jobs running fleet-wide, then the one served longest ago: one office's
-  reindex no longer queues everyone else. Claims heartbeat and are taken again
-  when a worker dies, up to three times.
+  reindex no longer queues everyone else; inside one office a job's
+  `priority` (`interactive`, the default, or `bulk`) orders the claim. Claims
+  heartbeat and are taken again when a worker dies, up to three times, and then
+  kept as a `dead` row with a reason (ADR-0078). A worker that must exit hands
+  its claims back without spending an attempt.
 - **A dedicated `ingest-worker` tier** (same image, `GRID_ROLE=ingest-worker`,
   no port, no PVC) claims them. The web tier stops claiming
   (`GRID_INGEST_QUEUE_CLAIM=false`) while the tier runs, so a PDF's parse no
   longer shares the chat pods' CPU.
 - **KEDA scales it on the queue**, not on CPU (a job mostly waits on the
-  provider): its `postgresql` trigger counts the table and asks for
+  provider): its `postgresql` trigger counts the table's rows that are not
+  `dead` and asks for
   ceil(jobs / `ingestWorkerConcurrency`) replicas between
   `ingestWorkerMinReplicas` and `ingestWorkerMaxReplicas`. Out at once, in a pod
   a minute; dev's floor is 0. Pulumi installs KEDA (`installKeda`, default on)
