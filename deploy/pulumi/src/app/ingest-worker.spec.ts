@@ -10,6 +10,8 @@ const read = (...parts: string[]) => readFileSync(join(repoRoot, ...parts), "utf
 const pythonSources = [
   read("frontends", "aiq_api", "src", "aiq_api", "jobs", "ingest_dispatch.py"),
   read("frontends", "aiq_api", "src", "aiq_api", "jobs", "ingest_worker.py"),
+  // The per-organisation cap is read where the in-process pool and the queue share it.
+  read("src", "aiq_agent", "knowledge", "ingest_scheduler.py"),
 ].join("\n");
 const configSource = read("deploy", "pulumi", "src", "app", "config.ts");
 
