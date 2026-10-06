@@ -47,7 +47,7 @@ Two columns matter for each change: what the person sees, and how fast.
 | **Folder loosened** | New readers see the folder and the derived content, automatically. Index move as above. | Immediately / minutes. |
 | **Folder moved** under another parent | Its effective access is recomputed from the new path (narrowing parents apply). Same consequences as tightened/loosened. Needs `project:manage` when the move changes who can read. | As above. |
 | **Document moved** to another folder | The document gets the destination's access. Content derived **before** the move keeps its tag (the folder it was read from): a move never widens what was already said about it. | Immediately. |
-| **Folder deleted** | Its documents go with it (existing delete pipeline). The folder itself is kept as a tombstone with its access rules, so chats, answers and notes drawn from it are **not touched**: by default the same people as before keep seeing them, with the notice „Dieser Ordner wurde inzwischen gelöscht". An organization setting lets an admin choose instead: everyone in the project, or admins only. | Immediately. |
+| **Folder deleted** | Papierkorb for 14 days (hidden, not searchable, restorable with its access); then purged, leaving a tombstone with its access rules. Derived chats, answers and notes follow the organization's setting (default: unchanged for the same people, with „Quelle gelöscht am …"). A DSGVO erasure removes the derived content too. See "Deleting folders, retention and GDPR". | Hidden at once; purge after 14 days. |
 | **Role deleted / renamed in WorkOS** | Rename: nothing (grants use the stable slug). Delete: the role's grants stop matching anyone; a folder whose own list now matches no existing role is readable by admins only and flagged in the project settings ("Ordner ohne gültige Rolle"). Deleting a role that folders use asks for confirmation and names the folders. | Immediately. |
 | **Chat shared** | Allowed with people who can read every folder the chat drew on; the share dialog lists only them. Each later turn may draw only on folders everyone in the chat can read. | Immediately. |
 | **Chat unshared** | The person loses the chat. Turns afterwards may again draw on folders only the owner can read. | Immediately. |
@@ -64,6 +64,90 @@ membership). A revoked role stops working within a minute. No webhook: it
 would need an endpoint, a signing secret and WorkOS configuration per
 environment for a gain from ≤ 60 s to seconds, which the product owner did not
 want to pay for.
+
+## Deleting folders, retention and GDPR
+
+How document systems built for enterprises (SharePoint, Google Drive, Box)
+handle this, and how it maps onto what Piloti already has: the deletion
+pipeline (soft delete, grace period, background purge, legal holds that block
+the purge; `docs/architecture/deletion-pipeline.md`, ADR-0011), where folders
+are still listed as out of scope.
+
+**Two different acts, kept apart.**
+
+1. **Deleting** (a person no longer needs the folder). The folder goes to a
+   **Papierkorb**: hidden and no longer searchable at once, restorable with its
+   access for 14 days (a config value, kept ≤ 23 days like every grace period
+   so an erasure still finishes inside GDPR's one month). Then the purge removes
+   the files, versions, previews and search index entries, and keeps the folder
+   as a **tombstone** (id, name, access rules, who deleted it, when). What was
+   derived from it follows the organization's setting (below).
+2. **Erasing under GDPR** (Art. 17: a person asks for their data to be gone,
+   or the office must remove it). A separate, deliberate action, „Endgültig
+   löschen (DSGVO)", for organization admins: it skips the Papierkorb and also
+   removes what was derived from the folder: memory notes drawn from it are
+   deleted; answers that drew on it are replaced by „Inhalt entfernt: Quelle
+   nach DSGVO gelöscht"; filed reports citing it are listed for review; the
+   observability traces of those turns are deleted. The deletion record (what,
+   when, on whose request; no content) is the proof, as today's
+   `deletion_queue` row is.
+
+**What blocks deletion.** A legal hold on the folder, on a document in it, on
+the project or the organization blocks the purge and the erasure (it already
+does for documents and projects; folders join the same check,
+`grid_legal_hold_blocks`). Later phase: a **retention period** per folder
+(„aufbewahren bis", e.g. 7 years for bookkeeping under BAO § 132): deleting
+before it ends is refused.
+
+**Content derived from a deleted folder: an organization setting**,
+Organisation → Sensible Daten → „Inhalte aus gelöschten Ordnern":
+
+- **Unverändert sichtbar** (default): the same people who could read the
+  folder keep seeing chats, answers and notes drawn from it, with the notice
+  „Quelle gelöscht am …".
+- **Für alle im Projekt sichtbar**, with the same notice.
+- **Nur für Admins**.
+- **Mit dem Ordner entfernen**: the purge also does what the DSGVO erasure
+  does to derived content.
+
+Whatever the setting, keeping derived personal data longer than its source is
+the organization's decision and its responsibility under GDPR's storage
+limitation (Art. 5(1)(e)); the setting's help text says so, and the DSGVO
+erasure is always available for a specific case.
+
+**The download log is personal data about staff.** It records who downloaded
+which document and version, when, from which folder (and who opened documents
+in folders with their own access list). Purpose: security and accountability,
+nothing else (no activity statistics). Kept 12 months, then purged by the
+scheduler; visible to organization admins only, and reading it is itself
+logged. In Austria and Germany such a record can need the works council's
+agreement (§ 96 ArbVG, § 87 Abs. 1 Nr. 6 BetrVG); the user guide and the
+DPA template say so, and an organization can shorten the retention.
+
+**Outside the application.**
+
+- **Backups** keep purged data until they rotate out. A restore must re-apply
+  the deletion record (the purged `deletion_queue` rows) before the system is
+  used again; that step belongs in the restore runbook. The rotation window
+  goes into the DPA.
+- **Model providers** keep nothing (zero data retention, ADR-0074).
+- **Langfuse traces keep prompts and answers forever** (ADR-0044: no retention
+  in the free build; the purge does not reach them). This is an existing gap,
+  not new: a deleted chat's content, including restricted folder content,
+  stays in the trace store. What Langfuse offers natively (checked 6 Oct 2026):
+  - **Deleting traces** (`DELETE /api/public/traces`, batches of up to 1,000
+    ids) is in every edition, self-hosted included. Our traces carry the
+    conversation id as `langfuse.session.id`, so **erasing a conversation
+    deletes its traces** through that API: one purge step, nothing new to run.
+    Langfuse notes that deleting a trace does not remove copies saved into
+    datasets; Piloti creates none.
+  - **Automatic retention** (per project, minimum 3 days, nightly purge) is an
+    Enterprise Edition feature when self-hosted. **Decided:** no licence; a
+    scheduler job deletes traces older than 30 days in batches through the same
+    native delete API (the approach of the community tool `langfuse_cleaner`).
+    If Piloti ever buys Enterprise, the job is replaced by the setting.
+- **Masked chat text** never reaches the traces (ADR-0077's chat screening
+  masks before the agent).
 
 ## What changes in the code (phases)
 
@@ -84,7 +168,11 @@ want to pay for.
    chat's folder tags and is shown only to people who can read them (instead
    of being refused).
 5. **Download log** for every download, plus opens in folders with an own
-   list; an admin view.
+   list; an admin view; 12-month retention.
+6. **Deletion**: folders join the deletion pipeline (Papierkorb, purge,
+   tombstone, legal hold), the organization setting for derived content, the
+   DSGVO erasure action, Langfuse trace retention and erasure.
+7. **Retention periods** per folder (later).
 
 ## Tests that prove it (each with a revert check)
 
@@ -99,6 +187,12 @@ want to pay for.
 
 ## Decisions (product owner, 6 Oct 2026)
 
+0. **Papierkorb** keeps deleted folders restorable for 14 days. **Retention
+   periods** per folder: not now. **Langfuse**: per-conversation erasure and a
+   30-day retention job, both through Langfuse's native delete API; no
+   Enterprise licence.
+
+
 1. **Revocation:** no webhook; roles from the membership with a ≤ 60 s cache.
 2. **Shared chat after losing access:** the chat stays in the person's list,
    shows that they no longer have the rights to view it, and shows none of
@@ -106,6 +200,7 @@ want to pay for.
 3. **Deleted folders:** derived chats and answers are not touched; the folder
    is kept as a tombstone with its access, a notice says it was deleted, and
    an organization admin can choose to show such content to everyone in the
-   project instead (or to admins only).
+   project instead (or to admins only). Refined by "Deleting folders,
+   retention and GDPR" above (Papierkorb, DSGVO erasure, a fourth setting).
 4. **Logging:** every download is logged, not only those from folders with
    an own list; opens are logged in folders with an own list.
