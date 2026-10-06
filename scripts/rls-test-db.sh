@@ -115,7 +115,8 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/conversations/erasure-queue.integration.spec.ts \
     src/lib/runs/reconcile.integration.spec.ts \
     src/lib/budgets/service.integration.spec.ts \
-    src/lib/jobs-queue/queue.integration.spec.ts
+    src/lib/jobs-queue/queue.integration.spec.ts \
+    src/lib/jobs-queue/repository.integration.spec.ts
 
 # ---------------------------------------------------------------------------
 # Migration 0086: the backfill, asserted per row shape, and its DOWN migration.
