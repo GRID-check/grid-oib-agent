@@ -8,6 +8,12 @@ import type { en } from '../en'
  * meisten Nutzer sehen. Durchgängig Sie-Form, wie im übrigen Produkt.
  */
 export const collaboration: typeof en.collaboration = {
+  rightsLost: {
+    neutralTitle: 'Geteilter Chat',
+    title: 'Ihnen fehlen inzwischen die Rechte, um diesen Chat zu sehen',
+    description:
+      'Der Zugriff auf einen Ordner, aus dem dieser Chat stammt, hat sich seit dem Teilen geändert. Fragen Sie eine Person, die diese Ordner lesen darf, oder Ihre Administration.',
+  },
   sharing: {
     title: 'Teilen',
     action: 'Teilen',
@@ -57,7 +63,10 @@ export const collaboration: typeof en.collaboration = {
       needsProjectAccess: 'Noch nicht im Projekt',
       needsProjectAccessHint:
         'Fügen Sie die Person zuerst dem Projekt hinzu. Das Teilen eines Chats gewährt niemals Zugriff auf das Projekt selbst.',
+      lacksFolderAccess: 'Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat stammt',
+      lacksFolderAccessBadge: 'Kein Zugriff',
     },
+    lostAccess: 'Hat keinen Zugriff mehr',
     roleHeading: 'Zugriffsstufe',
     manageFor: 'Zugriff verwalten: {name}',
     remove: 'Zugriff entziehen',

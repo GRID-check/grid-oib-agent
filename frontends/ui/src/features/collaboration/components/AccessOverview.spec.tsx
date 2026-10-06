@@ -244,3 +244,25 @@ describe('AccessOverview — the named exceptions', () => {
     ).toBeGreaterThan(0)
   })
 })
+
+describe('AccessOverview — someone who can no longer read what the chat drew on (ADR-0079)', () => {
+  test('says so on that person’s row, and on nobody else’s', () => {
+    const lost = state().entries.map((candidate) =>
+      candidate.person.userId === 'u-anna' ? { ...candidate, lostAccess: true } : { ...candidate, lostAccess: false },
+    )
+    render(<AccessOverview state={state({ entries: lost })} currentUserId="u-matthias" />)
+
+    const rows = screen.getAllByTestId('access-row')
+    const anna = rows.find((row) => row.textContent?.includes('Anna Weber')) as HTMLElement
+    expect(within(anna).getByTestId('access-lost')).toHaveTextContent('No longer has access')
+    expect(screen.getAllByTestId('access-lost')).toHaveLength(1)
+    // The row still says why she is here, and nothing names a folder.
+    expect(anna).toHaveTextContent('Invited by Matthias Bigl')
+  })
+
+  test('shows nothing extra for a roster without the flag, as for a document', () => {
+    render(<AccessOverview state={state()} currentUserId="u-matthias" />)
+
+    expect(screen.queryByTestId('access-lost')).toBeNull()
+  })
+})

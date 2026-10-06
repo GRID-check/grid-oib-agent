@@ -243,6 +243,15 @@ export const organization: typeof en.organization = {
         'Löschen geht erst, wenn niemand die Rolle mehr hat. Ein Ordner, der nur auf diese Rolle eingeschränkt ist, ist danach nur noch für Organisations-Admins sichtbar.',
       confirm: 'Rolle löschen',
       deleted: 'Rolle „{name}“ gelöscht.',
+      foldersCount:
+        '{count, plural, one {# Ordner nennt} other {# Ordner nennen}} diese Rolle in der Zugriffsliste:',
+      foldersEffect:
+        'Nach dem Löschen passen diese Listen auf niemanden mehr: Nur Organisations-Admins können die Ordner lesen, bis eine gültige Rolle eingetragen ist. Die Projekteinstellungen führen sie unter „Ordner ohne gültige Rolle“ auf.',
+      foldersMore: 'und {count} weitere',
+      foldersNamesHidden: 'Welche Ordner das sind, sehen nur Organisations-Admins.',
+      confirmAnyway: 'Trotzdem löschen',
+      usageError: 'Welche Ordner diese Rolle nutzen, konnte nicht geprüft werden. Bitte versuchen Sie es erneut.',
+      usedByFoldersNow: 'Inzwischen nutzen Ordner diese Rolle. Prüfen Sie die Liste und bestätigen Sie erneut.',
       stillAssigned:
         'Diese Rolle hat noch jemand. Geben Sie diesen Personen zuerst im Reiter „Personen“ eine andere Rolle.',
       error: 'Die Rolle konnte nicht gelöscht werden. Bitte versuchen Sie es erneut.',

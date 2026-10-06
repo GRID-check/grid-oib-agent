@@ -119,7 +119,7 @@ function renderDialog(overrides: Partial<UseSharingResult> = {}, onOpenChange = 
 const candidate = (
   userId: string,
   name: string,
-  flags: Partial<Pick<ShareCandidate, 'alreadyHasAccess' | 'needsProjectAccess'>> = {},
+  flags: Partial<Pick<ShareCandidate, 'alreadyHasAccess' | 'needsProjectAccess' | 'lacksFolderAccess'>> = {},
 ): ShareCandidate => ({
   person: person(userId, name),
   alreadyHasAccess: false,
@@ -379,6 +379,50 @@ describe('ShareDialog — invite', () => {
     // which is precisely the row where the reader most needs to be sure WHO this is.
     const row = screen.getByText('Eva Ritter').closest('[data-testid="share-candidate"]')
     expect(within(row as HTMLElement).getByText('u-eva@example.com')).toBeInTheDocument()
+  })
+
+  test('someone who cannot read a folder the chat drew on is SHOWN, disabled, with the reason and never the folder (ADR-0079)', () => {
+    useShareCandidatesMock.mockReturnValue(
+      candidatesResult({
+        candidates: [
+          candidate('u-ina', 'Ina Praktikantin', { lacksFolderAccess: true }),
+          candidate('u-klaus', 'Klaus Berger', { lacksFolderAccess: false }),
+        ],
+      }),
+    )
+    renderDialog()
+
+    const row = screen.getByText('Ina Praktikantin').closest('[data-testid="share-candidate"]') as HTMLElement
+    expect(row).toHaveAttribute('data-blocked')
+    expect(within(row).getByTestId('share-candidate-lacks-folder')).toHaveTextContent(
+      'Has no access to a folder this chat draws on',
+    )
+    // No invite control on the row at all, and the identifying email stays.
+    expect(screen.queryByRole('button', { name: 'Invite: Ina Praktikantin' })).toBeNull()
+    expect(within(row).getByText('u-ina@example.com')).toBeInTheDocument()
+    // The row never carries a folder name: the sharer may not be cleared for it.
+    expect(row.textContent).not.toMatch(/Ordner|Verträge|Honorar/)
+    // Someone who qualifies is invited as before.
+    expect(screen.getByRole('button', { name: 'Invite: Klaus Berger' })).toBeEnabled()
+    const klaus = screen.getByText('Klaus Berger').closest('[data-testid="share-candidate"]') as HTMLElement
+    expect(klaus).not.toHaveAttribute('data-blocked')
+  })
+
+  test('people who qualify come first, those without folder access last, and the project note stays about the project', () => {
+    useShareCandidatesMock.mockReturnValue(
+      candidatesResult({
+        candidates: [
+          candidate('u-ina', 'Ina Praktikantin', { lacksFolderAccess: true }),
+          candidate('u-klaus', 'Klaus Berger'),
+        ],
+      }),
+    )
+    renderDialog()
+
+    const names = screen.getAllByTestId('share-candidate').map((row) => row.textContent ?? '')
+    expect(names[0]).toContain('Klaus Berger')
+    expect(names[1]).toContain('Ina Praktikantin')
+    expect(screen.queryByTestId('share-blocked-note')).toBeNull()
   })
 
   test('the blocked-row reason is stated once, however many rows are blocked', () => {

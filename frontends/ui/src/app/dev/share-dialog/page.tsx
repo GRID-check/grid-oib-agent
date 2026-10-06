@@ -25,6 +25,10 @@
  *   - `?variant=invite`  — the same owner surface with a solo roster, so the invite
  *                          picker (all three candidate kinds, blocked row included)
  *                          fits on screen instead of below the fold.
+ *   - `?variant=folders` — a chat that drew on a restricted folder (ADR-0079): Zoe,
+ *                          still shared with, "hat keinen Zugriff mehr" on the
+ *                          roster, and in the picker Ina, who may not read every
+ *                          folder, disabled with the sentence and never the folder.
  *   - `?variant=failure` — a refused mutation (the last-owner invariant), because
  *                          "the change did not happen" must be visible.
  *   - `?variant=loading` — the skeleton.
@@ -54,9 +58,9 @@ import type {
 const ME = 'u-matthias'
 const RESOURCE_ID = 'c-atrium'
 
-type Variant = 'default' | 'viewer' | 'invite' | 'project' | 'failure' | 'loading'
+type Variant = 'default' | 'viewer' | 'invite' | 'project' | 'folders' | 'failure' | 'loading'
 
-const VARIANTS: readonly Variant[] = ['viewer', 'invite', 'project', 'failure', 'loading']
+const VARIANTS: readonly Variant[] = ['viewer', 'invite', 'project', 'folders', 'failure', 'loading']
 
 const readVariant = (): Variant => {
   if (typeof window === 'undefined') return 'default'
@@ -98,6 +102,11 @@ const PROJECT_ENTRIES: ResourceAccessEntry[] = [
   entry('u-markus', 'Markus Hofer', 'viewer', 'visibility-project'),
 ]
 
+/** The folders variant: Zoe lost a folder this chat drew on since it was shared with her. */
+const FOLDER_ENTRIES: ResourceAccessEntry[] = ENTRIES.map((candidate) =>
+  candidate.person.userId === 'u-zoe' ? { ...candidate, lostAccess: true } : { ...candidate, lostAccess: false },
+)
+
 const CANDIDATES: ShareCandidate[] = [
   {
     person: { userId: 'u-sabine', name: 'Sabine Gruber', email: 'sabine@buero.at', profilePictureUrl: null },
@@ -117,6 +126,14 @@ const CANDIDATES: ShareCandidate[] = [
   },
 ]
 
+/** Ina reaches the project and not every folder the chat drew on. */
+const INA: ShareCandidate = {
+  person: { userId: 'u-ina', name: 'Ina Praktikantin', email: 'ina@buero.at', profilePictureUrl: null },
+  alreadyHasAccess: false,
+  needsProjectAccess: false,
+  lacksFolderAccess: true,
+}
+
 const sharingState = (variant: Variant): ResourceSharingState => ({
   resourceType: 'conversation',
   resourceId: RESOURCE_ID,
@@ -130,7 +147,13 @@ const sharingState = (variant: Variant): ResourceSharingState => ({
   shared: true,
   // The invite variant is deliberately solo, so the picker is what the shot is of.
   entries:
-    variant === 'invite' ? [ENTRIES[0]] : variant === 'project' ? PROJECT_ENTRIES : ENTRIES,
+    variant === 'invite'
+      ? [ENTRIES[0]]
+      : variant === 'project'
+        ? PROJECT_ENTRIES
+        : variant === 'folders'
+          ? FOLDER_ENTRIES
+          : ENTRIES,
 })
 
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -144,7 +167,9 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       const variant = readVariant()
 
       if (url.startsWith(`${base}/candidates`)) {
-        return Response.json(CANDIDATES)
+        return Response.json(
+          variant === 'folders' ? [...CANDIDATES.map((c) => ({ ...c, lacksFolderAccess: false })), INA] : CANDIDATES,
+        )
       }
       if (url.startsWith(`${base}/grants`) || url.startsWith(base)) {
         // `loading` never answers, so the skeleton is what gets captured.

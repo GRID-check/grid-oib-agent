@@ -6,6 +6,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
 import { getHiddenFolderIds } from '@/lib/authz/folder-access'
+import { listFoldersWithoutValidRole } from '@/lib/projects/folder-access-settings'
 import { ProjectSettings } from '@/features/projects/components/project-settings'
 import { getTranslations } from '@/i18n/server'
 
@@ -41,10 +42,16 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
       notFound()
     }
 
+    const canManageProject = role === 'project-admin'
+    // Folders whose roles were deleted since (ADR-0079). Asked only of a
+    // project manager, who is the one who can set a role again.
+    const foldersWithoutRole = canManageProject ? await listFoldersWithoutValidRole(session, id) : []
+
     return (
       <ProjectSettings
         data={data}
-        canManageProject={role === 'project-admin'}
+        foldersWithoutRole={foldersWithoutRole}
+        canManageProject={canManageProject}
         // Knowledge left the top-level nav (spec §5) but stays reachable from
         // Settings while its feature flag is on.
         showKnowledgeLink={isProjectKnowledgePageEnabled(session)}
