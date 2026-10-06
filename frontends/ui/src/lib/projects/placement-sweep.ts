@@ -30,7 +30,7 @@
 import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { listProjectsWithRestrictedFolders } from '@/lib/authz/folder-access-repository'
-import { placeProjectDocuments } from './collection-placement'
+import { retryProjectPlacement } from './collection-placement'
 
 /** Projects one sweep places at most. Placement of a project with nothing to move is a few small reads. */
 export const PLACEMENT_SWEEP_PROJECTS = 50
@@ -71,7 +71,7 @@ export async function sweepCollectionPlacement(): Promise<PlacementSweepResult> 
     cursor = projectId
     result.checked += 1
     try {
-      const placed = await placeProjectDocuments(organizationId, projectId)
+      const placed = await retryProjectPlacement(organizationId, projectId)
       result.moved += placed.moved
       result.pending += placed.failed.length + placed.pending
     } catch (error) {

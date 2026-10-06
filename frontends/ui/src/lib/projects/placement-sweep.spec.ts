@@ -21,7 +21,7 @@ vi.mock('@/lib/authz/folder-access-repository', () => ({
   listProjectsWithRestrictedFolders: (page: RestrictedProjectsPage) => listProjects(page),
 }))
 vi.mock('./collection-placement', () => ({
-  placeProjectDocuments: (organizationId: string, projectId: string) => place(organizationId, projectId),
+  retryProjectPlacement: (organizationId: string, projectId: string) => place(organizationId, projectId),
 }))
 
 const uuid = (n: number): string => `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`

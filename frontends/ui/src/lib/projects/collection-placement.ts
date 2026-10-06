@@ -46,6 +46,7 @@ import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collecti
 import { IN_FLIGHT_DOCUMENT_STATUSES } from '@/lib/documents/document-status'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { dispatchDocument } from '@/lib/documents/service'
+import { invalidateProjectPromptViewCache } from '@/lib/project-profile/prompt-view'
 import { findProjectInOrg } from '@/lib/projects/repository'
 
 const PURGE_TIMEOUT_MS = 15_000
@@ -254,8 +255,33 @@ async function placePage(
  * Move every document of the project that is in the wrong collection, up to
  * `PLACEMENT_MOVES` of them; the rest come back as `pending`. Never throws for
  * one document.
+ *
+ * It also drops the project's cached prompt view, first and last. Every change
+ * of who reads what ends in this call (a folder's list set, a folder or a
+ * document moved, a folder deleted), and the view's document-roles block names
+ * no document in a folder not every member reads: a view cached before the
+ * change would keep naming a now-restricted document in every member's turns
+ * until its TTL ran out. Once here is the hook the next write path cannot
+ * forget. First, so a turn during a long placement builds from the tree as it
+ * now is; last, for a build that began before the change and finished after
+ * the first drop.
  */
 export async function placeProjectDocuments(organizationId: string, projectId: string): Promise<PlacementResult> {
+  await invalidateProjectPromptViewCache(projectId, organizationId)
+  try {
+    return await retryProjectPlacement(organizationId, projectId)
+  } finally {
+    await invalidateProjectPromptViewCache(projectId, organizationId)
+  }
+}
+
+/**
+ * {@link placeProjectDocuments} for a caller that changed nothing about who
+ * reads what: the sweep finishing moves an outage interrupted. The prompt view
+ * is left cached, because the sweep ticks over every restricted project and
+ * would otherwise empty the cache of each of them every time.
+ */
+export async function retryProjectPlacement(organizationId: string, projectId: string): Promise<PlacementResult> {
   const result: PlacementResult = { moved: 0, failed: [], pending: 0 }
   const project = await findProjectInOrg(projectId, organizationId)
   if (!project) return result
