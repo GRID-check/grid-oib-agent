@@ -209,7 +209,12 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `backendIngestMaxWorkers` | `2` | Concurrent ingestion bound |
 | `backendConfigFile` | `config_oib_openrouter.yml` | Baked backend config path |
 | `backendDataStorageSize` | `20Gi` | Per-replica /app/data volume (grow via PVC patch) |
-| `backendReplicas` | `2` | Web replicas (db mode only; dask forces 1) |
+| `backendReplicas` | `2` | Web replicas (db mode only; dask forces 1). The floor once the chat tier autoscales |
+| `chatAffinity` | `true` | `GRID_CHAT_AFFINITY` (ADR-0079): the gateway pins a conversation to a replica by hash (the replica count is then static). `false` sends sockets to the `aiq-agent` Service and lets the conversation bus decide per turn; needs `conversationBus`. Prod keeps `true` until the cross-replica path is validated on dev |
+| `backendMaxReplicas` | `3` | Ceiling KEDA scales the chat tier to. Used only with `chatAffinity: false`, `jobExecution: db` and a ceiling above `backendReplicas`; prod pins `1` |
+| `backendTurnsPerReplica` | `8` | Fleet-wide running chat turns per replica that the KEDA `metrics-api` trigger aims for (`GET /v1/internal/chat-occupancy`) |
+| `backendCpuTargetPercent` | `70` | CPU utilisation (% of requests) of the KEDA `cpu` trigger beside it |
+| `backendDrainSeconds` | `20` with `chatAffinity: true`, `2730` with it off | `GRID_CHAT_DRAIN_SECONDS`: how long a terminating replica waits for its turns. The pod grace period is this plus 10 s of endpoint drain and 60 s of slack, so the autoscaled value covers the longest chat turn (`GRID_CHAT_TURN_DEADLINE_SECONDS`, 2700). Floor 10 |
 | **Research execution** | | |
 | `jobExecution` | `dask` (both templates: `db`) | `db` = DB-claimed worker tier, horizontal |
 | `conversationBus` | `true` | Dragonfly pub/sub chat bus (ADR-0028) |

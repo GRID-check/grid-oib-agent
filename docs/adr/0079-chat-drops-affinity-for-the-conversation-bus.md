@@ -122,6 +122,15 @@ Chosen option 3.
   (`GRID_CHAT_DRAIN_SECONDS`); the scaling signal is
   `GET /v1/internal/chat-occupancy` (`turn_admission.active_turns`); the
   ScaledObject is `deploy/pulumi/src/app/backend-scaling.ts`.
+* One difference from the order written above: the turn id is claimed first,
+  then the marker is taken. A resent question that is a duplicate must never
+  publish `SUPERSEDE`, or a late resend of an old question would stop the newer
+  turn that is running. A question the fence refuses is therefore a claimed,
+  finished turn (`RUN_STARTED`, then `RUN_FINISHED` with outcome `refused`, the
+  wire's existing refusal shape, retry hint 5 s), not a `rejected` frame, so no
+  new wire code is needed. The marker is `SET NX`, so of two questions racing
+  from two replicas exactly one runs first; the renewal and the release are
+  compare-and-write on the marker's own `{replica, turn_id}` value.
 * A replica holds no disk state a conversation depends on: checkpoints are in
   Postgres, vectors in the shared Chroma. The one per-replica file set is the
   base-corpus admin upload (`OIB_UPLOADS_DIR` on the data PVC, kubernetes.md
