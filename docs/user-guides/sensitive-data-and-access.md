@@ -201,10 +201,11 @@ they cannot open. A change of a folder's access shows in Piloti's project
 context (the list of documents with a role, such as the Bebauungsplan) right
 away, and the projects overview counts only the documents you may read.
 
-**Deleting a folder** moves its documents and subfolders into the folder above,
-as before. The folder keeps its access list out of sight, so what Piloti
-recorded from it, in a chat or in its memory, stays visible only to the people
-who could read it.
+**Deleting a folder** puts it in the Papierkorb, with everything in it: see
+[Deleting folders: the Papierkorb](#deleting-folders-the-papierkorb). It keeps
+its access list, so what Piloti recorded from it, in a chat or in its memory,
+stays visible only to the people who could read it, until your organization
+decides otherwise.
 
 **A chat that draws on a folder not everyone may read is shared per person.**
 It can be shared with someone who may read every such folder it drew on, and
@@ -269,3 +270,64 @@ hidden from everyone who may not read that folder, in the model list, the
 viewer and the download, and Piloti's model questions do not reach it; its
 summary may still be found by Piloti's search, so move such a model to an open
 folder.
+
+## Deleting folders: the Papierkorb
+
+**Deleting a folder** (⋯ → Löschen) moves it to the project's **Papierkorb**
+together with its subfolders and their documents. From that moment it is
+absent for everyone, organization admins included: not listed, not searchable,
+not in Piloti's answers, not openable or downloadable from a link. Its
+documents are taken out of Piloti's search index at once.
+
+This is a project's Files. A folder in the office **Archiv** has no Papierkorb:
+deleting it moves its documents and subfolders into the folder above.
+
+You may delete a folder when you may edit it and every folder inside it. If it
+holds a folder you may not read, or may only read, Piloti refuses with „Dieser
+Ordner enthält Inhalte, die Sie nicht löschen dürfen" and deletes nothing; it
+does not say which folder.
+
+**The Papierkorb** (the bin icon in Files) lists the deleted folders you may
+read: who deleted each, when, what it holds and when it will be deleted for
+good. For 14 days (your operator may set up to 23) a folder can be
+**restored**, with its access list, its subfolders and its documents, by anyone
+who could edit it. Its documents are read into the search index again, which
+takes a few minutes for a large folder. If the folder it was in has been
+deleted meanwhile, it comes back at the top of the project, and Piloti says so.
+If a folder with the same name exists there now, rename that one first.
+
+After the 14 days the folder is **deleted for good**: its documents, every
+version and preview are erased. Project admins can do that at once with
+**Endgültig löschen**. What remains is an invisible record of the folder and its
+access list, so Piloti can still decide who may see what it said about it.
+
+**A legal hold** on the folder, on a folder above it, on a document in it, on
+the project, on the person who uploaded a document in it, or on the whole
+organization stops the final deletion. Piloti answers that
+a retention obligation applies and does not say which.
+
+### What happens to chats, answers and notes from a deleted folder
+
+Your organization chooses under **Organisation → Sensible Daten → „Inhalte aus
+gelöschten Ordnern"** (organization admins):
+
+| Choice | Who sees chats, answers and memory notes drawn from the folder |
+|---|---|
+| **Unverändert sichtbar** (default) | Whoever could read the folder, as before |
+| **Für alle im Projekt sichtbar** | Every member of the project |
+| **Nur für Admins** | Organization admins only |
+| **Mit dem Ordner entfernen** | Nobody: the final deletion removes them too. Notes drawn from the folder are deleted, and answers that drew on it are replaced by „Inhalt entfernt: Quelle gelöscht“ |
+
+The choice applies once a folder is deleted for good, and at once to folders
+deleted earlier. Answers, notes and filed reports drawn from such a folder show
+**„Quelle gelöscht am …"**.
+
+### What cannot be taken back
+
+- A folder deleted for good cannot be undone, and neither can content removed with it.
+- A document someone **downloaded, exported or copied** before the deletion is
+  outside Piloti; deleting the folder does not reach it.
+- **Backups** keep deleted data until they rotate out (your contract states how
+  long); a restore from a backup re-applies the deletions before use.
+- Piloti's **conversation memory** for a chat whose answers were removed keeps
+  the original answer until the chat has been idle for 14 days or is deleted.

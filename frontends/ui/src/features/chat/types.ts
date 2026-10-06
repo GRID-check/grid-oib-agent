@@ -385,6 +385,20 @@ export interface ChatMessage {
    */
   stopped?: true
   /**
+   * The answer drew on a folder that was permanently deleted since (ADR-0081):
+   * when its purge ran, for the „Quelle gelöscht am …" note. Set by the purge
+   * (`metadata.sourceDeleted`); who may still read the answer is decided by
+   * the organization's setting, on the server.
+   */
+  sourceDeletedAt?: string
+  /**
+   * The answer was removed with its source folder (ADR-0081, „Mit dem Ordner
+   * entfernen“): its text is the stored replacement, every source and card is
+   * gone, and the chat shows the removal note in the reader's language
+   * (`metadata.sourceRemoved`).
+   */
+  erasedAt?: string
+  /**
    * What a POST-ANSWER STAGE computed for this turn, arriving after the answer
    * (`docs/architecture/post-answer-stages.md` §4.3).
    *

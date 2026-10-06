@@ -81,6 +81,7 @@ import { useAuth } from '@/adapters/auth'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
+import { SourceDeletedNote } from '@/components/projects/source-deleted-note'
 import { useShowReasoningSkills } from '@/lib/user-preferences/use-show-reasoning-skills'
 import { WELCOME_OFFSET_FALLBACK } from '../hooks/use-composer-metrics'
 
@@ -1249,6 +1250,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
   onContinueRun,
 }) => {
   const tFileStatus = useTranslations('research')
+  const tCommon = useTranslations('common')
   const messageType = message.messageType || (message.role === 'user' ? 'user' : 'assistant')
 
   switch (messageType) {
@@ -1286,43 +1288,50 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       // here, because a RUN's message renders the same card beneath its block
       // once the run has a report — and the prop mapping must exist in one place.
       const answer = (
-        <AgentResponse
-          content={message.content}
-          timestamp={message.timestamp}
-          answerDurationMs={message.answerDurationMs}
-          cards={message.cards}
-          citations={message.citations}
-          conversationId={conversationId}
-          // Both feed the „Piloti hat sich gemerkt" chip, which is now a fact
-          // about THIS TURN rather than a poll of the conversation's memory:
-          // the reflection stage's frame lands on `stages`, and a
-          // `memory_proposal` counts only once `cardInteractions` says the
-          // reader said yes.
-          cardInteractions={message.cardInteractions}
-          stages={message.stages}
-          answerMeta={message.answerMeta}
-          findings={message.findings}
-          previousFindings={previousFindings}
-          onCommissionFinding={onCommissionFinding}
-          answerConfidence={message.answerConfidence}
-          answerConfidenceCappedReason={message.answerConfidenceCappedReason}
-          answerConfidenceReason={message.answerConfidenceReason}
-          citationsRemoved={message.citationsRemoved}
-          readSources={message.readSources}
-          researchTruncated={message.researchTruncated}
-          truncationReason={message.truncationReason}
-          degradedReasons={message.degradedReasons}
-          skillsActivated={message.skillsActivated}
-          skillsHidden={message.skillsHidden}
-          showReasoning={showReasoning}
-          showConfidenceChip={showConfidenceChip}
-          messageId={message.id}
-          showAnswerFeedback={showAnswerFeedback}
-          isStreaming={message.isStreaming}
-          routingDecision={message.routingDecision}
-          retrievalLedger={message.retrievalLedger}
-          quoteStamps={message.quoteStamps}
-        />
+        <>
+          <AgentResponse
+            // An answer removed with its source folder shows the removal note
+            // in the reader's language, not the stored German text (ADR-0081).
+            content={message.erasedAt ? tCommon('derivedSource.erased') : message.content}
+            timestamp={message.timestamp}
+            answerDurationMs={message.answerDurationMs}
+            cards={message.cards}
+            citations={message.citations}
+            conversationId={conversationId}
+            // Both feed the „Piloti hat sich gemerkt" chip, which is now a fact
+            // about THIS TURN rather than a poll of the conversation's memory:
+            // the reflection stage's frame lands on `stages`, and a
+            // `memory_proposal` counts only once `cardInteractions` says the
+            // reader said yes.
+            cardInteractions={message.cardInteractions}
+            stages={message.stages}
+            answerMeta={message.answerMeta}
+            findings={message.findings}
+            previousFindings={previousFindings}
+            onCommissionFinding={onCommissionFinding}
+            answerConfidence={message.answerConfidence}
+            answerConfidenceCappedReason={message.answerConfidenceCappedReason}
+            answerConfidenceReason={message.answerConfidenceReason}
+            citationsRemoved={message.citationsRemoved}
+            readSources={message.readSources}
+            researchTruncated={message.researchTruncated}
+            truncationReason={message.truncationReason}
+            degradedReasons={message.degradedReasons}
+            skillsActivated={message.skillsActivated}
+            skillsHidden={message.skillsHidden}
+            showReasoning={showReasoning}
+            showConfidenceChip={showConfidenceChip}
+            messageId={message.id}
+            showAnswerFeedback={showAnswerFeedback}
+            isStreaming={message.isStreaming}
+            routingDecision={message.routingDecision}
+            retrievalLedger={message.retrievalLedger}
+            quoteStamps={message.quoteStamps}
+          />
+          {message.sourceDeletedAt && !message.erasedAt && (
+            <SourceDeletedNote at={message.sourceDeletedAt} className="mt-1 px-1" />
+          )}
+        </>
       )
       // A message that carries a run ledger IS a run (ADR-0062): the block
       // renders from the ledger, and the answer card above becomes the report

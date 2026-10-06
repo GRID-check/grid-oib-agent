@@ -94,6 +94,13 @@ export interface FileShelf {
    * leaves this out and shows no lock, no „Nur lesen" and no „Zugriff…".
    */
   folderAccess?: ShelfFolderAccess
+  /**
+   * The shelf's Papierkorb, a project's only (ADR-0081): deleting a folder
+   * moves it there with its subfolders and documents, the toast links to it,
+   * and the header carries a way in. Without it (the Archiv) deleting a folder
+   * re-files its contents into the parent and removes the folder.
+   */
+  bin?: { href: string }
   /** Faces, „Unvergeben", the assignment filter (the collaboration flag). */
   canCollaborate: boolean
   currentUserId?: string

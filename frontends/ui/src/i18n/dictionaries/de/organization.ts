@@ -621,6 +621,30 @@ export const organization: typeof en.organization = {
     open: 'Audit-Logs ansehen',
     error: 'Der Audit-Log-Viewer konnte nicht geöffnet werden.',
   },
+  /** Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0081). */
+  deletedFolderContent: {
+    title: 'Inhalte aus gelöschten Ordnern',
+    description:
+      'Wer Chats, Antworten und Notizen sieht, die aus einem Ordner stammen, nachdem er endgültig gelöscht ist. Gilt sofort, auch für schon gelöschte Ordner.',
+    options: {
+      unchanged: 'Unverändert sichtbar',
+      project: 'Für alle im Projekt sichtbar',
+      admins: 'Nur für Admins',
+      remove: 'Mit dem Ordner entfernen',
+    },
+    hints: {
+      unchanged: 'Wer den Ordner lesen durfte, sieht sie weiter, mit dem Hinweis „Quelle gelöscht am …“.',
+      project: 'Alle Projektmitglieder sehen sie, mit demselben Hinweis.',
+      admins: 'Nur Organisations-Admins sehen sie.',
+      remove: 'Die endgültige Löschung entfernt sie mit: Notizen gelöscht, Antworten ersetzt durch „Inhalt entfernt“.',
+    },
+    retentionNote:
+      'Wie lange abgeleitete Inhalte bleiben, nachdem ihre Quelle gelöscht ist, entscheidet Ihre Organisation hier.',
+    saved: 'Gespeichert.',
+    saveError: 'Die Einstellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
+    loadError: 'Die Einstellung konnte nicht geladen werden.',
+    readOnly: 'Nur Organisations-Admins können das ändern.',
+  },
   /** Sensible Daten: die Liste, gegen die Piloti jeden Upload prüft (ADR-0079). */
   screening: {
     title: 'Prüfliste',

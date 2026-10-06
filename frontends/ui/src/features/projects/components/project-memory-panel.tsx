@@ -1,5 +1,6 @@
 'use client'
 
+import { SourceDeletedNote } from '@/components/projects/source-deleted-note'
 import type { JSX } from 'react'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -54,6 +55,8 @@ type MemoryItem = Omit<ProjectMemoryItem, 'createdAt' | 'updatedAt' | 'lastRefer
   lastReferencedAt: string | null
   /** The folders a restricted note (ADR-0080) is restricted to; only ever sent to a cleared reader. */
   restrictedFolderNames?: string[]
+  /** When a folder the note came from was purged (ADR-0081): „Quelle gelöscht am …". */
+  sourceDeletedAt?: string
 }
 
 /** The tooltip on a restricted note's lock: the folders it came from, when known. */
@@ -508,6 +511,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                               {t('memory.restricted.badge')}
                             </Badge>
                           )}
+                          {item.sourceDeletedAt && <SourceDeletedNote at={item.sourceDeletedAt} className="mt-1" />}
                           {item.conflictsWithId && (
                             <Badge
                               variant="outline"

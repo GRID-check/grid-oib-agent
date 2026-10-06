@@ -1,8 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatCalendarDate } from '@/lib/format'
 import type { FileItem, FolderItem } from '../file-types'
 import type { FolderAccessLevel } from '../lib/file-shelf'
 
@@ -24,6 +26,12 @@ export interface FolderTreeOptions {
   onSelectFolder: (id: string | null) => void
   /** Re-read the documents after a change that moved some (a delete re-files them). */
   reloadFiles: (quiet?: boolean) => Promise<unknown>
+  /**
+   * The shelf's Papierkorb (a project's, ADR-0081). With it, a delete moves the
+   * folder there with its contents and the toast links to it; without it (the
+   * Archiv), a delete re-files the contents into the parent.
+   */
+  binHref?: string
 }
 
 /**
@@ -46,8 +54,11 @@ export function useFolderTree({
   selectedFolderId,
   onSelectFolder,
   reloadFiles,
+  binHref,
 }: FolderTreeOptions) {
   const t = useTranslations('files')
+  const { locale } = useLocale()
+  const router = useRouter()
   const [folders, setFolders] = useState<FolderItem[]>(() => [...(initialFolders ?? [])])
   const [isLoading, setIsLoading] = useState(initialFolders === undefined)
   const [error, setError] = useState(false)
@@ -166,9 +177,11 @@ export function useFolderTree({
   /**
    * NAME WHAT HAPPENS TO THE WORK. A folder is a label somebody put on a set of
    * documents, and the one question in this reader's head is "does this delete
-   * my files?" — so the confirm answers it, with the count and where they will
-   * be, instead of a generic "this cannot be undone" that would be frightening
-   * and false.
+   * my files?" — so the confirm answers it, instead of a generic "this cannot
+   * be undone" that would be frightening and, on both shelves, false. On a
+   * shelf with a Papierkorb the contents go into it with the folder and can be
+   * restored; on the Archiv they are re-filed into the parent, with the count
+   * and where they will be.
    */
   const remove = useCallback(
     async (folderId: string) => {
@@ -179,8 +192,9 @@ export function useFolderTree({
       const parent = folder.parentId
         ? (folders.find((f) => f.id === folder.parentId)?.name ?? t('folders.allFiles'))
         : t('folders.allFiles')
-      const confirmed = window.confirm(
-        inside > 0 || nested > 0
+      const question = binHref
+        ? t('workspace.binFolderConfirm', { name: folder.name })
+        : inside > 0 || nested > 0
           ? t('workspace.deleteFolderConfirmWithContents', {
               name: folder.name,
               documents: String(inside),
@@ -188,27 +202,44 @@ export function useFolderTree({
               parent,
             })
           : t('workspace.deleteFolderConfirm', { name: folder.name })
-      )
-      if (!confirmed) return false
+      if (!window.confirm(question)) return false
 
       const response = await fetch(`${foldersUrl}/${folderId}`, { method: 'DELETE' })
       if (!response.ok) {
-        toast.error(t('workspace.deleteFolderError'))
+        const body = (await response.json().catch(() => null)) as { details?: { reason?: unknown } } | null
+        const reason = typeof body?.details?.reason === 'string' ? body.details.reason : null
+        toast.error(
+          reason === 'folder-contents-protected'
+            ? t('workspace.deleteFolderProtected')
+            : response.status === 502
+              ? t('workspace.deleteFolderIndexDown')
+              : t('workspace.deleteFolderError')
+        )
         return false
       }
-      const moved = (await response.json().catch(() => ({}))) as { documentsMoved?: number }
+      const answer = (await response.json().catch(() => ({}))) as { documentsMoved?: number; purgeAfter?: string }
       // The selection cannot stay on a folder that no longer exists — it would
       // filter the grid to nothing and read as an empty shelf.
       if (selectedFolderId === folderId) onSelectFolder(folder.parentId ?? null)
       await Promise.all([load(), reloadFiles(true)])
+      if (binHref) {
+        toast.success(
+          t('workspace.binFolderDone', {
+            name: folder.name,
+            date: answer.purgeAfter ? formatCalendarDate(answer.purgeAfter, locale) : '—',
+          }),
+          { action: { label: t('workspace.openBin'), onClick: () => router.push(binHref) } }
+        )
+        return true
+      }
       toast.success(
-        moved.documentsMoved
-          ? t('workspace.deleteFolderMoved', { count: String(moved.documentsMoved), parent })
+        answer.documentsMoved
+          ? t('workspace.deleteFolderMoved', { count: String(answer.documentsMoved), parent })
           : t('workspace.deleteFolderDone', { name: folder.name })
       )
       return true
     },
-    [foldersUrl, t, folders, files, selectedFolderId, onSelectFolder, load, reloadFiles]
+    [foldersUrl, binHref, t, locale, router, folders, files, selectedFolderId, onSelectFolder, load, reloadFiles]
   )
 
   return { folders, rootAccess, isLoading, error, load, create, rename, move, remove }
