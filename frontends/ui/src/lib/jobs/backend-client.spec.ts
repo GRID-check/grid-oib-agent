@@ -81,7 +81,12 @@ describe('submitJob', () => {
 
   it('accepts the backend snake_case job_id (SkillSubmitResponse)', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ job_id: 'job-2' }), { status: 200 }))
-    await expect(submitJob(payload, {})).resolves.toEqual({ jobId: 'job-2' })
+    await expect(submitJob(payload, {})).resolves.toEqual({ jobId: 'job-2', queued: false })
+  })
+
+  it('reports a job the backend queued for a free worker', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ job_id: 'job-3', queued: true }), { status: 200 }))
+    await expect(submitJob(payload, {})).resolves.toEqual({ jobId: 'job-3', queued: true })
   })
 
   it('maps a 429 to SkippedError carrying Retry-After', async () => {

@@ -6,7 +6,10 @@
  * maintenance.py pattern — never on the external allowlist). This module owns
  * the HTTP call and maps responses to typed errors:
  *   - 429 → SkippedError (with Retry-After) so the run is recorded as a
- *     `skipped` run and NOT retried before its next slot (no cap stampede);
+ *     `skipped` run and NOT retried before its next slot. With the research
+ *     queue (ADR-0078) this is no longer capacity: a full cluster makes the job
+ *     WAIT (`queued: true` in the response), and the only 429 left is an
+ *     organization whose own waiting queue is past its bound;
  *   - any other non-2xx / network failure → SubmitError → `error` run.
  */
 
@@ -83,11 +86,21 @@ export interface JobSubmitPayload {
   owner_email: string | null
   budget_header: string | null
   model_overrides: Record<string, string> | null
+  /**
+   * Where the run goes inside its organization's queue: `interactive` for a run
+   * a person is waiting on, `bulk` for a scheduled fire. Absent is interactive.
+   */
+  priority?: JobPriority
 }
 
+/** The two priorities the research queue knows (`aiq_agent.common.claim_queue`). */
+export type JobPriority = 'interactive' | 'bulk'
+
 /**
- * Admission cap hit (backend 429). Carries the parsed Retry-After (seconds) if
- * present. Recorded as a `skipped` run; fireJob never rethrows it.
+ * The backend refused to take the job (429): the organization already has as
+ * many jobs waiting as it may. Capacity is never the reason, because a full
+ * cluster queues the job. Carries the parsed Retry-After (seconds) if present.
+ * Recorded as a `skipped` run; fireJob never rethrows it.
  */
 export class JobSubmitSkippedError extends Error {
   constructor(
@@ -125,8 +138,9 @@ async function readBody(response: Response): Promise<string> {
 }
 
 /**
- * Submit a job run to the backend. Returns `{ jobId }` on success (the BACKEND
- * async-job id, not `jobs.id`). Throws JobSubmitSkippedError on 429 and
+ * Submit a job run to the backend. Returns `{ jobId, queued }` on success (the
+ * BACKEND async-job id, not `jobs.id`; `queued` says the job waits for a free
+ * worker instead of starting at once). Throws JobSubmitSkippedError on 429 and
  * JobSubmitError otherwise.
  *
  * `extraHeaders` carries session-derived wire metadata (e.g.
@@ -136,7 +150,7 @@ async function readBody(response: Response): Promise<string> {
 export async function submitJob(
   payload: JobSubmitPayload,
   extraHeaders: Record<string, string>
-): Promise<{ jobId: string }> {
+): Promise<{ jobId: string; queued: boolean }> {
   const token = process.env.GRID_INTERNAL_API_TOKEN
   if (!token) {
     throw new JobSubmitError('GRID_INTERNAL_API_TOKEN is not configured', 503)
@@ -169,14 +183,15 @@ export async function submitJob(
   }
 
   try {
-    const json = (await response.json()) as { jobId?: string; job_id?: string }
+    const json = (await response.json()) as { jobId?: string; job_id?: string; queued?: boolean }
     // Backend sends snake_case `job_id` (SkillSubmitResponse); accept camelCase
     // too so either deploy order works.
     const jobId = json.jobId ?? json.job_id
     if (typeof jobId !== 'string' || jobId.length === 0) {
       throw new JobSubmitError('backend returned no jobId', 502)
     }
-    return { jobId }
+    // Absent from a backend that predates the queue, which started the job at once.
+    return { jobId, queued: json.queued === true }
   } catch (err) {
     if (err instanceof JobSubmitError) throw err
     throw new JobSubmitError('malformed backend response', 502)
