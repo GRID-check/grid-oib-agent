@@ -52,6 +52,7 @@ export function ProjectFileDrop({ projectId, children }: { projectId: string; ch
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
     onDrop: sendToFiles,
     disabled: !active,
+    acceptZip: true,
   })
   useWindowDragGuard()
 

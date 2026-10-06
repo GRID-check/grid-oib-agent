@@ -409,6 +409,18 @@ export const files: typeof en.files = {
     legalHold: 'Das Dokument unterliegt einer rechtlichen Sperre und kann nicht gelöscht werden',
   },
   /**
+   * Ein auf ein Ablagefach gezogenes ZIP. Es wird im Browser entpackt und dann
+   * wie der enthaltene Ordner behandelt (`folderUpload.*`); hier stehen nur die
+   * Sätze für ein Archiv, das nichts ergeben hat.
+   */
+  zip: {
+    reading: 'ZIP wird gelesen…',
+    unreadable: '„{name}“ konnte nicht gelesen werden. Ist es ein gültiges ZIP ohne Passwort?',
+    empty: '„{name}“ enthält keine Dateien.',
+    tooManyFiles: '„{name}“ enthält mehr als {limit} Dateien, daher wurde nichts übernommen. Teilen Sie es in kleinere ZIPs auf.',
+    tooLarge: '„{name}“ ist entpackt größer als {limit}, daher wurde nichts übernommen. Teilen Sie es in kleinere ZIPs auf.',
+  },
+  /**
    * Der Ordner-Upload-Plan — der Dialog, den ein abgelegter Ordnerbaum öffnet,
    * bevor sich etwas bewegt. Siehe die englische Fassung für das Warum.
    */

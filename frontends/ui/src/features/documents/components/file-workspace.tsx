@@ -242,6 +242,7 @@ export function FileWorkspace({
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
     onDrop: handleUpload,
     disabled: isUploading || !canManage,
+    acceptZip: true,
   })
   useWindowDragGuard()
 
