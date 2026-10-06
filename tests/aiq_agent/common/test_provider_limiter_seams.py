@@ -339,8 +339,8 @@ def test_a_queued_ingest_job_runs_in_the_class_of_its_priority(monkeypatch):
     import threading
 
     import aiq_api.jobs.ingest_dispatch as dispatch
-    from aiq_api.jobs.ingest_dispatch import QueueSource
     from aiq_agent.knowledge.base import PreparedIngestJob
+    from aiq_api.jobs.ingest_dispatch import QueueSource
 
     seen: list[str] = []
 
