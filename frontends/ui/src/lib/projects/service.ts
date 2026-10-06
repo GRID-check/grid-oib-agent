@@ -331,7 +331,7 @@ export async function memoryClearance(
 ): Promise<{ cleared: readonly string[] }> {
   const projectCollection = await findProjectCollectionName(projectId, session.organizationId)
   if (!projectCollection) return { cleared: [] }
-  return { cleared: await readableFolderIdsFor(session.organizationId, projectId, clearanceOf(session)) }
+  return { cleared: await readableFolderIdsFor(session.organizationId, projectId, await clearanceOf(session)) }
 }
 
 /** Name the folders behind each restricted item; open items pass through untouched. */

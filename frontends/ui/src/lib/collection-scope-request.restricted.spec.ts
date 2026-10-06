@@ -62,9 +62,9 @@ const TREE: AccessFolder[] = [
   { id: FOLDER.plaene, parentId: null, accessMode: 'inherit', grants: [] },
 ]
 
-function sessionWith(roles: string[], permissions: string[] = []): AuthorizedSession {
+function sessionWith(roles: string[], permissions: string[] = [], userId = 'user_me'): AuthorizedSession {
   return {
-    userId: 'user_me',
+    userId,
     organizationId: ORG_ID,
     email: 'me@grid.test',
     role: roles[0],
@@ -78,7 +78,7 @@ const director = sessionWith(['org-geschaeftsfuehrung'])
 /** May only read „Verträge“ — and reads it in chat exactly as a writer does. */
 const accountant = sessionWith(['org-buchhaltung'])
 const intern = sessionWith(['member'])
-const orgAdmin = sessionWith(['admin'], ['org:projects:administer'])
+const orgAdmin = sessionWith(['admin'], ['org:projects:administer'], 'user_admin')
 
 const chatTurn = { projectId: PROJECT_ID, conversationId: CONVERSATION_ID, interactiveChat: true }
 
@@ -101,7 +101,7 @@ beforeEach(() => {
     grantees: [],
   })
   vi.mocked(resolveMembershipRoles).mockImplementation(async (_org, userId) =>
-    userId === 'user_accountant' ? ['org-buchhaltung'] : userId === 'user_director' ? ['org-geschaeftsfuehrung'] : ['member']
+    userId === 'user_admin' ? ['admin'] : userId === 'user_accountant' ? ['org-buchhaltung'] : userId === 'user_director' ? ['org-geschaeftsfuehrung'] : ['member']
   )
 })
 

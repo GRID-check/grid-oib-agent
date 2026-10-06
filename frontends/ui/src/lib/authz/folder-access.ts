@@ -54,12 +54,33 @@ import {
 
 export * from './folder-access-rule'
 
-/** What clears folders for this session: its roles (WorkOS membership, `getGridSession`) and the admin bypass. */
-export function clearanceOf(session: AuthorizedSession): FolderClearance {
-  return {
-    roles: rolesOf(session),
-    seesEverything: hasPermission(session, ORG_PERMISSIONS.projectsAdminister),
-  }
+/**
+ * Whether any of `roles` holds the admin bypass in the organization, by what
+ * WorkOS and the catalog say each role holds now (`orgRoleHoldsPermission`,
+ * cached at most a minute).
+ */
+async function anyRoleAdministers(organizationId: string, roles: readonly string[]): Promise<boolean> {
+  const verdicts = await Promise.all(
+    roles.map((role) => orgRoleHoldsPermission(role, ORG_PERMISSIONS.projectsAdminister, organizationId))
+  )
+  return verdicts.some(Boolean)
+}
+
+/**
+ * What clears folders for this session: its roles and the admin bypass.
+ *
+ * The bypass comes from the same membership the roles do, at most a minute old
+ * (`resolveMembershipRoles`, then what those roles hold), not from the token's
+ * `permissions` claim. The token lives until it is refreshed, so an admin
+ * demoted in the People tab kept reading and writing every folder for that
+ * long. Only when WorkOS cannot be asked is the token's claim the answer, as it
+ * is for the roles.
+ */
+export async function clearanceOf(session: AuthorizedSession): Promise<FolderClearance> {
+  const roles = rolesOf(session)
+  const current = await resolveMembershipRoles(session.organizationId, session.userId)
+  if (current === null) return { roles, seesEverything: hasPermission(session, ORG_PERMISSIONS.projectsAdminister) }
+  return { roles, seesEverything: await anyRoleAdministers(session.organizationId, current) }
 }
 
 /** The project's folder tree, or null when no folder (living or deleted) has its own list. */
@@ -80,7 +101,7 @@ export async function getProjectFolderAccess(
 ): Promise<ProjectFolderAccess> {
   const folders = await loadCustomFolderTree(session.organizationId, projectId)
   if (!folders) return OPEN_ACCESS(projectCollection)
-  return computeFolderAccess(folders, clearanceOf(session), projectCollection)
+  return computeFolderAccess(folders, await clearanceOf(session), projectCollection)
 }
 
 /**
@@ -90,7 +111,7 @@ export async function getProjectFolderAccess(
 export async function getHiddenFolderIds(session: AuthorizedSession, projectId: string): Promise<string[]> {
   const folders = await loadCustomFolderTree(session.organizationId, projectId)
   if (!folders) return []
-  return [...computeFolderAccess(folders, clearanceOf(session), '').hiddenFolderIds]
+  return [...computeFolderAccess(folders, await clearanceOf(session), '').hiddenFolderIds]
 }
 
 /**
@@ -114,7 +135,7 @@ export async function isFolderVisibleTo(
   // Nothing about the session is read until a restriction is in play: an
   // unfiled document, or a project with no custom folder, is the common case.
   if (folderId === null) return true
-  return isFolderVisibleToClearance(session.organizationId, projectId, folderId, clearanceOf(session))
+  return isFolderVisibleToClearance(session.organizationId, projectId, folderId, await clearanceOf(session))
 }
 
 /**
@@ -163,7 +184,7 @@ export async function requireFolderWrite(
   const touched = [...new Set(folderIds)].filter((folderId): folderId is string => folderId !== null)
   if (touched.length === 0) return
   const folders = await loadCustomFolderTree(session.organizationId, projectId)
-  const access = folders ? computeFolderAccess(folders, clearanceOf(session), '') : OPEN_ACCESS('')
+  const access = folders ? computeFolderAccess(folders, await clearanceOf(session), '') : OPEN_ACCESS('')
   for (const folderId of touched) {
     if (!access.isVisible(folderId)) throw new NotFoundError('Folder not found')
   }
@@ -239,10 +260,7 @@ export async function customFolderNames(organizationId: string, projectId: strin
 export async function clearanceOfMember(organizationId: string, userId: string): Promise<FolderClearance> {
   const roles = await resolveMembershipRoles(organizationId, userId)
   if (!roles || roles.length === 0) return { roles: [], seesEverything: false }
-  const admin = await Promise.all(
-    roles.map((role) => orgRoleHoldsPermission(role, ORG_PERMISSIONS.projectsAdminister, organizationId))
-  )
-  return { roles, seesEverything: admin.some(Boolean) }
+  return { roles, seesEverything: await anyRoleAdministers(organizationId, roles) }
 }
 
 /**

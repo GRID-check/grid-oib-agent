@@ -124,7 +124,7 @@ export async function listProjectFolders(
     listProjectFolderTree(session.organizationId, projectId),
     projectMayWriteDocuments(session, projectId),
   ])
-  const access = computeFolderAccess(tree, clearanceOf(session), project?.collectionName ?? '')
+  const access = computeFolderAccess(tree, await clearanceOf(session), project?.collectionName ?? '')
   const grantsOf = new Map(tree.map((folder) => [folder.id, folder.grants]))
   return rows
     .filter((row) => access.isVisible(row.id))

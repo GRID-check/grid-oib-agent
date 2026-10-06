@@ -265,10 +265,33 @@ describe('the session loaders', () => {
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
   })
 
-  it('reads every role the session holds, and the admin bypass from the permission', () => {
-    expect(clearanceOf(session([GF, 'member'])).roles).toEqual([GF, 'member'])
-    expect(clearanceOf(session(undefined)).roles).toEqual(['member'])
-    expect(clearanceOf(session(undefined, ['org:projects:administer'])).seesEverything).toBe(true)
+  it("reads every role the session holds; with WorkOS unreachable the admin bypass is the token's permission", async () => {
+    vi.mocked(resolveMembershipRoles).mockResolvedValue(null)
+    expect((await clearanceOf(session([GF, 'member']))).roles).toEqual([GF, 'member'])
+    expect((await clearanceOf(session(undefined))).roles).toEqual(['member'])
+    expect((await clearanceOf(session(undefined, ['org:projects:administer']))).seesEverything).toBe(true)
+    expect((await clearanceOf(session(undefined))).seesEverything).toBe(false)
+  })
+
+  it('takes the admin bypass from the membership as it is now, not from a token that outlives a demotion', async () => {
+    // The token still lists org:projects:administer; WorkOS says the person now holds only `member`.
+    vi.mocked(resolveMembershipRoles).mockResolvedValue(['member'])
+    expect((await clearanceOf(session(['member'], ['org:projects:administer']))).seesEverything).toBe(false)
+  })
+
+  it('grants the bypass to a promoted admin before the token is refreshed', async () => {
+    vi.mocked(resolveMembershipRoles).mockResolvedValue(['admin'])
+    expect((await clearanceOf(session(['admin'], []))).seesEverything).toBe(true)
+  })
+
+  it('a demoted admin no longer reads or writes a folder whose list names none of their roles', async () => {
+    vi.mocked(projectHasCustomFolders).mockResolvedValue(true)
+    vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
+    vi.mocked(resolveMembershipRoles).mockResolvedValue(['member'])
+    const demoted = session(['member'], ['org:projects:administer'])
+
+    await expect(requireFolderWrite(demoted, 'proj-1', [F.honorare])).rejects.toBeInstanceOf(NotFoundError)
+    expect((await getProjectFolderAccess(demoted, 'proj-1', COLLECTION)).isVisible(F.honorare)).toBe(false)
   })
 
   it('does not read the tree for a project where no folder has its own list', async () => {
@@ -279,6 +302,8 @@ describe('the session loaders', () => {
   })
 
   it('getRestrictedFolderIds: what a caller with no session must hide is what not every member may read', async () => {
+    // WorkOS cannot be asked unless a test says what it answers: the token decides.
+    vi.mocked(resolveMembershipRoles).mockResolvedValue(null)
     vi.mocked(projectHasCustomFolders).mockResolvedValue(true)
     vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
     expect((await getRestrictedFolderIds('org-1', 'proj-1')).sort()).toEqual([F.vertraege, F.honorare, F.waise].sort())
@@ -344,6 +369,7 @@ describe('requireFolderWrite — the one write check', () => {
     await expect(requireFolderWrite(session([GF]), 'proj-1', [F.archiviert])).rejects.toBeInstanceOf(NotFoundError)
   })
 
+    vi.mocked(resolveMembershipRoles).mockResolvedValue(null)
   it('needs only the project permission at the root', async () => {
     await expect(requireFolderWrite(session([]), 'proj-1', [null])).resolves.toBeUndefined()
     expect(listProjectFolderTree).not.toHaveBeenCalled()

@@ -33,7 +33,10 @@ class TestStore implements CacheStore {
   async get(key: string): Promise<string | null> {
     return this.map.get(key) ?? null
   }
-  async set(key: string, value: string): Promise<void> {
+  /** The life each stored entry was given, in the order stored. */
+  ttls: number[] = []
+  async set(key: string, value: string, ttlMs = Number.POSITIVE_INFINITY): Promise<void> {
+    this.ttls.push(ttlMs)
     this.map.set(key, value)
   }
   async delete(key: string): Promise<void> {
@@ -203,5 +206,17 @@ describe('organization-scoped roles', () => {
     await organizationRolePermissions('org_a', 'r')
     await organizationRolePermissions('org_b', 'r')
     expect(listOrganizationRoles).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('how long what a role holds is remembered', () => {
+  it('at most a minute, like the roles a person holds: the folder bypass is derived from both', async () => {
+    const store = new TestStore()
+    setCacheStore(store)
+
+    await orgRoleHoldsPermission('admin', ORG_PERMISSIONS.projectsAdminister, ORG)
+
+    expect(store.ttls).toHaveLength(2)
+    for (const ttl of store.ttls) expect(ttl).toBeLessThanOrEqual(60_000)
   })
 })

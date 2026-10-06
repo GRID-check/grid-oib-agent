@@ -227,7 +227,7 @@ export async function restrictedCollectionsForChatScope(
   const tree = await treeOf(session.organizationId, project)
   const folders = sourceFolders(tree, project, sessionCleared)
   const people = audiencePeople(audience, session.userId)
-  const clearances = await clearancesOf(session.organizationId, people, new Map([[session.userId, clearanceOf(session)]]))
+  const clearances = await clearancesOf(session.organizationId, people, new Map([[session.userId, await clearanceOf(session)]]))
   const readable = new Set(foldersEveryoneMayRead(tree, [...folders.values()], audience, people, clearances))
   return sessionCleared.filter((collection) => readable.has(folders.get(collection) ?? ''))
 }
@@ -354,7 +354,7 @@ async function folderNamesReadableBy(
 ): Promise<string[]> {
   if (!context.project) return []
   const names = await customFolderNames(session.organizationId, context.project.projectId)
-  const sharer = clearanceOf(session)
+  const sharer = await clearanceOf(session)
   return folderIds
     .filter((folderId) => mayReadFolder(context.tree, sharer, folderId))
     .map((folderId) => names.get(folderId))
@@ -384,7 +384,7 @@ async function wideningContext(
   const project = await projectOf(session.organizationId, audience, null)
   const tree: FolderTree = project ? await treeOf(session.organizationId, project) : new Map()
   if (widening.kind === 'visibility') return { project, tree, person: null }
-  const person = widening.self ? clearanceOf(session) : await clearanceOfMember(session.organizationId, widening.userId)
+  const person = widening.self ? await clearanceOf(session) : await clearanceOfMember(session.organizationId, widening.userId)
   return { project, tree, person }
 }
 
