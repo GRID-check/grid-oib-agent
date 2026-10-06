@@ -3,6 +3,7 @@ import { type ReactElement, type ReactNode } from 'react'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { strToU8, zipSync } from 'fflate'
 import { server } from '@/mocks/server'
 import { ProjectFileWorkspace } from './project-file-workspace'
 import { FilePreviewHost } from './file-preview-host'
@@ -73,6 +74,9 @@ vi.mock('sonner', () => ({
   toast: {
     success: (...args: unknown[]) => toastSuccess(...args),
     error: (...args: unknown[]) => toastError(...args),
+    // The "reading the ZIP…" toast, which stays up while an archive is unpacked.
+    loading: vi.fn(() => 'reading'),
+    dismiss: vi.fn(),
   },
 }))
 
@@ -409,6 +413,33 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
     expect(new Set(targets)).toEqual(
       new Set(['folder-for-Wohnbau/Plaene', 'folder-for-Wohnbau/Statik']),
     )
+  })
+
+  it('unpacks a picked zip into the same plan a dropped folder gets', async () => {
+    renderWithCorpus()
+    const zip = new File(
+      [zipSync({ 'Statik/Bericht.pdf': strToU8('%PDF'), 'Statik/Plaene/EG.pdf': strToU8('%PDF') }) as BlobPart],
+      'Statik.zip',
+      { type: 'application/zip' }
+    )
+    const input = screen.getByTestId('project-upload-input') as HTMLInputElement
+    Object.defineProperty(input, 'files', { value: [zip], configurable: true })
+    fireEvent.change(input)
+
+    await userEvent.click(await screen.findByTestId('folder-upload-confirm'))
+
+    await waitFor(() => expect(ensureRequests).toHaveLength(1))
+    expect(ensureRequests[0]).toEqual({ parentId: null, paths: ['Statik', 'Statik/Plaene'] })
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
+    const [sent, options] = mockUploadFiles.mock.calls[0] as [
+      File[],
+      { folderIdFor: (file: File) => string | null },
+    ]
+    expect(sent.map((file) => file.name).sort()).toEqual(['Bericht.pdf', 'EG.pdf'])
+    expect(sent.map((file) => options.folderIdFor(file)).sort()).toEqual([
+      'folder-for-Statik',
+      'folder-for-Statik/Plaene',
+    ])
   })
 
   it('leaves the existing documents alone when the reader unticks the update', async () => {

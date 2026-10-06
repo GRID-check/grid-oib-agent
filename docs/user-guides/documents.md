@@ -144,6 +144,34 @@ quota** and by the **per-file** size limit. The batch total-size limit applies
 only to chat-session attachments: it exists for a conversation, which has no
 quota behind it.
 
+## Uploading a ZIP
+
+A `.zip` can be dropped on the file area, or picked with the upload button, in a
+project's Dateiablage and in the Büroarchiv alike. Piloti treats it as the
+folder it contains: the ZIP is unpacked in your browser and then goes through
+exactly what a dropped folder goes through — the „Wollen Sie aktualisieren?"
+plan, the folders it names created in one step, a file that is already here
+offered as a new version, an unchanged one left alone.
+
+- **Where the files land.** If the ZIP has one top-level folder (what „Komprimieren"
+  makes), that folder is recreated where you are standing. If it holds loose
+  files, they go into a folder named after the ZIP.
+- **What is left out without a word:** the files macOS and Office put inside
+  archives (`__MACOSX`, `.DS_Store`, `~$…`, `Thumbs.db`). Nobody meant to upload
+  them.
+- **What is refused, with a message:** a ZIP that cannot be read (damaged, or
+  protected by a password), an empty one, one with more than 2,000 files, or one
+  that unpacks to more than 1 GB. The whole ZIP is refused, never its first
+  half — the missing files would look exactly like files nobody chose. Other ZIPs
+  dropped with it are unaffected.
+- **Types Piloti does not read** inside a ZIP are refused per file in the usual
+  upload report, like any other file. A ZIP inside a ZIP is not unpacked.
+- **An `.ifczip` is not a ZIP of documents.** It is a building model and is
+  uploaded as one, as before.
+
+File names in ZIPs made by very old Windows versions, which did not mark their
+names as UTF-8, can show garbled umlauts; renaming the folder in Piloti fixes it.
+
 **Re-uploading a file that is already there replaces it.** Dropping a corrected
 plan under the same name into the same project, the Büroarchiv, or the same chat
 points the existing document at the new bytes and re-indexes it: the document

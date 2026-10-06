@@ -557,6 +557,25 @@ describe('buildFolderUploadPlan — upload screening', () => {
     expect(needsUploadDecision(result)).toBe(true)
   })
 
+  it('screens what a ZIP holds by its path inside the archive, as a dropped folder (#850)', async () => {
+    // The archive is unpacked in the browser; nothing of it leaves before the plan.
+    const { zipSync, strToU8 } = await import('fflate')
+    const bytes = zipSync({
+      'Büro/Pläne/EG.pdf': strToU8('plan'),
+      'Büro/Lohnzettel/2026-09.pdf': strToU8('pay'),
+      'Büro/Honorarnote_Ost.pdf': strToU8('fee'),
+    })
+    const { expandZips } = await import('./expand-zip')
+    const { files } = await expandZips([new File([bytes as BlobPart], 'Ablage.zip', { type: 'application/zip' })])
+    const result = plan({ files, screening })
+
+    const actionOf = (name: string) => result.files.find((planned) => planned.file.name === name)?.action
+    expect(actionOf('EG.pdf')).not.toBe('excluded')
+    expect(actionOf('2026-09.pdf')).toBe('excluded')
+    expect(actionOf('Honorarnote_Ost.pdf')).toBe('excluded')
+    expect(result.folders.map((planned) => planned.path)).not.toContain('Büro/Lohnzettel')
+  })
+
   it('screens against the folder the file lands in, too', () => {
     const scan = new File(['x'], '0042.pdf')
     const result = plan({ files: [scan], screening: { ...screening, basePath: 'Verwaltung/Honorare' } })

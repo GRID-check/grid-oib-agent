@@ -1,0 +1,9 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+features:
+  - >
+    You can now upload a ZIP file to a project's files or to the Archiv. Piloti
+    unpacks it and files everything into the folders it contains, asking first
+    about files that are already there, just as it does when you drop a folder.

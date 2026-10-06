@@ -33,6 +33,12 @@ interface UseFileDragDropOptions {
   onDrop: (files: File[]) => void
   /** Whether drag-drop is disabled */
   disabled?: boolean
+  /**
+   * Whether a dragged `.zip` counts as supported. On for the durable shelves,
+   * which unpack it before uploading; off for a chat attachment, where an
+   * archive is not a document.
+   */
+  acceptZip?: boolean
 }
 
 interface UseFileDragDropReturn {
@@ -56,6 +62,7 @@ interface UseFileDragDropReturn {
 export function useFileDragDrop({
   onDrop,
   disabled = false,
+  acceptZip = false,
 }: UseFileDragDropOptions): UseFileDragDropReturn {
   const [isDragging, setIsDragging] = useState(false)
   const [isUnsupportedDrag, setIsUnsupportedDrag] = useState(false)
@@ -76,10 +83,12 @@ export function useFileDragDrop({
       dragCounterRef.current++
       setIsDragging(true)
       // Quick MIME check, for the affordance only.
-      const allSupported = checkDraggedFilesSupported(e.dataTransfer, fileUploadConfig)
+      const allSupported = checkDraggedFilesSupported(e.dataTransfer, fileUploadConfig, {
+        allowZip: acceptZip,
+      })
       setIsUnsupportedDrag(!allSupported)
     },
-    [disabled, fileUploadConfig]
+    [disabled, fileUploadConfig, acceptZip]
   )
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {

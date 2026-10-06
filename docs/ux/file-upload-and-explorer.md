@@ -333,3 +333,28 @@ escapes the open folder exactly as in Dateien.
 
 **Preview:** `/dev/archiv-library` renders the real workspace over fixtures
 (`?state=readonly|loading|empty`, `?folder=f-plan`).
+
+### A ZIP is a folder that has not been unpacked yet
+
+Both shelves accept a `.zip` through the same single entry point as a folder:
+`handleUpload` in `hooks/use-shelf-upload.ts`. `lib/expand-zip.ts` unpacks it
+in the browser (`fflate`, loaded only when a ZIP is present) into `File`s that
+carry a `webkitRelativePath`, the shape `readDroppedTree` already produces, so
+the plan dialog, the one-request folder creation and the new-version prompt
+need no knowledge of archives. Neither shelf's upload route, allow-list or quota
+check changed: the server only ever sees ordinary files.
+
+Three decisions worth keeping:
+
+- **Refuse, never half-take.** The entry count and the unpacked size are read
+  from the central directory before anything is inflated; past either ceiling
+  (`MAX_ZIP_ENTRIES`, `MAX_ZIP_UNPACKED_BYTES`) the whole archive is refused with
+  a sentence. Same argument as the dropped-folder bounds.
+- **Members get the MIME type a picker would have given** (`mimeTypeForFileName`,
+  from the table the accept-list is built from). The preview routes decide
+  whether a document can be previewed from the stored content type, so an
+  untyped file would upload and then never preview.
+- **`.zip` is offered by the durable pickers and the drop overlay only**
+  (`withZipAccepted`, `acceptZip`), not through the accept-list the server
+  enforces and not in the chat, where an archive is not a document. `.ifczip`
+  stays a model: the pattern needs the dot.

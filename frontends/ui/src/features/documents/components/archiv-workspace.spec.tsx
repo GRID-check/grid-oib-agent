@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { strToU8, zipSync } from 'fflate'
 import { server } from '@/mocks/server'
 import { ArchivWorkspace } from './archiv-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
@@ -11,10 +12,14 @@ import { useArchivDocuments } from '../hooks/use-archiv-documents'
  * moment the Archiv tells a user that the file they uploaded became usable.
  */
 const toastSuccess = vi.fn()
+const toastError = vi.fn()
 vi.mock('sonner', () => ({
   toast: {
     success: (...args: unknown[]) => toastSuccess(...args),
-    error: vi.fn(),
+    error: (...args: unknown[]) => toastError(...args),
+    // The "reading the ZIP…" toast, which stays up while an archive is unpacked.
+    loading: vi.fn(() => 'reading'),
+    dismiss: vi.fn(),
   },
 }))
 
@@ -618,6 +623,49 @@ describe('ArchivWorkspace — a file the Archiv already holds', () => {
     Object.defineProperty(input, 'files', { value: [file], configurable: true })
     input.dispatchEvent(new Event('change', { bubbles: true }))
   }
+
+  it('unpacks a picked zip and files its members into the folders it names', async () => {
+    const user = userEvent.setup()
+    let ensured: { parentId: string | null; paths: string[] } | null = null
+    server.use(
+      http.post('/api/archiv/folders/ensure', async ({ request }) => {
+        ensured = (await request.json()) as { parentId: string | null; paths: string[] }
+        return HttpResponse.json({ folders: [], folderIdByPath: { Statik: 'f-new' } })
+      })
+    )
+    render(<ArchivWorkspace canManage />)
+    await screen.findByText('brandschutz-gutachten.pdf')
+
+    const zip = new File(
+      [zipSync({ 'Statik/nachweis.pdf': strToU8('%PDF'), 'Statik/.DS_Store': strToU8('x') }) as BlobPart],
+      'Statik.zip',
+      { type: 'application/zip' }
+    )
+    pick(zip)
+
+    await user.click(await screen.findByTestId('folder-upload-confirm'))
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
+    const [files, options] = mockUploadFiles.mock.calls[0] as [
+      File[],
+      { folderIdFor: (file: File) => string | null },
+    ]
+    expect(files.map((file) => file.name)).toEqual(['nachweis.pdf'])
+    expect(files[0].type).toBe('application/pdf')
+    expect(options.folderIdFor(files[0])).toBe('f-new')
+    expect(ensured).toEqual({ parentId: null, paths: ['Statik'] })
+  })
+
+  it('says so, and uploads nothing, for a zip that cannot be read', async () => {
+    render(<ArchivWorkspace canManage />)
+    await screen.findByText('brandschutz-gutachten.pdf')
+
+    pick(new File(['not a zip'], 'kaputt.zip', { type: 'application/zip' }))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(expect.stringContaining('kaputt.zip')))
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
+  })
 
   it('asks „new version of X?" and uploads on yes', async () => {
     const user = userEvent.setup()

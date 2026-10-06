@@ -57,6 +57,10 @@
             {
               "en": "Organization admins can now rescan all failed ingestions at once from Organization, Enterprise: every file that could not be read is sent back through reading under its own name.",
               "de": "Organisationsadmins können unter Organisation, Enterprise jetzt alle fehlgeschlagenen Einlesevorgänge auf einmal erneut scannen: Jede Datei, die nicht gelesen werden konnte, wird unter ihrem eigenen Namen erneut eingelesen."
+            },
+            {
+              "en": "You can now upload a ZIP file to a project's files or to the Archiv. Piloti unpacks it and files everything into the folders it contains, asking first about files that are already there, just as it does when you drop a folder.",
+              "de": "Sie können jetzt eine ZIP-Datei in die Projektdateien oder ins Archiv hochladen. Piloti entpackt sie und legt die Dateien in den darin enthaltenen Ordnern ab. Bei Dateien, die bereits vorhanden sind, fragt Piloti zuerst nach – genau wie beim Ablegen eines Ordners."
             }
           ]
         },

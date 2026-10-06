@@ -2512,6 +2512,10 @@
     "de": "Sie können jetzt Excel-Tabellen, PowerPoint-Präsentationen, CSV-Dateien und WebP-Bilder hochladen. Antworten verweisen auf das richtige Arbeitsblatt oder die richtige Folie statt nur auf die Datei."
   },
   {
+    "en": "You can now upload a ZIP file to a project's files or to the Archiv. Piloti unpacks it and files everything into the folders it contains, asking first about files that are already there, just as it does when you drop a folder.",
+    "de": "Sie können jetzt eine ZIP-Datei in die Projektdateien oder ins Archiv hochladen. Piloti entpackt sie und legt die Dateien in den darin enthaltenen Ordnern ab. Bei Dateien, die bereits vorhanden sind, fragt Piloti zuerst nach – genau wie beim Ablegen eines Ordners."
+  },
+  {
     "en": "You can preview the report as a PDF before you download it, in a panel you can drag as wide as you need. What you see is the document you get.",
     "de": "Sie können den Bericht vor dem Herunterladen als PDF in der Vorschau ansehen – in einem Bereich, den Sie beliebig breit ziehen können. Was Sie sehen, ist das Dokument, das Sie erhalten."
   },
