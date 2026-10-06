@@ -19,7 +19,7 @@
  *      delete request, which the purger never sees (`sweepConversationTraces`);
  *   7. once a day, purges the download log past its retention: 12 months at
  *      most, less where an organization chose so, in bounded batches
- *      (`sweepDownloadLogRetention`; migration 0111).
+ *      (`sweepDownloadLogRetention`; migration 0112).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
@@ -330,7 +330,7 @@ async function sweepConversationTraces(
 const DOWNLOAD_LOG_BACKOFF_MS = 60 * 60 * 1000
 
 /**
- * The download log's retention sweep (migration 0111): purge entries past their
+ * The download log's retention sweep (migration 0112): purge entries past their
  * retention, once a day counted from the previous run, the first on the first
  * tick after the process starts. A run deletes at most 50 batches of 1000
  * (`pruneDownloadLog`); when it stopped on that budget with more behind it, the

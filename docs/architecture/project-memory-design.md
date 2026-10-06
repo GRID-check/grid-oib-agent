@@ -67,7 +67,7 @@ project_memory
   source_document_id      uuid  null              -- when grounded in an uploaded doc
   supersedes_id     uuid  null  fk → project_memory(id)   -- updates, not appends
   restricted_folder_ids uuid[] null               -- ADR-0081: the source folders it depends on;
-                                                  -- NULL = open (§3.6, migrations 0107, 0110)
+                                                  -- NULL = open (§3.6, migrations 0108, 0111)
   salience          real  default 0.5             -- retrieval/budget ranking
   pinned            bool  default false           -- always-inject core memory
   embedding_synced  bool  default false           -- has it been pushed to the vector store
@@ -139,7 +139,7 @@ de-duplicated, so equal restrictions are equal arrays). An open note never
 merges into, supersedes or is retired by a restricted one, and neither do two
 restricted notes with different collections: either would make a fact appear
 for, or vanish from, people the other row is not shown to. The 0010 dedup index
-carries the restriction since 0107, so an open and a restricted note with the
+carries the restriction since 0108, so an open and a restricted note with the
 same text can both be live.
 
 ### 3.3 Serve — how it reaches the agent (two channels)
@@ -294,7 +294,7 @@ See [memory-reflection-audit.md](./memory-reflection-audit.md).
 (product owner, 2026-10-02). A turn whose scope holds restricted-folder
 collections `R` it may draw on remembers as any other turn does; what it writes
 carries the source FOLDERS it depends on (`restricted_folder_ids`, migration
-0110; the agent decides in collections and the BFF maps each to its folder),
+0111; the agent decides in collections and the BFF maps each to its folder),
 and only a session that may read **all** of them now is served it or shown it.
 
 **Deciding the restriction** — one function, `aiq_agent/memory/restriction.py`
@@ -348,7 +348,7 @@ then rests on this turn's digest and the citation registry, as before.
 
 Organization scope that depends on restricted content is filed as restricted
 memory of the turn's project (org memory reaches every project); the BFF
-refuses a restricted organization write, and the 0107 CHECK backs it. A
+refuses a restricted organization write, and the 0108 CHECK backs it. A
 restricted finding never becomes a `memory_proposal` card: accepting a card is
 an open write by the user's own session.
 

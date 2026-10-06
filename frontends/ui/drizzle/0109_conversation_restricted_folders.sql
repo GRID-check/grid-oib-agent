@@ -1,10 +1,10 @@
--- 0108: conversation_restricted_folders — the folders not every project member
+-- 0109: conversation_restricted_folders — the folders not every project member
 -- can read whose content a conversation actually drew on, one row per folder
 -- (ADR-0080, ADR-0081).
 --
--- ## Why it replaces 0106
+-- ## Why it replaces 0107
 --
--- 0106 marked a conversation at the start of every turn whose signed scope
+-- 0107 marked a conversation at the start of every turn whose signed scope
 -- held a restricted folder's collection. A cleared member's socket is signed
 -- every restricted collection they are cleared for, so every chat of an
 -- organization admin in a project with one restricted folder was marked from
@@ -31,14 +31,14 @@
 --
 -- ## No foreign keys
 --
--- Not to `conversations`, as in 0106: the first turn of a new chat runs before
+-- Not to `conversations`, as in 0107: the first turn of a new chat runs before
 -- its row exists; `deleteConversationInOrg` deletes the rows with it. Not to
 -- `project_folders`: deleting a folder must not quietly open what was drawn
 -- from it.
 --
 -- ## Backfill, in the safe direction
 --
--- A 0106 mark recorded that a restricted turn ran, not which folders it could
+-- A 0107 mark recorded that a restricted turn ran, not which folders it could
 -- see, so it becomes a row for every restricted folder of the conversation's
 -- project. A stored answer that cited or read a restricted collection adds that
 -- collection's folder. A mark for a conversation that never got a row recorded

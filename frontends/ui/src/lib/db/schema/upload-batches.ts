@@ -3,7 +3,7 @@ import { projects } from './projects'
 
 /**
  * One upload gesture — a picked set of files or a dropped folder — and when
- * every document it brought in had been read (migration 0104).
+ * every document it brought in had been read (migration 0105).
  *
  * The browser opens the row before it sends the first file, stamps each upload
  * with its id (`documents.upload_batch_id`), and seals it when it has sent the

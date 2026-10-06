@@ -378,7 +378,7 @@ export async function replaceDocumentWithinQuota(
     contentHash: string | null
     folderId: string | null
     createdBy: string
-    /** The upload gesture these bytes came in with (migration 0104), or null. */
+    /** The upload gesture these bytes came in with (migration 0105), or null. */
     uploadBatchId?: string | null
   },
   quotaBytes: number | null,

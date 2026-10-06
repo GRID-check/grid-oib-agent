@@ -2,7 +2,7 @@
  * The reads the folder-access decision makes (ADR-0080, ADR-0081). Kept apart
  * from the documents repository so the decision point owns its own SQL.
  *
- * The tree includes deleted folders' tombstones (migration 0109): content
+ * The tree includes deleted folders' tombstones (migration 0110): content
  * derived from a deleted folder is still judged by the access it had. Every
  * other read here — names, the sweep — is of living folders only.
  */
@@ -39,7 +39,7 @@ export async function projectHasCustomFolders(organizationId: string, projectId:
   return rows.length > 0
 }
 
-/** Most grants one project's folders hold, read back; 20 per custom folder by the 0109 trigger. */
+/** Most grants one project's folders hold, read back; 20 per custom folder by the 0110 trigger. */
 const PROJECT_GRANTS_LIMIT = 20_000
 
 /** The project's whole folder tree, tombstones included, with each custom folder's grants. */

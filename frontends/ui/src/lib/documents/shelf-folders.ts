@@ -19,7 +19,7 @@
  * `@/lib/projects/folder-service`: it checks before calling in here and passes
  * a {@link ShelfFolderVisibility} where a walk must skip what the reader may
  * not see. Two things differ here by shelf: a project folder's delete leaves a
- * tombstone (migration 0109), because what was derived from it is judged by
+ * tombstone (migration 0110), because what was derived from it is judged by
  * the access it had, and a project's path rewrite reaches every collection its
  * documents live in (a restricted folder's documents are in their own).
  */
@@ -647,7 +647,7 @@ export async function updateShelfFolder(
  * is ever left for the cascade to find.
  *
  * A PROJECT folder's row then stays as a TOMBSTONE (`deleted_at`, migration
- * 0109): its access mode, grants and parent remain, because content derived
+ * 0110): its access mode, grants and parent remain, because content derived
  * from it (a conversation's record of use, restricted memory) names it by id
  * and keeps being judged by the access it had. `shelfFolderWhere` skips it, and
  * its name is free again. Nothing derived records an Archiv folder, so an

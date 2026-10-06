@@ -382,7 +382,7 @@ describe('tick', () => {
   })
 })
 
-describe('sweepDownloadLogRetention (the download log is purged daily, migration 0111)', () => {
+describe('sweepDownloadLogRetention (the download log is purged daily, migration 0112)', () => {
   const NOW = new Date('2026-10-06T12:00:00.000Z')
   const DAY = 24 * 60 * 60 * 1000
   const streak = () => ({ failed: vi.fn(), succeeded: vi.fn() })

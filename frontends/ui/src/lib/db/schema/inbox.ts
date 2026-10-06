@@ -133,7 +133,7 @@ export const INBOX_TARGET_TYPES = [
   'organization',
   'project',
   'product_feedback',
-  /** One upload gesture (migration 0104): the target of `upload.completed`. */
+  /** One upload gesture (migration 0105): the target of `upload.completed`. */
   'upload_batch',
 ] as const
 export type InboxTargetType = (typeof INBOX_TARGET_TYPES)[number]

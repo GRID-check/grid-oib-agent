@@ -1,4 +1,4 @@
--- Reverse 0105. ORDER: roll the frontend back first, and OPEN every restricted
+-- Reverse 0106. ORDER: roll the frontend back first, and OPEN every restricted
 -- folder in the product before running this — the older build knows no
 -- restrictions, and documents still filed in a restricted folder's collection
 -- (`proj_…_r…`) would no longer be in anybody's scope. Opening re-ingests them

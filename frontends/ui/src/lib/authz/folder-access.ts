@@ -20,7 +20,7 @@
  * of its NEAREST such folder. Only a session that may read that folder gets the
  * collection in its signed scope. Write never affects retrieval.
  *
- * Deleted folders stay in the tree as tombstones (migration 0109): they are
+ * Deleted folders stay in the tree as tombstones (migration 0110): they are
  * hidden from every listing and from placement, and {@link effectiveFolderLevel}
  * still answers for them, because content derived from a deleted folder is
  * judged by the access it had.

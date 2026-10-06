@@ -112,5 +112,5 @@ Developers: the one writer is `recordDocumentAccess`
 (`frontends/ui/src/lib/download-log/service.ts`), and
 `download-log/coverage.spec.ts` fails when a new function reads or presigns an
 object, or a new route reaches one, without being classified there. Table and
-purge: [`database/schema.md`](../database/schema.md#document_access_log-migration-0111-adr-0079);
+purge: [`database/schema.md`](../database/schema.md#document_access_log-migration-0112-adr-0079);
 routes: [`api/bff-routes.md`](../api/bff-routes.md).

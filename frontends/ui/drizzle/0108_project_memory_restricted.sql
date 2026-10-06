@@ -1,4 +1,4 @@
--- 0107: a project memory item can be restricted (ADR-0080, "Memory from a
+-- 0108: a project memory item can be restricted (ADR-0080, "Memory from a
 -- restricted turn is restricted memory").
 --
 -- `restricted_collections` names the restricted-folder collections
