@@ -4,8 +4,9 @@ Background work that must outlive the process that accepted it is a row here:
 claimed by whichever worker is free, on any replica or in a dedicated worker
 tier, with ``FOR UPDATE SKIP LOCKED`` so no two claim it, and a heartbeat so a
 crashed worker's job is claimed again. ``aiq_agent.knowledge.ingest_queue`` is
-the first queue on it (ADR-0076); the research queue adopts it in phase 2. Each
-queue keeps its own table, payload and verdict; this module owns the algorithm.
+the first queue on it (ADR-0076); ``aiq_api.jobs.queue``, the research queue,
+is the second. Each queue keeps its own table, payload and verdict; this module
+owns the algorithm.
 
 THE CLAIM IS FAIR, ACROSS THE WHOLE FLEET. A free worker takes the next job of
 the LANE (an organisation, or a platform lane) with the fewest jobs running
@@ -72,6 +73,9 @@ PRIORITY_INTERACTIVE = 0
 PRIORITY_BULK = 1
 PRIORITIES = {"interactive": PRIORITY_INTERACTIVE, "bulk": PRIORITY_BULK}
 DEFAULT_PRIORITY = "interactive"
+
+#: The lane of a row that names none: written before its table had lanes.
+NO_LANE = ""
 
 #: Why a row went dead, as stored in ``dead_reason``.
 REASON_ATTEMPTS_EXHAUSTED = "attempts_exhausted"
@@ -223,7 +227,7 @@ class ClaimQueue:
         statements = [
             f"CREATE TABLE IF NOT EXISTS {t} ("
             "  job_id VARCHAR PRIMARY KEY,"
-            "  lane VARCHAR NOT NULL,"
+            f"  lane VARCHAR NOT NULL DEFAULT '{NO_LANE}',"
             "  payload TEXT NOT NULL,"
             f"  status VARCHAR NOT NULL DEFAULT '{QUEUED}',"
             "  claimed_by VARCHAR,"
@@ -250,8 +254,14 @@ class ClaimQueue:
             _execute_constant(conn, statement)
 
     def _add_missing_columns(self, conn, ts: str) -> None:
-        """Additive upgrade of a table created before priority and dead rows existed."""
+        """Additive upgrade of a table created before lanes, priority and dead rows existed.
+
+        A row that predates its lane is in ``NO_LANE``, one lane of its own that
+        drains like any other; the default also keeps a replica still on the old
+        code, which inserts no lane, able to enqueue during a rolling deploy.
+        """
         wanted = {
+            "lane": f"VARCHAR NOT NULL DEFAULT '{NO_LANE}'",
             "priority": f"INTEGER NOT NULL DEFAULT {PRIORITY_INTERACTIVE}",
             "dead_at": ts,
             "dead_reason": "TEXT",
@@ -658,6 +668,21 @@ SELECT job_id, lane, payload, attempts, priority FROM claimed
             rows = conn.execute(text(f"SELECT status, COUNT(*) FROM {self.table} GROUP BY status")).all()
         counts.update({str(status): int(n) for status, n in rows})
         return counts
+
+    def queued_in_lane(self, lane: str) -> int:
+        """Jobs of one lane still waiting for a worker: the bound admission checks."""
+        url = self._db_url()
+        if not url:
+            return 0
+        self.ensure_table(url)
+        with self._engine_for(url).connect() as conn:
+            waiting = conn.execute(
+                # Only module constants are interpolated; the lane and the status are bound.
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                text(f"SELECT COUNT(*) FROM {self.table} WHERE lane = :lane AND status = :q"),
+                {"lane": lane, "q": QUEUED},
+            ).scalar()
+        return int(waiting or 0)
 
     def oldest_queued_age(self) -> float:
         """Seconds the longest-waiting queued job has waited; 0 when nothing waits."""
