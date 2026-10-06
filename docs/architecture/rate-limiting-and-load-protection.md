@@ -481,7 +481,9 @@ than an admission.
 - **Priority inside an office.** `POST /v1/ingest` takes
   `priority: "interactive" | "bulk"` (default `interactive`). An office's own
   upload is claimed before its older reindex jobs; priority never lets one
-  office pass another.
+  office pass another. The BFF's project reindex and failed-ingestion rescan
+  jobs (the `bff-jobs` pool) send `bulk`; an upload sends nothing. The same
+  value is the job's class at the provider limiter (L3c).
 - **A claim is given back, not lost.** A drain that runs out of time releases
   what it holds at no cost in attempts (`release_claims`). A job past
   `GRID_INGEST_MAX_JOB_SECONDS`, or silent for
