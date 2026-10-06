@@ -1187,6 +1187,8 @@ export const chat = {
     voteRecorded: 'Rating saved.',
     commentLabel: 'Anything else?',
     commentPlaceholder: 'Optional — tell us what went wrong',
+    expectedLabel: 'What should a good answer have contained?',
+    expectedPlaceholder: 'e.g. parapet height 1.00 m per OIB-RL 4',
     commentSubmit: 'Send note',
   },
   // After a thumbs-down: ask the same question again with more effort.

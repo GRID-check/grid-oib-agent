@@ -8,6 +8,8 @@ export interface AnswerFeedbackState {
   verdict: AnswerFeedbackVerdict
   reason: AnswerFeedbackReason | null
   comment: string | null
+  /** What the voter says a good answer would have contained. */
+  expectedAnswer: string | null
 }
 
 type ConversationFeedbackMap = Map<string, AnswerFeedbackState>
@@ -58,12 +60,18 @@ async function loadConversationFeedback(conversationId: string): Promise<Convers
         verdict: AnswerFeedbackVerdict
         reason: AnswerFeedbackReason | null
         comment?: string | null
+        expectedAnswer?: string | null
       }[]
     }
     return new Map(
       (data.feedback ?? []).map((f) => [
         f.messageId,
-        { verdict: f.verdict, reason: f.reason ?? null, comment: f.comment ?? null },
+        {
+          verdict: f.verdict,
+          reason: f.reason ?? null,
+          comment: f.comment ?? null,
+          expectedAnswer: f.expectedAnswer ?? null,
+        },
       ]),
     )
   } catch {
@@ -139,6 +147,7 @@ export function useAnswerFeedback(
                     verdict: next.verdict,
                     reason: next.reason,
                     comment: next.comment,
+                    expectedAnswer: next.expectedAnswer,
                     conversationId: conversationId ?? null,
                     projectId: projectId ?? null,
                   }),

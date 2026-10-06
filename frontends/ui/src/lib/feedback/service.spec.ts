@@ -79,6 +79,7 @@ const storedRow = {
   verdict: 'up' as const,
   reason: null,
   comment: null,
+  expectedAnswer: null,
   // No experiment arm: the holdout is off by default (see
   // lib/platform-lessons/holdout.ts), so an ordinary vote carries null.
   lessonsHoldout: null,
@@ -108,11 +109,12 @@ describe('submitAnswerFeedback', () => {
       verdict: 'up',
       reason: null,
       comment: null,
+      expectedAnswer: null,
       conversationId: 'conv_1',
       lessonsHoldout: null,
       projectId: null,
     })
-    expect(view).toEqual({ messageId: 'msg_1', verdict: 'up', reason: null, comment: null })
+    expect(view).toEqual({ messageId: 'msg_1', verdict: 'up', reason: null, comment: null, expectedAnswer: null })
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()
   })
 
@@ -126,7 +128,7 @@ describe('submitAnswerFeedback', () => {
     })
 
     expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'down', reason: 'inaccurate' }))
-    expect(view).toEqual({ messageId: 'msg_1', verdict: 'down', reason: 'inaccurate', comment: null })
+    expect(view).toEqual({ messageId: 'msg_1', verdict: 'down', reason: 'inaccurate', comment: null, expectedAnswer: null })
   })
 
   it('accepts a down vote without a reason (reason arrives on chip click)', async () => {
@@ -237,8 +239,8 @@ describe('getOwnConversationFeedback', () => {
 
     expect(mockList).toHaveBeenCalledWith('user_1', 'conv_1', 'org_1')
     expect(views).toEqual([
-      { messageId: 'msg_1', verdict: 'up', reason: null, comment: null },
-      { messageId: 'msg_2', verdict: 'down', reason: 'too_slow', comment: null },
+      { messageId: 'msg_1', verdict: 'up', reason: null, comment: null, expectedAnswer: null },
+      { messageId: 'msg_2', verdict: 'down', reason: 'too_slow', comment: null, expectedAnswer: null },
     ])
   })
 })

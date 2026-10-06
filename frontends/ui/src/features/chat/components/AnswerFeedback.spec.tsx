@@ -90,6 +90,7 @@ describe('AnswerFeedback', () => {
         verdict: 'up',
         reason: null,
         comment: null,
+        expectedAnswer: null,
         conversationId: 'conv_1',
         projectId: 'proj_1',
       })
@@ -166,7 +167,7 @@ describe('AnswerFeedback', () => {
       render(<AnswerFeedback messageId="msg_1" conversationId="conv_1" />)
 
       await user.click(downThumb())
-      await user.type(screen.getByRole('textbox'), 'Brüstungshöhe nicht gefunden.')
+      await user.type(screen.getByLabelText('Anything else?'), 'Brüstungshöhe nicht gefunden.')
       await user.click(screen.getByRole('button', { name: 'Send note' }))
 
       await waitFor(() => expect(postCalls()).toHaveLength(2))
@@ -174,6 +175,51 @@ describe('AnswerFeedback', () => {
         verdict: 'down',
         reason: null,
         comment: 'Brüstungshöhe nicht gefunden.',
+      })
+    })
+
+    test('the expected-answer field alone enables the submit and is sent with the note', async () => {
+      const user = userEvent.setup()
+      render(<AnswerFeedback messageId="msg_1" conversationId="conv_1" />)
+
+      await user.click(downThumb())
+      const submit = screen.getByRole('button', { name: 'Send note' })
+      expect(submit).toBeDisabled()
+
+      await user.type(
+        screen.getByLabelText('What should a good answer have contained?'),
+        'Parapet height 1.00 m per OIB-RL 4',
+      )
+      expect(submit).toBeEnabled()
+      await user.click(submit)
+
+      await waitFor(() => expect(postCalls()).toHaveLength(2))
+      expect(JSON.parse((postCalls()[1] as [string, RequestInit])[1].body as string)).toMatchObject({
+        verdict: 'down',
+        reason: null,
+        comment: null,
+        expectedAnswer: 'Parapet height 1.00 m per OIB-RL 4',
+      })
+    })
+
+    test('choosing a reason keeps an already-saved expected answer', async () => {
+      const user = userEvent.setup()
+      mockFetch.mockResolvedValue(
+        okJson({
+          feedback: [
+            { messageId: 'msg_1', verdict: 'down', reason: null, comment: null, expectedAnswer: 'Brüstung 1,00 m' },
+          ],
+        }),
+      )
+      render(<AnswerFeedback messageId="msg_1" conversationId="conv_1" />)
+
+      await waitFor(() => expect(downThumb()).toHaveAttribute('aria-pressed', 'true'))
+      await user.click(screen.getByRole('radio', { name: 'Inaccurate' }))
+
+      await waitFor(() => expect(postCalls()).toHaveLength(1))
+      expect(JSON.parse((postCalls()[0] as [string, RequestInit])[1].body as string)).toMatchObject({
+        reason: 'inaccurate',
+        expectedAnswer: 'Brüstung 1,00 m',
       })
     })
 
@@ -199,10 +245,10 @@ describe('AnswerFeedback', () => {
       const submit = screen.getByRole('button', { name: 'Send note' })
       expect(submit).toBeDisabled()
 
-      await user.type(screen.getByRole('textbox'), '   ')
+      await user.type(screen.getByLabelText('Anything else?'), '   ')
       expect(submit).toBeDisabled()
 
-      await user.type(screen.getByRole('textbox'), 'Missed OIB RL 4.')
+      await user.type(screen.getByLabelText('Anything else?'), 'Missed OIB RL 4.')
       expect(submit).toBeEnabled()
     })
 
