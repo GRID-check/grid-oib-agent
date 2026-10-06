@@ -6,6 +6,7 @@ from pydantic import Field
 
 from aiq_agent.common.log_redaction import PresignedUrlFilter
 from aiq_agent.common.log_redaction import install_presigned_url_scrubbing
+from aiq_agent.observability import metrics as grid_metrics
 from nat.cli.register_workflow import register_logging_method  # noqa: TID251
 from nat.data_models.logging import LoggingBaseConfig
 from nat.plugin_api import Builder
@@ -86,6 +87,9 @@ class _NatBuildFailureItemizationFilter(logging.Filter):
 class OtlpLoggingMethodConfig(LoggingBaseConfig, name="otelcollector_logs"):
     """Ships runtime logs to the OTLP collector (Aspire dashboard, ADR-0029).
 
+    Also installs the process's metrics provider on the same endpoint
+    (``aiq_agent.observability.metrics``); a blank endpoint installs neither.
+
     `endpoint` is Optional because `${OTEL_EXPORTER_OTLP_ENDPOINT:-}`
     interpolates to None (not "") when the observability tier is not deployed.
     """
@@ -136,6 +140,11 @@ async def otlp_logging_method(config: OtlpLoggingMethodConfig, _builder: Builder
     # which sink a record happens to reach.
     install_presigned_url_scrubbing()
 
+    # Metrics go to the same collector through the same endpoint setting, so the
+    # one place that knows whether the observability tier exists decides both.
+    grid_metrics.install_meter_provider(config.endpoint)
+
     yield handler
 
+    grid_metrics.shutdown_meter_provider()
     provider.shutdown()

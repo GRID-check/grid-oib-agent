@@ -6,8 +6,10 @@ NullHandler, no export attempts against a collector that does not exist.
 
 import logging
 
+import pytest
 import yaml
 
+from aiq_agent.observability import metrics as grid_metrics
 from aiq_agent.observability.otlp_logging_method import OtlpLoggingMethodConfig
 from aiq_agent.observability.otlp_logging_method import _logs_endpoint
 from aiq_agent.observability.otlp_logging_method import otlp_logging_method
@@ -27,6 +29,33 @@ async def test_missing_endpoint_yields_a_null_handler():
     # the tracing exporter crashed NAT startup on exactly this).
     async with otlp_logging_method(OtlpLoggingMethodConfig(), None) as handler:
         assert isinstance(handler, logging.NullHandler)
+
+
+@pytest.fixture(autouse=True)
+def metrics_calls(monkeypatch):
+    """The metrics provider is global and set once per process: record the calls, never make them."""
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        grid_metrics, "install_meter_provider", lambda endpoint, **kw: calls.append(("install", endpoint))
+    )
+    monkeypatch.setattr(grid_metrics, "shutdown_meter_provider", lambda: calls.append(("shutdown",)))
+    return calls
+
+
+async def test_the_metrics_provider_is_installed_on_the_logs_endpoint_and_stopped_with_it(metrics_calls):
+    config = OtlpLoggingMethodConfig(endpoint="http://otel-collector:4318/v1/traces")
+
+    async with otlp_logging_method(config, None):
+        assert metrics_calls == [("install", "http://otel-collector:4318/v1/traces")]
+
+    assert metrics_calls[-1] == ("shutdown",)
+
+
+async def test_without_an_endpoint_no_metrics_provider_is_asked_for(metrics_calls):
+    async with otlp_logging_method(OtlpLoggingMethodConfig(), None):
+        pass
+
+    assert metrics_calls == []
 
 
 async def test_configured_endpoint_yields_an_otlp_handler():
