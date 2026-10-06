@@ -64,6 +64,10 @@
     "de": "Eine Chat-Verbindung gilt jetzt nur noch für die Unterhaltung, für die sie geöffnet wurde. Nachrichten, die eine andere Unterhaltung nennen, werden abgewiesen."
   },
   {
+    "en": "A chat shared with someone who later loses the right to read a folder it drew on stays in their list as \"Shared chat\", and opening it says they no longer have the rights, with no title, message or attachment shown. The person who shared it sees them marked \"No longer has access\", and the chat opens again if the role comes back.",
+    "de": "Ein Chat, der mit jemandem geteilt ist, die oder der später das Recht verliert, einen Ordner zu lesen, aus dem er schöpft, bleibt in deren Liste als „Geteilter Chat“; beim Öffnen steht dort, dass die Rechte fehlen, ohne Titel, Nachricht oder Anhang. Wer den Chat geteilt hat, sieht die Person als „Hat keinen Zugriff mehr“, und der Chat öffnet sich wieder, sobald die Rolle zurück ist."
+  },
+  {
     "en": "A chat whose deletion failed because a service was briefly unavailable is now deleted automatically once the service is back, instead of staying hidden until someone deleted it again.",
     "de": "Ein Chat, dessen Löschen fehlgeschlagen ist, weil ein Dienst kurz nicht erreichbar war, wird jetzt automatisch gelöscht, sobald der Dienst wieder verfügbar ist. Bisher blieb er ausgeblendet, bis jemand ihn erneut löschte."
   },
@@ -142,6 +146,10 @@
   {
     "en": "A document deleted while it was still being read in no longer turns up in answers afterwards. Piloti now checks, once reading is done, that the document still exists, and drops what it read if it does not.",
     "de": "Ein Dokument, das gelöscht wird, während es noch eingelesen wird, taucht danach nicht mehr in Antworten auf. Piloti prüft jetzt nach dem Einlesen, ob das Dokument noch existiert, und verwirft das Eingelesene, wenn nicht."
+  },
+  {
+    "en": "A document in a folder someone may only read can no longer be shared or assigned by them, because both change the document.",
+    "de": "Ein Dokument in einem Ordner, den jemand nur lesen darf, lässt sich von dieser Person nicht mehr teilen oder zuweisen, weil beides das Dokument ändert."
   },
   {
     "en": "A document stuck on \"processing\" after an ingestion job was lost can now be retried from its menu instead of deleted and re-uploaded. The retry keeps the document, so sources, chat references and assignments survive, and it refuses while ingestion is genuinely still running.",
@@ -870,6 +878,10 @@
   {
     "en": "Deleting a chat now also removes every file attached to it from search. Before, the content of older attachments could stay findable after the chat was gone.",
     "de": "Wer einen Chat löscht, entfernt jetzt auch alle darin angehängten Dateien aus der Suche. Bisher konnten Inhalte älterer Anhänge nach dem Löschen auffindbar bleiben."
+  },
+  {
+    "en": "Deleting a custom role that folders name now shows which folders and asks you to confirm. Folders left without a valid role are readable by organization admins only and are listed in the project settings with a link to each.",
+    "de": "Beim Löschen einer eigenen Rolle, die Ordner nennen, zeigt Piloti jetzt, welche Ordner das sind, und verlangt eine Bestätigung. Ordner ohne gültige Rolle können nur noch Organisations-Admins lesen und stehen in den Projekteinstellungen mit einem Link zu jedem."
   },
   {
     "en": "Deleting a document from a project or the Archiv now also deletes the images Piloti cut out of it. If the files cannot be deleted, the document stays in the list and Piloti reports the error instead of leaving the files behind.",
@@ -2012,6 +2024,10 @@
     "de": "Impressum und Datenschutzerklärung enthalten keine Platzhalter mehr, und die Website behauptet nicht mehr, Daten und KI liefen ausschließlich in der EU."
   },
   {
+    "en": "The inbox no longer shows the title of a chat the reader may no longer read.",
+    "de": "Das Postfach zeigt den Titel eines Chats nicht mehr, den die Leserin oder der Leser nicht mehr lesen darf."
+  },
+  {
     "en": "The interface feels calmer and more responsive: buttons answer every press with a subtle dip, copying an answer pops a check mark, and loading placeholders shimmer instead of flashing grey.",
     "de": "Die Oberfläche wirkt ruhiger und reagiert schneller: Buttons geben bei jedem Klick dezent nach, beim Kopieren einer Antwort erscheint ein Häkchen, und Ladeplatzhalter schimmern, statt grau aufzublitzen."
   },
@@ -2390,6 +2406,10 @@
   {
     "en": "When two sources contradict each other, Piloti now shows the difference, names both with their reference and says which rule decides, or that the sources cannot settle it.",
     "de": "Widersprechen sich zwei Quellen, zeigt Piloti den Unterschied jetzt an, nennt beide mit Fundstelle und sagt, welche Regel den Vorrang entscheidet, oder dass sich der Widerspruch aus den Quellen nicht auflösen lässt."
+  },
+  {
+    "en": "When you share a chat that drew on a restricted folder, Piloti offers only colleagues who may read all of those folders, and shows the others greyed out with \"Has no access to a folder this chat draws on\". It never names the folder.",
+    "de": "Wenn Sie einen Chat teilen, der aus einem eingeschränkten Ordner geschöpft hat, bietet Piloti nur Kolleginnen und Kollegen an, die alle diese Ordner lesen dürfen, und zeigt die anderen ausgegraut mit „Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat stammt“. Den Ordner nennt es nie."
   },
   {
     "en": "Whether Piloti may file the documents it writes into a project is now a permission of its own, File agent-authored documents. Members without it can still upload, rename and delete their own files.",

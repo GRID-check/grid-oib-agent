@@ -1,0 +1,24 @@
+---
+features:
+  - >
+    When you share a chat that drew on a restricted folder, Piloti offers only
+    colleagues who may read all of those folders, and shows the others greyed
+    out with "Has no access to a folder this chat draws on". It never names the
+    folder.
+  - >
+    A chat shared with someone who later loses the right to read a folder it
+    drew on stays in their list as "Shared chat", and opening it says they no
+    longer have the rights, with no title, message or attachment shown. The
+    person who shared it sees them marked "No longer has access", and the chat
+    opens again if the role comes back.
+  - >
+    Deleting a custom role that folders name now shows which folders and asks
+    you to confirm. Folders left without a valid role are readable by
+    organization admins only and are listed in the project settings with a link
+    to each.
+fixes:
+  - >
+    A document in a folder someone may only read can no longer be shared or
+    assigned by them, because both change the document.
+  - >
+    The inbox no longer shows the title of a chat the reader may no longer read.

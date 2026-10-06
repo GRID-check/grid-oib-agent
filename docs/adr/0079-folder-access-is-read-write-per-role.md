@@ -167,7 +167,35 @@ list does.
 
 A folder opened to every member stops restricting what was recorded from it; a
 narrowed one restricts it to fewer people. Nothing is rewritten when access
-changes. Deep research and tasks from a conversation that recorded a restricted
+changes.
+
+**The record is also the read gate (lifecycle, 6 Oct 2026).** A conversation's
+role (creator, grantee, project visibility) says who is a party to it, not who
+may read what it drew on. `resolveResourceAccess` asks `peopleWhoMayRead` for the
+caller, through the descriptor's `readersAmong`: a person whose roles do not
+reach every recorded folder that still restricts someone holds the role but is
+`contentLocked`, creator included. `requireResourceAccess` then throws
+`ResourceRightsLostError` (403 `RESOURCE_RIGHTS_LOST`, no title, no folder) unless
+the caller passes `allowLocked`, which only the roster, leaving and deleting
+one's own chat do. Closed by default, so every present and future reader of a
+conversation (messages, detail, live stream, frames, the chat socket's scope,
+export) is covered without being taught to ask. The list keeps a locked chat
+without its title, tags and subject (`contentLocked: true`), the client shows
+„Geteilter Chat“ and „Ihnen fehlen inzwischen die Rechte, um diesen Chat zu
+sehen“, and the inbox redacts its items. The same function answers the share
+dialog (candidates carry `lacksFolderAccess`; the server refusal stays the
+authority) and the roster (`lostAccess`). A document's sharing and assignment
+need a write in its folder (`requireWriteAccess` on the descriptor, backed by
+`requireFolderWrite`).
+
+**Deleting a role** that folders name asks for a confirmation that lists them
+(`GET /api/organization/roles/{slug}/usage`, `DELETE …?confirmFolders=1`). Grants
+keep their slug, so a folder whose own list then names no role that exists
+matches nobody: organization admins alone read it (`effectiveFolderLevel`), and
+the project settings list it as „Ordner ohne gültige Rolle“
+(`foldersWithoutValidRole`). A rename in WorkOS changes the name, never the slug
+(`UpdateOrganizationRoleOptions` has no slug), so grants keep matching; creating
+a role again under the same name restores the old grants. Deep research and tasks from a conversation that recorded a restricted
 folder stay refused for now, as do profile patches and filing outside the
 recorded folders.
 
@@ -219,6 +247,21 @@ recorded folders.
   60 s instead of 10 min, one more WorkOS listing per minute and organization at most.
 * Bad, because the reviewer fan-out filters by folder read, but a person named by the caller or
   assigned to the document (`resource_assignments`) is not checked against the folder.
+* Good, because a person who loses a role loses the content of every chat that drew on the
+  folder at the next request (membership roles are cached at most 60 s), and gets it back with
+  the role, with nothing to rewrite, because the gate is judged at read time, not stored.
+* Bad, because the gate costs one indexed read of `conversation_restricted_folders` on every
+  conversation access, and a WorkOS lookup per person when something was recorded. A list
+  costs one read for all its rows and one folder tree per project; the share dialog and the
+  roster evaluate at most 200 people, 20 at a time.
+* Bad, because a locked chat cannot be left from its own screen yet: it stays in the list
+  until the folder is readable again, the share is removed by its owner, or the person
+  leaves through the share dialog.
+* Bad, because a person who lost a folder still holds what they copied or downloaded, and a
+  chat the creator may no longer read is locked for the creator too: only deleting it stays
+  open to them.
+* Bad, because deleting a role cannot be undone from Piloti: its folders are admin-only until
+  someone sets a valid role (or re-creates the role under the same name).
 
 ### Confirmation
 
@@ -257,6 +300,28 @@ recorded folders.
   delete, release and filing ask `requireFolderWrite` and stop on a read-only folder.
 * `conversations/restricted-use.spec.ts` and `restricted-use.integration.spec.ts`: admission
   against the audience, the lock with widening, loosen and tighten judged at read time.
+* `conversations/restricted-use.spec.ts` and `.integration.spec.ts` (`peopleWhoMayRead`,
+  `lockedConversationIds`): who reads now, creator included, loosened and tightened, tombstone,
+  unknown folder, bounded concurrency and bound, one tree per project, real Postgres.
+* `sharing/access.spec.ts`, `conversations/live.spec.ts`, `conversations/service.spec.ts`,
+  `app/api/conversations/[id]/rights-lost.route.spec.ts`: the read gate for the creator, a
+  grantee and a project-visible chat; the detail, messages, write, rename, read-mark and the
+  live stream (an open stream closes at the next re-check); the typed 403 carries nothing of
+  the chat; the list sends no title; deleting one's own stays open. `inbox/targets.spec.ts`:
+  redacted.
+* `sharing/service.spec.ts`, `mentions/service.spec.ts`, `features/collaboration/…`: the roster
+  flag and the disabled picker rows; a document's sharing, visibility, role changes, removals,
+  ownership and assignment (`assignments/service.spec.ts`, `sharing/registry.spec.ts`) refuse a
+  folder the caller may only read, before any write or rate limit.
+* `authz/custom-roles.spec.ts`, `organization/…/custom-roles-section.spec.tsx`,
+  `app/api/organization/roles/[slug]/route.spec.ts`, `authz/folder-access.spec.ts`
+  (`foldersWithoutValidRole`, admin-only after a role is deleted, a rename keeps matching),
+  `projects/folder-access-settings.spec.ts`, `folder-access.integration.spec.ts`
+  (`listFoldersNamingRole`): the deletion guard and the flagged folders.
+* `chat/stores/sessions-store.rights-lost.spec.ts`, `layout/…/MainLayout.spec.tsx`,
+  `SessionsPanel.spec.tsx` and the `/dev/sessions?variant=rights-lost`,
+  `/dev/share-dialog?variant=folders`, `/dev/custom-roles?dialog=delete` and `/dev/settings`
+  previews: the neutral title and the state in the browser.
 * `projects/memory-restricted.integration.spec.ts` and `projects/memory-service.spec.ts`:
   restricted notes by folder id, loosen, tighten and tombstone.
 * `auth/membership-roles.spec.ts`: the membership lookup, the 60 s key, the fallback.
@@ -318,6 +383,9 @@ recorded folders.
   [`database/schema.md`](../database/schema.md#document_access_log-migration-0110-adr-0079), and
   `lib/download-log/service.ts` — `recordDocumentAccess` is called by every function that hands a
   document's bytes to a person, held to the list by `coverage.spec.ts`.
+* Decided by the product owner on 6 Oct 2026 (`plans/2026-10-06-folder-access-lifecycle.md`):
+  the share dialog lists only people who qualify, a chat shared with someone who later loses a
+  folder stays in their list without its content, and deleting a role folders name asks first.
 * Where a later lifecycle feature would attach (participant notices, an organization setting for
   deleted-folder content): `setFolderAccess` after placement, the tombstone in
   `deleteProjectFolder`, `effectiveFolderLevel`, `resolveMembershipRoles`, `admitSourceFolders`
