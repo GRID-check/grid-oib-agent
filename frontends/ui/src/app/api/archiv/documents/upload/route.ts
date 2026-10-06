@@ -2,7 +2,9 @@
  * Archiv upload API — store a file in the org-wide Archiv and hand it to the
  * backend for ingestion into the shared `archiv_<orgId>` collection. Thin
  * handler; all logic (incl. `org:archiv:manage` authorization) lives in
- * `@/lib/archiv/service`. Feature-gated by the dark-launch `organization-archiv`
+ * `@/lib/archiv/service`, which shares its pipeline with a project's upload
+ * (`@/lib/documents/shelf-upload`, ADR-0078): optional `folderId` and
+ * `originPath` form fields file the document into an Archiv folder. Feature-gated by the dark-launch `organization-archiv`
  * flag (ADR-0024).
  */
 
@@ -25,10 +27,14 @@ export const POST = apiRoute(
       throw new BadRequestError('file is required')
     }
 
+    // The same two optional fields, read the same way, as `POST /api/documents/upload`:
+    // the folder to file into, and where a folder upload found the file.
+    const folderId = formData.get('folderId')
     const originPath = formData.get('originPath')
     return uploadArchivDocument(session, file, request, {
+      folderId: typeof folderId === 'string' && folderId ? folderId : null,
+      originPath: typeof originPath === 'string' ? originPath : null,
       screeningRelease: readScreeningRelease(formData.get('screeningRelease')),
-      originPath: typeof originPath === 'string' ? originPath.slice(0, 1024) : null,
       uploadBatchId: readUploadBatchId(formData.get('uploadBatchId')),
     })
   },

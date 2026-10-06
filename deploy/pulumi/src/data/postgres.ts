@@ -633,7 +633,8 @@ export function installPostgres(
           : {}),
       },
     },
-    { provider },
+    // Preserve the bootstrap Job rerun when its SQL changes.
+    { provider, replaceOnChanges: ["data"] },
   );
 
   // DSNs embed the app password — put them in a Secret and env them via

@@ -369,7 +369,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
 
       // Per file when the caller filed the batch (a folder upload), otherwise
       // the folder the reader is standing in. `undefined` defers; `null` is a
-      // deliberate "the project root".
+      // deliberate "the shelf's root".
       const resolvedFolderId = (file: File): string | null => {
         const target = options?.folderIdFor ? options.folderIdFor(file) : folderId
         return (target === undefined ? folderId : target) ?? null
@@ -450,8 +450,10 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
             formData.append('conversationId', targetCollection)
             if (conversationProjectId) formData.append('projectId', conversationProjectId)
           }
-          if (projectId) {
-            formData.append('projectId', projectId)
+          if (projectId) formData.append('projectId', projectId)
+          // Both durable shelves are filed into folders now (the Archiv's
+          // are the office's own).
+          if (shelf !== 'session') {
             const resolved = resolvedFolderId(file)
             if (resolved) formData.append('folderId', resolved)
           }

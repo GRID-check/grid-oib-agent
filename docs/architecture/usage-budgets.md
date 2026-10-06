@@ -243,6 +243,7 @@ Enforcement points:
 | GET | `/api/organization/model-config/models` | org models admin | model search; `creditsPerRequest` (the reference request priced at the active list) for a credit organization, `null` on an own key; never per-token USD |
 | POST | `/api/internal/usage` | `x-grid-internal-token` service token | ledger write path (backend tracker); rows are priced here |
 | GET/PUT | `/api/platform/pricing` | `platform:settings:view` / `manage` | the price list, its bounds, the version trail |
+| GET/PUT | `/api/platform/organizations/:organizationId/budgets` | `platform:organizations:view` / `manage` | view usage and effective daily/monthly limits, or supersede the org policy in its current unit; a stale unit is rejected with 409 |
 | GET | `/api/platform/overview` | `platform:organizations:view` | cost (with the own-key share apart), revenue (price), credits and tokens per organization and in total, plus the active price list; the UI shows `costUsd − ownKeyCostUsd` as the platform's cost |
 
 ## UI (org page → "Usage & budgets")
@@ -283,6 +284,17 @@ ingestion …") and the directory has an "Ingestion this month" column, both
 summed from `activity = 'ingest'` rows not on a tenant's own key. The rollup
 does not split by activity, so only the ledger-summed windows carry
 `ingestCostUsd`.
+
+Each directory row has an **Allowance** action. It opens the organization's
+monthly allowance, daily limit and current usage without switching the
+operator's active organization. Platform-billed organizations use credits;
+the existing own-key token unit is preserved. Blank means unlimited; zero
+blocks new requests. Default allowances are marked separately from explicit
+policies. Platform Support can read the dialog; only
+`platform:organizations:manage` can save. Saves reuse the same append-only
+policies, cache invalidation and `budget.policy.set` audit trail as Organization
+settings. Tenant budget admins retain their existing ability to edit these
+same limits; this is not a separate platform-only commercial ceiling.
 
 ## Observability & audit answers
 

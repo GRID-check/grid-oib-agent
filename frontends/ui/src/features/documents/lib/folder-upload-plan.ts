@@ -243,11 +243,6 @@ export interface FolderUploadPlanInput {
   /** Digests for {@link FolderUploadPlan.hashCandidates}, on the second pass. */
   digests?: ReadonlyMap<File, string>
   /**
-   * A shelf with no folders (the Archiv): every file lands where the reader is,
-   * whatever path it carried, and no folder is planned.
-   */
-  flat?: boolean
-  /**
    * The organization's upload screening, and the files the reader released
    * from it (ADR-0077). Absent means nothing is screened here — the upload
    * hook and the server still are.
@@ -258,7 +253,7 @@ export interface FolderUploadPlanInput {
 export interface PlanScreening {
   policy: UploadScreeningPolicy
   /**
-   * The path of the folder the reader is standing in, from the project root, or
+   * The path of the folder the reader is standing in, from the shelf root, or
    * null at the root. A file is screened against the folder it LANDS in as
    * well as the one it came from: dropped into „Honorare", a scan named
    * `0042.pdf` is still a fee document.
@@ -297,14 +292,13 @@ function archivedMark(document: PlanDocument): { existingArchived?: true } {
 }
 
 export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploadPlan {
-  const { files, documents, folders, currentFolderId, digests, flat = false } = input
+  const { files, documents, folders, currentFolderId, digests } = input
 
   const currentFolder = currentFolderId
     ? (folders.find((folder) => folder.id === currentFolderId) ?? null)
     : null
 
-  // A flat shelf reads only the name: the path would plan folders it cannot hold.
-  const entries = files.map((file) => ({ file, path: flat ? file.name : droppedPath(file) }))
+  const entries = files.map((file) => ({ file, path: droppedPath(file) }))
 
   /*
    * The re-sync fold.
@@ -347,8 +341,8 @@ export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploa
     for (const entry of entries) {
       const relative = relativeDirectory(entry.path)
       const folderPath = [basePath, relative].filter(Boolean).join('/') || null
-      // The folders on disk count even on a flat shelf: the Büroablage keeps no
-      // folders, but a file that came out of „Rechnungen" is still an invoice.
+      // The folders on disk count as well as the one it lands in: a file that
+      // came out of „Rechnungen" is still an invoice wherever it is filed.
       const verdict = screenUploadName(policy, {
         filename: entry.file.name,
         originPath: droppedPath(entry.file),

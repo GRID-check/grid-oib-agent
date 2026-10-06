@@ -534,6 +534,7 @@ export async function fileGeneratedDocument(
   const existingDestination = await findRootProjectFolderByName(
     projectId,
     resolveGeneratedDocumentDestination(producer).folderName,
+    session.organizationId,
   )
   // Filing is a write into the destination (ADR-0079): a „Berichte" the
   // commissioning person may only read refuses (403), one they may not read is
@@ -578,7 +579,7 @@ export async function fileGeneratedDocument(
   // After the render, so a producer that fails leaves no empty `Berichte`
   // folder standing in a project that never got a report.
   const destination = resolveGeneratedDocumentDestination(producer)
-  const folder = await getOrCreateProjectFolderByName(projectId, destination.folderName)
+  const folder = await getOrCreateProjectFolderByName(projectId, destination.folderName, session.organizationId)
   // A concurrent writer may have created it, or given it its own list, since
   // the check above.
   if (folder.id !== existingDestination?.id) await requireFolderWrite(session, projectId, [folder.id])

@@ -56,6 +56,9 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 
 const session = { userId: 'user-1', organizationId: 'org-1' } as AuthorizedSession
 
+/** What every inserted folder row is stamped with besides its project (migration 0102). */
+const TENANT = { organizationId: 'org-1', scope: 'project' }
+
 interface Row {
   id: string
   projectId: string
@@ -156,8 +159,9 @@ describe('ensureProjectFolderPaths', () => {
 
     expect(result.ok).toBe(true)
     expect(fake.inserted).toEqual([
-      { projectId: 'proj-1', parentId: null, name: 'Wohnbau', path: 'Wohnbau' },
+      { ...TENANT, projectId: 'proj-1', parentId: null, name: 'Wohnbau', path: 'Wohnbau' },
       {
+        ...TENANT,
         projectId: 'proj-1',
         parentId: 'new-1',
         name: '03_Einreichung',

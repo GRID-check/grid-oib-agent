@@ -58,7 +58,8 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { isAgentDocumentFilename } from './agent-namespace'
 import { collectionFileRef, purgeIngestedChunks } from './collection-file-ref'
 import { documentDisplayName } from './display-name'
-import { findDocumentInOrg, findFolderPathInProject } from './repository'
+import { findDocumentInOrg } from './repository'
+import { resolveDocumentFolderPath } from './folder-path'
 import { listReviewCandidates, resolveReviewers } from './reviewers'
 import { DocumentDeletedError, OpenVersionExistsError } from './unique-conflicts'
 import { discardObject } from '@/lib/storage/discard'
@@ -456,7 +457,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
         storageKey: version.storageKey,
         storageBucket: version.storageBucket,
         collectionName: document.collectionName,
-        folderPath: await resolveFolderPath(document, session.organizationId),
+        folderPath: await resolveDocumentFolderPath(document, session.organizationId),
         versionId: version.id,
         provenance: await agentProvenance(session.organizationId, document, version),
       })
@@ -587,19 +588,6 @@ async function agentProvenance(
     approved_at: version.approvedAt?.toISOString() ?? null,
     producer: document.authoredByProducer,
   }
-}
-
-/**
- * The materialised folder path the item is filed under, or `null`.
- *
- * Re-resolved rather than carried, for the reason the re-ingest path resolves
- * it: `folder_path` is what the backend files the document under (ADR-0049),
- * and a dispatch that omitted it would silently un-file a document somebody had
- * filed.
- */
-async function resolveFolderPath(document: Document, organizationId: string): Promise<string | null> {
-  if (!document.folderId || !document.projectId) return null
-  return findFolderPathInProject(document.folderId, document.projectId, organizationId)
 }
 
 /** Every effect a transition names, in order. */

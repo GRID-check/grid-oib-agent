@@ -253,7 +253,7 @@ describe('fileGeneratedDocument', () => {
 
   it('lands in the destination the resolver names', async () => {
     await file()
-    expect(getOrCreateProjectFolderByName).toHaveBeenCalledWith('proj-1', 'Berichte')
+    expect(getOrCreateProjectFolderByName).toHaveBeenCalledWith('proj-1', 'Berichte', 'org-1')
   })
 
   /**
@@ -1202,15 +1202,15 @@ describe('every path that can create a machine-authored row', () => {
     }
   }
 
-  it('has exactly four callers of the admitting path, and only this one authors a row', () => {
+  it('has exactly three callers of the admitting path, and only this one authors a row', () => {
     const admitters = importersOf('@/lib/storage/admission')
     // Named in full rather than counted: a new entry here is a new way for a
     // `documents` row to exist, and this test is where somebody has to look at
     // it and decide whether it can author one.
     expect(admitters).toEqual([
-      'lib/archiv/service.ts',
       'lib/documents/generated.ts',
-      'lib/documents/service.ts',
+      // The project and the Archiv upload are ONE pipeline (ADR-0078).
+      'lib/documents/shelf-upload.ts',
       'lib/session-documents/service.ts',
     ])
 
@@ -1219,7 +1219,7 @@ describe('every path that can create a machine-authored row', () => {
         call.includes('authoredBy'),
       ),
     )
-    // The three upload paths never set the column, so their rows take the
+    // The upload paths never set the column, so their rows take the
     // `'user'` default and no request field can make one machine-authored.
     expect(authoring).toEqual(['lib/documents/generated.ts'])
   })

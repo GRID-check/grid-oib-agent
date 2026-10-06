@@ -8,8 +8,7 @@
  * Failures are signalled with typed errors from `@/lib/api/errors`.
  */
 
-import { assertUploadNameAllowed, auditScreeningOverride, ingestScreeningFor } from '@/lib/upload-screening/service'
-import { acceptedUploadBatchId } from '@/lib/upload-batches/service'
+import { ingestScreeningFor } from '@/lib/upload-screening/service'
 import 'server-only'
 import {
   GetObjectCommand,
@@ -20,14 +19,11 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import {
   s3Client,
   signingS3Client,
-  bucketAdminS3Client,
   buildImageStorageKey,
-  buildStorageKey,
   buildThumbnailStorageKey,
 } from '@/lib/s3'
-import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
+import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import {
-  folderReadOnlyError,
   getHiddenFolderIds,
   getProjectFolderAccess,
   isFolderVisibleToMember,
@@ -47,31 +43,28 @@ import {
   UpstreamError,
 } from '@/lib/api/errors'
 import { ALLOWED_TAGS } from './tag-vocabulary'
-import { contentDigest } from './content-digest'
 import { documentStatusFacts } from './document-status'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING } from './reingest-codes'
-import { documentNameKey } from './name-match'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
-import { assertWithinStorageQuota } from '@/lib/storage/service'
-import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
-import { retryRacedUpload } from '@/lib/documents/unique-conflicts'
 import {
   FEATURE_FLAGS,
-  isCollaborationEnabled,
   isFeatureEnabled,
   isIfcModelsEnabled,
 } from '@/lib/authz/feature-flags'
-import { listAssignmentsWithoutAccessCheck, type AssignedPerson } from '@/lib/assignments/service'
 import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
 import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import { assertNoActiveHold } from '@/lib/compliance/holds'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document, DocumentAuthor } from '@/lib/db/schema'
-import { reconcileDocumentStatuses, describeBackendIngestState, type DocumentMetadata } from './reconcile-status'
+import { reconcileDocumentStatuses, describeBackendIngestState } from './reconcile-status'
+import { toListedDocuments, toListedPage, type ListedDocument } from './shelf-listing'
+import { projectShelf } from './shelf'
+import { uploadToShelf, type UploadDocumentResult } from './shelf-upload'
+import { resolveDocumentFolderPath } from './folder-path'
 import {
   collectionFileRef,
   collectionFileUrl,
@@ -81,7 +74,6 @@ import {
   deleteProjectDocument,
   documentExistsInCollection,
   findDocumentInOrg,
-  findFolderPathInProject,
   findStorageKeyByCollectionAndFilename,
   findStorageKeyByIdAndCollection,
   listProjectDocumentPage,
@@ -93,22 +85,19 @@ import {
   setDocumentDisplayName,
   setDocumentIngestJob,
   setDocumentReconciledStatus,
-  findLiveDocumentByFilename,
-  findProjectCollectionsHoldingFilename,
+  FAILED_INGEST_RESCAN_LIMIT,
+  listFailedDocumentIdsInOrg,
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
 import { decodeTextBytes } from '@/lib/text/decode-text'
-import { encodeDocumentListCursor, type DocumentListCursor } from './list-cursor'
+import type { DocumentListCursor } from './list-cursor'
 import { runBimExtraction } from '@/lib/bim/service'
 import { getAccessibleDocument } from './access'
 import { recordDocumentAccess } from '@/lib/download-log/service'
-import { nextVersionNumber, recordUploadedVersionOrDiscard } from './lifecycle'
-import { newVersionWriteId, versionWriteKey } from './version-content'
 import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
-import { assertIfcMayBeFiledIn } from '@/lib/projects/ifc-folder-guard'
 import {
   INLINE_PREVIEW_CONTENT_TYPES,
   TEXT_PREVIEW_CONTENT_TYPES as SHARED_TEXT_PREVIEW_CONTENT_TYPES,
@@ -531,35 +520,7 @@ export async function listDocumentsPage(
     includeArchived: options.includeArchived,
     cursor: options.cursor,
   })
-  const nextCursor = page.nextCursor ? encodeDocumentListCursor(page.nextCursor) : null
-  return { documents: await toListedDocuments(session, page.rows), nextCursor }
-}
-
-/**
- * What a project row needs before it leaves the BFF, whichever query found it:
- * the listing page or a by-name lookup. The CALLER has already checked
- * `project:view` for the project every row was read from.
- */
-async function toListedDocuments(
-  session: AuthorizedSession,
-  rows: DocumentListRow[]
-): Promise<ListedDocument[]> {
-  // Pending rows are lazily reconciled with the backend's ingestion state;
-  // without this they would stay 'pending' forever (no completion callback).
-  const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
-
-  const listed = reconciled.map(({ metadata: _metadata, ...row }) => row)
-
-  if (!isCollaborationEnabled(session) || listed.length === 0) {
-    return listed.map((row) => ({ ...row, assignees: [] }))
-  }
-
-  const grouped = await listAssignmentsWithoutAccessCheck(
-    session,
-    'document',
-    listed.map((row) => row.id)
-  )
-  return listed.map((row) => ({ ...row, assignees: grouped[row.id] ?? [] }))
+  return toListedPage(session, page)
 }
 
 /**
@@ -619,18 +580,7 @@ export async function probeProjectDocumentNames(
   })
 }
 
-/**
- * One row of a document listing.
- *
- * `assignees` is part of it. It used to be added by the two `return`s below and
- * left out of the signature, which type-checks (nothing rejects an extra
- * property on a spread) and is a lie every caller then has to work around: the
- * wire projection could not see the field it is required to serialize, and
- * anything reading a listing had to re-widen the type to find the faces it
- * renders.
- */
-export type ListedDocument = Omit<DocumentListRow, 'metadata'> &
-  DocumentMetadata & { assignees: AssignedPerson[] }
+export type { ListedDocument }
 
 /**
  * A single hit from the backend's document-centric semantic search
@@ -851,57 +801,7 @@ export interface UploadDocumentInput {
   uploadBatchId?: string | null
 }
 
-/** Longest origin path recorded. Deep office trees exist; unbounded text does not belong in a row. */
-const ORIGIN_PATH_MAX_CHARS = 1024
-
-/**
- * A browser-reported origin path, made safe to store and to show.
- *
- * This string is USER-CONTROLLED — it is whatever the operating system had in
- * a folder name — and it is rendered back to other people in the same
- * organization, so it is treated the way every other piece of uploaded text is:
- * bounded, normalised, and stripped of the characters that would let it
- * pretend to be something else.
- *
- * Backslashes become forward slashes so a Windows tree and a macOS one read
- * alike. Leading slashes, `.` and `..` segments are dropped: this is a label,
- * never a path anything resolves, and an absolute or climbing path in a label
- * is only ever a way to mislead a reader about where a file came from. Control
- * characters go for the same reason a filename's do.
- */
-function sanitizeOriginPath(raw: string | null | undefined): string | null {
-  if (typeof raw !== 'string') return null
-  const segments = raw
-    .replace(/\\/g, '/')
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001f\u007f]/g, '')
-    .split('/')
-    .map((segment) => segment.trim())
-    .filter((segment) => segment !== '' && segment !== '.' && segment !== '..')
-  if (segments.length === 0) return null
-  const joined = segments.join('/')
-  return joined.slice(0, ORIGIN_PATH_MAX_CHARS) || null
-}
-
-export interface UploadDocumentResult {
-  documentId: string
-  jobId: string | null
-  /**
-   * `processing` is the IFC path: extraction runs in this process and there is
-   * no backend job to report yet, but the document is genuinely being worked on
-   * — reporting the `uploaded` birth status would hide that work behind a
-   * terminal "Abgelegt" badge for a model that is about to become openable.
-   */
-  status: 'pending' | 'uploaded' | 'failed' | 'processing'
-  filename: string
-  /**
-   * The bytes were already the live document's, so nothing was written and no
-   * version was made. Present only then. The browser says „Unverändert –
-   * bereits vorhanden" from it where it could not know beforehand (no stored
-   * digest, no `crypto.subtle`).
-   */
-  unchanged?: true
-}
+export type { UploadDocumentResult }
 
 /** Lowercased extension including the leading dot, or '' when there is none. */
 function fileExtension(name: string): string {
@@ -971,344 +871,17 @@ export function assertFileSizeAllowed(sizeBytes: number, filename?: string): voi
 }
 
 /**
- * One document per name in a project, whichever collection holds it
- * (ADR-0078). A re-upload into the collection that already holds the name
- * replaces it, as before; the same name filed under a different restriction is
- * refused, because replacing it would move it across the boundary unseen. The
- * message names no folder: the other one may be one this person cannot see.
- */
-async function assertNameFreeElsewhereInProject(
-  organizationId: string,
-  projectId: string,
-  collectionName: string,
-  filename: string
-): Promise<void> {
-  const holders = await findProjectCollectionsHoldingFilename(organizationId, projectId, filename)
-  if (holders.some((holder) => holder !== collectionName)) {
-    throw new ConflictError(
-      `A document named "${filename}" already exists elsewhere in this project. Rename the file, or upload it where that document is filed.`
-    )
-  }
-}
-
-/**
  * Store an uploaded file in SeaweedFS, record it, and hand it to the backend for
- * ingestion. The ingest call is best-effort: the document is already durable
- * in SeaweedFS + Postgres, and status reads reconcile the outcome later.
+ * ingestion — the project's name for the shelf-parameterised pipeline in
+ * `./shelf-upload`, which the Archiv shares. Requires `project:documents:write`
+ * (or `project:edit`) on the project.
  */
-export async function uploadDocument(
+export function uploadDocument(
   session: AuthorizedSession,
   input: UploadDocumentInput,
   request: Request
 ): Promise<UploadDocumentResult> {
-  const { projectId, folderId, file } = input
-  const originPath = sanitizeOriginPath(input.originPath)
-
-  await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
-  await assertUploadTypeAllowed(session, file.name)
-  assertFileSizeAllowed(file.size, file.name)
-  // Org-wide ceiling, checked after the per-file one so the caller gets the
-  // more specific complaint first, and BEFORE any bytes reach SeaweedFS so a
-  // refusal leaves no orphan object behind (ADR-0042).
-  await assertWithinStorageQuota(session.organizationId, file.size)
-
-  const project = await findProjectInOrg(projectId, session.organizationId)
-  if (!project) throw new NotFoundError('Project not found')
-
-  // The folder decides the collection (ADR-0078): a restricted folder's
-  // documents live in its own. A folder this uploader is not cleared for does
-  // not exist for them, so this comes before anything reads its path: the name
-  // gate below would otherwise answer with the hidden folder's name.
-  const access = await getProjectFolderAccess(session, projectId, project.collectionName)
-  if (!access.isVisible(folderId)) throw new NotFoundError('Folder not found in project')
-  // An upload is a write into the folder (ADR-0079); the project ceiling was
-  // asked above. A folder the uploader may only read refuses before a byte is
-  // stored (403).
-  if (access.levelOf(folderId) !== 'write') throw folderReadOnlyError()
-  const collectionName = access.collectionFor(folderId)
-  // Restricted folders do not hold IFC models until their building data is
-  // partitioned (ADR-0078); refused before a byte is stored.
-  assertIfcMayBeFiledIn(file.name, collectionName, project.collectionName)
-
-  let folderPath: string | null = null
-  if (folderId) {
-    folderPath = await findFolderPathInProject(folderId, projectId, session.organizationId)
-    if (folderPath === null) throw new NotFoundError('Folder not found in project')
-  }
-  // The name gate's server-side repeat (ADR-0077), before a byte is stored.
-  const nameGate = await assertUploadNameAllowed(
-    session.organizationId,
-    { filename: file.name, originPath, folderPath },
-    input.screeningRelease === true
-  )
-  const uploadBatchId = await acceptedUploadBatchId(session, input.uploadBatchId, { scope: 'project', projectId })
-
-  /*
-   * A RE-UPLOAD REPLACES; IT DOES NOT ACCUMULATE.
-   *
-   * This used to mint a fresh id and insert unconditionally. There is no unique
-   * index on (collection, filename), so a second upload of the same name wrote
-   * a second row and a second stored object charged to the organization's
-   * quota — while the ingest pipeline's `_replace_previous_versions` deletes
-   * chunks BY FILENAME, so the newcomer's chunks replaced the incumbent's. The
-   * first row survived: listed, downloadable, cited by nothing, findable by
-   * nothing. A ghost, and a paid-for one.
-   *
-   * The backend already treats the filename as the document's identity. This
-   * makes the row agree: the SAME id is pointed at the new bytes, so every
-   * citation, chat subject and folder assignment that referenced the document
-   * keeps working, and re-dropping a corrected plan does what a person dropping
-   * it means by the gesture.
-   *
-   * Deliberately not a 409. Refusing the upload would be defensible if the two
-   * files were unrelated, but the pipeline downstream has already decided they
-   * are the same document, and a refusal leaves the reader with the OLD file
-   * and no way to say "no, this one".
-   */
-  /*
-   * The name, in ONE Unicode form.
-   *
-   * `file.name` is whatever the operating system that produced it uses, and
-   * macOS decomposes. Normalizing here — before the probe, before the storage
-   * key and before the row — is what makes the identity above hold for a büro
-   * that drags an Einreichung off a Mac: without it the probe misses, a second
-   * row appears under a name nobody can tell apart from the first, and the
-   * ingest pipeline replaces the chunks of the one it did not create.
-   * `findLiveDocumentByFilename` still looks for both forms, because rows
-   * written before this line exist. See `./name-match`.
-   */
-  const filename = documentNameKey(file.name)
-  await assertNameFreeElsewhereInProject(session.organizationId, projectId, collectionName, filename)
-
-  // Create the organization's bucket if this is its first upload (ADR-0043).
-  // A no-op — not even a round trip — when per-org buckets are off. Done before
-  // the PUT so a provisioning failure leaves nothing behind, same reasoning as
-  // the quota check above.
-  const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
-
-  const bytes = Buffer.from(await file.arrayBuffer())
-  /*
-   * The digest, taken here because the bytes are already in hand.
-   *
-   * It is what makes a folder RE-upload cheap: the browser hashes only the
-   * files whose name and size already match something in the project, and sends
-   * the ones whose digest differs. Hashing on this side rather than trusting
-   * the client's is not a security stance — the client's digest is only ever
-   * compared, never stored — it is so that the recorded value describes the
-   * bytes this tier actually wrote.
-   *
-   * The value's shape — algorithm and all — lives in `./content-digest`,
-   * because the Archiv and a conversation's attachments write the same column
-   * and a digest only one of them changed would classify every file as changed.
-   */
-  const contentHash = contentDigest(bytes)
-
-  /*
-   * Probe, store, admit — and once more when a concurrent FIRST upload of this
-   * name won the shelf (`retryRacedUpload`). The second run re-probes, finds
-   * the winner, and records these bytes as its next version, exactly as the
-   * same two drops one after the other would have.
-   */
-  const placed = await retryRacedUpload(async () => {
-    const superseded = await findLiveDocumentByFilename(
-      session.organizationId,
-      collectionName,
-      filename
-    )
-    // A re-upload is a new version of the document it supersedes, and files it
-    // where this upload goes: a write on the folder it is in now, too.
-    if (superseded && access.levelOf(superseded.folderId ?? null) !== 'write') throw folderReadOnlyError()
-    const documentId = superseded?.id ?? crypto.randomUUID()
-    /*
-     * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).
-     *
-     * The id is deliberately kept — that is what makes citations, chat subjects
-     * and folder assignments survive a corrected plan — but the key used to be
-     * derived from the id alone, so the new bytes landed on top of the old ones
-     * and `discardSupersededObjects` tidied up what was left. That is versioning
-     * without the history. Version 1 keeps today's key exactly, so nothing that
-     * predates this moves; a re-upload lands under `v<n>/<write id>/`, and the
-     * previous version's row still names an object a reader can open.
-     *
-     * A re-upload ALWAYS gets the write segment (`versionWriteKey`), never the
-     * version-1 shortcut: the number is a hint, and it reads 1 whenever the
-     * existing row has no version recorded yet — the winner of a concurrent
-     * first upload, between its insert and its version — which would aim this
-     * PUT at the winner's own flat key and overwrite its bytes. The row's number
-     * is allocated under a lock when the version is recorded
-     * (`allocateVersionNumber`).
-     */
-    const baseKey = buildStorageKey(session.organizationId, projectId, documentId, filename, folderPath)
-    const storageKey = superseded
-      ? versionWriteKey(
-          baseKey,
-          await nextVersionNumber(documentId, session.organizationId),
-          newVersionWriteId()
-        )
-      : baseKey
-
-    /*
-     * THE SAME BYTES, ALREADY HERE. Nothing to do.
-     *
-     * A folder re-sync is mostly this: a büro drops the project directory again
-     * to bring three corrected drawings in, and five hundred files that have not
-     * changed come along with them. The planner already skips the ones it can
-     * prove are identical — but it can only prove it where the row carries a
-     * digest, so a corpus that predates `content_hash`, a browser without
-     * `crypto.subtle`, and every non-secure context all fall through to here.
-     *
-     * This tier has the bytes and the row, so it can answer. Answering saves the
-     * object write, the quota round trip, and — the expensive one — a full
-     * re-ingest that would churn the chunks a citation already points at, for a
-     * file that did not change.
-     *
-     * Deliberately narrow. Only when the row has actually LANDED — a failed, a
-     * still-processing and an unrecognised status must all be allowed to retry,
-     * which is why the test is the status vocabulary's own `success` and not a
-     * list of spellings written out again here — and only when it is already
-     * filed where this upload would file it, because otherwise the re-file IS the
-     * gesture and skipping would drop it.
-     *
-     * No audit event either, and that is the point rather than an omission: the
-     * trail records who brought which file into which project, and this brought
-     * nothing.
-     */
-    if (
-      superseded &&
-      superseded.contentHash === contentHash &&
-      documentStatusFacts(superseded.status)?.variant === 'success' &&
-      (superseded.folderId ?? null) === (folderId ?? null)
-    ) {
-      return { unchanged: true as const, documentId }
-    }
-
-    await s3Client.send(
-      new PutObjectCommand({
-        Bucket: storageBucket,
-        Key: storageKey,
-        Body: bytes,
-        ContentType: file.type || 'application/octet-stream',
-      })
-    )
-
-    // The quota's HARD ceiling: the usage is re-read inside the same transaction
-    // that inserts the row, under a per-organization lock, so concurrent uploads
-    // cannot jointly cross the limit the way the pre-check above allows (ADR-0042).
-    //
-    // The object is already written, so a refusal has to take it back — the row was
-    // not inserted, so nothing else will ever reference those bytes and leaving
-    // them would be an orphan that only a bucket-wide sweep could find.
-    if (superseded) {
-      // The FULL size is charged: the previous bytes stay behind as the
-      // superseded version, so the correction frees nothing — see
-      // `replaceDocumentWithinQuota`.
-      await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
-        storageKey,
-        storageBucket,
-        fileSize: file.size,
-        contentType: file.type || null,
-        contentHash,
-        folderId: folderId ?? null,
-        createdBy: session.userId,
-        uploadBatchId,
-      })
-      // NOTHING is discarded here any more. The previous bytes are the previous
-      // VERSION's bytes now (ADR-0054), and a superseded version whose object was
-      // deleted is a row in the history that opens nothing. They go when the
-      // document is deleted — `deleteDocument` walks every version — or when a
-      // retention policy that does not exist yet says so.
-    } else {
-      // A `LiveFilenameTakenError` out of here is the lost first-upload race:
-      // the object is already discarded and nothing was charged, so the retry
-      // around this closure starts clean.
-      await admitOrDiscard(storageBucket, storageKey, {
-        id: documentId,
-        organizationId: session.organizationId,
-        projectId,
-        folderId: folderId ?? null,
-        createdBy: session.userId,
-        filename,
-        storageKey,
-        // Recorded even when it IS the shared bucket, so only rows predating
-        // migration 0033 rely on the NULL-means-shared convention.
-        storageBucket,
-        collectionName,
-        fileSize: file.size,
-        contentType: file.type || null,
-        contentHash,
-        originPath,
-        uploadBatchId,
-        status: 'uploaded',
-      })
-    }
-    return { unchanged: false as const, documentId, storageKey, replaced: Boolean(superseded) }
-  })
-
-  if (placed.unchanged) {
-    return { documentId: placed.documentId, jobId: null, status: 'uploaded', filename, unchanged: true }
-  }
-  const { documentId, storageKey, replaced } = placed
-
-  // The version, recorded through the SAME transition table the agent's drafts
-  // walk (ADR-0054). Born `published` and born approved: the person who
-  // uploaded it is the assertion, so the `published requires an approver` CHECK
-  // is satisfied honestly rather than worked around, and no review round is
-  // invented for a gesture that never asked for one. Handed the columns THIS
-  // request stored, not re-read off a row an overlapping upload may have
-  // rewritten in the meantime.
-  await recordUploadedVersionOrDiscard(session, documentId, request, {
-    storageKey,
-    storageBucket,
-    contentType: file.type || null,
-    fileSize: file.size,
-    contentHash,
-  })
-
-  const { jobId: ingestJobId, status: ingestStatus } = await dispatchDocument({
-    organizationId: session.organizationId,
-    projectId,
-    documentId,
-    filename,
-    storageKey,
-    storageBucket,
-    collectionName,
-    // Already resolved above for the storage key — the same path is what the
-    // backend files the document under (ADR-0049), so the agent's inventory and
-    // `knowledge_search folder=` see the folder from the first ingest onward.
-    folderPath,
-  })
-
-  // Data-provenance event: who brought which file into which project.
-  await recordAuditEvent({
-    organizationId: session.organizationId,
-    actor: { userId: session.userId, email: session.email },
-    action: 'document.uploaded',
-    targetType: 'document',
-    targetId: documentId,
-    // Filename is user-controlled — cap it before it reaches the trail.
-    // `replaced` distinguishes a new document from new bytes under an existing
-    // id, which is the one thing the trail could no longer infer from the id.
-    metadata: {
-      projectId,
-      filename: filename.slice(0, 200),
-      fileSize: file.size,
-      ...(replaced ? { replaced: true } : {}),
-    },
-    request,
-  })
-
-  await auditScreeningOverride(
-    session,
-    { documentId, projectId, filename, overridden: nameGate.overridden },
-    request
-  )
-
-  return {
-    documentId,
-    jobId: ingestJobId,
-    status: ingestStatus,
-    filename,
-  }
+  return uploadToShelf(session, projectShelf(input.projectId), input, request)
 }
 
 export interface BeginModelExtractionInput {
@@ -1680,23 +1253,6 @@ async function signedRenditionRef(input: DispatchDocumentInput, fileName: string
   }
 }
 
-/**
- * The folder path a stored document is filed under, or `null` when it sits at
- * the project root (or on a shelf that has no folders at all).
- *
- * Re-ingest and re-index re-run the SAME dispatch the upload did, so they have
- * to re-supply the same `folder_path` — a re-ingest that omitted it would
- * silently un-file a document the user had filed, and only the agent would
- * notice.
- */
-export async function resolveDocumentFolderPath(
-  doc: Pick<Document, 'folderId' | 'projectId'>,
-  organizationId: string
-): Promise<string | null> {
-  if (!doc.folderId || !doc.projectId) return null
-  return await findFolderPathInProject(doc.folderId, doc.projectId, organizationId)
-}
-
 export interface ReingestDocumentResult {
   id: string
   status: 'pending' | 'uploaded' | 'failed' | 'processing'
@@ -1971,6 +1527,163 @@ export async function reindexProject(
     cursor = nextCursor
   }
   result.truncated = true
+  return result
+}
+
+/**
+/**
+ * Re-dispatch every failed ingestion in the organization.
+ *
+ * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
+ * all files that were stored but could never be read (`failed`/`error`, plus
+ * rows stranded at the `uploaded` birth status) go back through the ingest
+ * pipeline under their own ids, so citations, chat subjects and assignments
+ * pointing at them keep working.
+ *
+ * Each id goes through `reingestDocument`, so per-document access checks and
+ * the status guards stay in exactly one place. Rows that are not retryable
+ * (still running, already finished behind the row's back, not eligible, or no
+ * longer visible to this session) count as `skipped`, never as failures - a
+ * rescan that reports failures must mean retries that actually went wrong,
+ * not rows that were never eligible. One document's failure never abandons
+ * the rest, and the fan-out is bounded like `reindexProject`.
+ */
+/**
+ * Re-dispatch every failed ingestion in the organization.
+ *
+ * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
+ * all files that were stored but could never be read (`failed`/`error`, plus
+ * rows stranded at the `uploaded` birth status) go back through the ingest
+ * pipeline under their own ids, so citations, chat subjects and assignments
+ * pointing at them keep working.
+ *
+ * The selection is PAGED past the cap rather than read once: each page
+ * excludes the ids already attempted, so rows that stay failed cannot starve
+ * the rows behind them, and `truncated` says when the cap stopped the walk
+ * before the failed set was exhausted. Each id still goes through
+ * `reingestDocument`, so per-document access checks and the status guards
+ * stay in exactly one place. Rows that are not retryable (still running,
+ * already finished behind the row's back, not eligible, or no longer visible
+ * to this session) count as `skipped`, never as failures - and a dispatch
+ * that yields no job resolves as `failed` rather than `queued`, because
+ * `dispatchIngest` marks the row failed itself in that case. One document's
+ * failure never abandons the rest, and the fan-out is bounded like
+ * `reindexProject`.
+ *
+ * The rescan itself is audited (`org.documents.reingested`) with its outcome,
+ * because it is an organization-wide mutating admin action.
+ */
+export interface ReingestFailedOrgResult {
+  /** Failed ids this rescan picked up, bounded by the cap. */
+  total: number
+  /** Documents sent back through ingestion. */
+  queued: number
+  /** Rows that were not retryable - running, already done, ineligible, or out of reach. */
+  skipped: number
+  /** Ids whose retry itself went wrong. */
+  failed: string[]
+  /** True when the cap stopped the walk before the failed set was exhausted. */
+  truncated: boolean
+}
+
+/** One page of the failed-id walk - small enough to stay a point query. */
+const REINGEST_RESCAN_PAGE = 50
+
+function reingestRefusalCode(error: unknown): string | null {
+  if (error instanceof ConflictError) {
+    const details = error.details as { code?: unknown } | undefined
+    return typeof details?.code === 'string' ? details.code : null
+  }
+  return null
+}
+
+export async function reingestFailedOrgDocuments(
+  session: AuthorizedSession,
+  request?: Request,
+): Promise<ReingestFailedOrgResult> {
+  // Walk the failed set a page at a time, excluding what was already
+  // attempted: without the exclusion the cap would re-read the same first
+  // page on every rescan while the rows behind it never surface.
+  const attempted: string[] = []
+  while (attempted.length < FAILED_INGEST_RESCAN_LIMIT) {
+    const page = await listFailedDocumentIdsInOrg(session.organizationId, {
+      limit: Math.min(REINGEST_RESCAN_PAGE, FAILED_INGEST_RESCAN_LIMIT - attempted.length),
+      excludeIds: attempted,
+    })
+    if (page.length === 0) break
+    attempted.push(...page)
+  }
+  // Capped mid-set: one probe says whether anything was left behind, so the
+  // reader is told to run again rather than handed a count that looks whole.
+  const truncated =
+    attempted.length >= FAILED_INGEST_RESCAN_LIMIT &&
+    (
+      await listFailedDocumentIdsInOrg(session.organizationId, {
+        limit: 1,
+        excludeIds: attempted,
+      })
+    ).length > 0
+
+  const result: ReingestFailedOrgResult = {
+    total: attempted.length,
+    queued: 0,
+    skipped: 0,
+    failed: [],
+    truncated,
+  }
+
+  const redispatch = async (id: string): Promise<void> => {
+    try {
+      const outcome = await reingestDocument(session, id)
+      // No job id means the dispatch recorded the failure itself: the retry
+      // went wrong, it did not queue.
+      if (outcome.status === 'failed') {
+        result.failed.push(id)
+        return
+      }
+      result.queued += 1
+    } catch (error) {
+      const code = reingestRefusalCode(error)
+      if (code === INGEST_RUNNING || code === INGEST_ALREADY_DONE || code === INGEST_NOT_ELIGIBLE) {
+        result.skipped += 1
+        return
+      }
+      if (error instanceof NotFoundError || error instanceof ForbiddenError) {
+        result.skipped += 1
+        return
+      }
+      result.failed.push(id)
+    }
+  }
+
+  let next = 0
+  const workers = Array.from(
+    { length: Math.min(REINDEX_CONCURRENCY, attempted.length) },
+    async () => {
+      while (next < attempted.length) {
+        const id = attempted[next++]
+        await redispatch(id)
+      }
+    },
+  )
+  await Promise.all(workers)
+
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'org.documents.reingested',
+    targetType: 'organization',
+    targetId: session.organizationId,
+    metadata: {
+      total: result.total,
+      queued: result.queued,
+      skipped: result.skipped,
+      failed: result.failed.length,
+      truncated: result.truncated,
+    },
+    request,
+  })
+
   return result
 }
 

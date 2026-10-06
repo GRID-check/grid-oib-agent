@@ -12,7 +12,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { stripClientContextHeaders } from './ws-upgrade-headers.js'
+import { findOversizedWsHeader, stripClientContextHeaders, WS_HEADER_LINE_MAX_BYTES } from './ws-upgrade-headers.js'
 
 describe('stripClientContextHeaders', () => {
   it('removes every x-grid-* header a client sent', () => {
@@ -66,6 +66,28 @@ describe('server.js strips before it writes', () => {
 
   it('requires the strip', () => {
     expect(source).toMatch(/require\('\.\/src\/lib\/proxy\/ws-upgrade-headers\.js'\)/)
+  })
+
+  describe('WebSocket per-header encoded line budget', () => {
+    it('counts the header name, separators and CRLF', () => {
+      const value = 'a'.repeat(WS_HEADER_LINE_MAX_BYTES - Buffer.byteLength('x: \r\n'))
+      expect(findOversizedWsHeader({ x: value })).toBeNull()
+      expect(findOversizedWsHeader({ x: value + 'a' })).toEqual({ name: 'x', bytes: 8193 })
+    })
+
+    it('counts UTF-8 bytes and encoded bytes rather than characters', () => {
+      expect(findOversizedWsHeader({ x: 'ä'.repeat(4100) })?.bytes).toBe(8205)
+      const profile = 'ä'.repeat(3101)
+      expect(Buffer.byteLength(profile)).toBeGreaterThan(6200)
+      expect(findOversizedWsHeader({
+        'x-grid-project-context': Buffer.from(profile).toString('base64url'),
+      })?.name).toBe('x-grid-project-context')
+    })
+
+    it('checks each array header line and the combined cookie line', () => {
+      expect(findOversizedWsHeader({ x: ['a'.repeat(5000), 'b'.repeat(5000)] })).toBeNull()
+      expect(findOversizedWsHeader({ cookie: ['a'.repeat(5000), 'b'.repeat(5000)] })?.name).toBe('cookie')
+    })
   })
 
   it('runs it on the upgrade before the first context header is set', () => {

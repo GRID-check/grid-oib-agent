@@ -20,8 +20,9 @@
 import 'server-only'
 import type { FolderItem } from '@/features/documents/components/project-file-workspace'
 import type { DocumentWireRow } from '@/features/documents/lib/file-item'
-import type { FolderRow } from '@/lib/projects/folder-service'
-import type { ListedDocument } from './service'
+import type { ProjectFolderRow } from '@/lib/projects/folder-service'
+import type { ListedDocument } from './shelf-listing'
+import { summarizeDocumentVersions } from './lifecycle'
 import type { DocumentVersionState } from './lifecycle-types'
 
 /**
@@ -79,12 +80,41 @@ export function toDocumentWireRow(
 }
 
 /**
+ * A page of listed documents as the wire carries them: each row through
+ * {@link toDocumentWireRow} with its editorial state read in ONE query.
+ *
+ * The editorial state rides ALONG with the listing rather than being asked for
+ * per card: the badge is on every tile, and the Files workspace re-reads the
+ * listing on every filter change and settling poll. A listing that carried it
+ * once (server render) and not on the re-read would make the badge blink out a
+ * second after the page settled.
+ *
+ * Serialized explicitly rather than left to `JSON.stringify`, because the Files
+ * page reads this same listing server-side and hands it across the RSC boundary,
+ * which does not stringify a `Date` — see the module header.
+ *
+ * ONE projection for both shelves (ADR-0078): a project's `GET /api/documents`
+ * and the Archiv's `GET /api/archiv/documents` serve the same row, so the
+ * browser maps it with one function.
+ */
+export async function toDocumentWireRows(
+  organizationId: string,
+  rows: ListedDocument[],
+): Promise<Array<ReturnType<typeof toDocumentWireRow>>> {
+  const versions = await summarizeDocumentVersions(
+    organizationId,
+    rows.map((row) => row.id),
+  )
+  return rows.map((row) => toDocumentWireRow(row, versions.get(row.id)))
+}
+
+/**
  * The same treatment for a folder row — two timestamps and nothing else that a
  * `Date` could hide in. The Files page reads `listProjectFolders` beside the
  * document listing, so it crosses the same boundary and needs the same
  * projection.
  */
-export function toFolderWireRow(row: FolderRow): FolderItem {
+export function toFolderWireRow(row: ProjectFolderRow): FolderItem {
   return {
     id: row.id,
     parentId: row.parentId,
@@ -93,7 +123,7 @@ export function toFolderWireRow(row: FolderRow): FolderItem {
     // Only ever a folder the reader may read (ADR-0079); the lock needs its
     // list, and the write affordances need what this reader may do here.
     grants: row.grants,
-    ...(row.access ? { access: row.access } : {}),
+    access: row.access,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }

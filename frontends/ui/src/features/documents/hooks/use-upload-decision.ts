@@ -37,7 +37,7 @@ export interface UploadDecision {
     input: Omit<FolderUploadPlanInput, 'documents' | 'digests' | 'screening'> & {
       documents: PlanDocumentSource
       /**
-       * The path of the folder the reader stands in, from the project root, or
+       * The path of the folder the reader stands in, from the shelf root, or
        * null at the root: files are screened against where they land too.
        */
       screeningBasePath?: string | null
@@ -93,7 +93,7 @@ export function useUploadDecision(): UploadDecision {
     const input = { ...dropped, files: dropped.files.filter((file) => !isSystemFile(file.name)) }
     if (input.files.length === 0) return
     const current = ++generation.current
-    const isFolder = !input.flat && isFolderUpload(input.files)
+    const isFolder = isFolderUpload(input.files)
     const { screeningBasePath, ...planInput } = input
     const [documents, policy] = await Promise.all([
       typeof input.documents === 'function'

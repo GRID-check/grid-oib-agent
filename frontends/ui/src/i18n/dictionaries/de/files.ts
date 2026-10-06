@@ -611,6 +611,7 @@ export const files: typeof en.files = {
       ready: 'Zitierbar',
     },
     originLabel: 'Herkunft',
+    tagLabel: 'Kategorie',
     kindLabel: 'Dateityp',
     kind: {
       floorplan: 'Grundriss',

@@ -221,11 +221,20 @@ is now the single builder: `buildGridRequestContextWireHeaders` returns every
 individual header PLUS one consolidated, signed `X-Grid-Request-Context`
 header (base64url JSON of the same fields, plus the structured `bundesland`
 fact — §6b) and `X-Grid-Request-Context-Sig` (hex HMAC-SHA256 of the raw
-JSON, keyed on `GRID_INTERNAL_API_TOKEN`). This is a **dual-write
-transition**: the individual headers are still sent unchanged; the envelope
-rides alongside them, and removing the legacy headers is a later cleanup.
+JSON, keyed on `GRID_INTERNAL_API_TOKEN`). Legacy HTTP/job producers retain
+this **dual-write transition**. Authenticated WebSocket handshakes instead
+carry compact claims with `contextTransport: "bff"` and omit project context,
+memory and office instructions from both the individual headers and the
+signed envelope (ADR-0077).
 `server.js` duplicates the same builder logic (with a pinning comment) since
 it is plain CommonJS and cannot import the TS module.
+
+Compact mode loads those three prompt blocks from
+`POST /api/internal/turn-context` on every turn. The request echoes the
+original signed capsule, so the BFF resolves and authorizes that requester
+rather than accepting identity in a body. The JSON response body carries
+growing data; a context-read failure is an explicit turn error. This keeps
+the agent stateless without coupling connection availability to profile size.
 
 On the backend, `aiq_agent.project_context.GridRequestContext.from_context()`
 /`from_envelope()` verifies the signature with `hmac.compare_digest` and
@@ -425,10 +434,11 @@ Intake wizard answers
   → PUT /api/projects/{id}/profile
       buildProfileUpdate → buildProjectPromptView(profile)
       → stored in projects.profile_prompt_view  (a compact "PROJECT_CONTEXT v1" block)
-  → /api/websocket-scope reads profile_prompt_view → returns projectContext
-  → server.js sets header  x-grid-project-context  on the WS upgrade
-  → src/aiq_agent/project_context.py reads the header (truncated to 4000 chars)
-  → piloti/conversation_register.py sets state.project_context
+  → server.js signs compact project/conversation scope on the WS upgrade
+  → Python calls POST /api/internal/turn-context at the start of each turn
+  → the BFF authorizes the requester and returns the prompt view in JSON
+  → Python normalizes the prompt view to its existing 4000-character budget
+  → the turn's context sets state.project_context
   → injected into every prompt: all *.j2 have {% if project_context %}{{ project_context }}
 ```
 
@@ -449,10 +459,12 @@ header was never sent → the agent had no project knowledge for that session.
   atomic swap used for auth rotation) only when the value actually changes, so
   the handshake re-sends the project scope.
 
-Note: the profile is intentionally **not** embedded into the `proj_*` RAG
-collection — project knowledge reaches the agent only via header text-injection:
-this profile header plus the project-memory digest header (`x-grid-project-memory`,
-see §8).
+The profile is intentionally **not** embedded into the `proj_*` RAG collection.
+It reaches the prompt through the authorized per-turn context read, alongside
+the query-specific memory digest. Legacy HTTP/job and anonymous callers still
+use inline context. Transport byte limits and prompt character budgets are
+separate; a prompt limit applied after header decoding cannot protect a
+WebSocket handshake.
 
 ## 5. Project summary / fact-sheet
 
@@ -524,7 +536,9 @@ internal client (its URL is backend-consumed). Compose sets `SEAWEED_PUBLIC_ENDP
 ### Folders
 
 Nested folders are fully supported (self-referential `project_folders.parent_id`,
-`folder-service.ts` builds the nested path, the API accepts `parentId`, and the
+`folder-service.ts` builds the nested path — since ADR-0078 on both shelves that
+have folders, a project's Dateien and the org-wide Archiv, through one
+shelf-parameterised core in `lib/documents/shelf-folders.ts`, the API accepts `parentId`, and the
 tree renders recursively). The prior "can't nest" symptom was **UX only** — there
 was no per-folder affordance. **Fix**: `folder-tree-pane.tsx` now shows an "add
 subfolder" `+` on each folder row and makes root creation explicit.

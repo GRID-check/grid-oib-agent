@@ -47,7 +47,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { resolveSubjectMembership } from '@/lib/authz/project-membership'
 import { findProjectTenancy } from '@/lib/projects/repository'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { BadRequestError, ForbiddenError, UnprocessableError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, ForbiddenError, UnprocessableError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { isOrgOnOwnKey } from '@/lib/llm-credentials/service'
 import { requireResourceAccess } from '@/lib/sharing/access'
@@ -175,6 +175,8 @@ export async function setBudgetPolicy(params: {
   monthlyLimit: number | null
   actorUserId: string
   note?: string | null
+  /** Reject a draft opened before the organization's key mode changed. */
+  expectedUnit?: BudgetUnit
 }): Promise<BudgetPolicy> {
   const { organizationId, scope, subjectId } = params
   if (scope === 'organization' && subjectId !== null) {
@@ -190,6 +192,9 @@ export async function setBudgetPolicy(params: {
   }
 
   const unit = await getOrgBudgetUnit(organizationId)
+  if (params.expectedUnit !== undefined && params.expectedUnit !== unit) {
+    throw new ConflictError('Organization budget unit changed; reload before saving')
+  }
   if (scope !== 'organization') {
     const org = await getOrgBudget(organizationId, unit)
     const pairs: Array<[number | null, number | null, string]> = [

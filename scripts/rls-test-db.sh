@@ -115,6 +115,7 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/authz/folder-access.integration.spec.ts \
     src/lib/projects/collection-placement.integration.spec.ts \
     src/lib/projects/folder-visibility.integration.spec.ts \
+    src/lib/documents/shelf-folders.integration.spec.ts \
     src/lib/project-profile/profile-bindings.integration.spec.ts \
     src/lib/compliance/legal-hold.integration.spec.ts \
     src/lib/conversations/erasure-queue.integration.spec.ts \
@@ -440,10 +441,10 @@ done
 $MIGRATE_R -v ON_ERROR_STOP=1 -q <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
 VALUES ('aaaaaaaa-0000-4000-8000-000000000107', 'org_0107', 'Restricted 0107', 'user_1', 'proj_0107');
-INSERT INTO project_folders (id, project_id, name, path, restricted_roles, restricted_by, restricted_at) VALUES
-  ('a1a1a1a1-a1a1-4000-8000-000000000107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Verträge', 'Verträge', ARRAY['org-gf'], 'user_1', now()),
-  ('b2b2b2b2-b2b2-4000-8000-000000000107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Personal', 'Personal', ARRAY['org-gf'], 'user_1', now()),
-  ('c3c3c3c3-c3c3-4000-8000-000000000107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Pläne', 'Pläne', NULL, NULL, NULL);
+INSERT INTO project_folders (id, organization_id, project_id, name, path, restricted_roles, restricted_by, restricted_at) VALUES
+  ('a1a1a1a1-a1a1-4000-8000-000000000107', 'org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Verträge', 'Verträge', ARRAY['org-gf'], 'user_1', now()),
+  ('b2b2b2b2-b2b2-4000-8000-000000000107', 'org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Personal', 'Personal', ARRAY['org-gf'], 'user_1', now()),
+  ('c3c3c3c3-c3c3-4000-8000-000000000107', 'org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Pläne', 'Pläne', NULL, NULL, NULL);
 INSERT INTO conversations (id, organization_id, created_by, project_id) VALUES
   ('s_marked', 'org_0107', 'user_1', 'aaaaaaaa-0000-4000-8000-000000000107'),
   ('s_answered', 'org_0107', 'user_1', 'aaaaaaaa-0000-4000-8000-000000000107'),
@@ -535,20 +536,20 @@ INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_
   ('org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'a1a1a1a1-a1a1-4000-8000-000000000107', '*', 'read'),
   ('org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'a1a1a1a1-a1a1-4000-8000-000000000107', 'org-gf', 'write');
 -- A new folder with its own list: read for one role, write for another.
-INSERT INTO project_folders (id, project_id, name, path, access_mode, access_changed_by, access_changed_at) VALUES
-  ('d4d4d4d4-d4d4-4000-8000-000000000107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Honorare', 'Honorare', 'custom', 'user_1', now());
+INSERT INTO project_folders (id, organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at) VALUES
+  ('d4d4d4d4-d4d4-4000-8000-000000000107', 'org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Honorare', 'Honorare', 'custom', 'user_1', now());
 INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) VALUES
   ('org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'd4d4d4d4-d4d4-4000-8000-000000000107', 'org-pl', 'read'),
   ('org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'd4d4d4d4-d4d4-4000-8000-000000000107', 'org-gf', 'write');
 -- Deleting Personal leaves its tombstone with its list; the name is free again.
 UPDATE project_folders SET deleted_at = now(), deleted_by = 'user_1' WHERE id = 'b2b2b2b2-b2b2-4000-8000-000000000107';
-INSERT INTO project_folders (id, project_id, name, path) VALUES
-  ('e5e5e5e5-e5e5-4000-8000-000000000107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Personal', 'Personal');
+INSERT INTO project_folders (id, organization_id, project_id, name, path) VALUES
+  ('e5e5e5e5-e5e5-4000-8000-000000000107', 'org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Personal', 'Personal');
 COMMIT;
 SQL
 checkr "SELECT count(*) FROM project_folder_grants WHERE folder_id = 'b2b2b2b2-b2b2-4000-8000-000000000107'" "1" "a tombstone keeps its list"
 refusedr "INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) SELECT 'org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'd4d4d4d4-d4d4-4000-8000-000000000107', 'org-extra-' || n, 'read' FROM generate_series(1, 19) AS n;" "it needs 1 to 20" "a list holds at most 20 entries"
-refusedr "INSERT INTO project_folders (project_id, name, path) VALUES ('aaaaaaaa-0000-4000-8000-000000000107', 'Personal', 'Personal');" "uniq_project_folders_parent_name" "two living folders still cannot share a name"
+refusedr "INSERT INTO project_folders (organization_id, project_id, name, path) VALUES ('org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Personal', 'Personal');" "uniq_project_folders_parent_name" "two living folders still cannot share a name"
 $MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0108_project_folder_grants.down.sql" >/dev/null || {
   echo "DOWN MIGRATION 0108 FAILED — re-run without -q to see the error" >&2
   exit 1
@@ -637,3 +638,125 @@ $MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0110_document_access_log.sql" >/dev
 checkr "SELECT count(*) FROM document_access_log" "0" "0110 re-applies, empty"
 
 echo "==> 0110 download log and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0102: project_folders become folders of a SHELF (project | archiv),
+# and its DOWN migration.
+#
+# A database migrated only as far as 0101 and seeded with project folders and the
+# documents filed in them, then handed 0102. Asserted here rather than in a spec
+# because the backfill (`organization_id` from `projects`) can only be proved on
+# rows that predate the column, and the spec suites run AFTER the whole chain.
+# Connects as the owner, which is what runs a migration.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0102 folder backfill, its constraints and its down migration on grid_folders"
+$PSQL -q -v ON_ERROR_STOP=1 -c "CREATE DATABASE grid_folders OWNER grid_app_owner;"
+MIGRATE_F="$PGBIN/psql -h $WORKDIR -p $PORT -U grid_app_owner -d grid_folders"
+
+node -e '
+  const j = require("./drizzle/meta/_journal.json");
+  console.log(j.entries.map((e) => e.tag).join("\n"));
+' | while read -r tag; do
+  [ "$tag" = "0102_archiv_folders" ] && break
+  $MIGRATE_F -v ON_ERROR_STOP=1 -q -f "drizzle/$tag.sql" >/dev/null || {
+    echo "0102 SETUP FAILED at $tag — re-run without -q to see the error" >&2
+    exit 1
+  }
+done
+
+# Two tenants, a nested project folder in each, a document filed in the nested
+# one, a root document and an Archiv document (which cannot be filed yet).
+$MIGRATE_F -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name) VALUES
+  ('aaaaaaaa-0000-4000-8000-000000000001', 'org_f_a', 'A', 'user_1', 'proj_f_a'),
+  ('aaaaaaaa-0000-4000-8000-000000000002', 'org_f_b', 'B', 'user_1', 'proj_f_b');
+INSERT INTO project_folders (id, project_id, parent_id, name, path) VALUES
+  ('f0000000-0000-4000-8000-000000000001', 'aaaaaaaa-0000-4000-8000-000000000001', NULL, 'Plaene', 'Plaene'),
+  ('f0000000-0000-4000-8000-000000000002', 'aaaaaaaa-0000-4000-8000-000000000001', 'f0000000-0000-4000-8000-000000000001', 'EG', 'Plaene/EG'),
+  ('f0000000-0000-4000-8000-000000000003', 'aaaaaaaa-0000-4000-8000-000000000002', NULL, 'Plaene', 'Plaene');
+INSERT INTO documents (id, organization_id, project_id, scope, folder_id, filename, storage_key, collection_name, created_by, status) VALUES
+  ('d0000000-0000-4000-8000-000000000001', 'org_f_a', 'aaaaaaaa-0000-4000-8000-000000000001', 'project', 'f0000000-0000-4000-8000-000000000002', 'a.pdf', 'k/a', 'proj_f_a', 'user_1', 'uploaded'),
+  ('d0000000-0000-4000-8000-000000000002', 'org_f_a', 'aaaaaaaa-0000-4000-8000-000000000001', 'project', NULL, 'root.pdf', 'k/root', 'proj_f_a', 'user_1', 'uploaded'),
+  ('d0000000-0000-4000-8000-000000000003', 'org_f_a', NULL, 'archiv', NULL, 'arch.pdf', 'k/arch', 'archiv_org_f_a', 'user_1', 'uploaded');
+SQL
+
+$MIGRATE_F -v ON_ERROR_STOP=1 -q -f "drizzle/0102_archiv_folders.sql" >/dev/null || {
+  echo "MIGRATION 0102 FAILED on the seeded database — re-run without -q to see the error" >&2
+  exit 1
+}
+
+checkf() {
+  local got
+  got=$($MIGRATE_F -tAc "$1")
+  if [ "$got" != "$2" ]; then
+    echo "0102 ASSERTION FAILED: $3" >&2
+    echo "  query: $1" >&2
+    echo "  got:   $got" >&2
+    echo "  want:  $2" >&2
+    exit 1
+  fi
+}
+
+# Writes that must be REFUSED, each by the constraint named in the message.
+refusedf() {
+  local out
+  if out=$($MIGRATE_F -v ON_ERROR_STOP=1 -q -c "$1" 2>&1); then
+    echo "0102 ASSERTION FAILED: accepted — $3" >&2
+    exit 1
+  fi
+  if ! grep -q "$2" <<<"$out"; then
+    echo "0102 ASSERTION FAILED: refused, but not by $2 — $3" >&2
+    echo "  $out" >&2
+    exit 1
+  fi
+}
+
+checkf "SELECT string_agg(organization_id || ':' || scope, ',' ORDER BY path, organization_id) FROM project_folders" \
+  "org_f_a:project,org_f_b:project,org_f_a:project" "the backfill gave every folder its project's tenant and the project scope"
+checkf "SELECT folder_id FROM documents WHERE id = 'd0000000-0000-4000-8000-000000000001'" \
+  "f0000000-0000-4000-8000-000000000002" "a document kept its folder across the migration"
+checkf "SELECT count(*) FROM pg_constraint WHERE conname IN ('project_folders_scope_check','project_folders_scope_owner_check','project_folders_id_organization_id_scope_key','project_folders_parent_id_organization_id_scope_fkey','documents_folder_id_organization_id_scope_fkey')" \
+  "5" "the new constraints exist"
+checkf "SELECT qual FROM pg_policies WHERE tablename = 'project_folders' AND policyname = 'grid_tenant_isolation'" \
+  "(organization_id = grid_current_org())" "the policy reads the tenant column, not a join through projects"
+
+$MIGRATE_F -v ON_ERROR_STOP=1 -q -c "INSERT INTO project_folders (id, organization_id, scope, name, path) VALUES ('ac000000-0000-4000-8000-000000000001', 'org_f_a', 'archiv', 'Normen', 'Normen')"
+refusedf "INSERT INTO project_folders (organization_id, scope, name, path) VALUES ('org_f_a', 'archiv', 'Normen', 'Normen')" \
+  "uniq_project_folders_parent_name" "a second root Archiv folder of the same name"
+refusedf "INSERT INTO project_folders (organization_id, scope, parent_id, name, path) VALUES ('org_f_b', 'archiv', 'ac000000-0000-4000-8000-000000000001', 'x', 'x')" \
+  "project_folders_parent_id_organization_id_scope_fkey" "another tenant's folder as a parent"
+refusedf "INSERT INTO project_folders (organization_id, scope, parent_id, name, path) VALUES ('org_f_a', 'archiv', 'f0000000-0000-4000-8000-000000000001', 'x', 'x')" \
+  "project_folders_parent_id_organization_id_scope_fkey" "a project folder as the parent of an Archiv folder"
+refusedf "INSERT INTO project_folders (organization_id, scope, name, path) VALUES ('org_f_a', 'session', 'x', 'x')" \
+  "project_folders_scope_check" "a folder on the session shelf"
+refusedf "INSERT INTO project_folders (organization_id, scope, name, path) VALUES ('org_f_a', 'project', 'x', 'x')" \
+  "project_folders_scope_owner_check" "a project folder with no project"
+refusedf "UPDATE documents SET folder_id = 'f0000000-0000-4000-8000-000000000001' WHERE id = 'd0000000-0000-4000-8000-000000000003'" \
+  "documents_folder_id_organization_id_scope_fkey" "an Archiv document in a project folder"
+refusedf "UPDATE documents SET folder_id = 'ac000000-0000-4000-8000-000000000001' WHERE id = 'd0000000-0000-4000-8000-000000000001'" \
+  "documents_folder_id_project_id_fkey" "a project document in an Archiv folder"
+$MIGRATE_F -v ON_ERROR_STOP=1 -q -c "UPDATE documents SET folder_id = 'ac000000-0000-4000-8000-000000000001' WHERE id = 'd0000000-0000-4000-8000-000000000003'"
+
+# The down migration refuses while an Archiv folder exists, and says why.
+refusedf "$(cat drizzle/0102_archiv_folders.down.sql)" "Cannot reverse migration 0102" "the down migration with an Archiv folder standing"
+$MIGRATE_F -v ON_ERROR_STOP=1 -q -c "UPDATE documents SET folder_id = NULL WHERE scope = 'archiv'; DELETE FROM project_folders WHERE scope = 'archiv'"
+$MIGRATE_F -v ON_ERROR_STOP=1 -q -f "drizzle/0102_archiv_folders.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0102 FAILED — re-run without -q to see the error" >&2
+  exit 1
+}
+checkf "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('organization_id','scope')" \
+  "0" "down dropped the two columns"
+checkf "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name = 'project_id'" \
+  "NO" "down made project_id required again"
+checkf "SELECT count(*) FROM project_folders" "3" "down left every project folder in place"
+checkf "SELECT folder_id FROM documents WHERE id = 'd0000000-0000-4000-8000-000000000001'" \
+  "f0000000-0000-4000-8000-000000000002" "down left a project document in its folder"
+checkf "SELECT count(*) FROM pg_policies WHERE tablename = 'project_folders' AND qual LIKE '%projects%'" \
+  "1" "down restored the projects-join policy"
+# And it can be applied again on the restored shape.
+$MIGRATE_F -v ON_ERROR_STOP=1 -q -f "drizzle/0102_archiv_folders.sql" >/dev/null || {
+  echo "MIGRATION 0102 FAILED when re-applied after its down migration" >&2
+  exit 1
+}
+
+echo "==> 0102 backfill, constraints and down migration verified"

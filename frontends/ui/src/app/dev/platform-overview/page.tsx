@@ -12,6 +12,7 @@
 
 import type { JSX } from 'react'
 import { PlatformOverview } from '@/app/app/(shell)/platform/platform-overview'
+import { platformOrgBudgetPutSchema, type PlatformOrgBudget } from '@/lib/budgets/platform-contract'
 
 const NAMES = [
   'GRID Platform',
@@ -32,7 +33,7 @@ const NAMES = [
 const PRICING = { marginMultiplier: 2.5, usdPerCredit: 0.1, explicit: true }
 
 /** Cost in USD as charged, priced at the fixture's price list (ADR-0053). */
-const window = (costUsd: number, events: number) => ({
+const spendWindow = (costUsd: number, events: number) => ({
   costUsd,
   ownKeyCostUsd: 0,
   priceUsd: costUsd * PRICING.marginMultiplier,
@@ -49,8 +50,8 @@ const ORGANIZATIONS = NAMES.map((name, index) => ({
   createdAt: new Date(Date.UTC(2024 + (index % 3), index % 12, 1 + index)).toISOString(),
   isPlatformOrg: index === 0,
   projectCount: (index * 3) % 11,
-  day: window(Math.max(0, 18 - index * 1.4), Math.max(0, 400 - index * 30)),
-  month: window(Math.max(0, 420 - index * 33), Math.max(0, 9400 - index * 700)),
+  day: spendWindow(Math.max(0, 18 - index * 1.4), Math.max(0, 400 - index * 30)),
+  month: spendWindow(Math.max(0, 420 - index * 33), Math.max(0, 9400 - index * 700)),
 })).map((org, index) =>
   // The fourth organization runs on its own key: its cost is its own bill, so
   // the overview badges it and leaves it out of the platform's cost.
@@ -67,7 +68,7 @@ const DAILY_TREND = Array.from({ length: 30 }, (_, index) => {
   const day = new Date(Date.UTC(2026, 6, 1 + index))
   return {
     day: day.toISOString().slice(0, 10),
-    ...window(40 + Math.round(Math.sin(index / 3) * 18 + index * 1.2), 800 + index * 25),
+    ...spendWindow(40 + Math.round(Math.sin(index / 3) * 18 + index * 1.2), 800 + index * 25),
   }
 })
 
@@ -97,6 +98,20 @@ const OVERVIEW = {
   },
   pricing: PRICING,
 }
+
+const ORG_BUDGETS = new Map<string, PlatformOrgBudget>(ORGANIZATIONS.map((org, index) => {
+  const unit = index === 3 ? 'token' : 'credit'
+  return [org.id, {
+    organizationId: org.id,
+    unit,
+    dailyLimit: unit === 'credit' ? 500 : null,
+    monthlyLimit: unit === 'credit' ? (index === 1 ? 20_000 : 5_000) : null,
+    explicit: index === 1,
+    dayUsed: unit === 'credit' ? org.day.credits : org.day.tokens,
+    monthUsed: unit === 'credit' ? org.month.credits : org.month.tokens,
+    canManage: true,
+  }]
+}))
 
 /** The price list card's payload: a set list with one earlier version behind it. */
 const PRICING_PAYLOAD = {
@@ -193,6 +208,18 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.startsWith('/api/platform/overview')) {
         return Response.json(OVERVIEW)
+      }
+      const budgetMatch = /^\/api\/platform\/organizations\/([^/]+)\/budgets$/.exec(url)
+      if (budgetMatch) {
+        const id = decodeURIComponent(budgetMatch[1])
+        const budget = ORG_BUDGETS.get(id)
+        if (!budget) return Response.json({ error: 'Organization not found' }, { status: 404 })
+        const request = new Request(new URL(url, window.location.origin), init)
+        if (request.method === 'PUT') {
+          const input = platformOrgBudgetPutSchema.parse(await request.json())
+          ORG_BUDGETS.set(id, { ...budget, ...input, explicit: true })
+        }
+        return Response.json(ORG_BUDGETS.get(id))
       }
       if (url.startsWith('/api/platform/pricing')) {
         return Response.json(PRICING_PAYLOAD)

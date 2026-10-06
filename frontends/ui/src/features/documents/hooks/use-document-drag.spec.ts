@@ -132,7 +132,7 @@ describe('useFolderDropTarget', () => {
   })
 
   it('does not take folders at all when the surface cannot move them', () => {
-    // The Archiv: flat, so a folder drag has nowhere to go and must not even
+    // A read-only viewer: a folder drag has nowhere to go and must not even
     // highlight.
     const { result } = setup()
     act(() =>

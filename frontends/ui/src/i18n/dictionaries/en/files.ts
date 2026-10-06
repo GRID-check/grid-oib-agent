@@ -650,6 +650,7 @@ export const files = {
       ready: 'Citable',
     },
     originLabel: 'Origin',
+    tagLabel: 'Category',
     kindLabel: 'File type',
     kind: {
       floorplan: 'Floor plan',

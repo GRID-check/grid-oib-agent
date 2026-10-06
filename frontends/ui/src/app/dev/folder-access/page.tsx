@@ -21,6 +21,7 @@
  * anywhere and 404s outside development.
  */
 
+import { projectSearchScope } from '@/features/documents/lib/file-shelf'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
@@ -230,7 +231,7 @@ function PersonaSection({
   onEditFolderAccess?: (folderId: string) => void
 }): JSX.Element {
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
-  const search = useFileSearch({ projectId: 'proj-demo' })
+  const search = useFileSearch(projectSearchScope('proj-demo'))
   const visible = new Set(folders.map((folder) => folder.id))
   const corpus = FILES.filter((item) => item.folderId === null || visible.has(item.folderId))
   const folderNav: FolderNavigation = {

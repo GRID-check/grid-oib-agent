@@ -78,13 +78,14 @@ export function FolderBreadcrumbRow({
   currentFolderId,
   onNavigate,
   onCreateFolder,
-  /** Right-aligned extras (the Archiv has none; Files adds nothing yet). */
   children,
   onDropDocument,
   onDropFolder,
   canAcceptFolder,
   readOnly = false,
-}: Pick<FolderNavProps, 'folders' | 'currentFolderId' | 'onNavigate' | 'onCreateFolder'> & {
+}: Pick<FolderNavProps, 'folders' | 'currentFolderId' | 'onNavigate'> & {
+  /** Absent for a read-only viewer: the path is still walkable, nothing can be created. */
+  onCreateFolder?: FolderNavProps['onCreateFolder']
   children?: ReactNode
   /**
    * The reader may only read the level they stand in (ADR-0079): „Nur lesen"
@@ -218,7 +219,9 @@ export function FolderBreadcrumbRow({
         {readOnly ? (
           <FolderReadOnlyBadge testId="folder-level-read-only" />
         ) : (
-          <NewFolderControl currentFolderId={currentFolderId} onCreateFolder={onCreateFolder} />
+          onCreateFolder && (
+            <NewFolderControl currentFolderId={currentFolderId} onCreateFolder={onCreateFolder} />
+          )
         )}
       </div>
     </div>

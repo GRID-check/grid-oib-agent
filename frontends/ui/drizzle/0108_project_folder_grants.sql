@@ -45,14 +45,15 @@ DROP INDEX IF EXISTS "uniq_project_folders_parent_name";
 --> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "uniq_project_folders_parent_name"
   ON "project_folders" (
-    "project_id",
+    "organization_id",
+    (coalesce("project_id", '00000000-0000-0000-0000-000000000000'::uuid)),
     (coalesce("parent_id", '00000000-0000-0000-0000-000000000000'::uuid)),
     "name"
   )
   WHERE "deleted_at" IS NULL;
 --> statement-breakpoint
 COMMENT ON INDEX "uniq_project_folders_parent_name" IS
-  'One LIVING folder per (project, parent, name) (0063; partial since 0108, so a deleted folder''s tombstone does not hold its name). COALESCE over parent_id because a root folder has none and NULL never equals NULL in a unique index.';
+  'One LIVING folder per (organization, project, parent, name) - project is NULL for an Archiv folder (0063, 0102; partial since 0108, so a deleted folder''s tombstone does not hold its name). COALESCE to the nil UUID over project_id and parent_id because NULL never equals NULL in a unique index, which would leave root folders and every Archiv folder uncontrolled.';
 --> statement-breakpoint
 ALTER TABLE "project_folders" RENAME COLUMN "restricted_by" TO "access_changed_by";
 --> statement-breakpoint

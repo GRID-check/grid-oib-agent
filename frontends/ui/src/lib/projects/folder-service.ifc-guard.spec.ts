@@ -66,7 +66,8 @@ import { updateProjectFolder } from './folder-service'
 const SESSION = { organizationId: 'org-1', userId: 'user-1' } as never
 
 beforeEach(() => {
-  db.selects = [[FOLDER], [DESTINATION]]
+  // The folder twice (the access check, then the shelf core that writes), then the new parent.
+  db.selects = [[FOLDER], [FOLDER], [DESTINATION]]
   db.transactions = 0
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })))
 })

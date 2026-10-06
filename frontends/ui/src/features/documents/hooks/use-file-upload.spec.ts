@@ -897,6 +897,52 @@ describe('useFileUpload — durable document uploads', () => {
     expect(xhr.last().url).toBe('/api/archiv/documents/upload')
     expect((xhr.last().body as FormData).get('projectId')).toBeNull()
   })
+
+  test('the Archiv files into the folder the reader stands in, and records where a tree came from', async () => {
+    const { result } = renderHook(() =>
+      useFileUpload({ collectionName: 'archiv_org-1', archiv: true, folderId: 'folder-3' })
+    )
+    const [file] = makeFiles(1)
+    Object.defineProperty(file, 'webkitRelativePath', { value: 'Planung/EG/plan-0.pdf' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([file])
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-0'))
+      await pending
+    })
+
+    const body = xhr.last().body as FormData
+    expect(body.get('folderId')).toBe('folder-3')
+    expect(body.get('originPath')).toBe('Planung/EG/plan-0.pdf')
+    expect(body.get('projectId')).toBeNull()
+  })
+
+  test('a folder upload files each Archiv document into its own folder', async () => {
+    const { result } = renderHook(() =>
+      useFileUpload({ collectionName: 'archiv_org-1', archiv: true, folderId: 'folder-3' })
+    )
+    const files = makeFiles(2)
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(files, {
+        folderIdFor: (file) => (file === files[0] ? 'folder-a' : null),
+      })
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.requests.forEach((request, i) => request.respond(200, uploadOk(`doc-${i}`)))
+      await pending
+    })
+
+    expect((xhr.requests[0].body as FormData).get('folderId')).toBe('folder-a')
+    // `null` is a deliberate „the root", not „defer to the batch's folder".
+    expect((xhr.requests[1].body as FormData).get('folderId')).toBeNull()
+  })
 })
 
 /**

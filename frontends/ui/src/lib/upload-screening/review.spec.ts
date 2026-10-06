@@ -12,6 +12,8 @@ vi.mock('@/lib/documents/repository', () => ({
 }))
 vi.mock('@/lib/documents/service', () => ({
   dispatchDocument: vi.fn().mockResolvedValue({ jobId: 'job-9', status: 'pending' }),
+}))
+vi.mock('@/lib/documents/folder-path', () => ({
   resolveDocumentFolderPath: vi.fn().mockResolvedValue('Verwaltung'),
 }))
 

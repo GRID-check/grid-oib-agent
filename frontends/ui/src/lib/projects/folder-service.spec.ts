@@ -98,7 +98,7 @@ describe('getOrCreateProjectFolderByName', () => {
   it('returns the folder that already exists without inserting', async () => {
     stubSelect([row('folder-1')])
 
-    const folder = await getOrCreateProjectFolderByName('proj-1', 'Berichte')
+    const folder = await getOrCreateProjectFolderByName('proj-1', 'Berichte', 'org-1')
 
     expect(folder.id).toBe('folder-1')
     expect(insert).not.toHaveBeenCalled()
@@ -108,9 +108,9 @@ describe('getOrCreateProjectFolderByName', () => {
     stubSelect([])
     stubInsert(async () => [row('folder-new')])
 
-    const folder = await getOrCreateProjectFolderByName('proj-1', 'Berichte')
+    const folder = await getOrCreateProjectFolderByName('proj-1', 'Berichte', 'org-1')
 
-    expect(folder).toEqual({ ...folderOf, grants: null })
+    expect(folder).toEqual(folderOf)
   })
 
   it('recovers the concurrent writer’s folder from a unique violation', async () => {
@@ -121,7 +121,7 @@ describe('getOrCreateProjectFolderByName', () => {
       throw Object.assign(new Error('duplicate key'), { code: '23505' })
     })
 
-    const folder = await getOrCreateProjectFolderByName('proj-1', 'Berichte')
+    const folder = await getOrCreateProjectFolderByName('proj-1', 'Berichte', 'org-1')
 
     expect(folder.id).toBe('folder-winner')
   })
@@ -132,7 +132,7 @@ describe('getOrCreateProjectFolderByName', () => {
       throw Object.assign(new Error('deadlock detected'), { code: '40P01' })
     })
 
-    await expect(getOrCreateProjectFolderByName('proj-1', 'Berichte')).rejects.toThrow(
+    await expect(getOrCreateProjectFolderByName('proj-1', 'Berichte', 'org-1')).rejects.toThrow(
       'deadlock detected',
     )
     // One lookup: a non-race failure must not be answered by pretending to look
@@ -148,7 +148,7 @@ describe('getOrCreateProjectFolderByName', () => {
       throw Object.assign(new Error('duplicate key'), { code: '23505' })
     })
 
-    await expect(getOrCreateProjectFolderByName('proj-1', 'Berichte')).rejects.toThrow(
+    await expect(getOrCreateProjectFolderByName('proj-1', 'Berichte', 'org-1')).rejects.toThrow(
       'duplicate key',
     )
   })

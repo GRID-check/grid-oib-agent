@@ -149,9 +149,13 @@ const reader = { ...session, role: 'org-bh', roles: ['org-bh'] } as unknown as A
 const WRITE_ONLY = ['project:documents:write']
 const MANAGER = ['project:documents:write', 'project:manage']
 
-/** Queue the folder lookups a call makes: the folder, then the parent it reads. */
-function reads(...rows: FolderRow[]) {
-  state.reads = rows.map((row) => [row])
+/**
+ * Queue the folder lookups a call makes: the folder (twice: once for the
+ * access check here, once by the shelf core that writes), then the parent it
+ * reads. A refused call stops after the first.
+ */
+function reads(folder: FolderRow, ...rest: FolderRow[]) {
+  state.reads = [[folder], [folder], ...rest.map((row) => [row])]
 }
 
 beforeEach(() => {

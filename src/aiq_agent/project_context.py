@@ -39,6 +39,7 @@ import logging
 import os
 from dataclasses import dataclass
 from typing import Any
+from typing import Literal
 
 PROJECT_CONTEXT_HEADER = "x-grid-project-context"
 PROJECT_MEMORY_HEADER = "x-grid-project-memory"
@@ -425,6 +426,9 @@ class GridRequestContext:
     #: deny it. So: echo, never sign.
     envelope_header: str | None = None
     envelope_signature: str | None = None
+    #: Growing prompt blocks are fetched per turn from the BFF when this
+    #: signed, envelope-only marker is present. Legacy producers omit it.
+    context_transport: Literal["bff"] | None = None
 
     @classmethod
     def from_context(cls) -> "GridRequestContext":
@@ -545,6 +549,7 @@ class GridRequestContext:
             # signature no longer covers.
             envelope_header=header_value,
             envelope_signature=sig,
+            context_transport="bff" if payload.get("contextTransport") == "bff" else None,
         )
 
     @classmethod

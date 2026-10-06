@@ -22,6 +22,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { PageHeader } from '@/components/ui/page-header'
 import { getTranslations } from '@/i18n/server'
 import { OrgWidgets } from '../org-widgets'
+import { OrgReingestFailedCard } from '../org-reingest-failed-card'
 
 export default async function OrganizationEnterprisePage(): Promise<JSX.Element> {
   return withPageSession(async (session) => {
@@ -38,13 +39,16 @@ export default async function OrganizationEnterprisePage(): Promise<JSX.Element>
         />
 
         {admin ? (
-          <OrgWidgets
-            canManageUsers={false}
-            canManageSso={perms.includes('widgets:sso:manage')}
-            canManageDirectory={perms.includes('widgets:dsync:manage')}
-            canManageDomains={perms.includes('widgets:domain-verification:manage')}
-            canManageAuditLogs={perms.includes('widgets:audit-log-streaming:manage')}
-          />
+          <>
+            <OrgWidgets
+              canManageUsers={false}
+              canManageSso={perms.includes('widgets:sso:manage')}
+              canManageDirectory={perms.includes('widgets:dsync:manage')}
+              canManageDomains={perms.includes('widgets:domain-verification:manage')}
+              canManageAuditLogs={perms.includes('widgets:audit-log-streaming:manage')}
+            />
+            <OrgReingestFailedCard />
+          </>
         ) : (
           <Card>
             <CardHeader>

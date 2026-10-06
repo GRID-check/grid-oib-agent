@@ -44,7 +44,8 @@ ALTER TABLE "project_folders" DROP COLUMN IF EXISTS "access_mode";
 DROP INDEX IF EXISTS "uniq_project_folders_parent_name";
 CREATE UNIQUE INDEX "uniq_project_folders_parent_name"
   ON "project_folders" (
-    "project_id",
+    "organization_id",
+    (coalesce("project_id", '00000000-0000-0000-0000-000000000000'::uuid)),
     (coalesce("parent_id", '00000000-0000-0000-0000-000000000000'::uuid)),
     "name"
   );

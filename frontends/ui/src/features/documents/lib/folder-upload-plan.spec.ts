@@ -486,28 +486,6 @@ describe('a loose file against the listing', () => {
   })
 })
 
-describe('a flat shelf (the Archiv)', () => {
-  it('plans no folders and reads only the name, whatever path a file carried', () => {
-    const result = plan({
-      files: [pathed('Einreichung/Plaene/EG.pdf')],
-      documents: [doc({ id: 'd1', filename: 'EG.pdf' })],
-      flat: true,
-    })
-
-    expect(result.folders).toEqual([])
-    expect(result.files[0]).toMatchObject({ action: 'update', targetPath: '', existingId: 'd1' })
-  })
-
-  it('still refuses two files of one name in one drop', () => {
-    const result = plan({
-      files: [pathed('A/Deckblatt.pdf'), pathed('B/Deckblatt.pdf')],
-      flat: true,
-    })
-
-    expect(result.files.map((file) => file.action)).toEqual(['collision', 'collision'])
-  })
-})
-
 /**
  * The server versions a same-name document whatever its lifecycle, so the
  * name probe returns archived matches too — and the plan has to say which
@@ -518,7 +496,6 @@ describe('buildFolderUploadPlan — an archived match', () => {
     const result = plan({
       files: [new File(['x'.repeat(50)], 'EG.pdf')],
       documents: [{ ...doc({ id: 'd1', filename: 'EG.pdf' }), lifecycle: 'archived' }],
-      flat: true,
     })
     expect(result.files[0]).toMatchObject({ action: 'update', existingId: 'd1', existingArchived: true })
   })
@@ -527,7 +504,6 @@ describe('buildFolderUploadPlan — an archived match', () => {
     const result = plan({
       files: [new File(['x'], 'eg.pdf')],
       documents: [{ ...doc({ id: 'd1', filename: 'EG.pdf' }), lifecycle: 'archived' }],
-      flat: true,
     })
     expect(result.files[0]).toMatchObject({ action: 'duplicate', existingArchived: true })
   })
@@ -536,7 +512,6 @@ describe('buildFolderUploadPlan — an archived match', () => {
     const result = plan({
       files: [new File(['x'.repeat(50)], 'EG.pdf')],
       documents: [doc({ id: 'd1', filename: 'EG.pdf' })],
-      flat: true,
     })
     expect(result.files[0]).not.toHaveProperty('existingArchived')
   })
@@ -556,7 +531,6 @@ describe('buildFolderUploadPlan — an archived match', () => {
           lifecycle: 'active',
         },
       ],
-      flat: true,
     })
     expect(result.files[0]).toMatchObject({ action: 'update', existingId: 'd1' })
   })
@@ -614,8 +588,8 @@ describe('buildFolderUploadPlan — upload screening', () => {
     expect(result.files[0]?.action).toBe('new')
   })
 
-  it('still screens the folders on disk when the shelf is flat', () => {
-    const result = plan({ files: [pathed('Rechnungen/Grundriss.pdf')], screening, flat: true })
+  it('screens the folders on disk a file came from, and plans no folder for it', () => {
+    const result = plan({ files: [pathed('Rechnungen/Grundriss.pdf')], screening })
     expect(result.files[0]).toMatchObject({
       action: 'excluded',
       screening: [{ term: 'Rechnung', segment: 'Rechnungen', kind: 'folder' }],

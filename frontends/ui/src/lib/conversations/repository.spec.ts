@@ -67,6 +67,29 @@ beforeEach(() => {
   nextRows = []
 })
 
+describe('findConversationTenancy', () => {
+  it.each([
+    's_3f2504e0_4f89_11d3_9a0c_0305e82c3301',
+    '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+  ])('resolves the text conversation identifier %s', async (conversationId) => {
+    nextRows = [['org_1', PROJECT_ID, 'private', 'user_me', null]]
+
+    expect(await findConversationTenancy(conversationId)).toEqual({
+      organizationId: 'org_1',
+      projectId: PROJECT_ID,
+      visibility: 'private',
+      createdBy: 'user_me',
+      deletedAt: null,
+    })
+    expect(onlyQuery().params).toEqual([conversationId, 1])
+  })
+
+  it('queries an unknown text identifier and reports its absence', async () => {
+    expect(await findConversationTenancy('missing_conversation')).toBeNull()
+    expect(onlyQuery().params).toEqual(['missing_conversation', 1])
+  })
+})
+
 describe('listVisibleConversations — scoped to a project', () => {
   it('keeps org tenancy, and judges in-project and unstamped rows SEPARATELY', async () => {
     await listVisibleConversations('org_1', 'user_me', { projectId: PROJECT_ID })

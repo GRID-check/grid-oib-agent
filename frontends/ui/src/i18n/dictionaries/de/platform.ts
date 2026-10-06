@@ -11,6 +11,27 @@ export const platform: typeof en.platform = {
   },
   loadErrorHint: 'Beim Laden der Daten ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
   retry: 'Erneut versuchen',
+  orgBudgets: {
+    column: 'Kontingent',
+    open: 'Kontingent für {name} ansehen',
+    title: 'Kontingent für {name}',
+    description: 'Festlegen, wie viel diese Organisation pro Monat nutzen kann. Dies ersetzt ihr Standardkontingent, nicht die Plattform-Preisliste.',
+    credits: 'Punkte',
+    tokens: 'Tokens',
+    daily: 'Tageslimit ({unit})',
+    monthly: 'Monatskontingent ({unit})',
+    usage: 'Heute verbraucht: {day} {unit}. Diesen Monat: {month} {unit}.',
+    default: 'Standardkontingent',
+    explicit: 'Individuelles Kontingent',
+    limitHint: 'Leer lassen für unbegrenzt; 0 blockiert neue Anfragen. Die Zeiträume beginnen um Mitternacht UTC und am Monatsersten neu. Beide Limits gelten; ein Limit unter dem aktuellen Verbrauch blockiert neue Anfragen.',
+    note: 'Änderungsnotiz (optional)',
+    invalid: 'Eine Zahl von 0 bis 99.999.999,9999 eingeben oder für unbegrenzt leer lassen.',
+    readOnly: 'Sie können dieses Kontingent ansehen, haben aber keine Berechtigung, es zu ändern.',
+    loadError: 'Das Organisationskontingent konnte nicht geladen werden.',
+    saveError: 'Das Organisationskontingent konnte nicht gespeichert werden.',
+    unitChanged: 'Die Budgeteinheit der Organisation wurde geändert. Schließen und öffnen Sie das Kontingent erneut, bevor Sie speichern.',
+    saved: 'Organisationskontingent gespeichert.',
+  },
   /**
    * Plattform → Basiswissen, neu aufgebaut auf den gemeinsamen Admin-Primitiven
    * (SectionCard + DataToolbar + Table + Sheet + Pagination). Hier steht nur die

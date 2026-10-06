@@ -28,7 +28,8 @@ import {
   QUARANTINE_LIST_LIMIT,
   type QuarantineCursor,
 } from '@/lib/documents/repository'
-import { dispatchDocument, resolveDocumentFolderPath } from '@/lib/documents/service'
+import { dispatchDocument } from '@/lib/documents/service'
+import { resolveDocumentFolderPath } from '@/lib/documents/folder-path'
 import { parseQuarantine, type QuarantineVerdict } from './quarantine'
 
 type ReviewedDocument = Pick<Document, 'scope' | 'projectId' | 'folderId'>

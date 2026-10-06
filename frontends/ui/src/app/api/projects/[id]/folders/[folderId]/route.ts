@@ -1,49 +1,24 @@
 /**
  * One project folder — rename, move, delete.
  *
- * Thin handlers; authz and logic live in `@/lib/projects/folder-service`. The
- * delete is the one worth reading before changing: `documents.folder_id` is
- * `ON DELETE CASCADE`, so the service re-files the folder's documents and its
- * child folders first, and then keeps the row as a tombstone (ADR-0079).
- * Deleting a label must not delete the work that was filed under it, nor the
- * access that decides who may read what was derived from it.
+ * Thin handlers; the request handling is shared with the Archiv's folders
+ * (`@/lib/documents/folder-route-handlers`, where the delete's re-filing is
+ * explained) and authz and logic live in `@/lib/projects/folder-service`. A
+ * project folder's delete keeps the row as a tombstone (ADR-0079): deleting a
+ * label must not delete the work filed under it, nor the access that decides
+ * who may read what was derived from it.
  */
 
-import { z } from 'zod'
-import { apiRoute, parseJsonBody } from '@/lib/api/handler'
-import { BadRequestError } from '@/lib/api/errors'
+import { apiRoute } from '@/lib/api/handler'
+import { deleteFolderHandler, updateFolderHandler } from '@/lib/documents/folder-route-handlers'
 import { deleteProjectFolder, updateProjectFolder } from '@/lib/projects/folder-service'
 
 type Params = { id: string; folderId: string }
 
-const updateFolderSchema = z
-  .object({
-    name: z.string().min(1).max(255).optional(),
-    // Explicit `null` moves the folder to the project root, which is why this
-    // is `.nullable().optional()` and not merely optional: absent and null mean
-    // different things here.
-    parentId: z.string().uuid().nullable().optional(),
-  })
-  .refine((body) => body.name !== undefined || body.parentId !== undefined, {
-    message: 'Nothing to update.',
-  })
-
 export const PATCH = apiRoute<Params>(
-  async ({ session, params, request }) => {
-    const body = await parseJsonBody(request, updateFolderSchema)
-    const result = await updateProjectFolder(
-      {
-        projectId: params.id,
-        folderId: params.folderId,
-        ...(body.name !== undefined ? { name: body.name } : {}),
-        ...(body.parentId !== undefined ? { parentId: body.parentId } : {}),
-      },
-      session,
-      request
-    )
-    if (!result.ok) throw new BadRequestError(result.error)
-    return { folder: result.folder }
-  },
+  updateFolderHandler<Params>((params, session, patch, request) =>
+    updateProjectFolder({ projectId: params.id, folderId: params.folderId, ...patch }, session, request)
+  ),
   {
     authz: {
       enforcedBy:
@@ -53,15 +28,9 @@ export const PATCH = apiRoute<Params>(
 )
 
 export const DELETE = apiRoute<Params>(
-  async ({ session, params, request }) => {
-    const result = await deleteProjectFolder(
-      { projectId: params.id, folderId: params.folderId },
-      session,
-      request
-    )
-    if (!result.ok) throw new BadRequestError(result.error)
-    return result.result
-  },
+  deleteFolderHandler<Params>((params, session, request) =>
+    deleteProjectFolder({ projectId: params.id, folderId: params.folderId }, session, request)
+  ),
   {
     authz: {
       enforcedBy:

@@ -235,17 +235,17 @@ export async function listProjectsWithRestrictedFolders(
 ): Promise<Array<{ organizationId: string; projectId: string }>> {
   const db = getDb()
   return db
-    .selectDistinct({ organizationId: projects.organizationId, projectId: projectFolders.projectId })
+    .selectDistinct({ organizationId: projects.organizationId, projectId: projects.id })
     .from(projectFolders)
     .innerJoin(projects, eq(projects.id, projectFolders.projectId))
     .where(
       and(
         eq(projectFolders.accessMode, 'custom'),
         isNull(projectFolders.deletedAt),
-        ...(page.after ? [gt(projectFolders.projectId, page.after)] : []),
-        ...(page.upTo ? [lte(projectFolders.projectId, page.upTo)] : [])
+        ...(page.after ? [gt(projects.id, page.after)] : []),
+        ...(page.upTo ? [lte(projects.id, page.upTo)] : [])
       )
     )
-    .orderBy(asc(projectFolders.projectId))
+    .orderBy(asc(projects.id))
     .limit(page.limit)
 }

@@ -138,27 +138,45 @@ export function buildStorageKey(
   filename: string,
   folderPath?: string | null,
 ): string {
-  // The folder path arrives already joined, and each name in it is as
-  // person-chosen as the filename — so it is sanitized per segment rather than
-  // as one string, which would flatten the separators the path needs.
-  const folder = folderPath
-    ? `${folderPath.split('/').filter(Boolean).map(storageKeySegment).join('/')}/`
-    : ''
-  return `org/${organizationId}/project/${projectId}/${folder}doc/${documentId}/${storageKeySegment(filename)}`
+  return shelfStorageKey(`org/${organizationId}/project/${projectId}`, documentId, filename, folderPath)
 }
 
 /**
  * Storage key for an org-wide Archiv document. Mirrors {@link buildStorageKey}
  * but scopes under the organization instead of a project (Archiv documents
  * belong to the org, not any single project) — so the same bucket layout
- * convention holds.
+ * convention holds, folder segments included (ADR-0078): the one thing that
+ * differs between the two is the owner prefix.
  */
 export function buildArchivStorageKey(
   organizationId: string,
   documentId: string,
   filename: string,
+  folderPath?: string | null,
 ): string {
-  return `org/${organizationId}/archiv/doc/${documentId}/${storageKeySegment(filename)}`
+  return shelfStorageKey(`org/${organizationId}/archiv`, documentId, filename, folderPath)
+}
+
+/**
+ * `<owner prefix>/<folder path>/doc/<document id>/<filename>`, the shape both
+ * shelves share.
+ *
+ * The folder path arrives already joined, and each name in it is as
+ * person-chosen as the filename — so it is sanitized per segment rather than as
+ * one string, which would flatten the separators the path needs. It is the path
+ * AT UPLOAD: a later rename or move never rewrites a stored key, which is read
+ * off the row.
+ */
+function shelfStorageKey(
+  ownerPrefix: string,
+  documentId: string,
+  filename: string,
+  folderPath?: string | null,
+): string {
+  const folder = folderPath
+    ? `${folderPath.split('/').filter(Boolean).map(storageKeySegment).join('/')}/`
+    : ''
+  return `${ownerPrefix}/${folder}doc/${documentId}/${storageKeySegment(filename)}`
 }
 
 /**
