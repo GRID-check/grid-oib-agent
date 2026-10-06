@@ -47,8 +47,8 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
       await inTenant(() =>
         db.execute<{ id: string }>(sql`
           WITH folder AS (
-            INSERT INTO project_folders (project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
-            VALUES (${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${roleSlugs ? 'custom' : 'inherit'},
+            INSERT INTO project_folders (organization_id, project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
+            VALUES (${ORG}, ${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${roleSlugs ? 'custom' : 'inherit'},
                     ${roleSlugs ? USER : null}, ${roleSlugs ? new Date().toISOString() : null}::timestamptz)
             RETURNING id, project_id
           ), listed AS (

@@ -159,15 +159,15 @@ describe.skipIf(!url)('the download log against Postgres', () => {
     folder.open = firstId(
       await inTenant(() =>
         db.execute<{ id: string }>(sql`
-          INSERT INTO project_folders (project_id, name, path) VALUES (${projectId}::uuid, 'Allgemein', 'Allgemein') RETURNING id`)
+          INSERT INTO project_folders (organization_id, project_id, name, path) VALUES (${ORG}, ${projectId}::uuid, 'Allgemein', 'Allgemein') RETURNING id`)
       )
     )
     folder.own = firstId(
       await inTenant(() =>
         db.execute<{ id: string }>(sql`
           WITH folder AS (
-            INSERT INTO project_folders (project_id, name, path, access_mode, access_changed_by, access_changed_at)
-            VALUES (${projectId}::uuid, 'Verträge', 'Verträge', 'custom', ${USER}, now())
+            INSERT INTO project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+            VALUES (${ORG}, ${projectId}::uuid, 'Verträge', 'Verträge', 'custom', ${USER}, now())
             RETURNING id, project_id
           ), listed AS (
             INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
@@ -180,8 +180,8 @@ describe.skipIf(!url)('the download log against Postgres', () => {
     folder.child = firstId(
       await inTenant(() =>
         db.execute<{ id: string }>(sql`
-          INSERT INTO project_folders (project_id, parent_id, name, path)
-          VALUES (${projectId}::uuid, ${folder.own}::uuid, 'Anhänge', 'Verträge/Anhänge') RETURNING id`)
+          INSERT INTO project_folders (organization_id, project_id, parent_id, name, path)
+          VALUES (${ORG}, ${projectId}::uuid, ${folder.own}::uuid, 'Anhänge', 'Verträge/Anhänge') RETURNING id`)
       )
     )
     doc.plain = randomUUID()

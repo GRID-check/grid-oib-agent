@@ -183,8 +183,8 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0108, 0109)',
       await inOrg(ORG, () =>
         db.execute<{ id: string }>(sql`
           with folder as (
-            insert into project_folders (project_id, name, path, access_mode, access_changed_by, access_changed_at)
-            values (${projectId}::uuid, 'Verträge', 'Verträge', 'custom', ${OWNER}, now())
+            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+            values (${ORG}, ${projectId}::uuid, 'Verträge', 'Verträge', 'custom', ${OWNER}, now())
             returning id, project_id
           ), grants as (
             insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
@@ -390,8 +390,8 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0108, 0109)',
         await inOrg(ORG, () =>
           db.execute<{ id: string }>(sql`
             with folder as (
-              insert into project_folders (project_id, name, path, access_mode, access_changed_by, access_changed_at)
-              values (${projectId}::uuid, 'Lesen', 'Lesen', 'custom', ${OWNER}, now())
+              insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+              values (${ORG}, ${projectId}::uuid, 'Lesen', 'Lesen', 'custom', ${OWNER}, now())
               returning id, project_id
             ), grants as (
               insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)

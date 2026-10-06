@@ -46,8 +46,8 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     const rows = await inTenant(() =>
       db.execute<{ id: string }>(sql`
         WITH folder AS (
-          INSERT INTO project_folders (project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
-          VALUES (${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${grants ? 'custom' : 'inherit'},
+          INSERT INTO project_folders (organization_id, project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
+          VALUES (${ORG}, ${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${grants ? 'custom' : 'inherit'},
                   ${grants ? USER : null}, ${grants ? new Date().toISOString() : null}::timestamptz)
           RETURNING id, project_id
         ), listed AS (
@@ -300,8 +300,8 @@ describe.skipIf(!url)('IFC models and restricted folders against Postgres', () =
     return firstId(
       await inTenant(() =>
         db.execute<{ id: string }>(sql`
-          INSERT INTO project_folders (project_id, parent_id, name, path)
-          VALUES (${projectId}::uuid, NULL, ${name}, ${name})
+          INSERT INTO project_folders (organization_id, project_id, parent_id, name, path)
+          VALUES (${IFC_ORG}, ${projectId}::uuid, NULL, ${name}, ${name})
           RETURNING id
         `)
       )

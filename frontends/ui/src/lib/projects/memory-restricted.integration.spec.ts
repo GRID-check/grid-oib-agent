@@ -90,8 +90,8 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
             // One statement: the 0109 trigger wants the list in the same commit.
             db.execute<{ id: string }>(sql`
               with folder as (
-                insert into project_folders (project_id, name, path, access_mode, access_changed_by, access_changed_at)
-                values (${projectId}::uuid, ${folder}, ${folder}, 'custom', ${USER}, now())
+                insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+                values (${ORG}, ${projectId}::uuid, ${folder}, ${folder}, 'custom', ${USER}, now())
                 returning id, project_id
               ), grants as (
                 insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)

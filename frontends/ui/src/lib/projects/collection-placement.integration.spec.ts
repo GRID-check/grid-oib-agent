@@ -123,7 +123,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
     folderId = firstId(
       await inTenant(() =>
         db.execute<{ id: string }>(sql`
-          INSERT INTO project_folders (project_id, name, path) VALUES (${projectId}::uuid, 'Honorare', 'Honorare')
+          INSERT INTO project_folders (organization_id, project_id, name, path) VALUES (${ORG}, ${projectId}::uuid, 'Honorare', 'Honorare')
           RETURNING id
         `)
       )
@@ -182,7 +182,9 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
 
     expect(await collectionOf(documentId)).toBe(target)
     expect(order).toEqual([`purge while row in ${COLLECTION}`, `dispatch into ${target}`])
-    expect(vi.mocked(purge).mock.calls[0]?.[1]).toMatchObject({ collectionName: COLLECTION, filename: 'Honorarnote.pdf' })
+    // The sweep is cross-tenant, so other suites' documents may be purged first.
+    const ours = vi.mocked(purge).mock.calls.find(([, ref]) => ref.filename === 'Honorarnote.pdf')
+    expect(ours?.[1]).toMatchObject({ collectionName: COLLECTION, filename: 'Honorarnote.pdf' })
   })
 
   it('moves nothing the second time', async () => {
@@ -244,8 +246,8 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
         await inTenant(() =>
           db.execute<{ id: string }>(sql`
             WITH folder AS (
-              INSERT INTO project_folders (project_id, name, path, access_mode, access_changed_by, access_changed_at)
-              VALUES (${bulkProjectId}::uuid, 'Angebote', 'Angebote', 'custom', ${USER}, now())
+              INSERT INTO project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+              VALUES (${ORG}, ${bulkProjectId}::uuid, 'Angebote', 'Angebote', 'custom', ${USER}, now())
               RETURNING id, project_id
             ), listed AS (
               INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
@@ -322,8 +324,8 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
       await inTenant(() =>
         db.execute(sql`
           WITH folders AS (
-            INSERT INTO project_folders (project_id, name, path, access_mode, access_changed_by, access_changed_at)
-            SELECT id, 'Verträge', 'Verträge', 'custom', ${USER}, now()
+            INSERT INTO project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+            SELECT organization_id, id, 'Verträge', 'Verträge', 'custom', ${USER}, now()
             FROM projects WHERE organization_id = ${ORG} AND name LIKE 'Sweep %'
             RETURNING id, project_id
           )
