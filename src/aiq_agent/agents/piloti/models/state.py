@@ -79,7 +79,7 @@ class ResearchAgentState(BaseModel):
     #: the tool payload — and the prompt-cache shard keyed on it — is identical
     #: for every tenant. What changes per org is one sentence of prose.
     tasks_allowed: bool = True
-    #: The turn's signed scope holds a restricted folder's collection (ADR-0078).
+    #: The turn's signed scope holds a restricted folder's collection (ADR-0080).
     #: Rendered as the block that keeps the run, task, profile and filing doors
     #: shut for this conversation, and picks the reason the reader is given.
     confined: bool = False

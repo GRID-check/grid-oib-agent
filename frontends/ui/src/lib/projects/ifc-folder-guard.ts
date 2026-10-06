@@ -1,5 +1,5 @@
 /**
- * Folders that restrict READING do not hold IFC models (ADR-0078, ADR-0079),
+ * Folders that restrict READING do not hold IFC models (ADR-0080, ADR-0081),
  * and this is the one place that refuses it. A folder whose own list only
  * narrows who may write (every member still reads, `*`) is no restriction
  * here: its documents stay in the project's collection.

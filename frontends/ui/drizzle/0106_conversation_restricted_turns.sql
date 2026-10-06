@@ -1,5 +1,5 @@
--- 0105: conversation_restricted_turns — a turn of this conversation ran with a
--- restricted folder's collection in its scope (ADR-0078).
+-- 0106: conversation_restricted_turns — a turn of this conversation ran with a
+-- restricted folder's collection in its scope (ADR-0080).
 --
 -- ## Why a row of its own, written at turn START
 --
@@ -44,6 +44,6 @@ CREATE TABLE IF NOT EXISTS "conversation_restricted_turns" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "conversation_restricted_turns" IS
-  'A turn of this conversation ran with a restricted folder''s collection in its signed scope (ADR-0078). Written at turn start by the confinement route; the sharing service refuses to widen a conversation that has a row here.';
+  'A turn of this conversation ran with a restricted folder''s collection in its signed scope (ADR-0080). Written at turn start by the confinement route; the sharing service refuses to widen a conversation that has a row here.';
 --> statement-breakpoint
 SELECT grid_secure_table('conversation_restricted_turns', 'organization_id = grid_current_org()');

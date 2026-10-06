@@ -1055,7 +1055,7 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         Counts and guesses come only from collections whose documents may be
         named to the model (:func:`may_name`): a restricted folder's file is
         neither suggested nor counted until this turn admitted its collection,
-        because listing is not use (ADR-0079).
+        because listing is not use (ADR-0081).
         """
         from aiq_agent.knowledge.restricted_use import may_name
 
@@ -1079,7 +1079,7 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
 
         A document only restricted folders hold, none of them admitted this
         turn, is answered as if it did not exist: "no such Punkt" or "registered
-        but empty" would tell the model it is there (ADR-0079).
+        but empty" would tell the model it is there (ADR-0081).
         """
         from aiq_agent.knowledge.restricted_use import may_name
 

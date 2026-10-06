@@ -69,7 +69,7 @@ export const files = {
     // the knowledge base. Neither a success ("Citable" would promise a citation
     // retrieval cannot make) nor a failure — nothing went wrong.
     stored: 'Filed',
-    // The content check (ADR-0077) matched: the file is in the project, no
+    // The content check (ADR-0079) matched: the file is in the project, no
     // model has seen it, and someone has to decide.
     quarantined: 'Quarantined',
     unknown: 'Unknown',
@@ -284,7 +284,7 @@ export const files = {
   },
   screening: {
     // Why a file was held back, by the content check (in the text) or the
-    // name check (in the file or folder name), ADR-0077.
+    // name check (in the file or folder name), ADR-0079.
     reasonTerm: '“{term}” in the text',
     reasonIban: 'IBAN {sample}',
     reasonSvnr: 'Social security number {sample}',
@@ -356,7 +356,7 @@ export const files = {
     breadcrumb: 'Folder path',
     movedFolder: '“{name}” moved to “{parent}”.',
     moveFolderError: 'The folder could not be moved. Please try again.',
-    /** Folder access (ADR-0078): restricting a folder to roles. */
+    /** Folder access (ADR-0080): restricting a folder to roles. */
     access: {
       menu: 'Access…',
       restrictedTo: 'Own access: {roles}',
@@ -388,7 +388,7 @@ export const files = {
         'If who may read changes, Piloti moves the folder’s documents and reads them again. For a large folder that takes a few minutes; meanwhile the documents show as “Reading”.',
       ifcNotice:
         'Folders not every project member may read cannot hold building models (IFC) yet. Keep IFC models in folders everyone may read.',
-      /** The 409 from the IFC guard (ADR-0078): restricting, uploading or moving into a restricted folder. */
+      /** The 409 from the IFC guard (ADR-0080): restricting, uploading or moving into a restricted folder. */
       ifcRefused:
         'Building models (IFC) cannot be filed in a folder not everyone may read yet: their building data is not protected by folder access. Keep IFC models in folders everyone may read.',
       readOnlyBadge: 'Read only',
@@ -553,7 +553,7 @@ export const files = {
     collisions: '{count} files share a name with another file in this upload',
     collisionsExplain:
       'A project holds one document per filename, so these are not uploaded. Rename them and drop them again.',
-    // Held back by the office's name screening (ADR-0077): the files do not
+    // Held back by the office's name screening (ADR-0079): the files do not
     // leave this computer unless someone releases one of them.
     excluded: '{count} file(s) stay on your computer',
     excludedExplain:
@@ -589,7 +589,7 @@ export const files = {
     uploadFiles: 'Choose files',
   },
   errors: {
-    // Held back by the office's name screening (ADR-0077) on a path with no
+    // Held back by the office's name screening (ADR-0079) on a path with no
     // upload dialog, such as a chat attachment.
     screenedOut: '{count} file(s) not uploaded because your office marks them as sensitive: {files}',
     screenedOutFile: '“{name}” ({reason})',

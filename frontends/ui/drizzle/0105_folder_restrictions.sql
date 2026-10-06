@@ -1,4 +1,4 @@
--- 0104: a project folder can be restricted to WorkOS roles (ADR-0078).
+-- 0105: a project folder can be restricted to WorkOS roles (ADR-0080).
 --
 -- `restricted_roles` names the organization roles (WorkOS slugs, e.g.
 -- `org-geschaeftsfuehrung`) whose holders may see the folder, everything in it,

@@ -13,7 +13,7 @@ export interface FolderItem {
   createdAt?: string
   updatedAt?: string
   /**
-   * The folder's own access list (ADR-0079): roles (and `*`, every project
+   * The folder's own access list (ADR-0081): roles (and `*`, every project
    * member), each with `read` or `write`. Null/absent when it inherits its
    * parent's. The listing only carries folders the reader may read. A
    * project's folders only: the Archiv's carry none.

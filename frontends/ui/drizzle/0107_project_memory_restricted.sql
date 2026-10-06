@@ -1,4 +1,4 @@
--- 0106: a project memory item can be restricted (ADR-0078, "Memory from a
+-- 0107: a project memory item can be restricted (ADR-0080, "Memory from a
 -- restricted turn is restricted memory").
 --
 -- `restricted_collections` names the restricted-folder collections
@@ -7,7 +7,7 @@
 -- and shown only to a session cleared for ALL of its collections; a collection
 -- that is no longer a current restricted collection of the project (the
 -- restriction was lifted, the folder deleted) clears nobody, so the item is
--- then shown to nobody: the safe direction, accepted in ADR-0078.
+-- then shown to nobody: the safe direction, accepted in ADR-0080.
 --
 -- The CHECK says what the service already does, so a second writer cannot
 -- forget it:

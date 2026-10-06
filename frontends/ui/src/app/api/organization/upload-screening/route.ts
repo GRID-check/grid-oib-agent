@@ -1,5 +1,5 @@
 /**
- * The organization's upload-screening policy (ADR-0077).
+ * The organization's upload-screening policy (ADR-0079).
  *
  * GET — any member: the upload dialog checks names against it before a byte is
  *       sent, so every uploader needs to read it. `suggested` is true while the

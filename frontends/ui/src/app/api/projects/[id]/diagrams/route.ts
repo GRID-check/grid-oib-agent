@@ -85,7 +85,7 @@ const fileDiagramSchema = z.object({
   /**
    * The conversation the diagram was drawn in. A thread that drew on a
    * restricted folder files only into a folder restricted at least as narrowly
-   * (ADR-0078). Authorized as a read of that thread before it is used.
+   * (ADR-0080). Authorized as a read of that thread before it is used.
    */
   conversationId: z.string().min(1).max(128).optional(),
 })

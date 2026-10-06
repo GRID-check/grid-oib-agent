@@ -1,10 +1,10 @@
--- 0107: conversation_restricted_folders — the folders not every project member
+-- 0108: conversation_restricted_folders — the folders not every project member
 -- can read whose content a conversation actually drew on, one row per folder
--- (ADR-0078, ADR-0079).
+-- (ADR-0080, ADR-0081).
 --
--- ## Why it replaces 0105
+-- ## Why it replaces 0106
 --
--- 0105 marked a conversation at the start of every turn whose signed scope
+-- 0106 marked a conversation at the start of every turn whose signed scope
 -- held a restricted folder's collection. A cleared member's socket is signed
 -- every restricted collection they are cleared for, so every chat of an
 -- organization admin in a project with one restricted folder was marked from
@@ -31,14 +31,14 @@
 --
 -- ## No foreign keys
 --
--- Not to `conversations`, as in 0105: the first turn of a new chat runs before
+-- Not to `conversations`, as in 0106: the first turn of a new chat runs before
 -- its row exists; `deleteConversationInOrg` deletes the rows with it. Not to
 -- `project_folders`: deleting a folder must not quietly open what was drawn
 -- from it.
 --
 -- ## Backfill, in the safe direction
 --
--- A 0105 mark recorded that a restricted turn ran, not which folders it could
+-- A 0106 mark recorded that a restricted turn ran, not which folders it could
 -- see, so it becomes a row for every restricted folder of the conversation's
 -- project. A stored answer that cited or read a restricted collection adds that
 -- collection's folder. A mark for a conversation that never got a row recorded
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS "conversation_restricted_folders" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "conversation_restricted_folders" IS
-  'A folder not every project member can read whose content this conversation drew on (ADR-0079). Written when the BFF admits that use; who may read the conversation is decided at read time from the folder''s current access.';
+  'A folder not every project member can read whose content this conversation drew on (ADR-0081). Written when the BFF admits that use; who may read the conversation is decided at read time from the folder''s current access.';
 --> statement-breakpoint
 SELECT grid_secure_table('conversation_restricted_folders', 'organization_id = grid_current_org()');
 --> statement-breakpoint

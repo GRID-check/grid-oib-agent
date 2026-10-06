@@ -2,8 +2,8 @@
 
 What an office can keep out of Piloti, what it can keep from some of its own
 people, and how an uploader learns what became of an upload. The decisions
-behind this are ADR-0077 (screening and quarantine), ADR-0078 (folder
-access follows WorkOS roles) and ADR-0079 (read and write per role).
+behind this are ADR-0079 (screening and quarantine), ADR-0080 (folder
+access follows WorkOS roles) and ADR-0081 (read and write per role).
 
 ## The sensitive-data list
 

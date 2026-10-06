@@ -18,7 +18,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 
-// An open project: no folder of it is restricted (ADR-0078).
+// An open project: no folder of it is restricted (ADR-0080).
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('server-only', () => ({}))
 
@@ -65,7 +65,7 @@ vi.mock('@/lib/projects/folder-service', () => ({
   findRootProjectFolderByName: vi.fn(async () => null),
 }))
 
-// The conversation's record of restricted source folders (ADR-0078, ADR-0079).
+// The conversation's record of restricted source folders (ADR-0080, ADR-0081).
 const recordedRestrictedFolders = vi.fn(async (): Promise<string[]> => [])
 vi.mock('@/lib/conversations/restricted-use', () => ({
   recordedRestrictedFolders: (...args: unknown[]) => recordedRestrictedFolders(...(args as [])),
@@ -450,7 +450,7 @@ describe('a partial filing is recoverable rather than rolled back', () => {
   })
 })
 
-describe('a diagram drawn in a conversation that drew on a restricted folder (ADR-0078, ADR-0079)', () => {
+describe('a diagram drawn in a conversation that drew on a restricted folder (ADR-0080, ADR-0081)', () => {
   it('files neither half into an open folder', async () => {
     const { ConversationConfinedError } = await import('@/lib/api/errors')
     recordedRestrictedFolders.mockResolvedValue(['folder-vertraege'])

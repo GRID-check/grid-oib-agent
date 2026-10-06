@@ -1,4 +1,4 @@
--- 0110: the download log (ADR-0079, plan 2026-10-06-folder-access-lifecycle,
+-- 0111: the download log (ADR-0081, plan 2026-10-06-folder-access-lifecycle,
 -- decision 4): who took a document's bytes out, and who opened one in a folder
 -- with its own access list.
 --
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS "document_access_log" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "document_access_log" IS
-  'The download log (0110): one row per hand-over of a document''s bytes, written in the request that hands them over. Downloads everywhere, opens only under a folder with its own access list. Personal data about staff: security and accountability only, 12 months at most. No foreign keys: the row outlives what it names. Immutable; only the platform role deletes (the retention sweep).';
+  'The download log (0111): one row per hand-over of a document''s bytes, written in the request that hands them over. Downloads everywhere, opens only under a folder with its own access list. Personal data about staff: security and accountability only, 12 months at most. No foreign keys: the row outlives what it names. Immutable; only the platform role deletes (the retention sweep).';
 --> statement-breakpoint
 COMMENT ON COLUMN "document_access_log"."user_id" IS
   'The WorkOS user id of the person the bytes went to. Names and emails are resolved from WorkOS when the admin page is read, never copied here.';

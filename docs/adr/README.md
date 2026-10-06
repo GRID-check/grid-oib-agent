@@ -137,6 +137,9 @@ Consequences, where a reader looks for them.
 | [0076](0076-ingestion-is-claimed-fairly-from-a-durable-queue.md) | Ingestion is claimed fairly from a durable queue, by a tier that scales on its depth | Proposed |
 | [0077](0077-prompt-context-is-loaded-over-http-not-websocket-headers.md) | Prompt context is loaded over HTTP, not carried in WebSocket headers | Accepted |
 | [0078](0078-folders-are-a-property-of-a-shelf-not-of-a-project.md) | Folders are a property of a shelf, not of a project: the Archiv gains folders through the one folder implementation | Accepted |
+| [0079](0079-uploads-are-screened-locally-and-matches-wait-in-quarantine.md) | Uploads are screened locally before any model sees them, and matches wait in quarantine | Accepted |
+| [0080](0080-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md) | Folder access follows WorkOS roles, and a restricted folder is its own retrieval collection (partly superseded by 0081) | Accepted |
+| [0081](0081-folder-access-is-read-write-per-role.md) | Folder access is read/write per role | Accepted |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

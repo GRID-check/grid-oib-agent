@@ -94,7 +94,7 @@ export interface FileConversationDraftInput {
   path: string
   title?: string
   force?: boolean
-  /** The language of a refusal (a thread that drew on a restricted folder, ADR-0078). */
+  /** The language of a refusal (a thread that drew on a restricted folder, ADR-0080). */
   locale?: Locale
 }
 

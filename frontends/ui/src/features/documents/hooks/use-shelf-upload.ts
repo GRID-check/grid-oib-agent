@@ -36,7 +36,7 @@ export interface ShelfUploadOptions {
  * von „X“ hochladen?" — decided by asking the server by name (`probeNames`),
  * never from what this browser happens to have loaded.
  *
- * Every path is screened against the office's sensitive-data list (ADR-0077),
+ * Every path is screened against the office's sensitive-data list (ADR-0079),
  * on both shelves: the plan shows what the screening holds back and takes the
  * reader's releases, and each upload names the folder it lands in so the
  * browser and the server screen the same path.
@@ -59,7 +59,7 @@ export function useShelfUpload({
 
   /**
    * The path of the folder the reader stands in, from the shelf root, or null
-   * at the root. The upload screening reads it (ADR-0077): a scan dropped into
+   * at the root. The upload screening reads it (ADR-0079): a scan dropped into
    * „Honorare" is screened as a fee document whatever its own name.
    */
   const currentFolderPath = useMemo(
@@ -164,7 +164,7 @@ export function useShelfUpload({
           )
         }
         // What the server screens each file against: the folder it lands in
-        // (ADR-0077), and whether the reader released it in the dialog.
+        // (ADR-0079), and whether the reader released it in the dialog.
         const plannedByFile = new Map(selected.map((planned) => [planned.file, planned]))
         setOpen(false)
         if (moves.length > 0) await applyMoves(moves, byPath)

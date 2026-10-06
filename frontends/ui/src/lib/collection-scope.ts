@@ -64,7 +64,7 @@ export interface ScopeContext {
   archivCollectionName?: string
   /**
    * The project's restricted-folder collections this turn may search
-   * (ADR-0078), placed right after the project collection. The caller decides
+   * (ADR-0080), placed right after the project collection. The caller decides
    * who gets them — a cleared session, in an interactive chat turn — so a
    * caller that does not pass them (deep research, scheduled runs, every
    * session-less path) cannot include one by accident.

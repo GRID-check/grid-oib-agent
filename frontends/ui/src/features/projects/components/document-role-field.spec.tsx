@@ -1,7 +1,7 @@
 /**
  * The wizard's role field uploads straight to `/api/documents/upload`, so it
  * owes the same name screen the Files page applies before a byte leaves the
- * browser (ADR-0077): a file the office's policy holds back is not sent, and
+ * browser (ADR-0079): a file the office's policy holds back is not sent, and
  * the reader is told which and why.
  */
 import { fireEvent, render, waitFor } from '@/test-utils'

@@ -1,6 +1,6 @@
 /**
  * The organization's upload-screening policy, as the browser reads it before
- * sending a file (ADR-0077).
+ * sending a file (ADR-0079).
  *
  * The name gate runs here first because it is the only place that keeps an
  * excluded file on the office's own machine: the server repeats it, but by the

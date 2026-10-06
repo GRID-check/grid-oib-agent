@@ -155,7 +155,7 @@ export async function listBimModels(
     includeArchiv?: boolean
     limit?: number
     /**
-     * Folders whose models this reader may not see (ADR-0078), from the
+     * Folders whose models this reader may not see (ADR-0080), from the
      * folder-access decision point. Their models are left out as if they did
      * not exist.
      */

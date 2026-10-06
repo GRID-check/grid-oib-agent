@@ -246,7 +246,7 @@ async function markConversationTracesErased(sql, queueId) {
 }
 
 /**
- * The download log's retention (migration 0110, `lib/download-log/kinds.ts`):
+ * The download log's retention (migration 0111, `lib/download-log/kinds.ts`):
  * twelve months at most, whatever anyone stored, and an organization may choose
  * a shorter time between 30 and 364 days (`organizations.settings
  * .downloadLogRetentionDays`; 365 is the default and needs no row). A stored

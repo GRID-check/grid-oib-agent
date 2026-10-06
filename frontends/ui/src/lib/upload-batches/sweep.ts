@@ -1,5 +1,5 @@
 /**
- * The sweep that finishes what no reader is left to finish (ADR-0077).
+ * The sweep that finishes what no reader is left to finish (ADR-0079).
  *
  * Reconciliation settles a batch whenever somebody reads its documents, and the
  * browser that uploaded them polls while its tab is open. Close the tab and

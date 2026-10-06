@@ -142,7 +142,7 @@ describe('ProjectProfilePatchCard', () => {
     expect(await screen.findByText('Project brief updated.')).toBeInTheDocument()
   })
 
-  it('names the conversation its message belongs to, so the server can refuse a confined one (ADR-0078)', async () => {
+  it('names the conversation its message belongs to, so the server can refuse a confined one (ADR-0080)', async () => {
     const { posts } = stubFetch()
     const user = userEvent.setup()
     render(<ProjectProfilePatchCard {...ownedProps} />)

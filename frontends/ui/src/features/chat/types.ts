@@ -428,7 +428,7 @@ export interface Conversation {
   createdAt: Date
   updatedAt: Date
   /**
-   * The person may no longer read what this chat drew on (ADR-0079). The server
+   * The person may no longer read what this chat drew on (ADR-0081). The server
    * sent no title and the store holds no messages for it; the UI shows a neutral
    * title and "you no longer have the rights". Set by the list and by a 403
    * `RESOURCE_RIGHTS_LOST`, cleared by the next list that says otherwise.

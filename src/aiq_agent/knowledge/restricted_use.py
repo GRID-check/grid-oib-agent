@@ -1,4 +1,4 @@
-"""A chat turn's use of restricted folders (ADR-0078, ADR-0079).
+"""A chat turn's use of restricted folders (ADR-0080, ADR-0081).
 
 A conversation is restricted by what it actually USED, per person: content
 from a folder not every project member may read enters the model's context

@@ -1351,7 +1351,7 @@ def test_the_answer_id_is_stable_per_turn():
 
 
 # ---------------------------------------------------------------------------
-# A restricted scope does not hold the socket hostage (ADR-0078, ADR-0079)
+# A restricted scope does not hold the socket hostage (ADR-0080, ADR-0081)
 # ---------------------------------------------------------------------------
 
 _RESTRICTED = "proj_8f2c3b1e_r22222222aaaa"
@@ -1382,7 +1382,7 @@ async def test_a_restricted_scope_runs_the_turn_on_the_same_socket(harness):
 
 
 # ---------------------------------------------------------------------------
-# What may reach the model: the office's chat screening (ADR-0077)
+# What may reach the model: the office's chat screening (ADR-0079)
 # ---------------------------------------------------------------------------
 
 _IBAN = "AT61 1904 3002 3457 3201"

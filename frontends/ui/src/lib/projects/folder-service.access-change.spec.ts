@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Renaming, moving and deleting folders under read/write access (ADR-0079).
+ * Renaming, moving and deleting folders under read/write access (ADR-0081).
  *
  * Each is a write: on the folder, on a move's new parent, on a deleted
  * folder's child folders. A folder the session may only read refuses with a
@@ -331,7 +331,7 @@ describe('a delete keeps a tombstone', () => {
   })
 })
 
-describe('a folder the session may only read (ADR-0079)', () => {
+describe('a folder the session may only read (ADR-0081)', () => {
   it('refuses a new folder inside it with a typed 403, and one inside a folder it may not read as missing', async () => {
     state.granted = new Set(MANAGER)
     await expect(

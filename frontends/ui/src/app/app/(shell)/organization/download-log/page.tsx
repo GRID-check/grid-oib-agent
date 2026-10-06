@@ -1,5 +1,5 @@
 /**
- * Organization → download log (ADR-0079): who took which document out, and who
+ * Organization → download log (ADR-0081): who took which document out, and who
  * opened one in a folder with its own access list.
  *
  * The chrome, the back link and the section nav live in the shared `layout.tsx`;

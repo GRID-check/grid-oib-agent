@@ -29,7 +29,7 @@ vi.mock('@/lib/projects/repository', () => ({
 }))
 
 // A card's patch names its conversation; the restricted-folder refusal reads
-// what the conversation recorded it drew on (ADR-0078). The access check is the
+// what the conversation recorded it drew on (ADR-0080). The access check is the
 // sharing layer's.
 vi.mock('@/lib/sharing/access', () => ({ requireResourceAccess: vi.fn() }))
 vi.mock('@/lib/conversations/restricted-use', () => ({
@@ -149,7 +149,7 @@ describe('POST /api/projects/[id]/profile/patches', () => {
   })
 })
 
-describe('a patch proposed in a conversation that drew on a restricted folder (ADR-0078)', () => {
+describe('a patch proposed in a conversation that drew on a restricted folder (ADR-0080)', () => {
   const GK4 = [{ op: 'add', path: '/facts/gebaeudeklasse', value: 'GK4' }]
 
   it('is refused with a typed 403 and writes nothing: the profile is read by the whole project', async () => {

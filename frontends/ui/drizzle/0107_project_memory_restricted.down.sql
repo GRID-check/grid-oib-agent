@@ -1,4 +1,4 @@
--- Reverse 0106. ORDER: roll the frontend back first; the newer build writes and
+-- Reverse 0107. ORDER: roll the frontend back first; the newer build writes and
 -- filters the column.
 --
 -- Lossy, on purpose, and in the safe direction: restricted memory is DELETED,

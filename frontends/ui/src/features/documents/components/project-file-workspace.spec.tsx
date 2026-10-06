@@ -179,7 +179,7 @@ describe('ProjectFileWorkspace', () => {
     expect(screen.queryByRole('heading', { name: 'Test' })).toBeNull()
   })
 
-  it('offers no upload where the reader may only read (ADR-0079), and takes no dropped file there', () => {
+  it('offers no upload where the reader may only read (ADR-0081), and takes no dropped file there', () => {
     renderWorkspace(
       <ProjectFileWorkspace
         projectId="proj-1"
@@ -890,7 +890,7 @@ describe('ProjectFileWorkspace — dragging a file into a folder', () => {
     expect(patched[0]).toMatchObject({ url: 'doc-1', body: { folderId: 'folder-1' } })
   })
 
-  it('says why when the server refuses an IFC model into a restricted folder (ADR-0078)', async () => {
+  it('says why when the server refuses an IFC model into a restricted folder (ADR-0080)', async () => {
     server.use(
       http.patch('/api/documents/:id/folder', () =>
         HttpResponse.json({ error: 'IFC models cannot be filed in a restricted folder yet', code: 'CONFLICT' }, { status: 409 })
@@ -1005,7 +1005,7 @@ describe('ProjectFileWorkspace — dragging a folder into a folder', () => {
     expect(patched[0]).toMatchObject({ url: 'f-a', body: { parentId: 'f-b' } })
   })
 
-  it('says why when the server refuses moving IFC models under a restriction (ADR-0078)', async () => {
+  it('says why when the server refuses moving IFC models under a restriction (ADR-0080)', async () => {
     server.use(
       http.patch('/api/projects/:projectId/folders/:folderId', () =>
         HttpResponse.json({ error: 'IFC models cannot be filed in a restricted folder yet', code: 'CONFLICT' }, { status: 409 })

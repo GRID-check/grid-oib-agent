@@ -90,7 +90,7 @@ export interface FolderUploadDialogProps {
   kind?: UploadDecisionKind
   /**
    * The reader's answer for one file the upload screening held back
-   * (ADR-0077). Absent: the exclusions are listed without a way to release.
+   * (ADR-0079). Absent: the exclusions are listed without a way to release.
    */
   onReleaseChange?: (file: File, released: boolean) => void
 }
@@ -438,7 +438,7 @@ function PlanCount({
 
 
 /**
- * What the office's upload screening held back, and why (ADR-0077).
+ * What the office's upload screening held back, and why (ADR-0079).
  *
  * A statement and a question at once: these files stay on this computer, and
  * each one can be released by the person who knows what it is — the Bauvertrag

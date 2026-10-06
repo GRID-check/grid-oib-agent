@@ -56,7 +56,7 @@ const querySchema = z.object({
   /**
    * The turn's asker, as the BFF signed it. A subject in a restricted folder
    * is read only when the conversation may draw on that folder, which is
-   * checked against its audience with the asker (ADR-0078); without it such a
+   * checked against its audience with the asker (ADR-0080); without it such a
    * subject is not found.
    */
   userId: z.string().min(1).max(128).optional(),

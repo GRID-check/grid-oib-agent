@@ -91,24 +91,24 @@ const BOUNDARY_MIGRATIONS = [
   // `messages` re-securing in 0032 has.
   '0102_archiv_folders.sql',
   // Adds upload_batches — one upload gesture and when it was all read
-  // (ADR-0077). Keyed directly by its organization.
-  '0103_upload_batches.sql',
+  // (ADR-0079). Keyed directly by its organization.
+  '0104_upload_batches.sql',
   // Adds conversation_restricted_turns — a turn of this conversation ran with
-  // a restricted folder in its scope (ADR-0078). Keyed directly by its
+  // a restricted folder in its scope (ADR-0080). Keyed directly by its
   // organization: the conversation row may not exist yet.
-  '0105_conversation_restricted_turns.sql',
+  '0106_conversation_restricted_turns.sql',
   // Replaces it with conversation_restricted_folders — the restricted source
   // folders a conversation actually drew on, one row per folder id, judged
-  // against the current grants when read (ADR-0078, ADR-0079) — and drops the
-  // 0105 table.
-  '0107_conversation_restricted_folders.sql',
+  // against the current grants when read (ADR-0080, ADR-0081) — and drops the
+  // 0106 table.
+  '0108_conversation_restricted_folders.sql',
   // Adds project_folder_grants — a folder's own access list, one row per role
-  // and level (ADR-0079). Keyed directly by its organization.
-  '0108_project_folder_grants.sql',
+  // and level (ADR-0081). Keyed directly by its organization.
+  '0109_project_folder_grants.sql',
   // Adds document_access_log — the download log: who took a document's bytes,
   // and who opened one under a folder with its own list. Keyed directly by its
   // organization; no foreign keys, so the row outlives what it names.
-  '0110_document_access_log.sql',
+  '0111_document_access_log.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

@@ -1,7 +1,7 @@
 """The content screen: an office's terms and number detectors, found and masked in text. Pure.
 
 One matcher for every place Piloti checks text against the office's „Sensible
-Daten" policy (ADR-0077):
+Daten" policy (ADR-0079):
 
 * the ingest job's content gate (``knowledge_layer.llamaindex.screening``) turns
   the spans into a quarantine verdict before the first model call;

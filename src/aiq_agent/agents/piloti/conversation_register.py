@@ -330,7 +330,7 @@ async def _load_setup(
                 request, conversation_id=thread_id, query_text=inputs.query_text, resolve_stages=resolve_stages
             ),
         ),
-        # Listing is not use (ADR-0079): a restricted folder's file names and
+        # Listing is not use (ADR-0081): a restricted folder's file names and
         # summaries stay out of the inventory block and `list_files`, so they
         # never reach the prompt without an admission. Searching them is
         # admitted per tool round (`admit_tool_results`).
@@ -348,7 +348,7 @@ async def _load_setup(
                 user_id=request.user_id,
             ),
         ),
-        # The restricted memory earlier turns were shown (ADR-0078): evidence
+        # The restricted memory earlier turns were shown (ADR-0080): evidence
         # for the memory restriction decision, kept beside the citation registry.
         spanned("setup.shown_restricted_notes", load_turn_shown_notes(thread_id)),
     )
@@ -377,7 +377,7 @@ class _Turn:
     inputs: TurnInputs
     request: GridRequestContext
     runtime: _TurnRuntime
-    #: The restricted memory earlier turns were shown (ADR-0078).
+    #: The restricted memory earlier turns were shown (ADR-0080).
     shown_notes: ShownNotes = ShownNotes()
 
 
@@ -485,7 +485,7 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
         inputs = extract_turn_inputs(query)
         logger.info("ChatDeepResearcherAgent: %s (data sources: %s)", inputs.query_text, inputs.data_sources)
         # Which restricted folders this turn may draw on, asked of the BFF
-        # before anything reads the scope (ADR-0078, ADR-0079). Bound on every
+        # before anything reads the scope (ADR-0080, ADR-0081). Bound on every
         # turn, None included, so one turn never runs on the last one's answer;
         # the scope read below and every read path after it keep only these.
         bind_restricted_use(await begin_restricted_use(request, conversation_id))

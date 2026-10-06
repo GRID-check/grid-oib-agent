@@ -1,5 +1,5 @@
 /**
- * Download log client (ADR-0079): the admin read and the retention write,
+ * Download log client (ADR-0081): the admin read and the retention write,
  * through their first-party BFF routes.
  *
  *   - read      → `GET /api/organization/download-log`

@@ -1,5 +1,5 @@
 /**
- * The organization's roles, and the office's own custom roles (ADR-0078).
+ * The organization's roles, and the office's own custom roles (ADR-0080).
  *
  * GET  — any member: a project admin restricting a folder picks roles by name,
  *        and a lock on a folder names the roles it is restricted to, so every

@@ -1,6 +1,6 @@
 /**
  * INTERNAL sweep — move the documents a backend outage left in the wrong
- * retrieval collection (ADR-0078, `lib/projects/placement-sweep.ts`). Called by
+ * retrieval collection (ADR-0080, `lib/projects/placement-sweep.ts`). Called by
  * the job scheduler on its tick, like the upload sweep.
  */
 

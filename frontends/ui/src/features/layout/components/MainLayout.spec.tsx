@@ -129,7 +129,7 @@ describe('MainLayout', () => {
     expect(screen.getByTestId('input-area')).toBeInTheDocument()
   })
 
-  test('a chat the reader may no longer read shows the state instead of the transcript and the composer (ADR-0079)', () => {
+  test('a chat the reader may no longer read shows the state instead of the transcript and the composer (ADR-0081)', () => {
     chatStoreOverrides = {
       currentConversation: { id: 'session-1', title: '', messages: [], contentLocked: true },
     }

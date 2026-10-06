@@ -60,7 +60,7 @@ describe('GET /api/projects/[id]/folders', () => {
     expect(body).toHaveProperty('folders')
     expect(body.folders).toHaveLength(1)
     expect(body.folders[0].name).toBe('Plans')
-    // What the reader may do at the project root rides along, for the UI's affordances (ADR-0079).
+    // What the reader may do at the project root rides along, for the UI's affordances (ADR-0081).
     expect(body.rootAccess).toBe('read')
   })
 })

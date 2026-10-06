@@ -72,7 +72,7 @@ repos:
         # a baseline entry would pin a hash to a line number that does not
         # survive the next recording; JSONL cannot carry the inline pragma.
         #
-        # content_screen_cases.json is the Python/TS screening fixture (ADR-0077):
+        # content_screen_cases.json is the Python/TS screening fixture (ADR-0079):
         # sha256 digests of Unicode tables both matchers must reproduce, and
         # check-digit-valid but invented IBANs and card numbers. Regenerated when
         # the Unicode version moves, so a baseline line number would not survive;

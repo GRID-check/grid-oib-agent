@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * ADR-0078, ADR-0079 — a restricted folder's collection enters the signed scope
+ * ADR-0080, ADR-0081 — a restricted folder's collection enters the signed scope
  * only for a session that may READ it (a read-only member as much as a writer),
  * only in an interactive chat turn, and only as far as everyone the
  * conversation is shared with may read it too.
@@ -105,7 +105,7 @@ beforeEach(() => {
   )
 })
 
-describe('interactive chat scope (ADR-0078)', () => {
+describe('interactive chat scope (ADR-0080)', () => {
   it("carries a cleared member's restricted collection, on the project shelf, after the project collection", async () => {
     const { scope, scopedCollections } = await buildCollectionScopeFromRequest(director, chatTurn)
 
@@ -194,7 +194,7 @@ describe('interactive chat scope (ADR-0078)', () => {
   })
 })
 
-describe('every other scope carries no restricted collection, whoever asks (ADR-0078)', () => {
+describe('every other scope carries no restricted collection, whoever asks (ADR-0080)', () => {
   it('deep research: the submit body cannot ask for an interactive scope', async () => {
     // Exactly what `POST /api/jobs/async/submit` hands the builder. A smuggled
     // flag is not one of the fields the body parser reads.

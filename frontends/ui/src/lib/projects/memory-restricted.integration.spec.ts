@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Restricted project memory (ADR-0078, ADR-0079, migrations 0106 and 0109) against a REAL Postgres
+ * Restricted project memory (ADR-0080, ADR-0081, migrations 0107 and 0110) against a REAL Postgres
  * with the full migration chain applied, through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -11,7 +11,7 @@
  *   - the column's CHECK refuses an empty, oversized, NULL-holding or
  *     organization-scoped restriction;
  *   - an open and a restricted note saying the same thing can both be live
- *     (the 0106 index), and consolidation never merges, supersedes or retires
+ *     (the 0107 index), and consolidation never merges, supersedes or retires
  *     across a restriction;
  *   - every read path serves a restricted note only to a reader who may read
  *     all of its source folders NOW: loosening a folder opens its notes,
@@ -66,7 +66,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
   interface Seeded {
     projectId: string
     collection: string
-    /** The restricted folders' ids, in folder order: what a note is restricted to (ADR-0079). */
+    /** The restricted folders' ids, in folder order: what a note is restricted to (ADR-0081). */
     restricted: [string, string]
     /** Their retrieval collections, as the agent names them. */
     collections: [string, string]
@@ -87,7 +87,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       folderIds.push(
         firstId(
           await inTenant(() =>
-            // One statement: the 0108 trigger wants the list in the same commit.
+            // One statement: the 0109 trigger wants the list in the same commit.
             db.execute<{ id: string }>(sql`
               with folder as (
                 insert into project_folders (project_id, name, path, access_mode, access_changed_by, access_changed_at)
@@ -300,7 +300,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       expect(rows.get(secret.id)?.confidence).toBe('low')
     })
 
-    it("stores a note masked against the office's policy (ADR-0077)", async () => {
+    it("stores a note masked against the office's policy (ADR-0079)", async () => {
       const { projectId } = await seedProject('masked')
       const note = await write(projectId, 'Lohnzettel an AT61 1904 3002 3457 3201 überweisen')
       expect(note.content).toBe('[Begriff entfernt] an [IBAN entfernt] überweisen')
@@ -418,7 +418,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
           restrictedCollections: [collections[0]],
         })
       )
-      // Stored as the folder, not the collection (ADR-0079).
+      // Stored as the folder, not the collection (ADR-0081).
       expect(stored?.restrictedFolderIds).toEqual([restricted[0]])
 
       await expect(

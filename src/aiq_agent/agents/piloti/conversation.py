@@ -114,7 +114,7 @@ CONFINED_DEEP_RESEARCH_NOTE = (
     "so weit die vorliegenden Quellen tragen."
 )
 """The same line for a turn whose scope holds a restricted folder's collection
-(ADR-0078): the capability is there, this conversation may not use it, and the
+(ADR-0080): the capability is there, this conversation may not use it, and the
 reader is told why rather than that the workspace lacks it."""
 
 #: State fields that survive the turn boundary. Everything else is reset on
@@ -561,7 +561,7 @@ class ConversationGraph:
                     "retry_after_seconds": refusal.retry_after_seconds,
                 }
             if refusal.reason == "confined":
-                # The thread drew on a restricted folder (ADR-0078): a run would
+                # The thread drew on a restricted folder (ADR-0080): a run would
                 # be listed to the whole project. Never run it in process either.
                 logger.info("Research run refused: the conversation drew on a restricted folder")
                 return _answer_only(CONFINED_DEEP_RESEARCH_NOTE)

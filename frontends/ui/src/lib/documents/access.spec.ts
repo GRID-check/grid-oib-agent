@@ -21,7 +21,7 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('getAccessibleDocument and restricted folders (ADR-0078)', () => {
+describe('getAccessibleDocument and restricted folders (ADR-0080)', () => {
   it('does not find a project document filed under a folder the session is not cleared for', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(
       makeDocument({ id: 'd', scope: 'project', projectId: 'p', folderId: 'f-hidden' })
@@ -41,7 +41,7 @@ describe('getAccessibleDocument and restricted folders (ADR-0078)', () => {
   })
 })
 
-describe('getAccessibleDocument and read-only folders (ADR-0079)', () => {
+describe('getAccessibleDocument and read-only folders (ADR-0081)', () => {
   const doc = makeDocument({ id: 'd', scope: 'project', projectId: 'p', folderId: 'f-vertraege' })
 
   beforeEach(() => {

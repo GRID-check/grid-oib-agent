@@ -43,7 +43,7 @@ async function resolveOrganizationMembershipId(
 }
 
 /**
- * Every role the membership holds (ADR-0078): the token's `roles` claim when
+ * Every role the membership holds (ADR-0080): the token's `roles` claim when
  * WorkOS's "multiple roles" setting puts one there, else the single `role`.
  * Strings only; anything else in the claim is dropped rather than trusted.
  */
@@ -99,7 +99,7 @@ export async function getGridSession(): Promise<GridSession | null> {
     organizationId,
     organizationMembershipId,
     role: tokenRole,
-    // The roles folder access is decided on (ADR-0079): WorkOS's membership,
+    // The roles folder access is decided on (ADR-0081): WorkOS's membership,
     // at most a minute old, so a revoked role stops opening folders within a
     // minute; the token's claim only when WorkOS could not be asked.
     roles: memberRoles ?? sessionRoles(auth.roles, claims.roles, tokenRole),

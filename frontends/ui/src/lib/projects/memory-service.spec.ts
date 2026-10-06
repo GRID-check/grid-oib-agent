@@ -45,7 +45,7 @@ vi.mock('@/lib/db/schema', () => ({
   },
 }))
 
-// ADR-0078: the one decision about which restricted collections are current.
+// ADR-0080: the one decision about which restricted collections are current.
 vi.mock('@/lib/authz/folder-access', () => ({
   sourceFoldersOfCollections: vi.fn(async () => new Map<string, string>()),
 }))
@@ -58,7 +58,7 @@ vi.mock('@/lib/knowledge/embeddings', async (importOriginal) => {
   return { ...actual, embedNote: vi.fn(async () => null), embedNotes: vi.fn(async () => null) }
 })
 
-// The office's chat screening (ADR-0077): the REAL matcher over Piloti's
+// The office's chat screening (ADR-0079): the REAL matcher over Piloti's
 // suggested list, so a note is masked here exactly as the policy would, with no
 // database. What the matcher does has its own spec (`content-screen.spec.ts`).
 vi.mock('@/lib/upload-screening/service', async () => {
@@ -154,7 +154,7 @@ describe('updateProjectMemoryItem tenancy guard', () => {
     )
   })
 
-  it('reaches a restricted item only for an owner cleared for it (ADR-0078)', async () => {
+  it('reaches a restricted item only for an owner cleared for it (ADR-0080)', async () => {
     const { where } = mockUpdateChain([{ id: 'item-1' }])
 
     await updateProjectMemoryItem(
@@ -172,7 +172,7 @@ describe('updateProjectMemoryItem tenancy guard', () => {
   })
 })
 
-describe('a note is stored masked (ADR-0077)', () => {
+describe('a note is stored masked (ADR-0079)', () => {
   const IBAN = 'AT61 1904 3002 3457 3201'
 
   it('masks an edited note against the office policy before it is written', async () => {
@@ -286,7 +286,7 @@ describe('listProjectMemory', () => {
     )
   })
 
-  it('lists a restricted item only for a reader cleared for all of it (ADR-0078)', async () => {
+  it('lists a restricted item only for a reader cleared for all of it (ADR-0080)', async () => {
     const { where } = mockSelectChain([])
 
     await listProjectMemory('proj-1', { readableFolderIds: ['proj_x_raaaaaaaaaaaa'] })
@@ -344,7 +344,7 @@ describe('buildProjectMemoryDigest', () => {
     )
   })
 
-  it('serves restricted memory only over the folders the asker may read, once its use is admitted (ADR-0079)', async () => {
+  it('serves restricted memory only over the folders the asker may read, once its use is admitted (ADR-0081)', async () => {
     const FOLDER = 'aaaaaaaa-0000-4000-8000-000000000001'
     const { where } = mockSelectChain([digestItem({ content: 'Honorar pauschal', restrictedFolderIds: [FOLDER] })])
     const admitRestricted = vi.fn(async (ids: string[]) => new Set(ids))
@@ -466,7 +466,7 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     return { set, values, insert, update }
   }
 
-  it('stores, embeds and de-duplicates a new note by its masked text (ADR-0077)', async () => {
+  it('stores, embeds and de-duplicates a new note by its masked text (ADR-0079)', async () => {
     const { values } = mockCreateChain(null)
     vi.mocked(embedNote).mockClear()
 
@@ -1004,7 +1004,7 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
     })
 
     // Second select = the near-dup scan; kind is filtered in SQL, not in JS.
-    // Open memory consolidates with open memory only (ADR-0078).
+    // Open memory consolidates with open memory only (ADR-0080).
     expect(selectWhere).toHaveBeenNthCalledWith(
       2,
       and(
@@ -1016,8 +1016,8 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
   })
 })
 
-describe('restricted memory (ADR-0078)', () => {
-  /** Source folder ids (ADR-0079). */
+describe('restricted memory (ADR-0080)', () => {
+  /** Source folder ids (ADR-0081). */
   const RESTRICTED = 'aaaaaaaa-0000-4000-8000-000000000001'
   const OTHER = 'bbbbbbbb-0000-4000-8000-000000000002'
 
@@ -1154,7 +1154,7 @@ describe('restricted memory (ADR-0078)', () => {
         restrictedCollections: ['proj_x_raaaaaaaaaaaa'],
       })
 
-      // Stored as its source folder (ADR-0079), never as the collection name.
+      // Stored as its source folder (ADR-0081), never as the collection name.
       expect(values).toHaveBeenCalledWith(expect.objectContaining({ restrictedFolderIds: [RESTRICTED] }))
     })
 
@@ -1216,7 +1216,7 @@ describe('implicateMemoryFromFeedback', () => {
     expect(flat).toContain('org-1')
   })
 
-  it("implicates only notes the voter may see: open ones, and restricted ones they are cleared for (ADR-0078)", async () => {
+  it("implicates only notes the voter may see: open ones, and restricted ones they are cleared for (ADR-0080)", async () => {
     vi.mocked(embedNote).mockResolvedValue({ vector: [0.1, 0.2], fingerprint: 'model-a' })
     const execute = vi.fn(async () => [])
     vi.mocked(getDb).mockReturnValue(asDb({ execute }))

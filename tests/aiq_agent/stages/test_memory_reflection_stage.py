@@ -201,7 +201,7 @@ class TestMatchesEscalationKeywords:
 
 
 class TestRestrictedContent:
-    """ADR-0078: a turn that could read a restricted folder still reflects; what
+    """ADR-0080: a turn that could read a restricted folder still reflects; what
     it writes is restricted memory (``memory/restriction.py``)."""
 
     _EVIDENCE = RestrictionEvidence(scope=("proj_1_r0123456789ab",), read=("proj_1_r0123456789ab",))

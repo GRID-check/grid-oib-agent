@@ -1,4 +1,4 @@
-"""The restricted memory a conversation's turns were shown (ADR-0078).
+"""The restricted memory a conversation's turns were shown (ADR-0080).
 
 Each turn's prompt carries a project-memory digest, re-ranked per turn against
 the question and capped (1,800 characters on the BFF). A note tagged

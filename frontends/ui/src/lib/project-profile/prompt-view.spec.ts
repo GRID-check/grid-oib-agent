@@ -45,7 +45,7 @@ const rowsByOrg = new Map<string, { profile: unknown; profilePromptView: string 
  * `lib/document-roles/prompt-section.spec.ts`.
  */
 let rolesSection = ''
-/** The reader each block was built for (ADR-0078): absent means nobody's clearance. */
+/** The reader each block was built for (ADR-0080): absent means nobody's clearance. */
 const rolesReaders: unknown[] = []
 vi.mock('@/lib/document-roles/prompt-loader', () => ({
   loadDocumentRolesPromptSection: async (...args: unknown[]) => {
@@ -286,7 +286,7 @@ describe('project profile cache is partitioned by tenant', () => {
   })
 })
 
-describe('restricted folders and the shared prompt view (ADR-0078)', () => {
+describe('restricted folders and the shared prompt view (ADR-0080)', () => {
   let store: TestStore
 
   beforeEach(() => {

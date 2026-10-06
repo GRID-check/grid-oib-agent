@@ -1,5 +1,5 @@
 /**
- * INTERNAL sweep — settle the uploads nobody is reading any more (ADR-0077,
+ * INTERNAL sweep — settle the uploads nobody is reading any more (ADR-0079,
  * `lib/upload-batches/sweep.ts`). Called by the job scheduler on its tick, the
  * same shape as the run reconciler. Replica-safe: completion is a guarded
  * UPDATE, so a batch is announced to its uploader once.

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Dev preview for restricted project memory (ADR-0078, "Memory from a
+ * Dev preview for restricted project memory (ADR-0080, "Memory from a
  * restricted turn is restricted memory"). Renders the REAL `ProjectMemoryPanel`
  * twice, with fixtures and no backend:
  *
@@ -22,7 +22,7 @@ import { ProjectMemoryPanel } from '@/features/projects/components/project-memor
 
 const CLEARED = 'dev-memory-cleared'
 const UNCLEARED = 'dev-memory-uncleared'
-/** The source folder of the restricted note (ADR-0079). */
+/** The source folder of the restricted note (ADR-0081). */
 const RESTRICTED_FOLDER = '01234567-89ab-4cde-8f01-23456789abcd'
 
 function item(id: string, kind: string, content: string, overrides: Record<string, unknown> = {}) {

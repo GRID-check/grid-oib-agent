@@ -62,7 +62,7 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       conversationId,
       // The upgrade opens an interactive chat socket: the one scope that may
       // carry the restricted-folder collections this session, and everyone the
-      // conversation is shared with, is cleared for (ADR-0078). Fixed for the
+      // conversation is shared with, is cleared for (ADR-0080). Fixed for the
       // socket's life; a turn draws on one only through an admission that
       // checks the conversation's audience again.
       interactiveChat: true,
@@ -158,7 +158,7 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
         effectiveProjectId
           ? loadProjectPromptView(effectiveProjectId, organizationId)
           : Promise.resolve(null),
-        // Open memory only (ADR-0078): a restricted note in the prompt is use of
+        // Open memory only (ADR-0080): a restricted note in the prompt is use of
         // its folders, and only the live per-turn digest admits that use, against
         // the conversation's audience at that moment. This copy is the fallback
         // for a turn whose live fetch failed.

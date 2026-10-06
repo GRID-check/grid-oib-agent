@@ -225,7 +225,7 @@ def test_check_internal_api_never_raises_on_oserror(monkeypatch):
 
 
 def test_insert_sends_a_restriction_sorted_and_unique(monkeypatch):
-    """ADR-0078: restricted memory names the restricted collections it depends on."""
+    """ADR-0080: restricted memory names the restricted collections it depends on."""
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
     with _patched_opener(monkeypatch, body={"item": {"id": "item-r"}}) as captured:
         pm.insert_memory_item(

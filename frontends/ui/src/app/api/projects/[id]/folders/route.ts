@@ -14,7 +14,7 @@ type Params = { id: string }
 export const GET = apiRoute<Params>(
   async ({ session, params }) => {
     const folders = await listProjectFolders(params.id, session)
-    // What the reader may do at the project root (ADR-0079): the project's
+    // What the reader may do at the project root (ADR-0081): the project's
     // document-write permission alone. Each folder carries its own `access`.
     return { folders, rootAccess: await projectRootAccess(session, params.id) }
   },

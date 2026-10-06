@@ -66,8 +66,8 @@ project_memory
   source_message_id       uuid  null
   source_document_id      uuid  null              -- when grounded in an uploaded doc
   supersedes_id     uuid  null  fk → project_memory(id)   -- updates, not appends
-  restricted_folder_ids uuid[] null               -- ADR-0079: the source folders it depends on;
-                                                  -- NULL = open (§3.6, migrations 0106, 0109)
+  restricted_folder_ids uuid[] null               -- ADR-0081: the source folders it depends on;
+                                                  -- NULL = open (§3.6, migrations 0107, 0110)
   salience          real  default 0.5             -- retrieval/budget ranking
   pinned            bool  default false           -- always-inject core memory
   embedding_synced  bool  default false           -- has it been pushed to the vector store
@@ -139,7 +139,7 @@ de-duplicated, so equal restrictions are equal arrays). An open note never
 merges into, supersedes or is retired by a restricted one, and neither do two
 restricted notes with different collections: either would make a fact appear
 for, or vanish from, people the other row is not shown to. The 0010 dedup index
-carries the restriction since 0106, so an open and a restricted note with the
+carries the restriction since 0107, so an open and a restricted note with the
 same text can both be live.
 
 ### 3.3 Serve — how it reaches the agent (two channels)
@@ -233,7 +233,7 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
   requires a `project_id`; an org-only conversation is skipped.
 - **Substantive answers only** — meta/error/insufficiency and deep-research
   job-stub turns are skipped (nothing durable to record).
-- **Restricted memory from a restricted turn** (ADR-0078, §3.6) — a turn whose
+- **Restricted memory from a restricted turn** (ADR-0080, §3.6) — a turn whose
   signed scope holds a restricted folder's collection (`<project collection>_r<12 hex>`)
   still reflects; each finding is written as restricted memory when it depends
   on restricted content, through the same decision the `remember` tool uses.
@@ -289,12 +289,12 @@ backed by two partial UNIQUE indexes on normalized content (migration
 pragmatic slice of the §3.2 gate; embed-based consolidation remains a follow-up.
 See [memory-reflection-audit.md](./memory-reflection-audit.md).
 
-### 3.6 Restricted memory (ADR-0078, ADR-0079)
+### 3.6 Restricted memory (ADR-0080, ADR-0081)
 "Restricted shouldn't feel like amnesia, it should feel like a first thought"
 (product owner, 2026-10-02). A turn whose scope holds restricted-folder
 collections `R` it may draw on remembers as any other turn does; what it writes
 carries the source FOLDERS it depends on (`restricted_folder_ids`, migration
-0109; the agent decides in collections and the BFF maps each to its folder),
+0110; the agent decides in collections and the BFF maps each to its folder),
 and only a session that may read **all** of them now is served it or shown it.
 
 **Deciding the restriction** — one function, `aiq_agent/memory/restriction.py`
@@ -348,7 +348,7 @@ then rests on this turn's digest and the citation registry, as before.
 
 Organization scope that depends on restricted content is filed as restricted
 memory of the turn's project (org memory reaches every project); the BFF
-refuses a restricted organization write, and the 0106 CHECK backs it. A
+refuses a restricted organization write, and the 0107 CHECK backs it. A
 restricted finding never becomes a `memory_proposal` card: accepting a card is
 an open write by the user's own session.
 
@@ -382,7 +382,7 @@ nobody could be served.
 
 A folder later opened to every member opens its notes; a folder narrowed shows
 them to fewer people; a deleted folder's tombstone keeps answering with the
-access it had (ADR-0079). Nothing is rewritten when access changes. The per-query `mem_<project>` namespace of §3.3 is not built;
+access it had (ADR-0081). Nothing is rewritten when access changes. The per-query `mem_<project>` namespace of §3.3 is not built;
 recall runs inside the digest query over the row's own vector, under the same
 filter. Whoever builds that namespace must keep restricted notes out of it or
 filter them the same way.

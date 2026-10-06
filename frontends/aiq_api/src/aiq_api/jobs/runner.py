@@ -2297,7 +2297,7 @@ async def _run_deep_research_reflection(
     """
     if not reflection_enabled or not reflection_llm_ref or not report:
         return
-    # ADR-0078: no restricted-folder check here, on purpose. A check on this
+    # ADR-0080: no restricted-folder check here, on purpose. A check on this
     # job's scope could never fire: the BFF signs a restricted collection only
     # into an interactive chat scope (`collection-scope-request.ts`, pinned by
     # `collection-scope-request.restricted.spec.ts`), so a run's scope is always

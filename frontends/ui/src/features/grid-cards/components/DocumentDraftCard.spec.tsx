@@ -247,7 +247,7 @@ describe('DocumentDraftCard — the draft, before it is filed', () => {
     expect(setCardDecision).not.toHaveBeenCalled()
   })
 
-  it('says why a thread that drew on a restricted folder cannot file here (ADR-0078)', async () => {
+  it('says why a thread that drew on a restricted folder cannot file here (ADR-0080)', async () => {
     const refusal =
       'This conversation draws on a folder with restricted access, so nothing from it can be filed there.'
     vi.stubGlobal(

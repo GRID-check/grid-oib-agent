@@ -295,7 +295,7 @@ describe('FolderUploadDialog — loose files', () => {
 })
 
 /**
- * ADR-0077: before anything is sent, the reader sees what the office's upload
+ * ADR-0079: before anything is sent, the reader sees what the office's upload
  * screening holds back and why, and can release a single file.
  */
 describe('FolderUploadDialog — upload screening', () => {

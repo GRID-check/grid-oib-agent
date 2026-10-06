@@ -9,7 +9,7 @@
  * "Billing Admin" and "what is a Billing Admin", and would imply three
  * permissions where there is one.
  *
- * A fourth tab, Eigene Rollen (ADR-0078), is the one that writes: the office's
+ * A fourth tab, Eigene Rollen (ADR-0080), is the one that writes: the office's
  * own roles in WorkOS. It loads them itself, client-side, so a WorkOS hiccup
  * there leaves the other three views as they were.
  *
@@ -101,7 +101,7 @@ export default async function OrganizationAccessPage(): Promise<JSX.Element> {
           <TabsContent value="roles" className="mt-4">
             <RoleCatalog />
           </TabsContent>
-          {/* The office's own roles (ADR-0078): built here in WorkOS, assigned
+          {/* The office's own roles (ADR-0080): built here in WorkOS, assigned
               on the People tab, named by restricted folders. */}
           <TabsContent value="custom-roles" className="mt-4">
             <CustomRolesSection />

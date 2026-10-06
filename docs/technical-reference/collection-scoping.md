@@ -12,7 +12,7 @@ When a user asks a question, the AI needs to know which knowledge sources to sea
 - The org-wide Archiv collection (`archiv_{orgId}`, when the Archiv feature is enabled for the org — ADR-0024)
 - The active project collection (`proj_{projectId}`, if working in a project)
 - The restricted-folder collections the session is cleared for
-  (`<project collection>_r<12 hex>`, interactive chat turns only — ADR-0078, see
+  (`<project collection>_r<12 hex>`, interactive chat turns only — ADR-0080, see
   [Restricted folders](#restricted-folders-adr-0078-adr-0079))
 - The session collection (`s_{conversationId}`, if in a conversation)
 
@@ -121,10 +121,10 @@ async function buildCollectionScopeFromRequest(
 
 ---
 
-## Restricted folders (ADR-0078, ADR-0079)
+## Restricted folders (ADR-0080, ADR-0081)
 
 A folder whose own access list does not include every project member
-(`project_folder_grants` without `*`, migration 0108) restricts READING. A
+(`project_folder_grants` without `*`, migration 0109) restricts READING. A
 document under it lives in the collection of its nearest such folder,
 `<project collection>_r<12 hex of the folder id>` (`restrictedCollectionName`
 in `lib/authz/folder-access-rule.ts`). Who may WRITE never moves anything:
@@ -152,7 +152,7 @@ the session may read the folder (`lib/proxy/collection-authz.ts`).
 ### Per person, by what the conversation used
 
 A conversation is restricted by what it USED, recorded per source folder in
-`conversation_restricted_folders` (migration 0107): content from a folder not
+`conversation_restricted_folders` (migration 0108): content from a folder not
 every member may read entered the model's context. Being able to search a
 folder is not use. Each use is ADMITTED by the BFF
 (`POST /api/internal/conversations/[id]/restricted-use`) before the content
@@ -179,7 +179,7 @@ share and an admission cannot both go through:
 
 Sharing (`assertMayWidenConversation`, `widenConversationAudience`) allows a
 new reader exactly when they may read every recorded folder NOW; a folder
-opened to every member drops out, and a deleted folder's tombstone (0108) keeps
+opened to every member drops out, and a deleted folder's tombstone (0109) keeps
 answering with the access it had. The doors that write something the whole
 project reads refuse a conversation with a record
 (`lib/conversations/restricted-egress.ts`); deep research and tasks stay

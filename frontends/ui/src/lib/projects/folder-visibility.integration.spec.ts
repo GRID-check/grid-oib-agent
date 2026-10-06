@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * The project overview and the document-role bindings against a REAL Postgres
- * (ADR-0078), through the restricted runtime role:
+ * (ADR-0080), through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/projects/folder-visibility.integration.spec.ts
@@ -39,7 +39,7 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
   const firstId = (rows: Iterable<{ id: string }>): string => String(Array.from(rows)[0]?.id)
 
   /**
-   * A folder whose own list grants each of `roleSlugs` write, or one that inherits (null); one statement for the 0108 trigger.
+   * A folder whose own list grants each of `roleSlugs` write, or one that inherits (null); one statement for the 0109 trigger.
    * The slugs travel as one array literal: drizzle spreads a JS array into a parameter list, and an empty one into `()`.
    */
   async function insertFolder(name: string, parentId: string | null, path: string, roleSlugs: string[] | null) {

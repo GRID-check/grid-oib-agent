@@ -21,7 +21,7 @@ export interface ConversationTitleResult {
   error?: string
 }
 
-/** A conversation as the list sends it: the row, and whether its content is withheld from this reader (ADR-0079). */
+/** A conversation as the list sends it: the row, and whether its content is withheld from this reader (ADR-0081). */
 export type ListedConversation = Conversation & { contentLocked?: boolean }
 
 /**

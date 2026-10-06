@@ -166,7 +166,7 @@ function isAlreadySubmitted(error: unknown): boolean {
 
 /**
  * The server's own sentence when the thread drew on a restricted folder and the
- * destination is open to people not cleared for it (ADR-0078). It already says
+ * destination is open to people not cleared for it (ADR-0080). It already says
  * why, in the reader's language; a generic „could not file" would read as a
  * fault worth retrying.
  */

@@ -382,7 +382,7 @@ describe('tick', () => {
   })
 })
 
-describe('sweepDownloadLogRetention (the download log is purged daily, migration 0110)', () => {
+describe('sweepDownloadLogRetention (the download log is purged daily, migration 0111)', () => {
   const NOW = new Date('2026-10-06T12:00:00.000Z')
   const DAY = 24 * 60 * 60 * 1000
   const streak = () => ({ failed: vi.fn(), succeeded: vi.fn() })
@@ -456,7 +456,7 @@ describe('sweepDownloadLogRetention (the download log is purged daily, migration
   })
 })
 
-describe('sweepUploads (the upload sweep’s clock, ADR-0077)', () => {
+describe('sweepUploads (the upload sweep’s clock, ADR-0079)', () => {
   const config = { frontendUrl: 'http://frontend:3000', internalToken: 'tok', pollMs: 30000 }
   const streak = () => ({ failed: vi.fn(), succeeded: vi.fn() })
 
@@ -481,7 +481,7 @@ describe('sweepUploads (the upload sweep’s clock, ADR-0077)', () => {
   })
 })
 
-describe('sweepPlacement (retries a restriction an outage interrupted, ADR-0078)', () => {
+describe('sweepPlacement (retries a restriction an outage interrupted, ADR-0080)', () => {
   const config = { frontendUrl: 'http://frontend:3000', internalToken: 'tok', pollMs: 30000 }
   const streak = () => ({ failed: vi.fn(), succeeded: vi.fn() })
 

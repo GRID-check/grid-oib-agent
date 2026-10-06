@@ -1,4 +1,4 @@
-"""A turn whose scope holds a restricted folder offers nothing the whole project reads (ADR-0078).
+"""A turn whose scope holds a restricted folder offers nothing the whole project reads (ADR-0080).
 
 The BFF refuses a deep-research run, a task, a profile patch and a filing into
 an open folder from such a conversation. These pin the agent's half: the model
@@ -81,7 +81,7 @@ class TestAProfilePatchCardIsRefusedInAConfinedTurn:
         assert card is not None and card["type"] == "project_profile_patch"
 
     def test_refused_when_the_conversation_already_drew_on_a_restricted_folder(self, monkeypatch):
-        """Nothing restricted is drawable this turn, but the conversation's record stands (ADR-0079)."""
+        """Nothing restricted is drawable this turn, but the conversation's record stands (ADR-0081)."""
         monkeypatch.setattr(scoping, "get_collection_scope_from_context", lambda: ["proj_p1"])
         use = RestrictedUse(organization_id="org", user_id="u1", conversation_id="c1", project_id="p1", confined=True)
         token = bind_restricted_use(use)

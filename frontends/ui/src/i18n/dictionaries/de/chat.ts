@@ -1211,7 +1211,7 @@ export const chat: typeof en.chat = {
     failed: 'Nachricht konnte nicht kopiert werden',
   },
   /**
-   * Sensible Daten im Chat (ADR-0077): was der Composer vor dem Senden meldet.
+   * Sensible Daten im Chat (ADR-0079): was der Composer vor dem Senden meldet.
    * Die Platzhalter selbst sind Fachdaten und kommen aus `content-screen.ts`.
    */
   screening: {

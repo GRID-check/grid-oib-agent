@@ -304,7 +304,7 @@ class TestToolVocabulary:
                 info.input_schema(kind="decision", content="x", scope="global")
 
 
-# ADR-0078: a turn whose scope holds a restricted folder's collection still
+# ADR-0080: a turn whose scope holds a restricted folder's collection still
 # remembers; what it writes is restricted memory, never organization memory, and
 # never a confirmation card (an accepted card is an open write by another door).
 _RESTRICTED = "proj_abc_r0123456789ab"
@@ -442,7 +442,7 @@ async def test_an_open_scope_still_records(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_restricted_note_an_earlier_turn_was_shown_still_restricts(monkeypatch):
-    """ADR-0078: the note is gone from this turn's digest and no restricted row is
+    """ADR-0080: the note is gone from this turn's digest and no restricted row is
     listable; what earlier turns were shown (bound by `turn_registries`) is still
     evidence, and a copy of it is restricted to the note's own collection."""
     from aiq_agent.memory.restriction import RestrictedNote

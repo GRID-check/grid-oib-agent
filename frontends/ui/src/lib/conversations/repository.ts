@@ -562,7 +562,7 @@ export async function listRecentMessagesWithCardDecisions(
         eq(conversations.organizationId, organizationId),
         isNull(conversations.deletedAt),
         sql`${messages.metadata} ? 'cardInteractions'`,
-        // A conversation that drew on a restricted folder (ADR-0078) keeps its
+        // A conversation that drew on a restricted folder (ADR-0080) keeps its
         // proposals to itself: the block is read into every member's digest,
         // and a card's words can carry what a restricted folder said.
         sql`not exists (select 1 from ${conversationRestrictedFolders} r where r.organization_id = ${conversations.organizationId} and r.conversation_id = ${conversations.id})`,

@@ -82,7 +82,7 @@ const SELECTION = {
 } as const
 
 /**
- * Who the list is for (ADR-0078). A binding names its document's filename, so a
+ * Who the list is for (ADR-0080). A binding names its document's filename, so a
  * binding to a document in a folder the reader may not see is left out as if
  * it did not exist. Required: there is no reader for whom "every folder" is the
  * safe default.
@@ -263,7 +263,7 @@ export async function deleteBindingsOutsideBauwerke(
 
 /**
  * Does this document belong to this project, in a folder the reader may see?
- * The FK enforces the first; the second is ADR-0078, so a document in a hidden
+ * The FK enforces the first; the second is ADR-0080, so a document in a hidden
  * folder answers like one that is not there.
  */
 export async function documentBelongsToProject(

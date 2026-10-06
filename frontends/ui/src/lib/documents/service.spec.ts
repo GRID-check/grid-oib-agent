@@ -78,7 +78,7 @@ vi.mock('@/lib/audit/service', () => ({
   recordAuditEvent: vi.fn().mockResolvedValue(undefined),
 }))
 
-// The upload-screening policy (ADR-0077) is read off the organization's
+// The upload-screening policy (ADR-0079) is read off the organization's
 // settings; an office that never saved one is on Piloti's suggestion.
 vi.mock('@/lib/organizations/service', () => ({
   getOrgSettings: vi.fn().mockResolvedValue({ displayName: null, defaultLocale: 'de', settings: {} }),
@@ -257,7 +257,7 @@ beforeEach(() => {
   // and would have made the guard look breakable when it is not.
   vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument())
   // The real `requireFolderWrite` checks the project's document-write
-  // permission first (the ceiling, ADR-0079); the open mock keeps that step so
+  // permission first (the ceiling, ADR-0081); the open mock keeps that step so
   // the 403/404 cases below still reach `requireProjectAccess`.
   vi.mocked(requireFolderWrite).mockImplementation(async (s, projectId) => {
     await requireProjectAccess(s, projectId, DOCUMENT_WRITE_PERMISSIONS)
@@ -371,7 +371,7 @@ describe('uploadDocument server-side type gate', () => {
 })
 
 /**
- * The name gate's server-side repeat (ADR-0077). The browser checks first and
+ * The name gate's server-side repeat (ADR-0079). The browser checks first and
  * never sends an excluded file; this is what makes a client that skipped the
  * check harmless. It runs before a byte is written, and an explicit release by
  * the uploader is honoured and audited rather than refused.
@@ -425,7 +425,7 @@ describe('uploadDocument server-side name screening', () => {
 })
 
 /**
- * Restricted folders do not hold IFC models (ADR-0078): the model's building
+ * Restricted folders do not hold IFC models (ADR-0080): the model's building
  * data is keyed by project, so a restriction would hide the file and leave the
  * building open. The upload is refused before anything is stored.
  */
@@ -1564,7 +1564,7 @@ describe('deleteDocument', () => {
     expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 
-  it('refuses a delete in a folder the session may only read (ADR-0079), before any side effects', async () => {
+  it('refuses a delete in a folder the session may only read (ADR-0081), before any side effects', async () => {
     const { folderReadOnlyError } = await import('@/lib/authz/folder-access-rule')
     vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, folderId: 'folder-read-only' })
     vi.mocked(requireFolderWrite).mockRejectedValueOnce(folderReadOnlyError())
@@ -2913,7 +2913,7 @@ describe('an office document is viewed through its PDF rendition', () => {
   })
 })
 
-describe('restricted folders (ADR-0078)', () => {
+describe('restricted folders (ADR-0080)', () => {
   const HIDDEN = 'folder-hidden'
   const RESTRICTED_COLLECTION = 'proj_abc_r1111aaaa2222'
   const restricted: ProjectFolderAccess = {
@@ -2987,7 +2987,7 @@ describe('restricted folders (ADR-0078)', () => {
 })
 
 /**
- * The download log's seam (ADR-0079). Every function that hands a document's
+ * The download log's seam (ADR-0081). Every function that hands a document's
  * bytes to a person asks `recordDocumentAccess` once, with the document row the
  * access check returned and the kind that names the route; `coverage.spec.ts`
  * holds the list of functions, this holds that the calls are really made, and

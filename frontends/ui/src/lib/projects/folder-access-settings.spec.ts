@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Setting a folder's own read/write list (ADR-0079): validated against the
+ * Setting a folder's own read/write list (ADR-0081): validated against the
  * organization's roles, stored as grants with the folder made `custom` in one
  * transaction, audited with the levels, and refused before anything is written
  * when it would put an IFC model in a folder not every member may read.
@@ -335,7 +335,7 @@ describe('setFolderAccess', () => {
   })
 })
 
-describe('listFoldersWithoutValidRole (ADR-0079)', () => {
+describe('listFoldersWithoutValidRole (ADR-0081)', () => {
   beforeEach(() => {
     orphans.tree = [
       { id: 'honorare', parentId: null, accessMode: 'custom', grants: [{ role: 'org-gone', level: 'write' }] },

@@ -53,7 +53,7 @@ export interface ShelfEndpoints {
   searchBody?: Record<string, unknown>
 }
 
-/** A project shelf's per-role folder access (ADR-0079). */
+/** A project shelf's per-role folder access (ADR-0081). */
 export interface ShelfFolderAccess {
   /** The project the access dialog writes to. */
   projectId: string
@@ -89,7 +89,7 @@ export interface FileShelf {
    */
   canManage: boolean
   /**
-   * Who may read and write each folder, per WorkOS role (ADR-0079). A project's
+   * Who may read and write each folder, per WorkOS role (ADR-0081). A project's
    * shelf only: the Archiv's folders are governed by `canManage` alone, so it
    * leaves this out and shows no lock, no „Nur lesen" and no „Zugriff…".
    */

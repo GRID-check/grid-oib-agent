@@ -1,5 +1,5 @@
 /**
- * The folders that name one custom role (ADR-0079): what the deletion
+ * The folders that name one custom role (ADR-0081): what the deletion
  * confirmation shows before a role is removed.
  *
  * GET — `org:members:manage`. `total` is the number of living folders of

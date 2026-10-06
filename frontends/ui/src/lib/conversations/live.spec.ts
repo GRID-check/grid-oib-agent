@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * Watching a turn is reading the conversation (ADR-0079): the frames carry the
+ * Watching a turn is reading the conversation (ADR-0081): the frames carry the
  * answer as it is written, so a person who may no longer read a folder the
  * conversation drew on may neither open the stream nor keep one open.
  *
@@ -63,7 +63,7 @@ beforeEach(() => {
   readers(session.userId)
 })
 
-describe('the live stream of a turn (ADR-0079)', () => {
+describe('the live stream of a turn (ADR-0081)', () => {
   it('opens for a grantee who may read every folder the conversation recorded', async () => {
     await expect(requireConversationSpectator(session, 'conv_1')).resolves.toBeUndefined()
     await expect(stillMayWatchConversation(session, 'conv_1')).resolves.toBe(true)

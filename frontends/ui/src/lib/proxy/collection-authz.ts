@@ -9,7 +9,7 @@
  * - `proj_*` collections must belong to a project in the caller's org AND the
  *   caller needs `project:edit` on that project;
  * - a restricted folder's collection (`<project collection>_r<12 hex>`,
- *   ADR-0078) is authorized as its project's, AND the session must be cleared
+ *   ADR-0080) is authorized as its project's, AND the session must be cleared
  *   for it (`folder-access.ts`); otherwise it is absent (404), as the folder is;
  * - `s_*` (session) collections may be READ when they match the active
  *   conversation id, and are never written: a chat's attachments are uploaded
@@ -114,7 +114,7 @@ export interface CollectionAuthzDeps {
     projectId: string,
     permission: readonly ProjectPermission[]
   ): Promise<unknown>
-  /** The restricted collections of the project this session is cleared for (ADR-0078). */
+  /** The restricted collections of the project this session is cleared for (ADR-0080). */
   clearedRestrictedCollections(
     session: AuthorizedSession,
     projectId: string,

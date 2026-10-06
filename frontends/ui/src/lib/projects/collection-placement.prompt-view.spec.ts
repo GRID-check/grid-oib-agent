@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Placement and the cached prompt view (ADR-0079).
+ * Placement and the cached prompt view (ADR-0081).
  *
  * The prompt view's document-roles block names no document in a folder not
  * every member may read, and it is cached for five minutes per project. Every

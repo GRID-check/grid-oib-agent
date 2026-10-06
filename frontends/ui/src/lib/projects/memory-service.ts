@@ -48,7 +48,7 @@ export { PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS }
 
 
 /**
- * A restriction in its stored form (ADR-0079, migration 0109): the source
+ * A restriction in its stored form (ADR-0081, migration 0110): the source
  * folder ids, trimmed, lower-cased, de-duplicated, sorted, and null when nothing
  * is left. Two items carry the same restriction exactly when these arrays are
  * equal, which is what consolidation and the unique index key on.
@@ -275,7 +275,7 @@ async function findSemanticNearMatch(
     values.scope === 'organization'
       ? sql`m.scope = 'organization' and m.organization_id = ${values.organizationId} and m.project_id is null`
       : sql`m.scope = 'project' and m.project_id = ${values.projectId as string}`
-  // Same restriction only, as in `consolidationScope` (ADR-0078).
+  // Same restriction only, as in `consolidationScope` (ADR-0080).
   const restriction = canonicalRestriction(values.restrictedFolderIds)
   const restricted = restriction
     ? sql`m.restricted_folder_ids = ${arrayLiteral(restriction)}::uuid[]`
@@ -395,7 +395,7 @@ export async function listProjectMemory(
     organizationId?: string
     sourceConversationId?: string
     /**
-     * Every folder the reader may read now (ADR-0079, `readableFolderIdsFor`).
+     * Every folder the reader may read now (ADR-0081, `readableFolderIdsFor`).
      * Empty — the default — lists open memory only.
      */
     readableFolderIds?: readonly string[]
@@ -429,7 +429,7 @@ export async function listProjectMemory(
     conditions.push(eq(projectMemory.status, 'active'))
   }
   // A restricted item is absent for a reader not cleared for all of it — not
-  // greyed out, not counted (ADR-0078).
+  // greyed out, not counted (ADR-0080).
   conditions.push(memoryVisibleTo(options.readableFolderIds))
   if (options.sourceConversationId) {
     // Used by the chat "Piloti noted N" chip to show only what this turn recorded.
@@ -450,7 +450,7 @@ export async function listOrganizationMemory(
   const conditions = [
     eq(projectMemory.scope, 'organization'),
     eq(projectMemory.organizationId, organizationId),
-    // Organization memory is never restricted (0106 CHECK); said here too, so
+    // Organization memory is never restricted (0107 CHECK); said here too, so
     // this listing stays open-only if that ever changes.
     isNull(projectMemory.restrictedFolderIds),
   ]
@@ -501,7 +501,7 @@ async function refreshDuplicate(
   return updated ?? duplicate
 }
 
-/** A note's text as it may be stored, embedded and served: masked (ADR-0077). */
+/** A note's text as it may be stored, embedded and served: masked (ADR-0079). */
 async function maskedNote(organizationId: string, content: string): Promise<string> {
   return (await maskChatText(organizationId, content)).text
 }
@@ -512,14 +512,14 @@ export async function createProjectMemoryItem(
 ): Promise<ProjectMemoryItem> {
   const db = getDb()
   // Stored canonical, so equal restrictions compare equal (consolidation, the
-  // 0106 index). Organization memory reaches every project and is never
+  // 0107 index). Organization memory reaches every project and is never
   // restricted: the caller demotes such a finding to its project first.
   const restrictedFolderIds = canonicalRestriction(input.restrictedFolderIds)
   if (restrictedFolderIds && input.scope !== 'project') {
     throw new BadRequestError('Restricted memory is project memory')
   }
   // Masked against the office's „Sensible Daten" policy before anything reads
-  // it (ADR-0077): a note rides every turn's digest and goes to the embedder
+  // it (ADR-0079): a note rides every turn's digest and goes to the embedder
   // below, so it must not hold what the chat composer would have removed. Here
   // rather than at each caller, so the memory panel, the organization route,
   // the agent's `remember` tool and reflection are all masked by construction.
@@ -638,7 +638,7 @@ export async function createProjectMemoryItem(
 
 /**
  * The source folders of the restricted collections a writer names (the agent
- * knows collections, the store keeps folders, ADR-0079). A name that is not a
+ * knows collections, the store keeps folders, ADR-0081). A name that is not a
  * CURRENT restricted collection of the project is refused: stored, such an item
  * would be served to nobody; refused, the writer learns the truth. A 400, not a
  * silent open write.
@@ -735,7 +735,7 @@ export async function createProjectMemoryItemForProject(
 export type MemoryOwner =
   | {
       projectId: string
-      /** The project's organization: whose „Sensible Daten" policy masks an edit (ADR-0077). */
+      /** The project's organization: whose „Sensible Daten" policy masks an edit (ADR-0079). */
       organizationId: string
       readableFolderIds: readonly string[]
     }
@@ -792,7 +792,7 @@ export type DigestItem = Pick<
   ProjectMemoryItem,
   'scope' | 'kind' | 'content' | 'confidence' | 'verification'
 > & {
-  /** Set on a restricted item, which the line then marks `restricted` (ADR-0078). */
+  /** Set on a restricted item, which the line then marks `restricted` (ADR-0080). */
   restrictedFolderIds?: readonly string[] | null
 }
 
@@ -867,7 +867,7 @@ export interface MemoryDigestOptions {
    */
   query?: string | null
   /**
-   * The folders the turn's asker may read now (ADR-0079): restricted memory is
+   * The folders the turn's asker may read now (ADR-0081): restricted memory is
    * a candidate only when all of its source folders are among them. Empty —
    * the default, and what deep research, scheduled runs, the handshake and
    * every session-less caller get — serves open memory only.
@@ -1220,7 +1220,7 @@ export async function implicateMemoryFromFeedback(input: {
   projectId: string | null
   comment: string
   /**
-   * Every folder the person who voted may read (ADR-0079), as every other
+   * Every folder the person who voted may read (ADR-0081), as every other
    * reader here takes them: a note they cannot see
    * is not one their complaint can be about, and must not lose salience for
    * people who can. Empty: open notes only.

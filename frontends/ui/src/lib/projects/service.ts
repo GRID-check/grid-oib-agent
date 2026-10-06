@@ -121,7 +121,7 @@ export async function getProjectsGridData(
   const visible = await listProjects(session, order)
   const visibleIds = visible.map((project) => project.id)
   // A card's number counts what the project's own list shows this viewer, so
-  // the documents in folders they may not read are left out of it (ADR-0079).
+  // the documents in folders they may not read are left out of it (ADR-0081).
   const hiddenFolderIds = (await Promise.all(visibleIds.map((id) => getHiddenFolderIds(session, id)))).flat()
   const [documentCounts, viewerActivity] = await Promise.all([
     countDocumentsByProject(session.organizationId, visibleIds, hiddenFolderIds),
@@ -317,7 +317,7 @@ export type ProjectMemoryItemPatch = Partial<
 >
 
 /**
- * A memory item as the panel receives it. A restricted item (ADR-0078) also
+ * A memory item as the panel receives it. A restricted item (ADR-0080) also
  * names the folders it is restricted to, for the lock; it only reaches a reader
  * already cleared for all of them.
  */
@@ -325,7 +325,7 @@ export type ProjectMemoryListItem = ProjectMemoryItem & { restrictedFolderNames?
 
 /**
  * Every folder of the project (tombstones included) this session may read now
- * (ADR-0079): what restricted memory is shown against. A project not found in
+ * (ADR-0081): what restricted memory is shown against. A project not found in
  * the organization reads nothing restricted.
  */
 export async function memoryClearance(
@@ -359,7 +359,7 @@ async function labelRestrictions(
 
 /**
  * List a project's memory items, including the org-wide items that apply to
- * every project in the org. A restricted item (ADR-0079) is listed only for a
+ * every project in the org. A restricted item (ADR-0081) is listed only for a
  * session that may read all of its source folders now; for anyone else it is absent.
  */
 export async function getProjectMemory(

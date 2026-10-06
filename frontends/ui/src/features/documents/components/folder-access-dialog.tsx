@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * „Zugriff auf …": who may read and who may write one folder (ADR-0079).
+ * „Zugriff auf …": who may read and who may write one folder (ADR-0081).
  *
  * Two answers: as the parent folder (the root folder's parent is the project:
  * everyone keeps what their project permissions allow), or an own list —
@@ -51,7 +51,7 @@ import type { FolderItem } from './project-file-workspace'
 
 type Mode = 'inherit' | 'custom'
 
-/** At most this many entries; the route and the 0108 trigger hold the same line. */
+/** At most this many entries; the route and the 0109 trigger hold the same line. */
 const MAX_GRANTS = 20
 
 export interface FolderAccessDialogProps {

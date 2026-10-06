@@ -74,7 +74,7 @@ vi.mock('@/lib/session-documents/repository', () => ({
 }))
 
 // Which people may read what a conversation recorded is `restricted-use.spec.ts`'s
-// subject (ADR-0079); here nothing it recorded restricts anybody.
+// subject (ADR-0081); here nothing it recorded restricts anybody.
 vi.mock('@/lib/conversations/restricted-use', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/conversations/restricted-use')>()),
   peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),

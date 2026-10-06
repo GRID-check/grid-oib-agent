@@ -57,7 +57,7 @@ export class OrgMemoryDisabledError extends ApiError {
 
 /**
  * 403 — a conversation that drew on a folder with restricted access may not
- * carry its content to where others read it (ADR-0078): a deep-research run, a
+ * carry its content to where others read it (ADR-0080): a deep-research run, a
  * task, the project profile, or a folder not restricted at least as narrowly.
  * Its own code, so a caller (the agent's tools, a card) can tell this refusal
  * from a missing permission; `details.action` says which door refused. The
@@ -78,7 +78,7 @@ export const RIGHTS_LOST_REASON = 'rights-lost'
 /**
  * 403 — the caller is still a party to the resource (a grant, its creator) but
  * can no longer read what it was drawn from: a conversation that recorded a
- * folder they may not read now (ADR-0079). Its own code, so the client shows
+ * folder they may not read now (ADR-0081). Its own code, so the client shows
  * "you no longer have the rights" instead of "not found", and its message and
  * details carry nothing of the content: not its title, not the folder.
  */

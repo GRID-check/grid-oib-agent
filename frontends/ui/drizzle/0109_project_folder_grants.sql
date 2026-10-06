@@ -1,5 +1,5 @@
--- 0108: folder access is read/write per role (ADR-0079, replacing the
--- restricted/open switch of 0104).
+-- 0109: folder access is read/write per role (ADR-0081, replacing the
+-- restricted/open switch of 0105).
 --
 -- A folder either INHERITS its parent's access (`access_mode = 'inherit'`, the
 -- default and the state of every open folder; a root folder inherits the
@@ -13,10 +13,10 @@
 -- every ancestor that has its own list, so nesting only ever narrows. The
 -- project permission (`project:documents:write`) stays the ceiling for writing.
 --
--- ## The migration of 0104
+-- ## The migration of 0105
 --
 -- Every role a restricted folder named becomes a `write` grant and the folder
--- becomes `custom`: under 0104 whoever could see a restricted folder could
+-- becomes `custom`: under 0105 whoever could see a restricted folder could
 -- write in it as far as their project permission allowed, and that is exactly
 -- what a `write` grant with the project ceiling says. A restricted folder keeps
 -- its retrieval collection (`<project collection>_r<12 hex>`), because a custom
@@ -24,7 +24,7 @@
 --
 -- ## A custom list is never empty
 --
--- 0104 refused an empty role array with a CHECK. The grants now live in their
+-- 0105 refused an empty role array with a CHECK. The grants now live in their
 -- own table, which a CHECK cannot count, so the same rule is a DEFERRED
 -- constraint trigger on both tables: at commit, a `custom` folder has between 1
 -- and 20 grants. "Nobody" is not a setting, and an admin clearing the last
@@ -53,7 +53,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "uniq_project_folders_parent_name"
   WHERE "deleted_at" IS NULL;
 --> statement-breakpoint
 COMMENT ON INDEX "uniq_project_folders_parent_name" IS
-  'One LIVING folder per (organization, project, parent, name) - project is NULL for an Archiv folder (0063, 0102; partial since 0108, so a deleted folder''s tombstone does not hold its name). COALESCE to the nil UUID over project_id and parent_id because NULL never equals NULL in a unique index, which would leave root folders and every Archiv folder uncontrolled.';
+  'One LIVING folder per (organization, project, parent, name) - project is NULL for an Archiv folder (0063, 0102; partial since 0109, so a deleted folder''s tombstone does not hold its name). COALESCE to the nil UUID over project_id and parent_id because NULL never equals NULL in a unique index, which would leave root folders and every Archiv folder uncontrolled.';
 --> statement-breakpoint
 ALTER TABLE "project_folders" RENAME COLUMN "restricted_by" TO "access_changed_by";
 --> statement-breakpoint
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS "project_folder_grants" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "project_folder_grants" IS
-  'One role''s access to a folder with its own access list (ADR-0079): read, or write. `*` is every project member. Effective access is the minimum over the folder and its ancestors with own lists; the project permission caps write.';
+  'One role''s access to a folder with its own access list (ADR-0081): read, or write. `*` is every project member. Effective access is the minimum over the folder and its ancestors with own lists; the project permission caps write.';
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "project_folder_grants_project_idx" ON "project_folder_grants" ("project_id");
 --> statement-breakpoint

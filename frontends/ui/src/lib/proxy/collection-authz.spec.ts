@@ -105,7 +105,7 @@ describe('validateCollectionName', () => {
     expect(response?.status).toBe(404)
   })
 
-  describe('a restricted folder\'s collection (ADR-0078)', () => {
+  describe('a restricted folder\'s collection (ADR-0080)', () => {
     const PROJECT_COLLECTION = 'proj_3f2504e0_4f89_11d3_9a0c_0305e82c3301'
     const RESTRICTED = `${PROJECT_COLLECTION}_r0123456789ab`
 

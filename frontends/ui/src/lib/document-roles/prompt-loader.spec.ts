@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Which bindings reach the agent's `documents:` block (ADR-0078).
+ * Which bindings reach the agent's `documents:` block (ADR-0080).
  *
  * A binding carries its document's filename into the prompt, and the prompt
  * view is cached once per project and read by every member and by scheduled

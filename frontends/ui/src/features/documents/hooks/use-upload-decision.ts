@@ -45,7 +45,7 @@ export interface UploadDecision {
     sendDirect: (files: File[]) => void
   ) => Promise<void>
   /**
-   * The reader's answer for one file the upload screening excluded (ADR-0077):
+   * The reader's answer for one file the upload screening excluded (ADR-0079):
    * upload it anyway, or not. Re-plans, because a released file can create a
    * folder and claim a name the excluded one did not.
    */

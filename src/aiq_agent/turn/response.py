@@ -130,7 +130,7 @@ def turn_restriction_evidence(
     restricted_notes: tuple[str, ...] = (),
     earlier_notes: ShownNotes | None = None,
 ) -> RestrictionEvidence:
-    """What the finished turn could have taken from restricted folders (ADR-0078).
+    """What the finished turn could have taken from restricted folders (ADR-0080).
 
     Read: what it cited and what it read without citing, plus the collections
     of the conversation's citation registry (``registry_collections``), whose

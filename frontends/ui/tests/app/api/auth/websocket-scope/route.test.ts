@@ -131,7 +131,7 @@ describe('/api/auth/websocket-scope', () => {
     expect(mockBuildCollectionScopeFromRequest).toHaveBeenCalledWith(session, {
       projectId: 'proj-1',
       conversationId: undefined,
-      // The upgrade is the one interactive chat scope (ADR-0078).
+      // The upgrade is the one interactive chat scope (ADR-0080).
       interactiveChat: true,
     })
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()

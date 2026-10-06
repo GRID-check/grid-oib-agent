@@ -288,7 +288,7 @@ describe('conversation trace erasure queries', () => {
   })
 })
 
-describe('pruneDownloadLog (retention of the download log, migration 0110)', () => {
+describe('pruneDownloadLog (retention of the download log, migration 0111)', () => {
   /** A fake whose DELETEs answer from per-scope queues and whose organization list is fixed. */
   function makeLogSql({ global = [], perOrg = {}, organizations = [] }) {
     const executed = []

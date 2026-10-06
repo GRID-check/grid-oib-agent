@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The Project Memory panel's service (ADR-0078, ADR-0079): a restricted note is
+ * The Project Memory panel's service (ADR-0080, ADR-0081): a restricted note is
  * listed, edited and deleted only by a session that may read all of its source
  * folders now, and such a reader is told which folders it came from. For anyone else it
  * is absent — the listing never asks for it, and an edit or delete by id
@@ -44,7 +44,7 @@ import { makeMemoryItem } from '@/test-utils/db-fixtures'
 import { deleteProjectMemoryItem, listProjectMemory, updateProjectMemoryItem } from './memory-service'
 import { editProjectMemoryItem, getProjectMemory, removeProjectMemoryItem } from './service'
 
-/** The source folder of a restricted note (ADR-0079). */
+/** The source folder of a restricted note (ADR-0081). */
 const CONTRACTS = 'aaaaaaaa-0000-4000-8000-000000000001'
 
 const SESSION: AuthorizedSession = {

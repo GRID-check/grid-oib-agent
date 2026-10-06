@@ -87,7 +87,7 @@ interface Session {
   hasActiveDeepResearch?: boolean
   /** A run in this thread finished with a report. */
   hasCompletedReport?: boolean
-  /** The reader may no longer read this chat (ADR-0079): a neutral title, no rename. */
+  /** The reader may no longer read this chat (ADR-0081): a neutral title, no rename. */
   contentLocked?: boolean
 }
 
@@ -894,7 +894,7 @@ const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function Session
   // stays legible and the session remains findable in the history.
   const tCollab = useTranslations('collaboration')
   // A chat the reader may no longer read has no title for them: the real one is
-  // model-written from content they cannot see (ADR-0079).
+  // model-written from content they cannot see (ADR-0081).
   const displayTitle = session.contentLocked
     ? tCollab('rightsLost.neutralTitle')
     : session.title.trim() || t('sessionsPanel.untitledSession')

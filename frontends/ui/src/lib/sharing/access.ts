@@ -57,7 +57,7 @@ export interface ResourceAccess {
   canEscalate: boolean
   /**
    * The caller holds `role` but may no longer read what the resource was drawn
-   * from (ADR-0079): a conversation that recorded a folder their roles do not
+   * from (ADR-0081): a conversation that recorded a folder their roles do not
    * reach now. Judged here, at read time, for every caller; false for a type
    * whose content the role alone decides.
    */
@@ -128,7 +128,7 @@ export async function resolveResourceAccess(
   if (probe.container.kind === 'project' && probe.container.id) {
     const { role } = await requireProjectAccess(session, probe.container.id, 'project:view')
     projectRole = role
-    // Inside the project, a restricted folder narrows further (ADR-0078). It
+    // Inside the project, a restricted folder narrows further (ADR-0080). It
     // outranks every grant and the creator's ownership: a hidden folder's
     // documents do not exist for this session, in the inbox or a share link.
     if (probe.folderId && !(await isFolderVisibleTo(session, probe.container.id, probe.folderId))) {
@@ -206,7 +206,7 @@ export async function requireResourceAccess(
     throw new NotFoundError()
   }
   // Closed by default: a caller that reads or writes the resource's CONTENT is
-  // refused for someone who may no longer read it (ADR-0079), without being
+  // refused for someone who may no longer read it (ADR-0081), without being
   // taught to ask. Only the few that manage the party's own place — leaving,
   // deleting what is one's own, reading the roster — say they may pass.
   if (access.contentLocked && !options.allowLocked) throw new ResourceRightsLostError(resourceType)
@@ -215,7 +215,7 @@ export async function requireResourceAccess(
 
 /**
  * Refuse a change to a resource's audience or assignees from someone who may
- * not write it (ADR-0079): for a project document, a write in its folder.
+ * not write it (ADR-0081): for a project document, a write in its folder.
  * Asked right after the role check of every sharing and assignment mutation,
  * before anything is written or a rate limit spent. A no-op for a type whose
  * role is the whole rule.

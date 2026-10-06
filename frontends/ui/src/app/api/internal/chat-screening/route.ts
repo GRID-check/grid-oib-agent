@@ -1,5 +1,5 @@
 /**
- * INTERNAL service endpoint — the office's chat screening (ADR-0077, "Chat
+ * INTERNAL service endpoint — the office's chat screening (ADR-0079, "Chat
  * messages are screened too").
  *
  * The chat socket (`aiq_api.chat_socket`) reads it once per connection and

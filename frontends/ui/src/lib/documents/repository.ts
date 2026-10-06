@@ -145,7 +145,7 @@ export interface ListProjectDocumentsOptions {
    */
   includeArchived?: boolean
   /**
-   * Folders whose documents this reader may not see (ADR-0078), from
+   * Folders whose documents this reader may not see (ADR-0080), from
    * `getHiddenFolderIds`. Their rows are left out as if they did not exist.
    */
   hiddenFolderIds?: readonly string[]
@@ -805,7 +805,7 @@ export async function findLiveDocumentByFilename(
  * The retrieval collections of this project that already hold a live,
  * person-uploaded document of this name — either Unicode form, as
  * {@link findLiveDocumentByFilename} reads it. A project keeps one document
- * per name across all its collections (ADR-0078); the database only enforces
+ * per name across all its collections (ADR-0080); the database only enforces
  * it per collection.
  */
 export async function findProjectCollectionsHoldingFilename(
@@ -1242,7 +1242,7 @@ export async function setDocumentReconciledStatus(
       .set({
         status: resolution.status,
         errorMessage: resolution.errorMessage,
-        // Only when the job said something (ADR-0077): an unscreened job must
+        // Only when the job said something (ADR-0079): an unscreened job must
         // not erase a reviewer's `released`.
         ...(resolution.screeningOutcome ? { screeningOutcome: resolution.screeningOutcome } : {}),
         updatedAt: new Date(),
@@ -1252,7 +1252,7 @@ export async function setDocumentReconciledStatus(
 }
 
 /**
- * A reviewer's release of a quarantined document (ADR-0077): who, when, and
+ * A reviewer's release of a quarantined document (ADR-0079): who, when, and
  * which bytes. Guarded on the row still being quarantined with the bytes the
  * reviewer saw, so a release that raced a re-upload releases nothing. Returns
  * whether it took.

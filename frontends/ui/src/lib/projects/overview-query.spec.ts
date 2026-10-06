@@ -127,7 +127,7 @@ describe('getProjectOverviewData', () => {
   })
 
   it('leaves a hidden folder out of the count, the total size and the recent list', async () => {
-    // ADR-0078. The recent list carries filenames and the count moves when a
+    // ADR-0080. The recent list carries filenames and the count moves when a
     // fee note is filed: both are the restricted folder's content, read by
     // anyone who can open the project, unless the same exclusion the document
     // list applies is applied here.

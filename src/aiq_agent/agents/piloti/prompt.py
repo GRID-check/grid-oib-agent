@@ -286,7 +286,7 @@ def render_system_prompt(
         # model that asks anyway is answered rather than left guessing.
         tasks_enabled=state.tasks_allowed,
         # The turn's signed scope holds a restricted folder's collection
-        # (ADR-0078): the block says which doors stay shut and why, in place of
+        # (ADR-0080): the block says which doors stay shut and why, in place of
         # the two per-tenant blocks above, whose reason ("not in this
         # workspace") would be the wrong one to give the reader.
         confined=state.confined,

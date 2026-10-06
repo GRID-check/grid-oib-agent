@@ -1,4 +1,4 @@
-"""The restricted memory a conversation's turns were shown (ADR-0078).
+"""The restricted memory a conversation's turns were shown (ADR-0080).
 
 The digest is re-ranked per turn and capped, so a restricted note can leave the
 prompt and stay in the history. These pin the record that keeps it as evidence:

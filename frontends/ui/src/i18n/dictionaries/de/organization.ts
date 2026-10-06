@@ -73,7 +73,7 @@ export const organization: typeof en.organization = {
     },
   },
   /**
-   * Organisation -> Download-Protokoll (ADR-0079): wer welches Dokument
+   * Organisation -> Download-Protokoll (ADR-0081): wer welches Dokument
    * heruntergeladen hat, und wer eines in einem Ordner mit eigener
    * Zugriffsliste geöffnet hat. Personenbezogene Daten über Mitarbeitende:
    * Die Seite sagt, wozu sie dient, wie lange sie aufbewahrt wird und dass
@@ -183,7 +183,7 @@ export const organization: typeof en.organization = {
     },
   },
   /**
-   * Personen & Zugriff → Eigene Rollen (ADR-0078): Rollen, die ein Büro in
+   * Personen & Zugriff → Eigene Rollen (ADR-0080): Rollen, die ein Büro in
    * WorkOS anlegt, im Reiter „Personen“ zuweist und auf die es Ordner einschränkt.
    */
   customRoles: {
@@ -621,7 +621,7 @@ export const organization: typeof en.organization = {
     open: 'Audit-Logs ansehen',
     error: 'Der Audit-Log-Viewer konnte nicht geöffnet werden.',
   },
-  /** Sensible Daten: die Liste, gegen die Piloti jeden Upload prüft (ADR-0077). */
+  /** Sensible Daten: die Liste, gegen die Piloti jeden Upload prüft (ADR-0079). */
   screening: {
     title: 'Prüfliste',
     description:
@@ -664,7 +664,7 @@ export const organization: typeof en.organization = {
     readOnly: 'Ändern können diese Listen nur Personen mit der Berechtigung „Organisationseinstellungen verwalten“.',
     loadError: 'Die Listen konnten gerade nicht geladen werden.',
   },
-  /** Quarantäne: Dateien, die die Inhaltsprüfung zurückgehalten hat (ADR-0077). */
+  /** Quarantäne: Dateien, die die Inhaltsprüfung zurückgehalten hat (ADR-0079). */
   quarantine: {
     listLabel: 'Zurückgehaltene Dateien',
     empty: 'Nichts wartet auf Prüfung',

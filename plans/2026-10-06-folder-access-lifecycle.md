@@ -1,7 +1,7 @@
 # Folder access: read/write per role, and what happens when access changes
 
 Status: decided by the product owner, 6 Oct 2026 (decisions at the end). Builds on
-ADR-0078; becomes ADR-0079.
+ADR-0080; becomes ADR-0081.
 
 ## The rule everything else follows
 
@@ -146,7 +146,7 @@ DPA template say so, and an organization can shorten the retention.
     scheduler job deletes traces older than 30 days in batches through the same
     native delete API (the approach of the community tool `langfuse_cleaner`).
     If Piloti ever buys Enterprise, the job is replaced by the setting.
-- **Masked chat text** never reaches the traces (ADR-0077's chat screening
+- **Masked chat text** never reaches the traces (ADR-0079's chat screening
   masks before the agent).
 
 ## What changes in the code (phases)

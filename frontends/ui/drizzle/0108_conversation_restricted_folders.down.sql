@@ -1,8 +1,8 @@
--- Reverse 0107. ORDER: roll the frontend back first; the newer build writes and
+-- Reverse 0108. ORDER: roll the frontend back first; the newer build writes and
 -- reads `conversation_restricted_folders`.
 --
 -- Not lossless, and in the safe direction: every conversation with a recorded
--- folder gets back its 0105 mark, which the older build reads as "stays with
+-- folder gets back its 0106 mark, which the older build reads as "stays with
 -- its owner". Which folders it drew on is lost; the older build never knew it.
 CREATE TABLE IF NOT EXISTS "conversation_restricted_turns" (
   "organization_id" text NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS "conversation_restricted_turns" (
   CONSTRAINT "conversation_restricted_turns_order" CHECK ("last_at" >= "first_at")
 );
 COMMENT ON TABLE "conversation_restricted_turns" IS
-  'A turn of this conversation ran with a restricted folder''s collection in its signed scope (ADR-0078). Written at turn start by the confinement route; the sharing service refuses to widen a conversation that has a row here.';
+  'A turn of this conversation ran with a restricted folder''s collection in its signed scope (ADR-0080). Written at turn start by the confinement route; the sharing service refuses to widen a conversation that has a row here.';
 SELECT grid_secure_table('conversation_restricted_turns', 'organization_id = grid_current_org()');
 INSERT INTO "conversation_restricted_turns" ("organization_id", "conversation_id", "first_at", "last_at")
 SELECT "organization_id", "conversation_id", min("first_at"), max("last_at")

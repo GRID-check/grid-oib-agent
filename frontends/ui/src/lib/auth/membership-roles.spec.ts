@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * The roles behind a folder-access decision come from the WorkOS membership,
- * at most a minute stale (ADR-0079), and the token is only the fallback.
+ * at most a minute stale (ADR-0081), and the token is only the fallback.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 

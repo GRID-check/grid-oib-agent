@@ -1033,7 +1033,7 @@ class PilotiAgent:
             tools=tools,
             tools_info=self.tools_info if boot_tools else build_tools_info(tools),
             # Every call reports the collections it read onto its result, which
-            # is what `admit_tool_results` admits in the tools node (ADR-0079).
+            # is what `admit_tool_results` admits in the tools node (ADR-0081).
             tool_node=ToolNode(
                 list(tools), handle_tool_errors=render_tool_error, awrap_tool_call=report_collections_read
             ),
@@ -1343,7 +1343,7 @@ class PilotiAgent:
         if registry is None:
             raise RuntimeError("PilotiAgent graph invoked outside run(): no source registry is bound")
         # Restricted content is admitted for the conversation BEFORE anything
-        # reads it (ADR-0078, ADR-0079): a result carrying a restricted
+        # reads it (ADR-0080, ADR-0081): a result carrying a restricted
         # collection that is not admitted (not drawable this turn, refused
         # because a share raced it, or no restricted use bound) is replaced by a
         # notice here, so neither the source registry nor the model ever sees it.

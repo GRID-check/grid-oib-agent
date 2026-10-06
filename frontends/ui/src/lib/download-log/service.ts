@@ -1,6 +1,6 @@
 /**
  * The download log: recording a hand-over of a document's bytes, and the admin
- * view of what was recorded (ADR-0079, plan 2026-10-06-folder-access-lifecycle).
+ * view of what was recorded (ADR-0081, plan 2026-10-06-folder-access-lifecycle).
  *
  * ## What is recorded
  *

@@ -4,7 +4,7 @@
  * Thin handlers; the request handling is shared with the Archiv's folders
  * (`@/lib/documents/folder-route-handlers`, where the delete's re-filing is
  * explained) and authz and logic live in `@/lib/projects/folder-service`. A
- * project folder's delete keeps the row as a tombstone (ADR-0079): deleting a
+ * project folder's delete keeps the row as a tombstone (ADR-0081): deleting a
  * label must not delete the work filed under it, nor the access that decides
  * who may read what was derived from it.
  */

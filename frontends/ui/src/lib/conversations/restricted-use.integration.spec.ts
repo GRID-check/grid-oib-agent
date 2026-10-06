@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * A conversation's restricted use (ADR-0078, migration 0107) against a REAL
+ * A conversation's restricted use (ADR-0080, migration 0108) against a REAL
  * Postgres, through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -78,7 +78,7 @@ describe('the restricted-use suite is not silently skipped in CI', () => {
   })
 })
 
-describe.skipIf(!url)('restricted use against Postgres (migrations 0107, 0108)', () => {
+describe.skipIf(!url)('restricted use against Postgres (migrations 0108, 0109)', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
@@ -87,7 +87,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0107, 0108)',
   let upsertGrant: typeof import('@/lib/sharing/repository').upsertGrant
   let projectId = ''
   let restricted = ''
-  /** The source folder of `restricted`: what the record names (ADR-0079). */
+  /** The source folder of `restricted`: what the record names (ADR-0081). */
   let folderId = ''
 
   const session: AuthorizedSession = {
@@ -177,7 +177,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0107, 0108)',
       )
     )
     projectId = String(project.id)
-    // One statement: the 0108 trigger checks at commit that a custom list is
+    // One statement: the 0109 trigger checks at commit that a custom list is
     // not empty, and every statement here commits on its own.
     const [folder] = Array.from(
       await inOrg(ORG, () =>
@@ -375,7 +375,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0107, 0108)',
     expect(await reasonOf(shareWith(id, UNCLEARED))).toBe('restricted-content')
   })
 
-  describe('who may still read a chat that recorded the folder (ADR-0079)', () => {
+  describe('who may still read a chat that recorded the folder (ADR-0081)', () => {
     /** The same people, with the roles WorkOS reports for them NOW. */
     const withRoles = (userId: string, roleList: string[]): AuthorizedSession => ({
       ...session,

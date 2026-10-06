@@ -1,5 +1,5 @@
 /**
- * Human labels for the permissions a custom role can carry (ADR-0078).
+ * Human labels for the permissions a custom role can carry (ADR-0080).
  *
  * The catalog's names are English, written for provisioning; an office
  * composing a role reads German. Each organization permission has a key in

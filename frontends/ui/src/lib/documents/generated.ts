@@ -306,7 +306,7 @@ export interface FileGeneratedDocumentInput {
   /**
    * The conversation the content came out of. A thread that drew on a
    * restricted folder files only into a folder restricted at least as narrowly
-   * (ADR-0078, `lib/conversations/restricted-egress.ts`); checked before anything is
+   * (ADR-0080, `lib/conversations/restricted-egress.ts`); checked before anything is
    * rendered or created. Absent for a producer whose input is not a
    * conversation's (a deep-research run, whose scope is always open).
    */
@@ -536,12 +536,12 @@ export async function fileGeneratedDocument(
     resolveGeneratedDocumentDestination(producer).folderName,
     session.organizationId,
   )
-  // Filing is a write into the destination (ADR-0079): a „Berichte" the
+  // Filing is a write into the destination (ADR-0081): a „Berichte" the
   // commissioning person may only read refuses (403), one they may not read is
   // not found.
   await requireFolderWrite(session, projectId, [existingDestination?.id ?? null])
   // Restricted-folder content stays where only people who may read it read it
-  // (ADR-0078).
+  // (ADR-0080).
   if (origin) {
     const destination = existingDestination
     await requireMayFileFrom(origin, {

@@ -10,7 +10,7 @@ const list = (values: readonly string[]) => sql.raw(values.map((value) => `'${va
 
 /**
  * `document_access_log` — who took a document's bytes, and who opened one in a
- * folder with its own access list (migration 0110, ADR-0079, the plan's
+ * folder with its own access list (migration 0111, ADR-0081, the plan's
  * "download log").
  *
  * Personal data about staff, kept for a purpose: security and accountability.

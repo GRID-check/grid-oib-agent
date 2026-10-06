@@ -45,7 +45,7 @@ vi.mock('@/lib/auth/require-auth', () => ({
   authzErrorResponse: () => null,
 }))
 
-// ADR-0078/0079: no conversation here recorded a restricted folder, so every
+// ADR-0080/0079: no conversation here recorded a restricted folder, so every
 // widening is allowed; the rule itself is `restricted-use.spec.ts`.
 vi.mock('@/lib/conversations/restricted-use', () => ({
   peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),

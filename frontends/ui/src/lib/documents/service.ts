@@ -414,7 +414,7 @@ export async function dispatchIngest(
   // Read from the row rather than threaded through every caller; a failed read
   // books the spend to the organization alone, never fails the dispatch.
   const attribution = await findDocumentInOrg(documentId, organizationId).catch(() => null)
-  // The content gate's rules (ADR-0077). Every path into the index passes this
+  // The content gate's rules (ADR-0079). Every path into the index passes this
   // line — upload, re-ingest, re-index, Archiv, chat, the IFC digest — so the
   // gate is not something a new caller has to remember.
   const screening = await ingestScreeningFor(organizationId, attribution)
@@ -756,7 +756,7 @@ export async function searchProjectDocuments(
   if (!project) throw new NotFoundError('Project not found')
 
   // The project's own collection and every restricted one this reader is
-  // cleared for (ADR-0078); one ranking across them, cut to `topK`.
+  // cleared for (ADR-0080); one ranking across them, cut to `topK`.
   const access = await getProjectFolderAccess(session, projectId, project.collectionName)
   const collections = [project.collectionName, ...access.clearedRestrictedCollections]
   const hits = (await Promise.all(collections.map((collection) => fetchSemanticHits(collection, query, topK))))
@@ -788,13 +788,13 @@ export interface UploadDocumentInput {
   originPath?: string | null
   /**
    * The uploader released this file in the upload dialog although the
-   * organization's name screening excludes it (ADR-0077) — the Bauvertrag in a
+   * organization's name screening excludes it (ADR-0079) — the Bauvertrag in a
    * folder called „Verträge". Honoured and audited; absent means "do not
    * override", so a client that never asks is screened.
    */
   screeningRelease?: boolean
   /**
-   * The upload gesture this file belongs to (migration 0103), as the browser
+   * The upload gesture this file belongs to (migration 0104), as the browser
    * opened it. Recorded on the row when it is the uploader's own open batch
    * for this project; anything else is ignored rather than refused.
    */
@@ -1491,7 +1491,7 @@ export async function reindexProject(
           await redispatch(row)
         } catch (error) {
           // A document in a folder this session may not read, or may only
-          // read (ADR-0079), is not this session's to re-read: skipped, and
+          // read (ADR-0081), is not this session's to re-read: skipped, and
           // never named, since its name is what a hidden folder hides.
           if (error instanceof NotFoundError || error instanceof ForbiddenError) {
             result.skipped += 1
@@ -1867,7 +1867,7 @@ export async function deleteDocument(
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
 
-  // A delete is a write in the document's folder (ADR-0079): the project's
+  // A delete is a write in the document's folder (ADR-0081): the project's
   // document-write permission, and write on the folder. A folder the session
   // may not read is not found; one it may only read refuses (403).
   await requireFolderWrite(session, doc.projectId, [doc.folderId])
@@ -2407,7 +2407,7 @@ export async function streamDocumentImage(
   if (!doc?.storageKey) throw new NotFoundError()
   // The URL outlives the moment it was minted, and the optimizer's fetch has no
   // session, so the person it names is asked again: a folder they can no longer
-  // read does not load its images (ADR-0078, ADR-0079). Not found, like every
+  // read does not load its images (ADR-0080, ADR-0081). Not found, like every
   // other refusal on this path.
   if (
     doc.scope === 'project' &&

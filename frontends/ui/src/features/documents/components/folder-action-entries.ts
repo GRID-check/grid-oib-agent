@@ -31,11 +31,11 @@ export interface FolderActionEntriesInput {
   onNewInside?: () => void
   onRename: () => void
   onMove?: (parentId: string | null, parentName: string) => void
-  /** Who may read and write the folder (ADR-0079). Absent for a reader who may not manage the project. */
+  /** Who may read and write the folder (ADR-0081). Absent for a reader who may not manage the project. */
   onAccess?: () => void
   onDelete: () => void
   /**
-   * The reader may only read this folder (ADR-0079): new folder, rename, move
+   * The reader may only read this folder (ADR-0081): new folder, rename, move
    * and delete are left out and a disabled „Nur lesen" says why. The server
    * refuses them anyway; this keeps the menu from offering what it will refuse.
    */
@@ -78,7 +78,7 @@ export function folderActionEntries({
       testId: `folder-action-read-only-${folder.id}`,
     })
     // No „Zugriff …" here either: changing a folder's list needs write on the
-    // folder, so the server would refuse it (ADR-0079).
+    // folder, so the server would refuse it (ADR-0081).
     return entries
   }
 

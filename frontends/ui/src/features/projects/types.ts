@@ -32,7 +32,7 @@ export interface ProjectOverviewData {
   recentDocuments: OverviewDocument[]
 }
 
-/** A folder whose own access list names only roles that no longer exist (ADR-0079). */
+/** A folder whose own access list names only roles that no longer exist (ADR-0081). */
 export interface FolderWithoutRole {
   id: string
   name: string

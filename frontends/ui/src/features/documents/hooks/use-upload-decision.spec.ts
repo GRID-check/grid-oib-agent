@@ -16,7 +16,7 @@ function pathed(relativePath: string): File {
 }
 
 /**
- * ADR-0077: the decision hook plans every durable-shelf upload against the
+ * ADR-0079: the decision hook plans every durable-shelf upload against the
  * office's screening, so what the policy names opens the dialog instead of
  * going straight out, and a release re-plans without re-reading anything.
  */

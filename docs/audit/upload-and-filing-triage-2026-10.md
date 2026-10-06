@@ -19,9 +19,9 @@ The working log with the research behind the built tickets is
 
 | Ticket | What shipped | Decision record |
 |---|---|---|
-| 4 Übersicht – Was ist angekommen? | Every upload is a batch. When everything it brought in has been read, the uploader gets an inbox item that opens a summary: what arrived, where it was filed, what each file is, what the screening held back and why, what failed. Project settings list every upload with its outcome and uploader | ADR-0077 (migration 0103) |
-| 5 Blacklist | An office-defined list of sensitive terms. Names are screened in the browser before anything is sent and again on the server; content is screened locally after text extraction and before the first model call. A match waits in a quarantine an org or project admin clears. Unreadable content (scans) is checked by name only, and the summary says so | ADR-0077 (migration 0102) |
-| 6 Zugriffsrechte für Ordner und Dateien | Offices build their own roles in Piloti, held in WorkOS as custom roles. A folder can be restricted to roles; its documents move into their own retrieval collection, which only cleared members' chat turns search. Org admins see everything | ADR-0078 (migration 0104) |
+| 4 Übersicht – Was ist angekommen? | Every upload is a batch. When everything it brought in has been read, the uploader gets an inbox item that opens a summary: what arrived, where it was filed, what each file is, what the screening held back and why, what failed. Project settings list every upload with its outcome and uploader | ADR-0079 (migration 0104) |
+| 5 Blacklist | An office-defined list of sensitive terms. Names are screened in the browser before anything is sent and again on the server; content is screened locally after text extraction and before the first model call. A match waits in a quarantine an org or project admin clears. Unreadable content (scans) is checked by name only, and the summary says so | ADR-0079 (migration 0103) |
+| 6 Zugriffsrechte für Ordner und Dateien | Offices build their own roles in Piloti, held in WorkOS as custom roles. A folder can be restricted to roles; its documents move into their own retrieval collection, which only cleared members' chat turns search. Org admins see everything | ADR-0080 (migration 0105) |
 
 **NVIDIA Agent Toolkit.** The request asked whether NAT can stop sensitive data
 being uploaded. It cannot: NAT 1.9 middleware wraps registered functions, never

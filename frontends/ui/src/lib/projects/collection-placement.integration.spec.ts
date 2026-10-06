@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Moving documents into the collection their folder puts them in (ADR-0078),
+ * Moving documents into the collection their folder puts them in (ADR-0080),
  * against a REAL Postgres through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -60,7 +60,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
     )
   /**
    * Give the folder its own list of `roles` (each `write`), or make it inherit
-   * again with `null`: one statement, so the 0108 trigger sees the finished
+   * again with `null`: one statement, so the 0109 trigger sees the finished
    * list at commit. `everyone` adds `*: read`, a list every member may read.
    */
   const restrict = (roles: string[] | null, everyone = false) =>

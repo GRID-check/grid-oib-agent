@@ -160,7 +160,7 @@ class TestPostAnswerTurnFacts:
         assert self._facts(_state()).restriction.restricted is False
 
     def test_the_restriction_evidence_crosses(self):
-        """ADR-0078: the reflection stage restricts what it writes from this.
+        """ADR-0080: the reflection stage restricts what it writes from this.
 
         Read is what the turn cited, what it read uncited, and what the
         conversation's registry holds; listed is the uncapped inventory, else
@@ -207,7 +207,7 @@ class TestPostAnswerTurnFacts:
         ]
 
     def test_notes_earlier_turns_were_shown_cross_with_their_own_collections(self):
-        """ADR-0078: a restricted note gone from this turn's digest is still evidence."""
+        """ADR-0080: a restricted note gone from this turn's digest is still evidence."""
         from aiq_agent.memory.restriction import RestrictedNote
         from aiq_agent.memory.shown_notes import ShownNotes
 

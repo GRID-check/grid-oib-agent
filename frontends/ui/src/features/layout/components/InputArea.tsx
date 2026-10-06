@@ -107,7 +107,7 @@ export type ConnectionMode = 'sse' | 'websocket'
 
 /**
  * A message the composer did not send because it contains something the
- * office's „Sensible Daten" policy covers (ADR-0077): what was typed, what it
+ * office's „Sensible Daten" policy covers (ADR-0079): what was typed, what it
  * would be masked to, and — when the send was a resumed upload hold — the
  * held text it came from.
  */
@@ -162,7 +162,7 @@ function mentionRefusalMessage(
     case MENTION_ERROR_REASONS.rateLimited:
       return tCollab('mentions.errors.rateLimited')
     // Mentioning someone new invites them, and a thread that drew on a
-    // restricted folder reaches only people cleared for it (ADR-0078).
+    // restricted folder reaches only people cleared for it (ADR-0080).
     case SHARING_ERROR_REASONS.restrictedContent:
       return name
         ? tCollab('sharing.errors.restrictedContent', { name })
@@ -505,7 +505,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
    * and reads as Piloti being careful rather than as Piloti being slow.
    */
   const [heldForUpload, setHeldForUpload] = useState<string | null>(null)
-  // A message that matched the office's „Sensible Daten" (ADR-0077): shown,
+  // A message that matched the office's „Sensible Daten" (ADR-0079): shown,
   // not sent, until the person picks „Maskiert senden" or „Bearbeiten".
   const [screeningHold, setScreeningHold] = useState<ScreeningHold | null>(null)
   const screenChat = useChatScreening()
@@ -1081,7 +1081,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     noteSendIntent()
     const currentMessage = source.trim()
 
-    // The office's „Sensible Daten" (ADR-0077). A match is never sent as typed:
+    // The office's „Sensible Daten" (ADR-0079). A match is never sent as typed:
     // the composer says what it found and the person chooses — masked, or back
     // to the editor with the text untouched. Before the HITL branch, so an
     // answer to Piloti's question is screened like a question. Masking is
@@ -1762,7 +1762,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               }
             />
 
-            {/* „Sensible Daten" (ADR-0077): what the screen found in the message
+            {/* „Sensible Daten" (ADR-0079): what the screen found in the message
             that was not sent, and the only two ways on. Under the textarea, which
             still holds the text as typed. */}
             {screeningHold && (

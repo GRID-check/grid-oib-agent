@@ -39,7 +39,7 @@ export const errors = {
   },
   /**
    * A conversation that drew on a folder with restricted access, refusing to
-   * carry its content where others read it (ADR-0078,
+   * carry its content where others read it (ADR-0080,
    * `lib/conversations/restricted-egress.ts`). One sentence per door, relayed
    * as the API error: the agent quotes the German one to the reader.
    */

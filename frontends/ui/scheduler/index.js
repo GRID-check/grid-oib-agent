@@ -19,7 +19,7 @@
  *      delete request, which the purger never sees (`sweepConversationTraces`);
  *   7. once a day, purges the download log past its retention: 12 months at
  *      most, less where an organization chose so, in bounded batches
- *      (`sweepDownloadLogRetention`; migration 0110).
+ *      (`sweepDownloadLogRetention`; migration 0111).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
@@ -176,7 +176,7 @@ async function reconcileRuns(config, fetchImpl, streak) {
 
 /**
  * One upload sweep: POST {frontendUrl}/api/internal/upload-batches/sweep
- * (ADR-0077). Settles the uploads whose browser is gone, so their uploader is
+ * (ADR-0079). Settles the uploads whose browser is gone, so their uploader is
  * told when everything was read. Same posture as the run reconciler: the BFF
  * does the work, this container supplies the clock, nothing throws, and it
  * logs only when it settled something or failed.
@@ -194,7 +194,7 @@ async function sweepUploads(config, fetchImpl, streak) {
 
 /**
  * Move the documents a backend outage left in the wrong retrieval collection
- * (ADR-0078): a document under a restricted folder whose chunks could not be
+ * (ADR-0080): a document under a restricted folder whose chunks could not be
  * purged from the project's open collection is still findable there until it
  * is placed again.
  */
@@ -330,7 +330,7 @@ async function sweepConversationTraces(
 const DOWNLOAD_LOG_BACKOFF_MS = 60 * 60 * 1000
 
 /**
- * The download log's retention sweep (migration 0110): purge entries past their
+ * The download log's retention sweep (migration 0111): purge entries past their
  * retention, once a day counted from the previous run, the first on the first
  * tick after the process starts. A run deletes at most 50 batches of 1000
  * (`pruneDownloadLog`); when it stopped on that budget with more behind it, the

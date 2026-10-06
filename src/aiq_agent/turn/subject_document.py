@@ -239,7 +239,7 @@ async def load_subject_document(
             somebody else's.
         user_id: The signed asker. A subject in a folder not every member may
             read is opened only when the BFF admits that folder for the
-            conversation against its audience (ADR-0078, ADR-0079), which needs
+            conversation against its audience (ADR-0080, ADR-0081), which needs
             the asker; without one such a subject is not found.
     """
     try:

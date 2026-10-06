@@ -43,7 +43,7 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
     }
 
     const canManageProject = role === 'project-admin'
-    // Folders whose roles were deleted since (ADR-0079). Asked only of a
+    // Folders whose roles were deleted since (ADR-0081). Asked only of a
     // project manager, who is the one who can set a role again.
     const foldersWithoutRole = canManageProject ? await listFoldersWithoutValidRole(session, id) : []
 

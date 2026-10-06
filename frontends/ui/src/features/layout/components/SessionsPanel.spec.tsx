@@ -254,7 +254,7 @@ describe('SessionsPanel', () => {
     expect(firstSession).toHaveAttribute('aria-current', 'true')
   })
 
-  test('lists a chat the reader may no longer read under a neutral title, with no way to rename it (ADR-0079)', async () => {
+  test('lists a chat the reader may no longer read under a neutral title, with no way to rename it (ADR-0081)', async () => {
     const user = userEvent.setup()
     render(
       <SessionsPanel

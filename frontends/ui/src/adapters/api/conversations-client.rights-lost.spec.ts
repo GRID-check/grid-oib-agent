@@ -1,6 +1,6 @@
 /**
  * The browser's reading of the server's "you no longer have the rights"
- * (ADR-0079): a 403 whose `code` is `RESOURCE_RIGHTS_LOST` becomes its own
+ * (ADR-0081): a 403 whose `code` is `RESOURCE_RIGHTS_LOST` becomes its own
  * error, and no other failure does.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'

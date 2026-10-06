@@ -1,4 +1,4 @@
-"""``chat_screening_for``: the office's chat screening, read from the BFF once per socket (ADR-0077).
+"""``chat_screening_for``: the office's chat screening, read from the BFF once per socket (ADR-0079).
 
 It fails CLOSED. Anything but a well-formed answer from the BFF masks with
 every detector and no term (``CHAT_SCREENING_FALLBACK``), and says so by

@@ -39,7 +39,7 @@ import { SHARING_ERROR_REASONS, type ResourceAccessEntry, type ResourceSharingSt
 export type { ResourceAccessEntry, ResourceSharingState }
 
 /**
- * Refuse a widening the resource's content forbids (ADR-0078): letting a person
+ * Refuse a widening the resource's content forbids (ADR-0080): letting a person
  * into a conversation that drew on a restricted folder they are not cleared
  * for, or making such a conversation visible to the whole project. Asked before
  * every path that lets someone else in — a wider visibility, a grant (and so a
