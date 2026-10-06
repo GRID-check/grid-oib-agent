@@ -499,6 +499,11 @@ export function bffJobsEnv(w: AppWiring): EnvVar[] {
     { name: "GRID_BFF_JOBS_CONCURRENCY", value: String(cfg.bffJobs.concurrency) },
     { name: "GRID_BFF_JOBS_DRAIN_SECONDS", value: String(cfg.bffJobs.drainSeconds) },
     { name: "GRID_BFF_JOBS_MAX_PER_ORG", value: String(cfg.bffJobs.maxPerOrg) },
+    // Office conversions this pod runs at Gotenberg at once. The BFF in the pod
+    // reads it as it does in the frontend (`rendition.ts`); here it is the
+    // per-pod factor of the pool's ceiling (`renditionCeiling`), which
+    // `gotenberg.spec.ts` holds to the converter's capacity.
+    { name: "GOTENBERG_MAX_CONCURRENCY", value: String(cfg.bffJobs.renditionConcurrency) },
     // The BFF is stopped AFTER the runner has drained, so it only has to close
     // its own idle connections.
     { name: "GRID_SHUTDOWN_DRAIN_MS", value: "5000" },

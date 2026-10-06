@@ -61,6 +61,7 @@ describe("gotenberg", () => {
   let env: k8s.types.input.core.v1.EnvVar[] = [];
   let envDisabled: k8s.types.input.core.v1.EnvVar[] = [];
   let cfgImage = "";
+  let defaults: Awaited<ReturnType<typeof import("../config")["loadConfig"]>> = undefined as never;
 
   beforeAll(async () => {
     pulumi.runtime.setAllConfig({ ...baseStackConfig(), "grid-oib:observabilityEnabled": "false" });
@@ -70,6 +71,7 @@ describe("gotenberg", () => {
     const { frontendEnv } = await import("./config");
     const cfg = loadConfig();
     cfgImage = cfg.gotenberg.image;
+    defaults = cfg;
     const provider = new k8s.Provider("test", { kubeconfig: "apiVersion: v1" });
     const g = installGotenberg(cfg, provider, "grid", []);
     installNetworkPolicies(cfg, provider, "grid");
@@ -147,13 +149,18 @@ describe("gotenberg", () => {
     expect(envDisabled.some((e) => e.name === "GOTENBERG_URL")).toBe(false);
   });
 
-  it("admits the frontend alone and denies every egress", async () => {
+  it("admits the frontend and the bff-jobs pool alone, and denies every egress", async () => {
     const pol = await resolve(find(NETPOL, "gotenberg-frontend-only").inputs.spec);
     expect(pol.policyTypes).toEqual(["Ingress", "Egress"]);
     expect(pol.egress).toEqual([]);
+    // The pool converts the background office files (ADR-0078). Left out, every
+    // Word and presentation upload fails with a green plan.
     expect(pol.ingress).toEqual([
       {
-        from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } }],
+        from: [
+          { podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } },
+          { podSelector: { matchLabels: { "app.kubernetes.io/name": "bff-jobs" } } },
+        ],
         ports: [{ protocol: "TCP", port: 3000 }],
       },
     ]);
@@ -162,6 +169,66 @@ describe("gotenberg", () => {
     // could still call it and the rule above would narrow nothing.
     const intra = await resolve(find(NETPOL, "allow-same-namespace").inputs.spec);
     expect(intra.podSelector.matchExpressions[0].values).toContain("gotenberg");
+  });
+
+  it("runs the configured number of converter replicas", async () => {
+    const spec = await resolve(find("kubernetes:apps/v1:Deployment", "gotenberg").inputs.spec);
+
+    expect(spec.replicas).toBe(defaults.gotenberg.replicas);
+    expect(defaults.gotenberg.replicas).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * The fleet-wide ceiling on background conversions (ADR-0078).
+   *
+   * Conversions are claimed from `bff_job_queue`, so the only fleet-wide bound is
+   * arithmetic: how many `bff-jobs` pods KEDA may run, times how many files one
+   * pod converts at once. LibreOffice converts one document at a time per
+   * Gotenberg replica, and a request that queues inside it counts the wait
+   * against its own 120 s API timeout; before the jobs, three hundred files in
+   * one folder upload failed most of the batch that way. The number is a plan,
+   * so a plan is where it is checked: this fails when someone raises the pool's
+   * ceiling, or its per-pod concurrency, without raising the converter.
+   */
+  describe("the pool's conversions fit the converter", () => {
+    const stackKnob = (stack: "dev" | "prod", key: string, fallback: number): number => {
+      const text = readFileSync(join(__dirname, "..", "..", `Pulumi.${stack}.yaml`), "utf8");
+      const hit = text.match(new RegExp(`^\\s*grid-oib:${key}: "?(\\d+)"?\\s*$`, "m"));
+      return hit ? Number(hit[1]) : fallback;
+    };
+
+    it.each(["dev", "prod"] as const)("in the %s stack", async (stack) => {
+      const { renditionCeiling, gotenbergCapacity } = await import("../config");
+      const cfg = {
+        bffJobs: {
+          maxReplicas: Math.max(1, stackKnob(stack, "bffJobsMaxReplicas", defaults.bffJobs.maxReplicas)),
+          renditionConcurrency: Math.max(
+            1,
+            stackKnob(stack, "bffJobsRenditionConcurrency", defaults.bffJobs.renditionConcurrency),
+          ),
+        },
+        gotenberg: { replicas: Math.max(1, stackKnob(stack, "gotenbergReplicas", defaults.gotenberg.replicas)) },
+      };
+
+      expect(renditionCeiling(cfg as never)).toBeLessThanOrEqual(gotenbergCapacity(cfg as never));
+    });
+
+    it("holds the defaults too, for a stack that sets none of the knobs", async () => {
+      const { renditionCeiling, gotenbergCapacity } = await import("../config");
+
+      expect(renditionCeiling(defaults)).toBeLessThanOrEqual(gotenbergCapacity(defaults));
+    });
+
+    it("counts a pod that converts two files at once, and fails a pool that outgrows the converter", async () => {
+      const { renditionCeiling, gotenbergCapacity, GOTENBERG_SLOTS_PER_REPLICA } = await import("../config");
+
+      expect(renditionCeiling({ bffJobs: { maxReplicas: 4, renditionConcurrency: 2 } } as never)).toBe(8);
+      expect(gotenbergCapacity({ gotenberg: { replicas: 2 } } as never)).toBe(2 * GOTENBERG_SLOTS_PER_REPLICA);
+      // Four pods, two files each, one converter: the shape the guard exists to catch.
+      expect(renditionCeiling({ bffJobs: { maxReplicas: 4, renditionConcurrency: 2 } } as never)).toBeGreaterThan(
+        gotenbergCapacity({ gotenberg: { replicas: 1 } } as never),
+      );
+    });
   });
 
   it("matches the Compose services, image and flags", async () => {

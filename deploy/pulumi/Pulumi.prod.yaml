@@ -434,14 +434,19 @@ config:
   grid-oib:otelOidcClientId: client_01M0SKKRX0XAQ99AFZ31WNJ6XT # pragma: allowlist secret (public OAuth client id)
   # ── BFF background pool (ADR-0078) ──
   # Internal replicas of the frontend image claim bff_job_queue fairly across
-  # organisations and run project reindex and failed-ingestion rescan jobs in
-  # their own BFF, so that work never shares a pod with the chat gateway. KEDA
-  # sets the count from the open jobs, one replica per `bffJobsConcurrency`.
-  # A reindex only pages and POSTs, so the pool stays small; the IFC and
-  # rendition kinds of phase 2 are what will want a higher ceiling.
+  # organisations and run project reindex and failed-ingestion rescan jobs, IFC
+  # extraction, office conversion and report filing in their own BFF, so that
+  # work never shares a pod with the chat gateway. KEDA sets the count from the
+  # open jobs, one replica per `bffJobsConcurrency`.
   grid-oib:bffJobsMinReplicas: "1"
   grid-oib:bffJobsMaxReplicas: "4"
   grid-oib:bffJobsConcurrency: "2"
+  # Office conversions one pod runs at Gotenberg at once. The pool's ceiling is
+  # this times bffJobsMaxReplicas (4), and it must fit what the converter takes:
+  # two conversions per Gotenberg replica (one running, one ready behind it).
+  # gotenberg.spec.ts holds the two together: raise one, raise the other.
+  grid-oib:bffJobsRenditionConcurrency: "1"
+  grid-oib:gotenbergReplicas: "2"
   # SIGTERM budget to finish the slice in hand; the claim is then given back
   # without costing an attempt. The pod's grace period is this plus 30 s.
   grid-oib:bffJobsDrainSeconds: "60"

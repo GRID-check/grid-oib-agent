@@ -321,7 +321,7 @@ export function installNetworkPolicies(
       })
     : undefined;
 
-  // 13. Gotenberg (ADR-0070): the frontend in, nothing out.
+  // 13. Gotenberg (ADR-0070): the frontend and the bff-jobs pool in, nothing out.
   //
   //     It parses untrusted office files, and an office file can reference
   //     external URLs (linked images, OLE links) that LibreOffice resolves
@@ -331,15 +331,23 @@ export function installNetworkPolicies(
   //     nothing to resolve.
   //
   //     Withheld from rule 2 on the same grounds as the dashboard, so the
-  //     frontend BFF is its one caller. The agent never calls it (the BFF hands
-  //     the backend the finished PDF), and nothing else has a reason to.
+  //     frontend BFF is its caller, and the bff-jobs pool is the same BFF
+  //     running the background conversions (ADR-0078), so it is named too: a
+  //     pool left out here would fail every office file with a green plan. The
+  //     agent never calls it (the BFF hands the backend the finished PDF), and
+  //     nothing else has a reason to.
   const gotenberg = cfg.gotenberg.enabled
     ? mk("gotenberg-frontend-only", {
         podSelector: { matchLabels: { "app.kubernetes.io/name": GOTENBERG.name } },
         policyTypes: ["Ingress", "Egress"],
         ingress: [
           {
-            from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } }],
+            from: [
+              { podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } },
+              ...(cfg.bffJobs.enabled
+                ? [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "bff-jobs" } } }]
+                : []),
+            ],
             ports: [{ protocol: "TCP", port: PORT.gotenberg }],
           },
         ],
