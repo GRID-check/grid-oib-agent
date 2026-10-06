@@ -52,6 +52,8 @@ config, including the ingest worker, which needs only the ingestor.
 1. Keep one web role and tune it.
 2. One image per role.
 3. One image per runtime, one role per job, named after the job.
+4. Separate services (microservices): each part its own codebase or module
+   with its own API, release and data.
 
 ## Decision Outcome
 
@@ -68,6 +70,25 @@ Housekeeping (6) becomes CronJobs on the existing `internalSweepCronJob`
 pattern. The base corpus (5) moves to SeaweedFS (ADR for the object store), so
 `chat` becomes a Deployment without a PVC. The frontend image keeps its own
 roles (BFF, scheduler, purger, `bff-jobs`).
+
+This is a modular monolith run as several process types (the twelve-factor
+"process types" model, as Rails/Sidekiq, Django/Celery, Airflow, Temporal and
+self-hosted Sentry run one image as several processes), not a split into
+services. What is split is only what rolls out, scales and fails together.
+The code, the release and the data stay one, and the roles do not call each
+other: the BFF already calls both `chat` and `api`, so no service-to-service
+contract appears.
+
+Option 4 was rejected for now: it buys independent releases, independent data
+ownership and per-service teams, none of which this repo has (one codebase,
+one team, one release, shared Postgres, Dragonfly and Chroma), and it costs
+network contracts, version skew and a pipeline per service. A role becomes its
+own service when one of these holds, and that is a new ADR:
+
+* it needs dependencies or a runtime the others do not, and the shared image's
+  size or boot measurably hurts it (cold start, scale from zero);
+* it needs its own release cadence, or a team of its own owns it;
+* it owns data no other role touches and can sit behind a stable API.
 
 Option 2 was rejected: it multiplies builds, scans and cached layers for a size
 saving nobody has measured. Role-scoped boot (each role builds only what it
