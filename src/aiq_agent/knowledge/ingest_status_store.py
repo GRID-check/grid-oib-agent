@@ -135,6 +135,7 @@ def _ensure_table(url: str) -> None:
         # `_stale_predicate` reads the queue table, so it must exist too.
         ingest_queue.ensure_table(url, conn)
         conn.commit()
+    ingest_queue.mark_ensured(url)
     _initialized.add(url)
 
 

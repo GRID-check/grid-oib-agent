@@ -50,6 +50,7 @@ __all__ = [
     "heartbeat",
     "mark_dead",
     "mark_done",
+    "mark_ensured",
     "purge_dead",
     "reap_exhausted",
     "release_claims",
@@ -87,8 +88,16 @@ _initialized = QUEUE.initialized
 
 
 def ensure_table(url: str, conn=None) -> None:
-    """Create the queue and the lane-turn tables once per process; an older table is upgraded in place."""
+    """Create the queue and the lane-turn tables once per process; an older table is upgraded in place.
+
+    With ``conn`` the caller commits, then calls :func:`mark_ensured`.
+    """
     QUEUE.ensure_table(url, conn)
+
+
+def mark_ensured(url: str) -> None:
+    """The caller's transaction that ran :func:`ensure_table` has committed."""
+    QUEUE.mark_ensured(url)
 
 
 def enqueue(job_id: str, organization_id: str | None, payload: str, priority: str | None = None) -> None:

@@ -147,3 +147,18 @@ def test_a_table_from_before_lanes_gains_one_and_its_rows_wait_in_a_lane_of_thei
     with queue._engine_for(url).begin() as conn:
         conn.execute(text("INSERT INTO research_claims (job_id, payload) VALUES ('older-code', 'p')"))
     assert queue.counts()["queued"] == 1
+
+
+def test_ddl_in_the_callers_transaction_is_not_marked_done_until_the_caller_says_it_committed(url):
+    queue = _queue(url)
+    engine = create_engine(url.replace("postgresql://", "postgresql+psycopg://", 1))
+
+    with engine.connect() as conn:
+        queue.ensure_table(url, conn)
+        assert url not in queue.initialized  # not committed yet: another thread must not skip the DDL
+        conn.rollback()
+    assert url not in queue.initialized  # the commit never happened, so the next call creates the table
+
+    queue.enqueue("r0", "org-a", "payload")  # its own ensure_table, on its own connection, which commits
+    assert url in queue.initialized
+    engine.dispose()

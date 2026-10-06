@@ -205,15 +205,25 @@ class ClaimQueue:
     # ----------------------------------------------------------------- schema
 
     def ensure_table(self, url: str, conn=None) -> None:
-        """Create the queue and its lane-turn table, and bring an older table up to date; idempotent."""
+        """Create the queue and its lane-turn table, and bring an older table up to date; idempotent.
+
+        With ``conn`` the DDL runs in the caller's transaction, and the caller
+        calls :meth:`mark_ensured` once that has committed: marking the URL
+        before then would let another thread query a table it cannot see yet,
+        and keep a table whose commit failed marked as present until restart.
+        """
         if url in self.initialized:
             return
         if conn is not None:
             self._ensure_on(conn, url)
-        else:
-            with self._engine_for(url).connect() as own:
-                self._ensure_on(own, url)
-                own.commit()
+            return
+        with self._engine_for(url).connect() as own:
+            self._ensure_on(own, url)
+            own.commit()
+        self.mark_ensured(url)
+
+    def mark_ensured(self, url: str) -> None:
+        """The DDL for ``url`` has committed: later calls skip it."""
         self.initialized.add(url)
 
     def _ensure_on(self, conn, url: str) -> None:
