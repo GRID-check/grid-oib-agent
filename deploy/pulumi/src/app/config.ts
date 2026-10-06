@@ -130,8 +130,10 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
     AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
     // The same database for KEDA's postgresql scaler, which runs in the `keda`
-    // namespace and cannot resolve the bare service name. Read by no pod.
-    KEDA_INGEST_QUEUE_DB_URL: w.dsn({ db: "aiq_jobs", clusterWide: true }),
+    // namespace and cannot resolve the bare service name. Read by no pod. Both
+    // Python claim queues (ingest and research) live in it, so both ScaledObjects
+    // read it (`./jobs-queue-auth.ts`).
+    KEDA_JOBS_QUEUE_DB_URL: w.dsn({ db: "aiq_jobs", clusterWide: true }),
     // The app database, for the postgresql scaler of the bff-jobs pool. The
     // schema owner, deliberately: `bff_job_queue` is row-level secured per
     // organization, and the scaler runs one COUNT(*) over every lane, which only
@@ -257,6 +259,7 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     // Admission control (bounds concurrent heavy work — §4.2).
     { name: "GRID_MAX_ACTIVE_JOBS", value: String(cfg.backend.maxActiveJobs) },
     { name: "GRID_MAX_ACTIVE_JOBS_PER_ORG", value: String(cfg.backend.maxActiveJobsPerOrg) },
+    { name: "GRID_MAX_QUEUED_JOBS_PER_ORG", value: String(cfg.backend.maxQueuedJobsPerOrg) },
     { name: "AIQ_INGEST_MAX_WORKERS", value: String(cfg.backend.ingestMaxWorkers) },
     // With the ingest tier running, the chat pods take no queued ingestion
     // (ADR-0076); their pool still runs the jobs with local files.
@@ -309,6 +312,9 @@ export function workerEnv(w: AppWiring): EnvVar[] {
     ...backendEnv(w, "grid-agent-worker"),
     { name: "GRID_ROLE", value: "worker" },
     { name: "GRID_RESEARCH_WORKERS", value: String(w.cfg.agentWorker.concurrency) },
+    // The drain budget the pod's grace period is derived from (`agent-worker.ts`):
+    // a job still running when it ends is given back to the queue, not killed.
+    { name: "GRID_RESEARCH_WORKER_DRAIN_SECONDS", value: String(w.cfg.agentWorker.drainSeconds) },
   ];
 }
 

@@ -7,6 +7,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { loadConfig } from "../src/config";
 import { installIngestWorker } from "../src/app/ingest-worker";
+import { installJobsQueueAuth } from "../src/app/jobs-queue-auth";
 import { baseStackConfig } from "../src/test-support/stack-config";
 
 const ROOT = mkdtempSync(join(__dirname, "..", ".validate-crs-test-"));
@@ -145,7 +146,7 @@ beforeAll(async () => {
   const cfg = loadConfig();
   const provider = new k8s.Provider("schema-test", { kubeconfig: "apiVersion: v1" });
   const secret = new k8s.core.v1.Secret("schema-test-secret", { metadata: { name: "grid-secrets" } }, { provider });
-  const worker = installIngestWorker({
+  const wiring = {
     cfg,
     namespace: "grid",
     provider,
@@ -154,7 +155,12 @@ beforeAll(async () => {
     seaweedPublicEndpoint: pulumi.output("https://s3.example.test"),
     dsn: () => pulumi.output("postgresql://fixture"),
     imagePullSecrets: [],
-  }, cfg, { secret, checksum: pulumi.output("fixture-checksum") }, []);
+  };
+  // The ScaledObject names a TriggerAuthentication the program creates once for
+  // both claim-queue tiers; both resources are what the validator is shown.
+  const auth = installJobsQueueAuth(wiring, []);
+  const worker = installIngestWorker(wiring, cfg, { secret, checksum: pulumi.output("fixture-checksum") }, [auth]);
+  await new Promise((done) => auth.urn.apply(done));
   await new Promise((done) => worker.scaledObject.urn.apply(done));
   expect(resources.map((resource) => resource.inputs.kind).sort()).toEqual(["ScaledObject", "TriggerAuthentication"]);
 }, 30_000);

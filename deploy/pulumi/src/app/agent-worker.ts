@@ -11,25 +11,53 @@ import {
   surgeRollout,
 } from "../platform/rollout";
 import { AppSecrets, AppWiring, workerEnv } from "./config";
+import { JOBS_QUEUE_AUTH } from "./jobs-queue-auth";
 import { UID } from "../constants";
 
+/** The durable queue the tier drains (`aiq_api.jobs.queue.TABLE`). */
+const QUEUE_TABLE = "research_job_queue";
+
+/** The status of a row the queue gave up on (`aiq_agent.common.claim_queue.DEAD`). */
+const DEAD_STATUS = "dead";
+
 /**
- * Research worker tier (ADR-0021) — only deployed when jobExecution = "db".
+ * KEDA's measure of the tier's work: every research job queued or held by a
+ * worker. Counting claimed jobs too keeps the tier from scaling in underneath
+ * the jobs it is running. A FINISHED job is deleted from the table
+ * (`queue.mark_done`), so it needs no clause; a DEAD row is kept as the trace of
+ * a job that failed every claim and is never work, so it is left out.
+ */
+export const RESEARCH_QUEUE_DEPTH_QUERY = `SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE status <> '${DEAD_STATUS}'`;
+
+/** Seconds a pod gets, after its drain, to give back the jobs it did not finish and exit. */
+const GIVE_BACK_SLACK_SECONDS = 30;
+
+/**
+ * Research worker tier (ADR-0021, ADR-0078) — only deployed when jobExecution = "db".
  *
  * Dedicated worker replicas (same backend image, `GRID_ROLE=worker`) claim
  * deep-research jobs from Postgres and execute them, so the token-heavy
  * workload scales horizontally and independently of the chat/web tier. No web
  * port, no Dask, no PVC — workers are stateless (vectors live in shared Chroma,
- * job state in Postgres). An HPA scales them on CPU.
+ * job state in Postgres).
  *
- * ROLLOUT NOTE — this tier is the one where the default settings actively
- * destroy work. On SIGTERM the worker stops claiming and awaits its in-flight
+ * SCALED ON THE QUEUE, NOT ON CPU. A research job spends its time waiting on
+ * model providers, so CPU says nothing about the backlog (the CPU HPA this
+ * replaced stayed flat while jobs queued). KEDA runs `RESEARCH_QUEUE_DEPTH_QUERY`
+ * and asks for ceil(depth / concurrency) replicas between `minReplicas` and
+ * `maxReplicas`; an empty queue shrinks the tier to its floor (zero in dev).
+ * The claim is fair across organizations and holds one to
+ * `GRID_MAX_ACTIVE_JOBS_PER_ORG` jobs at once, so a deep queue from one office
+ * does not make the tier scale past what any single office may use of it.
+ *
+ * ROLLOUT NOTE — on SIGTERM the worker stops claiming and awaits its in-flight
  * research jobs (`aiq_api/jobs/worker.py`), which routinely run for minutes; the
  * Kubernetes default `terminationGracePeriodSeconds` of 30 SIGKILLs it long
- * before that drain finishes, so every deploy killed whatever research users
- * were waiting on. The grace period is now the `agentWorkerDrainSeconds` budget,
- * and the rollout surges (`maxUnavailable: 0`) so replacement capacity exists
- * before any draining worker goes away.
+ * before that drain finishes. The drain budget is `agentWorkerDrainSeconds`; the
+ * grace period is that plus time to give back what is still running (a job given
+ * back is claimed again from the start, at no cost in attempts), and the rollout
+ * surges (`maxUnavailable: 0`) so replacement capacity exists before any
+ * draining worker goes away.
  */
 export function installAgentWorker(
   w: AppWiring,
@@ -38,11 +66,11 @@ export function installAgentWorker(
   dependsOn: pulumi.Resource[],
 ): {
   deployment: k8s.apps.v1.Deployment;
-  hpa: k8s.autoscaling.v2.HorizontalPodAutoscaler;
+  scaledObject: k8s.apiextensions.CustomResource;
   pdb: k8s.policy.v1.PodDisruptionBudget;
 } {
   const labels = commonLabels("agent-worker");
-  const profile = agentWorkerRollout(cfg.agentWorker.drainSeconds);
+  const profile = agentWorkerRollout(cfg.agentWorker.drainSeconds + GIVE_BACK_SLACK_SECONDS);
   // No preStop: workers sit behind no Service, so there is no endpoint to
   // deprogram — they pull work from Postgres and stop pulling on SIGTERM.
   const shutdown = gracefulShutdown(profile);
@@ -52,7 +80,7 @@ export function installAgentWorker(
     {
       metadata: { name: "agent-worker", namespace: w.namespace, labels },
       spec: {
-        replicas: cfg.agentWorker.minReplicas,
+        replicas: Math.max(1, cfg.agentWorker.minReplicas),
         selector: { matchLabels: labels },
         ...surgeRollout(profile),
         template: {
@@ -119,6 +147,7 @@ export function installAgentWorker(
     {
       provider: w.provider,
       dependsOn: [secrets.secret, ...dependsOn],
+      // KEDA owns the replica count once the ScaledObject exists.
       ignoreChanges: ["spec.replicas"],
       // Each replica may hold the rollout for a full drain budget, and the
       // replacement gets a 10-minute cold-start startupProbe window on top —
@@ -132,31 +161,51 @@ export function installAgentWorker(
     },
   );
 
-  const hpa = new k8s.autoscaling.v2.HorizontalPodAutoscaler(
+  const scaledObject = new k8s.apiextensions.CustomResource(
     "agent-worker",
     {
+      apiVersion: "keda.sh/v1alpha1",
+      kind: "ScaledObject",
       metadata: { name: "agent-worker", namespace: w.namespace, labels },
       spec: {
-        scaleTargetRef: { apiVersion: "apps/v1", kind: "Deployment", name: deployment.metadata.name },
-        minReplicas: cfg.agentWorker.minReplicas,
-        maxReplicas: cfg.agentWorker.maxReplicas,
-        metrics: [
-          {
-            type: "Resource",
-            resource: {
-              name: "cpu",
-              target: { type: "Utilization", averageUtilization: cfg.agentWorker.hpaCpuTargetPercent },
+        scaleTargetRef: { name: deployment.metadata.name },
+        minReplicaCount: cfg.agentWorker.minReplicas,
+        maxReplicaCount: cfg.agentWorker.maxReplicas,
+        pollingInterval: 15,
+        // Scale-in waits this long after the queue empties, so a burst that
+        // arrives in waves does not pay a cold start (NAT build) per wave.
+        cooldownPeriod: 300,
+        advanced: {
+          horizontalPodAutoscalerConfig: {
+            behavior: {
+              // Out fast (the backlog is real), in slowly and a pod at a time
+              // (each one drains for up to `drainSeconds`).
+              scaleUp: { stabilizationWindowSeconds: 0, policies: [{ type: "Percent", value: 100, periodSeconds: 30 }] },
+              scaleDown: { stabilizationWindowSeconds: 300, policies: [{ type: "Pods", value: 1, periodSeconds: 60 }] },
             },
+          },
+        },
+        triggers: [
+          {
+            type: "postgresql",
+            metadata: {
+              query: RESEARCH_QUEUE_DEPTH_QUERY,
+              targetQueryValue: String(cfg.agentWorker.concurrency),
+              activationTargetQueryValue: "0",
+            },
+            // The shared TriggerAuthentication (`jobs-queue-auth.ts`): both Python
+            // claim queues live in the same database.
+            authenticationRef: { name: JOBS_QUEUE_AUTH },
           },
         ],
       },
     },
-    { provider: w.provider, dependsOn: deployment },
+    { provider: w.provider, dependsOn: [deployment, ...dependsOn] },
   );
 
   // One-at-a-time voluntary disruptions so an upgrade node drain can't evict
   // the whole worker tier and stall all in-flight research jobs at once.
   const pdb = installPdb("agent-worker", w.namespace, w.provider, labels, [deployment]);
 
-  return { deployment, hpa, pdb };
+  return { deployment, scaledObject, pdb };
 }

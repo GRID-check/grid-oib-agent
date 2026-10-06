@@ -5,7 +5,8 @@ import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedContainerSecurityContext } from "../platform/security";
 import { agentWorkerRollout, gracefulShutdown, secretChecksumAnnotations, surgeRollout } from "../platform/rollout";
-import { AppSecrets, AppWiring, SECRET_NAME, ingestWorkerEnv } from "./config";
+import { AppSecrets, AppWiring, ingestWorkerEnv } from "./config";
+import { JOBS_QUEUE_AUTH } from "./jobs-queue-auth";
 import { UID } from "../constants";
 
 /** The durable queue the tier drains (`aiq_agent.knowledge.ingest_queue.TABLE`). */
@@ -125,19 +126,6 @@ export function installIngestWorker(
     },
   );
 
-  // How KEDA reads the queue: a libpq DSN whose host is the FQDN, because the
-  // operator resolves names in its own namespace (`KEDA_INGEST_QUEUE_DB_URL`).
-  const auth = new k8s.apiextensions.CustomResource(
-    "ingest-queue-auth",
-    {
-      apiVersion: "keda.sh/v1alpha1",
-      kind: "TriggerAuthentication",
-      metadata: { name: "ingest-queue-auth", namespace: w.namespace, labels },
-      spec: { secretTargetRef: [{ parameter: "connection", name: SECRET_NAME, key: "KEDA_INGEST_QUEUE_DB_URL" }] },
-    },
-    { provider: w.provider, dependsOn },
-  );
-
   const scaledObject = new k8s.apiextensions.CustomResource(
     "ingest-worker",
     {
@@ -170,12 +158,14 @@ export function installIngestWorker(
               targetQueryValue: String(cfg.ingestWorker.concurrency),
               activationTargetQueryValue: "0",
             },
-            authenticationRef: { name: auth.metadata.name },
+            // The shared TriggerAuthentication (`jobs-queue-auth.ts`), created once
+            // for both Python claim queues and passed in through `dependsOn`.
+            authenticationRef: { name: JOBS_QUEUE_AUTH },
           },
         ],
       },
     },
-    { provider: w.provider, dependsOn: [deployment, auth] },
+    { provider: w.provider, dependsOn: [deployment, ...dependsOn] },
   );
 
   const pdb = installPdb("ingest-worker", w.namespace, w.provider, labels, [deployment]);

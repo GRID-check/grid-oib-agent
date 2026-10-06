@@ -205,7 +205,8 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | **Agent (backend web tier)** | | |
 | `backendRequestsCpu/Memory`, `backendLimitsCpu/Memory` | 1 / 2Gi / 4 / 8Gi | Vertical scaling |
 | `backendDaskWorkers` / `backendDaskThreads` | 1 / 4 | In-process research parallelism (dask mode) |
-| `backendMaxActiveJobs` / `backendMaxActiveJobsPerOrg` | 8 / 3 | Admission caps (0 = off) |
+| `backendMaxActiveJobs` / `backendMaxActiveJobsPerOrg` | 8 / 3 | Admission caps (0 = off). `db` execution: the global one does nothing (a full cluster waits, ADR-0078) and the per-org one is the workers' claim cap, jobs running at once; Dask: both refuse with 429 |
+| `backendMaxQueuedJobsPerOrg` | `50` | `db` execution: research jobs one organisation may have waiting (`GRID_MAX_QUEUED_JOBS_PER_ORG`), the only 429 left. 0 = off |
 | `backendIngestMaxWorkers` | `2` | Concurrent ingestion bound |
 | `backendConfigFile` | `config_oib_openrouter.yml` | Baked backend config path |
 | `backendDataStorageSize` | `20Gi` | Per-replica /app/data volume (grow via PVC patch) |
@@ -221,10 +222,9 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | 🔒 `jobPayloadKek` | — | REQUIRED for db mode (encrypts job payloads at rest) |
 | `allowPlaintextJobPayloads` | `false` | Dev-only escape hatch for the KEK requirement |
 | `agentWorkerRequestsCpu/Memory`, `agentWorkerLimitsCpu/Memory` | 1 / 2Gi / 4 / 8Gi | Worker sizing |
-| `agentWorkerMinReplicas` / `agentWorkerMaxReplicas` | 2 / 8 | Worker HPA bounds |
-| `agentWorkerHpaCpuTargetPercent` | `70` | Worker HPA target |
-| `agentWorkerConcurrency` | `1` | Jobs per worker process |
-| `agentWorkerDrainSeconds` | `600` | Seconds a terminating worker may spend finishing already-claimed research jobs (`terminationGracePeriodSeconds`). Below this the kubelet SIGKILLs the drain, so deploys and node drains destroy in-flight research. Costs deploy latency — workers roll one at a time. Floor 30 |
+| `agentWorkerMinReplicas` / `agentWorkerMaxReplicas` | 1 / 8 | KEDA bounds for the worker tier, which scales on `research_job_queue` depth (not CPU). 0 lets it idle while nothing waits; dev sets 0 |
+| `agentWorkerConcurrency` | `1` | Jobs per worker process; KEDA asks for one replica per this many open jobs |
+| `agentWorkerDrainSeconds` | `600` | Seconds a terminating worker may spend finishing already-claimed research jobs (`GRID_RESEARCH_WORKER_DRAIN_SECONDS`); the grace period is this plus 30 s. A job still running when it ends is requeued without costing an attempt and started over by another worker, so the budget decides how much work a deploy repeats. Costs deploy latency — workers roll one at a time. Floor 30 |
 | **Frontend** | | |
 | `frontendRequestsCpu/Memory`, `frontendLimitsCpu/Memory` | 100m / 256Mi / 1 / 1Gi | Sizing |
 | `frontendMinReplicas` / `frontendMaxReplicas` | 2 / 6 | HPA bounds |

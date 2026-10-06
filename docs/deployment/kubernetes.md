@@ -20,6 +20,7 @@ their own namespaces.
 |---|---|---|---|---|
 | `aiq-agent` (agent web tier) | **StatefulSet** | 1 (dask) / N (db, default 2) | RWO PVC `/app/data` per replica | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4 |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | 2→6 | — | Horizontally (CPU HPA) |
+| `agent-worker` (research, `jobExecution: db`) | Deployment + KEDA ScaledObject | 0–1→8 | — | Horizontally, on `research_job_queue` depth (§6.3) |
 | `purger` | Deployment | 1 | — | n/a (SKIP LOCKED-safe) |
 | `skill-scheduler` | Deployment (always; fires schedules only when `skillsEnabled`, drives the run reconciler either way) | 1 | — | n/a (DB-claimed ticks) |
 | `postgres` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) | CloudNativePG `Cluster` | 1 (→3 HA) | RWO PVC | Add replicas |
@@ -188,7 +189,7 @@ specs and flips pullPolicy to `Always`) — never a bare `pulumi up --refresh`.
 
 **Size worker groups against the HPA ceilings.** The autoscaler only adds
 nodes within a worker group's min/max. If frontend `maxReplicas` (6) +
-agent-worker `maxReplicas` (8) + ingest-worker `maxReplicas` (12, KEDA) +
+agent-worker `maxReplicas` (8, KEDA) + ingest-worker `maxReplicas` (12, KEDA) +
 bff-jobs `maxReplicas` (4, KEDA) + the fixed tiers exceed the group's max
 capacity, the extra pods sit Pending forever. Check the sum of limits at max
 scale against the group product when sizing.
@@ -196,9 +197,10 @@ scale against the group product when sizing.
 **Cluster-autoscaler scales on *unschedulable pods*, not utilisation.** Its
 documented prerequisites — an HPA as the first scaling tier, `requests`/`limits`
 on every container, and `topologySpreadConstraints` — are all met: HPAs on
-`frontend` + `agent-worker`, requests **and** limits on every workload, and the
-spread constraints above. So a burst first scales pods via HPA, and only if pods
-go Pending does a node get added.
+`frontend` (CPU), the KEDA-driven queue tiers (`agent-worker`, `ingest-worker`,
+`bff-jobs`), requests **and** limits on every workload, and the spread
+constraints above. So a burst first scales pods, and only if pods go Pending does
+a node get added.
 
 **Node loss wipes ephemeral storage; only PVCs survive.** On node replacement,
 `emptyDir` / `hostPath` / container-fs are gone. This stack uses **none** of
@@ -986,14 +988,36 @@ The token-heavy workload (deep research) now scales out. Set
   (`frontends/aiq_api/src/aiq_api/jobs/queue.py`); dedicated **`agent-worker`**
   replicas (same image, `GRID_ROLE=worker`) claim rows with `FOR UPDATE SKIP
   LOCKED`, run the same `run_agent_job` body, and heartbeat the claim so a crash
-  is reclaimed. An HPA scales them on CPU. The web tier runs **no Dask** in this
-  mode.
+  is reclaimed. The claim is fair (below) and KEDA scales the tier on the queue,
+  not on CPU. The web tier runs **no Dask** in this mode.
 - **Cancellation works from any replica** — the cancel route flips `job_info` to
   INTERRUPTED and drops the queue row; the runner's 1 s `CancellationMonitor`
   honors it. No scheduler is involved.
 - **Shared vectors** (Stage A, `chromaEnabled: true`): the shared Chroma server
   means workers and web replicas read/write one store.
 - **Citation registry** already shares cross-replica via Dragonfly (ADR-0020).
+
+- **The claim is fair, and a full cluster waits** (ADR-0078). A free worker
+  takes the next job of the organisation with the fewest research jobs running
+  fleet-wide, then the one served longest ago; inside one office a `bulk` job
+  (a scheduled fire) goes after an `interactive` one. `GRID_MAX_ACTIVE_JOBS` is
+  no longer a 429 in this mode: a job over capacity waits as `queued`, and a
+  scheduled task is not skipped for it. `backendMaxActiveJobsPerOrg` is the
+  claim's per-organisation cap (jobs running at once). The one refusal left is
+  `backendMaxQueuedJobsPerOrg` (default 50), a bound on how many jobs one
+  organisation may have waiting.
+- **KEDA scales `agent-worker` on `research_job_queue`**, replacing the CPU HPA,
+  which an LLM-bound job barely moves: its `postgresql` trigger counts the rows
+  that are not `dead` (a finished job's row is deleted) and asks for
+  ceil(jobs / `agentWorkerConcurrency`) replicas between `agentWorkerMinReplicas`
+  and `agentWorkerMaxReplicas`. Out at once, in a pod a minute; dev's floor is 0
+  and prod's is 1. It reads the queue through `jobs-queue-auth`, the
+  TriggerAuthentication it shares with the ingest tier (one database).
+- **A drain gives work back.** On SIGTERM the worker waits
+  `agentWorkerDrainSeconds` for the jobs it holds, then requeues what still runs
+  without spending an attempt; another worker starts it over. A job that crashes
+  every worker that takes it is kept as a `dead` row for
+  `GRID_RESEARCH_DEAD_RETENTION_DAYS`.
 
 Safe rollout: `jobExecution: dask` (default in code) is byte-for-byte today's
 behaviour; flip to `db` per environment. `agentWorkerMinReplicas` /
@@ -1314,11 +1338,13 @@ reasoning; the tier modules only pick a profile.
 and then *awaits its in-flight jobs* (`aiq_api/jobs/worker.py`). Deep-research
 runs take minutes, so the 30s default killed them — every deploy, every node
 drain, silently. `grid-oib:agentWorkerDrainSeconds` (default 600, staging 180)
-is now that budget. The cost is deploy latency: workers roll one at a time and a
-draining pod holds its slot for up to the full budget, so `pulumi up` on this
-tier can take (drain × replicas) in the worst case. That is the trade being
-made deliberately — lower it only if losing in-flight research is preferable to
-waiting.
+is now that budget, and the pod's grace period is that plus 30 s to give back
+what is still running (it is requeued without costing an attempt, and another
+worker starts it over). The cost is deploy latency: workers roll one at a time
+and a draining pod holds its slot for up to the full budget, so `pulumi up` on
+this tier can take (drain × replicas) in the worst case. That is the trade being
+made deliberately — lower it only if repeating in-flight research is preferable
+to waiting.
 
 **Secret rotation is a rollout, not a no-op.** Values injected with
 `secretKeyRef` are read once, at container start. Before this, rotating a key
