@@ -10,7 +10,7 @@
  *   ✓ Danke für Ihr Feedback.            ← lands on that SAME line after a vote
  *   Was war das Problem?                 ← down only, disclosed below it
  *   [Ungenau] [Zu langsam] [Falsche Quelle] [Sonstiges]
- *   ┌ Noch etwas? ────────┐              ← disclosed once a reason is chosen
+ *   ┌ Noch etwas? ────────┐              ← down only, with the reasons
  *   └─────────────────────┘  [Hinweis senden]
  *
  * Two placements, one shape: standalone it is that block; `compact` hands the
@@ -20,8 +20,11 @@
  * The vote is the whole transaction: `useAnswerFeedback` persists it the moment
  * a thumb is pressed, so the confirmation is the truth about what happened and
  * is stated once, on the vote's own line. The reason and the note are a
- * SEPARATE, optional second act, disclosed one step at a time — never an open
- * form sitting under a "thanks" that claims the same act is already finished.
+ * SEPARATE, optional second act — never an open form sitting under a "thanks"
+ * that claims the same act is already finished. Reason and note are each
+ * optional and neither waits for the other: when the note waited for a chip,
+ * a voter who skipped the chips never saw it, and the October 2026 export had
+ * down-votes with neither, nothing the cause labelling could read.
  *
  * ── Weight ───────────────────────────────────────────────────────────────────
  * This sits under EVERY answer, including one-line ones, so at rest it is a
@@ -112,9 +115,9 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
 
   const verdict = state?.verdict ?? null
   const reason = state?.reason ?? null
-  /** The note is the LAST step and only exists once a reason names the problem;
-   *  a persisted comment means the second act is finished, so it collapses. */
-  const showNote = verdict === 'down' && reason !== null && !state?.comment
+  /** The note sits beside the reasons, not behind them; a persisted comment
+   *  means the second act is finished, so it collapses. */
+  const showNote = verdict === 'down' && !state?.comment
   const promptId = `answer-feedback-reason-${messageId}`
   const commentId = `answer-feedback-comment-${messageId}`
 
@@ -147,7 +150,9 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
       event.preventDefault()
       const next = comment.trim()
       if (!next) return
-      setFeedback({ verdict: 'down', reason: reason ?? 'other', comment: next })
+      // A note without a chip keeps its reason null: "other" would be a
+      // reason the voter never chose.
+      setFeedback({ verdict: 'down', reason, comment: next })
       setComment('')
     },
     [comment, setFeedback, reason],

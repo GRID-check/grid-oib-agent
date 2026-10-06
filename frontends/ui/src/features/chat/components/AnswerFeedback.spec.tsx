@@ -123,7 +123,7 @@ describe('AnswerFeedback', () => {
   })
 
   describe('down-vote path', () => {
-    test('discloses the reasons one step at a time, note last', async () => {
+    test('discloses the reasons and the note together, each optional', async () => {
       const user = userEvent.setup()
       render(<AnswerFeedback messageId="msg_1" conversationId="conv_1" />)
 
@@ -143,8 +143,9 @@ describe('AnswerFeedback', () => {
       for (const label of ['Inaccurate', 'Too slow', 'Wrong source', 'Other']) {
         expect(screen.getByRole('radio', { name: label })).toBeInTheDocument()
       }
-      // Step 3 has NOT happened yet: no note before a reason names the problem.
-      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+      // The note does not wait for a reason: a voter who skips the chips
+      // still gets the box.
+      expect(screen.getByLabelText('Anything else?')).toBeInTheDocument()
 
       await user.click(screen.getByRole('radio', { name: 'Wrong source' }))
 
@@ -156,9 +157,24 @@ describe('AnswerFeedback', () => {
         comment: null,
       })
 
-      // Step 3: the optional note appears only now.
-      expect(screen.getByRole('textbox')).toBeInTheDocument()
+      // Choosing a reason keeps the note open.
       expect(screen.getByLabelText('Anything else?')).toBeInTheDocument()
+    })
+
+    test('a note without a reason is sent with its reason left empty', async () => {
+      const user = userEvent.setup()
+      render(<AnswerFeedback messageId="msg_1" conversationId="conv_1" />)
+
+      await user.click(downThumb())
+      await user.type(screen.getByRole('textbox'), 'Brüstungshöhe nicht gefunden.')
+      await user.click(screen.getByRole('button', { name: 'Send note' }))
+
+      await waitFor(() => expect(postCalls()).toHaveLength(2))
+      expect(JSON.parse((postCalls()[1] as [string, RequestInit])[1].body as string)).toMatchObject({
+        verdict: 'down',
+        reason: null,
+        comment: 'Brüstungshöhe nicht gefunden.',
+      })
     })
 
     test('the reason chips are keyboard-operable as one radiogroup', async () => {
