@@ -11,7 +11,10 @@
  *   4. POSTs the BFF's run reconciler (`/api/internal/runs/reconcile`), which
  *      closes the runs whose ending never reached the BFF by asking the job
  *      store, and settles the block of any closed run that still reads
- *      „läuft" (`lib/runs/reconcile.ts`, backlog T3-11).
+ *      „läuft" (`lib/runs/reconcile.ts`, backlog T3-11);
+ *   5. once a day, deletes the Langfuse traces older than the retention window
+ *      (`sweepTraceRetention`; ADR-0044 — Langfuse's own retention setting is an
+ *      Enterprise feature, the delete API is not).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
@@ -21,6 +24,11 @@
  *   GRID_SKILL_SCHEDULER_POLL_MS       - tick interval (default 30000)
  *   GRID_SKILL_SCHEDULER_BATCH         - max claims per tick (default 20)
  *   GRID_SKILL_RUNS_RETENTION_DAYS     - run-history retention (default 90)
+ *   LANGFUSE_HOST / LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY
+ *                                      - Langfuse API for the trace retention
+ *                                        sweep (all three, or it is a no-op)
+ *   GRID_LANGFUSE_TRACE_RETENTION_DAYS - how long Langfuse traces live
+ *                                        (default 30, minimum 3)
  *
  * Schedules gate (steps 1-3): only when GRID_SKILLS_ENABLED=true or
  * GRID_ENFORCE_FEATURE_FLAGS=true. Step 4 runs regardless, because runs exist
@@ -32,6 +40,13 @@
 const { createSql, claimDue, pruneOldRuns } = require('./db')
 const { nextOccurrence } = require('./cron')
 const { initOtelLogs } = require('../observability/otel-logs')
+const {
+  LangfuseError,
+  createTraceClient,
+  deleteTracesBefore,
+  readLangfuseConfig,
+  readTraceRetentionDays,
+} = require('../workers/langfuse-traces')
 const {
   createFailureStreak,
   databaseOutage,
@@ -72,7 +87,13 @@ function toPositiveInt(raw, fallback) {
 }
 
 function readConfig(env) {
+  const langfuse = readLangfuseConfig(env)
+  const traceRetention = readTraceRetentionDays(env)
   return {
+    langfuse: langfuse.config,
+    langfuseMissing: langfuse.missing,
+    traceRetentionDays: traceRetention.days,
+    traceRetentionClamped: traceRetention.clamped,
     frontendUrl: (env.FRONTEND_INTERNAL_URL || 'http://frontend:3000').replace(/\/$/, ''),
     internalToken: env.GRID_INTERNAL_API_TOKEN || '',
     pollMs: toPositiveInt(env.GRID_SKILL_SCHEDULER_POLL_MS, 30000),
@@ -95,6 +116,12 @@ function createStreaks(config) {
     uploads: createFailureStreak({ label: `${LOG} upload sweep`, escalateAfter }),
     placement: createFailureStreak({ label: `${LOG} folder placement sweep`, escalateAfter }),
     database: createFailureStreak({ label: `${LOG} schedule claim`, escalateAfter }),
+    // Counts failed ATTEMPTS, one an hour at most (`TRACE_RETENTION_RETRY_MS`),
+    // not ticks: three in a row is about three hours of Langfuse being wrong.
+    traceRetention: createFailureStreak({ label: `${LOG} trace retention`, escalateAfter: 3 }),
+    // When the retention sweep may next run. Lives with the streaks because both
+    // must outlive the tick; a fresh one per tick would sweep on every tick.
+    traceRetentionClock: { nextRunAt: 0 },
   }
 }
 
@@ -159,6 +186,53 @@ async function sweepPlacement(config, fetchImpl, streak) {
         ? `checked ${counts.checked}, moved ${counts.moved}, still pending ${counts.pending}, failed ${counts.failed}`
         : null,
   })
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+/** Between a sweep's finish and the next: it is a daily job. */
+const TRACE_RETENTION_INTERVAL_MS = DAY_MS
+/** After a failed sweep. Not the 30 s tick: Langfuse is down or wrong, and a retry storm helps neither. */
+const TRACE_RETENTION_RETRY_MS = 60 * 60 * 1000
+
+/**
+ * The Langfuse trace retention sweep: delete the traces older than
+ * `traceRetentionDays`, at most `DEFAULT_MAX_BATCHES` delete requests per run
+ * (`workers/langfuse-traces.js`), so a backlog drains over days. Runs once a day
+ * counted from the previous run, the first one on the first tick after the
+ * process starts; every replica running it is harmless, the deletes repeat
+ * safely. Not configured is a no-op (the boot line says so) and never throws:
+ * a Langfuse that is down delays the sweep, and a failed one retries in an hour.
+ *
+ * A transient failure (transport, timeout, 429, 5xx) goes to `streak` as WARN
+ * and escalates to one ERROR after three attempts in a row; any other
+ * (a 401, a 404 from a Langfuse not in a v4 write mode, a filter Langfuse
+ * ignored) is a real fault and logs at ERROR at once, with no ids and no body.
+ * Returns the counts of a run that happened, or null.
+ */
+async function sweepTraceRetention(config, fetchImpl, streak, clock, now = new Date()) {
+  if (!config.langfuse || now.getTime() < clock.nextRunAt) return null
+  const cutoff = new Date(now.getTime() - config.traceRetentionDays * DAY_MS)
+  try {
+    const client = createTraceClient(config.langfuse, fetchImpl)
+    const result = await deleteTracesBefore(client, cutoff)
+    clock.nextRunAt = now.getTime() + TRACE_RETENTION_INTERVAL_MS
+    streak.succeeded()
+    console.log(
+      `${LOG} trace retention: asked Langfuse to delete ${result.traces} trace(s) older than ` +
+        `${config.traceRetentionDays} days (before ${cutoff.toISOString()}) in ${result.batches} batch(es)` +
+        (result.capped ? '; more remain, the next run continues' : ''),
+    )
+    return result
+  } catch (error) {
+    clock.nextRunAt = now.getTime() + TRACE_RETENTION_RETRY_MS
+    if (error instanceof LangfuseError && error.transient) {
+      streak.failed({ kind: error.kind, detail: error.message })
+    } else {
+      const kind = error instanceof LangfuseError ? error.kind : 'unexpected error'
+      console.error(`${LOG} trace retention failed: ${kind} (${error instanceof Error ? error.message : error})`)
+    }
+    return null
+  }
 }
 
 /**
@@ -274,6 +348,7 @@ async function tick(sql, config, fetchImpl, streaks) {
   await reconcileRuns(config, fetchImpl, streaks.reconcile)
   await sweepUploads(config, fetchImpl, streaks.uploads)
   await sweepPlacement(config, fetchImpl, streaks.placement)
+  await sweepTraceRetention(config, fetchImpl, streaks.traceRetention, streaks.traceRetentionClock)
   return fired
 }
 
@@ -356,6 +431,12 @@ function main() {
         `running the run reconciler only, every ${config.pollMs}ms (target ${config.frontendUrl})`,
     )
   }
+  console.log(
+    `${LOG} Langfuse trace retention: ` +
+      (config.langfuse
+        ? `${config.traceRetentionDays} days${config.traceRetentionClamped ? ' (GRID_LANGFUSE_TRACE_RETENTION_DAYS is below the minimum of 3 or invalid, corrected)' : ''}`
+        : `off (missing ${config.langfuseMissing.join(', ')})`),
+  )
   void runTick()
   setInterval(() => void runTick(), config.pollMs)
 }
@@ -373,6 +454,7 @@ module.exports = {
   reconcileRuns,
   sweepUploads,
   sweepPlacement,
+  sweepTraceRetention,
   tick,
   INTERNAL_TOKEN_HEADER,
 }

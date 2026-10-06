@@ -10,6 +10,7 @@ import {
   reconcileRuns,
   sweepUploads,
   sweepPlacement,
+  sweepTraceRetention,
   tick,
   INTERNAL_TOKEN_HEADER,
 } from './index.js'
@@ -409,5 +410,164 @@ describe('sweepPlacement (retries a restriction an outage interrupted, ADR-0078)
     await sweepPlacement(config, vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(busy) }), streak())
     expect(log.mock.calls[0].join(' ')).toContain('folder placement sweep: checked 2, moved 3, still pending 1, failed 0')
     log.mockRestore()
+  })
+})
+
+describe('Langfuse trace retention (ADR-0044)', () => {
+  const NOW = new Date('2026-10-06T12:00:00.000Z')
+  const DAY = 24 * 60 * 60 * 1000
+  const env = {
+    LANGFUSE_HOST: 'http://langfuse-web:3000',
+    LANGFUSE_PUBLIC_KEY: 'pk-lf-1',
+    LANGFUSE_SECRET_KEY: 'sk-lf-2', // pragma: allowlist secret
+  }
+  const streak = () => ({ failed: vi.fn(), succeeded: vi.fn() })
+  const answer = (status, body = {}) => ({ ok: status < 300, status, json: () => Promise.resolve(body) })
+  const roots = (n, from = 0) =>
+    Array.from({ length: n }, (_, i) => ({ traceId: `t${from + i}`, startTime: '2026-08-01T00:00:00.000Z' }))
+
+  /** A Langfuse with `pages` of old root observations; records the lists and deletes. */
+  function langfuse(pages) {
+    const lists = []
+    const deletes = []
+    let served = 0
+    const fetchImpl = vi.fn(async (url, init) => {
+      if (init.method === 'DELETE') {
+        deletes.push(JSON.parse(init.body).traceIds)
+        return answer(200, { message: 'ok' })
+      }
+      lists.push(Object.fromEntries(new URL(url).searchParams))
+      const page = pages[served] ?? []
+      served += 1
+      return answer(200, { data: page, meta: served < pages.length ? { cursor: `c${served}` } : {} })
+    })
+    return { fetchImpl, lists, deletes }
+  }
+
+  describe('readConfig', () => {
+    it('keeps retention off without the three Langfuse settings, and defaults the window to 30 days', () => {
+      const c = readConfig({})
+      expect(c.langfuse).toBeNull()
+      expect(c.langfuseMissing).toEqual(['LANGFUSE_HOST', 'LANGFUSE_PUBLIC_KEY', 'LANGFUSE_SECRET_KEY'])
+      expect(c.traceRetentionDays).toBe(30)
+    })
+
+    it('reads GRID_LANGFUSE_TRACE_RETENTION_DAYS and never goes below the 3-day minimum', () => {
+      expect(readConfig({ ...env, GRID_LANGFUSE_TRACE_RETENTION_DAYS: '14' }).traceRetentionDays).toBe(14)
+      expect(readConfig({ ...env, GRID_LANGFUSE_TRACE_RETENTION_DAYS: '1' }).traceRetentionDays).toBe(3)
+      expect(readConfig({ ...env, GRID_LANGFUSE_TRACE_RETENTION_DAYS: 'x' }).traceRetentionDays).toBe(30)
+      expect(readConfig(env).langfuse.host).toBe('http://langfuse-web:3000')
+    })
+  })
+
+  describe('sweepTraceRetention', () => {
+    it('is a no-op without Langfuse configured: no request, no state change', async () => {
+      const fetchImpl = vi.fn()
+      const clock = { nextRunAt: 0 }
+      expect(await sweepTraceRetention(readConfig({}), fetchImpl, streak(), clock, NOW)).toBeNull()
+      expect(fetchImpl).not.toHaveBeenCalled()
+      expect(clock.nextRunAt).toBe(0)
+    })
+
+    it('deletes traces older than the window: the cutoff is now minus the retention days', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+      const { fetchImpl, lists, deletes } = langfuse([roots(3)])
+      const s = streak()
+
+      const result = await sweepTraceRetention(readConfig({ ...env, GRID_LANGFUSE_TRACE_RETENTION_DAYS: '14' }), fetchImpl, s, { nextRunAt: 0 }, NOW)
+
+      expect(result).toEqual({ traces: 3, batches: 1, capped: false })
+      expect(lists[0].toStartTime).toBe(new Date(NOW.getTime() - 14 * DAY).toISOString())
+      expect(deletes).toEqual([['t0', 't1', 't2']])
+      expect(s.succeeded).toHaveBeenCalled()
+      expect(log.mock.calls[0].join(' ')).toContain('asked Langfuse to delete 3 trace(s) older than 14 days')
+      log.mockRestore()
+    })
+
+    it('cuts off 30 days back by default and 3 days back at the very least', async () => {
+      const a = langfuse([[]])
+      await sweepTraceRetention(readConfig(env), a.fetchImpl, streak(), { nextRunAt: 0 }, NOW)
+      expect(a.lists[0].toStartTime).toBe(new Date(NOW.getTime() - 30 * DAY).toISOString())
+
+      const b = langfuse([[]])
+      await sweepTraceRetention(readConfig({ ...env, GRID_LANGFUSE_TRACE_RETENTION_DAYS: '0' }), b.fetchImpl, streak(), { nextRunAt: 0 }, NOW)
+      // '0' is not a valid window: the default, never "delete everything".
+      expect(b.lists[0].toStartTime).toBe(new Date(NOW.getTime() - 30 * DAY).toISOString())
+
+      const c = langfuse([[]])
+      await sweepTraceRetention(readConfig({ ...env, GRID_LANGFUSE_TRACE_RETENTION_DAYS: '2' }), c.fetchImpl, streak(), { nextRunAt: 0 }, NOW)
+      expect(c.lists[0].toStartTime).toBe(new Date(NOW.getTime() - 3 * DAY).toISOString())
+    })
+
+    it('sends at most 50 delete batches per run and continues the next day', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {})
+      const pages = Array.from({ length: 60 }, (_, i) => roots(1000, i * 1000))
+      const { fetchImpl, deletes } = langfuse(pages)
+      const clock = { nextRunAt: 0 }
+
+      const result = await sweepTraceRetention(readConfig(env), fetchImpl, streak(), clock, NOW)
+
+      expect(deletes).toHaveLength(50)
+      expect(deletes.every((ids) => ids.length === 1000)).toBe(true)
+      expect(result).toMatchObject({ traces: 50000, batches: 50, capped: true })
+      expect(console.log.mock.calls[0].join(' ')).toContain('more remain')
+    })
+
+    it('runs once a day: not again within 24 hours, again after', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {})
+      const { fetchImpl } = langfuse([[], [], []])
+      const config = readConfig(env)
+      const clock = { nextRunAt: 0 }
+
+      await sweepTraceRetention(config, fetchImpl, streak(), clock, NOW)
+      const afterFirst = fetchImpl.mock.calls.length
+      await sweepTraceRetention(config, fetchImpl, streak(), clock, new Date(NOW.getTime() + DAY - 1))
+      expect(fetchImpl.mock.calls.length).toBe(afterFirst)
+
+      await sweepTraceRetention(config, fetchImpl, streak(), clock, new Date(NOW.getTime() + DAY))
+      expect(fetchImpl.mock.calls.length).toBeGreaterThan(afterFirst)
+    })
+
+    it('treats a Langfuse outage as transient (WARN streak, never throws) and retries in an hour', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const fetchImpl = vi.fn().mockResolvedValue(answer(503))
+      const s = streak()
+      const clock = { nextRunAt: 0 }
+
+      expect(await sweepTraceRetention(readConfig(env), fetchImpl, s, clock, NOW)).toBeNull()
+
+      expect(s.failed).toHaveBeenCalledWith(expect.objectContaining({ kind: 'HTTP 503' }))
+      expect(error).not.toHaveBeenCalled()
+      expect(clock.nextRunAt).toBe(NOW.getTime() + 60 * 60 * 1000)
+    })
+
+    it('logs a 401 at ERROR at once, without the keys or the host', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const s = streak()
+
+      await sweepTraceRetention(readConfig(env), vi.fn().mockResolvedValue(answer(401)), s, { nextRunAt: 0 }, NOW)
+
+      expect(s.failed).not.toHaveBeenCalled()
+      expect(error).toHaveBeenCalledTimes(1)
+      const line = error.mock.calls[0].join(' ')
+      expect(line).toContain('trace retention failed: HTTP 401')
+      expect(line).not.toContain('sk-lf')
+      expect(line).not.toContain('langfuse-web')
+    })
+
+    it('is part of every tick, after the sweeps, and still only the one run a day', async () => {
+      vi.spyOn(console, 'log').mockImplementation(() => {})
+      const base = { ...readConfig(env), frontendUrl: 'http://frontend:3000', internalToken: 't', batch: 20, retentionDays: 90, pollMs: 30000, schedulesEnabled: false }
+      const lf = langfuse([[]])
+      const fetchImpl = vi.fn(async (url, init) =>
+        url.startsWith('http://frontend') ? answer(200, {}) : lf.fetchImpl(url, init),
+      )
+      const streaks = createStreaks(base)
+
+      await tick({ begin: vi.fn() }, base, fetchImpl, streaks)
+      await tick({ begin: vi.fn() }, base, fetchImpl, streaks)
+
+      expect(lf.lists).toHaveLength(1)
+    })
   })
 })

@@ -67,6 +67,12 @@ export interface PurgeDeps {
     };
   };
   deleteStoragePrefix: (bucket: string, prefix: string) => Promise<number>;
+  /**
+   * Delete a conversation's Langfuse traces (`workers/langfuse-traces.js`). A
+   * logged no-op when Langfuse is not configured; throws on a failed call, so
+   * the queue row's attempts and backoff are the retry. Idempotent.
+   */
+  eraseConversationTraces: (conversationId: string) => Promise<unknown>;
   /** Overridden in specs; defaults to global `fetch`. */
   fetchImpl?: typeof fetch;
 }

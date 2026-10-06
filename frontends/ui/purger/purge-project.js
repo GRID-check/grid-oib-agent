@@ -216,6 +216,17 @@ async function purgeProject(tx, entry, deps) {
     await purgeBackendCollection(deps, fetchImpl, restrictedCollection, [])
   }
 
+  // 1d. The chats' Langfuse traces, found by session id = conversation id. Read
+  //     from the rows here, like every pointer above: step 4 deletes them. One
+  //     erasure per chat with the hold re-checked before each, since each is an
+  //     external destructive step; a failure throws before anything below has
+  //     run, so the rows that name the chats drive the retry. Chats erased on
+  //     their own earlier took their traces then. A logged no-op without Langfuse.
+  for (const conversation of conversations) {
+    await assertNoHold(tx, entry)
+    await deps.eraseConversationTraces(conversation.id)
+  }
+
   // Re-check the hold before EACH external destructive step to keep the TOCTOU
   // window to a single step (see file header). Aborts release the row.
   await assertNoHold(tx, entry)

@@ -90,6 +90,7 @@ function makeDeps(overrides = {}) {
     bucket: 'grid-documents',
     fetchImpl: vi.fn().mockResolvedValue({ ok: true }),
     deleteStoragePrefix: vi.fn().mockResolvedValue(3),
+    eraseConversationTraces: vi.fn().mockResolvedValue({ configured: true, traces: 0, batches: 0 }),
     workos: {
       authorization: {
         deleteResourceByExternalId: vi.fn().mockResolvedValue(undefined),
@@ -279,6 +280,61 @@ describe('purgeProject', () => {
     await expect(purgeProject(tx, entry, deps)).rejects.toThrow(/SeaweedFS delete reported/)
     expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
     expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
+  })
+
+  // The chats' Langfuse traces (ADR-0044). Found by session id = conversation id,
+  // so the ids must be read before step 4 deletes the rows that hold them.
+  it('deletes the Langfuse traces of every chat of the project, before any row is deleted', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_a' }, { id: 's_b' }],
+    })
+    const deps = makeDeps()
+    const seenDeletesAtCall = []
+    deps.eraseConversationTraces.mockImplementation(async () => {
+      seenDeletesAtCall.push(executed.some((q) => q.text.startsWith('DELETE')))
+    })
+
+    await purgeProject(tx, entry, deps)
+
+    expect(deps.eraseConversationTraces.mock.calls).toEqual([['s_a'], ['s_b']])
+    expect(seenDeletesAtCall).toEqual([false, false])
+  })
+
+  it('makes no Langfuse call for a project without chats', async () => {
+    const { tx } = makeTx({ projectRow: { id: 'p1', collection_name: 'proj_abc' }, conversationRows: [] })
+    const deps = makeDeps()
+    await purgeProject(tx, entry, deps)
+    expect(deps.eraseConversationTraces).not.toHaveBeenCalled()
+  })
+
+  it('fails the purge when Langfuse cannot be reached, before WorkOS and the rows, so the row retries', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_a' }],
+    })
+    const deps = makeDeps()
+    deps.eraseConversationTraces.mockRejectedValue(new Error('Langfuse GET /api/public/v2/observations answered 503'))
+
+    await expect(purgeProject(tx, entry, deps)).rejects.toThrow(/answered 503/)
+
+    expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
+    expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
+  })
+
+  it('re-checks the hold before each chat’s trace erasure, so a hold placed part way stops the rest', async () => {
+    // Hold checks: 1 before any step; then one per chat. The hold appears on
+    // the check before the second chat.
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_a' }, { id: 's_b' }],
+      holdOnCheck: { 3: [{ held: true }] },
+    })
+    const deps = makeDeps()
+
+    await expect(purgeProject(tx, entry, deps)).rejects.toMatchObject({ code: LEGAL_HOLD_CODE })
+
+    expect(deps.eraseConversationTraces.mock.calls).toEqual([['s_a']])
   })
 
   it('treats an already-deleted WorkOS resource as success (idempotency)', async () => {
