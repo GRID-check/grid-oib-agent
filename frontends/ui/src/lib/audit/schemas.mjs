@@ -152,6 +152,29 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       detectors: 'string',
     },
   },
+  // The download log (ADR-0079): who took which document's bytes. It is
+  // personal data about staff, so READING it is recorded, one event per request
+  // (every page, every filter). The filters are named, not their values' hits:
+  // the event says who looked for whom, never what they found. The emitter is
+  // `recordAuditEventOrThrow`: a read that cannot be recorded is not served.
+  'download_log.viewed': {
+    targets: [{ type: 'organization' }],
+    metadata: {
+      userId: 'string',
+      documentId: 'string',
+      documentName: 'string',
+      kind: 'string',
+      from: 'string',
+      to: 'string',
+      continued: 'boolean',
+    },
+  },
+  // How long the log is kept, in days (30-365). Its own action: it is the
+  // setting that decides when staff records are destroyed.
+  'download_log.retention.updated': {
+    targets: [{ type: 'organization' }],
+    metadata: { days: 'number', previous: 'number' },
+  },
   'model_config.zdr.updated': {
     targets: [{ type: 'organization' }],
     // Emitted as String(enabled) — a string, not a boolean.

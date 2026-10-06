@@ -65,7 +65,7 @@ import { discardObject } from '@/lib/storage/discard'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import {
   BACKEND_PURGE_TIMEOUT_MS,
-  readVersionContent,
+  readVersionTextForTask,
   renderVersionBytes,
   writeVersionContent,
 } from './version-content'
@@ -513,7 +513,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
       // Read in the REVIEWER's session, which has just been checked against this
       // document — the run itself has no session and the worker holds no
       // envelope, so the bytes have to be fetched by whoever is standing here.
-      const source = await readVersionContent(session, document.id, version.id).catch(() => null)
+      const source = await readVersionTextForTask(session, document.id, version.id).catch(() => null)
       await delegateTask(session, {
         projectId: document.projectId,
         kind: 'revision',

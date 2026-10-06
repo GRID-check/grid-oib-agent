@@ -771,6 +771,13 @@
       "when": 1791676800007,
       "tag": "0109_project_memory_restricted_folders",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1791763200007,
+      "tag": "0110_document_access_log",
+      "breakpoints": true
     }
   ]
 }

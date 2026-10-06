@@ -13,6 +13,7 @@ import 'server-only'
 import { GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { s3Client, signingS3Client } from '@/lib/s3'
+import { recordDocumentAccess } from '@/lib/download-log/service'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projects'
 import { getHiddenFolderIds, isFolderVisibleTo } from '@/lib/authz/folder-access'
@@ -268,6 +269,7 @@ export async function getModelSource(
     new GetObjectCommand({ Bucket: bucket, Key: key }),
     { expiresIn }
   )
+  await recordDocumentAccess(session, document, 'model')
   return { url, filename: document.filename, expiresInSeconds: expiresIn }
 }
 

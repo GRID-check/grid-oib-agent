@@ -99,7 +99,7 @@ vi.mock('@/lib/tasks/delegation', () => ({ delegateTask: vi.fn() }))
  */
 vi.mock('./version-content', () => ({
   BACKEND_PURGE_TIMEOUT_MS: 10_000,
-  readVersionContent: vi.fn().mockResolvedValue('# Aktenvermerk'),
+  readVersionTextForTask: vi.fn().mockResolvedValue('# Aktenvermerk'),
   renderVersionBytes: vi.fn(),
   writeVersionContent: vi.fn(),
 }))

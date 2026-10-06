@@ -100,6 +100,10 @@ const BOUNDARY_MIGRATIONS = [
   // Adds project_folder_grants — a folder's own access list, one row per role
   // and level (ADR-0079). Keyed directly by its organization.
   '0108_project_folder_grants.sql',
+  // Adds document_access_log — the download log: who took a document's bytes,
+  // and who opened one under a folder with its own list. Keyed directly by its
+  // organization; no foreign keys, so the row outlives what it names.
+  '0110_document_access_log.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

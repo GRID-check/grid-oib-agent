@@ -287,6 +287,26 @@ export async function clearanceOfMember(organizationId: string, userId: string):
 }
 
 /**
+ * {@link isFolderVisibleToClearance} for a person named by id alone, read from
+ * their membership as it is NOW: what a capability URL re-checks when it is used,
+ * with no session at hand. The membership is only asked about when the project
+ * has a folder with its own list, so a project without one costs the one probe
+ * and no WorkOS call.
+ */
+export async function isFolderVisibleToMember(
+  organizationId: string,
+  projectId: string,
+  folderId: string | null,
+  userId: string
+): Promise<boolean> {
+  if (folderId === null) return true
+  const folders = await loadCustomFolderTree(organizationId, projectId)
+  if (!folders) return true
+  const clearance = await clearanceOfMember(organizationId, userId)
+  return computeFolderAccess(folders, clearance, '').isVisible(folderId)
+}
+
+/**
  * Every folder of a project (tombstones included) `clearance` may read now:
  * what content derived from folders — restricted memory — is served against
  * (`memoryVisibleTo`). Reads the whole tree, because a note may name a folder

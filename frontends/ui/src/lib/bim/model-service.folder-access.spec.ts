@@ -24,6 +24,7 @@ vi.mock('@/lib/authz/feature-flags', () => ({
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn(async () => ({ role: 'member' })) }))
 vi.mock('@/lib/sharing/access', () => ({ requireResourceAccess: vi.fn() }))
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
+vi.mock('@/lib/download-log/service', () => ({ recordDocumentAccess: vi.fn(async () => undefined) }))
 
 const documents = new Map<string, Document>()
 vi.mock('@/lib/documents/repository', () => ({
@@ -60,6 +61,7 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: vi.fn(async () =
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { getHiddenFolderIds, isFolderVisibleTo } from '@/lib/authz/folder-access'
 import { NotFoundError } from '@/lib/api/errors'
+import { recordDocumentAccess } from '@/lib/download-log/service'
 import { makeDocument } from '@/test-utils/db-fixtures'
 import { listBimModels } from './repository'
 import { runBimQuery } from './query'
@@ -106,6 +108,7 @@ describe('a model in a folder the session is not cleared for is not found', () =
   it('GET /api/bim/models/[id]/source — no presigned URL to the raw IFC', async () => {
     await expect(getModelSource(SESSION, 'model-hidden')).rejects.toBeInstanceOf(NotFoundError)
     expect(getSignedUrl).not.toHaveBeenCalled()
+    expect(recordDocumentAccess).not.toHaveBeenCalled()
   })
 
   it('POST /api/bim/models/[id]/query — no element data', async () => {
@@ -129,6 +132,13 @@ describe('a model in a folder the session is not cleared for is not found', () =
   it('serves a model outside every hidden folder as before', async () => {
     await expect(getAccessibleModel(SESSION, 'model-open')).resolves.toMatchObject({ id: 'model-open' })
     await expect(getModelSource(SESSION, 'model-open')).resolves.toMatchObject({ url: 'https://s3.example/presigned' })
+  })
+
+  it('records the open of the model file in the download log, with the document row', async () => {
+    await getModelSource(SESSION, 'model-open')
+
+    expect(recordDocumentAccess).toHaveBeenCalledTimes(1)
+    expect(recordDocumentAccess).toHaveBeenCalledWith(SESSION, expect.objectContaining({ id: 'doc-of-model-open' }), 'model')
   })
 })
 

@@ -16,6 +16,7 @@ export const organization: typeof en.organization = {
     storage: 'Speicher',
     screening: 'Sensible Daten',
     quarantine: 'Quarantäne',
+    downloads: 'Download-Protokoll',
     compliance: 'Compliance',
     enterprise: 'Enterprise',
   },
@@ -55,6 +56,11 @@ export const organization: typeof en.organization = {
       subtitle:
         'Dateien, die die Inhaltsprüfung zurückgehalten hat. Kein Modell hat sie gelesen. Wer sie prüfen darf, gibt sie hier frei oder löscht sie.',
     },
+    downloads: {
+      title: 'Download-Protokoll',
+      subtitle:
+        'Wer welches Dokument heruntergeladen hat und wer eines in einem Ordner mit eigener Zugriffsliste geöffnet hat. Befristet aufbewahrt, nur für Sicherheit und Nachvollziehbarkeit.',
+    },
     compliance: {
       title: 'Compliance',
       subtitle:
@@ -64,6 +70,71 @@ export const organization: typeof en.organization = {
       title: 'Enterprise',
       subtitle:
         'SSO, Directory Sync, Domain-Verifizierung und Audit-Log-Streaming — die WorkOS-Steuerung, die nur Administratoren berühren dürfen.',
+    },
+  },
+  /**
+   * Organisation -> Download-Protokoll (ADR-0079): wer welches Dokument
+   * heruntergeladen hat, und wer eines in einem Ordner mit eigener
+   * Zugriffsliste geöffnet hat. Personenbezogene Daten über Mitarbeitende:
+   * Die Seite sagt, wozu sie dient, wie lange sie aufbewahrt wird und dass
+   * ihr Lesen selbst protokolliert wird.
+   */
+  downloadLog: {
+    purpose:
+      'Dieses Protokoll dient der Sicherheit und der Nachvollziehbarkeit: Es zeigt, wer ein Dokument heruntergeladen oder in einem Ordner mit eigener Zugriffsliste geöffnet hat. Es ist keine Auswertung der Tätigkeit und wird nicht zur Beurteilung von Personen verwendet.',
+    retention: 'Einträge werden {days} Tage aufbewahrt und danach automatisch gelöscht.',
+    readRecorded: 'Jedes Lesen dieser Seite wird im Audit-Log festgehalten: wer nachgesehen hat und mit welchen Filtern.',
+    filters: {
+      label: 'Download-Protokoll filtern',
+      person: 'Person',
+      allPeople: 'Alle',
+      document: 'Dokument',
+      documentPlaceholder: 'Name oder Dokument-ID',
+      from: 'Von',
+      to: 'Bis',
+      kind: 'Was geschah',
+      allKinds: 'Alles',
+      apply: 'Anzeigen',
+      reset: 'Zurücksetzen',
+    },
+    kinds: {
+      download: 'Download',
+      preview: 'Vorschau',
+      pdf: 'Im Viewer geöffnet',
+      text: 'Textvorschau',
+      version: 'Version geöffnet',
+      model: '3D-Modell geöffnet',
+    },
+    access: { download: 'Download', open: 'Geöffnet' },
+    columns: { when: 'Wann', person: 'Person', action: 'Was', document: 'Dokument', place: 'Wo' },
+    place: {
+      archiv: 'Archiv',
+      session: 'Chat-Anhang',
+      project: 'Projekt',
+      root: 'Projektebene',
+      ownList: 'Eigene Zugriffsliste',
+      projectGone: 'Projekt existiert nicht mehr',
+      folderGone: 'Ordner existiert nicht mehr',
+    },
+    unknownPerson: 'Nicht mehr in der Organisation',
+    version: 'Version {id}',
+    empty: 'Für diese Filter ist nichts protokolliert.',
+    emptyHint: 'Downloads werden überall protokolliert, das Öffnen eines Dokuments nur in Ordnern mit eigener Zugriffsliste.',
+    loadError: 'Das Download-Protokoll konnte nicht geladen werden. Es wurde nichts angezeigt und nichts als gelesen vermerkt.',
+    loadMore: 'Ältere Einträge anzeigen',
+    loading: 'Wird geladen…',
+    retry: 'Erneut versuchen',
+    retentionCard: {
+      title: 'Aufbewahrung des Download-Protokolls',
+      description:
+        'Wie lange das Download-Protokoll seine Einträge behält. Standard und Höchstwert sind 365 Tage; eine Organisation kann die Dauer auf bis zu 30 Tage verkürzen.',
+      label: 'Tage',
+      hint: 'Zwischen 30 und 365. Eine kürzere Dauer gilt ab der nächsten täglichen Bereinigung.',
+      save: 'Aufbewahrung speichern',
+      saving: 'Wird gespeichert…',
+      saved: 'Aufbewahrung gespeichert',
+      invalid: 'Geben Sie eine ganze Zahl von 30 bis 365 Tagen ein.',
+      error: 'Die Aufbewahrung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
     },
   },
   /** Personen & Zugriff: Mitgliederverzeichnis, Rollenkatalog, Berechtigungsübersicht. */
@@ -186,6 +257,10 @@ export const organization: typeof en.organization = {
       budgets_manage: { name: 'Budgets verwalten', hint: 'Ausgabenlimits und Verbrauch der ganzen Organisation.' },
       compliance_manage: { name: 'Compliance verwalten', hint: 'Legal Holds und Löschungen.' },
       audit_view: { name: 'Audit-Log ansehen', hint: 'Das Protokoll jeder privilegierten Änderung.' },
+      downloads_view: {
+        name: 'Download-Protokoll ansehen',
+        hint: 'Wer welches Dokument heruntergeladen hat. Das Lesen wird selbst protokolliert.',
+      },
       archiv_manage: {
         name: 'Archiv verwalten',
         hint: 'Dokumente im Büro-Archiv hochladen, löschen und neu einlesen. Lesen dürfen alle.',

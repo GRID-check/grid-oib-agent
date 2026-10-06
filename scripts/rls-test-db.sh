@@ -101,7 +101,7 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, restricted memory, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler and usage-ledger suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, restricted memory, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger and download-log suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
@@ -119,6 +119,7 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/compliance/legal-hold.integration.spec.ts \
     src/lib/conversations/erasure-queue.integration.spec.ts \
     src/lib/conversations/restricted-use.integration.spec.ts \
+    src/lib/download-log/download-log.integration.spec.ts \
     src/lib/runs/reconcile.integration.spec.ts \
     src/lib/budgets/service.integration.spec.ts
 
@@ -601,3 +602,38 @@ $MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0109_project_memory_restricted_fold
 checkr "SELECT string_agg(right(id::text, 2) || '=' || coalesce(array_to_string(restricted_folder_ids, '|'), 'open'), ',' ORDER BY id) FROM project_memory WHERE organization_id = 'org_0107' AND status = 'active'" "a1=d4d4d4d4-d4d4-4000-8000-000000000107,b2=00000000-0000-0000-0000-000000000000,d4=open" "0109 re-applies"
 
 echo "==> 0109 backfill and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0110: the download log, and its DOWN.
+#
+# On grid_restricted, after 0109: the table is inside the tenant boundary, the
+# database refuses an open outside an own list, a shelf that disagrees with its
+# project and any UPDATE, and the down drops the table and its guard function;
+# 0110 then re-applies. The platform role's delete and the retention sweep are
+# proved against the real chain by download-log.integration.spec.ts above.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0110 download log, its constraints and its down migration on grid_restricted"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0110_document_access_log.sql" >/dev/null || {
+  echo "MIGRATION 0110 FAILED on the seeded database — re-run without -q to see the error" >&2
+  exit 1
+}
+checkr "SELECT relrowsecurity FROM pg_class WHERE relname = 'document_access_log'" "t" "the download log is inside the tenant boundary"
+checkr "SELECT count(*) FROM pg_indexes WHERE tablename = 'document_access_log'" "5" "the primary key and the four indexes (time, person, document, purge)"
+refusedr "INSERT INTO document_access_log (organization_id, user_id, kind, scope, document_id, document_name, own_list) VALUES ('org_0110', 'u', 'preview', 'archiv', gen_random_uuid(), 'x', false);" "document_access_log_open_needs_own_list" "an open outside an own list is refused"
+refusedr "INSERT INTO document_access_log (organization_id, user_id, kind, scope, document_id, document_name) VALUES ('org_0110', 'u', 'download', 'project', gen_random_uuid(), 'x');" "document_access_log_scope_project" "a project shelf needs a project"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -c "INSERT INTO document_access_log (organization_id, user_id, kind, scope, document_id, document_name) VALUES ('org_0110', 'u', 'download', 'archiv', gen_random_uuid(), 'Plan.pdf');" >/dev/null
+refusedr "UPDATE document_access_log SET user_id = 'v';" "never changed" "a row is never changed, not even by its owner"
+refusedr "DELETE FROM document_access_log;" "deleted only by the retention sweep" "only the platform role deletes"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0110_document_access_log.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0110 FAILED — re-run without -q to see the error" >&2
+  exit 1
+}
+checkr "SELECT to_regclass('public.document_access_log') IS NULL" "t" "down dropped the download log"
+checkr "SELECT to_regprocedure('grid_document_access_log_guard()') IS NULL" "t" "down dropped the guard function"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0110_document_access_log.sql" >/dev/null || {
+  echo "MIGRATION 0110 FAILED on re-apply — re-run without -q to see the error" >&2
+  exit 1
+}
+checkr "SELECT count(*) FROM document_access_log" "0" "0110 re-applies, empty"
+
+echo "==> 0110 download log and down migration verified"

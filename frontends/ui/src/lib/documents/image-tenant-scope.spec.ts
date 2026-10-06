@@ -130,7 +130,7 @@ vi.mock('@/lib/s3', async (importOriginal) => ({
 vi.mock('@/lib/images/signed-image-url', () => ({
   verifyDocumentImageUrl: () => ({
     ok: true,
-    claims: { organizationId: 'org-from-signature', documentId: 'doc-1', variant: 'original', exp: 0 },
+    claims: { organizationId: 'org-from-signature', userId: 'user-from-signature', documentId: 'doc-1', variant: 'original', exp: 0 },
   }),
   buildDocumentImageUrl: () => null,
 }))
