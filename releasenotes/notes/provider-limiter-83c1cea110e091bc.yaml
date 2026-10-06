@@ -1,0 +1,13 @@
+---
+improvements:
+  - >
+    When the AI provider is busy, answers to your questions now go ahead of
+    background work such as re-indexing a project, so a large upload no longer
+    slows the chat down.
+operators:
+  - >
+    Every model call now passes one fleet-wide limiter that serves chat before
+    research and bulk work and lowers its limit when the provider answers 429.
+    The limit is set with GRID_PROVIDER_LIMIT_CEILING, GRID_PROVIDER_LIMIT_FLOOR
+    and GRID_PROVIDER_LIMIT_INTERVAL_SECONDS, and GRID_PROVIDER_LIMITER=off
+    turns it off.
