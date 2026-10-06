@@ -279,6 +279,16 @@ describe("chat tier scale-out (ADR-0079)", () => {
     expect(loadConfig().backend.chatAffinity).toBe(true);
   });
 
+  it("keeps the short drain while the count is static, and the longest turn once KEDA owns it", () => {
+    // A singleton serves nobody while it drains: a 45 minute wait on every deploy would be an outage.
+    pulumi.runtime.setAllConfig({ ...baseStackConfig() });
+    expect(loadConfig().backend.drainSeconds).toBe(20);
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), "grid-oib:chatAffinity": "false" });
+    expect(loadConfig().backend.drainSeconds).toBe(2730);
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), "grid-oib:backendDrainSeconds": "300" });
+    expect(loadConfig().backend.drainSeconds).toBe(300);
+  });
+
   it("refuses a ceiling below the floor", () => {
     // KEDA would be handed min > max and the HPA rejects it at apply time, after
     // the rest of the stack has started changing.

@@ -2415,7 +2415,11 @@ export function loadConfig(): GridConfig {
       maxReplicas: backendMaxReplicas,
       turnsPerReplica: Math.max(1, num(cfg, "backendTurnsPerReplica", 8)),
       cpuTargetPercent: num(cfg, "backendCpuTargetPercent", 70),
-      drainSeconds: Math.max(30, num(cfg, "backendDrainSeconds", 2730)),
+      // The longest chat turn (+ its 30 s cancel grace) once the tier scales: scale-in
+      // picks a pod whatever it is running. With affinity on the count is static
+      // and a singleton serves nobody while it drains, so the short drain that
+      // fits the 90 s grace period the tier has always had stays the default.
+      drainSeconds: Math.max(10, num(cfg, "backendDrainSeconds", chatAffinity ? 20 : 2730)),
       chatAffinity,
     },
 

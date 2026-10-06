@@ -1059,6 +1059,64 @@ removing that specific source PDF is replica-local. Route `OIB_UPLOADS_DIR`
 through SeaweedFS to make that admin flow fully replica-agnostic (scoped
 follow-up); high-traffic chat/retrieval does not need it.
 
+### 6.4b Chat scale-out: affinity off, KEDA on running turns (ADR-0079)
+
+By default (`chatAffinity: true`) nothing in §6.4 changes: the gateway hashes the
+conversation id onto a replica (`BACKEND_REPLICAS`, `BACKEND_POD_WS_TEMPLATE`),
+so the count is part of the routing and stays at `backendReplicas`. Setting
+`grid-oib:chatAffinity: "false"` (it needs `conversationBus`, which is on) lets
+the tier autoscale:
+
+- **Routing.** The gateway sends every socket to the `aiq-agent` Service
+  (`GRID_CHAT_AFFINITY=0` on the frontend). A socket on any replica is a relay
+  for the conversation's Dragonfly stream; the replica that receives a question
+  runs that turn and publishes its frames. A running turn never moves.
+- **One running turn per conversation.** A newer question stops the stale one,
+  takes `conv:<id>:running`, and only then runs (`GRID_CHAT_RUNNING_TTL_SECONDS`,
+  `GRID_CHAT_SUPERSEDE_WAIT_SECONDS`). If the stale turn has not stopped in time,
+  the question is refused with a retry hint; with Dragonfly down and affinity off
+  it is refused too, because nothing else can say no.
+- **The signal.** `GET /v1/internal/chat-occupancy` on any replica returns the
+  fleet's running turns (`activeTurns`, the global admission pool). KEDA's
+  `metrics-api` trigger holds `backendTurnsPerReplica` of them per replica
+  (AverageValue), and a `cpu` trigger at `backendCpuTargetPercent` sits beside it
+  for work that is not a turn. The route is internal-token only (a
+  `TriggerAuthentication` reads `GRID_INTERNAL_API_TOKEN` from `grid-secrets`),
+  a NetworkPolicy lets the `keda` namespace reach port 8000 of the backend pods,
+  and an unreadable count is a 503, which makes the HPA hold the current count.
+- **Floor and ceiling.** `backendReplicas` is the floor and `backendMaxReplicas`
+  (default 3) the ceiling. The ScaledObject exists only with `jobExecution: db`,
+  affinity off and a ceiling above the floor, and then owns `spec.replicas`
+  (`ignoreChanges`). Prod keeps affinity on and `backendMaxReplicas: 1` until the
+  cross-replica path (reconnect, clarifier round trip, Stop, supersede, a
+  replica draining mid-turn) has been run on dev with the flag off and two
+  replicas: the unit tests use an in-memory bus and fakeredis, not Dragonfly.
+- **Slow in, a pod at a time.** Scale-out adds one pod a minute (a StatefulSet
+  rolls its pods in order, and each boots for minutes); scale-in waits 15
+  minutes and removes one pod per 5, and Kubernetes removes the **highest
+  ordinal**, not the idlest.
+- **Drain.** On SIGTERM the pod has already left the Service endpoints. It
+  waits up to `GRID_CHAT_DRAIN_SECONDS` (`backendDrainSeconds`) for the turns it
+  runs, cancelling what is left, while relays on other replicas keep streaming
+  them. The grace period is that plus the endpoint wait and slack, so every
+  rolling update also waits for the longest running turn, one pod at a time
+  (about 46 minutes per pod at the default `backendDrainSeconds` of 2730, and
+  only while a turn is running; the Pulumi update timeout allows for it). With
+  affinity on the default is 20 s (the 90 s grace the tier has always had): a
+  StatefulSet starts the replacement only after the old pod is gone, so a
+  singleton serves nobody while it drains. With affinity off, other replicas
+  serve meanwhile, but a floor of one replica still has that gap when a turn is
+  running at a rollout: keep `backendReplicas` at 2 or more if that matters.
+
+What lives on a replica, and what that means for scale-in: the in-process socket
+registry, the clarifier future and the running LangGraph task belong to a turn
+that is running, and the drain waits for it. An idle conversation has none of
+them, and its checkpoints are in Postgres, so the next question on any replica
+picks it up. The data PVC holds only the base-corpus admin upload
+(`OIB_UPLOADS_DIR`, above); scale-in keeps the PVC (`whenScaled: Retain`), so
+that source PDF is unreachable while its ordinal is gone and returns with it.
+Chat never reads it.
+
 ### 6.5 Frontend tier — what actually bounds it
 
 The `frontend` Deployment (Next.js UI + BFF + WS gateway, one Node process per
