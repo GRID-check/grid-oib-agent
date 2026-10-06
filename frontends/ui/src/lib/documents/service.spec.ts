@@ -2966,6 +2966,33 @@ describe('restricted folders (ADR-0080)', () => {
     expect(vi.mocked(admitOrDiscard).mock.calls[0][2]).toMatchObject({ collectionName: RESTRICTED_COLLECTION })
   })
 
+  it('refuses an upload into a folder the uploader may only read, before a byte is stored (ADR-0081)', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValue({
+      ...restricted,
+      levelOf: (folderId) => (folderId === 'folder-read' ? 'read' : 'write'),
+    })
+    vi.mocked(findFolderPathInProject).mockResolvedValue('Verwaltung/Verträge')
+
+    await expect(
+      uploadDocument(session, { ...makeInput(), folderId: 'folder-read' }, new Request('http://x'))
+    ).rejects.toMatchObject({ status: 403, details: { reason: 'folder-read-only' } })
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+  })
+
+  it('refuses a re-upload that would replace a document filed where the uploader may only read', async () => {
+    vi.mocked(getProjectFolderAccess).mockResolvedValue({
+      ...restricted,
+      levelOf: (folderId) => (folderId === 'folder-read' ? 'read' : 'write'),
+    })
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(makeDocument({ folderId: 'folder-read' }))
+
+    await expect(uploadDocument(session, makeInput(), new Request('http://x'))).rejects.toMatchObject({
+      status: 403,
+      details: { reason: 'folder-read-only' },
+    })
+    expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
+  })
+
   it('refuses an upload into a folder the uploader may not see, as not found', async () => {
     vi.mocked(findFolderPathInProject).mockResolvedValue('Verwaltung/Honorare')
 
