@@ -115,3 +115,15 @@ Chosen option 3.
   ADR-0078 (claim substrate), ADR-0080 (provider limiter).
 * Open gap: a check against a real Dragonfly for the multi-replica path, run in
   CI or as a dev-cluster smoke test.
+* Where it lives: the BFF's routing rule is `frontends/ui/src/lib/proxy/backend-target.js`;
+  the running marker is `ConversationBus.acquire_running` and
+  `ChatRegistry.hold_conversation` (`GRID_CHAT_RUNNING_TTL_SECONDS`,
+  `GRID_CHAT_SUPERSEDE_WAIT_SECONDS`); the drain is `drain_chat_turns`
+  (`GRID_CHAT_DRAIN_SECONDS`); the scaling signal is
+  `GET /v1/internal/chat-occupancy` (`turn_admission.active_turns`); the
+  ScaledObject is `deploy/pulumi/src/app/backend-scaling.ts`.
+* A replica holds no disk state a conversation depends on: checkpoints are in
+  Postgres, vectors in the shared Chroma. The one per-replica file set is the
+  base-corpus admin upload (`OIB_UPLOADS_DIR` on the data PVC, kubernetes.md
+  §6.4), which chat never reads. Scale-in keeps the PVC (`whenScaled: Retain`),
+  so that source PDF is back when the ordinal returns.
