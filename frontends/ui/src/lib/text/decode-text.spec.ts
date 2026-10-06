@@ -26,6 +26,13 @@ describe('decodeTextBytes', () => {
     expect(decodeTextBytes(bytes(0x41, 0x81)).text).toBe('A\u0081')
   })
 
+  it('reads every byte of 0x80–0x9F as cp1252, whatever the runtime decoder does', () => {
+    // Node 22.22.0 reads this range as Latin-1; the expected text is Python's
+    // cp1252 codec, with the five holes as the C1 control of the same number.
+    const high = Array.from({ length: 0x20 }, (_, index) => 0x80 + index)
+    expect(decodeTextBytes(bytes(...high)).text).toBe('€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008dŽ\u008f\u0090‘’“”•–—˜™š›œ\u009džŸ')
+  })
+
   it('lets a UTF-8 BOM decide, and strips it', () => {
     expect(decodeTextBytes(bytes(0xef, 0xbb, 0xbf, ...utf8('ä')))).toEqual({ text: 'ä', encoding: 'utf-8-sig' })
   })
