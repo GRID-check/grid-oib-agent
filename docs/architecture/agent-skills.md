@@ -848,8 +848,13 @@ from the job row itself, and it never throws for a skip:
    throw. A skip never throws: an occurrence is not retried before its next
    slot.
 
-Admission caps (`GRID_MAX_ACTIVE_JOBS[_PER_ORG]`) therefore apply to scheduled
-runs automatically, and every run — however triggered — is visible in history.
+Admission therefore applies to scheduled runs automatically, and every run —
+however triggered — is visible in history. With `GRID_JOB_EXECUTION=db` capacity
+never skips an occurrence (ADR-0078): the job joins the research queue as `bulk`
+priority, the run is recorded `queued`, and the worker's first flush moves it to
+`running`; only an organization's waiting queue past
+`GRID_MAX_QUEUED_JOBS_PER_ORG` still yields a `skipped` run. With Dask, the
+`GRID_MAX_ACTIVE_JOBS[_PER_ORG]` caps still skip.
 
 ### The worker's side, and the outcome
 
