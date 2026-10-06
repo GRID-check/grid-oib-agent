@@ -142,7 +142,7 @@ never surfaced; the orphaned-vector sweep is the net)
 **Conversation**:
 1. Delete LangGraph checkpoints (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes` in `aiq_checkpoints`) for `thread_id = conversation id`
 2. Delete `conversations` row (`messages` cascade)
-3. Delete the chat's Langfuse traces (below), after the BFF's erasure and only in the purger's retry; see **Langfuse traces**
+3. Delete the chat's Langfuse traces (below): in the purger's retry after the BFF's erasure, or, for a chat the delete request erased itself, by the scheduler afterwards; see **Langfuse traces**
 
 What `DELETE /api/conversations/[id]` does today is immediate, with the queue
 as its retry (`deleteConversation`, `lib/conversations/service.ts`), and every
@@ -214,15 +214,29 @@ finishes cleanly. Three outcomes, by design:
 A project purge runs the same step for every chat the project holds (step 2b of
 **Project**), with the hold re-checked before each.
 
-**Known gap: a chat deleted by the request itself is not reached.** Only a retry
-or a project purge goes through the purger. A `DELETE /api/conversations/[id]`
-that finishes erases in the BFF (`eraseMarkedConversation`), closes its own queue
-row, and the purger never sees it, so that chat's traces are removed by the
-retention sweep below, up to `GRID_LANGFUSE_TRACE_RETENTION_DAYS` (30) later, not
-at once. Closing it means calling the same client from `eraseMarkedConversation`
-(after the collection delete, before the row delete, so a failure keeps the chat
-and the queued retry resumes) and giving the frontend Deployment the Langfuse
-env and a network rule.
+**A chat deleted by the request itself: the scheduler goes back for its traces.**
+Only a retry or a project purge goes through the purger. A
+`DELETE /api/conversations/[id]` that finishes erases in the BFF
+(`eraseMarkedConversation`), closes its own queue row as `purged`, and the
+purger never sees it. So the scheduler (`scheduler/index.js`,
+`sweepConversationTraces`, on every tick) reads those rows
+(`findConversationsAwaitingTraceErasure`, `scheduler/db.js`): `entity_type =
+'conversation'`, `status = 'purged'`, `purged_at` within the last 35 days and at
+least 15 minutes ago (a turn that was still streaming exports spans for a
+little after the delete), no `payload.langfuseTracesErasedAt` yet, and not
+blocked by `grid_legal_hold_blocks`. For each it asks the hold predicate once
+more, deletes the chat's traces with the same client, and stamps
+`payload.langfuseTracesErasedAt` on the row (a jsonb merge; no column). A chat
+under a hold keeps its traces and is looked at again, inside the 35 days, after
+the hold is released. A chat the purger erased itself is in the same set and is
+simply repeated: the list finds nothing. Same failure semantics as the purger's
+step: not configured is a no-op, a 429, a 5xx, a timeout or a database outage
+stops the run and retries on the next tick (a WARN streak, one ERROR after about
+five minutes), and any other failure (a 401, a 404 from a Langfuse outside a v4
+write mode) logs one ERROR and backs off an hour. A run handles at most 100
+chats and two minutes. The 15 minutes and the Langfuse delay mean the traces of
+such a chat go within the hour, not at once; a span that arrives after the stamp
+is removed by the retention sweep.
 
 **Trace retention.** Langfuse's own retention is Enterprise-only, so the
 scheduler (`scheduler/index.js`, `sweepTraceRetention`) does it once a day, the
@@ -309,7 +323,7 @@ How the design satisfies the articles enterprise DPAs and security questionnaire
 | Obligation | Mechanism |
 |---|---|
 | **Art. 17** — right to erasure "without undue delay" | Deletion pipeline for all five entity types; grace + retry bounded within the Art. 12(3) one-month response window; `purged_at` timestamps are the evidence of completion |
-| **Art. 17 / Art. 5(1)(e)** — the prompts and answers in LLM traces | Langfuse traces are deleted by conversation id when the purger erases a chat or a project (native delete API, every edition; asynchronous, usually within about 15 minutes), and by the scheduler's daily sweep once older than `GRID_LANGFUSE_TRACE_RETENTION_DAYS` (default 30, minimum 3). A chat deleted by the request itself is covered by the sweep, not at once (see the known gap under **Langfuse traces**). Langfuse does not remove copies saved into datasets; Piloti creates none |
+| **Art. 17 / Art. 5(1)(e)** — the prompts and answers in LLM traces | Langfuse traces are deleted by conversation id when the purger erases a chat or a project (native delete API, every edition; asynchronous, usually within about 15 minutes), and by the scheduler's daily sweep once older than `GRID_LANGFUSE_TRACE_RETENTION_DAYS` (default 30, minimum 3). A chat deleted by the request itself is picked up by a scheduler job from its closed queue row, within about the hour (legal-held chats keep theirs); the 30-day sweep is the net behind it. Langfuse does not remove copies saved into datasets; Piloti creates none |
 | **Art. 12(3)** — respond within one month | Grace periods capped at ≤ 23 days; `attempts`/`failed` status surfaces stuck purges before the deadline |
 | **Art. 18** — restriction of processing | Legal hold: data preserved, hidden from active use, purge blocked until release |
 | **Art. 5(2) / Art. 30** — accountability, records of processing | `deletion_queue` rows survive purge as the record of what was erased, when, by whose request; `legal_holds` records restriction events |

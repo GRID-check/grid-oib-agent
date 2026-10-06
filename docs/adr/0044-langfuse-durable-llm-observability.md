@@ -301,10 +301,9 @@ Two gaps this amendment deliberately does NOT close:
 
 ## Open Questions / Follow-ups
 
-- **Retention.** Answered by the scheduler's daily sweep and the purger's
-  per-conversation erasure (Amendment 2026-10-06). Not answered: a chat deleted
-  by its own request reaches the sweep, not the purger, so its traces go within
-  the retention window rather than at once (`deletion-pipeline.md`, "Known gap").
+- **Retention.** Answered by the scheduler's daily sweep, the purger's
+  per-conversation erasure and the scheduler's job for chats the BFF erased in
+  the delete request (Amendment 2026-10-06).
 - **Media capture** is deliberately not configured
   (`LANGFUSE_S3_MEDIA_UPLOAD_*`): no producer here emits it, and wiring it would
   add a browser-facing presign path for a feature with no consumer.
@@ -369,9 +368,16 @@ fail so the queue's retry applies, and delays the retention run by an hour. The
 two workers read the project key pair from the Langfuse Secret and reach the web
 tier through a named NetworkPolicy rule (`allow-workers-to-langfuse`).
 
-Not covered: a chat deleted by its own request is erased in the BFF, which does
-not call this client, so its traces go with the retention sweep. Copies saved
-into Langfuse datasets would survive a trace delete; Piloti creates none.
+A chat deleted by its own request is erased in the BFF, which does not call
+this client and whose queue row the purger never claims. A third job closes
+that: every scheduler tick it reads the `deletion_queue` rows the BFF closed as
+`purged` for conversations (within 35 days, at least 15 minutes ago, not under a
+legal hold, not yet stamped), deletes each chat's traces and stamps
+`payload.langfuseTracesErasedAt`. It is kept in the scheduler on purpose: the
+BFF's erasure stays untouched and the Langfuse call keeps one home. Its cost is
+that the traces go within the hour, not in the request, and a span exported
+after the stamp waits for the retention sweep. Copies saved into Langfuse
+datasets would survive a trace delete; Piloti creates none.
 
 ## References
 

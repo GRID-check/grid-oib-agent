@@ -428,8 +428,8 @@ Langfuse keeps every prompt and answer a turn produced, and its automatic
 retention is Enterprise-only, so two of Piloti's own workers delete traces
 through Langfuse's public API (`frontends/ui/workers/langfuse-traces.js`): the
 **purger** deletes the traces of a conversation it erases (a chat's own erasure,
-and every chat of a purged project), and the **scheduler** deletes traces older
-than the retention window once a day. Both read the SAME three variables as
+and every chat of a purged project), and the **scheduler** deletes the traces of chats the BFF erased in the delete
+request, and traces older than the retention window once a day. Both read the SAME three variables as
 the prompt-management section above, with one difference: there is **no default
 host**. All three must be set or the step is a logged no-op, because a deletion
 sent to Langfuse Cloud, the SDK's default, would be the wrong place.
