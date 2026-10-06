@@ -191,6 +191,12 @@ only.
   digest. A thumbs-down comment is masked in `submitAnswerFeedback` before it is
   stored, so memory implication's embedding, the lesson pipeline and the
   platform feedback digest read the masked text.
+  The `PROPOSAL_DECISIONS` block quotes decided cards in every colleague's
+  chat, and a stored card and its decision are the client's word (message
+  `metadata` is an open record and the decision PATCH is the browser's), so
+  `buildProposalDecisionsBlock` masks each quoted line where it reads it
+  (`maskChatText`, under the policy as it stands) rather than trusting any
+  writer, and takes `decidedAt` only as a real instant.
 - **Placeholders** are domain data, in German, defined once in Python
   (`aiq_agent.common.content_screen.PLACEHOLDERS`) and mirrored in TypeScript:
   `[IBAN entfernt]`, `[SV-Nummer entfernt]`, `[Kartennummer entfernt]`,

@@ -13,9 +13,25 @@
  * needed no new header and reaches every surface memory reaches, including a
  * background run. The prompt explains the block once, in the same place it
  * explains PROJECT_MEMORY.
+ *
+ * ## What is trusted here: nothing the row says
+ *
+ * The block rides every colleague's chat in the project, so it is a sink for
+ * whatever a stored row holds. A message is written by the browser (`metadata`
+ * is an open record, `createConversationMessages`), and so is
+ * `cardInteractions` (the decision PATCH), so a stored card and its recorded
+ * decision are the client's word: nothing on the row says the agent emitted the
+ * card or that a person pressed Accept. A "decided through the server's own
+ * path" filter would filter nothing, and checking the card against its schema
+ * would pass a well-formed forgery. What the block can do is what a memory note
+ * does: mask what it quotes where it reads it, under the policy as it stands
+ * now (ADR-0077). That holds for every writer, including ones that do not exist
+ * yet, and for rows stored before the policy changed.
  */
 
 import 'server-only'
+import { z } from 'zod'
+import { maskChatText } from '@/lib/upload-screening/service'
 import { listRecentMessagesWithCardDecisions } from '@/lib/conversations/repository'
 import {
   DIGEST_BLOCK_MAX_CHARS,
@@ -36,6 +52,8 @@ type Decision =
   | 'savedProject'
   | 'dismissed'
   | 'partiallyApplied'
+
+const INSTANT = z.string().datetime({ offset: true })
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -61,6 +79,18 @@ function verdictOf(decision: string): 'angenommen' | 'abgelehnt' | null {
     default:
       return null
   }
+}
+
+/**
+ * A stored `decidedAt` as an ISO instant, or null. It is rendered unescaped in
+ * the line's tag bracket, so a value that is not a real instant (a stored row
+ * is a client's word) must not get that far.
+ */
+function instantOf(value: unknown): string | null {
+  // The decision PATCH holds `decidedAt` to this same schema; `Date.parse` alone
+  // is lenient enough to accept text with an instant buried in it.
+  const parsed = INSTANT.safeParse(value)
+  return parsed.success ? new Date(parsed.data).toISOString() : null
 }
 
 /** One line of content for a card: what was proposed, in the card's own words. */
@@ -131,7 +161,7 @@ function decisionsOf(metadata: unknown, fallbackDate: Date): DecidedProposal[] {
     if (!isRecord(card)) continue
     const described = describeCard(card)
     if (!described) continue
-    const decidedAt = asString(interaction.decidedAt) ?? fallbackDate.toISOString()
+    const decidedAt = instantOf(interaction.decidedAt) ?? fallbackDate.toISOString()
     out.push({
       decidedAt,
       item: { tags: [verdict, described.kind, decidedAt.slice(0, 10)], content: described.content },
@@ -153,11 +183,15 @@ export async function buildProposalDecisionsBlock(
     .flatMap((row) => decisionsOf(row.metadata, row.createdAt))
     .sort((a, b) => (a.decidedAt < b.decidedAt ? 1 : a.decidedAt > b.decidedAt ? -1 : 0))
     .slice(0, MAX_DECISIONS)
-  return formatBoundedDigest(
-    PROPOSAL_DECISIONS_HEADER,
-    decided.map((entry) => entry.item),
-    DIGEST_BLOCK_MAX_CHARS,
+  // Masked after the cut, so the policy is applied to the lines that can ride
+  // at most, and before the digest's own bound, so a placeholder is what spends it.
+  const masked = await Promise.all(
+    decided.map(async ({ item }) => ({
+      ...item,
+      content: (await maskChatText(organizationId, item.content)).text,
+    })),
   )
+  return formatBoundedDigest(PROPOSAL_DECISIONS_HEADER, masked, DIGEST_BLOCK_MAX_CHARS)
 }
 
 /**
