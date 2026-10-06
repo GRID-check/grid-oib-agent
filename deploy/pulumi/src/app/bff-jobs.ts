@@ -15,8 +15,8 @@ const QUEUE_TABLE = "bff_job_queue";
  * KEDA's measure of the pool's work: every job a worker could still run or is
  * running. Dead rows are the one status left out: a job that failed every
  * attempt waits for an operator, and counting it would hold a replica up
- * forever for work nothing will ever claim. (The ingest tier's table has no
- * dead rows yet, so its query counts everything.)
+ * forever for work nothing will ever claim. The ingest and research tiers'
+ * queries leave dead rows out the same way.
  */
 export const BFF_QUEUE_DEPTH_QUERY = `SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE status <> 'dead'`;
 
