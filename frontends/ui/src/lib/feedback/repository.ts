@@ -41,6 +41,7 @@ export interface UpsertAnswerFeedbackValues {
   verdict: AnswerFeedbackVerdict
   reason: AnswerFeedbackReason | null
   comment: string | null
+  expectedAnswer: string | null
   /** Lessons-experiment arm, or null when the holdout is off. */
   lessonsHoldout?: boolean | null
 }
@@ -76,6 +77,7 @@ export async function upsertAnswerFeedback(values: UpsertAnswerFeedbackValues): 
         verdict: values.verdict,
         reason: values.reason,
         comment: values.comment,
+        expectedAnswer: values.expectedAnswer,
         conversationId: values.conversationId,
         projectId: values.projectId,
         organizationId: values.organizationId,
@@ -235,6 +237,8 @@ export interface FeedbackTurn {
   reason: AnswerFeedbackReason | null
   /** The down-vote's free text, when the voter wrote one. */
   comment: string | null
+  /** What the voter says a good answer would have contained. */
+  expectedAnswer: string | null
   createdAt: Date
   /** The answer that was voted on, when its message row exists. */
   answer: string | null
@@ -520,6 +524,7 @@ export async function listFeedbackTurns(
       f.verdict,
       f.reason,
       f.comment,
+      f.expected_answer,
       f.created_at,
       m.content    as answer,
       q.content    as question,
@@ -561,6 +566,10 @@ export async function listFeedbackTurns(
     verdict: row.verdict as AnswerFeedbackVerdict,
     reason: (row.reason as AnswerFeedbackReason | null) ?? null,
     comment: typeof row.comment === 'string' && row.comment.trim() ? row.comment : null,
+    expectedAnswer:
+      typeof row.expected_answer === 'string' && row.expected_answer.trim()
+        ? row.expected_answer
+        : null,
     // Raw `sql` results are not runtime-validated — coerce at this boundary.
     createdAt: new Date(row.created_at as string),
     answer: (row.answer as string | null) ?? null,
@@ -569,5 +578,102 @@ export async function listFeedbackTurns(
     topics: Array.isArray(row.topics)
       ? (row.topics as unknown[]).map(String).filter(isConversationTagKey)
       : [],
+  }))
+}
+
+/* ------------------------------------------------------------------ *
+ * Weekly rate inputs — the export's denominator
+ * ------------------------------------------------------------------ */
+
+/** Cap on the weekly summary: 90 days is 14 ISO weeks, so this is orgs x 14 with room to spare. */
+export const FEEDBACK_WEEKLY_SUMMARY_LIMIT = 5000
+
+/** One organization in one ISO week: what a failure rate is computed from. */
+export interface FeedbackWeeklyCount {
+  organizationId: string
+  /** ISO week label, e.g. `2026-W41`. */
+  isoWeek: string
+  /** The Monday that week starts on (UTC), `YYYY-MM-DD`. */
+  weekStart: string
+  /** Persisted assistant messages - an under-count, see `FeedbackHealth.answers`. */
+  answers: number
+  up: number
+  down: number
+}
+
+/** Monday 00:00 UTC of the ISO week containing `instant`, as an ISO instant. */
+export function isoWeekStart(instant: Date): string {
+  const day = (instant.getUTCDay() + 6) % 7 // Monday = 0
+  return new Date(
+    Date.UTC(instant.getUTCFullYear(), instant.getUTCMonth(), instant.getUTCDate() - day),
+  ).toISOString()
+}
+
+/**
+ * Answers, up-votes and down-votes per organization and ISO week.
+ *
+ * The export lists down-votes only, so it cannot say how often an answer fails.
+ * This is the denominator, taken from the same two tables the health page uses:
+ * assistant `messages` (joined to their conversation for the organization) and
+ * `answer_feedback`. Each side is aggregated on its own before the join, so a
+ * vote is never multiplied by its conversation's message count. The window
+ * starts on the Monday of the week `windowDays` ago, so no row is a partial week
+ * at the front. Weeks are UTC, like every other bucket in the BFF.
+ *
+ * Cross-tenant like `getFeedbackHealth`; reachable only through
+ * `getAnswerFeedbackWeeklySummary`, which sits behind the platform permission.
+ */
+export async function getFeedbackWeeklySummary(
+  filters: Pick<FeedbackHealthFilters, 'windowDays' | 'organizationId'> = {},
+): Promise<FeedbackWeeklyCount[]> {
+  const { windowDays = FEEDBACK_HEALTH_WINDOW_DAYS, organizationId = null } = filters
+  const db = getDb()
+  const since = isoWeekStart(new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000))
+
+  const result = await db.execute(sql`
+    with a as (
+      select
+        c.organization_id,
+        date_trunc('week', m.created_at at time zone 'UTC') as week,
+        count(*) as answers
+      from messages m
+      join conversations c on c.id = m.conversation_id
+      where m.role = 'assistant'
+        and m.created_at >= ${since}::timestamptz
+        ${organizationId ? sql`and c.organization_id = ${organizationId}` : sql``}
+      group by 1, 2
+    ),
+    v as (
+      select
+        f.organization_id,
+        date_trunc('week', f.created_at at time zone 'UTC') as week,
+        count(*) filter (where f.verdict = 'up')   as up,
+        count(*) filter (where f.verdict = 'down') as down
+      from answer_feedback f
+      where f.created_at >= ${since}::timestamptz
+        ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
+      group by 1, 2
+    )
+    select
+      coalesce(a.organization_id, v.organization_id)                 as organization_id,
+      to_char(coalesce(a.week, v.week), 'IYYY-"W"IW')                as iso_week,
+      to_char(coalesce(a.week, v.week), 'YYYY-MM-DD')                as week_start,
+      coalesce(a.answers, 0)                                         as answers,
+      coalesce(v.up, 0)                                              as up,
+      coalesce(v.down, 0)                                            as down
+    from a
+    full outer join v on v.organization_id = a.organization_id and v.week = a.week
+    order by week_start desc, organization_id
+    limit ${FEEDBACK_WEEKLY_SUMMARY_LIMIT}
+  `)
+
+  // Raw `sql` results are not runtime-validated; counts arrive as strings.
+  return rowsOf(result).map((row) => ({
+    organizationId: String(row.organization_id),
+    isoWeek: String(row.iso_week),
+    weekStart: String(row.week_start),
+    answers: Number(row.answers ?? 0),
+    up: Number(row.up ?? 0),
+    down: Number(row.down ?? 0),
   }))
 }

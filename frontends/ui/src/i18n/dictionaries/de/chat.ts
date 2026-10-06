@@ -1202,6 +1202,8 @@ export const chat: typeof en.chat = {
     voteRecorded: 'Bewertung gespeichert.',
     commentLabel: 'Noch etwas?',
     commentPlaceholder: 'Optional — was ist schiefgelaufen?',
+    expectedLabel: 'Was hätte in einer guten Antwort stehen sollen?',
+    expectedPlaceholder: 'z. B. Brüstungshöhe 1,00 m laut OIB-RL 4',
     commentSubmit: 'Hinweis senden',
   },
   // Nach einem Daumen nach unten: dieselbe Frage mit mehr Aufwand erneut stellen.

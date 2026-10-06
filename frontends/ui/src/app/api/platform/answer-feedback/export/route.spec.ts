@@ -40,14 +40,22 @@ vi.mock('@/lib/feedback/service', () => ({
           topics: ['brandschutz', 'energie'],
           question: 'Welcher U-Wert gilt für Außenwände, und warum?',
           answer: 'Höchstens 0,35 W/(m²·K).',
+          expectedAnswer: 'U-Wert 0,35 laut OIB-RL 6',
         },
       ],
     }
   }),
+  getAnswerFeedbackWeeklySummary: vi.fn().mockImplementation(async (session: unknown) => {
+    const { requirePlatformPermission } = await import('@/lib/authz/platform')
+    await requirePlatformPermission(session as never, 'platform:organizations:view')
+    return [
+      { organizationId: 'org_2', isoWeek: '2026-W41', weekStart: '2026-10-05', answers: 40, up: 6, down: 3 },
+    ]
+  }),
 }))
 
 import { GET } from './route'
-import { getAnswerFeedbackHealth } from '@/lib/feedback/service'
+import { getAnswerFeedbackHealth, getAnswerFeedbackWeeklySummary } from '@/lib/feedback/service'
 
 const request = (query = ''): Request =>
   new Request(`http://localhost/api/platform/answer-feedback/export${query}`)
@@ -106,5 +114,35 @@ describe('GET /api/platform/answer-feedback/export', () => {
     )
     // A BOM, so Excel opens the umlauts as umlauts.
     expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
+  })
+
+  it('carries expected_answer as the last column, by exactly that name', async () => {
+    isOwner.value = true
+    const body = await (await GET(request())).text()
+    const [header, row] = body.split('\n')
+
+    expect(header.split(',').at(-1)).toBe('expected_answer')
+    expect(row).toContain('"U-Wert 0,35 laut OIB-RL 6"')
+  })
+
+  describe('?summary=weekly', () => {
+    it('refuses a non-owner with 403', async () => {
+      expect((await GET(request('?summary=weekly'))).status).toBe(403)
+    })
+
+    it('answers with per-org, per-week counts and passes the same filters', async () => {
+      isOwner.value = true
+      const res = await GET(request('?summary=weekly&days=90&org=org_2'))
+      const body = await res.text()
+
+      expect(res.headers.get('Content-Disposition')).toContain('answer-feedback-weekly-')
+      expect(body.split('\n')[0]).toBe('organization_id,iso_week,week_start,answers,up,down')
+      expect(body).toContain('"org_2","2026-W41","2026-10-05","40","6","3"')
+      expect(getAnswerFeedbackWeeklySummary).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ windowDays: 90, organizationId: 'org_2' })
+      )
+      expect(getAnswerFeedbackHealth).not.toHaveBeenCalled()
+    })
   })
 })

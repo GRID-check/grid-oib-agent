@@ -30,9 +30,11 @@ import {
   deleteAnswerFeedbackForUser,
   getAnswerFeedbackForUser,
   getFeedbackHealth,
+  getFeedbackWeeklySummary,
   listAnswerFeedbackForConversation,
   upsertAnswerFeedback,
   type FeedbackHealth,
+  type FeedbackWeeklyCount,
   type FeedbackHealthFilters,
 } from './repository'
 import { getFeedbackDigest, type FeedbackDigestOptions, type FeedbackDigestResult } from './digest'
@@ -56,7 +58,7 @@ export async function submitAnswerFeedback(
   if (input.verdict === 'up' && input.reason != null) {
     throw new BadRequestError('A reason is only valid with a down verdict.')
   }
-  if (input.verdict === 'up' && input.comment) {
+  if (input.verdict === 'up' && (input.comment || input.expectedAnswer)) {
     throw new BadRequestError('A comment is only valid with a down verdict.')
   }
 
@@ -83,6 +85,7 @@ export async function submitAnswerFeedback(
     verdict: input.verdict,
     reason: input.verdict === 'down' ? (input.reason ?? null) : null,
     comment: input.verdict === 'down' ? input.comment || null : null,
+    expectedAnswer: input.verdict === 'down' ? input.expectedAnswer || null : null,
     conversationId: input.conversationId ?? null,
     projectId: input.projectId ?? null,
   })
@@ -140,6 +143,7 @@ function toView(row: AnswerFeedback): AnswerFeedbackView {
     verdict: row.verdict,
     reason: row.reason ?? null,
     comment: row.comment ?? null,
+    expectedAnswer: row.expectedAnswer ?? null,
   }
 }
 
@@ -195,4 +199,18 @@ export async function getAnswerFeedbackDigest(
     () => getFeedbackHealth({ ...filters, limit: 0 })
   )
   return getFeedbackDigest(health, filters, options)
+}
+
+/**
+ * Per organization and ISO week: answers, up-votes, down-votes - the inputs of a
+ * failure rate. Same gate and same cross-tenant bypass as the health view.
+ */
+export async function getAnswerFeedbackWeeklySummary(
+  session: GridSession | null,
+  filters: FeedbackHealthFilters = {}
+): Promise<FeedbackWeeklyCount[]> {
+  await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
+  return withPlatformAccess('answer feedback: weekly rate inputs across organizations', () =>
+    getFeedbackWeeklySummary(filters)
+  )
 }

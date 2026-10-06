@@ -1035,6 +1035,9 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   (`up`/`down`), `reason` (nullable, fixed keys
   `inaccurate`/`too_slow`/`wrong_source`/`other`; down-votes only),
   `comment` (nullable free-text on a down-vote; migration 0052),
+  `expected_answer` (nullable free-text on a down-vote: what a good answer
+  would have contained; migration 0103, exported as the `expected_answer` CSV
+  column so a down-vote can become an answer-suite test case),
   `lessons_holdout` (nullable boolean, migration 0069 — which arm of the
   platform-lessons experiment this turn was in; NULL when the holdout is off,
   which is the default, so those votes are excluded from the comparison rather

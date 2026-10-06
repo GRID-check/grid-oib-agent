@@ -1,0 +1,9 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+features:
+  - >
+    After a thumbs-down you can now say what a good answer should have
+    contained, for example the value and the guideline it comes from. The
+    field is optional and is sent together with your note.
