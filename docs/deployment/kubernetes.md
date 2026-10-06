@@ -1076,6 +1076,14 @@ the tier autoscale:
   `GRID_CHAT_SUPERSEDE_WAIT_SECONDS`). If the stale turn has not stopped in time,
   the question is refused with a retry hint; with Dragonfly down and affinity off
   it is refused too, because nothing else can say no.
+- **The owner fences itself.** A turn that cannot renew its marker (Dragonfly
+  unreachable from its replica for most of `GRID_CHAT_RUNNING_TTL_SECONDS`, or the
+  marker gone) stops writing the conversation's thread, its frames and its
+  persisted outcome on a local deadline, and ends cancelled, before a newer turn
+  on another replica can take the marker. The cost is that a Dragonfly outage
+  longer than the TTL minus 7 s (5 s at the default 12) ends the answers running
+  at that moment; with affinity on nothing is fenced, because one process holds
+  both turns.
 - **The signal.** `GET /v1/internal/chat-occupancy` on any replica returns the
   fleet's running turns (`activeTurns`, the global admission pool). KEDA's
   `metrics-api` trigger holds `backendTurnsPerReplica` of them per replica

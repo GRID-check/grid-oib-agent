@@ -76,6 +76,12 @@ Chosen option 3.
   clear in time the question is refused as "still finishing the previous
   answer", never run concurrently. A marker whose owner died expires with its
   TTL. With the bus down the fence fails open only while affinity is on.
+* **The owner fences itself.** A marker can be lost while its owner still runs
+  (a renewal that finds it gone, or Dragonfly unreachable from that replica for
+  longer than the TTL). The owner then cancels its own turn, through the same
+  path a cancel takes, so it ends with a terminal and writes nothing after a
+  new turn could have started. With affinity on the fence fails open, as the
+  bus does, because affinity already keeps both turns in one process.
 * **Scaling signal.** The fleet-wide active-turn count Dragonfly already holds
   for admission, served by an internal backend endpoint any replica can answer,
   read by KEDA's `metrics-api` scaler, beside a CPU trigger. Scale-in is slow
@@ -102,8 +108,10 @@ Chosen option 3.
 * Protocol: the bus's existing two-replica tests (`test_conversation_bus.py`,
   `test_websocket_bus_wiring.py`, `test_conversation_bus_redis.py`), extended
   with a relay that stays idle across turns, an owner that drains mid-turn,
-  and a second question on another replica while a turn runs: the new turn
-  starts only after the old one stopped, or is refused.
+  a second question on another replica while a turn runs (the new turn starts
+  only after the old one stopped, or is refused), two turns racing from an
+  empty marker (one enters LangGraph), and an owner that keeps running past its
+  marker's expiry (it is cancelled and never writes after the new turn starts).
 * Multi-replica behaviour against real Dragonfly: nothing enforces this yet;
   review is the only gate. The dev-cluster validation above is the step that
   closes it, before prod's flag changes.
@@ -122,6 +130,25 @@ Chosen option 3.
   (`GRID_CHAT_DRAIN_SECONDS`); the scaling signal is
   `GET /v1/internal/chat-occupancy` (`turn_admission.active_turns`); the
   ScaledObject is `deploy/pulumi/src/app/backend-scaling.ts`.
+* How the owner fences itself: `aiq_api/turn_fence.py` holds the deadline,
+  `ChatRegistry.keep_conversation` renews and cancels, and every write path
+  asks it first (`aiq_agent/common/write_fence.py`; the checkpointer is wrapped
+  by `FencedCheckpointer`, the frames by `TurnWire`, the outcome by
+  `persist_turn_result`). The deadline is the start of the last successful
+  renewal plus the TTL minus a margin, and each guard compares
+  `time.monotonic()` with it directly, so a renewal task that never ran cannot
+  leave a stale answer. The margin is one guarded write (bounded at 3 s) plus
+  1 s for the cancel and clock skew; the TTL must exceed it. The persist of the
+  outcome is checked but not cut short: it is the turn's own message row, which
+  cannot collide with a newer turn's. A marker deleted before its TTL (a
+  Dragonfly that lost its data) can be taken at once and no local clock sees
+  it; the renewal's `False` fences the turn the next time it runs.
+* The TTL trade-off. A longer `GRID_CHAT_RUNNING_TTL_SECONDS` rides out longer
+  Dragonfly blips (the window is the TTL minus 4 s) and costs a longer wait
+  behind a replica that died mid-turn, which must stay under
+  `GRID_CHAT_SUPERSEDE_WAIT_SECONDS` and so under the client's 15 s
+  acknowledgement bound. 12 s keeps the wait at 13.5 s, rides out a 5 s blip
+  whatever the renewal phase, and renews four times per TTL.
 * One difference from the order written above: the turn id is claimed first,
   then the marker is taken. A resent question that is a duplicate must never
   publish `SUPERSEDE`, or a late resend of an old question would stop the newer

@@ -148,3 +148,31 @@ async def test_a_running_marker_expires_on_its_ttl_over_real_redis(monkeypatch):
 
     assert await relay.running_holder(CONV) is None
     assert await relay.acquire_running(CONV, "t2")
+
+
+@pytest.mark.asyncio
+async def test_distinct_turns_racing_from_an_empty_marker_over_real_redis_exactly_one_acquires():
+    owner, relay = _redis_replicas()
+
+    won = await asyncio.gather(*(bus.acquire_running(CONV, f"t{i}") for i, bus in enumerate([owner, relay] * 10)))
+
+    assert sum(won) == 1
+    assert (await owner.running_holder(CONV)).turn_id == f"t{won.index(True)}"
+
+
+@pytest.mark.asyncio
+async def test_a_renewal_over_real_redis_restarts_the_expiry_and_a_late_one_does_not_revive_the_marker(monkeypatch):
+    from aiq_api import conversation_bus
+
+    monkeypatch.setattr(conversation_bus, "RUNNING_TTL_SECONDS", 0.2)
+    owner, relay = _redis_replicas()
+    await owner.acquire_running(CONV, "t1")
+    for _ in range(3):
+        await asyncio.sleep(0.1)
+        assert await owner.renew_running(CONV, "t1")  # alive well past one TTL, only because it is renewed
+    assert not await relay.acquire_running(CONV, "t2")
+
+    await asyncio.sleep(0.3)
+
+    assert not await owner.renew_running(CONV, "t1")  # expired: a late renewal says so, it does not bring it back
+    assert await relay.acquire_running(CONV, "t2")

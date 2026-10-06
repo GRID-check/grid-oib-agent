@@ -87,13 +87,20 @@ _STREAM_TTL_SECONDS = int(os.environ.get("GRID_CONV_STREAM_TTL_SECONDS", "3600")
 # @environment_variable GRID_CHAT_RUNNING_TTL_SECONDS
 # @category Server
 # @type float
-# @default 10
+# @default 12
 # @required false
 # How long the conversation's running marker (`conv:<id>:running`) survives
-# without its owner renewing it. The owner renews every third of this while the
-# turn runs and deletes the marker when it ends, so this bounds only how long a
-# newer question waits behind a replica that died mid-turn.
-RUNNING_TTL_SECONDS = float(os.environ.get("GRID_CHAT_RUNNING_TTL_SECONDS", "10") or "10")
+# without its owner renewing it. The owner renews every quarter of this while
+# the turn runs and deletes the marker when the turn ends. It bounds two
+# things in opposite directions. How long a newer question waits behind a
+# replica that died mid-turn: up to this value, and it must stay under
+# `GRID_CHAT_SUPERSEDE_WAIT_SECONDS`, which must stay under the client's 15 s
+# acknowledgement bound. And, with `GRID_CHAT_AFFINITY` off, how long a Dragonfly
+# blip the owner survives: it stops writing and cancels its turn once a
+# successful renewal is older than this minus a 4 s margin (one guarded write,
+# 3 s, plus 1 s), so a blip shorter than about this value minus 7 s is ridden
+# out and a longer one ends the answer. It must be above 4.
+RUNNING_TTL_SECONDS = float(os.environ.get("GRID_CHAT_RUNNING_TTL_SECONDS", "12") or "12")
 
 #: The bound on one bus command a turn waits on. RedisTransport's own client
 #: timeout is the same second; this one holds for any transport.
@@ -103,9 +110,14 @@ BUS_CALL_TIMEOUT_S = 1.0
 BUS_RETRY_AFTER_S = 5.0
 
 
+def running_ttl() -> float:
+    """The marker's TTL now (read per call, so a test or a restart's new value is the one used)."""
+    return RUNNING_TTL_SECONDS
+
+
 def running_renew_interval() -> float:
-    """Renew the running marker three times per TTL, so two missed renewals still hold it."""
-    return max(RUNNING_TTL_SECONDS / 3, 0.01)
+    """Renew the running marker four times per TTL, so a missed renewal or two still leaves the owner its window."""
+    return max(running_ttl() / 4, 0.01)
 
 
 class BusUnavailable(ConnectionError):
