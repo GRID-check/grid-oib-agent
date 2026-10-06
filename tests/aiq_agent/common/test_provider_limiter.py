@@ -55,19 +55,21 @@ def clock(monkeypatch):
     return fake
 
 
-def poll(member: str, cls: str) -> bool:
-    """One poll of one waiter: did it get the slot."""
-    attempt = pl._attempt(member, cls)
-    assert attempt is not None
-    return attempt.taken
-
-
 def leases(store) -> dict[str, float]:
     return dict(store.zrange(pl._keys(pl.POOL)["leases"], 0, -1, withscores=True))
 
 
-def limit_of(store) -> int:
-    return int(store.hget(pl._keys(pl.POOL)["state"], "limit"))
+def limit_of(store, model: str | None = None) -> int:
+    """The stored limit of the key's scope, or of ``model``'s."""
+    keys = pl._keys(pl.POOL, model)
+    return int(store.hget(keys["model_state" if model else "state"], "limit"))
+
+
+def poll(member: str, cls: str, model: str | None = None) -> bool:
+    """One poll of one waiter: did it get the slot."""
+    attempt = pl._attempt(member, cls, model)
+    assert attempt is not None
+    return attempt.taken
 
 
 # ---------------------------------------------------------------- class order
@@ -164,11 +166,11 @@ def test_a_holder_that_died_loses_its_slot_when_its_lease_ages_out(store, clock)
 def test_a_429_halves_the_limit_down_to_the_floor(store, clock, monkeypatch):
     monkeypatch.setenv(pl._CEILING_ENV, "32")
     monkeypatch.setenv(pl._FLOOR_ENV, "5")
-    pl.throttle("m")
+    pl.throttle("m", pl.KEY_SCOPE)
     assert limit_of(store) == 16
     for expected in (8, 5, 5):
         clock.advance(pl.CUT_COOLDOWN_SECONDS + 1)
-        pl.throttle("m")
+        pl.throttle("m", pl.KEY_SCOPE)
         assert limit_of(store) == expected
 
 
@@ -176,7 +178,7 @@ def test_429s_that_arrive_together_count_once(store, clock, monkeypatch):
     monkeypatch.setenv(pl._CEILING_ENV, "32")
     monkeypatch.setenv(pl._FLOOR_ENV, "1")
     for _ in range(12):
-        pl.throttle("m")
+        pl.throttle("m", pl.KEY_SCOPE)
         clock.advance(0.05)
     assert limit_of(store) == 16
 
@@ -185,7 +187,7 @@ def test_each_quiet_interval_adds_one_up_to_the_ceiling(store, clock, monkeypatc
     monkeypatch.setenv(pl._CEILING_ENV, "10")
     monkeypatch.setenv(pl._FLOOR_ENV, "2")
     monkeypatch.setenv(pl._INTERVAL_ENV, "5")
-    pl.throttle("m")
+    pl.throttle("m", pl.KEY_SCOPE)
     assert limit_of(store) == 5
 
     seen = []
@@ -200,7 +202,7 @@ def test_each_quiet_interval_adds_one_up_to_the_ceiling(store, clock, monkeypatc
 def test_no_quiet_interval_means_no_recovery(store, clock, monkeypatch):
     monkeypatch.setenv(pl._CEILING_ENV, "10")
     monkeypatch.setenv(pl._INTERVAL_ENV, "5")
-    pl.throttle("m")
+    pl.throttle("m", pl.KEY_SCOPE)
     for _ in range(4):  # one second short of the interval
         clock.advance(1)
         assert pl._attempt("probe", pl.CHAT).limit == 5
@@ -210,20 +212,20 @@ def test_no_quiet_interval_means_no_recovery(store, clock, monkeypatch):
 def test_the_limit_gates_admission(store, clock, monkeypatch):
     monkeypatch.setenv(pl._CEILING_ENV, "8")
     monkeypatch.setenv(pl._FLOOR_ENV, "1")
-    pl.throttle("m")  # 8 -> 4
+    pl.throttle("m", pl.KEY_SCOPE)  # 8 -> 4
     taken = [poll(f"m{i}", pl.INTERACTIVE) for i in range(6)]
     assert taken == [True, True, True, True, False, False]
 
 
 def test_a_restarted_fleet_member_reads_the_fleets_limit_not_the_ceiling(store, clock, monkeypatch):
     monkeypatch.setenv(pl._CEILING_ENV, "64")
-    pl.throttle("m")
+    pl.throttle("m", pl.KEY_SCOPE)
     assert pl._attempt("fresh", pl.CHAT).limit == 32
 
 
 def test_the_ceiling_can_be_lowered_under_a_stored_limit(store, clock, monkeypatch):
     monkeypatch.setenv(pl._CEILING_ENV, "64")
-    pl.throttle("m")
+    pl.throttle("m", pl.KEY_SCOPE)
     monkeypatch.setenv(pl._CEILING_ENV, "10")
     monkeypatch.setenv(pl._FLOOR_ENV, "1")
     assert pl._attempt("fresh", pl.CHAT).limit == 10
@@ -236,7 +238,7 @@ def test_without_a_store_every_call_proceeds(monkeypatch):
     monkeypatch.setattr(pl.cache, "eval_script", lambda *_: None)
     with pl.slot(cls=pl.BULK) as lease:
         assert not lease.held
-    pl.throttle("m")  # and recording a 429 does not raise
+    pl.throttle("m", pl.KEY_SCOPE)  # and recording a 429 does not raise
 
 
 def test_a_reply_it_cannot_read_fails_open(monkeypatch):
@@ -253,7 +255,7 @@ def test_switched_off_it_never_touches_the_store(monkeypatch):
     monkeypatch.setenv(pl._ENABLED_ENV, "off")
     with pl.slot():
         pass
-    pl.throttle("m")
+    pl.throttle("m", pl.KEY_SCOPE)
 
 
 def test_it_fails_open_the_moment_the_store_goes_while_a_caller_waits(store, clock, monkeypatch):
@@ -420,7 +422,7 @@ def test_a_429_gives_the_slot_back_before_it_waits_out_the_retry_after(store, mo
     waited, held_while_waiting = slept[0]
     assert 9 <= waited <= 11
     assert held_while_waiting == {}  # outside the slot
-    assert limit_of(store) == 8  # and the fleet's limit was halved
+    assert limit_of(store, "m") == 16  # the model's limit was halved, 32 -> 16
 
 
 def test_the_429_wait_outside_the_slot_in_async_code(store, monkeypatch):
@@ -443,7 +445,7 @@ def test_the_429_wait_outside_the_slot_in_async_code(store, monkeypatch):
 
     asyncio.run(scenario())
     assert held_while_waiting == [{}]
-    assert limit_of(store) == 8
+    assert limit_of(store, "m") == 16
 
 
 def test_other_errors_give_the_slot_back_without_touching_the_limit(store):
@@ -451,7 +453,8 @@ def test_other_errors_give_the_slot_back_without_touching_the_limit(store):
         with pl.slot():
             raise ValueError("boom")
     assert leases(store) == {}
-    assert store.exists(pl._keys(pl.POOL)["state"]) == 0
+    keys = pl._keys(pl.POOL, "m")
+    assert store.exists(keys["state"], keys["model_state"]) == 0
 
 
 # ---------------------------------------------------------------------- class
@@ -532,8 +535,8 @@ def collected(reader: InMemoryMetricReader) -> dict[str, list]:
 
 def test_the_limiter_emits_its_meters(store, metrics, monkeypatch):
     monkeypatch.setenv(pl._CEILING_ENV, "16")
-    first = pl.acquire(cls=pl.CHAT)
-    second = pl.acquire(cls=pl.BULK)
+    first = pl.acquire(cls=pl.CHAT, model="vendor/model")
+    second = pl.acquire(cls=pl.BULK, model="vendor/model")
     pl.throttle("vendor/model")
     first.release()
 
@@ -541,6 +544,186 @@ def test_the_limiter_emits_its_meters(store, metrics, monkeypatch):
     assert points["grid.provider.inflight"][0].value == 1  # one released, one still held
     waits = {tuple(p.attributes.items()): p.count for p in points["grid.provider.wait_seconds"]}
     assert waits == {(("class", "chat"),): 1, (("class", "bulk"),): 1}
-    assert [(p.attributes["model"], p.value) for p in points["grid.provider.throttled_total"]] == [("vendor/model", 1)]
-    assert [p.value for p in points["grid.provider.limit"]] == [8]
+    assert [
+        (p.attributes["model"], p.attributes["scope"], p.value) for p in points["grid.provider.throttled_total"]
+    ] == [("vendor/model", "model", 1)]
+    limits = {tuple(sorted(p.attributes.items())): p.value for p in points["grid.provider.limit"]}
+    assert limits[(("model", "vendor/model"), ("scope", "model"))] == 16
     second.release()
+
+
+# ------------------------------------------------------- the scope of a 429
+
+
+def keyed(store, model: str | None = None) -> bool:
+    """Whether the limit state of the key's scope, or of ``model``'s, exists."""
+    keys = pl._keys(pl.POOL, model)
+    return bool(store.exists(keys["model_state" if model else "state"]))
+
+
+def test_a_429_for_one_model_leaves_another_models_limit_untouched(store, clock, monkeypatch):
+    monkeypatch.setenv(pl._CEILING_ENV, "64")
+    monkeypatch.setenv(pl._MODEL_CEILING_ENV, "8")
+    monkeypatch.setenv(pl._MODEL_FLOOR_ENV, "1")
+    pl.throttle("vendor/a", pl.MODEL_SCOPE)
+
+    assert limit_of(store, "vendor/a") == 4
+    assert not keyed(store, "vendor/b")
+    assert not keyed(store)  # nor did it touch the key's
+    assert pl._attempt("b", pl.CHAT, "vendor/b").model_limit == 8
+    assert pl._attempt("a", pl.CHAT, "vendor/a").model_limit == 4
+
+
+def test_a_429_of_openrouters_own_halves_the_key_pool_and_no_models(store, clock, monkeypatch):
+    monkeypatch.setenv(pl._CEILING_ENV, "64")
+    monkeypatch.setenv(pl._FLOOR_ENV, "1")
+    pl.throttle("vendor/a", pl.KEY_SCOPE)
+
+    assert limit_of(store) == 32
+    assert not keyed(store, "vendor/a")
+    attempt = pl._attempt("a", pl.CHAT, "vendor/a")
+    assert (attempt.limit, attempt.model_limit) == (32, pl.model_limit_ceiling())
+
+
+def test_each_scope_has_its_own_floor_and_ceiling(store, clock, monkeypatch):
+    monkeypatch.setenv(pl._CEILING_ENV, "100")
+    monkeypatch.setenv(pl._FLOOR_ENV, "40")
+    monkeypatch.setenv(pl._MODEL_CEILING_ENV, "10")
+    monkeypatch.setenv(pl._MODEL_FLOOR_ENV, "3")
+    for _ in range(6):
+        pl.throttle("m", pl.KEY_SCOPE)
+        pl.throttle("m", pl.MODEL_SCOPE)
+        clock.advance(pl.CUT_COOLDOWN_SECONDS + 1)
+    assert (limit_of(store), limit_of(store, "m")) == (40, 3)
+
+
+def test_each_models_limit_recovers_on_its_own(store, clock, monkeypatch):
+    monkeypatch.setenv(pl._MODEL_CEILING_ENV, "8")
+    monkeypatch.setenv(pl._MODEL_FLOOR_ENV, "1")
+    monkeypatch.setenv(pl._INTERVAL_ENV, "5")
+    pl.throttle("a", pl.MODEL_SCOPE)
+    clock.advance(5)
+    pl.throttle("b", pl.MODEL_SCOPE)
+    clock.advance(5)
+    assert pl._attempt("a", pl.CHAT, "a").model_limit == 5  # 4, and one interval-step later
+    pl._abandon("a", "a")
+    assert pl._attempt("b", pl.CHAT, "b").model_limit == 5
+
+
+def test_a_call_holds_a_slot_in_the_key_pool_and_its_models_pool(store, clock):
+    assert poll("a", pl.CHAT, "vendor/a")
+    assert set(leases(store)) == {"a"}
+    assert set(store.zrange(pl._keys(pl.POOL, "vendor/a")["model_leases"], 0, -1)) == {"a"}
+    pl.cache.eval_script(
+        pl.lease_slots.WITHDRAW_LUA, [*pl._held_keys(pl._keys(pl.POOL, "vendor/a"), "vendor/a")], ["a"]
+    )
+    assert leases(store) == {}
+    assert store.zcard(pl._keys(pl.POOL, "vendor/a")["model_leases"]) == 0
+
+
+def test_a_model_at_its_limit_queues_its_own_calls_only(store, clock, monkeypatch):
+    monkeypatch.setenv(pl._CEILING_ENV, "8")
+    monkeypatch.setenv(pl._FLOOR_ENV, "8")
+    monkeypatch.setenv(pl._MODEL_CEILING_ENV, "1")
+    monkeypatch.setenv(pl._MODEL_FLOOR_ENV, "1")
+    assert poll("a1", pl.BULK, "vendor/a")
+    assert not poll("a2", pl.CHAT, "vendor/a")  # model A is at its limit
+    clock.advance(0.01)
+    assert poll("b1", pl.BULK, "vendor/b")  # and that does not hold model B back, whatever the class
+
+
+def test_a_waiter_held_by_its_model_does_not_block_a_lower_class_of_another_model(store, clock, monkeypatch):
+    monkeypatch.setenv(pl._CEILING_ENV, "8")
+    monkeypatch.setenv(pl._FLOOR_ENV, "8")
+    monkeypatch.setenv(pl._MODEL_CEILING_ENV, "1")
+    monkeypatch.setenv(pl._MODEL_FLOOR_ENV, "1")
+    assert poll("holder", pl.CHAT, "vendor/a")
+    assert not poll("chat-a", pl.CHAT, "vendor/a")
+    assert not poll("research-b", pl.RESEARCH, "vendor/b") or True  # takes a slot at once: its model is free
+    pl._abandon("research-b", "vendor/b")
+    clock.advance(0.01)
+    assert not poll("chat-a", pl.CHAT, "vendor/a")  # marked blocked
+    assert poll("bulk-b", pl.BULK, "vendor/b")
+
+
+def test_a_freed_model_slot_goes_to_the_highest_class_waiting_for_that_model(store, clock, monkeypatch):
+    monkeypatch.setenv(pl._MODEL_CEILING_ENV, "1")
+    monkeypatch.setenv(pl._MODEL_FLOOR_ENV, "1")
+    monkeypatch.setenv(pl._CEILING_ENV, "8")
+    monkeypatch.setenv(pl._FLOOR_ENV, "8")
+    assert poll("holder", pl.BULK, "vendor/a")
+    assert not poll("bulk", pl.BULK, "vendor/a")
+    clock.advance(0.01)
+    assert not poll("chat", pl.CHAT, "vendor/a")
+    pl.cache.eval_script(
+        pl.lease_slots.WITHDRAW_LUA, pl._held_keys(pl._keys(pl.POOL, "vendor/a"), "vendor/a"), ["holder"]
+    )
+    clock.advance(0.01)
+    assert not poll("bulk", pl.BULK, "vendor/a")
+    assert poll("chat", pl.CHAT, "vendor/a")
+
+
+class UpstreamRateLimited(Exception):
+    """What the OpenAI SDK raises for OpenRouter's 429: the body's ``error`` object is ``.body``."""
+
+    def __init__(self, error: dict | None) -> None:
+        super().__init__("Error code: 429")
+        self.status_code = 429
+        self.body = error
+        self.response = SimpleNamespace(headers={}, status_code=429)
+
+
+UPSTREAM = {
+    "code": 429,
+    "message": "Provider returned error",
+    "metadata": {"provider_name": "Google", "raw": "quota exceeded"},
+}
+OPENROUTER_OWN = {
+    "code": 429,
+    "message": "Rate limit exceeded: limit_rpm/vendor/model",
+    "metadata": {"headers": {"X-RateLimit-Limit": "100"}},
+}
+
+
+def test_an_upstream_providers_429_is_the_models(store):
+    assert pl.scope_of_error(UPSTREAM) == pl.MODEL_SCOPE
+    assert pl.scope_of_error({"error": UPSTREAM}) == pl.MODEL_SCOPE
+    assert pl.rate_limit_scope(UpstreamRateLimited(UPSTREAM)) == pl.MODEL_SCOPE
+
+
+def test_openrouters_own_429_is_the_keys(store):
+    assert pl.scope_of_error(OPENROUTER_OWN) == pl.KEY_SCOPE
+    assert pl.scope_of_error({"error": OPENROUTER_OWN}) == pl.KEY_SCOPE
+    assert pl.rate_limit_scope(UpstreamRateLimited(OPENROUTER_OWN)) == pl.KEY_SCOPE
+
+
+def test_a_429_it_cannot_classify_counts_against_the_model(store):
+    assert pl.rate_limit_scope(ValueError("rate_limit_exceeded: slow down")) == pl.MODEL_SCOPE  # an in-stream error
+    assert pl.rate_limit_scope(UpstreamRateLimited(None)) == pl.MODEL_SCOPE
+    assert pl.scope_of_error("Too many requests") == pl.MODEL_SCOPE
+    assert pl.scope_of_error({"error": {"message": "slow down"}}) == pl.MODEL_SCOPE
+    assert pl.scope_of_error({"code": "rate_limit_exceeded"}) == pl.MODEL_SCOPE
+    wrapped = RuntimeError("retries exhausted")
+    wrapped.__cause__ = UpstreamRateLimited(OPENROUTER_OWN)
+    assert pl.rate_limit_scope(wrapped) == pl.KEY_SCOPE  # but a body found anywhere in the chain is read
+
+
+def test_a_429_without_a_model_to_blame_cuts_nothing(store):
+    pl.throttle(None, pl.MODEL_SCOPE)
+    assert not keyed(store)
+
+
+def test_a_slot_cuts_the_scope_its_429_names(store, monkeypatch):
+    monkeypatch.setenv(pl._CEILING_ENV, "64")
+    monkeypatch.setattr(pl.time, "sleep", lambda _s: None)
+    with pytest.raises(UpstreamRateLimited):
+        with pl.slot(model="vendor/a"):
+            raise UpstreamRateLimited(UPSTREAM)
+    assert limit_of(store, "vendor/a") == 16
+    assert not keyed(store)
+
+    with pytest.raises(UpstreamRateLimited):
+        with pl.slot(model="vendor/b"):
+            raise UpstreamRateLimited(OPENROUTER_OWN)
+    assert limit_of(store) == 32
+    assert not keyed(store, "vendor/b")

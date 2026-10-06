@@ -105,14 +105,15 @@ return 1
 # the caller also holds a slot in a scoped pool) and scoped_limit; and these
 # keys: KEYS[1] the key pool's leases, KEYS[2] the waiters' last poll, KEYS[3]
 # the waiters a full scoped pool is holding, KEYS[4 .. 3 + classes] one ticket
-# set per class (scored by arrival, highest class first), KEYS[4 + classes] the
+# set per class (scored by arrival, highest class first), KEYS[5 + classes] the
 # scoped pool's leases. Further keys are the caller's.
 #
-# A waiter whose scoped pool is full is marked blocked on every poll and does
-# not count as "ahead" of anyone, so one model at its limit never holds back the
-# others; it counts again as soon as its own poll finds room. A waiter that
-# stops polling is dropped after `ticket_ttl`, from every set at once: its ticket
-# would otherwise hold back every class below it.
+# A waiter whose scoped pool is full is marked blocked, with the pool it waits
+# on, on every poll. It does not count as "ahead" of a caller of ANOTHER pool,
+# so one model at its limit never holds back the others; it always counts ahead
+# of a caller of its own pool, where priority is the point. A waiter that stops
+# polling is dropped after `ticket_ttl`, from every set at once: its ticket would
+# otherwise hold back every class below it.
 #
 # Returns {taken, limit, in flight, scoped limit, scoped in flight}.
 RANKED_ADMISSION_LUA = (
@@ -120,7 +121,8 @@ RANKED_ADMISSION_LUA = (
 local key = KEYS[1]
 local seen = KEYS[2]
 local blocked = KEYS[3]
-local scoped_key = KEYS[4 + classes]
+local blocked_on = KEYS[4]
+local scoped_key = KEYS[5 + classes]
 """
     + PRUNE_LUA
     + """
@@ -130,11 +132,12 @@ local gone = redis.call('ZRANGEBYSCORE', seen, '-inf', now - ticket_ttl)
 for _, waiter in ipairs(gone) do
   redis.call('ZREM', seen, waiter)
   redis.call('ZREM', blocked, waiter)
+  redis.call('HDEL', blocked_on, waiter)
   for i = 1, classes do
-    redis.call('ZREM', KEYS[3 + i], waiter)
+    redis.call('ZREM', KEYS[4 + i], waiter)
   end
 end
-redis.call('ZADD', KEYS[3 + rank], 'NX', now, member)
+redis.call('ZADD', KEYS[4 + rank], 'NX', now, member)
 redis.call('ZADD', seen, now, member)
 local inflight = redis.call('ZCARD', key)
 local scoped_inflight = 0
@@ -143,23 +146,27 @@ if scoped == 1 then scoped_inflight = redis.call('ZCARD', scoped_key) end
 local function keep_alive()
   redis.call('EXPIRE', seen, ticket_ttl * 4)
   redis.call('EXPIRE', blocked, ticket_ttl * 4)
+  redis.call('EXPIRE', blocked_on, ticket_ttl * 4)
   for i = 1, classes do
-    redis.call('EXPIRE', KEYS[3 + i], ticket_ttl * 4)
+    redis.call('EXPIRE', KEYS[4 + i], ticket_ttl * 4)
   end
 end
 
 if scoped == 1 and scoped_inflight >= scoped_limit then
   redis.call('ZADD', blocked, now, member)
+  redis.call('HSET', blocked_on, member, model)
   keep_alive()
   return {0, limit, inflight, scoped_limit, scoped_inflight}
 end
 redis.call('ZREM', blocked, member)
+redis.call('HDEL', blocked_on, member)
 
 local function head_of(class_index)
-  local ids = redis.call('ZRANGE', KEYS[3 + class_index], 0, 31)
+  local ids = redis.call('ZRANGE', KEYS[4 + class_index], 0, 31)
   for _, id in ipairs(ids) do
     local since = redis.call('ZSCORE', blocked, id)
-    if not since or tonumber(since) < now - ticket_ttl then
+    local fresh = since and tonumber(since) >= now - ticket_ttl
+    if not fresh or redis.call('HGET', blocked_on, id) == model then
       return id
     end
   end
@@ -170,7 +177,7 @@ for i = 1, rank - 1 do
   if head_of(i) then first = false end
 end
 if first and head_of(rank) == member and inflight < limit then
-  redis.call('ZREM', KEYS[3 + rank], member)
+  redis.call('ZREM', KEYS[4 + rank], member)
   redis.call('ZREM', seen, member)
   redis.call('ZADD', key, now, member)
   redis.call('EXPIRE', key, lease)
@@ -187,11 +194,16 @@ return {0, limit, inflight, scoped_limit, scoped_inflight}
 
 # Take a member out of every key given: a waiter that gives up (the poll set and
 # every ticket set) and a holder that is done (every pool it holds a slot in).
+# A key may be a sorted set or a hash (the pool a blocked waiter waits on).
 # Returns how many keys held it.
 WITHDRAW_LUA = """
 local removed = 0
 for i = 1, #KEYS do
-  removed = removed + redis.call('ZREM', KEYS[i], ARGV[1])
+  if redis.call('TYPE', KEYS[i]).ok == 'hash' then
+    removed = removed + redis.call('HDEL', KEYS[i], ARGV[1])
+  else
+    removed = removed + redis.call('ZREM', KEYS[i], ARGV[1])
+  end
 end
 return removed
 """

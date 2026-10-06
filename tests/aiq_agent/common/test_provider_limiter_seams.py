@@ -42,6 +42,16 @@ def held(store) -> int:
     return store.zcard(pl._keys(pl.POOL)["leases"])
 
 
+def model_limit(store, model: str) -> int | None:
+    value = store.hget(pl._keys(pl.POOL, model)["model_state"], "limit")
+    return int(value) if value is not None else None
+
+
+def key_limit(store) -> int | None:
+    value = store.hget(pl._keys(pl.POOL)["state"], "limit")
+    return int(value) if value is not None else None
+
+
 def waiting(store, cls: str) -> int:
     return store.zcard(pl._keys(pl.POOL)["tickets"][pl.CLASSES.index(cls)])
 
@@ -152,7 +162,7 @@ async def test_a_429_gives_the_slot_back_and_halves_the_limit(store, monkeypatch
     with pytest.raises(RateLimited):
         await llm.ainvoke(MESSAGES)
     assert held(store) == 0
-    assert int(store.hget(pl._keys(pl.POOL)["state"], "limit")) == 8
+    assert model_limit(store, "vendor/model") == 16
 
 
 def test_a_model_off_the_openrouter_key_is_not_limited(store):
@@ -228,7 +238,7 @@ def test_a_429_response_is_recorded_and_its_slot_is_free_for_the_retry(store, mo
     response = client.post("https://openrouter.ai/api/v1/embeddings", json={"model": "vendor/embed", "input": ["x"]})
     assert response.status_code == 429
     assert held(store) == 0
-    assert int(store.hget(pl._keys(pl.POOL)["state"], "limit")) == 8
+    assert model_limit(store, "vendor/embed") == 16
 
 
 def test_the_model_of_a_request_labels_its_429(monkeypatch):
@@ -293,7 +303,7 @@ async def test_the_async_transport_records_a_429(store, monkeypatch):
     response = await client.post("https://openrouter.ai/api/v1/embeddings", json={"model": "m"})
     assert response.status_code == 429
     assert held(store) == 0
-    assert int(store.hget(pl._keys(pl.POOL)["state"], "limit")) == 8
+    assert model_limit(store, "m") == 16
 
 
 # ------------------------------------------------------------ entry points

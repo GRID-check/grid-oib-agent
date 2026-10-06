@@ -53,6 +53,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Callable
 from collections.abc import Iterator
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -290,6 +291,32 @@ def _takes_slot(request: httpx.Request) -> bool:
     return targets_openrouter(str(request.url))
 
 
+def _scope_of_body(body: bytes) -> str:
+    try:
+        return provider_limiter.scope_of_error(json.loads(body))
+    except ValueError:
+        return provider_limiter.MODEL_SCOPE
+
+
+def _scope_of_response(read: Callable[[], bytes]) -> str:
+    """Whose quota a 429 response says ran out (see ``provider_limiter.scope_of_error``).
+
+    A 429's body is a few hundred bytes, so it is read here, which also closes
+    the response: there is no stream left for the slot to wait on.
+    """
+    try:
+        return _scope_of_body(read())
+    except Exception:  # noqa: BLE001 - an unreadable body is unclassifiable, which counts against the model
+        return provider_limiter.MODEL_SCOPE
+
+
+async def _ascope_of_response(response: httpx.Response) -> str:
+    try:
+        return _scope_of_body(await response.aread())
+    except Exception:  # noqa: BLE001 - see _scope_of_response
+        return provider_limiter.MODEL_SCOPE
+
+
 def _pool_timeout(request: httpx.Request, error: provider_limiter.ProviderWaitTimeout) -> httpx.PoolTimeout:
     return httpx.PoolTimeout(str(error), request=request)
 
@@ -349,14 +376,15 @@ class _PinningTransport(httpx.BaseTransport):
         request = _pinned_request(request, self._policy)
         if not _takes_slot(request):
             return self._inner.handle_request(request)
+        model = _request_model(request)
         try:
-            lease = provider_limiter.acquire(max_wait_seconds=_slot_wait(request))
+            lease = provider_limiter.acquire(model=model, max_wait_seconds=_slot_wait(request))
         except provider_limiter.ProviderWaitTimeout as error:
             raise _pool_timeout(request, error) from error
         try:
             response = self._inner.handle_request(request)
             if response.status_code == 429:
-                provider_limiter.throttle(_request_model(request))
+                provider_limiter.throttle(model, _scope_of_response(response.read))
         except BaseException:
             lease.release()
             raise
@@ -379,14 +407,15 @@ class _AsyncPinningTransport(httpx.AsyncBaseTransport):
         request = _pinned_request(request, self._policy)
         if not _takes_slot(request):
             return await self._inner.handle_async_request(request)
+        model = _request_model(request)
         try:
-            lease = await provider_limiter.aacquire(max_wait_seconds=_slot_wait(request))
+            lease = await provider_limiter.aacquire(model=model, max_wait_seconds=_slot_wait(request))
         except provider_limiter.ProviderWaitTimeout as error:
             raise _pool_timeout(request, error) from error
         try:
             response = await self._inner.handle_async_request(request)
             if response.status_code == 429:
-                await provider_limiter.athrottle(_request_model(request))
+                await provider_limiter.athrottle(model, await _ascope_of_response(response))
         except BaseException:
             await lease.arelease()
             raise

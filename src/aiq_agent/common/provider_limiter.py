@@ -22,17 +22,27 @@ inside a class the longest waiter wins. A waiter that stops polling loses its
 ticket after ``TICKET_SECONDS``, so a cancelled task never holds back the class
 below it.
 
-## The limit
+## The limits
 
 The pool's size is not a number we know. The provider's real ceiling moves, and
-differs by model, so the limit is AIMD, the shape TCP settled on:
+differs by model, so each limit is AIMD, the shape TCP settled on:
 
-* a 429 halves it (not below ``GRID_PROVIDER_LIMIT_FLOOR``), once per
-  ``CUT_COOLDOWN_SECONDS``, so the dozen calls that fail together count once;
+* a 429 halves it (not below its floor), once per ``CUT_COOLDOWN_SECONDS``, so
+  the dozen calls that fail together count once;
 * each ``GRID_PROVIDER_LIMIT_INTERVAL_SECONDS`` with no 429 adds one (not above
-  ``GRID_PROVIDER_LIMIT_CEILING``, where it starts).
+  its ceiling, where it starts).
 
-It lives in Dragonfly next to the leases, so the whole fleet shares it and a
+There are two scopes, because a 429 is a statement about ONE quota. A call holds
+a slot in the key-wide pool and in the pool of its model, and a 429 cuts the
+limit of the quota that produced it (``scope_of_error``): OpenRouter wraps an
+upstream provider's refusal and names the provider in ``error.metadata``, which
+cuts THAT MODEL's limit only; a 429 of OpenRouter's own, with no provider named,
+is the key's and cuts the key-wide pool. A 429 that cannot be classified (an
+in-stream error event carries no body) counts against the model: one model's
+brown-out must not shrink capacity for the others. A waiter held back by its
+own model's limit does not hold back the other models behind it.
+
+Both live in Dragonfly next to the leases, so the whole fleet shares them and a
 fresh replica starts at the fleet's value, not at the ceiling.
 
 ## The class
@@ -70,8 +80,8 @@ that turns a cache outage into stalled answers is worse than one that over-admit
 for as long as the outage lasts. ``GRID_PROVIDER_LIMITER=off`` turns it off.
 
 Meters (OpenTelemetry API only; the provider is wired in ``aiq_agent.observability``):
-``grid.provider.inflight``, ``grid.provider.limit``,
-``grid.provider.wait_seconds{class}``, ``grid.provider.throttled_total{model}``.
+``grid.provider.inflight``, ``grid.provider.limit{scope,model}``,
+``grid.provider.wait_seconds{class}``, ``grid.provider.throttled_total{model,scope}``.
 """
 
 from __future__ import annotations
@@ -89,6 +99,7 @@ from collections.abc import AsyncIterator
 from collections.abc import Awaitable
 from collections.abc import Callable
 from collections.abc import Iterator
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -111,6 +122,10 @@ BULK = "bulk"
 #: Served first to last: a free slot goes to the earliest class with a waiter.
 CLASSES = (CHAT, INTERACTIVE, RESEARCH, BULK)
 DEFAULT_CLASS = INTERACTIVE
+
+#: The two scopes a limit can have: the key's own, and one model's.
+KEY_SCOPE = "key"
+MODEL_SCOPE = "model"
 
 #: The pool of the OpenRouter key. A name, so a second provider key is a second pool.
 POOL = "openrouter"
@@ -166,8 +181,28 @@ _FLOOR_ENV = "GRID_PROVIDER_LIMIT_FLOOR"
 # Each interval without a 429 adds one call to the adaptive limit, up to the ceiling.
 _INTERVAL_ENV = "GRID_PROVIDER_LIMIT_INTERVAL_SECONDS"
 
+# @environment_variable GRID_PROVIDER_MODEL_LIMIT_CEILING
+# @category Server
+# @type int
+# @default 32
+# @required false
+# Calls in flight across the whole fleet to ONE model while its provider is not
+# rate-limiting: where that model's adaptive limit starts and the most it
+# recovers to. A 429 from an upstream provider halves only its model's limit.
+_MODEL_CEILING_ENV = "GRID_PROVIDER_MODEL_LIMIT_CEILING"
+
+# @environment_variable GRID_PROVIDER_MODEL_LIMIT_FLOOR
+# @category Server
+# @type int
+# @default 2
+# @required false
+# The least one model's adaptive limit falls to however often its provider says 429.
+_MODEL_FLOOR_ENV = "GRID_PROVIDER_MODEL_LIMIT_FLOOR"
+
 _DEFAULT_CEILING = 128
 _DEFAULT_FLOOR = 8
+_DEFAULT_MODEL_CEILING = 32
+_DEFAULT_MODEL_FLOOR = 2
 _DEFAULT_INTERVAL_SECONDS = 5.0
 
 
@@ -202,6 +237,16 @@ def limit_ceiling() -> int:
 def limit_floor() -> int:
     """The least the adaptive limit falls to, never above the ceiling."""
     return min(int(_env_number(_FLOOR_ENV, _DEFAULT_FLOOR, 1)), limit_ceiling())
+
+
+def model_limit_ceiling() -> int:
+    """Where one model's adaptive limit starts and the most it recovers to."""
+    return int(_env_number(_MODEL_CEILING_ENV, _DEFAULT_MODEL_CEILING, 1))
+
+
+def model_limit_floor() -> int:
+    """The least one model's adaptive limit falls to, never above its ceiling."""
+    return min(int(_env_number(_MODEL_FLOOR_ENV, _DEFAULT_MODEL_FLOOR, 1)), model_limit_ceiling())
 
 
 def limit_interval_seconds() -> float:
@@ -282,9 +327,12 @@ def with_provider_class(cls: str) -> Callable[[Callable[P, Awaitable[R]]], Calla
 
 # ---------------------------------------------------------------------- Lua
 
-# The adaptive limit, then the ranked admission of lease_slots under it.
-# KEYS: leases, polls, one ticket set per class (CLASSES order), limit state.
-# ARGV: now, lease, ticket ttl, member, rank, floor, ceiling, interval, state ttl.
+# The adaptive limits of both scopes, then the ranked admission of lease_slots
+# under them. KEYS: the key pool's leases, polls, blocked, blocked-on, one ticket set per
+# class (CLASSES order), the model pool's leases, the key's limit state, the
+# model's limit state. ARGV: now, lease, ticket ttl, member, rank, interval,
+# state ttl, key floor, key ceiling, scoped (1 with a model), model floor,
+# model ceiling, model.
 #
 # A limit stamped in the future by a clock that ran ahead is clamped to `now`,
 # or it would stop the limit recovering until the rest of the fleet caught up.
@@ -296,29 +344,38 @@ local lease = tonumber(ARGV[2])
 local ticket_ttl = tonumber(ARGV[3])
 local member = ARGV[4]
 local rank = tonumber(ARGV[5])
-local floor_limit = tonumber(ARGV[6])
-local ceiling = tonumber(ARGV[7])
-local interval = tonumber(ARGV[8])
-local state_ttl = tonumber(ARGV[9])
-local state = KEYS[3 + classes]
+local interval = tonumber(ARGV[6])
+local state_ttl = tonumber(ARGV[7])
+local scoped = tonumber(ARGV[10])
+local model = ARGV[13]
 
-local stored = redis.call('HMGET', state, 'limit', 'changed')
-local limit = tonumber(stored[1]) or ceiling
-local changed = tonumber(stored[2]) or now
-if limit > ceiling then limit = ceiling end
-if limit < floor_limit then limit = floor_limit end
-if changed > now then changed = now end
-if limit < ceiling and now - changed >= interval then
-  limit = limit + 1
-  redis.call('HSET', state, 'limit', limit, 'changed', now)
-  redis.call('EXPIRE', state, state_ttl)
+local function limit_of(state, floor_limit, ceiling)
+  local stored = redis.call('HMGET', state, 'limit', 'changed')
+  local limit = tonumber(stored[1]) or ceiling
+  local changed = tonumber(stored[2]) or now
+  if limit > ceiling then limit = ceiling end
+  if limit < floor_limit then limit = floor_limit end
+  if changed > now then changed = now end
+  if limit < ceiling and now - changed >= interval then
+    limit = limit + 1
+    redis.call('HSET', state, 'limit', limit, 'changed', now)
+    redis.call('EXPIRE', state, state_ttl)
+  end
+  return limit
+end
+
+local limit = limit_of(KEYS[6 + classes], tonumber(ARGV[8]), tonumber(ARGV[9]))
+local scoped_limit = 0
+if scoped == 1 then
+  scoped_limit = limit_of(KEYS[7 + classes], tonumber(ARGV[11]), tonumber(ARGV[12]))
 end
 """
     + lease_slots.RANKED_ADMISSION_LUA
 )
 
 # The cut: halve the limit unless one already happened within the cooldown.
-# KEYS: limit state. ARGV: now, floor, ceiling, cooldown, state ttl. Returns the limit.
+# KEYS: the scope's limit state. ARGV: now, floor, ceiling, cooldown, state ttl.
+# Returns the limit.
 THROTTLE_LUA = """
 local state = KEYS[1]
 local now = tonumber(ARGV[1])
@@ -345,19 +402,34 @@ def _now() -> float:
     return time.time()
 
 
-def _keys(pool: str) -> dict[str, Any]:
+def _keys(pool: str, model: str | None = None) -> dict[str, Any]:
+    """The pool's keys; ``model`` names the model whose own pool the call also holds.
+
+    Every key shares the pool's hash tag, so a clustered store keeps one
+    admission on one shard.
+    """
     base = f"grid:provider:{{{pool}}}"
     return {
         "leases": f"{base}:leases",
         "polls": f"{base}:polls",
+        "blocked": f"{base}:blocked",
+        "blocked_on": f"{base}:blocked_on",
         "tickets": [f"{base}:tickets:{cls}" for cls in CLASSES],
         "state": f"{base}:limit",
+        "model_leases": f"{base}:model:{model or '-'}:leases",
+        "model_state": f"{base}:model:{model or '-'}:limit",
     }
+
+
+def _held_keys(keys: dict[str, Any], model: str | None) -> list[str]:
+    """The pools a slot is held in: the key's, and the model's when it has one."""
+    return [keys["leases"], keys["model_leases"]] if model else [keys["leases"]]
 
 
 # -------------------------------------------------------------------- meters
 
-_last_limit: int | None = None
+#: The limit each scope reported last, for the gauge: (scope, model or None).
+_last_limits: dict[tuple[str, str | None], int] = {}
 _instruments: tuple[Any, Any, Any] | None = None
 _instruments_lock = threading.Lock()
 
@@ -371,7 +443,11 @@ def _meter() -> Any:
 def _observe_limit(_options: Any) -> list[Any]:
     from opentelemetry.metrics import Observation
 
-    return [Observation(_last_limit)] if _last_limit is not None else []
+    observations = []
+    for (scope, model), value in list(_last_limits.items()):
+        attributes = {"scope": scope} if model is None else {"scope": scope, "model": model}
+        observations.append(Observation(value, attributes))
+    return observations
 
 
 def _meters() -> tuple[Any, Any, Any] | None:
@@ -387,7 +463,7 @@ def _meters() -> tuple[Any, Any, Any] | None:
             meter.create_observable_gauge(
                 "grid.provider.limit",
                 callbacks=[_observe_limit],
-                description="The fleet's adaptive limit of model calls in flight",
+                description="The fleet's adaptive limit of model calls in flight, per scope",
             )
             _instruments = (
                 meter.create_up_down_counter("grid.provider.inflight", description="Model calls holding a slot"),
@@ -404,10 +480,10 @@ def _meters() -> tuple[Any, Any, Any] | None:
 
 def _reset_meters() -> None:
     """Forget the instruments, so the next call builds them from the current meter. Tests only."""
-    global _instruments, _last_limit
+    global _instruments
     with _instruments_lock:
         _instruments = None
-        _last_limit = None
+        _last_limits.clear()
 
 
 def _record(index: int, method: str, value: float, attributes: dict[str, str]) -> None:
@@ -420,15 +496,16 @@ def _record(index: int, method: str, value: float, attributes: dict[str, str]) -
         logger.debug("Provider limiter meter failed", exc_info=True)
 
 
-def _remember_limit(limit: int) -> None:
-    global _last_limit
-    _last_limit = limit
+def _remember_limits(attempt: _Attempt, model: str | None) -> None:
+    _last_limits[(KEY_SCOPE, None)] = attempt.limit
+    if model is not None:
+        _last_limits[(MODEL_SCOPE, model)] = attempt.model_limit
     _meters()
 
 
 # ------------------------------------------------------------------ renewing
 
-_held: dict[str, tuple[str, float]] = {}
+_held: dict[str, tuple[list[str], float]] = {}
 _held_lock = threading.Lock()
 _renewer: threading.Thread | None = None
 
@@ -442,8 +519,9 @@ def _renew_held() -> None:
         held = list(_held.items())
     for member in stale:
         logger.warning("Provider slot %s held past %.0fs; no longer renewed", member, MAX_HOLD_SECONDS)
-    for member, (leases_key, _) in held:
-        cache.eval_script(lease_slots.RENEW_LUA, [leases_key], [_now(), LEASE_SECONDS, member])
+    for member, (pools, _) in held:
+        for pool in pools:
+            cache.eval_script(lease_slots.RENEW_LUA, [pool], [_now(), LEASE_SECONDS, member])
 
 
 def _renew_forever() -> None:
@@ -478,11 +556,12 @@ class Lease:
     cls: str
     held: bool = False
     waited_seconds: float = 0.0
+    model: str | None = None
     pool: str = POOL
     _released: bool = False
 
     def release(self) -> None:
-        """Give the slot back. Idempotent; never raises."""
+        """Give the slot back, in every pool it was held in. Idempotent; never raises."""
         if not self.held or self._released:
             return
         self._released = True
@@ -490,7 +569,8 @@ class Lease:
             _held.pop(self.member, None)
         _record(0, "add", -1, {})
         try:
-            cache.eval_script(lease_slots.RELEASE_LUA, [_keys(self.pool)["leases"]], [self.member])
+            pools = _held_keys(_keys(self.pool, self.model), self.model)
+            cache.eval_script(lease_slots.WITHDRAW_LUA, pools, [self.member])
         except Exception:  # noqa: BLE001 - the lease ages out
             logger.debug("Could not release provider slot %s", self.member, exc_info=True)
 
@@ -510,49 +590,67 @@ class _Attempt:
     taken: bool
     limit: int
     in_flight: int
+    model_limit: int = 0
+    model_in_flight: int = 0
 
 
-def _attempt(member: str, cls: str, pool: str = POOL) -> _Attempt | None:
+def _attempt(member: str, cls: str, model: str | None = None, pool: str = POOL) -> _Attempt | None:
     """One try at a slot. None means there is no usable store: fail open."""
-    keys = _keys(pool)
+    keys = _keys(pool, model)
     result = cache.eval_script(
         ACQUIRE_LUA,
-        [keys["leases"], keys["polls"], *keys["tickets"], keys["state"]],
+        [
+            keys["leases"],
+            keys["polls"],
+            keys["blocked"],
+            keys["blocked_on"],
+            *keys["tickets"],
+            keys["model_leases"],
+            keys["state"],
+            keys["model_state"],
+        ],
         [
             _now(),
             LEASE_SECONDS,
             TICKET_SECONDS,
             member,
             CLASSES.index(cls) + 1,
-            limit_floor(),
-            limit_ceiling(),
             limit_interval_seconds(),
             STATE_TTL_SECONDS,
+            limit_floor(),
+            limit_ceiling(),
+            1 if model else 0,
+            model_limit_floor(),
+            model_limit_ceiling(),
+            model or "",
         ],
     )
     try:
-        taken, limit, in_flight = (int(float(v)) for v in result)
+        taken, limit, in_flight, model_limit, model_in_flight = (int(float(v)) for v in result)
     except (TypeError, ValueError):
         return None
-    return _Attempt(taken == 1, limit, in_flight)
+    return _Attempt(taken == 1, limit, in_flight, model_limit, model_in_flight)
 
 
-def _abandon(member: str, pool: str = POOL) -> None:
+def _abandon(member: str, model: str | None = None, pool: str = POOL) -> None:
     """Withdraw a waiter's tickets, and a slot it may have taken as it was cancelled."""
-    keys = _keys(pool)
-    cache.eval_script(lease_slots.CANCEL_TICKET_LUA, [keys["polls"], *keys["tickets"]], [member])
-    cache.eval_script(lease_slots.RELEASE_LUA, [keys["leases"]], [member])
+    keys = _keys(pool, model)
+    cache.eval_script(
+        lease_slots.WITHDRAW_LUA,
+        [keys["polls"], keys["blocked"], keys["blocked_on"], *keys["tickets"], *_held_keys(keys, model)],
+        [member],
+    )
 
 
-def _granted(member: str, cls: str, attempt: _Attempt, started: float) -> Lease:
+def _granted(member: str, cls: str, model: str | None, attempt: _Attempt, started: float) -> Lease:
     waited = time.monotonic() - started
     with _held_lock:
-        _held[member] = (_keys(POOL)["leases"], time.monotonic())
+        _held[member] = (_held_keys(_keys(POOL, model), model), time.monotonic())
     _ensure_renewer()
-    _remember_limit(attempt.limit)
+    _remember_limits(attempt, model)
     _record(0, "add", 1, {})
     _record(1, "record", waited, {"class": cls})
-    return Lease(member=member, cls=cls, held=True, waited_seconds=waited)
+    return Lease(member=member, cls=cls, held=True, waited_seconds=waited, model=model)
 
 
 def _check_wait(member: str, cls: str, started: float, max_wait_seconds: float | None, warned: list[float]) -> None:
@@ -565,10 +663,12 @@ def _check_wait(member: str, cls: str, started: float, max_wait_seconds: float |
         logger.warning("Still waiting for a %s provider slot after %.0fs", cls, waited)
 
 
-def acquire(*, cls: str | None = None, max_wait_seconds: float | None = None) -> Lease:
+def acquire(*, cls: str | None = None, model: str | None = None, max_wait_seconds: float | None = None) -> Lease:
     """Wait for a slot in ``cls`` (default: the task's class) and return it; give it back with ``release``.
 
-    Waits for as long as the pool stays full, or ``max_wait_seconds`` when the
+    A call holds a slot in the key-wide pool and, when it names its ``model``,
+    in that model's pool, so one model at its limit queues only its own calls.
+    Waits for as long as the pools stay full, or ``max_wait_seconds`` when the
     caller has a latency budget of its own, then raises :class:`ProviderWaitTimeout`.
     Never bypasses a full pool: only a missing store returns an unheld lease.
     """
@@ -580,19 +680,19 @@ def acquire(*, cls: str | None = None, max_wait_seconds: float | None = None) ->
     warned = [0.0]
     try:
         while True:
-            attempt = _attempt(member, cls)
+            attempt = _attempt(member, cls, model)
             if attempt is None:
                 return _unheld(cls)
             if attempt.taken:
-                return _granted(member, cls, attempt, started)
+                return _granted(member, cls, model, attempt, started)
             _check_wait(member, cls, started, max_wait_seconds, warned)
             time.sleep(POLL_SECONDS)
     except BaseException:
-        _abandon(member)
+        _abandon(member, model)
         raise
 
 
-async def aacquire(*, cls: str | None = None, max_wait_seconds: float | None = None) -> Lease:
+async def aacquire(*, cls: str | None = None, model: str | None = None, max_wait_seconds: float | None = None) -> Lease:
     """:func:`acquire` that waits without blocking the event loop.
 
     ``asyncio.to_thread`` cannot cancel its worker, so a task cancelled
@@ -609,25 +709,25 @@ async def aacquire(*, cls: str | None = None, max_wait_seconds: float | None = N
     attempt_future: asyncio.Future[_Attempt | None] | None = None
     try:
         while True:
-            attempt_future = asyncio.ensure_future(asyncio.to_thread(_attempt, member, cls))
+            attempt_future = asyncio.ensure_future(asyncio.to_thread(_attempt, member, cls, model))
             attempt = await asyncio.shield(attempt_future)
             if attempt is None:
                 return _unheld(cls)
             if attempt.taken:
-                return _granted(member, cls, attempt, started)
+                return _granted(member, cls, model, attempt, started)
             _check_wait(member, cls, started, max_wait_seconds, warned)
             await asyncio.sleep(POLL_SECONDS)
     except BaseException:
-        _abandon_after(attempt_future, member)
+        _abandon_after(attempt_future, member, model)
         raise
 
 
-def _abandon_after(attempt: asyncio.Future | None, member: str) -> None:
+def _abandon_after(attempt: asyncio.Future | None, member: str, model: str | None) -> None:
     """Withdraw ``member`` once its in-flight attempt has landed, off the event loop."""
 
     def withdraw(_future: object = None) -> None:
         try:
-            asyncio.get_running_loop().run_in_executor(None, _abandon, member)
+            asyncio.get_running_loop().run_in_executor(None, _abandon, member, model)
         except RuntimeError:  # the loop is closing: the ticket and lease age out
             logger.debug("Could not withdraw provider waiter %s", member)
 
@@ -680,27 +780,80 @@ def retry_after_seconds(exc: BaseException) -> float:
     return 0.0
 
 
-def throttle(model: str | None = None) -> None:
-    """Record a 429: halve the fleet's limit (once per cooldown). Never raises."""
-    _record(2, "add", 1, {"model": model or "unknown"})
+def scope_of_error(error: object) -> str:
+    """Whose quota a 429's error object says ran out: ``"key"`` or ``"model"``.
+
+    OpenRouter wraps an upstream provider's refusal in its own 429 and names the
+    provider in ``error.metadata.provider_name``; that is one model's endpoint
+    out of capacity, whatever the key could still do. A 429 with OpenRouter's
+    own ``code: 429`` and no provider named is OpenRouter limiting the key.
+    Anything else (a body that is not an error object, a code that is not 429)
+    is unclassifiable and counts against the model, so one model's brown-out
+    never shrinks capacity for the others.
+    """
+    body = error.get("error", error) if isinstance(error, Mapping) else None
+    if not isinstance(body, Mapping):
+        return MODEL_SCOPE
+    metadata = body.get("metadata")
+    if isinstance(metadata, Mapping) and metadata.get("provider_name"):
+        return MODEL_SCOPE
+    return KEY_SCOPE if str(body.get("code")) == "429" else MODEL_SCOPE
+
+
+def _body_of(error: BaseException) -> object:
+    """The decoded error body of an exception, wherever the client keeps it."""
+    body = getattr(error, "body", None)  # the OpenAI SDK: the body's `error` object
+    if isinstance(body, Mapping):
+        return body
+    response = getattr(error, "response", None)
+    try:
+        return response.json() if response is not None else None
+    except Exception:  # noqa: BLE001 - an unread stream or a body that is not JSON
+        return None
+
+
+def rate_limit_scope(exc: BaseException) -> str:
+    """:func:`scope_of_error` for an exception; ``"model"`` when no error body can be read from it."""
+    for error in _chain(exc):
+        body = _body_of(error)
+        if body is not None:
+            return scope_of_error(body)
+    return MODEL_SCOPE
+
+
+def throttle(model: str | None = None, scope: str = MODEL_SCOPE) -> None:
+    """Record a 429 for the quota that produced it: halve that scope's limit (once per cooldown). Never raises.
+
+    ``scope`` is ``"key"`` for OpenRouter's own limit and ``"model"`` for an
+    upstream provider's. A model-scope 429 that does not name its model has no
+    limit to cut and is only counted.
+    """
+    _record(2, "add", 1, {"model": model or "unknown", "scope": scope})
     if not enabled():
         return
+    if scope == MODEL_SCOPE and not model:
+        return
+    keys = _keys(POOL, model)
+    if scope == KEY_SCOPE:
+        state, floor_limit, ceiling, remembered = keys["state"], limit_floor(), limit_ceiling(), (KEY_SCOPE, None)
+    else:
+        state = keys["model_state"]
+        floor_limit, ceiling, remembered = model_limit_floor(), model_limit_ceiling(), (MODEL_SCOPE, model)
     try:
         limit = cache.eval_script(
-            THROTTLE_LUA,
-            [_keys(POOL)["state"]],
-            [_now(), limit_floor(), limit_ceiling(), CUT_COOLDOWN_SECONDS, STATE_TTL_SECONDS],
+            THROTTLE_LUA, [state], [_now(), floor_limit, ceiling, CUT_COOLDOWN_SECONDS, STATE_TTL_SECONDS]
         )
         if limit is not None:
-            _remember_limit(int(float(limit)))
-            logger.info("Provider answered 429 (%s); the fleet limit is now %s", model or "unknown", limit)
+            _last_limits[remembered] = int(float(limit))
+            _meters()
+            logger.info("Provider answered 429 (%s, %s scope); that limit is now %s", model or "unknown", scope, limit)
     except Exception:  # noqa: BLE001 - recording a 429 must not fail the call that met it
         logger.debug("Could not record a provider 429", exc_info=True)
 
 
-async def athrottle(model: str | None = None) -> None:
+async def athrottle(model: str | None = None, scope: str = MODEL_SCOPE) -> None:
     """:func:`throttle` off the event loop."""
-    await asyncio.shield(asyncio.to_thread(throttle, model))
+    await asyncio.shield(asyncio.to_thread(throttle, model, scope))
 
 
 def _backoff_before_retry(exc: BaseException) -> float:
@@ -715,12 +868,12 @@ def _backoff_before_retry(exc: BaseException) -> float:
 @contextmanager
 def slot(*, cls: str | None = None, model: str | None = None, max_wait_seconds: float | None = None) -> Iterator[Lease]:
     """Hold a slot for the ``with`` body; a 429 out of it gives the slot back and waits its Retry-After."""
-    lease = acquire(cls=cls, max_wait_seconds=max_wait_seconds)
+    lease = acquire(cls=cls, model=model, max_wait_seconds=max_wait_seconds)
     try:
         yield lease
     except BaseException as exc:
         if is_rate_limited(exc):
-            throttle(model)
+            throttle(model, rate_limit_scope(exc))
             lease.release()
             wait = _backoff_before_retry(exc)
             if wait:
@@ -735,12 +888,12 @@ async def aslot(
     *, cls: str | None = None, model: str | None = None, max_wait_seconds: float | None = None
 ) -> AsyncIterator[Lease]:
     """:func:`slot` for async code."""
-    lease = await aacquire(cls=cls, max_wait_seconds=max_wait_seconds)
+    lease = await aacquire(cls=cls, model=model, max_wait_seconds=max_wait_seconds)
     try:
         yield lease
     except BaseException as exc:
         if is_rate_limited(exc):
-            await athrottle(model)
+            await athrottle(model, rate_limit_scope(exc))
             await lease.arelease()
             wait = _backoff_before_retry(exc)
             if wait:
