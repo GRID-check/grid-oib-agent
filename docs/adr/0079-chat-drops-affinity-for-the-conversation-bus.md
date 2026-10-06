@@ -94,6 +94,10 @@ Chosen option 3.
 * Bad, because with affinity off every turn's frames cross Dragonfly pub/sub
   unless owner and relay coincide. The bus already fails open to local delivery.
 * Neutral: `BACKEND_REPLICAS` survives only for the flag-on path.
+* The flag is a rollout switch, not a permanent option. Once prod has run with
+  affinity off for two weeks without a cross-replica incident, the hash
+  routing, `GRID_CHAT_AFFINITY` and `BACKEND_REPLICAS` are deleted in their own
+  change; until then the flag is also the rollback.
 
 ### Confirmation
 
