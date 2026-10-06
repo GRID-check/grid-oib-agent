@@ -160,17 +160,27 @@ export async function readDroppedTree(dataTransfer: DataTransfer): Promise<Dropp
  * of branching on how the files arrived.
  */
 export function asPathStampedFiles(tree: DroppedTree): File[] {
-  return tree.files.map(({ file, relativePath }) => {
-    if (!relativePath) return file
-    try {
-      Object.defineProperty(file, 'webkitRelativePath', {
-        value: relativePath,
-        configurable: true,
-      })
-    } catch {
-      // A File implementation that refuses the definition costs the origin
-      // path, never the upload.
-    }
-    return file
-  })
+  return tree.files.map(({ file, relativePath }) =>
+    relativePath ? stampRelativePath(file, relativePath) : file
+  )
+}
+
+/**
+ * Give a file the path it had, the way a folder INPUT would.
+ *
+ * Shared by everything that makes a tree out of something that is not a
+ * directory on disk — a dropped folder above, the members of a ZIP — so that all
+ * of them reach the upload plan in one shape.
+ */
+export function stampRelativePath(file: File, relativePath: string): File {
+  try {
+    Object.defineProperty(file, 'webkitRelativePath', {
+      value: relativePath,
+      configurable: true,
+    })
+  } catch {
+    // A File implementation that refuses the definition costs the origin
+    // path, never the upload.
+  }
+  return file
 }

@@ -432,6 +432,18 @@ export const files = {
     legalHold: 'The document is under a legal hold and cannot be deleted',
   },
   /**
+   * A ZIP dropped on a shelf. It is unpacked in the browser and then handled as
+   * the folder it contains (`folderUpload.*`), so these are only the sentences
+   * for an archive that gave nothing.
+   */
+  zip: {
+    reading: 'Reading the ZIP…',
+    unreadable: '“{name}” could not be read. Is it a valid ZIP without a password?',
+    empty: '“{name}” contains no files.',
+    tooManyFiles: '“{name}” contains more than {limit} files, so nothing was taken from it. Split it into smaller ZIPs.',
+    tooLarge: '“{name}” unpacks to more than {limit}, so nothing was taken from it. Split it into smaller ZIPs.',
+  },
+  /**
    * The folder-upload plan — the dialog a dropped directory tree opens before
    * anything moves. `folderUpload.*` rather than under `upload.*` because it
    * describes a PLAN, not the transfer: the words here name what is about to

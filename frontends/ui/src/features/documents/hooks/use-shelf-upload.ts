@@ -6,6 +6,7 @@ import { useTranslations } from '@/i18n'
 import type { FolderItem } from '../file-types'
 import { takeDroppedFiles } from '../lib/dropped-file-handover'
 import { filesToUpload, type PlannedMove } from '../lib/folder-upload-plan'
+import { isZipArchive } from '../lib/zip-types'
 import type { FileShelf, ShelfEndpoints, ShelfUploadApi } from '../lib/file-shelf'
 import { useUploadDecision } from './use-upload-decision'
 
@@ -52,14 +53,40 @@ export function useShelfUpload({
   const { probeNames, handoverKey } = shelf
   const ensureUrl = `${shelf.endpoints.folders}/ensure`
 
+  /**
+   * A ZIP is unpacked first and then goes through exactly what a dropped folder
+   * does. The unzip library is loaded only when there is one to unpack: most
+   * uploads are PDFs, and the chat's bundle never needed it.
+   */
+  const unpackArchives = useCallback(
+    async (incoming: File[]): Promise<File[]> => {
+      if (!incoming.some(isZipArchive)) return incoming
+      const reading = toast.loading(t('zip.reading'))
+      try {
+        const { expandZips } = await import('../lib/expand-zip')
+        const { files, notes } = await expandZips(incoming)
+        for (const note of notes) toast.error(t(`zip.${note.reason}`, { name: note.zip, limit: note.limit }))
+        return files
+      } finally {
+        toast.dismiss(reading)
+      }
+    },
+    [t]
+  )
+
   const handleUpload = useCallback(
     (incoming: File[]) => {
-      propose(
-        { files: incoming, documents: probeNames, folders, currentFolderId: selectedFolderId },
-        (direct) => void uploadFiles(direct)
-      ).catch(() => toast.error(t('folderUpload.compareError')))
+      unpackArchives(incoming)
+        .then((files) => {
+          if (files.length === 0) return undefined
+          return propose(
+            { files, documents: probeNames, folders, currentFolderId: selectedFolderId },
+            (direct) => void uploadFiles(direct)
+          )
+        })
+        .catch(() => toast.error(t('folderUpload.compareError')))
     },
-    [propose, probeNames, uploadFiles, folders, selectedFolderId, t]
+    [unpackArchives, propose, probeNames, uploadFiles, folders, selectedFolderId, t]
   )
 
   // A drop elsewhere in the app brought the reader here (`ProjectFileDrop`).

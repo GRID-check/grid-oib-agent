@@ -101,6 +101,23 @@ const parsePositiveNumber = (value: string | undefined): number | null => {
   return parsed
 }
 
+/**
+ * The MIME type a browser reports for a file of this name, or `''` when none is
+ * registered.
+ *
+ * For files that did not come from a picker. A file the browser hands over
+ * carries its own `type`, and the BFF stores it: the preview routes decide
+ * whether a document CAN be previewed from that stored value
+ * (`PREVIEW_CONTENT_TYPES`), so a file made in memory with no type uploads fine
+ * and then answers "Preview not available" for ever. Reading it from the same
+ * table the accept-list is built from keeps the two from drifting.
+ */
+export const mimeTypeForFileName = (fileName: string): string => {
+  const dot = fileName.lastIndexOf('.')
+  if (dot < 0) return ''
+  return EXTENSION_TO_MIME[fileName.slice(dot).toLowerCase()]?.[0] ?? ''
+}
+
 export const buildAcceptedMimeTypes = (acceptedTypes: string): string[] => {
   const mimeTypes = new Set<string>()
   const extensions = acceptedTypes
