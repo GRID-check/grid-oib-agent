@@ -500,12 +500,24 @@ that chat, research, ingestion and embeddings all draw from
   waiter yields to a `chat` waiter however the polls interleave. The scripts
   extend L3's (`lease_slots.RANKED_ADMISSION_LUA`): a lease that is not renewed
   ages out, and a waiter that stops polling loses its ticket after five seconds.
-- **An adaptive limit (AIMD), shared by the fleet.** It starts at
-  `GRID_PROVIDER_LIMIT_CEILING`. A 429 halves it, not below
-  `GRID_PROVIDER_LIMIT_FLOOR`, once per two seconds so the calls that fail
-  together count once. Each `GRID_PROVIDER_LIMIT_INTERVAL_SECONDS` without a 429
-  adds one. The value lives in Dragonfly next to the leases, so a new replica
-  starts from the fleet's limit and scaling out adds callers, not 429s.
+- **Adaptive limits (AIMD), one per quota, shared by the fleet.** A limit starts
+  at its ceiling. A 429 halves it, not below its floor, once per two seconds so
+  the calls that fail together count once. Each
+  `GRID_PROVIDER_LIMIT_INTERVAL_SECONDS` without a 429 adds one. They live in
+  Dragonfly next to the leases, so a new replica starts from the fleet's limits
+  and scaling out adds callers, not 429s.
+- **Scoped to the quota that said 429.** A call holds a slot in the key-wide pool
+  (`GRID_PROVIDER_LIMIT_CEILING` / `_FLOOR`) and in the pool of its model
+  (`GRID_PROVIDER_MODEL_LIMIT_CEILING` / `_FLOOR`). OpenRouter wraps an upstream
+  provider's refusal in its own 429 and names the provider in
+  `error.metadata.provider_name`: that halves that model's limit only, so a
+  Gemini brown-out leaves every other model's capacity alone. A 429 with
+  OpenRouter's own `code: 429` and no provider is the key's limit and halves the
+  key-wide pool. One that cannot be classified (an in-stream `error` event has no
+  body; so has a reply that is not JSON) counts against the model. The classifier
+  reads the OpenAI SDK's `RateLimitError.body` on the chat seam and the response
+  body in the transport (`provider_limiter.scope_of_error`). A waiter held back by
+  its own model's limit does not hold back the other models queued behind it.
 - **The class comes from the task, not the call site.** A ContextVar
   (`provider_class`): a chat turn sets `chat` (`turn/admission.answer_turn`),
   a research job `research` (`jobs/runner.run_agent_job`), an ingest job its
@@ -530,10 +542,24 @@ that chat, research, ingestion and embeddings all draw from
   ingestion.
 - **Fails open.** No Dragonfly, a script it refuses or `GRID_PROVIDER_LIMITER=off`
   means every call proceeds, as in every layer but L4.
-- **Measured.** `grid.provider.inflight`, `grid.provider.limit`,
-  `grid.provider.wait_seconds{class}` and `grid.provider.throttled_total{model}`.
-  The ceiling and floor are guesses until these have run for a week: read the
-  wait by class and the 429 count by model before moving either.
+- **Enforced.** `tests/aiq_agent/common/test_provider_limiter_call_sites.py`
+  fails when a module builds a chat model (`ChatOpenAI(`, `init_chat_model(`, a
+  raw `builder.get_llm(`) or an embedding client by hand, and when a call through
+  the seams stops holding a slot. Its sibling `test_openrouter_call_sites.py` is
+  the same ratchet for zero data retention.
+- **Measured.** `grid.provider.inflight`, `grid.provider.limit{scope,model}`,
+  `grid.provider.wait_seconds{class}` and
+  `grid.provider.throttled_total{model,scope}`. The ceilings and floors are
+  guesses until these have run for a week: read the wait by class and the 429
+  count by model and scope before moving any.
+- **Known gap.** The BFF-called utility routes (`generate_summary`,
+  `consistency_check`, `generate_conversation_title`, `skill_review`,
+  `feedback_digest`, `lesson_distill`), the decision model (`common/decisions.py`)
+  and the reranker (`knowledge_layer/cross_encoder.py`) post to OpenRouter over
+  their own `httpx.AsyncClient`, pinned by hand, and so skip the limiter.
+  They send no chat model or embedding client, which is what the invariant test
+  scans, and their tests patch `httpx.AsyncClient` itself, so moving them onto a
+  limited client is its own change.
 
 Not built, on purpose: a tokens-per-minute bucket (output tokens are unknown
 until the call ends, and the upstream limit moves by model) and an egress AI
