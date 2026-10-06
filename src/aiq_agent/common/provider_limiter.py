@@ -264,7 +264,7 @@ def current_class() -> str:
     return _CLASS.get()
 
 
-def _checked(cls: str) -> str:
+def checked_class(cls: str) -> str:
     if cls not in CLASSES:
         raise ValueError(f"unknown provider class {cls!r}; expected one of {', '.join(CLASSES)}")
     return cls
@@ -283,7 +283,7 @@ def provider_class(cls: str) -> Iterator[str]:
     (``pool.submit(contextvars.copy_context().run, fn, ...)``); a thread that
     lost it reads the default, ``interactive``.
     """
-    token = _CLASS.set(_checked(cls))
+    token = _CLASS.set(checked_class(cls))
     try:
         yield cls
     finally:
@@ -312,7 +312,7 @@ def priority_scope(priority: object) -> Iterator[str]:
 
 def with_provider_class(cls: str) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
     """Decorate an async entry point so everything it awaits runs in class ``cls``."""
-    _checked(cls)
+    checked_class(cls)
 
     def decorate(fn: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
         @functools.wraps(fn)
@@ -672,7 +672,7 @@ def acquire(*, cls: str | None = None, model: str | None = None, max_wait_second
     caller has a latency budget of its own, then raises :class:`ProviderWaitTimeout`.
     Never bypasses a full pool: only a missing store returns an unheld lease.
     """
-    cls = _checked(cls) if cls else current_class()
+    cls = checked_class(cls) if cls else current_class()
     if not enabled():
         return _unheld(cls)
     member = uuid.uuid4().hex
@@ -700,7 +700,7 @@ async def aacquire(*, cls: str | None = None, model: str | None = None, max_wait
     therefore shielded and the clean-up chained onto its completion, the shape
     ``turn_admission.admit_turn_async`` settled on for the same reason.
     """
-    cls = _checked(cls) if cls else current_class()
+    cls = checked_class(cls) if cls else current_class()
     if not enabled():
         return _unheld(cls)
     member = uuid.uuid4().hex

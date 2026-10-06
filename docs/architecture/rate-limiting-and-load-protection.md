@@ -522,13 +522,22 @@ that chat, research, ingestion and embeddings all draw from
   (`provider_class`): a chat turn sets `chat` (`turn/admission.answer_turn`),
   a research job `research` (`jobs/runner.run_agent_job`), an ingest job its
   priority (`interactive` or `bulk`), and anything else is `interactive`.
-- **Two seams, both already single.** Every chat-model call passes the contract
+- **Three seams, each single.** Every chat-model call passes the contract
   subclass in `common/llm_factory.py` (streams hold their slot to the last
-  chunk). Every OpenAI-SDK client the embeddings, the vision model and the
-  reranker use rides the pinned transport in `common/openrouter.py`, which holds
-  a slot from the request to the end of the response body. The VLM pool of L3b
-  stays outside it: a vision call has the right to call before it waits for a
-  provider slot.
+  chunk). Every OpenAI-SDK client the embeddings and the vision model use rides
+  the pinned transport in `common/openrouter.py`, which holds a slot from the
+  request to the end of the response body. A call that shapes its own JSON body
+  uses `limited_async_http_client` from the same module: the BFF-called utility
+  routes `generate_summary`, `consistency_check`, `generate_conversation_title`
+  and `skill_review` (`interactive`), the background `feedback_digest` and
+  `lesson_distill` (`bulk`), and the decision model (`common/decisions.py`) and
+  the reranker (`knowledge_layer/cross_encoder.py`), which take the class of the
+  task that makes them. It is the same transport without the zero-data-retention
+  pin: those bodies already carry the organization's own policy
+  (`ResolvedCredential.request_body`), and an organization that switched ZDR off
+  keeps that choice. A call to a host that is not OpenRouter takes no slot. The
+  VLM pool of L3b stays outside it: a vision call has the right to call before it
+  waits for a provider slot.
 - **A 429 waits outside the slot.** The slot is released first and the
   `Retry-After` is waited out after, so a rate-limited call never holds capacity
   another call could use. The chat seam sleeps it before re-raising (the retry
@@ -544,23 +553,15 @@ that chat, research, ingestion and embeddings all draw from
   means every call proceeds, as in every layer but L4.
 - **Enforced.** `tests/aiq_agent/common/test_provider_limiter_call_sites.py`
   fails when a module builds a chat model (`ChatOpenAI(`, `init_chat_model(`, a
-  raw `builder.get_llm(`) or an embedding client by hand, and when a call through
-  the seams stops holding a slot. Its sibling `test_openrouter_call_sites.py` is
+  raw `builder.get_llm(`) or an embedding client by hand, when a file that talks
+  to a model opens a raw `httpx` client instead of the limited one, and when a
+  call through the seams stops holding a slot. Its sibling `test_openrouter_call_sites.py` is
   the same ratchet for zero data retention.
 - **Measured.** `grid.provider.inflight`, `grid.provider.limit{scope,model}`,
   `grid.provider.wait_seconds{class}` and
   `grid.provider.throttled_total{model,scope}`. The ceilings and floors are
   guesses until these have run for a week: read the wait by class and the 429
   count by model and scope before moving any.
-- **Known gap.** The BFF-called utility routes (`generate_summary`,
-  `consistency_check`, `generate_conversation_title`, `skill_review`,
-  `feedback_digest`, `lesson_distill`), the decision model (`common/decisions.py`)
-  and the reranker (`knowledge_layer/cross_encoder.py`) post to OpenRouter over
-  their own `httpx.AsyncClient`, pinned by hand, and so skip the limiter.
-  They send no chat model or embedding client, which is what the invariant test
-  scans, and their tests patch `httpx.AsyncClient` itself, so moving them onto a
-  limited client is its own change.
-
 Not built, on purpose: a tokens-per-minute bucket (output tokens are unknown
 until the call ends, and the upstream limit moves by model) and an egress AI
 gateway (the back-pocket option of section 5).

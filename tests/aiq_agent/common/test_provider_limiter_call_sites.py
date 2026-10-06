@@ -17,13 +17,20 @@ The seams that carry the limiter, one per call-site shape:
 - the embedding client: ``knowledge_layer.llamaindex.adapter.make_embed_model``,
   which hands those transports to llama-index.
 
-The first two tests scan the source, the rest are behavioural: they send a call
+- a utility call that shapes its own JSON body (a title, a summary, the decision
+  model, the reranker): ``openrouter.limited_async_http_client``, which takes the
+  slot and leaves the data policy to the body. A raw ``httpx`` client talking to
+  OpenRouter is the one way around the limiter that is not a model object, so the
+  third scan fails on it.
+
+The first three tests scan the source, the rest are behavioural: they send a call
 through each seam and watch the pool, so a seam that is rewired to skip the
 limiter fails here even though every name still matches.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -57,6 +64,21 @@ EMBEDDING_CLIENT_HOMES = {
 }
 #: A match that is not a client: a class that merely has "Embedding" in its name.
 NOT_A_CLIENT = re.compile(r"\b(?:Mock|Fake|Stub|Noop)\w*Embedding|\bQueryEmbedding\(|\b_InflightEmbedding\(")
+
+
+#: A raw httpx client or one-shot call.
+RAW_HTTPX = re.compile(r"\bhttpx\.(?:Async)?Client\(|\bhttpx\.(?:post|request|stream|put|patch)\(")
+#: Signs a file sends requests to a model: an endpoint path, the host, or a body shaped for OpenRouter.
+MODEL_TRAFFIC = re.compile(
+    r"/chat/completions|[\"']/rerank[\"']|/api/alpha/decisions|\.responses\.[\w.]*create\("
+    r"|openrouter\.ai|\brequest_body\(|\bPLATFORM_FIXED\.apply\(|\bZERO_DATA_RETENTION\b"
+)
+RAW_HTTPX_HOMES = {
+    "src/aiq_agent/common/openrouter.py": "the seam builds the clients that take the slot",
+    "sources/knowledge_layer/src/llamaindex/adapter.py": "its httpx.Client PUTs a thumbnail to a presigned URL",
+    "scripts/release_notes.py": "sends the public changelog from a dev script",
+    "scripts/smoke_card_generation.py": "a dev smoke test on fixed sample text",
+}
 
 
 def _python_files() -> list[Path]:
@@ -111,9 +133,24 @@ def test_no_embedding_client_is_built_outside_the_limited_seam(path: Path):
     )
 
 
+@pytest.mark.parametrize("path", _python_files(), ids=_rel)
+def test_no_raw_httpx_call_reaches_a_model_endpoint(path: Path):
+    if _rel(path) in RAW_HTTPX_HOMES:
+        return
+    code = _code(path)
+    raw = RAW_HTTPX.search(code)
+    traffic = MODEL_TRAFFIC.search(code) if raw else None
+    assert traffic is None, (
+        f"{_rel(path)} builds {raw.group(0)!r} in a file that talks to a model ({traffic.group(0)!r}). "
+        "A raw httpx client posts to OpenRouter without taking a provider slot (ADR-0080), so the limiter "
+        "cannot queue it behind chat or cut its rate on a 429. Build the client with "
+        "openrouter.limited_async_http_client(cls=...), which leaves the data policy to the request body."
+    )
+
+
 def test_the_allowlists_name_files_that_exist():
     """A stale entry would quietly exempt whatever file next takes that path."""
-    for rel in [*CHAT_MODEL_HOMES, *EMBEDDING_CLIENT_HOMES]:
+    for rel in [*CHAT_MODEL_HOMES, *EMBEDDING_CLIENT_HOMES, *RAW_HTTPX_HOMES]:
         assert (ROOT / rel).is_file(), rel
 
 
@@ -253,3 +290,93 @@ async def test_a_per_request_copy_of_a_seam_model_still_holds_a_slot(pool):
     llm = await _resolved_through_nat(base_url="https://openrouter.ai/api/v1")
     copy = override_model(llm, "x-ai/grok-4.5")
     assert getattr(type(copy), "__grid_request_contract__", False)
+
+
+# ------------------------------------------------- the limiter-only client
+
+
+def _serving(monkeypatch, pool, sent: list[tuple[int, dict]]) -> None:
+    """Answer every socket-level request, noting the held slots and the body it carried."""
+
+    async def serve(self, request: httpx.Request) -> httpx.Response:
+        sent.append((pool(), json.loads(request.content or b"{}")))
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", serve)
+
+
+async def test_the_limited_client_holds_a_slot_and_leaves_the_body_alone(pool, monkeypatch):
+    """An organization that switched ZDR off keeps its choice: the transport only takes the slot."""
+    from aiq_agent.common.openrouter import limited_async_http_client
+
+    sent: list[tuple[int, dict]] = []
+    _serving(monkeypatch, pool, sent)
+    async with limited_async_http_client(cls=pl.INTERACTIVE) as client:
+        await client.post("https://openrouter.ai/api/v1/chat/completions", json={"model": "vendor/m"})
+    assert sent == [(1, {"model": "vendor/m"})]
+    assert pool() == 0
+
+
+async def test_the_limited_client_takes_no_slot_for_another_host(pool, monkeypatch):
+    from aiq_agent.common.openrouter import limited_async_http_client
+
+    sent: list[tuple[int, dict]] = []
+    _serving(monkeypatch, pool, sent)
+    async with limited_async_http_client(cls=pl.INTERACTIVE) as client:
+        await client.post("https://llm.example.com/v1/chat/completions", json={"model": "own/m"})
+    assert sent == [(0, {"model": "own/m"})]
+
+
+async def test_the_limited_clients_class_is_its_own_not_the_tasks(pool, monkeypatch):
+    from aiq_agent.common.openrouter import limited_async_http_client
+
+    asked: list[str] = []
+    acquire = pl.aacquire
+
+    async def spy(*, cls=None, **kwargs):
+        asked.append(cls or pl.current_class())
+        return await acquire(cls=cls, **kwargs)
+
+    monkeypatch.setattr(pl, "aacquire", spy)
+    _serving(monkeypatch, pool, [])
+    with pl.provider_class(pl.CHAT):
+        async with limited_async_http_client(cls=pl.BULK) as bound, limited_async_http_client() as ambient:
+            await bound.post("https://openrouter.ai/api/v1/chat/completions", json={"model": "m"})
+            await ambient.post("https://openrouter.ai/api/v1/chat/completions", json={"model": "m"})
+    assert asked == [pl.BULK, pl.CHAT]
+
+
+def test_the_limited_client_refuses_an_unknown_class():
+    from aiq_agent.common.openrouter import limited_async_http_client
+
+    with pytest.raises(ValueError, match="unknown provider class"):
+        limited_async_http_client(cls="urgent")
+
+
+async def test_the_decision_models_client_holds_a_slot(pool, monkeypatch):
+    from aiq_agent.common import decisions
+
+    sent: list[tuple[int, dict]] = []
+    _serving(monkeypatch, pool, sent)
+    monkeypatch.setattr(decisions, "_shared_client", None)
+    client, owned = decisions._client(3.0, None)
+    try:
+        assert owned is False
+        await client.post("https://openrouter.ai/api/alpha/decisions", json={"model": "vendor/decide"})
+    finally:
+        await client.aclose()
+        monkeypatch.setattr(decisions, "_shared_client", None)
+    assert sent == [(1, {"model": "vendor/decide"})]
+    assert pool() == 0
+
+
+async def test_the_rerank_holds_a_slot(pool, monkeypatch):
+    from knowledge_layer.cross_encoder import CrossEncoderReranker
+
+    sent: list[tuple[int, dict]] = []
+    _serving(monkeypatch, pool, sent)
+    reranker = CrossEncoderReranker("openrouter", model="cohere/rerank-v3.5", api_key="k")  # pragma: allowlist secret
+    chunk = type("Chunk", (), {"content": "text", "chunk_id": "a"})()
+    await reranker.rerank("query", [chunk])  # the empty reply is "no opinion"; the call was made
+    assert [held for held, _ in sent] == [1]
+    assert pool() == 0

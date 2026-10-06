@@ -31,7 +31,10 @@ A call site picks the adapter for its shape and never writes its own merge:
   :func:`aiq_agent.common.credential_resolution.resolve_llm_credential`;
 - an OpenAI SDK client: :func:`openai_client`;
 - a client that builds its own body (llama-index's embedding client):
-  :func:`pinned_http_client` / :func:`pinned_async_http_client`.
+  :func:`pinned_http_client` / :func:`pinned_async_http_client`;
+- a utility call that shapes its own body (a title, a summary, the decision
+  model, the reranker): :func:`limited_async_http_client`, which queues the
+  call for a provider slot (ADR-0080) and leaves the routing to the body.
 
 Detached work with no request (an ingest job) enters its organization's
 policy with :func:`data_policy_scope`; code that reads it with
@@ -272,7 +275,7 @@ def _request_model(request: httpx.Request) -> str | None:
     return found.group(1).decode("utf-8", "replace") if found else None
 
 
-def _slot_wait(request: httpx.Request) -> float | None:
+def _slot_wait(request: httpx.Request, cls: str | None = None) -> float | None:
     """How long this call may wait for a provider slot.
 
     A chat call has a latency budget (the query embedding's is three seconds), so
@@ -281,7 +284,7 @@ def _slot_wait(request: httpx.Request) -> float | None:
     the pool stays full: a bulk call starved for a minute is the limiter working,
     and a timeout would turn that into failed ingestion.
     """
-    if provider_limiter.current_class() != provider_limiter.CHAT:
+    if (cls or provider_limiter.current_class()) != provider_limiter.CHAT:
         return None
     timeouts = request.extensions.get("timeout")
     return timeouts.get("pool") if isinstance(timeouts, dict) else None
@@ -366,11 +369,16 @@ class _PinningTransport(httpx.BaseTransport):
     fleet's limit) and given back like any other response: the OpenAI SDK clients
     on top retry it with the provider's ``Retry-After``, and each retry queues up
     again, which is the wait outside the slot.
+
+    ``cls`` binds the priority class of every call through the transport; left
+    out, a call takes the class of the task that makes it (``provider_class``).
+    ``inner`` is the transport underneath, for a test that serves the reply.
     """
 
-    def __init__(self, policy: DataPolicy) -> None:
+    def __init__(self, policy: DataPolicy, cls: str | None = None, inner: httpx.BaseTransport | None = None) -> None:
         self._policy = policy
-        self._inner = httpx.HTTPTransport()
+        self._cls = cls
+        self._inner = inner or httpx.HTTPTransport()
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
         request = _pinned_request(request, self._policy)
@@ -378,7 +386,9 @@ class _PinningTransport(httpx.BaseTransport):
             return self._inner.handle_request(request)
         model = _request_model(request)
         try:
-            lease = provider_limiter.acquire(model=model, max_wait_seconds=_slot_wait(request))
+            lease = provider_limiter.acquire(
+                cls=self._cls, model=model, max_wait_seconds=_slot_wait(request, self._cls)
+            )
         except provider_limiter.ProviderWaitTimeout as error:
             raise _pool_timeout(request, error) from error
         try:
@@ -399,9 +409,12 @@ class _PinningTransport(httpx.BaseTransport):
 
 
 class _AsyncPinningTransport(httpx.AsyncBaseTransport):
-    def __init__(self, policy: DataPolicy) -> None:
+    def __init__(
+        self, policy: DataPolicy, cls: str | None = None, inner: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         self._policy = policy
-        self._inner = httpx.AsyncHTTPTransport()
+        self._cls = cls
+        self._inner = inner or httpx.AsyncHTTPTransport()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         request = _pinned_request(request, self._policy)
@@ -409,7 +422,9 @@ class _AsyncPinningTransport(httpx.AsyncBaseTransport):
             return await self._inner.handle_async_request(request)
         model = _request_model(request)
         try:
-            lease = await provider_limiter.aacquire(model=model, max_wait_seconds=_slot_wait(request))
+            lease = await provider_limiter.aacquire(
+                cls=self._cls, model=model, max_wait_seconds=_slot_wait(request, self._cls)
+            )
         except provider_limiter.ProviderWaitTimeout as error:
             raise _pool_timeout(request, error) from error
         try:
@@ -480,3 +495,28 @@ def pinned_http_client(policy: DataPolicy = PLATFORM_FIXED, **kwargs: Any) -> ht
 def pinned_async_http_client(policy: DataPolicy = PLATFORM_FIXED, **kwargs: Any) -> httpx.AsyncClient:
     """The async twin of :func:`pinned_http_client`."""
     return httpx.AsyncClient(transport=_AsyncPinningTransport(policy), **kwargs)
+
+
+def limited_async_http_client(
+    *, cls: str | None = None, inner: httpx.AsyncBaseTransport | None = None, **kwargs: Any
+) -> httpx.AsyncClient:
+    """An ``httpx.AsyncClient`` whose OpenRouter calls queue for a provider slot and are otherwise untouched.
+
+    For a call site that shapes its own request body (a title, a summary, the
+    decision model, the reranker), most of them through
+    ``ResolvedCredential.request_body``, which already carries the organization's
+    data policy. Pinning here would force zero data retention onto an organization
+    that chose to switch it off, so this transport only takes the slot (ADR-0080),
+    and a call to a host that is not OpenRouter passes through untouched.
+
+    ``cls`` is the priority class (``provider_limiter.CLASSES``) of every call
+    through the client; ``None`` takes the class of the task that makes it, which
+    is right for a helper that runs inside someone else's turn.
+    """
+    _checked_class(cls)
+    return httpx.AsyncClient(transport=_AsyncPinningTransport(NO_RETENTION_LIMITS, cls, inner), **kwargs)
+
+
+def _checked_class(cls: str | None) -> None:
+    if cls is not None:
+        provider_limiter.checked_class(cls)
