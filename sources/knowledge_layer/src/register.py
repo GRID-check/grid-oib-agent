@@ -1171,6 +1171,36 @@ def _apply_agent_filters(
     return kept
 
 
+def _narrow_with_base_name_fallback(
+    chunks,
+    *,
+    base_collection: str | None,
+    doc_class: str | None,
+    title_contains: str | None,
+    file_name: str | None,
+    folder: str | None,
+) -> list:
+    """:func:`_apply_agent_filters`, except a ``file_name`` that names nothing never empties the law.
+
+    ``file_name=`` is a filter, so a name the model took from the open document
+    (the prompt says the user has it open) emptied a norm question: "Absturzhoehe
+    bei Bruestungen" asked with a plan beside the chat searched the OIB corpus
+    for hits filed under the plan's name, found none, and ended in the canned
+    empty reply although OIB-RL 4 is indexed. A base-corpus passage cannot be
+    "the wrong file" for a name that belongs to the reader's own shelves, so
+    when the name matches no hit and base-corpus hits are in the pool, the name
+    is dropped and the base hits are judged by the other filters alone. Project
+    and office hits stay out: the name did not select them either.
+    """
+    kept = _apply_agent_filters(chunks, doc_class, title_contains, file_name, folder)
+    if kept or not file_name or not base_collection:
+        return kept
+    base_hits = [c for c in chunks if (c.metadata or {}).get("collection") == base_collection]
+    if not base_hits:
+        return kept
+    return _apply_agent_filters(base_hits, doc_class, title_contains, None, folder)
+
+
 def _empty_search_message(
     query: str,
     *,
@@ -2180,8 +2210,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # file, so other hits would be a silent bait-and-switch.
             def _narrowed(pool):
                 if doc_class or title_contains or file_name or folder:
-                    return _apply_agent_filters(
+                    return _narrow_with_base_name_fallback(
                         pool.chunks,
+                        base_collection=base_collection,
                         doc_class=doc_class,
                         title_contains=title_contains,
                         file_name=file_name,
