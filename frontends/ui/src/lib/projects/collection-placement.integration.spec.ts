@@ -170,7 +170,9 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
       return true
     })
     vi.mocked(dispatch).mockImplementation(async (input) => {
-      order.push(`dispatch into ${input.collectionName}`)
+      // The sweep is cross-tenant: another suite's restricted project, running
+      // at the same time, has its documents dispatched by this sweep too.
+      if (input.documentId === documentId) order.push(`dispatch into ${input.collectionName}`)
       return { jobId: 'job', status: 'pending' } as Awaited<ReturnType<typeof dispatch>>
     })
 
