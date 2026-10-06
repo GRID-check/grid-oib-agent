@@ -52,6 +52,7 @@ import { isFilePeekVisible, useFilePreviewStore } from '@/features/documents/sto
 import { registerStopStreamingHandler, runningTurnIn } from '../stores/messages-store'
 import { useConnectionRecovery } from './use-connection-recovery'
 import { useEffortStore } from '../stores/effort-store'
+import type { ChatEffort } from '@/lib/reasoning-settings/catalog'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
 import { fetchRunMessage } from '../lib/commissioned-run'
@@ -86,6 +87,12 @@ export interface SendMessageOptions {
    * so a stale read costs a round trip and nothing else.
    */
   awaitingHuman?: boolean
+  /**
+   * Run THIS turn at a level other than the chat's Aufwand dial, without
+   * touching the dial (`effort-store.ts`): the "answer again, more thoroughly"
+   * retry under a down-voted answer.
+   */
+  reasoningEffort?: ChatEffort
 }
 
 /** A refusal the composer can localise from `details.reason`. */
@@ -963,7 +970,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * cancelled.
    */
   const openAgentTurn = useCallback(
-    (messageId: string, content: string, dataSourcesForMessage: string[], conversationId: string | undefined): boolean => {
+    (
+      messageId: string,
+      content: string,
+      dataSourcesForMessage: string[],
+      conversationId: string | undefined,
+      reasoningEffort?: ChatEffort
+    ): boolean => {
       if (!conversationId) {
         addErrorCard('system.unknown', 'No active conversation')
         return false
@@ -991,7 +1004,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         source_preset: useLayoutStore.getState().activeSourcePreset ?? null,
         // The composer's Aufwand dial. Always stated, so the level the chat
         // shows is the level the turn runs at (`effort-store.ts`).
-        reasoning_effort: useEffortStore.getState().levelForSend(conversationId),
+        // A per-turn override wins and is never remembered.
+        reasoning_effort: reasoningEffort ?? useEffortStore.getState().levelForSend(conversationId),
       })
       return true
     },
@@ -1094,7 +1108,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         return { ok: true, addressees: ruling }
       }
 
-      const started = openAgentTurn(messageId, content, dataSourcesForMessage, conversationId)
+      const started = openAgentTurn(messageId, content, dataSourcesForMessage, conversationId, options.reasoningEffort)
       return { ok: started, addressees: ruling }
     },
     [addErrorCard, collectSendMetadata, deliverAsContext, openAgentTurn]
@@ -1122,7 +1136,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       const message = addUserMessage(content, { enabledDataSources: dataSourcesForMessage, messageFiles })
       // The conversation may have just been created inside addUserMessage.
       const conversationId = useChatStore.getState().currentConversation?.id
-      return openAgentTurn(message.id, content, dataSourcesForMessage, conversationId)
+      return openAgentTurn(message.id, content, dataSourcesForMessage, conversationId, options?.reasoningEffort)
     },
     [addUserMessage, collectSendMetadata, openAgentTurn, sendRuledMessage]
   )
