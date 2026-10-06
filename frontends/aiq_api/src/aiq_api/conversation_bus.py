@@ -36,7 +36,10 @@ without I/O: ``publish_frame`` runs under the turn's sequencer lock for every
 delta, and a black-holed Dragonfly used to cost each one the full client
 timeout (a second per delta, measured). Callers fail open on
 :class:`BusUnavailable`; the long-lived subscriptions are supervised by the
-chat registry instead.
+chat registry instead. The one exception is ``renew_running``: it is still
+bounded, but always tries, because the turn's deadline is measured from its
+last renewal and one slow command for another conversation must not cost
+every running turn on this replica its window.
 
 The transport is injectable so the whole protocol is unit-testable over the
 in-memory transport with two ``ConversationBus`` instances standing in for two
@@ -98,8 +101,9 @@ _STREAM_TTL_SECONDS = int(os.environ.get("GRID_CONV_STREAM_TTL_SECONDS", "3600")
 # acknowledgement bound. And, with `GRID_CHAT_AFFINITY` off, how long a Dragonfly
 # blip the owner survives: it stops writing and cancels its turn once a
 # successful renewal is older than this minus a 4 s margin (one guarded write,
-# 3 s, plus 1 s), so a blip shorter than about this value minus 7 s is ridden
-# out and a longer one ends the answer. It must be above 4.
+# 3 s, plus 1 s). A failed renewal is retried every second, so a blip shorter
+# than about this value minus 6 s is ridden out and a longer one ends the
+# answer. It must be above 4.
 RUNNING_TTL_SECONDS = float(os.environ.get("GRID_CHAT_RUNNING_TTL_SECONDS", "12") or "12")
 
 #: The bound on one bus command a turn waits on. RedisTransport's own client
@@ -383,9 +387,13 @@ class ConversationBus:
         self.replica_id = replica_id or f"{os.environ.get('HOSTNAME', 'local')}:{uuid.uuid4().hex[:8]}"
         self._down_until = 0.0
 
-    async def _call(self, what: str, command: Callable[[], Awaitable[T]]) -> T:
-        """Run one bus command, bounded, or refuse it at once while the bus is marked down."""
-        if time.monotonic() < self._down_until:
+    async def _call(self, what: str, command: Callable[[], Awaitable[T]], *, gated: bool = True) -> T:
+        """Run one bus command, bounded, or refuse it at once while the bus is marked down.
+
+        ``gated=False`` skips the refusal: the command is tried whatever the
+        window says, and only its own failure marks the bus down.
+        """
+        if gated and time.monotonic() < self._down_until:
             raise BusUnavailable(f"{what}: the bus failed within the last {BUS_RETRY_AFTER_S:.0f}s")
         try:
             async with asyncio.timeout(BUS_CALL_TIMEOUT_S):
@@ -460,10 +468,18 @@ class ConversationBus:
         return RunningMarker.decode(raw) if raw else None
 
     async def renew_running(self, conv: str, turn_id: str) -> bool:
-        """Restart the marker's expiry, while it still names this replica and turn. False once it has been lost."""
+        """Restart the marker's expiry, while it still names this replica and turn. False once it has been lost.
+
+        Not gated by the fail-fast window: a renewal refused without I/O moves
+        the turn's deadline no further, and with ``GRID_CHAT_AFFINITY`` off a
+        turn whose deadline passes is cancelled. One failed ``publish_frame``
+        for any conversation would otherwise cost every turn here its window.
+        """
         key = _RUNNING.format(id=conv)
         return await self._call(
-            "renew_running", lambda: self._t.expire_if_value(key, self._running_value(turn_id), RUNNING_TTL_SECONDS)
+            "renew_running",
+            lambda: self._t.expire_if_value(key, self._running_value(turn_id), RUNNING_TTL_SECONDS),
+            gated=False,
         )
 
     async def release_running(self, conv: str, turn_id: str) -> bool:

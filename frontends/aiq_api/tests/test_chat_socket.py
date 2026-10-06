@@ -1729,6 +1729,47 @@ async def test_a_write_in_flight_when_the_deadline_passes_lands_before_a_new_own
     assert ("A", "write") not in log.after(taken)
 
 
+async def test_one_failed_bus_command_for_another_conversation_does_not_starve_the_renewals(harness, monkeypatch):
+    """The fail-fast window refuses commands without I/O; the renewal must not be one of them."""
+    from aiq_api.conversation_bus import BusUnavailable
+
+    log = WriteLog()
+    a, _, shared = _fenced_cluster(monkeypatch, log)
+    gate = Gate()
+    sock = harness(gate.turn, a.registry).connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: gate.calls)
+    guard = a.registry.running(CONV).guard
+    real_xadd = shared._t.xadd
+
+    async def slow_once(*args, **kwargs):
+        monkeypatch.setattr(shared._t, "xadd", real_xadd)
+        raise TimeoutError("Timeout reading from dragonfly:6379")
+
+    monkeypatch.setattr(shared._t, "xadd", slow_once)
+    with pytest.raises(BusUnavailable):
+        await a.registry.bus().publish_frame("another-conversation", {"turn_id": "x", "seq": 1})
+
+    await asyncio.sleep(FENCE_TTL * 2)  # the bus stays marked down for 5 s, well past the turn's deadline
+
+    assert not guard.fenced()
+    assert sock.events()[-1]["type"] != "RUN_FINISHED"
+    gate.release.set()
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+    assert sock.events()[-1]["outcome"] == "answered"
+
+
+async def test_a_renewal_that_fails_is_tried_again_before_the_deadline(monkeypatch):
+    """After a failed renewal the keeper retries sooner than an interval, never later than the deadline."""
+    monkeypatch.setattr(chat_socket, "RENEW_RETRY_SECONDS", 1.0)
+    monkeypatch.setattr(chat_socket, "running_renew_interval", lambda: 3.0)
+
+    assert chat_socket._renew_wait(None) == 3.0
+    assert chat_socket._renew_wait(None, retrying=True) == 1.0
+    guard = SimpleNamespace(remaining=lambda: 0.4)
+    assert chat_socket._renew_wait(guard, retrying=True) == 0.4
+
+
 async def test_a_renewal_that_finds_the_marker_gone_fences_the_turn_and_cancels_it_with_a_terminal(
     harness, monkeypatch, persisted
 ):

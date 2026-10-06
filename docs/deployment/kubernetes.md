@@ -1275,9 +1275,11 @@ the tier autoscale:
   unreachable from its replica for most of `GRID_CHAT_RUNNING_TTL_SECONDS`, or the
   marker gone) stops writing the conversation's thread, its frames and its
   persisted outcome on a local deadline, and ends cancelled, before a newer turn
-  on another replica can take the marker. The cost is that a Dragonfly outage
-  longer than the TTL minus 7 s (5 s at the default 12) ends the answers running
-  at that moment; with affinity on nothing is fenced, because one process holds
+  on another replica can take the marker. A failed renewal is retried every
+  second, and the renewal is never refused by the bus's fail-fast window, so one
+  slow command does not cost a turn its window. The cost is that a Dragonfly
+  outage longer than the TTL minus 6 s (6 s at the default 12) ends the answers
+  running at that moment; with affinity on nothing is fenced, because one process holds
   both turns.
 - **The signal.** `GET /v1/internal/chat-occupancy` on any replica returns the
   fleet's running turns (`activeTurns`, the global admission pool). KEDA's

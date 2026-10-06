@@ -924,8 +924,9 @@ class ChatRegistry:
         """
         conversation_id, turn_id = turn.wire.conversation_id, turn.wire.turn_id
         guard = turn.guard
+        retrying = False
         while True:
-            await asyncio.sleep(_renew_wait(guard))
+            await asyncio.sleep(_renew_wait(guard, retrying=retrying))
             if guard is not None and guard.fenced():
                 self._fence_turn(turn, "no renewal got through before its deadline")
                 return
@@ -933,7 +934,9 @@ class ChatRegistry:
             try:
                 renewed = await self.bus().renew_running(conversation_id, turn_id)
             except BusUnavailable:
-                continue  # the marker lives a TTL; the next round tries again, and the deadline is watched above
+                retrying = True  # sooner than an interval: a blip that ends before the deadline is ridden out
+                continue
+            retrying = False
             if renewed:
                 if guard is not None:
                     guard.renewed(sent_at)
@@ -1053,9 +1056,15 @@ class ChatRegistry:
             logger.warning("Refused a relayed %s for turn %s: %s", message.type, message.turn_id, refusal)
 
 
-def _renew_wait(guard: TurnFence | None) -> float:
-    """How long to sleep before the next renewal round: an interval, never past the turn's deadline."""
+#: How soon a renewal that failed is tried again, when that is sooner than the interval.
+RENEW_RETRY_SECONDS = 1.0
+
+
+def _renew_wait(guard: TurnFence | None, *, retrying: bool = False) -> float:
+    """How long to sleep before the next renewal round: an interval (shorter after a failure), never past the deadline."""
     interval = running_renew_interval()
+    if retrying:
+        interval = min(interval, RENEW_RETRY_SECONDS)
     return interval if guard is None else min(interval, guard.remaining())
 
 
