@@ -12,10 +12,12 @@ import os
 
 from aiq_agent.auth import Principal
 from aiq_agent.auth import get_current_principal
+from aiq_agent.common import claim_queue
 from aiq_agent.common.job_admission import JobAdmissionError
 from aiq_api.auth import get_current_trace_tags
 
 from ..registry import get_agent_config
+from . import queue
 from .access import _make_no_auth_principal
 from .access import count_active_jobs
 from .access import create_job_access
@@ -145,55 +147,81 @@ logger = logging.getLogger(__name__)
 # hour cannot block scheduled research. Sizing the two is therefore an explicit
 # choice about how much of the cluster each kind of work may hold — not a race
 # between them.
+#
+# What admission DOES differs by execution mode, because only one of them has a
+# queue (ADR-0078):
+#
+# * `db`: capacity makes a job WAIT, never fail. The worker tier claims fairly
+#   across organizations and holds one organization to `GRID_MAX_ACTIVE_JOBS_PER_ORG`
+#   running at once (`jobs/queue.py`), so a full cluster is a longer queue, and a
+#   scheduled run is no longer skipped for it. The one refusal left is a bound on
+#   how many jobs ONE organization may have waiting (`GRID_MAX_QUEUED_JOBS_PER_ORG`),
+#   which stops a runaway caller and is not capacity management.
+# * `dask`: there is no queue to wait in, so the active-job caps still refuse.
 
 # @environment_variable GRID_MAX_ACTIVE_JOBS
 # @category Server
 # @type int
 # @default 8
 # @required false
-# Maximum non-terminal async jobs accepted across all organizations
-# (admission control). 0 or negative disables the global cap.
+# Dask execution only: maximum non-terminal async jobs accepted across all
+# organizations (admission control, 429 beyond it). With `GRID_JOB_EXECUTION=db`
+# it has no effect: jobs wait in the queue instead. 0 or negative disables the cap.
 MAX_ACTIVE_JOBS = int(os.environ.get("GRID_MAX_ACTIVE_JOBS", "8"))
-
-# @environment_variable GRID_MAX_ACTIVE_JOBS_PER_ORG
-# @category Server
-# @type int
-# @default 3
-# @required false
-# Maximum non-terminal async jobs accepted per organization, so one tenant
-# cannot occupy the whole cluster. 0 or negative disables the per-org cap.
-MAX_ACTIVE_JOBS_PER_ORG = int(os.environ.get("GRID_MAX_ACTIVE_JOBS_PER_ORG", "3"))
 
 
 async def _enforce_job_admission(db_url: str, organization_id: str | None) -> None:
-    """Refuse submission when active-job caps are reached (fail-open on errors)."""
-    if MAX_ACTIVE_JOBS <= 0 and MAX_ACTIVE_JOBS_PER_ORG <= 0:
-        return
-
-    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
-
-    terminal = (JobStatus.SUCCESS.value, JobStatus.FAILURE.value, JobStatus.INTERRUPTED.value)
-    loop = asyncio.get_running_loop()
+    """Refuse a submission the execution mode cannot hold (fail-open on errors)."""
     try:
-        if MAX_ACTIVE_JOBS > 0:
-            active = await loop.run_in_executor(None, count_active_jobs, db_url, terminal, None)
-            if active >= MAX_ACTIVE_JOBS:
-                raise JobAdmissionError(
-                    f"Research queue is full ({active} jobs active). Please try again in a few minutes.",
-                )
-        if MAX_ACTIVE_JOBS_PER_ORG > 0 and organization_id:
-            org_active = await loop.run_in_executor(None, count_active_jobs, db_url, terminal, organization_id)
-            if org_active >= MAX_ACTIVE_JOBS_PER_ORG:
-                raise JobAdmissionError(
-                    f"Your organization already has {org_active} research jobs running. "
-                    "Please wait for one to finish before starting another.",
-                )
+        if job_execution_mode() == "db":
+            await _enforce_queue_bound(db_url, organization_id)
+        else:
+            await _enforce_active_caps(db_url, organization_id)
     except JobAdmissionError:
         raise
     except Exception:
         # Admission control is protective, not load-bearing: a broken count
         # must never take research submission down.
         logger.warning("Job admission check failed; admitting job", exc_info=True)
+
+
+async def _enforce_queue_bound(db_url: str, organization_id: str | None) -> None:
+    """DB execution: refuse only an organization whose own waiting queue is past its bound."""
+    bound = queue.max_queued_per_org()
+    if bound <= 0:
+        return
+    loop = asyncio.get_running_loop()
+    waiting = await loop.run_in_executor(None, queue.queued_in_lane, db_url, organization_id)
+    if waiting >= bound:
+        raise JobAdmissionError(
+            f"Your organization already has {waiting} research jobs waiting. "
+            "Please let some of them start before adding more.",
+        )
+
+
+async def _enforce_active_caps(db_url: str, organization_id: str | None) -> None:
+    """Dask execution: refuse past the global and per-organization active-job caps."""
+    per_org = queue.max_active_per_org()
+    if MAX_ACTIVE_JOBS <= 0 and per_org <= 0:
+        return
+
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+    terminal = (JobStatus.SUCCESS.value, JobStatus.FAILURE.value, JobStatus.INTERRUPTED.value)
+    loop = asyncio.get_running_loop()
+    if MAX_ACTIVE_JOBS > 0:
+        active = await loop.run_in_executor(None, count_active_jobs, db_url, terminal, None)
+        if active >= MAX_ACTIVE_JOBS:
+            raise JobAdmissionError(
+                f"Research queue is full ({active} jobs active). Please try again in a few minutes.",
+            )
+    if per_org > 0 and organization_id:
+        org_active = await loop.run_in_executor(None, count_active_jobs, db_url, terminal, organization_id)
+        if org_active >= per_org:
+            raise JobAdmissionError(
+                f"Your organization already has {org_active} research jobs running. "
+                "Please wait for one to finish before starting another.",
+            )
 
 
 def _get_disabled_sources() -> set[str]:
@@ -366,9 +394,10 @@ async def submit_agent_job(
     conversation_id: str | None = None,
     run_id: str | None = None,
     documents: dict | None = None,
+    priority: str | None = None,
 ) -> str:
     """
-    Submit an agent job to the Dask cluster.
+    Submit an agent job: to the research queue (``db`` execution) or the Dask cluster.
 
     This is the main entry point for submitting async jobs from application code.
     It looks up the agent configuration from the registry and submits the job.
@@ -403,6 +432,11 @@ async def submit_agent_job(
         memory_reflection_llm: Optional ``llms:`` ref for the reflection pass
             (e.g. ``card_llm``). When set and enabled, the worker records durable
             project findings from the completed report.
+        priority: ``"interactive"`` (the default) or ``"bulk"``. Inside one
+            organization the queue runs interactive jobs first: a question the
+            reader escalated goes before a scheduled sweep of the same
+            organization, and never before another organization's. Only the
+            ``db`` execution has a queue to order; Dask ignores it.
         run_id: Optional id of the ``task_runs`` row this job is. Carried into
             the worker so the run can flush its ledger to its own message; a
             job submitted without one still narrates itself on its event
@@ -425,6 +459,10 @@ async def submit_agent_job(
         )
     """
     from nat.front_ends.fastapi.async_jobs.job_store import JobStore
+
+    # Before anything is persisted: a priority nobody defined is refused where it
+    # enters, not after the job's status rows exist.
+    claim_queue.priority_rank(priority)
 
     # Get agent configuration from registry
     agent_config = get_agent_config(agent_type)
@@ -578,8 +616,6 @@ async def submit_agent_job(
             # (no Dask) and enqueue a claimable row carrying the run_agent_job
             # payload. A worker replica claims and runs it. _create_job reuses
             # NAT's job_info semantics without the scheduler.
-            from . import queue
-
             payload = _build_run_agent_payload(
                 configure_logging=not use_threads,
                 log_level=log_level,
@@ -659,14 +695,12 @@ async def submit_agent_job(
             # Enqueue the claimable row LAST — only once job_info AND job_access
             # are fully persisted — so a worker can never claim and run a job
             # whose ownership/rollback state is still incomplete.
-            await loop.run_in_executor(None, queue.enqueue, db_url, resolved_job_id, payload)
+            await loop.run_in_executor(None, queue.enqueue, db_url, resolved_job_id, payload, organization_id, priority)
     except Exception:
         if db_execution:
             # Drop any partial queue row so a half-submitted job is never run.
             try:
-                from . import queue as _queue
-
-                await loop.run_in_executor(None, _queue.mark_done, db_url, resolved_job_id, None)
+                await loop.run_in_executor(None, queue.mark_done, db_url, resolved_job_id, None)
             except Exception:
                 logger.warning("Failed to clean up queue row for %s during rollback", resolved_job_id, exc_info=True)
         if not preexistence_verified:

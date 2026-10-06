@@ -267,8 +267,30 @@ def test_unknown_agent_type_maps_to_400(client, prod_token, submit_mock):
 def test_successful_submit_returns_job_id(client, prod_token, submit_mock):
     resp = _post(client, _valid_body())
     assert resp.status_code == 200
-    assert resp.json() == {"job_id": "job-xyz"}
+    assert resp.json() == {"job_id": "job-xyz", "queued": False}
     submit_mock.assert_awaited_once()
+
+
+def test_a_job_that_waits_for_a_worker_says_so(client, prod_token, submit_mock, monkeypatch):
+    """Under db execution every job starts in the queue, so the BFF records the run as queued."""
+    monkeypatch.setenv("GRID_JOB_EXECUTION", "db")
+    resp = _post(client, _valid_body())
+    assert resp.status_code == 200
+    assert resp.json() == {"job_id": "job-xyz", "queued": True}
+
+
+def test_priority_defaults_to_interactive_and_a_scheduled_fire_can_send_bulk(client, prod_token, submit_mock):
+    assert _post(client, _valid_body()).status_code == 200
+    assert submit_mock.await_args.kwargs["priority"] == "interactive"
+
+    assert _post(client, _valid_body(priority="bulk")).status_code == 200
+    assert submit_mock.await_args.kwargs["priority"] == "bulk"
+
+
+def test_a_priority_nobody_defined_is_422(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body(priority="urgent"))
+    assert resp.status_code == 422
+    submit_mock.assert_not_awaited()
 
 
 def test_the_settled_plan_and_the_unterlagen_reach_the_worker(client, prod_token, submit_mock):
