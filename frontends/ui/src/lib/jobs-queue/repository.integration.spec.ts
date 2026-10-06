@@ -109,6 +109,25 @@ describe.skipIf(!url)('bff_job_queue reads and writes from the BFF', () => {
     expect(open).toBeNull()
   })
 
+  it('finds the newest dead job of a kind by its payload, in the caller’s lane only, with its reason', async () => {
+    const dead = await enqueueAs(ORG_A, 'p-gave-up', 'bim_extract')
+    await enqueueAs(ORG_A, 'p-gave-up', 'bim_extract') // still queued: not dead
+    await enqueueAs(ORG_B, 'p-gave-up', 'bim_extract')
+    await context.withPlatformAccess('test: bury the job', () =>
+      db.execute(sql`UPDATE bff_job_queue SET status = 'dead', last_error = 'object store down' WHERE job_id = ${dead}::uuid`),
+    )
+
+    const found = await context.withTenant({ organizationId: ORG_A }, () =>
+      repo.findDeadJob({ kind: 'bim_extract', organizationId: ORG_A, matching: { projectId: 'p-gave-up' } }),
+    )
+    const none = await context.withTenant({ organizationId: ORG_A }, () =>
+      repo.findDeadJob({ kind: 'bim_extract', organizationId: ORG_A, matching: { projectId: 'p-never' } }),
+    )
+
+    expect(found).toEqual({ jobId: dead, lastError: 'object store down' })
+    expect(none).toBeNull()
+  })
+
   it('reads back a job only for the worker that holds it', async () => {
     const jobId = await enqueueAs(ORG_A, 'p-claimed')
     await context.withPlatformAccess('test: claim the job', () =>

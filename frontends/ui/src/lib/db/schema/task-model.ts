@@ -282,7 +282,7 @@ export const taskRuns = pgTable(
     ),
     filingKnown: check(
       'task_runs_filing_status_known',
-      sql`${table.filingStatus} IS NULL OR ${table.filingStatus} IN ('filed', 'refused', 'failed')`
+      sql`${table.filingStatus} IS NULL OR ${table.filingStatus} IN ('queued', 'filed', 'refused', 'failed')`
     ),
     /** A review is a decision by somebody, at some time — all three or none. */
     reviewComplete: check(

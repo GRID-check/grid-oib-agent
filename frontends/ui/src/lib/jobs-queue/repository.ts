@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, asc, eq, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { bffJobQueue, type BffJobPriority, type BffJobRow } from '@/lib/db/schema'
 
@@ -70,15 +70,39 @@ export async function findOpenJobId(query: {
   const [row] = await db
     .select({ jobId: bffJobQueue.jobId })
     .from(bffJobQueue)
-    .where(
-      and(
-        eq(bffJobQueue.kind, query.kind),
-        eq(bffJobQueue.lane, query.organizationId),
-        ne(bffJobQueue.status, 'dead'),
-        sql`${bffJobQueue.payload} @> ${JSON.stringify(query.matching)}::text::jsonb`,
-      ),
-    )
+    .where(and(matchingJobs(query), ne(bffJobQueue.status, 'dead')))
     .orderBy(asc(bffJobQueue.createdAt))
     .limit(1)
   return row?.jobId ?? null
+}
+
+/**
+ * The newest job of this kind in the caller's lane that gave up, with the
+ * reason it gave, or `null`.
+ *
+ * What a sweep reads to tell "nothing is working on this" from "this was
+ * tried and failed every attempt": a row left at `processing` or `queued`
+ * whose only job is dead will never move on its own.
+ */
+export async function findDeadJob(query: {
+  kind: string
+  organizationId: string
+  matching: Record<string, unknown>
+}): Promise<{ jobId: string; lastError: string | null } | null> {
+  const db = getDb()
+  const [row] = await db
+    .select({ jobId: bffJobQueue.jobId, lastError: bffJobQueue.lastError })
+    .from(bffJobQueue)
+    .where(and(matchingJobs(query), eq(bffJobQueue.status, 'dead')))
+    .orderBy(desc(bffJobQueue.createdAt))
+    .limit(1)
+  return row ?? null
+}
+
+function matchingJobs(query: { kind: string; organizationId: string; matching: Record<string, unknown> }) {
+  return and(
+    eq(bffJobQueue.kind, query.kind),
+    eq(bffJobQueue.lane, query.organizationId),
+    sql`${bffJobQueue.payload} @> ${JSON.stringify(query.matching)}::text::jsonb`
+  )
 }

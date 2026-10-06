@@ -13,8 +13,24 @@ import { z } from 'zod'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { BFF_JOB_PRIORITY, type BffJobPriority } from '@/lib/db/schema'
 
-/** The kinds a `bff-jobs` worker knows how to run. A new kind is added here and in `./handlers.ts`. */
-export const BFF_JOB_KINDS = ['reindex_project', 'reingest_failed'] as const
+/**
+ * The kinds a `bff-jobs` worker knows how to run. A new kind is added here, as a
+ * payload schema below and in `./handlers.ts`.
+ *
+ * The first two walk a set of documents a page per slice and run AS the person
+ * who asked (their payload carries a `requester`). The other three are one
+ * bounded step each and run as the system, because the person's permission was
+ * checked when the work was requested and what they do afterwards takes no
+ * session: parsing a model, converting a file, rendering and filing a report as
+ * the run's own pinned requester.
+ */
+export const BFF_JOB_KINDS = [
+  'reindex_project',
+  'reingest_failed',
+  'bim_extract',
+  'office_rendition',
+  'file_research_report',
+] as const
 export type BffJobKind = (typeof BFF_JOB_KINDS)[number]
 
 export function isBffJobKind(value: string): value is BffJobKind {
@@ -40,6 +56,13 @@ export const requesterSchema = z.object({
   organizationMembershipId: z.string().min(1),
   role: z.string().min(1),
   permissions: z.array(z.string()),
+  /**
+   * The feature flags the person's session carried, for the one kind that is
+   * gated on them when it files a document (`file_research_report`). Optional
+   * because a payload stored before it existed has none, and a job that does
+   * not file reads nothing from it.
+   */
+  featureFlags: z.array(z.string()).nullable().optional(),
 })
 export type JobRequester = z.infer<typeof requesterSchema>
 
@@ -50,6 +73,7 @@ export function requesterOf(session: AuthorizedSession): JobRequester {
     organizationMembershipId: session.organizationMembershipId,
     role: session.role,
     permissions: session.permissions,
+    ...(session.featureFlags ? { featureFlags: session.featureFlags } : {}),
   }
 }
 
@@ -64,7 +88,7 @@ export function sessionOf(requester: JobRequester, organizationId: string): Auth
     organizationMembershipId: requester.organizationMembershipId,
     role: requester.role,
     permissions: requester.permissions,
-    featureFlags: null,
+    featureFlags: requester.featureFlags ?? null,
   }
 }
 
@@ -103,6 +127,76 @@ export const reingestFailedPayloadSchema = z.object({
   counts: countsSchema,
 })
 export type ReingestFailedPayload = z.infer<typeof reingestFailedPayloadSchema>
+
+/**
+ * A stored document to run background work for: what `dispatchDocument` was
+ * handed, which is all the job needs because it re-reads the row for the rest.
+ * Both document kinds carry it, so a queued job and the call that would have
+ * run in the request cannot disagree about what a document is.
+ */
+const documentWorkPayloadSchema = z.object({
+  projectId: z.string().nullable(),
+  documentId: z.string().min(1),
+  filename: z.string().min(1),
+  storageKey: z.string().min(1),
+  storageBucket: z.string().nullable(),
+  collectionName: z.string().min(1),
+  folderPath: z.string().nullable().optional(),
+  /** Which version these bytes are; a machine's document is indexed only as its published one. */
+  versionId: z.string().nullable().optional(),
+  priority: z.enum(['interactive', 'bulk']).optional(),
+})
+
+/** `bim_extract`: parse an IFC model into the structured index, then ingest its digest. */
+export const bimExtractPayloadSchema = documentWorkPayloadSchema
+export type BimExtractPayload = z.infer<typeof bimExtractPayloadSchema>
+
+/**
+ * `office_rendition`: convert a Word, presentation or spreadsheet file to its
+ * PDF rendition, then ingest it. `fileName` is the ROW's name, which the join
+ * key the backend files the chunks under.
+ */
+export const officeRenditionPayloadSchema = documentWorkPayloadSchema.extend({
+  fileName: z.string().min(1),
+  provenance: z
+    .object({
+      authored_by: z.literal('agent'),
+      approved_by: z.string().nullable(),
+      approved_at: z.string().nullable(),
+      producer: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
+})
+export type OfficeRenditionPayload = z.infer<typeof officeRenditionPayloadSchema>
+
+/**
+ * `file_research_report`: render a finished deep-research run's report as a PDF
+ * and file it into the project.
+ *
+ * The report travels in the payload because the job outlives the callback that
+ * handed it over, and nothing else holds it for certain (the backend's job
+ * store forgets a run after a day). `taskRunId` is the `task_runs` row whose
+ * `filing_status` follows the job; null when only a reader's request asked, for
+ * a run that has no row. `requester` is that reader's identity, and null means
+ * the run's own pinned requester files it, resolved when the job runs.
+ */
+export const fileResearchReportPayloadSchema = z.object({
+  /** The backend job id: the document's idempotency key. */
+  runId: z.string().min(1),
+  projectId: z.string().min(1),
+  report: z.string().min(1),
+  cards: z.array(z.unknown()).optional(),
+  taskRunId: z.string().nullable(),
+  requester: requesterSchema.nullable(),
+})
+export type FileResearchReportPayload = z.infer<typeof fileResearchReportPayloadSchema>
+
+/** What a one-step job is told about the attempt it is running. */
+export interface JobAttempt {
+  /** True when a failure now leaves the job dead, so the work must leave its own truth behind. */
+  last: boolean
+}
 
 /** What one slice of any job answers: whether the job is finished, and the state to save either way. */
 export interface JobSliceResult<TPayload> {

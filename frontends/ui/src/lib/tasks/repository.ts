@@ -432,6 +432,26 @@ export async function claimRunsToReconcile(
 }
 
 /**
+ * Runs whose report has been `queued` for filing since before `before`, oldest
+ * first (`ix_task_runs_filing_queued`, migration 0103).
+ *
+ * The filing sweep's read: a job normally ends the state within seconds, so
+ * what is left here is a filing whose job died, or is waiting behind a backlog.
+ * NOT tenant-filtered: the caller runs this under platform access and judges
+ * each run inside its own organization.
+ */
+export async function listRunsWithStaleQueuedFiling(before: Date, limit: number): Promise<TaskRun[]> {
+  const db = getDb()
+  return db
+    .select()
+    .from(taskRuns)
+    // An ISO string for the same reason as `claimRunsToReconcile`.
+    .where(and(eq(taskRuns.filingStatus, 'queued'), lt(sql`COALESCE(${taskRuns.finishedAt}, ${taskRuns.updatedAt})`, before.toISOString())))
+    .orderBy(sql`COALESCE(${taskRuns.finishedAt}, ${taskRuns.updatedAt})`)
+    .limit(limit)
+}
+
+/**
  * Claim up to `limit` CLOSED runs that nothing has looked at since they ended,
  * and stamp them — the ledger heal's half of the reconciler sweep.
  *
