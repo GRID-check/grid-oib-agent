@@ -17,7 +17,7 @@
  */
 import * as pulumi from "@pulumi/pulumi";
 
-import { backendImage, frontendImage, loadConfig, webImage } from "./src/config";
+import { backendAutoscaled, backendImage, frontendImage, loadConfig, webImage } from "./src/config";
 import { makeProvider } from "./src/platform/providers";
 import { makeAppNamespace } from "./src/platform/namespaces";
 import { installCertManager } from "./src/platform/cert-manager";
@@ -34,6 +34,7 @@ import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildSecrets } fr
 import { runMigrations } from "./src/app/migrations-job";
 import { reconcileAuditSchemas } from "./src/app/audit-schemas-job";
 import { installBackend } from "./src/app/backend";
+import { installBackendScaling } from "./src/app/backend-scaling";
 import { installFrontend } from "./src/app/frontend";
 import { installWeb } from "./src/app/web";
 import { installGotenberg } from "./src/app/gotenberg";
@@ -236,7 +237,8 @@ const agentWorker =
 
 // Ingestion tier (ADR-0076) — claims the durable ingest queue fairly across
 // organisations, scaled by KEDA on the queue's depth.
-const keda = cfg.ingestWorker.enabled && cfg.keda.install ? installKeda(provider) : undefined;
+const keda =
+  (cfg.ingestWorker.enabled || backendAutoscaled(cfg)) && cfg.keda.install ? installKeda(provider) : undefined;
 const ingestWorker = cfg.ingestWorker.enabled
   ? installIngestWorker(wiring, cfg, secrets, [
       postgres.initJob,
@@ -246,6 +248,12 @@ const ingestWorker = cfg.ingestWorker.enabled
       ...(keda ? [keda] : []),
     ])
   : undefined;
+
+// Chat tier scale-out (ADR-0079) — KEDA moves the aiq-agent StatefulSet between
+// its floor and ceiling on the fleet's running turns. Only with affinity off.
+if (backendAutoscaled(cfg)) {
+  installBackendScaling(wiring, cfg, backend.statefulSet, keda ? [keda] : []);
+}
 
 // ── Edge (Gateway API) ───────────────────────────────────────────────────────
 const gatewayResources = installGatewayResources(cfg, provider, namespace, certManager.issuerName, [

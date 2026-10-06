@@ -211,6 +211,13 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     // ON by default — the intended architecture; uses REDIS_URL, fails open to
     // local delivery. Set conversationBus=false to fall back to affinity.
     { name: "GRID_CONVERSATION_BUS", value: cfg.conversationBus ? "1" : "0" },
+    // The flag the BFF routes by (ADR-0079). The backend reads it for one
+    // decision: with the bus down, affinity on fails the one-running-turn fence
+    // open (every turn of a conversation reaches one process), off refuses.
+    { name: "GRID_CHAT_AFFINITY", value: cfg.backend.chatAffinity ? "1" : "0" },
+    // How long a terminating replica waits for its turns; the pod's grace period
+    // is this plus the endpoint drain and slack (`backendRollout`).
+    { name: "GRID_CHAT_DRAIN_SECONDS", value: String(cfg.backend.drainSeconds) },
     // Project-memory write path (backend → frontend BFF).
     { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
@@ -329,6 +336,10 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // its in-process WS/HITL/task state is always on the same replica. With 1
     // replica the proxy falls back to the load-balanced BACKEND_URL.
     { name: "BACKEND_REPLICAS", value: String(cfg.jobExecution === "db" ? cfg.backend.replicas : 1) },
+    // ADR-0079: "0" hands every socket to the load-balanced Service and lets the
+    // conversation bus decide per turn which replica runs it, so the backend can
+    // autoscale (backend-scaling.ts). "1" is the hash above, byte for byte.
+    { name: "GRID_CHAT_AFFINITY", value: cfg.backend.chatAffinity ? "1" : "0" },
     // In-cluster headless-service pod address; traffic never leaves the pod
     // network, so the non-TLS ws scheme below is intentional.
     // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket

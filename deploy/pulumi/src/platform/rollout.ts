@@ -306,6 +306,32 @@ export function agentWorkerRollout(drainSeconds: number): RolloutProfile {
   };
 }
 
+/** Slack on top of the chat drain: the cancel-and-publish of what is still running, and process exit. */
+export const BACKEND_DRAIN_SLACK_SECONDS = 60;
+
+/**
+ * The chat tier's profile, with the grace period derived from its drain.
+ *
+ * On SIGTERM the replica is already out of the Service's endpoints, so no new
+ * socket arrives, and it waits for the turns it claimed
+ * (`GRID_CHAT_DRAIN_SECONDS`, `chat_socket.ChatRegistry.drain`) while relays on
+ * other replicas keep streaming them from Dragonfly (ADR-0079). The pod must
+ * live that long, so the grace period IS the drain plus the endpoint drain and
+ * slack, not a number chosen beside it: at the old fixed 90 s every rollout and
+ * every scale-in killed a long answer after a minute and a half.
+ *
+ * `drainSeconds` has to cover the longest chat turn, which is the turn's own
+ * deadline (`GRID_CHAT_TURN_DEADLINE_SECONDS`, 2700). The admission lease is
+ * renewed for as long as a turn runs, so it bounds nothing here.
+ */
+export function backendRollout(drainSeconds: number): RolloutProfile {
+  return {
+    ...ROLLOUT.backend,
+    terminationGracePeriodSeconds:
+      ROLLOUT.backend.endpointDrainSeconds + drainSeconds + BACKEND_DRAIN_SLACK_SECONDS,
+  };
+}
+
 /**
  * SURGE-ONLY rolling update: bring the replacement up and prove it healthy
  * before any old replica goes away (`maxUnavailable: 0`), one at a time
