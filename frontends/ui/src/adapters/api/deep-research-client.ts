@@ -883,6 +883,14 @@ export interface JobReportResponse {
    */
   filingFailed?: boolean
   /**
+   * The report is being rendered and filed by a background job (ADR-0078): the
+   * promise is being kept, and the document appears under „Berichte" when the
+   * job has run. Mutually exclusive with `filed` and `filingFailed`; absent when
+   * no filing was asked for. No reader of the run block uses it yet, like
+   * `filingFailed`, and it is carried across the boundary for the same reason.
+   */
+  filingQueued?: boolean
+  /**
    * The report's verified sources, each carrying the `[N]` the report cites it
    * by. The live stream announces a source when a tool finds it, before
    * verification has numbered anything, so a reader of the finished report
@@ -954,6 +962,7 @@ export const getJobReport = async (
     // client that believed a string here would retract a promise the server
     // never said was broken.
     ...(body.filingFailed === true ? { filingFailed: true as const } : {}),
+    ...(body.filingQueued === true ? { filingQueued: true as const } : {}),
     ...(Array.isArray(body.sources) && body.sources.length > 0 ? { sources: body.sources } : {}),
   }
 }

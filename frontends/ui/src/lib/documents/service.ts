@@ -82,6 +82,7 @@ import {
   markDocumentIngestFailed,
   markDocumentProcessing,
   setDocumentDisplayName,
+  setDocumentBackgroundJob,
   setDocumentIngestJob,
   setDocumentReconciledStatus,
   findLiveDocumentByFilename,
@@ -91,15 +92,21 @@ import {
 import { documentDisplayName, validateDocumentName } from './display-name'
 import { decodeTextBytes } from '@/lib/text/decode-text'
 import { encodeDocumentListCursor, type DocumentListCursor } from './list-cursor'
+import { withTenant } from '@/lib/db/tenant-context'
 import { runBimExtraction } from '@/lib/bim/service'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
 import { findOpenJobId } from '@/lib/jobs-queue/repository'
 import {
+  BFF_JOB_PRIORITY,
   emptyCounts,
   FAILED_NAMES_KEPT,
   requesterOf,
+  type BffJobPriority,
+  type BimExtractPayload,
+  type JobAttempt,
   type JobCounts,
   type JobSliceResult,
+  type OfficeRenditionPayload,
   type ReindexProjectPayload,
   type ReingestFailedPayload,
 } from '@/lib/jobs-queue/types'
@@ -1435,122 +1442,282 @@ function mayBeIndexed(
 }
 
 /**
- * Kick off IFC extraction for a stored `.ifc` object and return the same shape
- * `dispatchIngest` does, so the upload path stays one expression.
- *
- * Extraction is DETACHED, not awaited. A 60 MB model takes tens of seconds to
- * parse, and the caller is an HTTP request that has already stored the bytes —
- * blocking it would trade a durable upload for a gateway timeout. The document
- * is marked `processing` first, so the row never renders as a green "Ready"
- * for a model that cannot be opened yet, and every terminal outcome writes the
- * row again:
- *
- *   - parse succeeded → the digest is dispatched, which sets `pending` + job id
- *   - parse failed    → `failed` with the reason, and a `bim_models` row that
- *                       records the same thing for the model surfaces
- *
- * The tradeoff this accepts: a process restart mid-parse leaves the document at
- * `processing` and the model at `extracting`. That is visible in both places
- * and recoverable through the ordinary re-ingest action, which is a better
- * failure than a lost upload.
+ * The queue priority of work the way ingestion names it: a person's upload is
+ * `interactive` (the default), a reindex or a rescan says `bulk`.
  */
-export async function beginModelExtraction(
-  input: BeginModelExtractionInput
-): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' | 'processing' }> {
-  await markDocumentProcessing(input.documentId, input.organizationId)
+function jobPriorityOf(priority: IngestPriority | undefined): BffJobPriority {
+  return BFF_JOB_PRIORITY[priority ?? 'interactive']
+}
 
-  void runBimExtraction({
-    organizationId: input.organizationId,
+/** The part of a dispatch every background document job carries. */
+function documentWorkPayload(input: DispatchDocumentInput) {
+  return {
     projectId: input.projectId,
     documentId: input.documentId,
     filename: input.filename,
     storageKey: input.storageKey,
     storageBucket: input.storageBucket,
-    // No `fileName`: what is ingested here is the Markdown DIGEST, not the
-    // model the row names, so the backend's own derivation from the presigned
-    // URL (`digest.md`) is what these chunks have always been filed under.
-    // Stating `input.filename` would rename them to `haus.ifc` and orphan every
-    // chunk already written under the old name. That the row's purge therefore
-    // addresses a name its chunks do not carry is a defect this change did not
-    // introduce and does not fix — see the note in the slice report.
-    dispatchDigest: (digestStorageKey) =>
-      dispatchIngest(
-        input.documentId,
-        input.collectionName,
-        digestStorageKey,
-        input.organizationId,
-        input.storageBucket,
-        input.folderPath ?? null,
-        { priority: input.priority }
-      ),
-  })
-    .then(async (outcome) => {
-      if (outcome.status === 'failed') {
-        await markDocumentIngestFailed(
-          input.documentId,
-          input.organizationId,
-          outcome.error ?? 'IFC extraction failed'
-        )
-      }
-    })
-    .catch(async () => {
-      // runBimExtraction is written not to throw; this is the belt to its
-      // braces, so an unexpected failure still leaves a truthful row rather
-      // than a document stuck at 'processing' forever.
-      await markDocumentIngestFailed(
-        input.documentId,
-        input.organizationId,
-        'IFC extraction failed'
-      ).catch(() => undefined)
-    })
-
-  return { jobId: null, status: 'processing' }
+    collectionName: input.collectionName,
+    folderPath: input.folderPath ?? null,
+    versionId: input.versionId ?? null,
+    priority: input.priority ?? ('interactive' as const),
+  }
 }
 
 /**
- * Convert an office original to its PDF rendition, then ingest — DETACHED,
- * like {@link beginModelExtraction} and for the same reason (ADR-0071).
+ * Hand a stored document's background work to the `bff-jobs` pool and say so on
+ * the row.
+ *
+ * The row is `processing` before this is called, so it never reads as a green
+ * "Ready" for work nobody has done. The job is the work's only owner from here:
+ * it outlives this request and the process that took it, and it is claimed
+ * fairly across organizations, so a person's upload waits behind their own
+ * office's work at most, never behind another's.
+ *
+ * A job of this kind already open for the SAME object is returned instead of a
+ * second one: a retry, a reindex and the sweep that recovers stranded rows all
+ * arrive here for a row that may already be queued. The object's key is part of
+ * the match, so a document whose bytes were replaced while the first job
+ * waited still gets a job for the new bytes.
+ *
+ * When the queue cannot be written the row says so and the caller is told
+ * `failed`, exactly as a backend that refuses an ingest is. A row left at
+ * `processing` with nothing behind it would read as work in progress for good.
+ */
+async function queueDocumentWork(
+  kind: 'bim_extract' | 'office_rendition',
+  input: DispatchDocumentInput,
+  payload: Record<string, unknown>
+): Promise<DispatchDocumentResult> {
+  try {
+    // The document's own organization, stated: callers reach this from a
+    // request, an effect and a sweep, and the queue's policy compares the lane
+    // to the tenant.
+    await withTenant({ organizationId: input.organizationId }, async () => {
+      const matching = { documentId: input.documentId, storageKey: input.storageKey }
+      const open = await findOpenJobId({ kind, organizationId: input.organizationId, matching })
+      const jobId =
+        open ??
+        (
+          await enqueueJob({
+            kind,
+            organizationId: input.organizationId,
+            priority: jobPriorityOf(input.priority),
+            payload,
+          })
+        ).jobId
+      await setDocumentBackgroundJob(input.documentId, input.organizationId, jobId)
+    })
+    return { jobId: null, status: 'processing' }
+  } catch (error) {
+    console.warn(
+      `[documents] ${kind} could not be queued:`,
+      error instanceof Error ? error.message : String(error)
+    )
+    await markDocumentIngestFailed(input.documentId, input.organizationId, INGEST_DISPATCH_FAILED_MESSAGE).catch(
+      () => undefined
+    )
+    return { jobId: null, status: 'failed' }
+  }
+}
+
+/**
+ * Queue IFC extraction for a stored `.ifc` object and return the same shape
+ * `dispatchIngest` does, so the upload path stays one expression.
+ *
+ * Extraction is a JOB (`bim_extract`), not awaited and not detached in this
+ * process. A 60 MB model takes tens of seconds to parse and several times its
+ * own size in memory, and the caller is an HTTP request that has already stored
+ * the bytes: parsing here would trade a durable upload for a gateway timeout,
+ * and parsing on the user-facing pod would put it on the event loop that also
+ * proxies chat. The `bff-jobs` pool parses it instead (ADR-0078), bounded by its
+ * concurrency and scaled on the queue. The document is marked `processing`
+ * first, so the row never renders as a green "Ready" for a model that cannot be
+ * opened yet, and every terminal outcome of the job writes the row again
+ * ({@link runBimExtractJob}):
+ *
+ *   - parse succeeded → the digest is dispatched, which sets `pending` + job id
+ *   - parse failed    → `failed` with the reason, and a `bim_models` row that
+ *                       records the same thing for the model surfaces
+ *
+ * A restart no longer strands the model at `extracting`: the claim goes back to
+ * the queue and the next worker parses it again.
+ */
+export async function beginModelExtraction(
+  input: BeginModelExtractionInput
+): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' | 'processing' }> {
+  await markDocumentProcessing(input.documentId, input.organizationId)
+  return queueDocumentWork('bim_extract', input, documentWorkPayload(input))
+}
+
+/**
+ * The job half of {@link beginModelExtraction}: parse the model, store its
+ * index and digest, and dispatch the digest to the ordinary ingest path.
+ *
+ * Runs on a `bff-jobs` pod, as the system. The row is read again because the
+ * job may have waited for hours: a document deleted or replaced meanwhile, or
+ * already moved on by the claim of a worker that died after finishing, is left
+ * alone. `runBimExtraction` does not throw for a model it cannot read (that is a
+ * documented state of the model), so a throw here is infrastructure and goes
+ * back to the queue; the last attempt leaves the row failed first.
+ */
+export async function runBimExtractJob(
+  organizationId: string,
+  payload: BimExtractPayload,
+  attempt: JobAttempt
+): Promise<void> {
+  const input = dispatchInputOf(organizationId, payload)
+  if (!(await jobStillOwnsRow(input))) return
+
+  await failRowOnLastAttempt(input, attempt, 'IFC extraction failed', async () => {
+    const outcome = await runBimExtraction({
+      organizationId,
+      projectId: input.projectId,
+      documentId: input.documentId,
+      filename: input.filename,
+      storageKey: input.storageKey,
+      storageBucket: input.storageBucket,
+      // No `fileName`: what is ingested here is the Markdown DIGEST, not the
+      // model the row names, so the backend's own derivation from the presigned
+      // URL (`digest.md`) is what these chunks have always been filed under.
+      // Stating `input.filename` would rename them to `haus.ifc` and orphan every
+      // chunk already written under the old name. That the row's purge therefore
+      // addresses a name its chunks do not carry is a defect this change did not
+      // introduce and does not fix.
+      dispatchDigest: (digestStorageKey) =>
+        dispatchIngest(
+          input.documentId,
+          input.collectionName,
+          digestStorageKey,
+          organizationId,
+          input.storageBucket,
+          input.folderPath ?? null,
+          { priority: input.priority }
+        ),
+    })
+    if (outcome.status === 'failed') {
+      await markDocumentIngestFailed(input.documentId, organizationId, outcome.error ?? 'IFC extraction failed')
+    }
+  })
+}
+
+/** The dispatch a queued payload stands for. */
+function dispatchInputOf(organizationId: string, payload: BimExtractPayload): DispatchDocumentInput {
+  return {
+    organizationId,
+    projectId: payload.projectId,
+    documentId: payload.documentId,
+    filename: payload.filename,
+    storageKey: payload.storageKey,
+    storageBucket: payload.storageBucket,
+    collectionName: payload.collectionName,
+    folderPath: payload.folderPath ?? null,
+    versionId: payload.versionId ?? null,
+    priority: payload.priority,
+  }
+}
+
+/**
+ * Whether the row still waits for the work a job was queued for.
+ *
+ * False for a document that was deleted, whose bytes were replaced (the newer
+ * dispatch queued its own job) or that is no longer `processing`. The last is
+ * the one that matters after a crash: a worker that finished the work and died
+ * before it could finish the job leaves a claim another worker takes over, and
+ * doing the work a second time would dispatch the same ingest twice. A machine's
+ * document is held to the publish rule again, because it may have been
+ * superseded while it waited.
+ */
+async function jobStillOwnsRow(input: DispatchDocumentInput): Promise<boolean> {
+  const row = await findDocumentInOrg(input.documentId, input.organizationId)
+  if (!row) return false
+  if (row.storageKey !== input.storageKey || row.status !== 'processing') return false
+  return mayBeIndexed(row, input.versionId ?? null)
+}
+
+/**
+ * Run `work`; when it throws on the last attempt the queue gives it, say so on
+ * the row before the queue buries the job. The error is rethrown either way, so
+ * the queue still counts the attempt.
+ */
+async function failRowOnLastAttempt(
+  input: DispatchDocumentInput,
+  attempt: JobAttempt,
+  message: string,
+  work: () => Promise<void>
+): Promise<void> {
+  try {
+    await work()
+  } catch (error) {
+    if (attempt.last) {
+      await markDocumentIngestFailed(input.documentId, input.organizationId, message).catch(() => undefined)
+    }
+    throw error
+  }
+}
+
+/**
+ * Queue the conversion of an office original to its PDF rendition, and the
+ * ingest that follows — a JOB (`office_rendition`), like
+ * {@link beginModelExtraction} and for the same reason (ADR-0071).
  *
  * The conversion used to be raced against a 20-second wait inside the upload
  * request, because a person was waiting on it and the PDF only fed the
  * thumbnail. Now it also decides what text is indexed, so a deck that took 25
  * seconds would be indexed from a different source than one that took 15 —
- * and a slow conversion would silently index the worse text. Detached, the
+ * and a slow conversion would silently index the worse text. As a job the
  * conversion gets its full two minutes and nobody waits on it.
  *
- * The row goes to `processing` first, exactly as an IFC model does, so it never
- * renders a green "Ready" before anything was dispatched. Every terminal
- * outcome writes the row again: a dispatch sets `pending` + job id or `failed`
- * itself, and the catch below covers anything that throws before it.
+ * Why a job and not a promise in this process: a folder of three hundred office
+ * files started three hundred conversions in the upload's pod, queued behind a
+ * per-process FIFO of two Gotenberg slots, in front of the fair ingest queue
+ * that ADR-0076 made fair. Now the backlog sits in the queue, claimed fairly
+ * across organizations, and the fleet runs at most as many conversions as the
+ * `bff-jobs` pool is sized for (`deploy/pulumi/src/app/bff-jobs.ts`). The
+ * per-process FIFO in `./rendition` stays for the one path where a person IS
+ * waiting: the preview and file routes.
  *
- * The tradeoff is the IFC one: a process restart mid-conversion leaves the row
- * at `processing` with no job, which the re-ingest action recognises as lost
- * (`describeBackendIngestState` → `absent`) and retries.
+ * The row goes to `processing` first, exactly as an IFC model does, so it never
+ * renders a green "Ready" before anything was dispatched. Every terminal outcome
+ * writes the row again: a dispatch sets `pending` + job id or `failed` itself,
+ * and {@link runOfficeRenditionJob} covers anything that throws before it.
  */
 export async function beginRenditionIngest(
   input: DispatchDocumentInput,
   fileName: string
 ): Promise<DispatchDocumentResult> {
   await markDocumentProcessing(input.documentId, input.organizationId)
-
-  void ingestThroughRendition(input, fileName).catch(async (error) => {
-    // `dispatchIngest` records its own failures; this is the belt for anything
-    // that throws around it (a signer, a database write), so the row is never
-    // left at `processing` by an error nobody saw.
-    console.warn(
-      '[documents] office ingest failed before dispatch:',
-      error instanceof Error ? error.message : String(error)
-    )
-    await markDocumentIngestFailed(input.documentId, input.organizationId, INGEST_DISPATCH_FAILED_MESSAGE).catch(
-      () => undefined
-    )
+  return queueDocumentWork('office_rendition', input, {
+    ...documentWorkPayload(input),
+    fileName,
+    provenance: input.provenance ?? null,
   })
-
-  return { jobId: null, status: 'processing' }
 }
 
 /**
- * The background half of {@link beginRenditionIngest}.
+ * The job half of {@link beginRenditionIngest}. Same guards and same last-attempt
+ * rule as {@link runBimExtractJob}.
+ *
+ * A conversion the converter refuses is not an error here: the document fails
+ * with {@link RENDITION_REQUIRED_MESSAGE}, which is what "Erneut lesen"
+ * retries, and the job is finished. A retry by the queue would run the same
+ * file through the same converter again within the minute.
+ */
+export async function runOfficeRenditionJob(
+  organizationId: string,
+  payload: OfficeRenditionPayload,
+  attempt: JobAttempt
+): Promise<void> {
+  const input = { ...dispatchInputOf(organizationId, payload), provenance: payload.provenance ?? null }
+  if (!(await jobStillOwnsRow(input))) return
+
+  await failRowOnLastAttempt(input, attempt, INGEST_DISPATCH_FAILED_MESSAGE, () =>
+    ingestThroughRendition(input, payload.fileName)
+  )
+}
+
+/**
+ * The conversion and ingest {@link runOfficeRenditionJob} runs.
  *
  * For a Word or presentation file the rendition IS the source, so a failed
  * conversion fails the document with {@link RENDITION_REQUIRED_MESSAGE}; the
@@ -2089,6 +2256,49 @@ export async function runReingestFailedSlice(
     },
   })
   return { done: true, payload: next }
+}
+
+/** How the sweep's retry of one stranded document came out. */
+export type StuckDocumentOutcome = 'requeued' | 'failed' | 'gone'
+
+/**
+ * Give a document left at `processing` with no live job a new one, or say
+ * plainly that it cannot have one.
+ *
+ * The sweep's door (`./stuck-processing`), and the system's own act: no person
+ * is asking, so no session and no permission check; what the row says is all
+ * this believes. It goes through {@link dispatchDocument}, so a model is parsed
+ * again and an office file converted again by the same code a first upload
+ * runs, the machine-authored guard included. A row there is nothing to rebuild
+ * from (no stored bytes, not a person's document) is failed with the reason
+ * the dispatcher gives for a failed start, because a row left at `processing`
+ * would be found by every later sweep for good.
+ */
+export async function redispatchStuckDocument(
+  organizationId: string,
+  documentId: string
+): Promise<StuckDocumentOutcome> {
+  const doc = await findDocumentInOrg(documentId, organizationId)
+  // Gone, or moved on since the sweep read it.
+  if (!doc || doc.status !== 'processing') return 'gone'
+
+  if (!doc.storageKey || doc.authoredBy !== 'user' || !collectionFileRef(doc)) {
+    await markDocumentIngestFailed(doc.id, organizationId, INGEST_DISPATCH_FAILED_MESSAGE)
+    return 'failed'
+  }
+  const { status } = await dispatchDocument({
+    organizationId,
+    projectId: doc.projectId,
+    documentId: doc.id,
+    filename: doc.filename,
+    storageKey: doc.storageKey,
+    storageBucket: doc.storageBucket,
+    collectionName: doc.collectionName,
+    folderPath: await resolveDocumentFolderPath(doc, organizationId),
+    // Recovery is nobody's upload: it yields to the people who are waiting.
+    priority: 'bulk',
+  })
+  return status === 'failed' ? 'failed' : 'requeued'
 }
 
 /**

@@ -25,7 +25,7 @@ their own namespaces.
 | `skill-scheduler` | Deployment (always; fires schedules only when `skillsEnabled`, drives the run reconciler either way) | 1 | — | n/a (DB-claimed ticks) |
 | `postgres` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) | CloudNativePG `Cluster` | 1 (→3 HA) | RWO PVC | Add replicas |
 | `dragonfly` (Redis-proto cache) | Deployment | 1 | — (cache) | — |
-| `gotenberg` (office → PDF, ADR-0070; required to index Word, presentation, `.xls` and `.ods` files, ADR-0071; `gotenbergEnabled`, default on) | Deployment | 1 | — | n/a (stateless. A conversion it drops fails that ingest retryably, so a rollout drains for up to 120s) |
+| `gotenberg` (office → PDF, ADR-0070; required to index Word, presentation, `.xls` and `.ods` files, ADR-0071; `gotenbergEnabled`, default on) | Deployment | `gotenbergReplicas` (sized to the `bff-jobs` pool's conversion ceiling, prod 2; §6.3c) | — | n/a (stateless. A conversion it drops fails that ingest retryably, so a rollout drains for up to 120s) |
 | `seaweedfs` (filer + S3 gateway) | StatefulSet | 1 (`single`) / N (`split`) | RWO PVC `/data` (unused under the Postgres filer store) | See §4 |
 | `seaweedfs-master` (`split` only) | StatefulSet | 1 (3 = HA, untested) | RWO PVC `/data` (raft + volume-id sequence) | Odd replica counts only |
 | `seaweedfs-volume` (`split` only) | StatefulSet | N | RWO PVC `/data` per replica | `seaweedfsVolumeReplicas` — this is the object-capacity knob |
@@ -1092,6 +1092,41 @@ died half way left no record of which half. Both are now jobs:
   because the queue is row-level secured per organisation; a read-only scaler
   role is the phase-3 hardening of every ScaledObject.
 
+**Three more kinds run here, as one step each** (ADR-0078; they run as the
+system, because the person's permission was checked when the work was
+requested):
+
+| Kind | Replaces | Priority | The row it keeps true |
+|---|---|---|---|
+| `bim_extract` | the detached IFC parse in the upload's pod | `interactive` for an upload, `bulk` inside a reindex | `documents.status` (`processing`, then `pending` or `failed`) and the `bim_models` row. A restart no longer strands the model at `extracting` |
+| `office_rendition` | the detached conversion behind a per-process queue | same | `documents.status`, as above |
+| `file_research_report` | rendering the PDF inside the research outcome callback and the report GET | `interactive` | `task_runs.filing_status`: `queued`, then `filed`, `refused` or `failed` |
+
+- **A row names its job.** A document at `processing` remembers
+  `metadata.bffJobId`. A step that throws is retried by the queue; on the last
+  attempt it writes `failed` on the row first, so nothing stays `processing` or
+  `queued` after the queue gave up. A step whose failure a retry would not
+  change (a converter that refuses the file, a requester who may no longer
+  file) says so on the row and finishes.
+- **A sweep recovers what predates the jobs.** The scheduler worker calls
+  `POST /api/internal/maintenance/reconcile-background-work` on every tick: a
+  document at `processing` for 15 minutes with no live job gets a new `bulk`
+  one, a document whose job is dead is failed with its reason, and a report
+  filing `queued` for 15 minutes whose job is gone ends as `filed` (the report
+  is there after all) or `failed`. A row whose job is queued or running is left
+  alone however long it waits.
+- **Gotenberg's capacity is a ceiling on the pool.** Conversions are claimed
+  from the queue, so the fleet-wide bound is arithmetic:
+  `bffJobsMaxReplicas` times `bffJobsRenditionConcurrency` (the pod's
+  `GOTENBERG_MAX_CONCURRENCY`, 1) must not exceed two conversions per Gotenberg
+  replica (`gotenbergReplicas`, which defaults to what the pool needs; prod 2).
+  `gotenberg.spec.ts` asserts it for both stack files, so raising the pool
+  without the converter fails `task infra:test`. The pod's memory limit is 2Gi
+  because an IFC model is parsed here, up to several times its own size.
+  A reader opening a preview still converts from a frontend pod, under that
+  pod's own `GOTENBERG_MAX_CONCURRENCY` and outside this ceiling: the ceiling
+  bounds the jobs, not the readers.
+
 Debugging a stuck job:
 
 ```sql
@@ -1261,7 +1296,9 @@ emitted somewhere it can read; see §10.
   tightening it is the one item that needs a live-cluster validation pass first.
   The exception is `gotenberg` (`gotenberg-frontend-only`): it parses untrusted
   office files that can link external URLs, needs no network of its own, and so
-  gets ingress from the frontend alone and no egress at all, DNS included.
+  gets ingress from the frontend and the `bff-jobs` pool alone (the pool is the
+  same BFF running the background conversions) and no egress at all, DNS
+  included.
   With `networkPolicies` off that policy is gone; Gotenberg's
   `--libreoffice-deny-private-ips` and `--libreoffice-deny-public-ips` flags
   still refuse every URL LibreOffice would fetch.
@@ -1550,7 +1587,7 @@ Three things are true of this whole table and are easy to miss:
 | Frontend → backend (BFF/HTTP) | **No** | `http://aiq-agent:8000` inside the pod network. |
 | Frontend → backend (WebSocket chat) | **No** | `ws://`, per-replica via the headless service (ADR-0028 conversation affinity). This is the full chat transport, including prompts and answers. |
 | Producers → OTel Collector, Collector → dashboard | **No** | Plain OTLP on `http://otel-collector:4318`. This traffic carries **prompts, retrieved snippets, LLM output and live presigned S3 URLs**, so it is the most sensitive plaintext channel in the namespace; the unauthenticated Aspire UI on `:18888` is likewise kept off-limits only by NetworkPolicy, which is why `observabilityEnabled` refuses to deploy with `networkPolicies=false`. |
-| Frontend → Gotenberg | **No, and unauthenticated** | `http://gotenberg:3000`. It carries the bytes of every office file converted, and anyone who can reach it can have LibreOffice parse a file of their choosing. NetworkPolicy admits the frontend only. |
+| Frontend and `bff-jobs` → Gotenberg | **No, and unauthenticated** | `http://gotenberg:3000`. It carries the bytes of every office file converted, and anyone who can reach it can have LibreOffice parse a file of their choosing. NetworkPolicy admits the frontend and the `bff-jobs` pool only. |
 | App → Chroma | **No, and unauthenticated** | `http://chroma:8000`, no credentials of any kind. Any pod that can reach it can read or delete every tenant's vectors. NetworkPolicy is the only control. |
 | Cluster egress (OpenRouter, Tavily, WorkOS, GitHub) | **Yes** | All HTTPS. |
 

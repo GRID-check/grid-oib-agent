@@ -1045,11 +1045,13 @@ unit of delegated work. `fireJob` inserts it beside the `job_runs` row with the
 requester pinned (`jobs.created_by`, never the scheduler), the plan frozen
 (prompt, skill snapshot, data sources) and the backend job id recorded. The
 worker's outcome callback closes it (`succeeded` / `failed` / `interrupted`)
-and, for a finished deep-research task, **files the report into the project as
-the requester**: `lib/auth/pinned-session.ts` resolves that person's membership,
-role and the organization's flags into a session, and `fileResearchReport` runs
-exactly as it does on the interactive report GET, keyed on the same backend job
-id, so the two paths collapse onto one document. A requester who left the
+and, for a finished deep-research task, **queues the report's filing as the
+requester** (`file_research_report` on the `bff-jobs` pool, ADR-0078; the run's
+`filing_status` is `queued` until it has run):
+`lib/auth/pinned-session.ts` resolves that person's membership, role and the
+organization's flags into a session, and `fileResearchReport` runs there exactly
+as it does for the interactive report GET, keyed on the same backend job id, so
+the two paths collapse onto one document. A requester who left the
 organization, lacks `project:documents:generate`, or whose organization has
 agent-authored documents off is a `refused` filing recorded on the row — a
 permission the person does not hold is not one the scheduler may borrow.
@@ -1070,7 +1072,7 @@ running `node scheduler/index.js` off the frontend image. It fires schedules
 (`GRID_SKILLS_ENABLED=true` or `GRID_ENFORCE_FEATURE_FLAGS=true`), read
 case-insensitively exactly as the BFF reads it, so `TRUE` cannot enable the UI
 while silently skipping the schedules. With the gate off it does not exit: it
-stays up as the run reconciler's clock (step 4), because runs exist without
+stays up as the clock of the two sweeps (steps 4 and 5), because runs exist without
 Agent Skills — a chat question escalated to deep research is a `task_runs` row
 with no definition behind it (ADR-0062).
 
@@ -1120,6 +1122,14 @@ next interval:
    The container logs a sweep only when it closed, healed or failed
    something. See the run section of
    [`backend-deep-dive.md`](backend-deep-dive.md) and ADR-0062.
+5. Background-work sweep, also every tick and whatever the gate says: `POST
+   {FRONTEND_INTERNAL_URL}/api/internal/maintenance/reconcile-background-work`
+   (ADR-0078). The BFF gives a document that has sat at `processing` for 15
+   minutes with no live `bff_job_queue` job (`lib/documents/stuck-processing.ts`)
+   a new job, or fails it with the reason when its job is dead, and ends a
+   report filing left `queued` whose job is gone (`lib/tasks/filing-sweep.ts`).
+   A row whose job is queued or running is left alone. The container logs a
+   sweep only when it changed or failed something.
 
 **What the worker logs at ERROR.** ERROR is what err2issue files as a GitHub
 issue (ADR-0031), so a failure that heals itself on the next tick is a WARN.

@@ -48,11 +48,14 @@ import { buildProjectBriefView } from '@/lib/project-profile/brief-view'
 import { getOrganizationDisplayName } from '@/lib/organizations/service'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { enqueueJob } from '@/lib/jobs-queue/enqueue'
+import { findOpenJobId } from '@/lib/jobs-queue/repository'
+import { BFF_JOB_PRIORITY, type FileResearchReportPayload } from '@/lib/jobs-queue/types'
 import { resolveDocumentBranding } from './branding'
 import { contentDigest } from './content-digest'
 import { fileGeneratedDocument, type FiledGeneratedDocument } from './generated'
 import { createDocumentVersion, transitionDocumentVersion } from './lifecycle'
-import { findDocumentInOrg } from './repository'
+import { findDocumentAuthoredByRef, findDocumentInOrg } from './repository'
 import { findOpenVersion } from './version-repository'
 
 export interface FileResearchReportInput {
@@ -492,5 +495,65 @@ async function renderAndFileReport(
       })
       return { bytes, contentType: PDF_MEDIA_TYPE, marking }
     },
+  })
+}
+
+/**
+ * The report this run already filed into this project, if it did.
+ *
+ * The cheap half of "has this been filed": one probe on the same key
+ * `fileGeneratedDocument` uses, so a reader who opens a report that is already
+ * filed learns that without a job and without a render.
+ */
+export async function findFiledResearchReport(input: {
+  organizationId: string
+  projectId: string
+  runId: string
+}): Promise<FiledGeneratedDocument | null> {
+  const existing = await findDocumentAuthoredByRef(
+    input.runId,
+    input.organizationId,
+    input.projectId,
+    'deep_research'
+  )
+  if (!existing) return null
+  return { documentId: existing.id, filename: existing.filename, folderId: existing.folderId, alreadyFiled: true }
+}
+
+/**
+ * Hand a finished run's report to the `bff-jobs` pool to be rendered and filed
+ * ({@link fileResearchReport} runs there, ADR-0078).
+ *
+ * Both callers that used to render in their own request arrive here: the
+ * worker's outcome callback (a scheduled run, or an interactive one nobody
+ * reopened) and the report read of a person who opened it. Rendering a long
+ * report is seconds of CPU on whichever pod took the request, and a failure
+ * left nothing behind to retry; as a job it runs off the chat pod and is
+ * retried by the queue.
+ *
+ * ONE job per run, whoever asks: the open one is returned. The filing is
+ * idempotent on the run's id, so a second job could only repeat the first, and
+ * which of the two callers' identity files it makes no difference to the
+ * document (`createdBy` is the one visible trace; the first caller wins).
+ *
+ * `interactive` priority: the report is the answer to a run somebody waited
+ * minutes for, one job of seconds, and it must not sit behind that office's own
+ * reindex.
+ */
+export async function queueResearchReportFiling(input: {
+  organizationId: string
+  payload: FileResearchReportPayload
+}): Promise<{ jobId: string }> {
+  const open = await findOpenJobId({
+    kind: 'file_research_report',
+    organizationId: input.organizationId,
+    matching: { runId: input.payload.runId },
+  })
+  if (open) return { jobId: open }
+  return enqueueJob({
+    kind: 'file_research_report',
+    organizationId: input.organizationId,
+    priority: BFF_JOB_PRIORITY.interactive,
+    payload: input.payload,
   })
 }

@@ -9,9 +9,18 @@ vi.mock('./repository', () => ({ findClaimedJob: (...args: unknown[]) => findCla
 
 const runReindexSlice = vi.fn()
 const runReingestFailedSlice = vi.fn()
+const runBimExtractJob = vi.fn()
+const runOfficeRenditionJob = vi.fn()
 vi.mock('@/lib/documents/service', () => ({
   runReindexSlice: (...args: unknown[]) => runReindexSlice(...args),
   runReingestFailedSlice: (...args: unknown[]) => runReingestFailedSlice(...args),
+  runBimExtractJob: (...args: unknown[]) => runBimExtractJob(...args),
+  runOfficeRenditionJob: (...args: unknown[]) => runOfficeRenditionJob(...args),
+}))
+
+const runReportFilingJob = vi.fn()
+vi.mock('@/lib/tasks/service', () => ({
+  runReportFilingJob: (...args: unknown[]) => runReportFilingJob(...args),
 }))
 
 import { runJobSlice } from './run'
@@ -46,6 +55,10 @@ beforeEach(() => {
   findClaimedJob.mockReset()
   runReindexSlice.mockReset()
   runReingestFailedSlice.mockReset()
+  runBimExtractJob.mockReset()
+  runOfficeRenditionJob.mockReset()
+  runReportFilingJob.mockReset()
+  vi.unstubAllEnvs()
 })
 
 describe('runJobSlice', () => {
@@ -107,9 +120,91 @@ describe('runJobSlice', () => {
   })
 
   it('fails the attempt for a kind it does not know', async () => {
-    findClaimedJob.mockResolvedValue(row({ kind: 'bim_extract' }))
+    findClaimedJob.mockResolvedValue(row({ kind: 'make_coffee' }))
 
-    await expect(runJobSlice('job-1', 'w-0')).rejects.toThrow(/No handler for job kind "bim_extract"/)
+    await expect(runJobSlice('job-1', 'w-0')).rejects.toThrow(/No handler for job kind "make_coffee"/)
+  })
+
+  describe('the one-step kinds, which run as the system', () => {
+    const document = {
+      projectId: 'proj-1',
+      documentId: 'doc-1',
+      filename: 'haus.ifc',
+      storageKey: 'org/org-1/project/proj-1/doc/doc-1/haus.ifc',
+      storageBucket: null,
+      collectionName: 'proj_abc',
+    }
+
+    it('runs bim_extract in the lane’s organization and answers done, with no session', async () => {
+      findClaimedJob.mockResolvedValue(row({ kind: 'bim_extract', payload: document }))
+      let seenScope: ReturnType<typeof getTenantContext>
+      runBimExtractJob.mockImplementation(async () => {
+        seenScope = getTenantContext()
+      })
+
+      const outcome = await runJobSlice('job-1', 'w-0')
+
+      expect(outcome.done).toBe(true)
+      expect(runBimExtractJob).toHaveBeenCalledWith('org-1', expect.objectContaining(document), { last: false })
+      expect(seenScope!).toMatchObject({ kind: 'tenant', organizationId: 'org-1' })
+      expect(runOfficeRenditionJob).not.toHaveBeenCalled()
+    })
+
+    it('runs office_rendition with the row’s own file name', async () => {
+      findClaimedJob.mockResolvedValue(
+        row({ kind: 'office_rendition', payload: { ...document, filename: 'a.docx', fileName: 'a.docx' } })
+      )
+
+      const outcome = await runJobSlice('job-1', 'w-0')
+
+      expect(outcome.done).toBe(true)
+      expect(runOfficeRenditionJob).toHaveBeenCalledWith(
+        'org-1',
+        expect.objectContaining({ fileName: 'a.docx' }),
+        { last: false }
+      )
+    })
+
+    it('runs file_research_report for the reader’s identity or the pinned requester alike', async () => {
+      const payload = { runId: 'run-1', projectId: 'proj-1', report: '# Bericht', taskRunId: null, requester }
+      findClaimedJob.mockResolvedValue(row({ kind: 'file_research_report', payload }))
+
+      expect((await runJobSlice('job-1', 'w-0')).done).toBe(true)
+      expect(runReportFilingJob).toHaveBeenCalledWith('org-1', expect.objectContaining(payload), { last: false })
+
+      runReportFilingJob.mockClear()
+      findClaimedJob.mockResolvedValue(row({ kind: 'file_research_report', payload: { ...payload, requester: null } }))
+
+      expect((await runJobSlice('job-1', 'w-0')).done).toBe(true)
+      expect(runReportFilingJob.mock.calls[0][1].requester).toBeNull()
+    })
+
+    it('tells a handler when the attempt it runs is the last one the queue gives', async () => {
+      findClaimedJob.mockResolvedValue(row({ kind: 'bim_extract', payload: document, attempts: 3 }))
+
+      await runJobSlice('job-1', 'w-0')
+      expect(runBimExtractJob.mock.calls[0][2]).toEqual({ last: true })
+
+      // The runner's own knob, read where the BFF in the same pod can see it.
+      vi.stubEnv('GRID_BFF_JOBS_MAX_ATTEMPTS', '5')
+      await runJobSlice('job-1', 'w-0')
+      expect(runBimExtractJob.mock.calls[1][2]).toEqual({ last: false })
+    })
+
+    it('fails the attempt for a payload that does not parse', async () => {
+      findClaimedJob.mockResolvedValue(row({ kind: 'bim_extract', payload: { documentId: 'doc-1' } }))
+
+      await expect(runJobSlice('job-1', 'w-0')).rejects.toThrow()
+
+      expect(runBimExtractJob).not.toHaveBeenCalled()
+    })
+
+    it('lets a failure of the step reach the runner, which spends the attempt', async () => {
+      findClaimedJob.mockResolvedValue(row({ kind: 'bim_extract', payload: document }))
+      runBimExtractJob.mockRejectedValue(new Error('object store down'))
+
+      await expect(runJobSlice('job-1', 'w-0')).rejects.toThrow('object store down')
+    })
   })
 
   it('fails the attempt for a payload nobody can read, instead of guessing', async () => {

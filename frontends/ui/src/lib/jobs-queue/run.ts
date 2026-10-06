@@ -34,7 +34,7 @@ export async function runJobSlice(jobId: string, worker: string): Promise<JobSli
   // The lane is the organization, so the work runs inside it and row-level
   // security applies to everything the handler reads and writes.
   const result = await withTenant({ organizationId: job.lane }, () =>
-    JOB_HANDLERS[kind]({ organizationId: job.lane, payload: job.payload })
+    JOB_HANDLERS[kind]({ organizationId: job.lane, payload: job.payload, attempts: job.attempts })
   )
   return { done: result.done, payload: result.payload }
 }
