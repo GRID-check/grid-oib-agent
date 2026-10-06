@@ -32,7 +32,6 @@ from aiq_agent.common import is_verbose
 from aiq_agent.common import unavailable_source_ids
 from aiq_agent.common import validate_tool_availability
 from aiq_agent.common.agent_tools import load_agent_tools
-from aiq_agent.common.canned_replies import SCOPED_NO_SOURCES_MESSAGE
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.data_source_registry import get_all_sources
 from aiq_agent.common.decisions import SKIPPED_TOO_SHORT
@@ -42,6 +41,7 @@ from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
 from aiq_agent.common.openrouter import PLATFORM_FIXED
 from aiq_agent.common.openrouter import pin_chat_model
 from aiq_agent.common.request_llm_context import read_request_llm_context
+from aiq_agent.common.tool_validation import format_no_sources_message
 from aiq_agent.project_context import get_organization_id_from_context
 from aiq_agent.project_context import get_project_id_from_context
 from aiq_agent.skills import SkillResolver
@@ -546,8 +546,8 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     if runtime is not None:
         state.skills_block = _skills_block(runtime)
     result = await _run_agent(deployment, state, turn)
-    if result is None:
-        return _reply(state, SCOPED_NO_SOURCES_MESSAGE)
+    if isinstance(result, str):
+        return _reply(state, result)
     if runtime is not None:
         _report_skills(result, runtime)
     return result
@@ -567,16 +567,16 @@ def _turn_prefetch(decisions: TurnDecisions, facts: TurnFacts | None, state: Res
     )
 
 
-async def _run_agent(deployment: _Deployment, state: ResearchAgentState, turn: TurnConfig) -> ResearchAgentState | None:
-    """The shared agent's run, or None on a scoped miss, which the caller answers."""
+async def _run_agent(deployment: _Deployment, state: ResearchAgentState, turn: TurnConfig) -> ResearchAgentState | str:
+    """The shared agent's run, or the reply to a miss, which the caller sends."""
     try:
         return await deployment.agent.run(state, turn=turn)
-    except EmptySourceRegistryError:
-        # A scoped miss (this-file / this-shelf) is a valid empty answer, not
-        # an unhandled NAT error. Raising here became err2issue #447 and left
-        # the user with no reply.
+    except EmptySourceRegistryError as exc:
+        # A miss is a valid empty answer, not an unhandled NAT error. Raising
+        # here became err2issue #447 and left the user with no reply.
         logger.warning("Research captured no sources; returning an empty-result answer.")
-        return None
+        scoped = bool(state.focus_file_name or state.focus_shelf)
+        return format_no_sources_message(_RESEARCH_TYPE, exc.unavailable_tools, exc.available_count, scoped=scoped)
 
 
 @register_function(config_type=ResearchAgentConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
