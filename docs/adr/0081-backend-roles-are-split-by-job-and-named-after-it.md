@@ -76,8 +76,10 @@ This is a modular monolith run as several process types (the twelve-factor
 self-hosted Sentry run one image as several processes), not a split into
 services. What is split is only what rolls out, scales and fails together.
 The code, the release and the data stay one, and the roles do not call each
-other: the BFF already calls both `chat` and `api`, so no service-to-service
-contract appears.
+other. The HTTP APIs do not change either: the BFF already calls every route
+these roles serve. Step B does add one contract, a routing and configuration
+one: the BFF holds a URL for `chat` and one for `api` and must send each route
+to the right one.
 
 Option 4 was rejected for now: it buys independent releases, independent data
 ownership and per-service teams, none of which this repo has (one codebase,
