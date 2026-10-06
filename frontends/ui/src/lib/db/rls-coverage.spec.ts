@@ -92,6 +92,14 @@ const BOUNDARY_MIGRATIONS = [
   // a restricted folder in its scope (ADR-0078). Keyed directly by its
   // organization: the conversation row may not exist yet.
   '0105_conversation_restricted_turns.sql',
+  // Replaces it with conversation_restricted_folders — the restricted source
+  // folders a conversation actually drew on, one row per folder id, judged
+  // against the current grants when read (ADR-0078, ADR-0079) — and drops the
+  // 0105 table.
+  '0107_conversation_restricted_folders.sql',
+  // Adds project_folder_grants — a folder's own access list, one row per role
+  // and level (ADR-0079). Keyed directly by its organization.
+  '0108_project_folder_grants.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

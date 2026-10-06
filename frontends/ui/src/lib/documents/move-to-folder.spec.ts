@@ -75,7 +75,8 @@ vi.mock('@/lib/db/schema', () => ({
   projectFolders: { id: 'folders.id', projectId: 'folders.project_id', path: 'folders.path' },
 }))
 
-import { getProjectFolderAccess, type ProjectFolderAccess } from '@/lib/authz/folder-access'
+import { getProjectFolderAccess, requireFolderWrite, type ProjectFolderAccess } from '@/lib/authz/folder-access'
+import { folderReadOnlyError } from '@/lib/authz/folder-access-rule'
 import { placeProjectDocuments } from '@/lib/projects/collection-placement'
 import { moveDocumentToFolder } from './move-to-folder'
 
@@ -197,6 +198,8 @@ describe('moveDocumentToFolder across a restriction (ADR-0078)', () => {
     isVisible: () => true,
     collectionFor: () => 'proj_1',
     clearedRestrictedCollections: [],
+    levelOf: () => 'write',
+    sourceFolderOf: () => null,
     anyRestricted: true,
     ...overrides,
   })
@@ -264,5 +267,17 @@ describe('moveDocumentToFolder across a restriction (ADR-0078)', () => {
 
     expect(result.ok).toBe(true)
     expect(db.updates[0].folderId).toBe('folder-1')
+  })
+  it('asks for a write on BOTH folders, and moves nothing out of or into one the session may only read (ADR-0079)', async () => {
+    db.selects = [[{ ...DOCUMENT, folderId: 'folder-vertraege' }], [{ id: 'folder-1', path: 'Brandschutz' }]]
+    vi.mocked(requireFolderWrite).mockRejectedValueOnce(folderReadOnlyError())
+
+    await expect(moveDocumentToFolder({ documentId: 'doc-1', folderId: 'folder-1' }, SESSION)).rejects.toMatchObject({
+      status: 403,
+      details: { reason: 'folder-read-only' },
+    })
+    expect(requireFolderWrite).toHaveBeenCalledWith(SESSION, 'proj-1', ['folder-vertraege', 'folder-1'])
+    expect(db.updates).toHaveLength(0)
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

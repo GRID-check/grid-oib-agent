@@ -4,7 +4,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { findConversationTenancy } from '@/lib/conversations/repository'
 import { requireResourceAccess } from '@/lib/sharing/access'
-import { conversationConfinedTo, type ConversationTenancy } from '@/lib/conversations/confinement'
+import { restrictedCollectionsForChatScope } from '@/lib/conversations/restricted-use'
 import { getProjectFolderAccess } from '@/lib/authz/folder-access'
 import {
   computeCollectionScope,
@@ -24,9 +24,10 @@ export interface RequestContext {
   /**
    * The scope is for an interactive chat turn: the WebSocket upgrade, and
    * nothing else. Only such a scope may carry the restricted-folder collections
-   * the session is cleared for (ADR-0078). Deep research and scheduled runs file
-   * their reports for the whole project, so every other caller leaves this
-   * unset and gets none, whoever is asking.
+   * the session, and everyone the conversation is shared with, is cleared for
+   * (ADR-0078). Deep research and scheduled runs file their reports for the
+   * whole project, so every other caller leaves this unset and gets none,
+   * whoever is asking.
    */
   interactiveChat?: boolean
 }
@@ -114,38 +115,40 @@ export async function resolveActiveProjectId(
  * demands `collaborator` in its own right), but reading the thread's context is
  * the least the caller must be entitled to.
  */
-async function authorizeConversationScope(
-  session: AuthorizedSession,
-  conversationId: string
-): Promise<ConversationTenancy | null> {
+async function authorizeConversationScope(session: AuthorizedSession, conversationId: string): Promise<void> {
   const tenancy = await findConversationTenancy(conversationId)
-  if (!tenancy) return null
+  if (!tenancy) return
   await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
-  return tenancy
 }
 
 /**
  * The restricted-folder collections (ADR-0078) an interactive chat turn may
- * search: those `folder-access.ts` clears this session for, and only on a
- * conversation nobody else can read. Clearance is computed from the session
- * and nothing else. A turn with no conversation id gets none: the product's
- * socket always names one, and an anonymous turn could land anywhere.
+ * search: those `folder-access.ts` clears this session for, narrowed to the ones
+ * everyone the conversation is shared with is cleared for too, and none on a
+ * conversation visible to the whole project (`restricted-use.ts`). A turn with
+ * no conversation id gets none: the product's socket always names one, and an
+ * anonymous turn could land anywhere.
+ *
+ * Signing a collection into the scope is not using it. The turn records a
+ * collection only when content from it enters the model's context, and that
+ * admission checks the conversation's audience again, so a share made while
+ * this socket is open cannot carry restricted content to someone not cleared.
  */
 async function resolveRestrictedCollections(
   session: AuthorizedSession,
   projectId: string,
   projectCollection: string,
-  conversationId: string | undefined,
-  tenancy: ConversationTenancy | null
+  conversationId: string | undefined
 ): Promise<string[]> {
   if (!conversationId) return []
   const access = await getProjectFolderAccess(session, projectId, projectCollection)
   if (access.clearedRestrictedCollections.length === 0) return []
-  // Sharing the thread FIRST and asking the restricted question afterwards would
-  // otherwise walk around the share refusal (`conversationDescriptor.confinedToOwner`).
-  // Asked again on every turn, because the owner can share while this socket is open.
-  if (!(await conversationConfinedTo(session.userId, conversationId, tenancy))) return []
-  return [...access.clearedRestrictedCollections]
+  return restrictedCollectionsForChatScope(
+    session,
+    conversationId,
+    { projectId, projectCollection },
+    access.clearedRestrictedCollections
+  )
 }
 
 async function resolveProjectCollectionName(
@@ -198,9 +201,8 @@ export async function buildCollectionScopeFromRequest(
 
   // The conversation is authorized as well as the project. Both are
   // caller-supplied, and until this ran only the project was ever checked.
-  let conversationTenancy: ConversationTenancy | null = null
   if (conversationId && session && !anonymous) {
-    conversationTenancy = await authorizeConversationScope(session as AuthorizedSession, conversationId)
+    await authorizeConversationScope(session as AuthorizedSession, conversationId)
   }
 
   if (projectId && session && !anonymous) {
@@ -247,17 +249,16 @@ export async function buildCollectionScopeFromRequest(
   const sessionCollection = conversationId ? sessionCollectionName(conversationId) : undefined
 
   // Restricted folders (ADR-0078): an interactive chat turn of a cleared
-  // session, in a project whose row was found, on a conversation only they can
-  // read. Every other scope — deep research, scheduled runs, the proxies, an
-  // anonymous deployment — carries none.
+  // session, in a project whose row was found, on a conversation whose every
+  // reader is cleared for them. Every other scope — deep research, scheduled
+  // runs, the proxies, an anonymous deployment — carries none.
   const restrictedCollections =
     context.interactiveChat && session && !anonymous && projectId && projectCollectionName
       ? await resolveRestrictedCollections(
           session as AuthorizedSession,
           projectId,
           projectCollectionName,
-          conversationId,
-          conversationTenancy
+          conversationId
         )
       : []
 

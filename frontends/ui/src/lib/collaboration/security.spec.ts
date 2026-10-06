@@ -45,10 +45,17 @@ vi.mock('@/lib/auth/require-auth', () => ({
   authzErrorResponse: () => null,
 }))
 
+// ADR-0078/0079: no conversation here recorded a restricted folder, so every
+// widening is allowed; the rule itself is `restricted-use.spec.ts`.
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  assertMayWidenConversation: vi.fn(async () => undefined),
+  widenConversationAudience: vi.fn(
+    async (_session: unknown, _id: string, _widening: unknown, write: (executor: unknown) => Promise<unknown>) =>
+      write(undefined)
+  ),
+}))
+
 vi.mock('@/lib/conversations/repository', () => ({
-  // ADR-0078: no turn of these threads ran with a restricted folder in scope.
-  listRestrictedAnswerCollections: vi.fn().mockResolvedValue([]),
-  hasRestrictedTurn: vi.fn().mockResolvedValue(false),
   deleteConversationInOrg: vi.fn(),
   findConversationInOrg: vi.fn(),
   findConversationRead: vi.fn(),

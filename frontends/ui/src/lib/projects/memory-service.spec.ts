@@ -23,7 +23,7 @@ vi.mock('drizzle-orm', () => ({
 }))
 
 vi.mock('@/lib/db/schema', () => ({
-  PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS: 20,
+  PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS: 20,
   projectMemory: {
     id: 'pm.id',
     scope: 'pm.scope',
@@ -36,7 +36,7 @@ vi.mock('@/lib/db/schema', () => ({
     verification: 'pm.verification',
     pinned: 'pm.pinned',
     updatedAt: 'pm.updatedAt',
-    restrictedCollections: 'pm.restrictedCollections',
+    restrictedFolderIds: 'pm.restrictedFolderIds',
   },
   projects: {
     id: 'p.id',
@@ -47,7 +47,7 @@ vi.mock('@/lib/db/schema', () => ({
 
 // ADR-0078: the one decision about which restricted collections are current.
 vi.mock('@/lib/authz/folder-access', () => ({
-  currentRestrictedCollections: vi.fn(async () => []),
+  sourceFoldersOfCollections: vi.fn(async () => new Map<string, string>()),
 }))
 
 // Pure helpers stay real (enrichment/normalization behavior is under test in
@@ -73,7 +73,7 @@ vi.mock('@/lib/upload-screening/service', async () => {
 
 import { getDb } from '@/lib/db'
 import { BadRequestError } from '@/lib/api/errors'
-import { currentRestrictedCollections } from '@/lib/authz/folder-access'
+import { sourceFoldersOfCollections } from '@/lib/authz/folder-access'
 import { embedNote } from '@/lib/knowledge/embeddings'
 import type { ProjectMemoryItem } from '@/lib/db/schema'
 import { asDb, makeMemoryItem } from '@/test-utils/db-fixtures'
@@ -97,7 +97,7 @@ const and = (...conditions: unknown[]) => ({ op: 'and', conditions })
 const or = (...conditions: unknown[]) => ({ op: 'or', conditions })
 const isNull = (col: unknown) => ({ op: 'isNull', col })
 /** Open memory only: the visibility condition every reader without clearance gets. */
-const openOnly = isNull('pm.restrictedCollections')
+const openOnly = isNull('pm.restrictedFolderIds')
 
 const digestItem = (overrides: Partial<DigestItem> = {}): DigestItem => ({
   scope: 'project',
@@ -143,7 +143,7 @@ describe('updateProjectMemoryItem tenancy guard', () => {
     const { where } = mockUpdateChain([{ id: 'item-1' }])
 
     const result = await updateProjectMemoryItem(
-      { projectId: 'proj-1', organizationId: 'org-1', clearedRestrictedCollections: [] },
+      { projectId: 'proj-1', organizationId: 'org-1', readableFolderIds: [] },
       'item-1',
       { status: 'dismissed' }
     )
@@ -158,7 +158,7 @@ describe('updateProjectMemoryItem tenancy guard', () => {
     const { where } = mockUpdateChain([{ id: 'item-1' }])
 
     await updateProjectMemoryItem(
-      { projectId: 'proj-1', organizationId: 'org-1', clearedRestrictedCollections: ['proj_x_rbbbbbbbbbbbb', 'proj_x_raaaaaaaaaaaa'] },
+      { projectId: 'proj-1', organizationId: 'org-1', readableFolderIds: ['proj_x_rbbbbbbbbbbbb', 'proj_x_raaaaaaaaaaaa'] },
       'item-1',
       { pinned: true }
     )
@@ -182,7 +182,7 @@ describe('a note is stored masked (ADR-0077)', () => {
     vi.mocked(getDb).mockReturnValue(asDb({ update: vi.fn().mockReturnValue({ set }) }))
 
     await updateProjectMemoryItem(
-      { projectId: 'proj-1', organizationId: 'org-1', clearedRestrictedCollections: [] },
+      { projectId: 'proj-1', organizationId: 'org-1', readableFolderIds: [] },
       'item-1',
       { content: `Honorar laut Honorarvereinbarung an ${IBAN}` }
     )
@@ -232,7 +232,7 @@ describe('deleteProjectMemoryItem tenancy guard', () => {
     const { where } = mockDeleteChain([{ id: 'item-1' }])
 
     const deleted = await deleteProjectMemoryItem(
-      { projectId: 'proj-1', organizationId: 'org-1', clearedRestrictedCollections: [] },
+      { projectId: 'proj-1', organizationId: 'org-1', readableFolderIds: [] },
       'item-1'
     )
 
@@ -289,7 +289,7 @@ describe('listProjectMemory', () => {
   it('lists a restricted item only for a reader cleared for all of it (ADR-0078)', async () => {
     const { where } = mockSelectChain([])
 
-    await listProjectMemory('proj-1', { clearedRestrictedCollections: ['proj_x_raaaaaaaaaaaa'] })
+    await listProjectMemory('proj-1', { readableFolderIds: ['proj_x_raaaaaaaaaaaa'] })
 
     expect(where).toHaveBeenCalledWith(
       and(
@@ -344,20 +344,39 @@ describe('buildProjectMemoryDigest', () => {
     )
   })
 
-  it('serves restricted memory only for the turn\'s cleared collections (ADR-0078)', async () => {
-    const { where } = mockSelectChain([
-      digestItem({ content: 'Honorar pauschal', restrictedCollections: ['proj_x_raaaaaaaaaaaa'] }),
-    ])
+  it('serves restricted memory only over the folders the asker may read, once its use is admitted (ADR-0079)', async () => {
+    const FOLDER = 'aaaaaaaa-0000-4000-8000-000000000001'
+    const { where } = mockSelectChain([digestItem({ content: 'Honorar pauschal', restrictedFolderIds: [FOLDER] })])
+    const admitRestricted = vi.fn(async (ids: string[]) => new Set(ids))
 
     const digest = await buildProjectMemoryDigest('proj-1', undefined, {
-      clearedRestrictedCollections: ['proj_x_raaaaaaaaaaaa'],
+      readableFolderIds: [FOLDER],
+      admitRestricted,
     })
 
     expect(where).toHaveBeenCalledWith(
-      and(eq('pm.projectId', 'proj-1'), eq('pm.status', 'active'), memoryVisibleTo(['proj_x_raaaaaaaaaaaa']))
+      and(eq('pm.projectId', 'proj-1'), eq('pm.status', 'active'), memoryVisibleTo([FOLDER]))
     )
+    // The note's folders are admitted for the conversation before it is printed.
+    expect(admitRestricted).toHaveBeenCalledWith([FOLDER])
     // The line says it is confidential, so the model does not write it into anything shared.
     expect(digest).toContain('[restricted | derived_fact')
+  })
+
+  it('drops a restricted note whose folders the conversation does not admit, and keeps the open ones', async () => {
+    const FOLDER = 'aaaaaaaa-0000-4000-8000-000000000001'
+    mockSelectChain([
+      digestItem({ content: 'Honorar pauschal', restrictedFolderIds: [FOLDER] }),
+      digestItem({ content: 'Dach in Holz' }),
+    ])
+
+    const digest = await buildProjectMemoryDigest('proj-1', undefined, {
+      readableFolderIds: [FOLDER],
+      admitRestricted: async () => new Set<string>(),
+    })
+
+    expect(digest).toContain('Dach in Holz')
+    expect(digest).not.toContain('Honorar')
   })
 })
 
@@ -998,8 +1017,9 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
 })
 
 describe('restricted memory (ADR-0078)', () => {
-  const RESTRICTED = 'proj_x_raaaaaaaaaaaa'
-  const OTHER = 'proj_x_rbbbbbbbbbbbb'
+  /** Source folder ids (ADR-0079). */
+  const RESTRICTED = 'aaaaaaaa-0000-4000-8000-000000000001'
+  const OTHER = 'bbbbbbbb-0000-4000-8000-000000000002'
 
   /** The select/insert chain of a write that finds nothing to consolidate with. */
   const mockFreshWrite = () => {
@@ -1042,7 +1062,7 @@ describe('restricted memory (ADR-0078)', () => {
       organizationId: 'org-1',
       kind: 'decision',
       content: 'The fee for stages five to eight is a lump sum',
-      restrictedCollections: [OTHER, RESTRICTED],
+      restrictedFolderIds: [OTHER, RESTRICTED],
     })
 
     // Every consolidation select (exact dup, near dup) carries the restriction,
@@ -1050,10 +1070,10 @@ describe('restricted memory (ADR-0078)', () => {
     for (const [condition] of selectWhere.mock.calls) {
       const text = JSON.stringify(condition)
       expect(text).toContain(`{\\"${RESTRICTED}\\",\\"${OTHER}\\"}`)
-      expect(text).not.toContain('"op":"isNull","col":"pm.restrictedCollections"')
+      expect(text).not.toContain('"op":"isNull","col":"pm.restrictedFolderIds"')
     }
     expect(values).toHaveBeenCalledWith(
-      expect.objectContaining({ restrictedCollections: [RESTRICTED, OTHER] })
+      expect.objectContaining({ restrictedFolderIds: [RESTRICTED, OTHER] })
     )
   })
 
@@ -1067,7 +1087,7 @@ describe('restricted memory (ADR-0078)', () => {
         organizationId: 'org-1',
         kind: 'decision',
         content: 'The fee is now a lump sum of 190k',
-        restrictedCollections: [RESTRICTED],
+        restrictedFolderIds: [RESTRICTED],
       },
       { supersedesContent: 'The fee is a lump sum of 184k' }
     )
@@ -1089,7 +1109,7 @@ describe('restricted memory (ADR-0078)', () => {
         organizationId: 'org-1',
         kind: 'decision',
         content: 'x',
-        restrictedCollections: [RESTRICTED],
+        restrictedFolderIds: [RESTRICTED],
       })
     ).rejects.toBeInstanceOf(BadRequestError)
   })
@@ -1112,36 +1132,37 @@ describe('restricted memory (ADR-0078)', () => {
 
     it('rejects a collection that is not a current restricted collection of the project', async () => {
       mockProjectThenWrite()
-      vi.mocked(currentRestrictedCollections).mockResolvedValueOnce([OTHER])
+      vi.mocked(sourceFoldersOfCollections).mockResolvedValueOnce(new Map([['proj_x_rbbbbbbbbbbbb', OTHER]]))
 
       await expect(
         createProjectMemoryItemForProject('proj-1', {
           kind: 'decision',
           content: 'x',
-          restrictedCollections: [RESTRICTED],
+          restrictedCollections: ['proj_x_raaaaaaaaaaaa'],
         })
       ).rejects.toBeInstanceOf(BadRequestError)
-      expect(currentRestrictedCollections).toHaveBeenCalledWith('org-1', 'proj-1', 'proj_x')
+      expect(sourceFoldersOfCollections).toHaveBeenCalledWith('org-1', 'proj-1', 'proj_x', ['proj_x_raaaaaaaaaaaa'])
     })
 
     it('stores a current restriction', async () => {
       const { values } = mockProjectThenWrite()
-      vi.mocked(currentRestrictedCollections).mockResolvedValueOnce([RESTRICTED, OTHER])
+      vi.mocked(sourceFoldersOfCollections).mockResolvedValueOnce(new Map([['proj_x_raaaaaaaaaaaa', RESTRICTED]]))
 
       await createProjectMemoryItemForProject('proj-1', {
         kind: 'decision',
         content: 'x',
-        restrictedCollections: [RESTRICTED],
+        restrictedCollections: ['proj_x_raaaaaaaaaaaa'],
       })
 
-      expect(values).toHaveBeenCalledWith(expect.objectContaining({ restrictedCollections: [RESTRICTED] }))
+      // Stored as its source folder (ADR-0079), never as the collection name.
+      expect(values).toHaveBeenCalledWith(expect.objectContaining({ restrictedFolderIds: [RESTRICTED] }))
     })
 
     it('asks nothing about folders for open memory', async () => {
       mockProjectThenWrite()
-      vi.mocked(currentRestrictedCollections).mockClear()
+      vi.mocked(sourceFoldersOfCollections).mockClear()
       await createProjectMemoryItemForProject('proj-1', { kind: 'decision', content: 'x' })
-      expect(currentRestrictedCollections).not.toHaveBeenCalled()
+      expect(sourceFoldersOfCollections).not.toHaveBeenCalled()
     })
   })
 })
@@ -1167,7 +1188,7 @@ describe('implicateMemoryFromFeedback', () => {
       organizationId: 'org-1',
       projectId: 'proj-1',
       comment: 'Die Antwort hat OIB 4 mit der Wiener BO vermischt.',
-      clearedRestrictedCollections: [],
+      readableFolderIds: [],
     })
     expect(count).toBe(0)
     expect(execute).not.toHaveBeenCalled()
@@ -1182,7 +1203,7 @@ describe('implicateMemoryFromFeedback', () => {
       organizationId: 'org-1',
       projectId: 'proj-1',
       comment: 'Die Antwort hat OIB 4 mit der Wiener BO vermischt.',
-      clearedRestrictedCollections: [],
+      readableFolderIds: [],
     })
     expect(count).toBe(2)
     expect(execute).toHaveBeenCalledTimes(1)
@@ -1204,19 +1225,19 @@ describe('implicateMemoryFromFeedback', () => {
       organizationId: 'org-1',
       projectId: 'proj-1',
       comment: 'Die Antwort war falsch.',
-      clearedRestrictedCollections: [],
+      readableFolderIds: [],
     })
     await implicateMemoryFromFeedback({
       organizationId: 'org-1',
       projectId: 'proj-1',
       comment: 'Die Antwort war falsch.',
-      clearedRestrictedCollections: ['proj_x_rbbbbbbbbbbbb', 'proj_x_raaaaaaaaaaaa'],
+      readableFolderIds: ['proj_x_rbbbbbbbbbbbb', 'proj_x_raaaaaaaaaaaa'],
     })
 
     const [uncleared, cleared] = (execute.mock.calls as unknown[][]).map((call) => JSON.stringify(call[0]))
-    expect(uncleared).toContain('m.restricted_collections is null')
+    expect(uncleared).toContain('m.restricted_folder_ids is null')
     expect(uncleared).not.toContain('<@')
-    expect(cleared).toContain('m.restricted_collections <@ ')
+    expect(cleared).toContain('m.restricted_folder_ids <@ ')
     expect(cleared).toContain('{\\"proj_x_raaaaaaaaaaaa\\",\\"proj_x_rbbbbbbbbbbbb\\"}')
   })
 
@@ -1226,7 +1247,7 @@ describe('implicateMemoryFromFeedback', () => {
         organizationId: 'org-1',
         projectId: null,
         comment: '   ',
-        clearedRestrictedCollections: [],
+        readableFolderIds: [],
       })
     ).toBe(0)
     vi.mocked(embedNote).mockResolvedValue({ vector: [0.1], fingerprint: 'model-a' })
@@ -1239,7 +1260,7 @@ describe('implicateMemoryFromFeedback', () => {
         organizationId: 'org-1',
         projectId: null,
         comment: 'kaputt',
-        clearedRestrictedCollections: [],
+        readableFolderIds: [],
       })
     ).resolves.toBe(0)
   })

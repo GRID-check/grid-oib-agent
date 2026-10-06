@@ -124,10 +124,10 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
     })
   })
 
-  it("names restricted folders' documents in the project context only for a scope that carries them", async () => {
-    // ADR-0078. The scope builder already decided clearance and confinement;
-    // the prompt view follows it. A scope without the restricted collection
-    // gets the shared view, which names none of their documents.
+  it('names no document of a restricted folder in the project context and serves open memory only, whatever the scope carries (ADR-0078, ADR-0079)', async () => {
+    // Listing is not use: the shared, cached prompt view names no restricted
+    // document for anyone, and restricted memory reaches a turn only through
+    // the live per-turn digest, which admits its folders for the conversation.
     const restricted = 'proj_proj_q_r0123456789ab'
     buildCollectionScopeFromRequest.mockResolvedValue({
       ...scopeReturning('proj_q'),
@@ -135,37 +135,7 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
     })
 
     await upgrade('?projectId=proj_q&conversationId=s_mine')
-    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_q', 'org_1', SESSION)
-
-    loadProjectPromptView.mockClear()
-    buildCollectionScopeFromRequest.mockResolvedValue({
-      ...scopeReturning('proj_q'),
-      scope: ['base', 'proj_proj_q'],
-    })
-    await upgrade('?projectId=proj_q&conversationId=s_shared')
-    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_q', 'org_1', null)
-  })
-
-  it('serves restricted memory only for the restricted collections the signed scope carries (ADR-0078)', async () => {
-    const restricted = 'proj_proj_q_r0123456789ab'
-    buildCollectionScopeFromRequest.mockResolvedValue({
-      ...scopeReturning('proj_q'),
-      scope: ['base', 'proj_proj_q', restricted, 'proj_other_r0123456789ab'],
-    })
-
-    await upgrade('?projectId=proj_q&conversationId=s_mine')
-    expect(buildProjectMemoryDigest).toHaveBeenCalledWith('proj_q', 'org_1', {
-      clearedRestrictedCollections: [restricted],
-    })
-
-    // An uncleared member, or a shared thread: the scope carries none, and the
-    // digest is built with no clearance at all — open memory only.
-    buildProjectMemoryDigest.mockClear()
-    buildCollectionScopeFromRequest.mockResolvedValue({
-      ...scopeReturning('proj_q'),
-      scope: ['base', 'proj_proj_q'],
-    })
-    await upgrade('?projectId=proj_q&conversationId=s_shared')
+    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_q', 'org_1')
     expect(buildProjectMemoryDigest).toHaveBeenCalledWith('proj_q', 'org_1')
   })
 
@@ -200,7 +170,7 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
     // Before the effective-project fix every call below received `undefined`
     // here and silently missed the implicit project.
     expect(getBudgetStatus).toHaveBeenCalledWith('org_1', 'user_1', 'proj_implicit')
-    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_implicit', 'org_1', null)
+    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_implicit', 'org_1')
     expect(loadProjectBundesland).toHaveBeenCalledWith('proj_implicit', 'org_1')
     expect(buildProjectMemoryDigest).toHaveBeenCalledWith('proj_implicit', 'org_1')
     expect(buildProposalDecisionsBlock).toHaveBeenCalledWith('proj_implicit', 'org_1')
@@ -214,7 +184,7 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
 
     expect(response.status).toBe(200)
     expect(getBudgetStatus).toHaveBeenCalledWith('org_1', 'user_1', 'proj_q')
-    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_q', 'org_1', null)
+    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_q', 'org_1')
     expect(await response.json()).toMatchObject({ projectId: 'proj_q' })
   })
 

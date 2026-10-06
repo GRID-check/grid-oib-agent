@@ -13,8 +13,7 @@ import { projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definiti
 import { answersFromProfile } from '@/lib/project-profile/intake-definition'
 import { documentRoleDefinition, recommendedRoles } from '@/lib/project-profile/document-roles'
 import type { DocumentRole } from '@/lib/project-profile/document-roles'
-import type { AuthorizedSession } from '@/lib/auth/types'
-import { getHiddenFolderIds, getRestrictedFolderIds } from '@/lib/authz/folder-access'
+import { getRestrictedFolderIds } from '@/lib/authz/folder-access'
 import { listProjectDocumentRoles } from './repository'
 import type { DocumentRoleReader } from './repository'
 import { buildDocumentRolesSection } from './prompt-section'
@@ -22,30 +21,26 @@ import type { RecommendedSlot } from './prompt-section'
 
 /**
  * Which bindings the block may name (ADR-0078). A binding carries its
- * document's filename into the agent's prompt, so a document in a restricted
- * folder is named only for a turn whose session is cleared for it — `cleared`,
- * passed only by a caller whose signed scope already carries that session's
- * restricted collections. Everyone else, and every caller with no session
- * (scheduled and deep-research runs, the cached view), gets none of them.
+ * document's filename into the agent's prompt, and listing is not use: a chat
+ * draws on a restricted folder only through content it retrieves and admits,
+ * never through a name in its prompt. So no document in a restricted folder is
+ * named here, whoever asks; the view is one per project and cached.
  */
 async function readerFor(
   projectId: string,
-  organizationId: string | null | undefined,
-  cleared: AuthorizedSession | null | undefined
+  organizationId: string | null | undefined
 ): Promise<DocumentRoleReader> {
-  if (cleared) return { hiddenFolderIds: await getHiddenFolderIds(cleared, projectId) }
   if (!organizationId) return { unfiledOnly: true }
   return { hiddenFolderIds: await getRestrictedFolderIds(organizationId, projectId) }
 }
 
 export async function loadDocumentRolesPromptSection(
   projectId: string,
-  organizationId: string | null | undefined,
-  cleared?: AuthorizedSession | null
+  organizationId: string | null | undefined
 ): Promise<string> {
   try {
     const [bindings, profile] = await Promise.all([
-      readerFor(projectId, organizationId, cleared).then((reader) => listProjectDocumentRoles(projectId, reader)),
+      readerFor(projectId, organizationId).then((reader) => listProjectDocumentRoles(projectId, reader)),
       findProjectProfile(projectId, organizationId),
     ])
 

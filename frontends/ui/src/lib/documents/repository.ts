@@ -13,6 +13,7 @@
 import 'server-only'
 import { and, asc, count, desc, eq, inArray, isNull, lt, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import type { DbExecutor } from '@/lib/db/executor'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
 import { documentAliasKey, documentNameKey, documentNameVariants } from './name-match'
 import { FILENAME_LOOKUP_MAX_NAMES } from './filename-lookup'
@@ -504,15 +505,16 @@ export async function updateDocumentVisibilityInOrg(
   documentId: string,
   organizationId: string,
   visibility: ResourceVisibility,
+  /** A transaction the caller holds, already in this organization's context. */
+  executor?: DbExecutor,
 ): Promise<Document | null> {
-  const db = getDb()
-  const [row] = await withTenant({ organizationId }, () =>
-    db
+  const write = (handle: DbExecutor) =>
+    handle
       .update(documents)
       .set({ visibility, updatedAt: new Date() })
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
-      .returning(),
-  )
+      .returning()
+  const [row] = executor ? await write(executor) : await withTenant({ organizationId }, () => write(getDb()))
   return row ?? null
 }
 
@@ -1111,7 +1113,13 @@ export async function findFolderPathsInProject(
     db
       .select({ id: projectFolders.id, path: projectFolders.path })
       .from(projectFolders)
-      .where(and(inArray(projectFolders.id, [...folderIds]), eq(projectFolders.projectId, projectId))),
+      .where(
+        and(
+          inArray(projectFolders.id, [...folderIds]),
+          eq(projectFolders.projectId, projectId),
+          isNull(projectFolders.deletedAt),
+        ),
+      ),
   )
   return new Map(rows.map((row) => [row.id, row.path]))
 }
@@ -1126,7 +1134,7 @@ export async function findFolderPathInProject(
     db
       .select({ path: projectFolders.path })
       .from(projectFolders)
-      .where(and(eq(projectFolders.id, folderId), eq(projectFolders.projectId, projectId)))
+      .where(and(eq(projectFolders.id, folderId), eq(projectFolders.projectId, projectId), isNull(projectFolders.deletedAt)))
       .limit(1),
   )
   return row?.path ?? null

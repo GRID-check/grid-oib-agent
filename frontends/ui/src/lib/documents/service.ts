@@ -26,7 +26,12 @@ import {
   buildThumbnailStorageKey,
 } from '@/lib/s3'
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
-import { getHiddenFolderIds, getProjectFolderAccess } from '@/lib/authz/folder-access'
+import {
+  folderReadOnlyError,
+  getHiddenFolderIds,
+  getProjectFolderAccess,
+  requireFolderWrite,
+} from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -1014,6 +1019,10 @@ export async function uploadDocument(
   // gate below would otherwise answer with the hidden folder's name.
   const access = await getProjectFolderAccess(session, projectId, project.collectionName)
   if (!access.isVisible(folderId)) throw new NotFoundError('Folder not found in project')
+  // An upload is a write into the folder (ADR-0079); the project ceiling was
+  // asked above. A folder the uploader may only read refuses before a byte is
+  // stored (403).
+  if (access.levelOf(folderId) !== 'write') throw folderReadOnlyError()
   const collectionName = access.collectionFor(folderId)
   // Restricted folders do not hold IFC models until their building data is
   // partitioned (ADR-0078); refused before a byte is stored.
@@ -1104,6 +1113,9 @@ export async function uploadDocument(
       collectionName,
       filename
     )
+    // A re-upload is a new version of the document it supersedes, and files it
+    // where this upload goes: a write on the folder it is in now, too.
+    if (superseded && access.levelOf(superseded.folderId ?? null) !== 'write') throw folderReadOnlyError()
     const documentId = superseded?.id ?? crypto.randomUUID()
     /*
      * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).
@@ -1919,7 +1931,14 @@ export async function reindexProject(
         const row = rows[next++]
         try {
           await redispatch(row)
-        } catch {
+        } catch (error) {
+          // A document in a folder this session may not read, or may only
+          // read (ADR-0079), is not this session's to re-read: skipped, and
+          // never named, since its name is what a hidden folder hides.
+          if (error instanceof NotFoundError || error instanceof ForbiddenError) {
+            result.skipped += 1
+            continue
+          }
           // One document's failure must not abandon the rest of the project.
           result.failed.push(documentDisplayName(row))
         }
@@ -2133,7 +2152,10 @@ export async function deleteDocument(
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
 
-  await requireProjectAccess(session, doc.projectId, ['project:documents:write', 'project:edit'])
+  // A delete is a write in the document's folder (ADR-0079): the project's
+  // document-write permission, and write on the folder. A folder the session
+  // may not read is not found; one it may only read refuses (403).
+  await requireFolderWrite(session, doc.projectId, [doc.folderId])
   // After the access check (an unauthorized caller learns nothing, not even
   // that a hold exists) and before the first destructive step below.
   await assertNoActiveHold(session.organizationId, 'document', documentId)

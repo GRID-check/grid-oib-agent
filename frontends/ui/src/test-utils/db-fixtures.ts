@@ -62,7 +62,7 @@ export const makeMemoryItem = (
   supersedesId: null,
   conflictsWithId: null,
   // Open memory unless a test restricts it (ADR-0078, migration 0106).
-  restrictedCollections: null,
+  restrictedFolderIds: null,
   salience: 0.5,
   pinned: false,
   createdBy: null,

@@ -27,7 +27,10 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getBackendUrl } from '@/lib/backend-proxy'
+import { placementCollectionFor } from '@/lib/authz/folder-access'
 import { findConversationInOrg } from '@/lib/conversations/repository'
+import { admitRestrictedUse } from '@/lib/conversations/restricted-use'
+import { findProjectCollectionName } from '@/lib/projects/repository'
 import type { Document, DocumentVersion } from '@/lib/db/schema'
 import { getOrganizationDisplayName } from '@/lib/organizations/service'
 import { bucketAdminS3Client, s3Client } from '@/lib/s3'
@@ -398,6 +401,39 @@ export async function readVersionContent(
 }
 
 /**
+ * A subject in a restricted folder is opened into the turn's working directory
+ * whole, so reading it is USE of that folder (ADR-0078, ADR-0079): admitted for
+ * the conversation, against its audience, before the bytes leave. Refused, or
+ * with no asker to check, it reads as no subject at all. True when a folder not
+ * every member may read was admitted, so the agent knows the conversation is
+ * confined from this turn on.
+ */
+async function admitSubjectRead(
+  document: Document,
+  organizationId: string,
+  conversationId: string,
+  askerUserId: string | null,
+): Promise<boolean> {
+  if (!document.projectId || !document.folderId) return false
+  const projectCollection = await findProjectCollectionName(document.projectId, organizationId)
+  if (!projectCollection) return false
+  const collection = await placementCollectionFor(
+    organizationId,
+    document.projectId,
+    projectCollection,
+    document.folderId,
+  )
+  if (collection === projectCollection) return false
+  if (!askerUserId) throw new NotFoundError('Version not found')
+  const admission = await admitRestrictedUse(
+    { organizationId, conversationId, userId: askerUserId, projectId: document.projectId },
+    [collection],
+  )
+  if (admission.refused.length > 0) throw new NotFoundError('Version not found')
+  return admission.admitted.length > 0
+}
+
+/**
  * One version's bytes and its identity, for a SERVICE caller that holds only a
  * version id and the conversation it is answering
  * (`GET /api/internal/document-versions/[versionId]/content`).
@@ -430,6 +466,8 @@ export async function readVersionForService(
   versionId: string,
   organizationId: string,
   conversationId: string,
+  /** The turn's asker, as signed; needed only for a document in a restricted folder. */
+  askerUserId: string | null = null,
 ): Promise<{
   documentId: string
   versionId: string
@@ -440,6 +478,8 @@ export async function readVersionForService(
   filename: string
   displayName: string
   content: string
+  /** The read drew on a folder not every project member may read; the conversation recorded it. */
+  drewOnRestrictedFolder: boolean
 }> {
   const version = await findDocumentVersionInOrg(versionId, organizationId)
   if (!version) throw new NotFoundError('Version not found')
@@ -453,6 +493,7 @@ export async function readVersionForService(
   }
   const document = await findDocumentInOrg(version.documentId, organizationId)
   if (!document) throw new NotFoundError('Version not found')
+  const drewOnRestrictedFolder = await admitSubjectRead(document, organizationId, conversationId, askerUserId)
   return {
     documentId: version.documentId,
     versionId: version.id,
@@ -463,6 +504,7 @@ export async function readVersionForService(
     filename: document.filename,
     displayName: documentDisplayName(document),
     content: await readObjectText(version.storageBucket, version.storageKey),
+    drewOnRestrictedFolder,
   }
 }
 

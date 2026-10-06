@@ -24,6 +24,8 @@ from contextvars import Token
 from dataclasses import dataclass
 from dataclasses import field
 
+from aiq_agent.knowledge.restricted_use import current_restricted_use
+
 logger = logging.getLogger(__name__)
 
 
@@ -169,6 +171,7 @@ def fetch_memory_digest(
     query: str | None = None,
     conversation_id: str | None = None,
     restricted_collections: Sequence[str] = (),
+    user_id: str | None = None,
 ) -> str | None:
     """Fetch the CURRENT core-memory digest via the internal BFF endpoint.
 
@@ -186,11 +189,16 @@ def fetch_memory_digest(
     knows which conversation it is. Pass it explicitly to override, or pass
     ``""`` to ask for no review block at all.
 
-    ``restricted_collections`` are the restricted-folder collections in the
-    turn's SIGNED scope (ADR-0078). Restricted memory is served only when all of
-    an item's collections are among them, so a caller passes exactly what its
-    verified envelope carries — never a scope it read from an unsigned header,
-    and nothing at all off the interactive chat path.
+    ``restricted_collections`` are the restricted-folder collections this
+    interactive chat turn may draw on (ADR-0078, ADR-0079), and ``user_id`` its
+    signed asker. Their presence makes the turn eligible for restricted memory:
+    a note whose source folders the asker may read now is served once the BFF
+    has admitted (and recorded) those folders for the conversation against
+    everyone who reads it. A caller passes exactly what its verified envelope
+    carries — never a scope it read from an unsigned header, and nothing at all
+    off the interactive chat path. When the BFF says it served restricted notes
+    (``restrictedFoldersServed``), the turn's bound
+    :class:`aiq_agent.knowledge.restricted_use.RestrictedUse` is confined.
 
     Returns the digest string, or ``None`` when there is no active memory (a valid
     empty result). Raises RuntimeError on configuration problems and urllib errors
@@ -232,6 +240,8 @@ def fetch_memory_digest(
     restricted = [name.strip() for name in restricted_collections if isinstance(name, str) and name.strip()]
     if restricted:
         params["restrictedCollections"] = ",".join(dict.fromkeys(restricted))
+    if user_id and user_id.strip():
+        params["userId"] = user_id.strip()[:128]
     query_string = urllib.parse.urlencode(params)
 
     request = urllib.request.Request(
@@ -242,6 +252,12 @@ def fetch_memory_digest(
 
     with _opener.open(request, timeout=_DIGEST_TIMEOUT_SECONDS) as response:
         body = json.loads(response.read().decode("utf-8"))
+    if body.get("restrictedFoldersServed"):
+        # Restricted notes entered the prompt: the BFF recorded their folders
+        # for the conversation.
+        use = current_restricted_use()
+        if use is not None:
+            use.note_recorded()
     digest = body.get("digest")
     return digest if isinstance(digest, str) and digest.strip() else None
 

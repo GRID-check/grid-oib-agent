@@ -334,39 +334,52 @@ export const files: typeof en.files = {
     /** Ordnerzugriff (ADR-0078): einen Ordner auf Rollen einschränken. */
     access: {
       menu: 'Zugriff …',
-      restrictedTo: 'Eingeschränkt auf: {roles}',
-      openRestricted: 'Ordner „{name}“ öffnen, eingeschränkt auf: {roles}',
+      restrictedTo: 'Eigene Zugriffsrechte: {roles}',
+      openRestricted: 'Ordner „{name}“ öffnen, Zugriff: {roles}',
       title: 'Zugriff auf „{name}“',
-      description: 'Wer in diesem Projekt den Ordner, seine Unterordner und deren Dokumente sehen darf.',
-      everyone: 'Alle im Projekt',
-      everyoneHint: 'Wer das Projekt öffnen kann, sieht den Ordner.',
-      restricted: 'Nur bestimmte Rollen',
-      restrictedHint:
-        'Nur wer eine der gewählten Rollen hat, sieht den Ordner, seine Dokumente und was Piloti daraus antwortet. Organisations-Admins sehen ihn immer.',
+      description: 'Wer in diesem Projekt den Ordner, seine Unterordner und deren Dokumente lesen und bearbeiten darf.',
+      inherit: 'Wie der übergeordnete Ordner',
+      inheritHint:
+        'Der Ordner übernimmt den Zugriff des Ordners darüber. Ganz oben gilt das Projekt: Wer lesen darf, liest; wer bearbeiten darf, bearbeitet.',
+      custom: 'Eigene Zugriffsrechte',
+      customHint:
+        'Nur die aufgeführten Rollen kommen in den Ordner, jede mit „Lesen“ oder „Bearbeiten“. Wer nicht aufgeführt ist, sieht ihn nicht. Organisations-Admins dürfen immer alles.',
       roles: 'Rollen',
+      everyMember: 'Alle Projektmitglieder',
       customRole: 'Eigene Rolle',
-      pickOne: 'Wählen Sie mindestens eine Rolle.',
+      levelRead: 'Lesen',
+      levelWrite: 'Bearbeiten',
+      levelFor: 'Zugriff für {role}',
+      remove: '{role} entfernen',
+      add: 'Rolle hinzufügen …',
+      pickOne: 'Fügen Sie mindestens eine Rolle hinzu.',
       noRoles:
         'Ihre Organisation hat noch keine Rollen zur Auswahl. Eigene Rollen legen Sie unter Organisation → Personen & Zugriff an.',
+      nesting: 'Ein Unterordner kann nur enger sein als sein übergeordneter Ordner, nie weiter.',
+      ceiling: '„Bearbeiten“ gilt nur für Personen, die im Projekt bearbeiten dürfen; alle anderen lesen.',
       lockout:
         'Haben Sie selbst keine dieser Rollen, verschwindet der Ordner nach dem Speichern auch für Sie, außer Sie sind Organisations-Admin.',
       moveNotice:
-        'Beim Speichern verschiebt Piloti die Dokumente des Ordners und liest sie neu ein. Bei einem großen Ordner dauert das einige Minuten; so lange stehen die Dokumente auf „Wird gelesen“.',
+        'Ändert sich, wer lesen darf, verschiebt Piloti die Dokumente des Ordners und liest sie neu ein. Bei einem großen Ordner dauert das einige Minuten; so lange stehen die Dokumente auf „Wird gelesen“.',
       ifcNotice:
-        'Eingeschränkte Ordner können noch keine Gebäudemodelle (IFC) enthalten; ein Ordner mit einem Modell lässt sich daher nicht einschränken. Legen Sie IFC-Modelle in offene Ordner.',
+        'Ordner, die nicht alle Projektmitglieder lesen dürfen, können noch keine Gebäudemodelle (IFC) enthalten. Legen Sie IFC-Modelle in Ordner, die alle lesen dürfen.',
       /** Der 409 der IFC-Sperre (ADR-0078): einschränken, hochladen oder verschieben in einen eingeschränkten Ordner. */
       ifcRefused:
-        'Gebäudemodelle (IFC) können noch nicht in einem eingeschränkten Ordner liegen: Ihre Gebäudedaten schützt der Ordnerzugriff nicht. Legen Sie IFC-Modelle in offene Ordner.',
+        'Gebäudemodelle (IFC) können noch nicht in einem Ordner liegen, den nicht alle lesen dürfen: Ihre Gebäudedaten schützt der Ordnerzugriff nicht. Legen Sie IFC-Modelle in Ordner, die alle lesen dürfen.',
+      readOnlyBadge: 'Nur lesen',
+      readOnlyHint: 'Sie dürfen diesen Ordner lesen, aber nichts hochladen, umbenennen, verschieben oder löschen.',
+      readOnlyMenu: 'Nur lesen',
+      readOnlyRefused: 'In diesem Ordner dürfen Sie nur lesen.',
       save: 'Zugriff speichern',
       saving: 'Wird gespeichert…',
       loadError: 'Die Rollen konnten nicht geladen werden.',
-      savedRestricted: '„{name}“ ist jetzt eingeschränkt.',
-      savedOpen: '„{name}“ ist wieder für alle im Projekt sichtbar.',
+      savedCustom: '„{name}“ hat jetzt eigene Zugriffsrechte.',
+      savedInherit: '„{name}“ übernimmt jetzt den Zugriff des übergeordneten Ordners.',
       moving: '{count, plural, one {# Dokument wird} other {# Dokumente werden}} verschoben und neu eingelesen.',
       failed:
         '{count, plural, one {# Dokument konnte} other {# Dokumente konnten}} noch nicht verschoben werden. Speichern Sie erneut, um es noch einmal zu versuchen.',
       saveError: 'Der Zugriff konnte nicht geändert werden. Bitte versuchen Sie es erneut.',
-      forbidden: 'Nur Projekt-Admins können ändern, wer einen Ordner sieht.',
+      forbidden: 'Nur Projekt-Admins können ändern, wer einen Ordner lesen und bearbeiten darf.',
     },
   },
   workspace: {

@@ -1,28 +1,29 @@
 /**
  * @vitest-environment node
  *
- * A rename, move or delete that changes folder access is a change of folder
- * access (ADR-0078).
+ * Renaming, moving and deleting folders under read/write access (ADR-0079).
  *
- * `setFolderRestriction` needs `project:manage` and leaves a
- * `project.folder.access_changed` line. Deleting a restricted folder, or moving
- * a folder out from under (or into) a restricted one, changes which documents
- * are restricted just as surely, and needed only `project:documents:write` and
- * left no line. This spec pins the rule both ways: such a change needs
- * `project:manage` and is audited, and one that changes nothing (an open folder
- * moved between open folders, a rename, deleting an open folder) still needs
- * only the write permission and is not audited.
+ * Each is a write: on the folder, on a move's new parent, on a deleted
+ * folder's child folders. A folder the session may only read refuses with a
+ * typed 403, one it may not read answers not found, and the project's
+ * document-write permission stays the ceiling. A move or delete that changes
+ * the access lists over a subtree is a change of folder access on top: it
+ * needs `project:manage` and leaves a `project.folder.access_changed` line,
+ * like `setFolderAccess`; one that changes nothing (an open folder moved
+ * between open folders, a rename, deleting a folder that inherits) needs only
+ * the write and is not audited. A delete keeps the row as a tombstone.
  *
- *   Verwaltung/           (open)
- *     Verträge/           (org-gf)
- *       Alt/              (open, restricted by Verträge)
- *     Projektordner/      (open)
- *   Ablage/               (open)
- *   Honorare/             (org-gf; hidden from the session in the last block)
+ *   Verwaltung/           inherits
+ *     Verträge/           org-gf: write, org-bh: read
+ *       Alt/              inherits (narrowed by Verträge)
+ *     Projektordner/      inherits
+ *   Ablage/               inherits
+ *   Honorare/             org-hr: write (the session may not read it)
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { AccessFolder, ProjectFolderAccess } from '@/lib/authz/folder-access'
+import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import type { AccessFolder, FolderGrant } from '@/lib/authz/folder-access'
 
 interface FolderRow {
   id: string
@@ -30,39 +31,39 @@ interface FolderRow {
   parentId: string | null
   name: string
   path: string
-  restrictedRoles: string[] | null
+  accessMode: 'inherit' | 'custom'
   createdAt: Date
   updatedAt: Date
 }
 
 const at = new Date('2026-10-01T00:00:00Z')
-const folder = (id: string, name: string, path: string, parentId: string | null, roles: string[] | null = null): FolderRow => ({
-  id,
-  projectId: 'proj-1',
-  parentId,
-  name,
-  path,
-  restrictedRoles: roles,
-  createdAt: at,
-  updatedAt: at,
-})
+const grantsOf = new Map<string, FolderGrant[]>()
+const folder = (id: string, name: string, path: string, parentId: string | null, grants: FolderGrant[] | null = null): FolderRow => {
+  if (grants) grantsOf.set(id, grants)
+  return { id, projectId: 'proj-1', parentId, name, path, accessMode: grants ? 'custom' : 'inherit', createdAt: at, updatedAt: at }
+}
 
 const TREE = {
   verwaltung: folder('f-verwaltung', 'Verwaltung', 'Verwaltung', null),
-  vertraege: folder('f-vertraege', 'Verträge', 'Verwaltung/Verträge', 'f-verwaltung', ['org-gf']),
+  vertraege: folder('f-vertraege', 'Verträge', 'Verwaltung/Verträge', 'f-verwaltung', [
+    { role: 'org-gf', level: 'write' },
+    { role: 'org-bh', level: 'read' },
+  ]),
   alt: folder('f-alt', 'Alt', 'Verwaltung/Verträge/Alt', 'f-vertraege'),
   projektordner: folder('f-projektordner', 'Projektordner', 'Verwaltung/Projektordner', 'f-verwaltung'),
   ablage: folder('f-ablage', 'Ablage', 'Ablage', null),
-  honorare: folder('f-honorare', 'Honorare', 'Honorare', null, ['org-gf']),
+  honorare: folder('f-honorare', 'Honorare', 'Honorare', null, [{ role: 'org-hr', level: 'write' }]),
 }
 const byId = new Map(Object.values(TREE).map((row) => [row.id, row]))
 
 const state = vi.hoisted(() => ({
   granted: new Set<string>(),
-  hidden: new Set<string>(),
   /** Rows the next `.limit()` reads answer with, in order. */
   reads: [] as unknown[][],
+  /** Rows a read without a limit (a folder's children) answers with. */
+  children: [] as unknown[],
   transactions: 0,
+  tombstoned: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock('@/lib/authz/projects', () => ({
@@ -73,23 +74,18 @@ vi.mock('@/lib/authz/projects', () => ({
   }),
 }))
 
-vi.mock('@/lib/authz/folder-access', () => ({
-  getProjectFolderAccess: vi.fn(
-    async (): Promise<ProjectFolderAccess> => ({
-      hiddenFolderIds: state.hidden,
-      isVisible: (id: string | null) => id === null || !state.hidden.has(id),
-      collectionFor: () => 'proj_collection',
-      clearedRestrictedCollections: [],
-      anyRestricted: true,
-    })
-  ),
-}))
-
+// The decision runs for real over the tree below; only its reads are stubbed.
 vi.mock('@/lib/authz/folder-access-repository', () => ({
   listProjectDocumentCollections: vi.fn(async () => []),
+  projectHasCustomFolders: vi.fn(async () => true),
   listProjectFolderTree: vi.fn(
     async (): Promise<AccessFolder[]> =>
-      [...byId.values()].map(({ id, parentId, restrictedRoles }) => ({ id, parentId, restrictedRoles }))
+      [...byId.values()].map(({ id, parentId, accessMode }) => ({
+        id,
+        parentId,
+        accessMode,
+        grants: grantsOf.get(id) ?? [],
+      }))
   ),
 }))
 
@@ -108,14 +104,22 @@ vi.mock('@/lib/db', () => {
   const statement = (rows: unknown[]) =>
     Object.assign(Promise.resolve(undefined), { returning: async () => rows })
   const tx = {
-    update: () => ({ set: () => ({ where: () => statement([{}]) }) }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => {
+        if ('deletedAt' in values) state.tombstoned.push(values)
+        return { where: () => statement([{}]) }
+      },
+    }),
     select: () => ({ from: () => ({ where: async () => [] }) }),
     delete: () => ({ where: async () => undefined }),
   }
   return {
     getDb: () => ({
       select: () => ({
-        from: () => ({ where: () => ({ limit: async () => state.reads.shift() ?? [] }) }),
+        from: () => ({
+          where: () =>
+            Object.assign(Promise.resolve(state.children), { limit: async () => state.reads.shift() ?? [] }),
+        }),
       }),
       transaction: async (run: (handle: typeof tx) => Promise<unknown>) => {
         state.transactions += 1
@@ -125,10 +129,19 @@ vi.mock('@/lib/db', () => {
   }
 })
 
-const { deleteProjectFolder, updateProjectFolder } = await import('./folder-service')
+const { createProjectFolder, deleteProjectFolder, updateProjectFolder } = await import('./folder-service')
 const { recordAuditEvent } = await import('@/lib/audit/service')
 
-const session = { userId: 'user-1', email: 'pl@buero.at', organizationId: 'org-1' } as AuthorizedSession
+const session = {
+  userId: 'user-1',
+  email: 'pl@buero.at',
+  organizationId: 'org-1',
+  role: 'org-gf',
+  roles: ['org-gf'],
+  permissions: [],
+} as unknown as AuthorizedSession
+/** May only read „Verträge“. */
+const reader = { ...session, role: 'org-bh', roles: ['org-bh'] } as unknown as AuthorizedSession
 const WRITE_ONLY = ['project:documents:write']
 const MANAGER = ['project:documents:write', 'project:manage']
 
@@ -141,9 +154,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })))
   state.granted = new Set(WRITE_ONLY)
-  state.hidden = new Set()
   state.reads = []
+  state.children = []
   state.transactions = 0
+  state.tombstoned = []
 })
 
 describe('moving a folder', () => {
@@ -172,7 +186,7 @@ describe('moving a folder', () => {
         action: 'project.folder.access_changed',
         targetType: 'project',
         targetId: 'proj-1',
-        metadata: { folderId: TREE.alt.id, roles: '', documentsMoved: 3 },
+        metadata: { folderId: TREE.alt.id, grants: '', documentsMoved: 3 },
       })
     )
   })
@@ -191,7 +205,7 @@ describe('moving a folder', () => {
     )
     expect(vi.mocked(recordAuditEvent).mock.calls[0][0].metadata).toEqual({
       folderId: TREE.projektordner.id,
-      roles: 'org-gf',
+      grants: 'org-bh:read,org-gf:write',
       documentsMoved: 3,
     })
   })
@@ -239,7 +253,7 @@ describe('deleting a folder', () => {
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'project.folder.access_changed',
-        metadata: { folderId: TREE.vertraege.id, roles: '', documentsMoved: 3 },
+        metadata: { folderId: TREE.vertraege.id, grants: '', documentsMoved: 3 },
       })
     )
   })
@@ -254,31 +268,102 @@ describe('deleting a folder', () => {
   })
 })
 
-describe('a folder the session may not see', () => {
-  beforeEach(() => {
+describe('a delete keeps a tombstone', () => {
+  it('re-files the documents and child folders, then marks the row deleted instead of removing it', async () => {
+    reads(TREE.projektordner, TREE.verwaltung)
+
+    const result = await deleteProjectFolder({ projectId: 'proj-1', folderId: TREE.projektordner.id }, session)
+
+    expect(result.ok).toBe(true)
+    expect(state.tombstoned).toEqual([expect.objectContaining({ deletedAt: expect.any(Date), deletedBy: 'user-1' })])
+  })
+})
+
+describe('a folder the session may only read (ADR-0079)', () => {
+  it('refuses a new folder inside it with a typed 403, and one inside a folder it may not read as missing', async () => {
     state.granted = new Set(MANAGER)
-    state.hidden = new Set([TREE.honorare.id])
+    await expect(
+      createProjectFolder({ projectId: 'proj-1', parentId: TREE.vertraege.id, name: 'Neu' }, reader)
+    ).rejects.toMatchObject({ status: 403, details: { reason: 'folder-read-only' } })
+    await expect(
+      createProjectFolder({ projectId: 'proj-1', parentId: TREE.honorare.id, name: 'Neu' }, reader)
+    ).rejects.toBeInstanceOf(NotFoundError)
+    expect(state.transactions).toBe(0)
   })
 
-  it('cannot be renamed, moved or deleted, even by a manager', async () => {
+  it('refuses rename, move and delete with a typed 403, and writes nothing', async () => {
+    state.granted = new Set(MANAGER)
+    reads(TREE.alt)
+    await expect(
+      updateProjectFolder({ projectId: 'proj-1', folderId: TREE.alt.id, name: 'X' }, reader)
+    ).rejects.toBeInstanceOf(ForbiddenError)
+    reads(TREE.alt)
+    await expect(
+      updateProjectFolder({ projectId: 'proj-1', folderId: TREE.alt.id, parentId: TREE.ablage.id }, reader)
+    ).rejects.toBeInstanceOf(ForbiddenError)
+    reads(TREE.vertraege)
+    await expect(deleteProjectFolder({ projectId: 'proj-1', folderId: TREE.vertraege.id }, reader)).rejects.toBeInstanceOf(
+      ForbiddenError
+    )
+    expect(state.transactions).toBe(0)
+  })
+
+  it('refuses moving a folder the session may write INTO one it may only read', async () => {
+    reads(TREE.ablage)
+    await expect(
+      updateProjectFolder({ projectId: 'proj-1', folderId: TREE.ablage.id, parentId: TREE.vertraege.id }, reader)
+    ).rejects.toBeInstanceOf(ForbiddenError)
+    expect(state.transactions).toBe(0)
+  })
+
+  it('refuses deleting a writable folder whose child folder the session may only read', async () => {
+    reads(TREE.verwaltung)
+    state.children = [TREE.vertraege, TREE.projektordner]
+    await expect(deleteProjectFolder({ projectId: 'proj-1', folderId: TREE.verwaltung.id }, reader)).rejects.toBeInstanceOf(
+      ForbiddenError
+    )
+    expect(state.transactions).toBe(0)
+  })
+
+  it('keeps the project permission the ceiling: without document write, a granted writer is refused too', async () => {
+    state.granted = new Set(['project:view'])
+    reads(TREE.alt)
+    await expect(
+      updateProjectFolder({ projectId: 'proj-1', folderId: TREE.alt.id, name: 'X' }, session)
+    ).rejects.toThrow(/Forbidden: project:documents:write/)
+    expect(state.transactions).toBe(0)
+  })
+
+  it('lets an organization admin change a folder whose list names none of their roles', async () => {
+    const admin = { ...session, roles: [], role: 'admin', permissions: ['org:projects:administer'] } as unknown as AuthorizedSession
     reads(TREE.honorare)
-    expect(await updateProjectFolder({ projectId: 'proj-1', folderId: TREE.honorare.id, name: 'X' }, session)).toEqual({
-      ok: false,
-      error: 'Folder not found.',
-    })
+    const result = await updateProjectFolder({ projectId: 'proj-1', folderId: TREE.honorare.id, name: 'Gehälter' }, admin)
+    expect(result.ok).toBe(true)
+  })
+})
+
+describe('a folder the session may not read', () => {
+  beforeEach(() => {
+    state.granted = new Set(MANAGER)
+  })
+
+  it('cannot be renamed, moved or deleted, even by a manager: it is not found', async () => {
     reads(TREE.honorare)
-    expect(await deleteProjectFolder({ projectId: 'proj-1', folderId: TREE.honorare.id }, session)).toEqual({
-      ok: false,
-      error: 'Folder not found.',
-    })
+    await expect(
+      updateProjectFolder({ projectId: 'proj-1', folderId: TREE.honorare.id, name: 'X' }, session)
+    ).rejects.toBeInstanceOf(NotFoundError)
+    reads(TREE.honorare)
+    await expect(deleteProjectFolder({ projectId: 'proj-1', folderId: TREE.honorare.id }, session)).rejects.toBeInstanceOf(
+      NotFoundError
+    )
     expect(state.transactions).toBe(0)
   })
 
   it('cannot be moved into', async () => {
     reads(TREE.ablage)
-    expect(
-      await updateProjectFolder({ projectId: 'proj-1', folderId: TREE.ablage.id, parentId: TREE.honorare.id }, session)
-    ).toEqual({ ok: false, error: 'Parent folder not found.' })
+    await expect(
+      updateProjectFolder({ projectId: 'proj-1', folderId: TREE.ablage.id, parentId: TREE.honorare.id }, session)
+    ).rejects.toBeInstanceOf(NotFoundError)
     expect(state.transactions).toBe(0)
   })
 })

@@ -155,11 +155,20 @@ CONFINED_CARD_TYPES = frozenset({"project_profile_patch"})
 
 
 def _turn_is_confined() -> bool:
-    """Whether this turn's scope holds a restricted folder's collection; False outside a request."""
+    """Whether this turn may draw on, or its conversation already drew on, a restricted folder; False outside a request.
+
+    The scope read is already narrowed to what the turn may draw on
+    (:func:`aiq_agent.knowledge.scoping.get_scoped_collections_from_context`);
+    the bound use adds what the conversation recorded (ADR-0078, ADR-0079).
+    """
     from aiq_agent.knowledge.restricted_collections import restricted_collections_in
+    from aiq_agent.knowledge.restricted_use import current_restricted_use
     from aiq_agent.knowledge.scoping import get_collection_scope_from_context
 
     try:
+        use = current_restricted_use()
+        if use is not None and use.confined:
+            return True
         return bool(restricted_collections_in(get_collection_scope_from_context()))
     except Exception:  # noqa: BLE001 - an unreadable scope must not let the card through
         logger.warning("card check: the turn's scope could not be read; treating it as confined", exc_info=True)

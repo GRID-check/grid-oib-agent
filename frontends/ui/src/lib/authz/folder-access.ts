@@ -1,151 +1,60 @@
 /**
- * Who may see which folders of a project (ADR-0078) — the one place that
- * decides.
+ * Who may read and who may write which folders of a project (ADR-0078,
+ * ADR-0079) — the one place that decides.
  *
- * A folder may be restricted to WorkOS roles (`project_folders.restricted_roles`).
- * A member is cleared for a folder when they hold `org:projects:administer`
- * (organization admins see everything) or, for EVERY restricted folder on its
- * path, at least one of the roles it names. A folder they are not cleared for
- * is hidden, and so is everything below it — including what is filed there
- * later, because the answer is computed from the path at read time.
+ * A folder either inherits its parent's access (`accessMode: 'inherit'`; a root
+ * folder inherits the project) or has its own access list (`'custom'`): grants
+ * of `read` or `write` to WorkOS role slugs, and `*` for every project member.
+ * A role not listed gets nothing.
  *
- * Retrieval follows from the same answer: a document under a restricted folder
- * lives in the collection of its NEAREST restricted folder
- * ({@link restrictedCollectionName}), and only cleared members get that
- * collection in their signed scope. So this module answers both questions the
- * rest of the BFF asks: "may this session see the row?" and "which collections
- * may this session's turn search?".
+ * ONE rule over a path, {@link effectiveFolderLevel}: the level on a folder is
+ * the minimum over the folder and every ancestor that has its own list, so a
+ * subfolder can be narrower than its parent and never wider. Organization
+ * admins (`org:projects:administer`) write everywhere. The project permission
+ * is the ceiling for writing ({@link withProjectCeiling}): a project viewer
+ * granted `write` on a folder still only reads.
  *
- * The core is pure ({@link computeFolderAccess}); {@link getProjectFolderAccess}
- * loads it, and costs one indexed query when the project restricts nothing —
+ * Retrieval keys on READ. A folder that not every project member can read — a
+ * custom list without `*` — gets its own collection
+ * ({@link restrictedCollectionName}), and a document lives in the collection
+ * of its NEAREST such folder. Only a session that may read that folder gets the
+ * collection in its signed scope. Write never affects retrieval.
+ *
+ * Deleted folders stay in the tree as tombstones (migration 0108): they are
+ * hidden from every listing and from placement, and {@link effectiveFolderLevel}
+ * still answers for them, because content derived from a deleted folder is
+ * judged by the access it had.
+ *
+ * The core is pure ({@link effectiveFolderLevel}, {@link computeFolderAccess});
+ * the loaders cost one indexed probe when the project has no custom folder,
  * which is nearly every project.
  */
 
 import 'server-only'
+import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { rolesOf, type AuthorizedSession } from '@/lib/auth/types'
 import { hasPermission, ORG_PERMISSIONS } from './permissions'
+import { orgRoleHoldsPermission } from './org-role-permissions'
+import { resolveMembershipRoles } from '@/lib/auth/membership-roles'
+import { requireProjectAccess } from './projects'
+import { listCustomFolderNames, listProjectFolderTree, projectHasCustomFolders } from './folder-access-repository'
 import {
-  listProjectFolderTree,
-  listRestrictedFolderNames,
-  projectHasRestrictedFolders,
-} from './folder-access-repository'
+  ANY_MEMBER,
+  atLeast,
+  computeFolderAccess,
+  DOCUMENT_WRITE_PERMISSIONS,
+  effectiveFolderLevel,
+  folderReadOnlyError,
+  folderTree,
+  OPEN_ACCESS,
+  type AccessFolder,
+  type FolderClearance,
+  type ProjectFolderAccess,
+} from './folder-access-rule'
 
-/** What the decision needs of a folder. */
-export interface AccessFolder {
-  id: string
-  parentId: string | null
-  restrictedRoles: readonly string[] | null
-}
+export * from './folder-access-rule'
 
-/** Who is asking, reduced to what clears a folder. */
-export interface FolderClearance {
-  roles: readonly string[]
-  /** `org:projects:administer`: every folder is visible. */
-  seesEverything: boolean
-}
-
-export interface ProjectFolderAccess {
-  /** Folders hidden from this session: not cleared, or below one that is not. */
-  readonly hiddenFolderIds: ReadonlySet<string>
-  /** Whether a document filed in `folderId` (null: the project root) is visible. */
-  isVisible(folderId: string | null): boolean
-  /** The retrieval collection a document filed in `folderId` belongs in. */
-  collectionFor(folderId: string | null): string
-  /** The restricted collections this session's chat turns may search. */
-  readonly clearedRestrictedCollections: readonly string[]
-  /** Whether the project restricts anything at all; false is the fast path. */
-  readonly anyRestricted: boolean
-}
-
-/**
- * The collection of a restricted folder: the project's own collection name with
- * `_r` and twelve hex digits of the folder id. 55 characters for the usual
- * `proj_<uuid>` base, inside every validator on the Python side (Chroma allows
- * 512), and still `proj_`-prefixed, so a reader that classifies by prefix
- * reads it as the project shelf.
- */
-export function restrictedCollectionName(projectCollection: string, folderId: string): string {
-  return `${projectCollection}_r${folderId.replace(/-/g, '').slice(0, 12).toLowerCase()}`
-}
-
-/** True when `collection` is one of the restricted collections of `projectCollection`. */
-export function isRestrictedCollectionOf(projectCollection: string, collection: string): boolean {
-  return collection.startsWith(`${projectCollection}_r`) && /^[0-9a-f]{12}$/.test(collection.slice(projectCollection.length + 2))
-}
-
-/**
- * The project collection a restricted collection belongs to, or null when
- * `collection` is not shaped like one. The inverse of
- * {@link restrictedCollectionName}, for a caller that holds only the name (the
- * collection proxy); whether that project exists, and whether the session is
- * cleared for the collection, is still the caller's to ask.
- */
-export function restrictedCollectionBase(collection: string): string | null {
-  const match = /^(.+)_r[0-9a-f]{12}$/.exec(collection)
-  return match ? match[1] : null
-}
-
-const OPEN_ACCESS = (projectCollection: string): ProjectFolderAccess => ({
-  hiddenFolderIds: new Set(),
-  isVisible: () => true,
-  collectionFor: () => projectCollection,
-  clearedRestrictedCollections: [],
-  anyRestricted: false,
-})
-
-/** The pure decision, over a project's whole folder tree. */
-export function computeFolderAccess(
-  folders: readonly AccessFolder[],
-  clearance: FolderClearance,
-  projectCollection: string
-): ProjectFolderAccess {
-  const byId = new Map(folders.map((folder) => [folder.id, folder]))
-  const held = new Set(clearance.roles)
-  const clears = (folder: AccessFolder): boolean =>
-    clearance.seesEverything || (folder.restrictedRoles ?? []).some((role) => held.has(role))
-
-  const hidden = new Set<string>()
-  const nearestRestricted = new Map<string, string | null>()
-  for (const folder of folders) {
-    let nearest: string | null = null
-    let visible = true
-    // Walk to the root; a cycle cannot exist (the parent FK is acyclic by
-    // construction), but the guard keeps a corrupt row from hanging a request.
-    const seen = new Set<string>()
-    for (let current: AccessFolder | undefined = folder; current && !seen.has(current.id); ) {
-      seen.add(current.id)
-      if (current.restrictedRoles && current.restrictedRoles.length > 0) {
-        nearest ??= current.id
-        if (!clears(current)) visible = false
-      }
-      current = current.parentId ? byId.get(current.parentId) : undefined
-    }
-    nearestRestricted.set(folder.id, nearest)
-    if (!visible) hidden.add(folder.id)
-  }
-
-  const restrictedIds = folders.filter((folder) => folder.restrictedRoles && folder.restrictedRoles.length > 0)
-  if (restrictedIds.length === 0) return OPEN_ACCESS(projectCollection)
-
-  const cleared = restrictedIds
-    .filter((folder) => !hidden.has(folder.id))
-    .map((folder) => restrictedCollectionName(projectCollection, folder.id))
-
-  return {
-    hiddenFolderIds: hidden,
-    // A folder this tree does not know (deleted meanwhile) is treated as hidden:
-    // the safe direction for a row that names it.
-    isVisible: (folderId) => folderId === null || (byId.has(folderId) && !hidden.has(folderId)),
-    collectionFor: (folderId) => {
-      const nearest = folderId ? nearestRestricted.get(folderId) : null
-      return nearest ? restrictedCollectionName(projectCollection, nearest) : projectCollection
-    },
-    clearedRestrictedCollections: [...new Set(cleared)],
-    anyRestricted: true,
-  }
-}
-
-/** What clears folders for this session. */
+/** What clears folders for this session: its roles (WorkOS membership, `getGridSession`) and the admin bypass. */
 export function clearanceOf(session: AuthorizedSession): FolderClearance {
   return {
     roles: rolesOf(session),
@@ -153,53 +62,57 @@ export function clearanceOf(session: AuthorizedSession): FolderClearance {
   }
 }
 
+/** The project's folder tree, or null when no folder (living or deleted) has its own list. */
+export async function loadCustomFolderTree(organizationId: string, projectId: string): Promise<AccessFolder[] | null> {
+  if (!(await projectHasCustomFolders(organizationId, projectId))) return null
+  return listProjectFolderTree(organizationId, projectId)
+}
+
 /**
- * The session's access to one project's folders. The caller has already
- * authorized the project itself (`requireProjectAccess`); this narrows within it.
+ * The session's access to one project's folders, before the project ceiling.
+ * The caller has already authorized the project itself (`requireProjectAccess`);
+ * this narrows within it.
  */
 export async function getProjectFolderAccess(
   session: AuthorizedSession,
   projectId: string,
   projectCollection: string
 ): Promise<ProjectFolderAccess> {
-  if (!(await projectHasRestrictedFolders(session.organizationId, projectId))) {
-    return OPEN_ACCESS(projectCollection)
-  }
-  const folders = await listProjectFolderTree(session.organizationId, projectId)
+  const folders = await loadCustomFolderTree(session.organizationId, projectId)
+  if (!folders) return OPEN_ACCESS(projectCollection)
   return computeFolderAccess(folders, clearanceOf(session), projectCollection)
 }
 
 /**
  * The folders of a project hidden from this session — what a listing excludes.
- * Empty for a project that restricts nothing, at the cost of one probe.
+ * Empty for a project with no custom folder, at the cost of one probe.
  */
 export async function getHiddenFolderIds(session: AuthorizedSession, projectId: string): Promise<string[]> {
-  if (!(await projectHasRestrictedFolders(session.organizationId, projectId))) return []
-  const folders = await listProjectFolderTree(session.organizationId, projectId)
-  // The collection name plays no part in which folders are hidden.
+  const folders = await loadCustomFolderTree(session.organizationId, projectId)
+  if (!folders) return []
   return [...computeFolderAccess(folders, clearanceOf(session), '').hiddenFolderIds]
 }
 
 /**
- * Every folder of a project that sits under a restriction — what a caller with
- * no session to clear (the agent's service-token routes) must treat as hidden.
- * The answer for someone who holds no role and is not an admin, so it fails
- * closed. Empty for a project that restricts nothing, at the cost of one probe.
+ * Every living folder of a project that not every member can read — what a
+ * caller with no session to clear (the agent's service-token routes) must treat
+ * as hidden. The answer for someone who holds no role and is not an admin, so
+ * it fails closed. Empty for a project with no custom folder.
  */
 export async function getRestrictedFolderIds(organizationId: string, projectId: string): Promise<string[]> {
-  if (!(await projectHasRestrictedFolders(organizationId, projectId))) return []
-  const folders = await listProjectFolderTree(organizationId, projectId)
-  return [...computeFolderAccess(folders, { roles: [], seesEverything: false }, '').hiddenFolderIds]
+  const folders = await loadCustomFolderTree(organizationId, projectId)
+  if (!folders) return []
+  return [...computeFolderAccess(folders, ANY_MEMBER, '').hiddenFolderIds]
 }
 
-/** Whether a row filed in `folderId` (null: the project root) is visible to this session. */
+/** Whether a row filed in `folderId` (null: the project root) may be read by this session. */
 export async function isFolderVisibleTo(
   session: AuthorizedSession,
   projectId: string,
   folderId: string | null
 ): Promise<boolean> {
   // Nothing about the session is read until a restriction is in play: an
-  // unfiled document, or a project that restricts nothing, is the common case.
+  // unfiled document, or a project with no custom folder, is the common case.
   if (folderId === null) return true
   return isFolderVisibleToClearance(session.organizationId, projectId, folderId, clearanceOf(session))
 }
@@ -215,10 +128,61 @@ export async function isFolderVisibleToClearance(
   folderId: string | null,
   clearance: FolderClearance
 ): Promise<boolean> {
-  if (folderId === null || clearance.seesEverything) return true
-  if (!(await projectHasRestrictedFolders(organizationId, projectId))) return true
-  const folders = await listProjectFolderTree(organizationId, projectId)
+  if (folderId === null) return true
+  const folders = await loadCustomFolderTree(organizationId, projectId)
+  if (!folders) return true
   return computeFolderAccess(folders, clearance, '').isVisible(folderId)
+}
+
+/** Whether the session may change the project's documents at all: the write ceiling. Never throws. */
+export async function projectMayWriteDocuments(session: AuthorizedSession, projectId: string): Promise<boolean> {
+  try {
+    await requireProjectAccess(session, projectId, DOCUMENT_WRITE_PERMISSIONS)
+    return true
+  } catch (error) {
+    if (error instanceof NotFoundError) return false
+    throw error
+  }
+}
+
+/**
+ * THE write check, server side: every path that changes a folder or what is
+ * filed in it asks this, for every folder it touches (null: the project root).
+ *
+ * The project's document-write permission first (`requireProjectAccess`, 404
+ * without it: the ceiling), then each folder: one the session may not read is
+ * not found, one it may only read is refused with a typed 403
+ * (`details.reason` {@link FOLDER_READ_ONLY_REASON}).
+ */
+export async function requireFolderWrite(
+  session: AuthorizedSession,
+  projectId: string,
+  folderIds: readonly (string | null)[]
+): Promise<void> {
+  await requireProjectAccess(session, projectId, DOCUMENT_WRITE_PERMISSIONS)
+  const touched = [...new Set(folderIds)].filter((folderId): folderId is string => folderId !== null)
+  if (touched.length === 0) return
+  const folders = await loadCustomFolderTree(session.organizationId, projectId)
+  const access = folders ? computeFolderAccess(folders, clearanceOf(session), '') : OPEN_ACCESS('')
+  for (const folderId of touched) {
+    if (!access.isVisible(folderId)) throw new NotFoundError('Folder not found')
+  }
+  if (touched.some((folderId) => access.levelOf(folderId) !== 'write')) throw folderReadOnlyError()
+}
+
+/** {@link requireFolderWrite} as a yes or no, for a caller that only reflects it (a listing's affordances). */
+export async function canWriteFolder(
+  session: AuthorizedSession,
+  projectId: string,
+  folderId: string | null
+): Promise<boolean> {
+  try {
+    await requireFolderWrite(session, projectId, [folderId])
+    return true
+  } catch (error) {
+    if (error instanceof NotFoundError || error instanceof ForbiddenError) return false
+    throw error
+  }
 }
 
 /**
@@ -232,67 +196,24 @@ export async function placementCollectionFor(
   projectCollection: string,
   folderId: string | null
 ): Promise<string> {
-  if (folderId === null || !(await projectHasRestrictedFolders(organizationId, projectId))) return projectCollection
-  const folders = await listProjectFolderTree(organizationId, projectId)
+  if (folderId === null) return projectCollection
+  const folders = await loadCustomFolderTree(organizationId, projectId)
+  if (!folders) return projectCollection
   return computeFolderAccess(folders, { roles: [], seesEverything: true }, projectCollection).collectionFor(folderId)
 }
 
 /**
- * The collections of every restricted folder on `folderId`'s path, itself
- * included: what a member must be cleared for to see a document filed there.
- *
- * Clearance for a folder is a role for EVERY restricted folder on its path
- * (`computeFolderAccess`), and clearance for a restricted collection is
- * clearance for its folder, whose path is a prefix of this one. So anyone who
- * can read a document in `folderId` is cleared for each collection listed here,
- * and content drawn from those collections, and from no others, reaches nobody
- * new when it is filed there (`lib/conversations/restricted-egress.ts`). A root
- * folder, or an unknown id, lists nothing: it is open.
- */
-export function restrictedCollectionsOnPath(
-  folders: readonly AccessFolder[],
-  projectCollection: string,
-  folderId: string | null
-): string[] {
-  const byId = new Map(folders.map((folder) => [folder.id, folder]))
-  const collections: string[] = []
-  const seen = new Set<string>()
-  for (let current = folderId ? byId.get(folderId) : undefined; current && !seen.has(current.id); ) {
-    seen.add(current.id)
-    if (current.restrictedRoles && current.restrictedRoles.length > 0) {
-      collections.push(restrictedCollectionName(projectCollection, current.id))
-    }
-    current = current.parentId ? byId.get(current.parentId) : undefined
-  }
-  return collections
-}
-
-/** {@link restrictedCollectionsOnPath} for a stored folder; one probe for a project that restricts nothing. */
-export async function restrictedCollectionsAbove(
-  organizationId: string,
-  projectId: string,
-  projectCollection: string,
-  folderId: string | null
-): Promise<string[]> {
-  if (folderId === null || !(await projectHasRestrictedFolders(organizationId, projectId))) return []
-  const folders = await listProjectFolderTree(organizationId, projectId)
-  return restrictedCollectionsOnPath(folders, projectCollection, folderId)
-}
-
-/**
- * Every CURRENT restricted collection of a project, whoever asks: what a stored
- * restriction (a memory item, ADR-0078) is validated and served against. A
- * collection missing from this list belongs to a restriction that was lifted or
- * a folder that was deleted, and clears nobody. Empty for a project that
- * restricts nothing, at the cost of one probe.
+ * Every CURRENT restricted collection of a project, whoever asks: the
+ * collections of living folders that restrict reading. Empty for a project with
+ * no custom folder, at the cost of one probe.
  */
 export async function currentRestrictedCollections(
   organizationId: string,
   projectId: string,
   projectCollection: string
 ): Promise<string[]> {
-  if (!(await projectHasRestrictedFolders(organizationId, projectId))) return []
-  const folders = await listProjectFolderTree(organizationId, projectId)
+  const folders = await loadCustomFolderTree(organizationId, projectId)
+  if (!folders) return []
   return [
     ...computeFolderAccess(folders, { roles: [], seesEverything: true }, projectCollection)
       .clearedRestrictedCollections,
@@ -300,15 +221,67 @@ export async function currentRestrictedCollections(
 }
 
 /**
- * The name of each current restricted folder, keyed by its collection: how a
- * surface names a restriction to someone already cleared for it (the memory
- * panel's lock). Never call it to decide access.
+ * The name of each folder with its own access list, keyed by its id,
+ * tombstones included: how a surface names a restriction to someone who may
+ * read it (the memory panel's lock). Never call it to decide access.
  */
-export async function restrictedFolderNamesByCollection(
+export async function customFolderNames(organizationId: string, projectId: string): Promise<Map<string, string>> {
+  const folders = await listCustomFolderNames(organizationId, projectId)
+  return new Map(folders.map((folder) => [folder.id, folder.name]))
+}
+
+/**
+ * What clears folders for a member who is not the session: someone a
+ * conversation is shared with, or the asker of an agent turn. Read from the
+ * roles WorkOS reports for their membership (cached for at most a minute), and
+ * fails closed: no membership, or a lookup that failed, clears nothing.
+ */
+export async function clearanceOfMember(organizationId: string, userId: string): Promise<FolderClearance> {
+  const roles = await resolveMembershipRoles(organizationId, userId)
+  if (!roles || roles.length === 0) return { roles: [], seesEverything: false }
+  const admin = await Promise.all(
+    roles.map((role) => orgRoleHoldsPermission(role, ORG_PERMISSIONS.projectsAdminister, organizationId))
+  )
+  return { roles, seesEverything: admin.some(Boolean) }
+}
+
+/**
+ * Every folder of a project (tombstones included) `clearance` may read now:
+ * what content derived from folders — restricted memory — is served against
+ * (`memoryVisibleTo`). Reads the whole tree, because a note may name a folder
+ * that has since been opened, and an opened folder must open it.
+ */
+export async function readableFolderIdsFor(
   organizationId: string,
   projectId: string,
-  projectCollection: string
+  clearance: FolderClearance
+): Promise<string[]> {
+  const folders = await listProjectFolderTree(organizationId, projectId)
+  const tree = folderTree(folders)
+  return folders
+    .filter((folder) => atLeast(effectiveFolderLevel(tree, clearance, folder.id), 'read'))
+    .map((folder) => folder.id)
+}
+
+/**
+ * The source folder of each of `collections` that is a current restricted
+ * collection of the project; a name that is not one is absent from the map.
+ * How a writer that knows collections (the agent) names what it drew on.
+ */
+export async function sourceFoldersOfCollections(
+  organizationId: string,
+  projectId: string,
+  projectCollection: string,
+  collections: readonly string[]
 ): Promise<Map<string, string>> {
-  const folders = await listRestrictedFolderNames(organizationId, projectId)
-  return new Map(folders.map((folder) => [restrictedCollectionName(projectCollection, folder.id), folder.name]))
+  const found = new Map<string, string>()
+  if (collections.length === 0) return found
+  const folders = await loadCustomFolderTree(organizationId, projectId)
+  if (!folders) return found
+  const access = computeFolderAccess(folders, { roles: [], seesEverything: true }, projectCollection)
+  for (const collection of collections) {
+    const folderId = access.sourceFolderOf(collection)
+    if (folderId) found.set(collection, folderId)
+  }
+  return found
 }

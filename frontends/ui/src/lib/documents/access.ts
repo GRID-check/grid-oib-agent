@@ -15,7 +15,7 @@
 import 'server-only'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { isFolderVisibleTo } from '@/lib/authz/folder-access'
+import { isFolderVisibleTo, requireFolderWrite } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { requireResourceAccess } from '@/lib/sharing/access'
 import { canManageArchiv } from '@/lib/authz/organizations'
@@ -71,9 +71,13 @@ export async function getAccessibleDocument(
         doc.projectId,
         intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
       )
-      // A document under a folder this session is not cleared for does not
-      // exist for it (ADR-0078): not found, never forbidden.
+      // A document under a folder this session may not read does not exist
+      // for it (ADR-0078): not found, never forbidden.
       if (!(await isFolderVisibleTo(session, doc.projectId, doc.folderId))) throw new NotFoundError()
+      // Changing it is a write in its folder (ADR-0079): every rename, retag,
+      // re-ingest, new version, publish and archive passes through here, and a
+      // folder the session may only read refuses them all (403).
+      if (intent === 'write') await requireFolderWrite(session, doc.projectId, [doc.folderId])
       return doc
     }
     default: {

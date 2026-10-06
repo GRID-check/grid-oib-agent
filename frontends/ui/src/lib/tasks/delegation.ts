@@ -249,12 +249,6 @@ export interface DelegateTaskInput {
    * own thread holds the run.
    */
   conversationId?: string | null
-  /**
-   * The restricted-folder collections of the commissioning turn's VERIFIED
-   * envelope (ADR-0078). Any one refuses the delegation, as a conversation that
-   * drew on a restricted folder does: a task is listed to every project member.
-   */
-  signedRestrictedCollections?: readonly string[]
   /** The language of a refusal; the agent's own route leaves it German. */
   locale?: Locale
 }
@@ -294,7 +288,6 @@ export async function delegateTask(
   await requireMayLeaveConversation(
     {
       conversationId: input.conversationId ?? null,
-      signedRestrictedCollections: input.signedRestrictedCollections,
       locale: input.locale ?? AGENT_REFUSAL_LOCALE,
     },
     session.organizationId,
@@ -450,8 +443,6 @@ export interface CommissionResearchInput {
   dataSources?: string[] | null
   /** The Unterlagen the reader named on the plan card. */
   documents?: PlanDocuments | null
-  /** As on {@link DelegateTaskInput.signedRestrictedCollections}. */
-  signedRestrictedCollections?: readonly string[]
   /** The language of a refusal; the agent's own route leaves it German. */
   locale?: Locale
 }
@@ -512,7 +503,6 @@ export async function commissionResearchRun(
   await requireMayLeaveConversation(
     {
       conversationId: input.conversationId,
-      signedRestrictedCollections: input.signedRestrictedCollections,
       locale: input.locale ?? AGENT_REFUSAL_LOCALE,
     },
     session.organizationId,

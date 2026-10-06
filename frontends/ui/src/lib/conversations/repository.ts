@@ -14,10 +14,11 @@
 import 'server-only'
 import { and, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import type { DbExecutor } from '@/lib/db/executor'
 import { stripJsonNullBytes } from '@/lib/text/jsonb'
 import {
   conversationReads,
-  conversationRestrictedTurns,
+  conversationRestrictedFolders,
   conversations,
   deletionQueue,
   messages,
@@ -319,97 +320,6 @@ export async function findConversationTenancy(
   return row ?? null
 }
 
-/** Distinct restricted collections returned per probe; one is enough to refuse. */
-const RESTRICTED_ANSWER_COLLECTIONS_LIMIT = 20
-
-/**
- * The restricted-folder collections (ADR-0078) this conversation's stored
- * answers name, cited (`citations`) or read without citing (`readSources`).
- *
- * Both envelopes carry each source's `collection` as the backend stated it, for
- * the browser writer and the backend writer alike (`agent-answer-metadata.ts`).
- * Read-but-uncited counts: a passage the answer drew on without a surviving
- * citation is still in the prose. The jsonpath filter is a pre-filter on the
- * name's shape; the caller decides with `restrictedCollectionBase`, the one
- * rule. Scoped by organization, bounded by `LIMIT`, and `lax` so a malformed
- * row (the column is browser-fed) matches nothing rather than throwing.
- */
-export async function listRestrictedAnswerCollections(
-  conversationId: string,
-  organizationId: string,
-): Promise<string[]> {
-  const db = getDb()
-  const path = 'lax $[*].sources[*].collection ? (@ like_regex "_r[0-9a-f]{12}$")'
-  const collection = sql<string>`jsonb_path_query(jsonb_build_array(${messages.metadata} -> 'citations', ${messages.metadata} -> 'readSources'), ${path}::jsonpath) #>> '{}'`
-  const rows = await db
-    .selectDistinct({ collection })
-    .from(messages)
-    .where(and(eq(messages.conversationId, conversationId), eq(messages.organizationId, organizationId)))
-    .limit(RESTRICTED_ANSWER_COLLECTIONS_LIMIT)
-  return rows.map((row) => String(row.collection))
-}
-
-/**
- * Mark that a turn of this conversation is about to run with a restricted
- * folder's collection in its scope (ADR-0078). Idempotent: the first call
- * inserts, every later one bumps `last_at` and `turn_count`.
- *
- * Returns whether this call created the mark (`turn_count` is 1), which is what
- * {@link withdrawFreshRestrictedTurn} needs to undo a refused first ask.
- */
-export async function recordRestrictedTurn(
-  conversationId: string,
-  organizationId: string,
-): Promise<{ created: boolean }> {
-  const db = getDb()
-  const [row] = await db
-    .insert(conversationRestrictedTurns)
-    .values({ organizationId, conversationId })
-    .onConflictDoUpdate({
-      target: [conversationRestrictedTurns.organizationId, conversationRestrictedTurns.conversationId],
-      set: {
-        lastAt: sql`now()`,
-        turnCount: sql`${conversationRestrictedTurns.turnCount} + 1`,
-      },
-    })
-    .returning({ turnCount: conversationRestrictedTurns.turnCount })
-  return { created: Number(row?.turnCount) === 1 }
-}
-
-/**
- * Remove a mark only its first asker wrote, after that ask was refused. A mark
- * a second turn also wrote (`turn_count` above 1) stays: that turn may be
- * running.
- */
-export async function withdrawFreshRestrictedTurn(conversationId: string, organizationId: string): Promise<void> {
-  const db = getDb()
-  await db
-    .delete(conversationRestrictedTurns)
-    .where(
-      and(
-        eq(conversationRestrictedTurns.organizationId, organizationId),
-        eq(conversationRestrictedTurns.conversationId, conversationId),
-        eq(conversationRestrictedTurns.turnCount, 1),
-      ),
-    )
-}
-
-/** Whether a turn of this conversation ran with a restricted collection in its scope. */
-export async function hasRestrictedTurn(conversationId: string, organizationId: string): Promise<boolean> {
-  const db = getDb()
-  const [row] = await db
-    .select({ conversationId: conversationRestrictedTurns.conversationId })
-    .from(conversationRestrictedTurns)
-    .where(
-      and(
-        eq(conversationRestrictedTurns.organizationId, organizationId),
-        eq(conversationRestrictedTurns.conversationId, conversationId),
-      ),
-    )
-    .limit(1)
-  return row !== undefined
-}
-
 /**
  * Set a conversation's blanket visibility, scoped to the organization in SQL.
  * Returns null when the row does not exist in this org (caller maps to 404).
@@ -418,9 +328,9 @@ export async function updateConversationVisibilityInOrg(
   conversationId: string,
   organizationId: string,
   visibility: ResourceVisibility,
+  executor: DbExecutor = getDb(),
 ): Promise<Conversation | null> {
-  const db = getDb()
-  const [row] = await db
+  const [row] = await executor
     .update(conversations)
     .set({ visibility, updatedAt: new Date() })
     .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
@@ -587,23 +497,24 @@ export async function recordConversationErased(
 }
 
 /**
- * Delete a conversation (messages cascade) and its restricted-turn mark.
- * Tenant isolation lives in the WHERE clause — deleting by id alone would let
- * any signed-in user delete another org's conversation by guessing ids.
+ * Delete a conversation (messages cascade) and the record of the restricted
+ * folders it drew on. Tenant isolation lives in the WHERE clause — deleting by
+ * id alone would let any signed-in user delete another org's conversation by
+ * guessing ids.
  */
 export async function deleteConversationInOrg(conversationId: string, organizationId: string): Promise<void> {
   const db = getDb()
   await db
     .delete(conversations)
     .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
-  // The restricted-turn mark has no foreign key (a first turn runs before the
-  // row exists), so it goes here, after the row it describes.
+  // The record has no foreign key (a first turn runs before the row exists),
+  // so it goes here, after the row it describes.
   await db
-    .delete(conversationRestrictedTurns)
+    .delete(conversationRestrictedFolders)
     .where(
       and(
-        eq(conversationRestrictedTurns.organizationId, organizationId),
-        eq(conversationRestrictedTurns.conversationId, conversationId),
+        eq(conversationRestrictedFolders.organizationId, organizationId),
+        eq(conversationRestrictedFolders.conversationId, conversationId),
       ),
     )
 }
@@ -631,9 +542,9 @@ export async function deleteConversationInOrg(conversationId: string, organizati
  * profile patch is not proposed again next turn (ADR-0030's open question).
  * Tenant-scoped through the conversation's organization, and bounded — a
  * project's whole history of decisions is not what the next turn needs.
- * Conversations with a restricted turn (`conversation_restricted_turns`) are
- * left out: their cards may restate a restricted folder, and this block is
- * project-wide.
+ * Conversations that drew on a restricted folder
+ * (`conversation_restricted_folders`) are left out: their cards may restate
+ * it, and this block is project-wide.
  */
 export async function listRecentMessagesWithCardDecisions(
   projectId: string,
@@ -651,10 +562,10 @@ export async function listRecentMessagesWithCardDecisions(
         eq(conversations.organizationId, organizationId),
         isNull(conversations.deletedAt),
         sql`${messages.metadata} ? 'cardInteractions'`,
-        // A conversation that ran a restricted turn (ADR-0078) keeps its
+        // A conversation that drew on a restricted folder (ADR-0078) keeps its
         // proposals to itself: the block is read into every member's digest,
         // and a card's words can carry what a restricted folder said.
-        sql`not exists (select 1 from ${conversationRestrictedTurns} r where r.organization_id = ${conversations.organizationId} and r.conversation_id = ${conversations.id})`,
+        sql`not exists (select 1 from ${conversationRestrictedFolders} r where r.organization_id = ${conversations.organizationId} and r.conversation_id = ${conversations.id})`,
       ),
     )
     .orderBy(desc(messages.createdAt), desc(messages.id))

@@ -5,6 +5,7 @@
 import { getTokenClaims, withAuth } from '@workos-inc/authkit-nextjs'
 import { getWorkOS } from '@/lib/workos/client'
 import { getCached } from '@/lib/cache'
+import { resolveMembershipRoles } from './membership-roles'
 import { clearTenantContext, enterTenantContext } from '@/lib/db/tenant-context'
 import type { GridSession } from './types'
 
@@ -82,9 +83,13 @@ export async function getGridSession(): Promise<GridSession | null> {
 
   const organizationId = auth.organizationId ?? null
 
-  const organizationMembershipId = organizationId
-    ? await resolveOrganizationMembershipId(auth.user.id, organizationId)
-    : null
+  const [organizationMembershipId, memberRoles] = organizationId
+    ? await Promise.all([
+        resolveOrganizationMembershipId(auth.user.id, organizationId),
+        resolveMembershipRoles(organizationId, auth.user.id),
+      ])
+    : [null, null]
+  const tokenRole = auth.role ?? (typeof claims.role === 'string' ? claims.role : null)
 
   const session: GridSession = {
     userId: auth.user.id,
@@ -93,8 +98,11 @@ export async function getGridSession(): Promise<GridSession | null> {
     accessToken: auth.accessToken,
     organizationId,
     organizationMembershipId,
-    role: auth.role ?? (typeof claims.role === 'string' ? claims.role : null),
-    roles: sessionRoles(auth.roles, claims.roles, auth.role ?? (typeof claims.role === 'string' ? claims.role : null)),
+    role: tokenRole,
+    // The roles folder access is decided on (ADR-0079): WorkOS's membership,
+    // at most a minute old, so a revoked role stops opening folders within a
+    // minute; the token's claim only when WorkOS could not be asked.
+    roles: memberRoles ?? sessionRoles(auth.roles, claims.roles, tokenRole),
     permissions: auth.permissions ?? [],
     featureFlags: auth.featureFlags ?? null,
     profilePictureUrl: auth.user.profilePictureUrl ?? null,

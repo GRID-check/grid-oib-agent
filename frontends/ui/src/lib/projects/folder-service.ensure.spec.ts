@@ -14,12 +14,15 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/authz/folder-access', () => ({
+vi.mock('@/lib/authz/folder-access', async () => ({
+  ...(await import('@/test-utils/folder-access')).openFolderAccessModule(),
   getProjectFolderAccess: vi.fn(async () => ({
     hiddenFolderIds: new Set<string>(),
     isVisible: () => true,
     collectionFor: () => 'proj_collection',
     clearedRestrictedCollections: [],
+    levelOf: () => 'write',
+    sourceFolderOf: () => null,
     anyRestricted: false,
   })),
 }))
@@ -45,7 +48,8 @@ vi.mock('@/lib/authz/projects', () => ({
 
 import { getDb } from '@/lib/db'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { getProjectFolderAccess } from '@/lib/authz/folder-access'
+import { ForbiddenError } from '@/lib/api/errors'
+import { getProjectFolderAccess, type FolderLevel, type ProjectFolderAccess } from '@/lib/authz/folder-access'
 import { asDb } from '@/test-utils/db-fixtures'
 import { ensureProjectFolderPaths } from './folder-service'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -239,11 +243,13 @@ describe('ensureProjectFolderPaths', () => {
 describe('ensureProjectFolderPaths and folders the reader may not see (ADR-0078)', () => {
   const HIDDEN = 'f-honorare'
   /** `Honorare` is restricted to a role this session does not hold. */
-  const hiding = (...ids: string[]) => ({
+  const hiding = (...ids: string[]): ProjectFolderAccess => ({
     hiddenFolderIds: new Set(ids),
     isVisible: (id: string | null) => id === null || !ids.includes(id),
     collectionFor: () => 'proj_collection',
     clearedRestrictedCollections: [],
+    levelOf: (id: string | null): FolderLevel => (id !== null && ids.includes(id) ? 'none' : 'write'),
+    sourceFolderOf: () => null,
     anyRestricted: true,
   })
 
@@ -322,5 +328,37 @@ describe('ensureProjectFolderPaths and folders the reader may not see (ADR-0078)
     )
 
     expect(result).toEqual({ ok: false, error: 'A folder with this name already exists here.' })
+  })
+})
+
+describe('ensureProjectFolderPaths and folders the reader may only read (ADR-0079)', () => {
+  const READ_ONLY = 'f-plaene'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' } as never)
+    vi.mocked(getProjectFolderAccess).mockResolvedValue({
+      hiddenFolderIds: new Set(),
+      isVisible: () => true,
+      collectionFor: () => 'proj_collection',
+      clearedRestrictedCollections: [],
+      levelOf: (id: string | null): FolderLevel => (id === READ_ONLY ? 'read' : 'write'),
+      sourceFolderOf: () => null,
+      anyRestricted: true,
+    })
+  })
+
+  it('matches a read-only folder (the upload into it asks on its own) but creates nothing below it', async () => {
+    const fake = fakeDb([row(READ_ONLY, 'Pläne', 'Pläne')])
+    vi.mocked(getDb).mockReturnValue(fake.db)
+
+    const matched = await ensureProjectFolderPaths({ projectId: 'proj-1', parentId: null, paths: ['Pläne'] }, session)
+    if (!matched.ok) throw new Error(matched.error)
+    expect(matched.folderIdByPath['Pläne']).toBe(READ_ONLY)
+
+    await expect(
+      ensureProjectFolderPaths({ projectId: 'proj-1', parentId: null, paths: ['Pläne/Neu'] }, session)
+    ).rejects.toBeInstanceOf(ForbiddenError)
+    expect(fake.insert).not.toHaveBeenCalled()
   })
 })

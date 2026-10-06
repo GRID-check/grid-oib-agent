@@ -40,7 +40,7 @@ import { loadOrganizationDirectory, unknownPerson } from '@/lib/sharing/director
 import { describeResource, roleSatisfies } from '@/lib/sharing/registry'
 import { consumeLimit, MAX_MENTIONS_PER_MESSAGE, memberSubject, MENTION_LIMIT } from '@/lib/limits'
 import { grantResourceAccess, resolveParticipants } from '@/lib/sharing/service'
-import type { DirectoryPerson, ShareCandidate } from '@/lib/sharing/types'
+import { SHARING_ERROR_REASONS, type DirectoryPerson, type ShareCandidate } from '@/lib/sharing/types'
 import {
   findRequestById,
   insertMentionRequests,
@@ -393,8 +393,17 @@ async function inviteMentionTarget(
     if (reason === MENTION_ERROR_REASONS.containerAccessRequired) {
       throw containerAccessRefusal(targetId)
     }
+    // Not cleared for a restricted folder the thread drew on (ADR-0078): the
+    // same refusal, told about the person it names, as the container one is.
+    if (reason === SHARING_ERROR_REASONS.restrictedContent && error instanceof ApiError) {
+      throw new ApiError(error.status, error.code, error.message, { ...asRecord(error.details), targetId })
+    }
     throw error
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
 }
 
 /** The machine-readable `reason` an `ApiError` carries, when it carries one. */

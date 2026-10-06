@@ -18,10 +18,10 @@ const ROLES: OrganizationRoles = {
   assignable: null,
 }
 
-const OPEN: FolderItem = { id: 'f-1', parentId: null, name: 'Verträge', path: '/Verträge', restrictedRoles: null }
-const RESTRICTED: FolderItem = { ...OPEN, restrictedRoles: ['org-geschaeftsfuehrung'] }
+const INHERITS: FolderItem = { id: 'f-1', parentId: null, name: 'Verträge', path: '/Verträge', grants: null }
+const CUSTOM: FolderItem = { ...INHERITS, grants: [{ role: 'org-geschaeftsfuehrung', level: 'write' }] }
 
-function stubPut(result: { roles: string[] | null; moved: number; failed: string[] }, status = 200): void {
+function stubPut(result: { access: unknown; moved: number; failed: string[] }, status = 200): void {
   vi.stubGlobal(
     'fetch',
     vi.fn(async () =>
@@ -48,71 +48,104 @@ function renderDialog(folder: FolderItem, onSaved = vi.fn()) {
   return { dialog: screen.getByTestId('folder-access-dialog'), onSaved }
 }
 
-describe('FolderAccessDialog', () => {
+/** Add a role through the „Rolle hinzufügen" picker (a Radix select). */
+function addRole(dialog: HTMLElement, name: string): void {
+  const trigger = within(dialog).getByTestId('folder-access-add')
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: 'mouse' })
+  fireEvent.click(screen.getByRole('option', { name }))
+}
+
+describe('FolderAccessDialog (ADR-0079)', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => vi.unstubAllGlobals())
 
-  it('restricts an open folder to the chosen roles and reports the documents being moved', async () => {
-    stubPut({ roles: ['org-geschaeftsfuehrung', 'org-projektleitung'], moved: 4, failed: [] })
-    const { dialog, onSaved } = renderDialog(OPEN)
+  it('gives an inheriting folder its own list, each role with Read or Edit, and reports the documents moved', async () => {
+    stubPut(
+      {
+        access: {
+          mode: 'custom',
+          grants: [
+            { role: 'org-geschaeftsfuehrung', level: 'write' },
+            { role: '*', level: 'read' },
+          ],
+        },
+        moved: 4,
+        failed: [],
+      },
+    )
+    const { dialog, onSaved } = renderDialog(INHERITS)
 
     const save = within(dialog).getByTestId('folder-access-save')
     expect(save).toBeDisabled()
-    fireEvent.click(within(dialog).getByTestId('folder-access-restricted'))
-    // Restricted to nobody is not a choice the dialog offers.
+    fireEvent.click(within(dialog).getByTestId('folder-access-custom'))
+    // An own list naming nobody is not a choice the dialog offers.
     expect(within(dialog).getByTestId('folder-access-pick-one')).toBeInTheDocument()
     expect(save).toBeDisabled()
 
-    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Geschäftsführung' }))
-    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Projektleitung' }))
-    expect(within(dialog).getByTestId('folder-access-move-notice')).toHaveTextContent(/read them again/)
+    addRole(dialog, 'Geschäftsführung')
+    addRole(dialog, 'All project members')
+    // A new entry reads; Geschäftsführung is raised to Edit.
+    const row = within(dialog).getByTestId('folder-access-grant-org-geschaeftsfuehrung')
+    fireEvent.click(within(row).getByRole('radio', { name: 'Edit' }))
+    expect(within(dialog).getByTestId('folder-access-move-notice')).toHaveTextContent(/reads them again/)
     fireEvent.click(save)
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
     expect(vi.mocked(fetch).mock.calls[0][0]).toBe('/api/projects/p-1/folders/f-1/access')
-    expect(putBody()).toEqual({ roles: ['org-geschaeftsfuehrung', 'org-projektleitung'] })
-    expect(toast.success).toHaveBeenCalledWith('“Verträge” is now restricted.', {
+    expect(putBody()).toEqual({
+      mode: 'custom',
+      grants: [
+        { role: 'org-geschaeftsfuehrung', level: 'write' },
+        { role: '*', level: 'read' },
+      ],
+    })
+    expect(toast.success).toHaveBeenCalledWith('“Verträge” now has its own access.', {
       description: '4 documents are being moved and read again.',
     })
   })
 
-  it('opens a restricted folder to everyone with roles: null', async () => {
-    stubPut({ roles: null, moved: 1, failed: ['d-9'] })
-    const { dialog } = renderDialog(RESTRICTED)
-    expect(within(dialog).getByRole('checkbox', { name: 'Geschäftsführung' })).toBeChecked()
+  it('takes a role off the list, and makes the folder inherit again', async () => {
+    stubPut({ access: { mode: 'inherit' }, moved: 1, failed: ['d-9'] })
+    const { dialog } = renderDialog(CUSTOM)
+    const row = within(dialog).getByTestId('folder-access-grant-org-geschaeftsfuehrung')
+    expect(within(row).getByRole('radio', { name: 'Edit' })).toHaveAttribute('aria-checked', 'true')
 
-    fireEvent.click(within(dialog).getByTestId('folder-access-everyone'))
+    fireEvent.click(within(row).getByRole('button', { name: 'Remove Geschäftsführung' }))
+    expect(within(dialog).queryByTestId('folder-access-grant-org-geschaeftsfuehrung')).toBeNull()
+    expect(within(dialog).getByTestId('folder-access-save')).toBeDisabled()
+
+    fireEvent.click(within(dialog).getByTestId('folder-access-inherit'))
     fireEvent.click(within(dialog).getByTestId('folder-access-save'))
 
     await waitFor(() => expect(toast.success).toHaveBeenCalled())
-    expect(putBody()).toEqual({ roles: null })
+    expect(putBody()).toEqual({ mode: 'inherit' })
     // A document that could not move is said out loud, with what to do.
     expect(toast.warning).toHaveBeenCalledWith('1 document could not be moved yet. Save again to retry.')
   })
 
   it('says only project admins may change access when the route refuses', async () => {
-    stubPut({ roles: null, moved: 0, failed: [] }, 404)
-    const { dialog } = renderDialog(RESTRICTED)
-    fireEvent.click(within(dialog).getByTestId('folder-access-everyone'))
+    stubPut({ access: { mode: 'inherit' }, moved: 0, failed: [] }, 404)
+    const { dialog } = renderDialog(CUSTOM)
+    fireEvent.click(within(dialog).getByTestId('folder-access-inherit'))
     fireEvent.click(within(dialog).getByTestId('folder-access-save'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Only project admins can change who may see a folder.')
+      expect(toast.error).toHaveBeenCalledWith('Only project admins can change who may read and edit a folder.')
     )
   })
 
   it('says why when the folder holds IFC models (ADR-0078)', async () => {
-    stubPut({ roles: null, moved: 0, failed: [] }, 409)
-    const { dialog } = renderDialog(OPEN)
-    fireEvent.click(within(dialog).getByTestId('folder-access-restricted'))
-    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'Geschäftsführung' }))
+    stubPut({ access: { mode: 'inherit' }, moved: 0, failed: [] }, 409)
+    const { dialog } = renderDialog(INHERITS)
+    fireEvent.click(within(dialog).getByTestId('folder-access-custom'))
+    addRole(dialog, 'Geschäftsführung')
     fireEvent.click(within(dialog).getByTestId('folder-access-save'))
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('cannot be filed in a restricted folder yet'))
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('cannot be filed in a folder not everyone may read'))
     )
   })
 })
 
-describe('restricted folder tiles', () => {
+describe('folder tiles under read/write access', () => {
   const tile = {
     itemCount: 2,
     onOpen: vi.fn(),
@@ -120,26 +153,48 @@ describe('restricted folder tiles', () => {
     onDeleteFolder: vi.fn(async () => true),
   }
 
-  it('draw a lock and name the roles in the open button', () => {
-    render(<FolderCard folder={RESTRICTED} restrictedRoleNames={['Geschäftsführung']} {...tile} />)
-    expect(screen.getByTestId('folder-lock-f-1')).toHaveAttribute('data-roles', 'Geschäftsführung')
+  it('draw a lock and name the list in the open button', () => {
+    render(<FolderCard folder={CUSTOM} restrictedRoleNames={['Geschäftsführung (Edit)']} {...tile} />)
+    expect(screen.getByTestId('folder-lock-f-1')).toHaveAttribute('data-roles', 'Geschäftsführung (Edit)')
     expect(
-      screen.getByRole('button', { name: 'Open folder “Verträge”, restricted to: Geschäftsführung' })
+      screen.getByRole('button', { name: 'Open folder “Verträge”, access: Geschäftsführung (Edit)' })
     ).toBeInTheDocument()
   })
 
-  it('draw no lock on an open folder, in the list view either', () => {
-    render(<FolderRow folder={OPEN} {...tile} />)
+  it('draw no lock on a folder that inherits, in the list view either', () => {
+    render(<FolderRow folder={INHERITS} {...tile} />)
     expect(screen.queryByTestId('folder-lock-f-1')).toBeNull()
     expect(screen.getByRole('button', { name: 'Open folder “Verträge”' })).toBeInTheDocument()
+  })
+
+  it('mark a folder the reader may only read „Read only“, in both views', () => {
+    const { unmount } = render(<FolderCard folder={CUSTOM} readOnly {...tile} />)
+    expect(screen.getByTestId('folder-read-only-f-1')).toHaveTextContent('Read only')
+    unmount()
+    render(<FolderRow folder={CUSTOM} readOnly {...tile} />)
+    expect(screen.getByTestId('folder-read-only-f-1')).toBeInTheDocument()
+  })
+
+  it('mark nothing on a folder the reader may write', () => {
+    render(<FolderCard folder={CUSTOM} {...tile} />)
+    expect(screen.queryByTestId('folder-read-only-f-1')).toBeNull()
   })
 })
 
 describe('folderActionEntries', () => {
   const base = {
-    folder: OPEN,
-    labels: { open: 'Open', newInside: 'New', rename: 'Rename', move: 'Move', delete: 'Delete', allFiles: 'All' },
+    folder: INHERITS,
+    labels: {
+      open: 'Open',
+      newInside: 'New',
+      rename: 'Rename',
+      move: 'Move',
+      delete: 'Delete',
+      allFiles: 'All',
+      readOnly: 'Read only',
+    },
     onOpen: vi.fn(),
+    onNewInside: vi.fn(),
     onRename: vi.fn(),
     onDelete: vi.fn(),
   }
@@ -152,5 +207,12 @@ describe('folderActionEntries', () => {
     expect(ids(folderActionEntries({ ...base, labels: { ...base.labels, access: 'Access…' }, onAccess }))).toContain(
       'access'
     )
+  })
+
+  it('offers no write entry on a read-only folder, and says why', () => {
+    const entries = folderActionEntries({ ...base, readOnly: true })
+    expect(ids(entries)).toEqual(['open', 'read-only'])
+    expect(entries.find((entry) => 'id' in entry && entry.id === 'read-only')).toMatchObject({ disabled: true })
+    expect(ids(folderActionEntries(base))).toEqual(expect.arrayContaining(['new-inside', 'rename', 'delete']))
   })
 })

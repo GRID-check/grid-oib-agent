@@ -93,6 +93,7 @@ from aiq_agent.common.turn_status import is_retrieval_round
 from aiq_agent.common.turn_status import record_round_announcement
 from aiq_agent.common.turn_status import retrieval_round_scope
 from aiq_agent.knowledge.already_read import merge_digest
+from aiq_agent.knowledge.restricted_use import admit_tool_results
 from aiq_agent.observability.langfuse_trace_attributes import begin_turn_prompt_link
 from aiq_agent.observability.langfuse_trace_attributes import end_turn_prompt_link
 from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
@@ -1336,7 +1337,11 @@ class PilotiAgent:
         registry = get_session_registry()
         if registry is None:
             raise RuntimeError("PilotiAgent graph invoked outside run(): no source registry is bound")
-        ran_messages = list(result.get("messages", []))
+        # Restricted content is admitted for the conversation BEFORE anything
+        # reads it (ADR-0078, ADR-0079): a result from a folder the BFF refuses
+        # (a share raced the turn) is replaced by a notice here, so neither the
+        # source registry nor the model ever sees its passages.
+        ran_messages = await admit_tool_results(list(result.get("messages", [])))
         measured = self._capture_round(ran_messages, binding, registry, state)
         # AFTER the capture, which files the sources under the bytes the tool
         # returned: from here on the transcript, the repeat-fetch answers and

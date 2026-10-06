@@ -18,7 +18,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
-import { isFolderVisibleTo } from '@/lib/authz/folder-access'
+import { isFolderVisibleTo, requireFolderWrite } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { Document } from '@/lib/db/schema'
 import {
@@ -77,6 +77,10 @@ export async function releaseQuarantinedDocument(
   if (!doc.contentHash || !doc.storageKey) {
     throw new ConflictError('This document has no recorded digest, so its release cannot name its bytes')
   }
+  // Releasing files the document into its folder for good: a write there
+  // (ADR-0079). A reviewer who may only read the folder sees the document and
+  // cannot release it (403); an organization admin writes everywhere.
+  if (doc.scope === 'project' && doc.projectId) await requireFolderWrite(session, doc.projectId, [doc.folderId])
 
   const releasedAt = new Date()
   const took = await markScreeningReleased(doc.id, session.organizationId, {

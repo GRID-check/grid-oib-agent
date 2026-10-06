@@ -1,18 +1,26 @@
 /**
- * The two reads the folder-access decision makes (ADR-0078). Kept apart from
- * the documents repository so the decision point owns its own SQL.
+ * The reads the folder-access decision makes (ADR-0078, ADR-0079). Kept apart
+ * from the documents repository so the decision point owns its own SQL.
+ *
+ * The tree includes deleted folders' tombstones (migration 0108): content
+ * derived from a deleted folder is still judged by the access it had. Every
+ * other read here — names, the sweep — is of living folders only.
  */
 
 import 'server-only'
-import { and, asc, count, eq, gt, inArray, isNotNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, count, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
-import { documents, projectFolders, projects } from '@/lib/db/schema'
+import { documents, projectFolderGrants, projectFolders, projects } from '@/lib/db/schema'
 import { IFC_EXTENSIONS } from '@/lib/bim/types'
-import type { AccessFolder } from './folder-access'
+import type { AccessFolder, FolderGrant } from './folder-access'
 
-/** Whether any folder of the project is restricted. The partial index makes this one probe. */
-export async function projectHasRestrictedFolders(organizationId: string, projectId: string): Promise<boolean> {
+/**
+ * Whether any folder of the project, living or deleted, has its own access
+ * list. The partial index makes this one probe; false is the fast path, where
+ * every folder is what the project's permissions make it.
+ */
+export async function projectHasCustomFolders(organizationId: string, projectId: string): Promise<boolean> {
   const db = getDb()
   const rows = await withTenant({ organizationId }, () =>
     db
@@ -23,7 +31,7 @@ export async function projectHasRestrictedFolders(organizationId: string, projec
         and(
           eq(projectFolders.projectId, projectId),
           eq(projects.organizationId, organizationId),
-          isNotNull(projectFolders.restrictedRoles)
+          eq(projectFolders.accessMode, 'custom')
         )
       )
       .limit(1)
@@ -31,25 +39,57 @@ export async function projectHasRestrictedFolders(organizationId: string, projec
   return rows.length > 0
 }
 
-/** The project's whole folder tree, as the decision reads it. */
+/** Most grants one project's folders hold, read back; 20 per custom folder by the 0108 trigger. */
+const PROJECT_GRANTS_LIMIT = 20_000
+
+/** The project's whole folder tree, tombstones included, with each custom folder's grants. */
 export async function listProjectFolderTree(organizationId: string, projectId: string): Promise<AccessFolder[]> {
   const db = getDb()
-  const rows = await withTenant({ organizationId }, () =>
-    db
-      .select({
-        id: projectFolders.id,
-        parentId: projectFolders.parentId,
-        restrictedRoles: projectFolders.restrictedRoles,
-      })
-      .from(projectFolders)
-      .innerJoin(projects, eq(projects.id, projectFolders.projectId))
-      .where(and(eq(projectFolders.projectId, projectId), eq(projects.organizationId, organizationId)))
+  const [rows, grants] = await withTenant({ organizationId }, () =>
+    Promise.all([
+      db
+        .select({
+          id: projectFolders.id,
+          parentId: projectFolders.parentId,
+          accessMode: projectFolders.accessMode,
+          deletedAt: projectFolders.deletedAt,
+        })
+        .from(projectFolders)
+        .innerJoin(projects, eq(projects.id, projectFolders.projectId))
+        .where(and(eq(projectFolders.projectId, projectId), eq(projects.organizationId, organizationId))),
+      db
+        .select({
+          folderId: projectFolderGrants.folderId,
+          role: projectFolderGrants.roleSlug,
+          level: projectFolderGrants.level,
+        })
+        .from(projectFolderGrants)
+        .where(
+          and(eq(projectFolderGrants.projectId, projectId), eq(projectFolderGrants.organizationId, organizationId))
+        )
+        .limit(PROJECT_GRANTS_LIMIT),
+    ])
   )
-  return rows.map((row) => ({ id: row.id, parentId: row.parentId, restrictedRoles: row.restrictedRoles ?? null }))
+  const byFolder = new Map<string, FolderGrant[]>()
+  for (const grant of grants) {
+    const list = byFolder.get(grant.folderId) ?? []
+    list.push({ role: grant.role, level: grant.level })
+    byFolder.set(grant.folderId, list)
+  }
+  return rows.map((row) => ({
+    id: row.id,
+    parentId: row.parentId,
+    accessMode: row.accessMode,
+    grants: row.accessMode === 'custom' ? (byFolder.get(row.id) ?? []) : [],
+    deleted: row.deletedAt !== null,
+  }))
 }
 
-/** The project's restricted folders by name — for labelling a restriction, never for deciding one. */
-export async function listRestrictedFolderNames(
+/**
+ * The project's folders with their own access list, by name, tombstones
+ * included — for labelling a restriction, never for deciding one.
+ */
+export async function listCustomFolderNames(
   organizationId: string,
   projectId: string
 ): Promise<Array<{ id: string; name: string }>> {
@@ -63,7 +103,7 @@ export async function listRestrictedFolderNames(
         and(
           eq(projectFolders.projectId, projectId),
           eq(projects.organizationId, organizationId),
-          isNotNull(projectFolders.restrictedRoles)
+          eq(projectFolders.accessMode, 'custom')
         )
       )
       .limit(500)
@@ -128,7 +168,7 @@ export async function countIfcDocumentsInFolders(
 }
 
 /**
- * Projects, across every organization, that restrict at least one folder: what
+ * Projects, across every organization, with at least one living folder that has its own access list: what
  * the placement sweep retries (`lib/projects/placement-sweep.ts`). One page in
  * project-id order, so the sweep can walk all of them a page at a time and
  * none sits forever behind the limit. Discovery only; each project is then
@@ -145,7 +185,8 @@ export async function listProjectsWithRestrictedFolders(
     .innerJoin(projects, eq(projects.id, projectFolders.projectId))
     .where(
       and(
-        isNotNull(projectFolders.restrictedRoles),
+        eq(projectFolders.accessMode, 'custom'),
+        isNull(projectFolders.deletedAt),
         ...(page.after ? [gt(projectFolders.projectId, page.after)] : []),
         ...(page.upTo ? [lte(projectFolders.projectId, page.upTo)] : [])
       )

@@ -76,12 +76,6 @@ export interface FileAgentDocumentDraftInput {
    * origin is a fact the route read out of a signature.
    */
   originConversationId?: string | null
-  /**
-   * The restricted-folder collections of the filing turn's VERIFIED envelope.
-   * With the origin conversation, what decides whether this content may be
-   * filed where it is going (ADR-0078, `restricted-egress.ts`).
-   */
-  signedRestrictedCollections?: readonly string[]
   /** The language of a refusal; the agent's own route leaves it German. */
   locale?: Locale
 }
@@ -139,7 +133,6 @@ export async function fileAgentDocumentDraft(
     render: ({ marking }) => renderAgentDocumentMarkdown(input.content, marking, branding),
     origin: {
       conversationId: input.originConversationId ?? null,
-      signedRestrictedCollections: input.signedRestrictedCollections,
       locale: input.locale ?? AGENT_REFUSAL_LOCALE,
     },
   })

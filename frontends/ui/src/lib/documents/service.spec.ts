@@ -151,7 +151,13 @@ import {
   setDocumentDisplayName,
   setDocumentReconciledStatus,
 } from './repository'
-import { getHiddenFolderIds, getProjectFolderAccess, type ProjectFolderAccess } from '@/lib/authz/folder-access'
+import {
+  DOCUMENT_WRITE_PERMISSIONS,
+  getHiddenFolderIds,
+  getProjectFolderAccess,
+  requireFolderWrite,
+  type ProjectFolderAccess,
+} from '@/lib/authz/folder-access'
 import {
   listDocuments,
   listDocumentsPage,
@@ -243,6 +249,12 @@ beforeEach(() => {
   // unmocked puts every upload path on a shape the application cannot produce,
   // and would have made the guard look breakable when it is not.
   vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument())
+  // The real `requireFolderWrite` checks the project's document-write
+  // permission first (the ceiling, ADR-0079); the open mock keeps that step so
+  // the 403/404 cases below still reach `requireProjectAccess`.
+  vi.mocked(requireFolderWrite).mockImplementation(async (s, projectId) => {
+    await requireProjectAccess(s, projectId, DOCUMENT_WRITE_PERMISSIONS)
+  })
 })
 
 afterEach(() => {
@@ -416,6 +428,8 @@ describe('uploadDocument refuses an IFC model into a restricted folder', () => {
     isVisible: () => true,
     collectionFor: (folderId) => (folderId === 'f-restricted' ? 'proj_abc_r0123456789ab' : 'proj_abc'),
     clearedRestrictedCollections: ['proj_abc_r0123456789ab'],
+    levelOf: () => 'write',
+    sourceFolderOf: () => null,
     anyRestricted: true,
   })
 
@@ -1515,6 +1529,21 @@ describe('deleteDocument', () => {
     await expect(deleteDocument(session, 'doc-1', new Request('http://x'))).rejects.toBeInstanceOf(
       ForbiddenError
     )
+    expect(deleteProjectDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('refuses a delete in a folder the session may only read (ADR-0079), before any side effects', async () => {
+    const { folderReadOnlyError } = await import('@/lib/authz/folder-access-rule')
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, folderId: 'folder-read-only' })
+    vi.mocked(requireFolderWrite).mockRejectedValueOnce(folderReadOnlyError())
+
+    const error = await deleteDocument(session, 'doc-1', new Request('http://x')).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(ForbiddenError)
+    expect((error as ForbiddenError).details).toEqual({ reason: 'folder-read-only' })
+    expect(requireFolderWrite).toHaveBeenCalledWith(session, 'proj-1', ['folder-read-only'])
+    expect(isCoveredByActiveHold).not.toHaveBeenCalled()
     expect(deleteProjectDocument).not.toHaveBeenCalled()
     expect(recordAuditEvent).not.toHaveBeenCalled()
   })
@@ -2861,6 +2890,8 @@ describe('restricted folders (ADR-0078)', () => {
     isVisible: (folderId) => folderId !== HIDDEN,
     collectionFor: (folderId) => (folderId === 'folder-cleared' ? RESTRICTED_COLLECTION : 'proj_abc'),
     clearedRestrictedCollections: [RESTRICTED_COLLECTION],
+    levelOf: () => 'write',
+    sourceFolderOf: () => null,
     anyRestricted: true,
   }
 

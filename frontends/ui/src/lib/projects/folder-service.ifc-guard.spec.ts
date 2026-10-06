@@ -12,6 +12,8 @@ vi.mock('./ifc-folder-guard', () => ({ assertFolderMoveKeepsIfcOpen: vi.fn(async
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('@/lib/authz/folder-access-repository', () => ({
   listProjectDocumentCollections: vi.fn(async () => []),
+  // No folder has its own access list: the move changes nobody's access.
+  listProjectFolderTree: vi.fn(async () => []),
 }))
 vi.mock('./collection-placement', () => ({
   placeProjectDocuments: vi.fn(async () => ({ moved: 0, failed: [] })),

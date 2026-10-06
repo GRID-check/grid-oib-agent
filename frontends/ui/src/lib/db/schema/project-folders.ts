@@ -36,14 +36,24 @@ export const projectFolders = pgTable('project_folders', {
   name: varchar('name', { length: 255 }).notNull(),
   path: varchar('path', { length: 1024 }).notNull(),
   /**
-   * The WorkOS roles whose holders may see this folder and everything below it
-   * (migration 0104, ADR-0078), or NULL when the folder is open. Never empty
-   * (CHECK). A member must clear EVERY restricted folder on a document's path;
-   * `lib/authz/folder-access.ts` is the one place that decides.
+   * Whether the folder inherits its parent's access (`inherit`, the default; a
+   * root folder inherits the project) or has its own access list (`custom`,
+   * rows in `project_folder_grants`), migration 0108, ADR-0079. A custom list
+   * holds 1–20 grants (deferred constraint trigger). `lib/authz/folder-access.ts`
+   * is the one place that decides what it means.
    */
-  restrictedRoles: text('restricted_roles').array(),
-  restrictedBy: text('restricted_by'),
-  restrictedAt: timestamp('restricted_at', { withTimezone: true }),
+  accessMode: text('access_mode', { enum: ['inherit', 'custom'] }).notNull().default('inherit'),
+  /** Who last set the folder's own access list, and when; required while it is `custom`. */
+  accessChangedBy: text('access_changed_by'),
+  accessChangedAt: timestamp('access_changed_at', { withTimezone: true }),
+  /**
+   * Set when the folder was deleted (migration 0108): the row stays as a
+   * tombstone so its access still decides who may read what was derived from
+   * it. Every listing, path lookup and placement skips it; only
+   * `effectiveFolderLevel` reads it.
+   */
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  deletedBy: text('deleted_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({

@@ -32,11 +32,17 @@ import {
 } from '../lib/file-filters'
 import { DEFAULT_FILE_SORT, type FileSort } from '../lib/file-sort'
 import { DocumentActionsTrigger, DocumentObjectMenu } from './document-actions'
+import {
+  DEFAULT_DOCUMENT_ACTIONS,
+  READ_ONLY_DOCUMENT_ACTIONS,
+  type DocumentActionKind,
+} from './document-actions/action-entries'
 import { askAboutFile } from '../lib/ask-about-file'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { FolderAccessDialog } from './folder-access-dialog'
+import type { FolderGrantItem } from '@/adapters/api/folder-access-client'
 import { roleNamesFor, useOrganizationRoles } from '@/features/organization/hooks/use-organization-roles'
 import { UploadTray } from './upload-tray'
 import { ProjectSectionActions } from '@/components/shell/project-section-frame'
@@ -124,11 +130,16 @@ interface ProjectFileWorkspaceProps {
    */
   initialFilesComplete?: boolean
   /**
-   * Whether this reader may change who sees a folder (`project:manage`,
-   * resolved on the server, ADR-0078). Shows „Zugriff…" in the folder menu; the
-   * route checks again.
+   * Whether this reader may change who may read and write a folder
+   * (`project:manage`, resolved on the server, ADR-0079). Shows „Zugriff…" in
+   * the folder menu; the route checks again.
    */
   canManageFolderAccess?: boolean
+  /**
+   * What the reader may do at the project root, as the server read it for the
+   * first paint (ADR-0079). Absent means `write`; the folder listing refreshes it.
+   */
+  initialRootAccess?: 'read' | 'write'
 }
 
 /**
@@ -152,10 +163,17 @@ export interface FolderItem {
   createdAt?: string
   updatedAt?: string
   /**
-   * The role slugs this folder is restricted to (ADR-0078), or null/absent
-   * when it is open. The listing only carries folders the reader may see.
+   * The folder's own access list (ADR-0079): roles (and `*`, every project
+   * member), each with `read` or `write`. Null/absent when it inherits its
+   * parent's. The listing only carries folders the reader may read.
    */
-  restrictedRoles?: string[] | null
+  grants?: FolderGrantItem[] | null
+  /**
+   * What THIS reader may do here, as the listing reported it: `read` hides the
+   * write affordances. Absent reads as `write`. The server decides every write
+   * again; this only shapes the UI.
+   */
+  access?: 'read' | 'write'
 }
 
 export interface FileItem {
@@ -260,7 +278,7 @@ type FileView = 'cards' | 'list'
 
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId, lifecyclePermissions, initialFolders, initialFiles, initialFilesComplete = true, canManageFolderAccess = false }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId, lifecyclePermissions, initialFolders, initialFiles, initialFilesComplete = true, canManageFolderAccess = false, initialRootAccess = 'write' }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const router = useRouter()
   const pathname = usePathname()
@@ -376,11 +394,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const [isLoadingFiles, setIsLoadingFiles] = useState(initialFiles === undefined)
   const [foldersError, setFoldersError] = useState(false)
   const [filesError, setFilesError] = useState(false)
-  /** The folder whose access dialog is open (ADR-0078). */
+  /** What the reader may do at the project root (ADR-0079); each folder carries its own. */
+  const [rootAccess, setRootAccess] = useState<'read' | 'write'>(initialRootAccess)
+  /** The folder whose access dialog is open (ADR-0079). */
   const [accessFolderId, setAccessFolderId] = useState<string | null>(null)
   // Role names are read only when something needs them: a lock to label, or
   // the access dialog to fill.
-  const anyRestricted = folders.some((folder) => (folder.restrictedRoles?.length ?? 0) > 0)
+  const anyRestricted = folders.some((folder) => (folder.grants?.length ?? 0) > 0)
   const organizationRoles = useOrganizationRoles(anyRestricted || accessFolderId !== null)
   const roleNames = useCallback(
     (slugs: readonly string[]) => roleNamesFor(slugs, organizationRoles.data),
@@ -520,7 +540,10 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         if (!r.ok) throw new Error(`Failed to load folders (${r.status})`)
         return r.json()
       })
-      .then((data) => setFolders(data.folders ?? []))
+      .then((data: { folders?: FolderItem[]; rootAccess?: 'read' | 'write' }) => {
+        setFolders(data.folders ?? [])
+        setRootAccess(data.rootAccess === 'read' ? 'read' : 'write')
+      })
       .catch(() => {
         setFolders([])
         setFoldersError(true)
@@ -1261,9 +1284,25 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   // the same plan a folder PICKED in the menu does. Validation and limits stay
   // in `uploadFiles`; the drag hook only surfaces a supported/unsupported
   // affordance using the shared AppConfig.
+  // What the reader may do where they stand (ADR-0079): a level they may only
+  // read takes no dropped files, and its documents offer no write actions.
+  // The server refuses either way; this keeps the surface from offering it.
+  const writableHere =
+    selectedFolderId === null
+      ? rootAccess !== 'read'
+      : folders.find((folder) => folder.id === selectedFolderId)?.access !== 'read'
+  const documentActionsAt = useCallback(
+    (folderId: string | null): readonly DocumentActionKind[] => {
+      const access =
+        folderId === null ? rootAccess : (folders.find((folder) => folder.id === folderId)?.access ?? 'write')
+      return access === 'read' ? READ_ONLY_DOCUMENT_ACTIONS : DEFAULT_DOCUMENT_ACTIONS
+    },
+    [folders, rootAccess]
+  )
+
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
     onDrop: handleUpload,
-    disabled: isUploading,
+    disabled: isUploading || !writableHere,
   })
 
   // Guard against the browser navigating away when a file is dropped outside the
@@ -1422,16 +1461,19 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             // the way History's does. Enter still commits the query to the
             // semantic search.
           />
-          <ProjectUppyUpload
-            projectId={projectId}
-            folderId={selectedFolderId}
-            onUpload={handleUpload}
-            isUploading={isUploading}
-            // The durable corpus is where a büro brings a whole project in.
-            allowFolders
-            pickFilesRef={pickFilesRef}
-            pickFolderRef={pickFolderRef}
-          />
+          {/* No upload into a level the reader may only read (ADR-0079). */}
+          {writableHere && (
+            <ProjectUppyUpload
+              projectId={projectId}
+              folderId={selectedFolderId}
+              onUpload={handleUpload}
+              isUploading={isUploading}
+              // The durable corpus is where a büro brings a whole project in.
+              allowFolders
+              pickFilesRef={pickFilesRef}
+              pickFolderRef={pickFolderRef}
+            />
+          )}
         </div>
       </ProjectSectionActions>
 
@@ -1512,6 +1554,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                   document={file}
                   scope="files"
                   folders={folders}
+                  actions={documentActionsAt(file.folderId)}
                   onOpen={() => handleSelectFile(file.id)}
                   onAsk={() =>
                     askAboutFile({ projectId, file, navigate: (href) => router.push(href) })
@@ -1527,6 +1570,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               wrapFileRow={(file, row) => (
                 <DocumentObjectMenu
                   asChild
+                  actions={documentActionsAt(file.folderId)}
                   document={file}
                   scope="files"
                   folders={folders}
@@ -1555,6 +1599,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                       onDeleteFolder: handleDeleteFolder,
                       onEditFolderAccess: canManageFolderAccess ? setAccessFolderId : undefined,
                       roleNames,
+                      rootAccess,
                     },
                   })}
               uploadControl={

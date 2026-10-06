@@ -35,7 +35,7 @@
  */
 
 import 'server-only'
-import { and, asc, eq, gt, inArray, ne, or } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNull, ne, or } from 'drizzle-orm'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
@@ -171,7 +171,7 @@ async function folderPathOf(organizationId: string, projectId: string, folderId:
     db
       .select({ path: projectFolders.path })
       .from(projectFolders)
-      .where(and(eq(projectFolders.id, folderId), eq(projectFolders.projectId, projectId)))
+      .where(and(eq(projectFolders.id, folderId), eq(projectFolders.projectId, projectId), isNull(projectFolders.deletedAt)))
       .limit(1)
   )
   return row?.path ?? null

@@ -21,6 +21,9 @@ from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.envelope import REFUSED_CONFINED
 from aiq_agent.cards.envelope import validate_model_card
 from aiq_agent.knowledge import scoping
+from aiq_agent.knowledge.restricted_use import RestrictedUse
+from aiq_agent.knowledge.restricted_use import bind_restricted_use
+from aiq_agent.knowledge.restricted_use import reset_restricted_use
 
 TOOLS = [{"name": "knowledge_search", "description": "Search the knowledge base."}]
 CONFINED_TAG = "<eingeschraenkter_ordner>"
@@ -76,6 +79,19 @@ class TestAProfilePatchCardIsRefusedInAConfinedTurn:
 
         assert refusal is None
         assert card is not None and card["type"] == "project_profile_patch"
+
+    def test_refused_when_the_conversation_already_drew_on_a_restricted_folder(self, monkeypatch):
+        """Nothing restricted is drawable this turn, but the conversation's record stands (ADR-0079)."""
+        monkeypatch.setattr(scoping, "get_collection_scope_from_context", lambda: ["proj_p1"])
+        use = RestrictedUse(organization_id="org", user_id="u1", conversation_id="c1", project_id="p1", confined=True)
+        token = bind_restricted_use(use)
+        try:
+            card, refusal = validate_model_card(dict(PATCH))
+        finally:
+            reset_restricted_use(token)
+
+        assert card is None
+        assert refusal is not None and refusal.kind == REFUSED_CONFINED
 
     def test_other_cards_are_untouched_in_a_confined_turn(self, monkeypatch):
         monkeypatch.setattr(scoping, "get_collection_scope_from_context", lambda: ["proj_p1", "proj_p1_r0123456789ab"])
@@ -164,7 +180,7 @@ class TestTheReflectionStageSeesWhatEarlierTurnsWereShown:
         monkeypatch.setattr(cr, "load_turn_shown_notes", load_shown)
 
         result = await cr._load_setup(
-            types.SimpleNamespace(organization_id="org"),
+            types.SimpleNamespace(organization_id="org", user_id="u1"),
             types.SimpleNamespace(query_text="q", subject=None),
             [],
             conversation_id="c1",

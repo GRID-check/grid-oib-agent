@@ -17,6 +17,8 @@ export interface FolderActionLabels {
   allFiles: string
   /** „Zugriff…" — needed only when `onAccess` is given. */
   access?: string
+  /** „Nur lesen" — the note a read-only folder's menu carries instead of its write entries. */
+  readOnly?: string
 }
 
 export interface FolderActionEntriesInput {
@@ -29,9 +31,15 @@ export interface FolderActionEntriesInput {
   onNewInside?: () => void
   onRename: () => void
   onMove?: (parentId: string | null, parentName: string) => void
-  /** Who may see the folder (ADR-0078). Absent for a reader who may not manage the project. */
+  /** Who may read and write the folder (ADR-0079). Absent for a reader who may not manage the project. */
   onAccess?: () => void
   onDelete: () => void
+  /**
+   * The reader may only read this folder (ADR-0079): new folder, rename, move
+   * and delete are left out and a disabled „Nur lesen" says why. The server
+   * refuses them anyway; this keeps the menu from offering what it will refuse.
+   */
+  readOnly?: boolean
 }
 
 export function folderActionEntries({
@@ -46,6 +54,7 @@ export function folderActionEntries({
   onMove,
   onAccess,
   onDelete,
+  readOnly = false,
 }: FolderActionEntriesInput): ActionMenuEntry[] {
   const entries: ActionMenuEntry[] = [
     {
@@ -57,6 +66,30 @@ export function folderActionEntries({
       testId: `folder-action-open-${folder.id}`,
     },
   ]
+
+  if (readOnly) {
+    entries.push({
+      type: 'item',
+      id: 'read-only',
+      label: labels.readOnly ?? '',
+      icon: Lock,
+      disabled: true,
+      onSelect: () => undefined,
+      testId: `folder-action-read-only-${folder.id}`,
+    })
+    if (onAccess && labels.access) {
+      entries.push({ type: 'separator' })
+      entries.push({
+        type: 'item',
+        id: 'access',
+        label: labels.access,
+        icon: Lock,
+        onSelect: onAccess,
+        testId: `folder-action-access-${folder.id}`,
+      })
+    }
+    return entries
+  }
 
   if (onNewInside) {
     entries.push({

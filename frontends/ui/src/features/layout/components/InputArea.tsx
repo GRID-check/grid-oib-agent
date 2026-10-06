@@ -162,9 +162,11 @@ function mentionRefusalMessage(
     case MENTION_ERROR_REASONS.rateLimited:
       return tCollab('mentions.errors.rateLimited')
     // Mentioning someone new invites them, and a thread that drew on a
-    // restricted folder cannot be shared (ADR-0078).
+    // restricted folder reaches only people cleared for it (ADR-0078).
     case SHARING_ERROR_REASONS.restrictedContent:
-      return tCollab('sharing.errors.restrictedContent')
+      return name
+        ? tCollab('sharing.errors.restrictedContent', { name })
+        : tCollab('sharing.errors.restrictedContentSomeone')
     default:
       return null
   }

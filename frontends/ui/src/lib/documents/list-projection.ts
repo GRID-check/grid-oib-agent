@@ -90,8 +90,10 @@ export function toFolderWireRow(row: FolderRow): FolderItem {
     parentId: row.parentId,
     name: row.name,
     path: row.path,
-    // Only ever a folder the reader may see (ADR-0078); the lock needs it.
-    restrictedRoles: row.restrictedRoles,
+    // Only ever a folder the reader may read (ADR-0079); the lock needs its
+    // list, and the write affordances need what this reader may do here.
+    grants: row.grants,
+    ...(row.access ? { access: row.access } : {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }

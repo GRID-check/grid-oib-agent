@@ -1,36 +1,54 @@
 /**
- * Folder access client (ADR-0078): restrict a project folder to roles, or open
- * it again, through `PUT /api/projects/[id]/folders/[folderId]/access`.
+ * Folder access client (ADR-0079): who may read and who may write a project
+ * folder, through `PUT /api/projects/[id]/folders/[folderId]/access`.
  *
- * The server moves the folder's documents into the collection the change puts
- * them in before it answers; `moved` counts them and `failed` lists the ones
- * that could not move this time (saving again retries exactly those).
+ * A folder inherits its parent's access, or has its own list of roles, each
+ * with `read` or `write`; `*` is every member of the project. The server moves
+ * the folder's documents into the collection a change of READ access puts them
+ * in before it answers; `moved` counts them and `failed` lists the ones that
+ * could not move this time (saving again retries exactly those).
  */
 
 import { z } from 'zod'
 import { ApiRequestError } from './api-error'
 
+/** The role slug of a grant to every member of the project. */
+export const EVERY_PROJECT_MEMBER = '*'
+
+const FolderGrantSchema = z.object({
+  role: z.string(),
+  level: z.enum(['read', 'write']),
+})
+
+/** One entry of a folder's own access list. */
+export type FolderGrantItem = z.infer<typeof FolderGrantSchema>
+
+/** A folder's access, as it is set. */
+export type FolderAccessSetting = { mode: 'inherit' } | { mode: 'custom'; grants: FolderGrantItem[] }
+
 const FolderAccessResultSchema = z.object({
   folderId: z.string(),
-  roles: z.array(z.string()).nullable(),
+  access: z.discriminatedUnion('mode', [
+    z.object({ mode: z.literal('inherit') }),
+    z.object({ mode: z.literal('custom'), grants: z.array(FolderGrantSchema) }),
+  ]),
   moved: z.number(),
   failed: z.array(z.string()),
 })
 
 export type FolderAccessResult = z.infer<typeof FolderAccessResultSchema>
 
-/** `roles: null` (or empty) opens the folder to everyone in the project. */
 export async function setFolderAccess(
   projectId: string,
   folderId: string,
-  roles: string[] | null
+  access: FolderAccessSetting
 ): Promise<FolderAccessResult> {
   const response = await fetch(
     `/api/projects/${encodeURIComponent(projectId)}/folders/${encodeURIComponent(folderId)}/access`,
     {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ roles: roles && roles.length > 0 ? roles : null }),
+      body: JSON.stringify(access),
     }
   )
   if (!response.ok) {

@@ -37,17 +37,25 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
   const inTenant = <T>(run: () => Promise<T>): Promise<T> => withTenant({ organizationId: ORG, userId: USER }, run)
   const firstId = (rows: Iterable<{ id: string }>): string => String(Array.from(rows)[0]?.id)
 
+  /**
+   * A folder whose own list grants each of `roleSlugs` write, or one that inherits (null); one statement for the 0108 trigger.
+   * The slugs travel as one array literal: drizzle spreads a JS array into a parameter list, and an empty one into `()`.
+   */
   async function insertFolder(name: string, parentId: string | null, path: string, roleSlugs: string[] | null) {
-    const rolesSql = roleSlugs
-      ? sql`ARRAY[${sql.join(roleSlugs.map((role) => sql`${role}`), sql`, `)}]::text[]`
-      : sql`NULL`
     return firstId(
       await inTenant(() =>
         db.execute<{ id: string }>(sql`
-          INSERT INTO project_folders (project_id, parent_id, name, path, restricted_roles, restricted_by, restricted_at)
-          VALUES (${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${rolesSql},
-                  ${roleSlugs ? USER : null}, ${roleSlugs ? new Date().toISOString() : null}::timestamptz)
-          RETURNING id
+          WITH folder AS (
+            INSERT INTO project_folders (project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
+            VALUES (${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${roleSlugs ? 'custom' : 'inherit'},
+                    ${roleSlugs ? USER : null}, ${roleSlugs ? new Date().toISOString() : null}::timestamptz)
+            RETURNING id, project_id
+          ), listed AS (
+            INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
+            SELECT ${ORG}, folder.project_id, folder.id, slug, 'write'
+            FROM folder, unnest(${`{${(roleSlugs ?? []).join(',')}}`}::text[]) AS slug
+          )
+          SELECT id FROM folder
         `)
       )
     )

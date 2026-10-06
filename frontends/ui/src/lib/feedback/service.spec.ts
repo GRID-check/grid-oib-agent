@@ -24,7 +24,7 @@ vi.mock('@/lib/projects/memory-service', () => ({
 
 // The voter's folder clearance (ADR-0078), decided in the projects service.
 vi.mock('@/lib/projects/service', () => ({
-  memoryClearance: vi.fn(async () => ({ cleared: ['proj_x_raaaaaaaaaaaa'], projectCollection: 'proj_x' })),
+  memoryClearance: vi.fn(async () => ({ cleared: ['00000000-0000-4000-8000-0000000000aa'] })),
 }))
 
 // The office's chat screening (ADR-0077): the REAL matcher over Piloti's
@@ -173,7 +173,7 @@ describe('submitAnswerFeedback', () => {
         organizationId: 'org_1',
         projectId: 'proj_1',
         comment: 'OIB 4 falsch zitiert',
-        clearedRestrictedCollections: ['proj_x_raaaaaaaaaaaa'],
+        readableFolderIds: ['00000000-0000-4000-8000-0000000000aa'],
       })
     )
     expect(memoryClearance).toHaveBeenCalledWith(session, 'proj_1')
@@ -183,7 +183,7 @@ describe('submitAnswerFeedback', () => {
     mockUpsert.mockResolvedValue({ ...storedRow, verdict: 'down', comment: 'falsch' })
     await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'down', comment: 'falsch' })
     await vi.waitFor(() =>
-      expect(mockImplicate).toHaveBeenCalledWith(expect.objectContaining({ clearedRestrictedCollections: [] }))
+      expect(mockImplicate).toHaveBeenCalledWith(expect.objectContaining({ readableFolderIds: [] }))
     )
     expect(memoryClearance).not.toHaveBeenCalled()
   })

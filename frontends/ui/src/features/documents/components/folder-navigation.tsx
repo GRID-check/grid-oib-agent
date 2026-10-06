@@ -33,7 +33,7 @@ import { folderDragProps, useFolderDropTarget } from '../hooks/use-document-drag
 import { cn } from '@/lib/utils'
 import { TimeAgo } from '@/components/ui/time-ago'
 import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
-import { FolderAccessMark } from './folder-access-mark'
+import { FolderAccessMark, FolderReadOnlyBadge } from './folder-access-mark'
 import type { FolderItem } from './project-file-workspace'
 
 /**
@@ -83,8 +83,14 @@ export function FolderBreadcrumbRow({
   onDropDocument,
   onDropFolder,
   canAcceptFolder,
+  readOnly = false,
 }: Pick<FolderNavProps, 'folders' | 'currentFolderId' | 'onNavigate' | 'onCreateFolder'> & {
   children?: ReactNode
+  /**
+   * The reader may only read the level they stand in (ADR-0079): „Nur lesen"
+   * takes the place of „Neuer Ordner".
+   */
+  readOnly?: boolean
   /** Dropping a document on „Alle Dateien" moves it back to the project root. */
   onDropDocument?: (documentId: string, folderId: string | null) => void
   /**
@@ -209,7 +215,11 @@ export function FolderBreadcrumbRow({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {children}
-        <NewFolderControl currentFolderId={currentFolderId} onCreateFolder={onCreateFolder} />
+        {readOnly ? (
+          <FolderReadOnlyBadge testId="folder-level-read-only" />
+        ) : (
+          <NewFolderControl currentFolderId={currentFolderId} onCreateFolder={onCreateFolder} />
+        )}
       </div>
     </div>
   )
@@ -306,11 +316,16 @@ interface FolderTileProps {
   /** Whether this tile may receive that folder — see `useFolderDropTarget`. */
   canAcceptFolder?: (draggedFolderId: string, targetFolderId: string | null) => boolean
   /**
-   * The names of the roles this folder is restricted to (ADR-0078); absent or
-   * empty for an open folder. Draws the lock, and names the roles in the open
-   * button's accessible name.
+   * The entries of this folder's own access list, each a role's name with what
+   * it may do (ADR-0079); absent or empty for a folder that inherits. Draws the
+   * lock, and names the roles in the open button's accessible name.
    */
   restrictedRoleNames?: readonly string[]
+  /**
+   * The reader may only read here (ADR-0079): „Nur lesen" beside the name, and
+   * nothing can be dropped on the tile. The server refuses a write anyway.
+   */
+  readOnly?: boolean
 }
 
 /** The open button's accessible name: a restricted folder says so, and to whom. */
@@ -451,6 +466,7 @@ export function FolderCard({
   editing: editingProp,
   onEditingChange,
   restrictedRoleNames,
+  readOnly = false,
 }: FolderTileProps): JSX.Element {
   const t = useTranslations('files')
   const openLabel = useOpenFolderLabel(folder, restrictedRoleNames)
@@ -465,7 +481,7 @@ export function FolderCard({
     onDropDocument: onDropDocument ?? (() => {}),
     onDropFolder,
     canAcceptFolder,
-    disabled: !onDropDocument && !onDropFolder,
+    disabled: readOnly || (!onDropDocument && !onDropFolder),
   })
 
   return (
@@ -477,7 +493,7 @@ export function FolderCard({
       data-drop-over={drop.isOver ? '' : undefined}
       // Source as well as target: a folder is moved by dragging it onto
       // another, which is the same gesture that moves a document.
-      {...(onDropFolder ? folderDragProps(folder.id) : {})}
+      {...(onDropFolder && !readOnly ? folderDragProps(folder.id) : {})}
       {...drop.dropProps}
     >
       <div
@@ -531,6 +547,7 @@ export function FolderCard({
                 <p className="truncate text-sm font-medium leading-tight text-foreground" title={folder.name}>
                   {folder.name}
                 </p>
+                {readOnly && <FolderReadOnlyBadge testId={`folder-read-only-${folder.id}`} />}
               </div>
             )}
           </div>
@@ -571,6 +588,7 @@ export function FolderRow({
   editing: editingProp,
   onEditingChange,
   restrictedRoleNames,
+  readOnly = false,
 }: FolderTileProps): JSX.Element {
   const openLabel = useOpenFolderLabel(folder, restrictedRoleNames)
   const roleNames = restrictedRoleNames ?? []
@@ -584,7 +602,7 @@ export function FolderRow({
     onDropDocument: onDropDocument ?? (() => {}),
     onDropFolder,
     canAcceptFolder,
-    disabled: !onDropDocument && !onDropFolder,
+    disabled: readOnly || (!onDropDocument && !onDropFolder),
   })
 
   if (editing) {
@@ -636,7 +654,7 @@ export function FolderRow({
       )}
       data-testid={`folder-row-${folder.id}`}
       data-drop-over={drop.isOver ? '' : undefined}
-      {...(onDropFolder ? folderDragProps(folder.id) : {})}
+      {...(onDropFolder && !readOnly ? folderDragProps(folder.id) : {})}
       {...drop.dropProps}
     >
       <button
@@ -652,6 +670,7 @@ export function FolderRow({
         </span>
         <span className="text-foreground truncate font-medium">{folder.name}</span>
         {restricted && <FolderAccessMark roleNames={roleNames} testId={`folder-lock-${folder.id}`} />}
+        {readOnly && <FolderReadOnlyBadge testId={`folder-read-only-${folder.id}`} />}
         {/* The kit's numeric pill, not a fourth hand-rolled one. */}
         <CountPill>{itemCount}</CountPill>
         {lastModified && (

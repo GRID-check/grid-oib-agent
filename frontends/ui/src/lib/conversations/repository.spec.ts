@@ -41,7 +41,6 @@ import {
   findConversationTenancy,
   findMessageInConversation,
   lastProjectActivityByUser,
-  listRestrictedAnswerCollections,
   listMessagesForConversation,
   listVisibleConversations,
   upsertConversationRead,
@@ -204,14 +203,14 @@ describe('deleteConversationInOrg', () => {
     expect(params).toEqual(['conv_1', 'org_1'])
   })
 
-  it('takes the restricted-turn mark with the row, in the same organization (ADR-0078)', async () => {
+  it('takes the record of restricted source folders with the row, in the same organization (ADR-0078, ADR-0079)', async () => {
     await deleteConversationInOrg('conv_1', 'org_1')
 
-    // No foreign key reaches the mark: a first turn writes it before the row exists.
+    // No foreign key reaches the record: a first admission writes it before the row exists.
     const { sql, params } = captured[1]
-    expect(sql).toContain('delete from "conversation_restricted_turns"')
-    expect(sql).toContain('"conversation_restricted_turns"."organization_id" = $1')
-    expect(sql).toContain('"conversation_restricted_turns"."conversation_id" = $2')
+    expect(sql).toContain('delete from "conversation_restricted_folders"')
+    expect(sql).toContain('"conversation_restricted_folders"."organization_id" = $1')
+    expect(sql).toContain('"conversation_restricted_folders"."conversation_id" = $2')
     expect(params).toEqual(['org_1', 'conv_1'])
   })
 })
@@ -365,25 +364,5 @@ describe('findConversationTenancy — the probe sharing and the WebSocket gate s
 
     expect(onlyQuery().params).toContain('s_7d1e2c3b_0000_4000_8000_00000000000c')
     expect(row).toMatchObject({ organizationId: 'org_1', visibility: 'private', createdBy: 'user_me' })
-  })
-})
-
-describe('listRestrictedAnswerCollections (ADR-0078)', () => {
-  it('reads both stored source envelopes of one conversation, in one organization, bounded', async () => {
-    nextRows = [['proj_x_r0123456789ab']]
-
-    const collections = await listRestrictedAnswerCollections('s_conv', 'org_1')
-
-    const { sql, params } = onlyQuery()
-    expect(sql).toContain('select distinct jsonb_path_query(')
-    expect(sql).toContain(`"metadata" -> 'citations'`)
-    expect(sql).toContain(`"metadata" -> 'readSources'`)
-    expect(sql).toContain('"messages"."conversation_id" = $')
-    expect(sql).toContain('"messages"."organization_id" = $')
-    expect(sql).toMatch(/limit \$\d+/)
-    expect(params).toEqual(expect.arrayContaining(['s_conv', 'org_1']))
-    // Lax, so a malformed browser-written row matches nothing instead of throwing.
-    expect(params.some((param) => typeof param === 'string' && param.startsWith('lax '))).toBe(true)
-    expect(collections).toEqual(['proj_x_r0123456789ab'])
   })
 })

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Restricted project memory (ADR-0078, migration 0106) against a REAL Postgres
+ * Restricted project memory (ADR-0078, ADR-0079, migrations 0106 and 0109) against a REAL Postgres
  * with the full migration chain applied, through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -13,11 +13,13 @@
  *   - an open and a restricted note saying the same thing can both be live
  *     (the 0106 index), and consolidation never merges, supersedes or retires
  *     across a restriction;
- *   - every read path serves a restricted note only to a reader cleared for
- *     all of its collections, and a lifted restriction clears nobody;
- *   - the write refuses a collection that is not a current restricted one;
- *   - a restricted conversation's card decisions stay out of the project-wide
- *     PROPOSAL_DECISIONS block.
+ *   - every read path serves a restricted note only to a reader who may read
+ *     all of its source folders NOW: loosening a folder opens its notes,
+ *     tightening one closes them, with no row rewritten;
+ *   - the write stores a current restricted collection as its source folder,
+ *     and refuses a collection that is not a current restricted one;
+ *   - the card decisions of a conversation that drew on a restricted folder stay
+ *     out of the project-wide PROPOSAL_DECISIONS block.
  *
  * `task db:test:rls` (scripts/rls-test-db.sh) builds that database and runs
  * this file with the other suites.
@@ -64,9 +66,10 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
   interface Seeded {
     projectId: string
     collection: string
-    /** Restricted collections of the project, in folder order. */
+    /** The restricted folders' ids, in folder order: what a note is restricted to (ADR-0079). */
     restricted: [string, string]
-    folderIds: [string, string]
+    /** Their retrieval collections, as the agent names them. */
+    collections: [string, string]
   }
 
   /** A project with two restricted folders, so a case's rows are its own. */
@@ -84,33 +87,40 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       folderIds.push(
         firstId(
           await inTenant(() =>
+            // One statement: the 0108 trigger wants the list in the same commit.
             db.execute<{ id: string }>(sql`
-              insert into project_folders (project_id, name, path, restricted_roles, restricted_by, restricted_at)
-              values (${projectId}::uuid, ${folder}, ${folder}, ARRAY['org-gf']::text[], ${USER}, now())
-              returning id`)
+              with folder as (
+                insert into project_folders (project_id, name, path, access_mode, access_changed_by, access_changed_at)
+                values (${projectId}::uuid, ${folder}, ${folder}, 'custom', ${USER}, now())
+                returning id, project_id
+              ), grants as (
+                insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
+                select ${ORG}, project_id, id, 'org-gf', 'write' from folder
+              )
+              select id from folder`)
           )
         )
       )
     }
-    const restricted = folderIds.map((id) => folderAccess.restrictedCollectionName(collection, id))
+    const collections = folderIds.map((id) => folderAccess.restrictedCollectionName(collection, id))
     return {
       projectId,
       collection,
-      restricted: [restricted[0], restricted[1]],
-      folderIds: [folderIds[0], folderIds[1]],
+      restricted: [folderIds[0], folderIds[1]],
+      collections: [collections[0], collections[1]],
     }
   }
 
   const write = (
     projectId: string,
     content: string,
-    restrictedCollections: string[] | null = null,
+    restrictedFolderIds: string[] | null = null,
     options: Parameters<typeof memory.createProjectMemoryItem>[1] = {},
     kind: ProjectMemoryItem['kind'] = 'decision'
   ) =>
     inTenant(() =>
       memory.createProjectMemoryItem(
-        { scope: 'project', projectId, organizationId: ORG, kind, content, restrictedCollections },
+        { scope: 'project', projectId, organizationId: ORG, kind, content, restrictedFolderIds },
         options
       )
     )
@@ -133,7 +143,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
   const rawInsert = (projectId: string, scope: string, restricted: unknown) =>
     inTenant(() =>
       db.execute(sql`
-        insert into project_memory (scope, project_id, organization_id, kind, content, restricted_collections)
+        insert into project_memory (scope, project_id, organization_id, kind, content, restricted_folder_ids)
         values (${scope}, ${scope === 'project' ? projectId : null}::uuid, ${ORG}, 'decision',
                 ${`raw ${Math.random()}`}, ${restricted})`)
     )
@@ -159,7 +169,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
     await withPlatformAccess('test teardown', async () => {
       await db.execute(sql`delete from project_memory where organization_id = ${ORG}`)
       await db.execute(sql`delete from messages where organization_id = ${ORG}`)
-      await db.execute(sql`delete from conversation_restricted_turns where organization_id = ${ORG}`)
+      await db.execute(sql`delete from conversation_restricted_folders where organization_id = ${ORG}`)
       await db.execute(sql`delete from conversations where organization_id = ${ORG}`)
       await db.execute(sql`delete from project_folders where project_id in (select id from projects where organization_id = ${ORG})`)
       await db.execute(sql`delete from projects where organization_id = ${ORG}`)
@@ -170,24 +180,24 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
 
   describe('the column and its CHECK', () => {
     it.each([
-      ['an empty restriction', sql`'{}'::text[]`, 'project'],
-      ['a NULL entry', sql`ARRAY['a_r0123456789ab', NULL]::text[]`, 'project'],
-      ['more than twenty', sql`array_fill('a_r0123456789ab'::text, ARRAY[21])`, 'project'],
+      ['an empty restriction', sql`'{}'::uuid[]`, 'project'],
+      ['a NULL entry', sql`ARRAY['01234567-89ab-4cde-8f01-23456789abcd', NULL]::uuid[]`, 'project'],
+      ['more than twenty', sql`array_fill('01234567-89ab-4cde-8f01-23456789abcd'::uuid, ARRAY[21])`, 'project'],
       // Without a project id, as organization memory is: 0008's scope CHECK
-      // allows that, so only 0106's scope clause refuses it.
-      ['organization scope', sql`ARRAY['a_r0123456789ab']::text[]`, 'organization'],
+      // allows that, so only the restriction's own scope clause refuses it.
+      ['organization scope', sql`ARRAY['01234567-89ab-4cde-8f01-23456789abcd']::uuid[]`, 'organization'],
     ])('refuses %s', async (_label, restricted, scope) => {
       const { projectId } = await seedProject('check')
       // The CHECK by name, not any error: an RLS refusal would also throw.
       expect(await failureOf(() => rawInsert(projectId, scope, restricted))).toContain(
-        'project_memory_restricted_collections_check'
+        'project_memory_restricted_folders_check'
       )
     })
 
-    it('accepts NULL (open) and one to twenty collections', async () => {
+    it('accepts NULL (open) and one to twenty folders', async () => {
       const { projectId } = await seedProject('check_ok')
       await rawInsert(projectId, 'project', sql`NULL`)
-      await rawInsert(projectId, 'project', sql`array_fill('a_r0123456789ab'::text, ARRAY[20])`)
+      await rawInsert(projectId, 'project', sql`array_fill('01234567-89ab-4cde-8f01-23456789abcd'::uuid, ARRAY[20])`)
       expect(await rowsOf(projectId)).toHaveLength(2)
     })
   })
@@ -214,7 +224,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       const first = await write(projectId, content, [restricted[1], restricted[0]])
       const second = await write(projectId, content, [restricted[0], restricted[1], restricted[0]])
       expect(second.id).toBe(first.id)
-      expect(first.restrictedCollections).toEqual([...restricted].sort())
+      expect(first.restrictedFolderIds).toEqual([...restricted].sort())
     })
 
     it('keeps different restrictions apart', async () => {
@@ -272,7 +282,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
             organizationId: ORG,
             projectId,
             comment: 'Die Attika stimmt nicht',
-            clearedRestrictedCollections: cleared,
+            readableFolderIds: cleared,
           })
         )
       const byId = async () => new Map((await rowsOf(projectId)).map((row) => [row.id, row]))
@@ -296,7 +306,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       expect(note.content).toBe('[Begriff entfernt] an [IBAN entfernt] überweisen')
     })
 
-    it('serves a restricted note only to a reader cleared for all of its collections', async () => {
+    it('serves a restricted note only to a reader who may read all of its folders', async () => {
       const { projectId, restricted } = await seedProject('serve')
       await write(projectId, 'Offene Notiz zum Brandschutz im Stiegenhaus')
       await write(projectId, 'Nur Verträge: Honorar pauschal vereinbart', [restricted[0]])
@@ -305,14 +315,18 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       const listed = async (cleared: string[]) =>
         (
           await inTenant(() =>
-            memory.listProjectMemory(projectId, { organizationId: ORG, clearedRestrictedCollections: cleared })
+            memory.listProjectMemory(projectId, { organizationId: ORG, readableFolderIds: cleared })
           )
         )
           .map((item) => item.content)
           .sort()
       const digest = (cleared: string[]) =>
         inTenant(() =>
-          memory.buildProjectMemoryDigest(projectId, ORG, { clearedRestrictedCollections: cleared })
+          memory.buildProjectMemoryDigest(projectId, ORG, {
+            readableFolderIds: cleared,
+            // Admission is the conversation's to make; here every folder offered is admitted.
+            admitRestricted: async (ids) => new Set(ids),
+          })
         )
 
       expect(await listed([])).toEqual(['Offene Notiz zum Brandschutz im Stiegenhaus'])
@@ -336,8 +350,8 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
     it('reaches a hidden note by id for nobody: update and delete answer as if it were missing', async () => {
       const { projectId, restricted } = await seedProject('by_id')
       const secret = await write(projectId, 'Honorarnotiz', [restricted[0]])
-      const uncleared = { projectId, organizationId: ORG, clearedRestrictedCollections: [] }
-      const cleared = { projectId, organizationId: ORG, clearedRestrictedCollections: [restricted[0]] }
+      const uncleared = { projectId, organizationId: ORG, readableFolderIds: [] }
+      const cleared = { projectId, organizationId: ORG, readableFolderIds: [restricted[0]] }
 
       expect(await inTenant(() => memory.updateProjectMemoryItem(uncleared, secret.id, { pinned: true }))).toBeNull()
       expect(await inTenant(() => memory.deleteProjectMemoryItem(uncleared, secret.id))).toBe(false)
@@ -347,36 +361,65 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       expect(await inTenant(() => memory.deleteProjectMemoryItem(cleared, secret.id))).toBe(true)
     })
 
-    it('clears nobody for a collection whose restriction was lifted', async () => {
-      const { projectId, collection, restricted, folderIds } = await seedProject('lifted')
-      await write(projectId, 'Notiz aus einem später geöffneten Ordner', [restricted[0]])
+    it('follows the folder at read time: loosening opens a note, tightening closes it, nothing is rewritten', async () => {
+      const { projectId, restricted } = await seedProject('loosened')
+      const note = await write(projectId, 'Notiz aus einem später geöffneten Ordner', [restricted[0]])
+      const asMember = async () => {
+        const readable = await folderAccess.readableFolderIdsFor(ORG, projectId, folderAccess.ANY_MEMBER)
+        return inTenant(() => memory.listProjectMemory(projectId, { organizationId: ORG, readableFolderIds: readable }))
+      }
+      expect(await asMember()).toEqual([])
+
+      // Opened to every member: the note is everyone's now.
       await inTenant(() =>
         db.execute(sql`
-          update project_folders set restricted_roles = null, restricted_by = null, restricted_at = null
-          where id = ${folderIds[0]}::uuid`)
+          with gone as (delete from project_folder_grants where folder_id = ${restricted[0]}::uuid)
+          update project_folders set access_mode = 'inherit' where id = ${restricted[0]}::uuid`)
       )
+      expect((await asMember()).map((item) => item.id)).toEqual([note.id])
 
-      const current = await folderAccess.currentRestrictedCollections(ORG, projectId, collection)
-      expect(current).toEqual([restricted[1]])
-      // Every caller passes CURRENT clearances, so the lifted note is served to nobody.
-      const listed = await inTenant(() =>
-        memory.listProjectMemory(projectId, { organizationId: ORG, clearedRestrictedCollections: current })
+      // Narrowed again: closed again, the same row unchanged.
+      await inTenant(() =>
+        db.execute(sql`
+          with listed as (
+            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
+            values (${ORG}, ${projectId}::uuid, ${restricted[0]}::uuid, 'org-gf', 'read')
+          )
+          update project_folders set access_mode = 'custom' where id = ${restricted[0]}::uuid`)
       )
-      expect(listed).toEqual([])
+      expect(await asMember()).toEqual([])
+      expect((await rowsOf(projectId)).find((row) => row.id === note.id)?.restrictedFolderIds).toEqual([restricted[0]])
+    })
+
+    it('keeps judging a note by a deleted folder’s tombstone', async () => {
+      const { projectId, restricted } = await seedProject('tombstone')
+      await write(projectId, 'Notiz aus einem gelöschten Ordner', [restricted[0]])
+      await inTenant(() =>
+        db.execute(sql`update project_folders set deleted_at = now(), deleted_by = ${USER} where id = ${restricted[0]}::uuid`)
+      )
+      const readable = (roles: string[]) =>
+        folderAccess.readableFolderIdsFor(ORG, projectId, { roles, seesEverything: false })
+      const listed = async (roles: string[]) =>
+        inTenant(async () =>
+          memory.listProjectMemory(projectId, { organizationId: ORG, readableFolderIds: await readable(roles) })
+        )
+      expect(await listed([])).toEqual([])
+      expect(await listed(['org-gf'])).toHaveLength(1)
     })
   })
 
   describe('the write validates the restriction', () => {
-    it('stores a current restricted collection and refuses anything else', async () => {
-      const { projectId, restricted } = await seedProject('validate')
+    it('stores a current restricted collection as its source folder and refuses anything else', async () => {
+      const { projectId, restricted, collections } = await seedProject('validate')
       const stored = await inTenant(() =>
         memory.createProjectMemoryItemForProject(projectId, {
           kind: 'decision',
           content: 'Gültig eingeschränkt',
-          restrictedCollections: [restricted[0]],
+          restrictedCollections: [collections[0]],
         })
       )
-      expect(stored?.restrictedCollections).toEqual([restricted[0]])
+      // Stored as the folder, not the collection (ADR-0079).
+      expect(stored?.restrictedFolderIds).toEqual([restricted[0]])
 
       await expect(
         inTenant(() =>
@@ -391,8 +434,8 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
   })
 
   describe('PROPOSAL_DECISIONS', () => {
-    it('leaves out the card decisions of a conversation that ran a restricted turn', async () => {
-      const { projectId } = await seedProject('decisions')
+    it('leaves out the card decisions of a conversation that drew on a restricted folder', async () => {
+      const { projectId, restricted } = await seedProject('decisions')
       const decided = (content: string) => ({
         cards: [{ type: 'memory_proposal', content }],
         cardInteractions: { 'memory_proposal-0': { decision: 'savedProject', decidedAt: '2026-10-02T10:00:00Z' } },
@@ -412,8 +455,8 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       }
       await inTenant(() =>
         db.execute(sql`
-          insert into conversation_restricted_turns (organization_id, conversation_id)
-          values (${ORG}, ${`restricted_${ORG}`})`)
+          insert into conversation_restricted_folders (organization_id, conversation_id, folder_id)
+          values (${ORG}, ${`restricted_${ORG}`}, ${restricted[0]}::uuid)`)
       )
 
       const rows = await inTenant(() =>

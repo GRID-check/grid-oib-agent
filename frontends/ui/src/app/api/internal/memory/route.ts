@@ -20,7 +20,7 @@ import {
 import {
   PROJECT_MEMORY_CONFIDENCES,
   PROJECT_MEMORY_KINDS,
-  PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS,
+  PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS,
 } from '@/lib/db/schema'
 
 // Agent-authored org-wide memory is DENIED by default: an org item lands in
@@ -65,12 +65,14 @@ const internalMemorySchema = z
      * collections and the finding drew on them. Each must be a CURRENT
      * restricted collection of the project — `createProjectMemoryItemForProject`
      * refuses anything else with a 400 rather than storing an item nobody could
-     * be served. Shaped like the names `restrictedCollectionName` mints.
+     * be served — and is stored as its SOURCE FOLDER (ADR-0079), so who is
+     * shown the note follows that folder's access as it changes. Shaped like
+     * the names `restrictedCollectionName` mints.
      */
     restrictedCollections: z
       .array(z.string().regex(/^[A-Za-z0-9_-]{1,200}_r[0-9a-f]{12}$/))
       .min(1)
-      .max(PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS)
+      .max(PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS)
       .optional(),
   })
   .refine((v) => (v.scope === 'project' ? !!v.projectId : !!v.organizationId), {

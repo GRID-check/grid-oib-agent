@@ -23,6 +23,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `messages.ts` | `messages` |
 | `documents.ts` | `documents` |
 | `project-folders.ts` | `project_folders` |
+| `project-folder-grants.ts` | `project_folder_grants` |
 | `user-preferences.ts` | `user_preferences` |
 | `answer-feedback.ts` | `answer_feedback` |
 | `platform-lessons.ts` | `platform_lessons`, `platform_lesson_reports`, `platform_lesson_events` |
@@ -32,7 +33,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `inbox.ts` | `inbox_items` |
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
-| `conversation-restricted-turns.ts` | `conversation_restricted_turns` |
+| `conversation-restricted-folders.ts` | `conversation_restricted_folders` |
 | `project-memory.ts` | `project_memory` (documented in [`project-memory-design.md`](../architecture/project-memory-design.md); the restricted-memory column below) |
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
@@ -644,16 +645,39 @@ export const projectFolders = pgTable('project_folders', {
 | `parent_id` | `uuid` | | `NULL` for a folder at the project root |
 | `name` | `varchar(255)` | NOT NULL | |
 | `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs |
-| `restricted_roles` | `text[]` | CHECK 1–20 entries, with `restricted_by`/`restricted_at` | **Migration `0104`, ADR-0078**: the WorkOS role slugs that may see this folder and everything below it; `NULL` = open. A member is cleared when they hold `org:projects:administer` or, for every restricted folder on the path, one of its roles. `lib/authz/folder-access.ts` is the one place that decides. |
-| `restricted_by` / `restricted_at` | `text` / `timestamptz` | set exactly when `restricted_roles` is | Who drew the line, and when. |
+| `access_mode` | `text` | NOT NULL, default `'inherit'`, CHECK `inherit`/`custom` | **Migration `0108`, ADR-0079** (replacing 0104's `restricted_roles`): `inherit` takes the parent's access (a root folder the project's); `custom` has its own list in `project_folder_grants`. The rule over a path is one pure function, `effectiveFolderLevel` in `lib/authz/folder-access-rule.ts`: the minimum over the folder and every ancestor with its own list, admins write everywhere, `project:documents:write` caps write. |
+| `access_changed_by` / `access_changed_at` | `text` / `timestamptz` | set whenever `access_mode = 'custom'` (`project_folders_access_custom_check`) | Who set the list, and when (renamed from 0104's `restricted_by`/`restricted_at`). |
+| `deleted_at` / `deleted_by` | `timestamptz` / `text` | | **Migration `0108`**: a deleted folder is a TOMBSTONE. The row keeps its `access_mode` and grants so the access rule still answers for content recorded from it (a conversation's source folders, restricted memory); every listing, the tree, placement and every read path filter `deleted_at IS NULL`. |
 | `created_at` / `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 **Indexes and constraints:**
 - `idx_project_folders_project_id`, `idx_project_folders_parent_id`
-- `project_folders_restricted_idx` — on `project_id`, **PARTIAL** (`WHERE restricted_roles IS NOT NULL`): "does this project restrict anything" is one probe, which is the fast path for nearly every project (migration `0104`)
+- `project_folders_custom_access_idx` — on `project_id`, **PARTIAL** (`WHERE access_mode = 'custom'`): "does this project have any own list" is one probe, the fast path for nearly every project (migration `0108`)
+- `project_folders_access_list` — a DEFERRED constraint trigger: at commit a `custom` folder has 1–20 grants (`grid_folder_access_list_check`, error `check_violation`, constraint name `project_folder_grants_custom_list`). A CHECK cannot count rows of another table; deferred so a list can be replaced (delete, insert) in one transaction. "Nobody" is not a setting.
 - `project_folders_id_project_id_key` — UNIQUE on (`id`, `project_id`). Redundant on its own (`id` is the PK) and required anyway: a composite FK can only reference a uniquely-constrained column set, and both the parent self-reference and `documents.folder_id` reference exactly this pair (migration `0030`).
 - `project_folders_parent_id_project_id_fkey` — a folder's parent lives in the same project. This replaced an RLS policy that referenced `project_folders` from its own predicate, which Postgres answers with "infinite recursion detected in policy" — and because `documents`' policy joined this table, both became unreadable for the runtime role.
-- `uniq_project_folders_parent_name` — UNIQUE on (`project_id`, `COALESCE(parent_id, '00000000-0000-0000-0000-000000000000'::uuid)`, `name`) (migration `0063`). One folder per name per parent. The `COALESCE` is load-bearing: `parent_id` is `NULL` at the root and `NULL` never equals `NULL` in a unique index, so a plain three-column index would police nested folders and leave **root** folders — where a fixed, created-on-first-use destination like `Berichte` lands — uncontrolled. Get-or-create is not a transaction, and before this index two runs finishing at once produced two `Berichte` folders with no way to say which was real. Case- and whitespace-sensitive on purpose: it stops a race between identical writes, it does not police folder naming. An EXPRESSION index, so it lives only in the migration; `documents.spec.ts` pins it.
+- `uniq_project_folders_parent_name` — UNIQUE on (`project_id`, `COALESCE(parent_id, '00000000-0000-0000-0000-000000000000'::uuid)`, `name`) (migration `0063`), **PARTIAL** `WHERE deleted_at IS NULL` since `0108`, so a tombstone does not hold its name. One living folder per name per parent. The `COALESCE` is load-bearing: `parent_id` is `NULL` at the root and `NULL` never equals `NULL` in a unique index, so a plain three-column index would police nested folders and leave **root** folders — where a fixed, created-on-first-use destination like `Berichte` lands — uncontrolled. Get-or-create is not a transaction, and before this index two runs finishing at once produced two `Berichte` folders with no way to say which was real. Case- and whitespace-sensitive on purpose: it stops a race between identical writes, it does not police folder naming. An EXPRESSION index, so it lives only in the migration; `documents.spec.ts` pins it.
+
+### project_folder_grants (migration 0108, ADR-0079)
+
+One role's access to a folder with its own list.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `organization_id` | `text` | NOT NULL, FK (`project_id`, `organization_id`) → `projects` ON DELETE CASCADE | RLS: `organization_id = grid_current_org()` |
+| `project_id` | `uuid` | NOT NULL | |
+| `folder_id` | `uuid` | NOT NULL, PK part, FK (`folder_id`, `project_id`) → `project_folders` ON DELETE CASCADE | A grant cannot point across projects |
+| `role_slug` | `text` | NOT NULL, PK part, CHECK `'*'` or a WorkOS slug (`^[^*[:space:]][^[:space:]]{0,99}$`) | `*` is every project member (`EVERY_PROJECT_MEMBER`); a list without `*` is one not every member may read, and only such a folder gets its own retrieval collection |
+| `level` | `text` | NOT NULL, CHECK `read`/`write` | |
+| `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+
+Index `project_folder_grants_project_idx (project_id)`. Written only by
+`setFolderAccess` (`lib/projects/folder-access-settings.ts`), which replaces the
+list in one transaction. 0108 migrated every 0104 role to a `write` grant. Its
+down maps every grant, at either level, back to a role and a `*` list to open:
+**read-vs-write is lost on down**. Proven against Postgres in
+`folder-access.integration.spec.ts`; backfill, constraints and down in
+`scripts/rls-test-db.sh`.
 
 > **Applying `0063` to an existing deployment:** nothing ever stopped two sibling folders sharing a name, so the migration first fails loudly with the full list of offenders rather than letting `CREATE UNIQUE INDEX` report one key. It deliberately does not deduplicate — deleting a folder row cascades to `documents.folder_id` and would silently unfile real evidence. Rename or merge through the application, then re-run.
 
@@ -689,51 +713,54 @@ is proven against Postgres in `upload-batches.integration.spec.ts`.
 
 ---
 
-## conversation_restricted_turns (migration 0105, ADR-0078)
+## conversation_restricted_folders (migration 0107, ADR-0078, ADR-0079)
 
-A turn of this conversation ran with a restricted folder's collection in its
-signed scope. The confinement route (`POST /api/internal/conversations/[id]/confinement`,
-asked by the chat socket before every such turn) writes it before it answers
-yes, so the mark exists before the answer does. The sharing service refuses to
-widen a conversation with a row here (`confinedToOwner`): the inventory block
-can put a restricted summary into an answer that cites nothing, and the owner
-could otherwise share while the first restricted answer streams.
+A folder not every project member may read whose content this conversation
+drew on: written when the BFF ADMITS that use
+(`POST /api/internal/conversations/[id]/restricted-use`, asked by the agent
+before a tool round's restricted results reach the model, by the memory digest
+for restricted notes, and by the subject read), atomically with every widening
+of the conversation's audience. Keyed by the SOURCE FOLDER, never by collection
+or role: who may read the conversation is decided when it is read, against the
+folders' access as it is then (`recordedRestrictedFolders`,
+`readableByEveryMember`), so a folder opened to everyone stops confining the
+conversation and a narrowed one confines it to fewer people. Replaces 0105's
+`conversation_restricted_turns` (dropped by 0107; its marks became rows for
+every folder that was restricted in the conversation's project).
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `organization_id` | `text` | NOT NULL, PK | RLS: `organization_id = grid_current_org()` |
 | `conversation_id` | `text` | NOT NULL, PK | No FK: the first turn of a new chat runs before its row exists |
-| `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | First and latest restricted turn |
-| `turn_count` | `integer` | NOT NULL, default 1, CHECK ≥ 1 | Restricted turns that asked. A refused first ask withdraws a mark only while it is 1, so a concurrent turn's mark stays |
+| `folder_id` | `uuid` | NOT NULL, PK | No FK: a deleted folder's tombstone (0108) keeps answering, and an unknown id is treated as unreadable |
+| `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | |
 
-Primary key: `conversation_restricted_turns_pk (organization_id, conversation_id)`.
-`deleteConversationInOrg` deletes the row with the conversation. Repository:
-`lib/conversations/repository.ts` (`recordRestrictedTurn`, `hasRestrictedTurn`,
-`withdrawFreshRestrictedTurn`); proven against Postgres in
-`restricted-turns.integration.spec.ts`. `listRecentMessagesWithCardDecisions`
-also reads it: a conversation with a row here keeps its card decisions out of
-the project-wide `PROPOSAL_DECISIONS` block.
+`deleteConversationInOrg` deletes the rows with the conversation.
+Repository: `lib/conversations/restricted-use-repository.ts`; proven against
+Postgres in `restricted-use.integration.spec.ts`; backfill and down in
+`scripts/rls-test-db.sh`. `listRecentMessagesWithCardDecisions` also reads it:
+a conversation with a row here keeps its card decisions out of the
+project-wide `PROPOSAL_DECISIONS` block.
 
 ---
 
-## project_memory.restricted_collections (migration 0106, ADR-0078)
+## project_memory.restricted_folder_ids (migration 0109, ADR-0079; 0106, ADR-0078)
 
 The table itself is described in
 [`project-memory-design.md`](../architecture/project-memory-design.md) §2; this
-is the column 0106 adds.
+is the column 0106 added as `restricted_collections` and 0109 replaced.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
-| `restricted_collections` | `text[]` | NULL, or CHECK 1–20 entries, none NULL, `scope = 'project'` (`project_memory_restricted_collections_check`; with 0008's scope CHECK that implies a `project_id`) | The restricted-folder collections (`<project collection>_r<12 hex>`) the note depends on; `NULL` = open. Stored sorted and de-duplicated (`canonicalRestriction`). Served and shown only to a session cleared for ALL of them (`memoryVisibleTo` in `lib/projects/memory-service.ts`); a collection that is no longer a current restricted collection of the project clears nobody |
+| `restricted_folder_ids` | `uuid[]` | NULL, or CHECK 1–20 entries, none NULL, `scope = 'project'` (`project_memory_restricted_folders_check`) | The source folders the note depends on; `NULL` = open. Stored sorted and de-duplicated (`canonicalRestriction`). Served and shown only to a session that may read ALL of them now (`memoryVisibleTo` with `readableFolderIdsFor`, tombstones included); a folder since opened to every member opens the note. 0109 mapped each 0106 collection to its folder, and one that no folder answers to became the nil UUID (shown to nobody, as before) |
 
-Index: `uniq_project_memory_project_content_active` (from 0010) now keys on
-`(project_id, coalesce(restricted_collections, '{}'), normalized content)`, so an
+Index: `uniq_project_memory_project_content_active` keys on
+`(project_id, coalesce(restricted_folder_ids, '{}'), normalized content)`, so an
 open and a restricted note with the same text can both be live; consolidation
-never crosses a restriction. No index on the column itself: every serving read
-already narrows by `project_id` and `status`, and the restricted filter is a
-predicate on those rows. The down migration DELETES restricted notes rather than
-opening them. Proven against Postgres in `memory-restricted.integration.spec.ts`;
-the down in `scripts/rls-test-db.sh`.
+never crosses a restriction. 0109 supersedes the later of two notes its mapping
+made identical. The 0109 down maps ids back to collection names; the 0106 down
+DELETES restricted notes rather than opening them. Proven against Postgres in
+`memory-restricted.integration.spec.ts`; both downs in `scripts/rls-test-db.sh`.
 
 ---
 

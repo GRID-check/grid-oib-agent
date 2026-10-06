@@ -180,11 +180,9 @@ describe('fileAgentDocumentDraft', () => {
       title: 'Honorar',
       content: '# Honorar',
       originConversationId: 's_conv_1',
-      signedRestrictedCollections: ['proj_1_r0123456789ab'],
     })
     expect(vi.mocked(fileGeneratedDocument).mock.calls[0][0].origin).toEqual({
       conversationId: 's_conv_1',
-      signedRestrictedCollections: ['proj_1_r0123456789ab'],
       // The agent's route says nothing about a language; the refusal is German.
       locale: 'de',
     })

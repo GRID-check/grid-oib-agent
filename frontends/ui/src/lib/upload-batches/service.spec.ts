@@ -83,6 +83,8 @@ const OPEN: ProjectFolderAccess = {
   isVisible: () => true,
   collectionFor: () => 'proj_c',
   clearedRestrictedCollections: [],
+  levelOf: () => 'write',
+  sourceFolderOf: () => null,
   anyRestricted: false,
 }
 

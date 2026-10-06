@@ -15,10 +15,10 @@
  * request to move one is a mistake worth refusing rather than quietly ignoring.
  */
 
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { documents, projectFolders } from '@/lib/db/schema'
-import { getProjectFolderAccess } from '@/lib/authz/folder-access'
+import { getProjectFolderAccess, requireFolderWrite } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -76,13 +76,16 @@ export async function moveDocumentToFolder(
   await requireProjectAccess(session, document.projectId, ['project:documents:write', 'project:edit'])
 
   // Both ends must be visible to the mover (ADR-0078): a document in a folder
-  // they are not cleared for does not exist for them, and neither does such a
+  // they may not read does not exist for them, and neither does such a
   // destination.
   const project = await findProjectInOrg(document.projectId, session.organizationId)
   if (!project) return { ok: false, error: 'Document not found.' }
   const access = await getProjectFolderAccess(session, document.projectId, project.collectionName)
   if (!access.isVisible(document.folderId)) return { ok: false, error: 'Document not found.' }
   if (!access.isVisible(input.folderId)) return { ok: false, error: 'Folder not found in this project.' }
+  // Moving out of a folder and into another is a write on both (ADR-0079): a
+  // read-only end refuses (403), whichever it is.
+  await requireFolderWrite(session, document.projectId, [document.folderId, input.folderId])
   // Restricted folders do not hold IFC models until their building data is
   // partitioned (ADR-0078). A 409, thrown: the route turns `ok: false` into 400.
   assertIfcMayBeFiledIn(document.filename, access.collectionFor(input.folderId), project.collectionName)
@@ -96,7 +99,11 @@ export async function moveDocumentToFolder(
       .select({ id: projectFolders.id, path: projectFolders.path })
       .from(projectFolders)
       .where(
-        and(eq(projectFolders.id, input.folderId), eq(projectFolders.projectId, document.projectId)),
+        and(
+          eq(projectFolders.id, input.folderId),
+          eq(projectFolders.projectId, document.projectId),
+          isNull(projectFolders.deletedAt),
+        ),
       )
       .limit(1)
     if (!folder) return { ok: false, error: 'Folder not found in this project.' }

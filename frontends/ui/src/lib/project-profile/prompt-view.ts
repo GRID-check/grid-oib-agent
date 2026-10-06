@@ -1,7 +1,6 @@
 import { findProjectProfile, findProjectPromptView } from '@/lib/projects/repository'
 import { loadDocumentRolesPromptSection } from '@/lib/document-roles/prompt-loader'
 import { getCached, invalidateCached } from '@/lib/cache'
-import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildProjectBriefView } from './brief-view'
 import { isValidBundeslandToken } from './intake-definition'
 import { ProjectProfileSchema } from './types'
@@ -42,16 +41,14 @@ const bundeslandCacheKey = (projectId: string, organizationId: string | null | u
  * on one replica invalidates for all replicas — the per-process Map this
  * replaces served stale project context for up to 5 minutes after an edit.
  *
- * The cached view is one per project, read by every member and by scheduled
- * and deep-research runs, so it names no document in a restricted folder
- * (ADR-0078). `cleared` is the session of a chat turn whose signed scope
- * already carries its restricted collections: that turn gets a view built for
- * it, uncached, naming what it is cleared for. Nothing else passes it.
+ * The view is one per project, read by every member and by scheduled and
+ * deep-research runs, and it names no document in a restricted folder, for
+ * anyone (ADR-0078): listing is not use, and a chat finds a restricted
+ * document by searching for it.
  */
 export async function loadProjectPromptView(
   projectId: string | undefined,
-  organizationId: string | null | undefined,
-  cleared?: AuthorizedSession | null
+  organizationId: string | null | undefined
 ): Promise<string | null> {
   if (!projectId) return null
 
@@ -63,13 +60,12 @@ export async function loadProjectPromptView(
       // runs at profile-save; a document declared afterwards would never reach
       // a view built there. Declaring or revoking a role invalidates this cache
       // (`lib/document-roles/service`), so the block cannot go stale either.
-      loadDocumentRolesPromptSection(projectId, organizationId, cleared),
+      loadDocumentRolesPromptSection(projectId, organizationId),
     ])
     const combined = [stored?.trim(), documents].filter(Boolean).join('\n\n').trim()
     return combined || null
   }
 
-  if (cleared) return build()
   return getCached(promptViewCacheKey(projectId, organizationId), PROMPT_VIEW_CACHE_TTL_MS, build)
 }
 

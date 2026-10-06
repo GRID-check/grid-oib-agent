@@ -1,9 +1,9 @@
 /**
  * @vitest-environment node
  *
- * The Project Memory panel's service (ADR-0078): a restricted note is listed,
- * edited and deleted only by a session cleared for all of its collections,
- * and a cleared reader is told which folders it came from. For anyone else it
+ * The Project Memory panel's service (ADR-0078, ADR-0079): a restricted note is
+ * listed, edited and deleted only by a session that may read all of its source
+ * folders now, and such a reader is told which folders it came from. For anyone else it
  * is absent — the listing never asks for it, and an edit or delete by id
  * answers like a missing item.
  */
@@ -24,9 +24,10 @@ vi.mock('./repository', () => ({
 }))
 
 vi.mock('@/lib/authz/folder-access', () => ({
+  clearanceOf: vi.fn(() => ({ roles: ['member'], seesEverything: false })),
+  customFolderNames: vi.fn(),
   getHiddenFolderIds: vi.fn(async () => []),
-  getProjectFolderAccess: vi.fn(),
-  restrictedFolderNamesByCollection: vi.fn(),
+  readableFolderIdsFor: vi.fn(),
 }))
 
 vi.mock('./memory-service', () => ({
@@ -36,15 +37,15 @@ vi.mock('./memory-service', () => ({
   updateProjectMemoryItem: vi.fn(async () => ({ id: 'item-1' })),
 }))
 
-import { getProjectFolderAccess, restrictedFolderNamesByCollection } from '@/lib/authz/folder-access'
-import type { ProjectFolderAccess } from '@/lib/authz/folder-access'
+import { customFolderNames, readableFolderIdsFor } from '@/lib/authz/folder-access'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { NotFoundError } from '@/lib/api/errors'
 import { makeMemoryItem } from '@/test-utils/db-fixtures'
 import { deleteProjectMemoryItem, listProjectMemory, updateProjectMemoryItem } from './memory-service'
 import { editProjectMemoryItem, getProjectMemory, removeProjectMemoryItem } from './service'
 
-const CONTRACTS = 'proj_x_raaaaaaaaaaaa'
+/** The source folder of a restricted note (ADR-0079). */
+const CONTRACTS = 'aaaaaaaa-0000-4000-8000-000000000001'
 
 const SESSION: AuthorizedSession = {
   userId: 'user_1',
@@ -58,40 +59,32 @@ const SESSION: AuthorizedSession = {
   featureFlags: null,
 }
 
-const access = (cleared: string[]): ProjectFolderAccess => ({
-  hiddenFolderIds: new Set(),
-  isVisible: () => true,
-  collectionFor: () => 'proj_x',
-  clearedRestrictedCollections: cleared,
-  anyRestricted: cleared.length > 0,
-})
-
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
 describe('getProjectMemory', () => {
   it('lists with the session\'s clearance and names the folders of a restricted note', async () => {
-    vi.mocked(getProjectFolderAccess).mockResolvedValue(access([CONTRACTS]))
-    vi.mocked(restrictedFolderNamesByCollection).mockResolvedValue(new Map([[CONTRACTS, 'Verträge']]))
+    vi.mocked(readableFolderIdsFor).mockResolvedValue([CONTRACTS])
+    vi.mocked(customFolderNames).mockResolvedValue(new Map([[CONTRACTS, 'Verträge']]))
     vi.mocked(listProjectMemory).mockResolvedValue([
       makeMemoryItem({ id: 'open' }),
-      makeMemoryItem({ id: 'restricted', restrictedCollections: [CONTRACTS] }),
+      makeMemoryItem({ id: 'restricted', restrictedFolderIds: [CONTRACTS] }),
     ])
 
     const items = await getProjectMemory(SESSION, 'proj-1')
 
-    expect(getProjectFolderAccess).toHaveBeenCalledWith(SESSION, 'proj-1', 'proj_x')
+    expect(readableFolderIdsFor).toHaveBeenCalledWith('org_1', 'proj-1', { roles: ['member'], seesEverything: false })
     expect(listProjectMemory).toHaveBeenCalledWith('proj-1', {
       organizationId: 'org_1',
-      clearedRestrictedCollections: [CONTRACTS],
+      readableFolderIds: [CONTRACTS],
     })
     expect(items.find((item) => item.id === 'restricted')?.restrictedFolderNames).toEqual(['Verträge'])
     expect(items.find((item) => item.id === 'open')).not.toHaveProperty('restrictedFolderNames')
   })
 
   it('lists open memory only for an uncleared session, and asks for no folder names', async () => {
-    vi.mocked(getProjectFolderAccess).mockResolvedValue(access([]))
+    vi.mocked(readableFolderIdsFor).mockResolvedValue([])
     vi.mocked(listProjectMemory).mockResolvedValue([makeMemoryItem({ id: 'open' })])
 
     await getProjectMemory(SESSION, 'proj-1', { sourceConversationId: 'c1' })
@@ -99,26 +92,26 @@ describe('getProjectMemory', () => {
     expect(listProjectMemory).toHaveBeenCalledWith('proj-1', {
       organizationId: 'org_1',
       sourceConversationId: 'c1',
-      clearedRestrictedCollections: [],
+      readableFolderIds: [],
     })
-    expect(restrictedFolderNamesByCollection).not.toHaveBeenCalled()
+    expect(customFolderNames).not.toHaveBeenCalled()
   })
 })
 
 describe('editing and deleting', () => {
   it('reaches only the notes the session may see', async () => {
-    vi.mocked(getProjectFolderAccess).mockResolvedValue(access([]))
+    vi.mocked(readableFolderIdsFor).mockResolvedValue([])
 
     await editProjectMemoryItem(SESSION, 'proj-1', 'item-1', { pinned: true })
     await removeProjectMemoryItem(SESSION, 'proj-1', 'item-1')
 
-    const owner = { projectId: 'proj-1', organizationId: 'org_1', clearedRestrictedCollections: [] }
+    const owner = { projectId: 'proj-1', organizationId: 'org_1', readableFolderIds: [] }
     expect(updateProjectMemoryItem).toHaveBeenCalledWith(owner, 'item-1', { pinned: true })
     expect(deleteProjectMemoryItem).toHaveBeenCalledWith(owner, 'item-1')
   })
 
   it('answers a hidden note like a missing one', async () => {
-    vi.mocked(getProjectFolderAccess).mockResolvedValue(access([]))
+    vi.mocked(readableFolderIdsFor).mockResolvedValue([])
     vi.mocked(updateProjectMemoryItem).mockResolvedValueOnce(null)
     vi.mocked(deleteProjectMemoryItem).mockResolvedValueOnce(false)
 

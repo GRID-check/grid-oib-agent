@@ -66,8 +66,8 @@ project_memory
   source_message_id       uuid  null
   source_document_id      uuid  null              -- when grounded in an uploaded doc
   supersedes_id     uuid  null  fk → project_memory(id)   -- updates, not appends
-  restricted_collections text[] null              -- ADR-0078: the restricted-folder collections it
-                                                  -- depends on; NULL = open (§3.6, migration 0106)
+  restricted_folder_ids uuid[] null               -- ADR-0079: the source folders it depends on;
+                                                  -- NULL = open (§3.6, migrations 0106, 0109)
   salience          real  default 0.5             -- retrieval/budget ranking
   pinned            bool  default false           -- always-inject core memory
   embedding_synced  bool  default false           -- has it been pushed to the vector store
@@ -134,7 +134,7 @@ adjudication of genuine two-sided conflicts.
 
 **Consolidation never crosses a restriction** (§3.6). Every pass — exact
 duplicate, semantic and lexical paraphrase, the named supersede target — only
-considers rows with exactly the same `restricted_collections` (stored sorted and
+considers rows with exactly the same `restricted_folder_ids` (stored sorted and
 de-duplicated, so equal restrictions are equal arrays). An open note never
 merges into, supersedes or is retired by a restricted one, and neither do two
 restricted notes with different collections: either would make a fact appear
@@ -289,12 +289,13 @@ backed by two partial UNIQUE indexes on normalized content (migration
 pragmatic slice of the §3.2 gate; embed-based consolidation remains a follow-up.
 See [memory-reflection-audit.md](./memory-reflection-audit.md).
 
-### 3.6 Restricted memory (ADR-0078)
+### 3.6 Restricted memory (ADR-0078, ADR-0079)
 "Restricted shouldn't feel like amnesia, it should feel like a first thought"
-(product owner, 2026-10-02). A turn whose signed scope holds restricted-folder
-collections `R` remembers as any other turn does; what it writes carries the
-restricted collections it depends on (`restricted_collections`), and only a
-session cleared for **all** of them is served it or shown it.
+(product owner, 2026-10-02). A turn whose scope holds restricted-folder
+collections `R` it may draw on remembers as any other turn does; what it writes
+carries the source FOLDERS it depends on (`restricted_folder_ids`, migration
+0109; the agent decides in collections and the BFF maps each to its folder),
+and only a session that may read **all** of them now is served it or shown it.
 
 **Deciding the restriction** — one function, `aiq_agent/memory/restriction.py`
 `decide_restrictions`, called by the `remember` tool and the reflection stage:
@@ -352,32 +353,36 @@ restricted finding never becomes a `memory_proposal` card: accepting a card is
 an open write by the user's own session.
 
 **Writing** — `POST /api/internal/memory` takes `restrictedCollections`;
-`createProjectMemoryItemForProject` refuses (400) any name that is not a
-CURRENT restricted collection of the project (`currentRestrictedCollections` in
-`lib/authz/folder-access.ts`), rather than store a note nobody could be served.
+`createProjectMemoryItemForProject` maps each to the folder whose collection it
+is (`sourceFoldersOfCollections` in `lib/authz/folder-access.ts`) and refuses
+(400) a name no folder of the project answers to, rather than store a note
+nobody could be served.
 
-**Serving** — every reader passes the restricted collections it is cleared
-for, and the default is none (open memory only):
-- the handshake digest (`/api/auth/websocket-scope`): the restricted
-  collections the socket's signed scope carries, which the scope builder gave
-  only to a cleared session on a thread only its asker reads;
-- the live per-turn digest (`/api/internal/memory/digest`): the agent sends the
-  restricted collections in its VERIFIED envelope (`restrictedCollections`),
-  intersected with the project's current ones. Deep research, scheduled runs
-  and the job worker send none;
+**Serving** — every reader passes the folders it may read NOW
+(`readableFolderIdsFor`, tombstones of deleted folders included, judged by
+`effectiveFolderLevel`), and the default is the folders every member may read:
+- the live per-turn digest (`/api/internal/memory/digest`): an interactive chat
+  turn sends the restricted collections it may draw on
+  (`restrictedCollections`), its conversation and its signed asker (`userId`).
+  A restricted note is then served when the asker may read every one of its
+  folders, AND the conversation admits them against everyone it is shared with
+  (`admitSourceFolders`): a restricted note in the prompt is use of its
+  folders, recorded in `conversation_restricted_folders`, and the response's
+  `restrictedFoldersServed` tells the agent the conversation is confined. Deep
+  research, scheduled runs and the job worker send none and get open notes,
+  including those whose folders every member may read again;
 - the Project Memory panel and its routes (`getProjectMemory`, edit, delete):
-  the session's `clearedRestrictedCollections` from `getProjectFolderAccess`
-  (admins: every current one). A note the session may not see is absent — not
-  counted, and an edit or delete by id is a 404. A cleared reader sees a lock
-  naming the folders;
+  the session's readable folders (admins: every folder). A note the session may
+  not see is absent — not counted, and an edit or delete by id is a 404. A
+  reader who may see it sees a lock naming the folders;
 - the digest marks a restricted line `restricted`;
-- `PROPOSAL_DECISIONS` leaves out every conversation with a restricted turn
-  (`conversation_restricted_turns`): the block is project-wide and a card's
-  words can carry what a restricted folder said.
+- `PROPOSAL_DECISIONS` leaves out every conversation that recorded a restricted
+  folder (`conversation_restricted_folders`): the block is project-wide and a
+  card's words can carry what a restricted folder said.
 
-A collection whose restriction is lifted, or whose folder is deleted, clears
-nobody: the note is then shown to nobody until a person re-files it (accepted
-in ADR-0078). The per-query `mem_<project>` namespace of §3.3 is not built;
+A folder later opened to every member opens its notes; a folder narrowed shows
+them to fewer people; a deleted folder's tombstone keeps answering with the
+access it had (ADR-0079). Nothing is rewritten when access changes. The per-query `mem_<project>` namespace of §3.3 is not built;
 recall runs inside the digest query over the row's own vector, under the same
 filter. Whoever builds that namespace must keep restricted notes out of it or
 filter them the same way.

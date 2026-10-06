@@ -48,9 +48,9 @@ let rolesSection = ''
 /** The reader each block was built for (ADR-0078): absent means nobody's clearance. */
 const rolesReaders: unknown[] = []
 vi.mock('@/lib/document-roles/prompt-loader', () => ({
-  loadDocumentRolesPromptSection: async (_projectId: string, _org: unknown, cleared?: unknown) => {
-    rolesReaders.push(cleared ?? null)
-    return cleared ? `${rolesSection}\n- Honorarvertrag: Honorarnote.pdf` : rolesSection
+  loadDocumentRolesPromptSection: async (...args: unknown[]) => {
+    rolesReaders.push(args[2] ?? null)
+    return args[2] ? `${rolesSection}\n- Honorarvertrag: Honorarnote.pdf` : rolesSection
   },
 }))
 
@@ -308,15 +308,12 @@ describe('restricted folders and the shared prompt view (ADR-0078)', () => {
     expect(view).not.toContain('Honorarnote.pdf')
   })
 
-  it('builds a cleared turn its own view, and never caches it for the next caller', async () => {
+  it('builds the same shared view for every chat: listing a restricted document is not using it', async () => {
     dbRows = rowFor('wien', 'PROJECT_CONTEXT v1')
-    const cleared = { userId: 'user-gf', organizationId: 'org-1' } as never
 
-    expect(await loadProjectPromptView('proj-1', 'org-1', cleared)).toContain('Honorarnote.pdf')
-    expect(store.map.size).toBe(0)
-
-    // The next member's turn reads the shared view, which never held it.
     expect(await loadProjectPromptView('proj-1', 'org-1')).not.toContain('Honorarnote.pdf')
-    expect(rolesReaders).toEqual([cleared, null])
+    expect(await loadProjectPromptView('proj-1', 'org-1')).not.toContain('Honorarnote.pdf')
+    // One build, cached, for nobody's clearance.
+    expect(rolesReaders).toEqual([null])
   })
 })

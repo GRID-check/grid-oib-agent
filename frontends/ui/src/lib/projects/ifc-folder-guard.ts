@@ -1,8 +1,10 @@
 /**
- * Restricted folders do not hold IFC models (ADR-0078), and this is the one
- * place that refuses it.
+ * Folders that restrict READING do not hold IFC models (ADR-0078, ADR-0079),
+ * and this is the one place that refuses it. A folder whose own list only
+ * narrows who may write (every member still reads, `*`) is no restriction
+ * here: its documents stay in the project's collection.
  *
- * A restricted folder is its own retrieval collection, which is what keeps its
+ * A read-restricted folder is its own retrieval collection, which is what keeps its
  * documents out of an uncleared member's search. An IFC model is more than its
  * chunks: its building data (`bim_models`, `bim_elements`) is keyed by project,
  * not by collection, and its digest's chunks are filed under a name the
@@ -19,11 +21,11 @@
 
 import 'server-only'
 import { ConflictError } from '@/lib/api/errors'
-import { computeFolderAccess, type AccessFolder } from '@/lib/authz/folder-access'
+import { computeFolderAccess, type AccessFolder, type FolderGrant } from '@/lib/authz/folder-access'
 import {
   countIfcDocumentsInFolders,
   listProjectFolderTree,
-  projectHasRestrictedFolders,
+  projectHasCustomFolders,
 } from '@/lib/authz/folder-access-repository'
 import { isIfcFilename } from '@/lib/bim/types'
 
@@ -43,16 +45,18 @@ export function assertIfcMayBeFiledIn(filename: string, targetCollection: string
   throw new ConflictError(WHY, { code: IFC_IN_RESTRICTED_FOLDER, models: 1 })
 }
 
-/** Restricting `folderId` to `roles` (`null` or empty opens it, which is always allowed). */
+/** Giving `folderId` its own access list `grants` (`null` makes it inherit, which is always allowed). */
 export async function assertRestrictionKeepsIfcOpen(
   organizationId: string,
   projectId: string,
   folderId: string,
-  roles: readonly string[] | null
+  grants: readonly FolderGrant[] | null
 ): Promise<void> {
-  if (!roles || roles.length === 0) return
+  if (!grants || grants.length === 0) return
   const tree = await listProjectFolderTree(organizationId, projectId)
-  const next = tree.map((folder) => (folder.id === folderId ? { ...folder, restrictedRoles: roles } : folder))
+  const next = tree.map((folder) =>
+    folder.id === folderId ? { ...folder, accessMode: 'custom' as const, grants } : folder
+  )
   await refuseIfcUnderRestriction(organizationId, projectId, next, folderId, (models) =>
     `This folder or its subfolders hold ${countLabel(models)}. ${WHY} Move ${models === 1 ? 'it' : 'them'} out of the folder first.`
   )
@@ -67,7 +71,7 @@ export async function assertFolderMoveKeepsIfcOpen(
 ): Promise<void> {
   // The common case: nothing in the project is restricted, so nothing can be
   // moved under a restriction.
-  if (!(await projectHasRestrictedFolders(organizationId, projectId))) return
+  if (!(await projectHasCustomFolders(organizationId, projectId))) return
   const tree = await listProjectFolderTree(organizationId, projectId)
   const next = tree.map((folder) => (folder.id === folderId ? { ...folder, parentId } : folder))
   await refuseIfcUnderRestriction(organizationId, projectId, next, folderId, (models) =>
@@ -94,7 +98,8 @@ async function refuseIfcUnderRestriction(
 ): Promise<void> {
   const OPEN = 'open'
   const placement = computeFolderAccess(next, { roles: [], seesEverything: true }, OPEN)
-  const covered = subtreeOf(next, rootId).filter((id) => placement.collectionFor(id) !== OPEN)
+  const living = next.filter((folder) => !folder.deleted)
+  const covered = subtreeOf(living, rootId).filter((id) => placement.collectionFor(id) !== OPEN)
   const models = await countIfcDocumentsInFolders(organizationId, projectId, covered)
   if (models > 0) throw new ConflictError(message(models), { code: IFC_IN_RESTRICTED_FOLDER, models })
 }

@@ -6,11 +6,21 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { getProjectFolderAccess } from '@/lib/authz/folder-access'
+import {
+  computeFolderAccess,
+  clearanceOf,
+  folderReadOnlyError,
+  getProjectFolderAccess,
+  projectMayWriteDocuments,
+  requireFolderWrite,
+  withProjectCeiling,
+  type AccessFolder,
+  type FolderGrant,
+} from '@/lib/authz/folder-access'
 import { listProjectDocumentCollections, listProjectFolderTree } from '@/lib/authz/folder-access-repository'
-import type { AccessFolder } from '@/lib/authz/folder-access'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { placeProjectDocuments } from './collection-placement'
+import { describeGrants } from './folder-access-settings'
 import { assertFolderMoveKeepsIfcOpen } from './ifc-folder-guard'
 import { validateFolderName, buildFolderPath, folderMatchKey, pathSegments } from './folders'
 
@@ -59,33 +69,43 @@ export interface FolderRow {
   name: string
   path: string
   /**
-   * The WorkOS roles this folder is restricted to (ADR-0078), or null when it
-   * is open. Only ever shown to someone who can see the folder: a folder a
-   * reader is not cleared for is not listed at all.
+   * The folder's own access list (ADR-0079), or null when it inherits its
+   * parent's. Only ever shown to someone who may read the folder: a folder a
+   * reader may not read is not listed at all.
    */
-  restrictedRoles: string[] | null
+  grants: FolderGrant[] | null
+  /**
+   * What the reader may do here: `write` or `read`, the folder's level with the
+   * project permission as the ceiling. Set by the listing for the session that
+   * asked; the server checks again on every write, this only shapes the UI.
+   */
+  access?: 'read' | 'write'
   createdAt: Date
   updatedAt: Date
 }
 
-export function toFolderRow(row: typeof projectFolders.$inferSelect): FolderRow {
+export function toFolderRow(row: typeof projectFolders.$inferSelect, grants: readonly FolderGrant[] = []): FolderRow {
   return {
     id: row.id,
     projectId: row.projectId,
     parentId: row.parentId,
     name: row.name,
     path: row.path,
-    restrictedRoles: row.restrictedRoles ?? null,
+    grants: row.accessMode === 'custom' ? [...grants] : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
 }
 
+/** A living folder of this project: every read here skips a deleted folder's tombstone (migration 0108). */
+const livingIn = (projectId: string) => and(eq(projectFolders.projectId, projectId), isNull(projectFolders.deletedAt))
+
 /**
- * The reader's view of the project's folders (ADR-0078): a folder they are not
- * cleared for, and everything below it, does not exist for them. Every function
- * here that takes a folder id from a request asks this first, so a hidden
- * folder answers like a missing one.
+ * The reader's view of the project's folders (ADR-0078, ADR-0079): a folder they
+ * may not read, and everything below it, does not exist for them. Every
+ * function here that takes a folder id from a request asks this first, so a
+ * hidden folder answers like a missing one; a write then asks
+ * `requireFolderWrite`.
  */
 async function folderAccessFor(session: AuthorizedSession, projectId: string) {
   const project = await findProjectInOrg(projectId, session.organizationId)
@@ -97,21 +117,36 @@ export async function listProjectFolders(
   session: AuthorizedSession
 ): Promise<FolderRow[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  const access = await folderAccessFor(session, projectId)
+  const project = await findProjectInOrg(projectId, session.organizationId)
   const db = getDb()
-  const rows = await db
-    .select()
-    .from(projectFolders)
-    .where(eq(projectFolders.projectId, projectId))
-    .orderBy(projectFolders.path)
-  return rows.filter((row) => access.isVisible(row.id)).map(toFolderRow)
+  const [rows, tree, projectWrite] = await Promise.all([
+    db.select().from(projectFolders).where(livingIn(projectId)).orderBy(projectFolders.path),
+    listProjectFolderTree(session.organizationId, projectId),
+    projectMayWriteDocuments(session, projectId),
+  ])
+  const access = computeFolderAccess(tree, clearanceOf(session), project?.collectionName ?? '')
+  const grantsOf = new Map(tree.map((folder) => [folder.id, folder.grants]))
+  return rows
+    .filter((row) => access.isVisible(row.id))
+    .map((row) => ({
+      ...toFolderRow(row, grantsOf.get(row.id) ?? []),
+      access: withProjectCeiling(access.levelOf(row.id), projectWrite) === 'write' ? ('write' as const) : ('read' as const),
+    }))
+}
+
+/** What the session may do at the project root: write with the project's document-write permission, else read. */
+export async function projectRootAccess(session: AuthorizedSession, projectId: string): Promise<'read' | 'write'> {
+  return (await projectMayWriteDocuments(session, projectId)) ? 'write' : 'read'
 }
 
 export async function createProjectFolder(
   input: CreateFolderInput,
   session: AuthorizedSession
 ): Promise<{ ok: true; folder: FolderRow } | { ok: false; error: string }> {
-  await requireProjectAccess(session, input.projectId, ['project:documents:write', 'project:edit'])
+  // A new folder is a write into its parent (ADR-0079): the project's
+  // document-write permission, and write on the parent. A parent the session
+  // may not read is not found; one it may only read is refused (403).
+  await requireFolderWrite(session, input.projectId, [input.parentId ?? null])
   const validation = validateFolderName(input.name)
   if (!validation.ok) {
     return { ok: false, error: validation.error! }
@@ -119,16 +154,11 @@ export async function createProjectFolder(
 
   let parentPath = ''
   if (input.parentId) {
-    if (!(await folderAccessFor(session, input.projectId)).isVisible(input.parentId)) {
-      return { ok: false, error: 'Parent folder not found.' }
-    }
     const db = getDb()
     const [parent] = await db
       .select()
       .from(projectFolders)
-      .where(
-        and(eq(projectFolders.id, input.parentId), eq(projectFolders.projectId, input.projectId))
-      )
+      .where(and(eq(projectFolders.id, input.parentId), livingIn(input.projectId)))
       .limit(1)
     if (!parent) {
       return { ok: false, error: 'Parent folder not found.' }
@@ -185,7 +215,7 @@ export async function findRootProjectFolderByName(projectId: string, name: strin
   const [row] = await db
     .select()
     .from(projectFolders)
-    .where(and(eq(projectFolders.projectId, projectId), isNull(projectFolders.parentId), eq(projectFolders.name, name)))
+    .where(and(livingIn(projectId), isNull(projectFolders.parentId), eq(projectFolders.name, name)))
     .limit(1)
   return row ? toFolderRow(row) : null
 }
@@ -336,9 +366,7 @@ export async function ensureProjectFolderPaths(
     const [parent] = await db
       .select()
       .from(projectFolders)
-      .where(
-        and(eq(projectFolders.id, input.parentId), eq(projectFolders.projectId, input.projectId)),
-      )
+      .where(and(eq(projectFolders.id, input.parentId), livingIn(input.projectId)))
       .limit(1)
     if (!parent) return { ok: false, error: 'Parent folder not found.' }
     root = toFolderRow(parent)
@@ -349,7 +377,7 @@ export async function ensureProjectFolderPaths(
   const existing = await db
     .select()
     .from(projectFolders)
-    .where(eq(projectFolders.projectId, input.projectId))
+    .where(livingIn(input.projectId))
   const byParentAndKey = new Map<string, FolderRow>()
   const index = (row: FolderRow): void => {
     byParentAndKey.set(`${row.parentId ?? ''}\u0000${folderMatchKey(row.name)}`, row)
@@ -385,6 +413,9 @@ export async function ensureProjectFolderPaths(
         continue
       }
       if (hiddenNames.has(`${current?.id ?? ''}\u0000${name}`)) return { ok: false, error: FOLDER_NAME_TAKEN }
+      // Creating a folder is a write into its parent (ADR-0079); matching an
+      // existing one is not, and the upload into it asks on its own.
+      if (current && access.levelOf(current.id) !== 'write') throw folderReadOnlyError()
 
       const created = await insertFolder(db, input.projectId, current, name)
       if (!created.ok) return created
@@ -430,7 +461,7 @@ async function insertFolder(
       .from(projectFolders)
       .where(
         and(
-          eq(projectFolders.projectId, projectId),
+          livingIn(projectId),
           parent ? eq(projectFolders.parentId, parent.id) : isNull(projectFolders.parentId),
           eq(projectFolders.name, name),
         ),
@@ -474,10 +505,7 @@ async function rewriteDescendantPaths(
       updatedAt: new Date(),
     })
     .where(
-      and(
-        eq(projectFolders.projectId, projectId),
-        like(projectFolders.path, `${escapeLikePattern(oldPath)}/%`)
-      )
+      and(livingIn(projectId), like(projectFolders.path, `${escapeLikePattern(oldPath)}/%`))
     )
 }
 
@@ -535,39 +563,40 @@ export async function mirrorFolderPathRewrite(
 }
 
 /**
- * The restricted folders at or above `folderId`, outermost first; empty for the
- * project root or an open path. Clearance is decided over exactly this list
- * (ADR-0078: a member must clear EVERY restricted folder on a path), so two
- * places with the same list restrict their contents identically.
+ * The folders with their own access list at or above `folderId`, outermost
+ * first; empty for the project root or a path that inherits all the way up.
+ * The level on a folder is decided over exactly this list (ADR-0079: the
+ * minimum over every own list on the path), so two places with the same list
+ * give their contents the same access.
  */
 function restrictionsAt(tree: ReadonlyMap<string, AccessFolder>, folderId: string | null): AccessFolder[] {
   const chain: AccessFolder[] = []
   const seen = new Set<string>()
   for (let current = folderId ? tree.get(folderId) : undefined; current && !seen.has(current.id); ) {
     seen.add(current.id)
-    if (current.restrictedRoles && current.restrictedRoles.length > 0) chain.unshift(current)
+    if (current.accessMode === 'custom') chain.unshift(current)
     current = current.parentId ? tree.get(current.parentId) : undefined
   }
   return chain
 }
 
-/** The audit form of {@link restrictionsAt}: roles comma-joined per folder, folders `;`-joined. */
+/** The audit form of {@link restrictionsAt}: each folder's `role:level` list, folders `;`-joined. */
 function describeRestrictions(chain: readonly AccessFolder[]): string {
-  return chain.map((folder) => (folder.restrictedRoles ?? []).join(',')).join(';')
+  return chain.map((folder) => describeGrants(folder.grants)).join(';')
 }
 
 /**
- * A rename, move or delete that changes which documents are restricted, or to
- * whom, is a change of folder access: it needs what `setFolderRestriction`
- * needs (`project:manage`) and leaves the same audit line. Without this,
- * `project:documents:write` could lift a restriction by deleting the folder, or
- * by moving a folder out from under a restricted one.
+ * A move or delete that changes who may read or write what is in a folder is
+ * a change of folder access: it needs what `setFolderAccess` needs
+ * (`project:manage`) and leaves the same audit line. Without this,
+ * `project:documents:write` could widen a folder by deleting the one above it
+ * that narrows it, or by moving a folder out from under one.
  */
 async function recordFolderAccessChange(
   session: AuthorizedSession,
   projectId: string,
   folderId: string,
-  roles: string,
+  grants: string,
   documentsMoved: number,
   request: Request | undefined
 ): Promise<void> {
@@ -577,7 +606,7 @@ async function recordFolderAccessChange(
     action: 'project.folder.access_changed',
     targetType: 'project',
     targetId: projectId,
-    metadata: { folderId, roles, documentsMoved },
+    metadata: { folderId, grants, documentsMoved },
     request,
   })
 }
@@ -596,20 +625,22 @@ export async function updateProjectFolder(
   session: AuthorizedSession,
   request?: Request
 ): Promise<{ ok: true; folder: FolderRow } | { ok: false; error: string }> {
-  await requireProjectAccess(session, input.projectId, ['project:documents:write', 'project:edit'])
   const db = getDb()
 
   const [folder] = await db
     .select()
     .from(projectFolders)
-    .where(
-      and(eq(projectFolders.id, input.folderId), eq(projectFolders.projectId, input.projectId))
-    )
+    .where(and(eq(projectFolders.id, input.folderId), livingIn(input.projectId)))
     .limit(1)
-  if (!folder) return { ok: false, error: 'Folder not found.' }
-  const access = await folderAccessFor(session, input.projectId)
-  if (!access.isVisible(folder.id)) return { ok: false, error: 'Folder not found.' }
-  if (input.parentId && !access.isVisible(input.parentId)) return { ok: false, error: 'Parent folder not found.' }
+  if (!folder) {
+    await requireProjectAccess(session, input.projectId, ['project:documents:write', 'project:edit'])
+    return { ok: false, error: 'Folder not found.' }
+  }
+  const moving = input.parentId !== undefined && input.parentId !== folder.parentId
+  // A rename or move is a write on the folder (which, nesting only narrowing,
+  // is a write on its parent too); a move is also a write into the new parent.
+  // One the session may not read is not found, one it may only read is refused.
+  await requireFolderWrite(session, input.projectId, moving ? [folder.id, input.parentId ?? null] : [folder.id])
 
   let name = folder.name
   if (input.name !== undefined) {
@@ -629,7 +660,7 @@ export async function updateProjectFolder(
       const [parent] = await db
         .select()
         .from(projectFolders)
-        .where(and(eq(projectFolders.id, parentId), eq(projectFolders.projectId, input.projectId)))
+        .where(and(eq(projectFolders.id, parentId), livingIn(input.projectId)))
         .limit(1)
       if (!parent) return { ok: false, error: 'Parent folder not found.' }
       if (parent.path === folder.path || parent.path.startsWith(`${folder.path}/`)) {
@@ -641,9 +672,7 @@ export async function updateProjectFolder(
     const [parent] = await db
       .select()
       .from(projectFolders)
-      .where(
-        and(eq(projectFolders.id, folder.parentId), eq(projectFolders.projectId, input.projectId))
-      )
+      .where(and(eq(projectFolders.id, folder.parentId), livingIn(input.projectId)))
       .limit(1)
     parentPath = parent?.path ?? ''
   }
@@ -652,11 +681,11 @@ export async function updateProjectFolder(
   if (path === folder.path && parentId === folder.parentId) {
     return { ok: true, folder: toFolderRow(folder) }
   }
-  // A move changes the restrictions over the subtree exactly when the old and
-  // the new parent sit under different restricted folders (ADR-0078). The
-  // subtree's own restrictions travel with it, and a rename changes nothing.
+  // A move changes who may read or write the subtree exactly when the old and
+  // the new parent sit under different own access lists (ADR-0079). The
+  // subtree's own lists travel with it, and a rename changes nothing.
   let accessAfter: AccessFolder[] | null = null
-  if (parentId !== folder.parentId && access.anyRestricted) {
+  if (parentId !== folder.parentId) {
     const tree = new Map(
       (await listProjectFolderTree(session.organizationId, input.projectId)).map((entry) => [entry.id, entry])
     )
@@ -665,12 +694,13 @@ export async function updateProjectFolder(
     const unchanged = before.length === after.length && before.every((entry, i) => entry.id === after[i].id)
     if (!unchanged) {
       await requireProjectAccess(session, input.projectId, 'project:manage')
-      // What now governs the folder itself: its new ancestors' restrictions, then its own.
-      const own = folder.restrictedRoles && folder.restrictedRoles.length > 0 ? [folder] : []
-      accessAfter = [...after, ...own]
+      // What now governs the folder itself: its new ancestors' lists, then its own.
+      const own = tree.get(folder.id)
+      accessAfter = [...after, ...(own && own.accessMode === 'custom' ? [own] : [])]
     }
   }
-  // Restricted folders do not hold IFC models (ADR-0078): a 409 when the move would put one under a restriction.
+  // Folders not every member may read do not hold IFC models (ADR-0078): a 409
+  // when the move would put one under such a folder.
   if (parentId !== folder.parentId) await assertFolderMoveKeepsIfcOpen(session.organizationId, input.projectId, folder.id, parentId)
 
   const updated = await db.transaction(async (tx) => {
@@ -684,13 +714,13 @@ export async function updateProjectFolder(
   })
 
   await mirrorFolderPathRewrite(input.projectId, session.organizationId, folder.path, path)
-  // A folder moved under (or out from under) a restricted one takes its
-  // documents into (or out of) that folder's collection (ADR-0078).
+  // A folder moved under (or out from under) one that restricts reading takes
+  // its documents into (or out of) that folder's collection.
   if (parentId !== folder.parentId) {
     const placement = await placeProjectDocuments(session.organizationId, input.projectId)
     if (accessAfter) {
-      const roles = describeRestrictions(accessAfter)
-      await recordFolderAccessChange(session, input.projectId, folder.id, roles, placement.moved, request)
+      const grants = describeRestrictions(accessAfter)
+      await recordFolderAccessChange(session, input.projectId, folder.id, grants, placement.moved, request)
     }
   }
 
@@ -698,15 +728,21 @@ export async function updateProjectFolder(
 }
 
 /**
- * Delete a folder — WITHOUT deleting the work that was filed in it.
+ * Delete a folder — WITHOUT deleting the work that was filed in it, and
+ * WITHOUT forgetting who could read it.
  *
  * `documents.folder_id` is `ON DELETE CASCADE` (see the schema): removing this
  * row would take every document in the folder with it, silently and
  * irreversibly. A folder is a label somebody put on a set of documents, and
  * deleting the label must never delete the documents — so both the documents
  * and any child folders are re-filed into this folder's own parent (the project
- * root when it has none) INSIDE the transaction, before the row goes. Nothing
- * is ever left for the cascade to find.
+ * root when it has none) INSIDE the transaction.
+ *
+ * The row itself then stays as a TOMBSTONE (`deleted_at`, migration 0108): its
+ * access mode, grants and parent remain, because content derived from it (a
+ * conversation's record of use, restricted memory) names it by id and keeps
+ * being judged by the access it had. Every listing, path lookup and placement
+ * skips it, and its name is free again.
  *
  * The counts come back so the surface can say what happened rather than leaving
  * the reader to discover where their files went.
@@ -716,25 +752,30 @@ export async function deleteProjectFolder(
   session: AuthorizedSession,
   request?: Request
 ): Promise<{ ok: true; result: DeleteFolderResult } | { ok: false; error: string }> {
-  await requireProjectAccess(session, input.projectId, ['project:documents:write', 'project:edit'])
   const db = getDb()
 
   const [folder] = await db
     .select()
     .from(projectFolders)
-    .where(
-      and(eq(projectFolders.id, input.folderId), eq(projectFolders.projectId, input.projectId))
-    )
+    .where(and(eq(projectFolders.id, input.folderId), livingIn(input.projectId)))
     .limit(1)
-  if (!folder) return { ok: false, error: 'Folder not found.' }
-  if (!(await folderAccessFor(session, input.projectId)).isVisible(folder.id)) {
+  if (!folder) {
+    await requireProjectAccess(session, input.projectId, ['project:documents:write', 'project:edit'])
     return { ok: false, error: 'Folder not found.' }
   }
-  // Deleting a restricted folder lifts its restriction from everything it held:
-  // a change of folder access, not a tidy-up (ADR-0078). Deleting an open one
-  // changes nothing, since its children keep their own restrictions and its
-  // documents land beside the same restricted ancestors they already had.
-  const liftsRestriction = Boolean(folder.restrictedRoles && folder.restrictedRoles.length > 0)
+  const children = await db
+    .select()
+    .from(projectFolders)
+    .where(and(eq(projectFolders.parentId, folder.id), livingIn(input.projectId)))
+  // Deleting is a write on the folder, and each child folder moves out of it:
+  // a write on each child too (ADR-0079). The documents in it land in the
+  // parent, on which the folder's own write already implies one.
+  await requireFolderWrite(session, input.projectId, [folder.id, ...children.map((child) => child.id)])
+  // Deleting a folder with its own list lifts that list from everything it
+  // held: a change of folder access, not a tidy-up. Deleting one that
+  // inherits changes nothing, since its children keep their own lists and its
+  // documents land beside the same ancestors they already had.
+  const liftsRestriction = folder.accessMode === 'custom'
   if (liftsRestriction) await requireProjectAccess(session, input.projectId, 'project:manage')
 
   let parentPath = ''
@@ -742,9 +783,7 @@ export async function deleteProjectFolder(
     const [parent] = await db
       .select()
       .from(projectFolders)
-      .where(
-        and(eq(projectFolders.id, folder.parentId), eq(projectFolders.projectId, input.projectId))
-      )
+      .where(and(eq(projectFolders.id, folder.parentId), livingIn(input.projectId)))
       .limit(1)
     parentPath = parent?.path ?? ''
   }
@@ -758,13 +797,6 @@ export async function deleteProjectFolder(
       .returning({ id: documents.id })
 
     // Then the child folders, each carrying its own subtree's paths with it.
-    const children = await tx
-      .select()
-      .from(projectFolders)
-      .where(
-        and(eq(projectFolders.parentId, folder.id), eq(projectFolders.projectId, input.projectId))
-      )
-
     for (const child of children) {
       const childPath = buildFolderPath(parentPath, child.name)
       await tx
@@ -774,8 +806,10 @@ export async function deleteProjectFolder(
       await rewriteDescendantPaths(tx, input.projectId, child.path, childPath)
     }
 
+    // The tombstone: the row stays, out of every listing.
     await tx
-      .delete(projectFolders)
+      .update(projectFolders)
+      .set({ deletedAt: new Date(), deletedBy: session.userId, updatedAt: new Date() })
       .where(and(eq(projectFolders.id, folder.id), eq(projectFolders.projectId, input.projectId)))
 
     return {
@@ -789,15 +823,15 @@ export async function deleteProjectFolder(
   // `Brandschutz/Alt` becomes `Brandschutz`, carrying `Brandschutz/Alt/EG` to
   // `Brandschutz/EG` with it, exactly as the rows above just moved.
   await mirrorFolderPathRewrite(input.projectId, session.organizationId, folder.path, parentPath)
-  // Deleting a restricted folder lifts its restriction from what it held: the
+  // Deleting a folder with its own list lifts it from what it held: the
   // documents now sit under its parent and belong in that one's collection.
   if (liftsRestriction) {
     const placement = await placeProjectDocuments(session.organizationId, input.projectId)
     const tree = new Map(
       (await listProjectFolderTree(session.organizationId, input.projectId)).map((entry) => [entry.id, entry])
     )
-    const roles = describeRestrictions(restrictionsAt(tree, folder.parentId))
-    await recordFolderAccessChange(session, input.projectId, folder.id, roles, placement.moved, request)
+    const grants = describeRestrictions(restrictionsAt(tree, folder.parentId))
+    await recordFolderAccessChange(session, input.projectId, folder.id, grants, placement.moved, request)
   }
 
   return outcome

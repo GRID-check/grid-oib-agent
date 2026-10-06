@@ -128,7 +128,9 @@ def _error_code(exc: urllib.error.HTTPError) -> str | None:
     return payload.get("code") if isinstance(payload, dict) else None
 
 
-def get_document_version_content(version_id: str, organization_id: str, conversation_id: str) -> dict[str, Any]:
+def get_document_version_content(
+    version_id: str, organization_id: str, conversation_id: str, user_id: str | None = None
+) -> dict[str, Any]:
     """One version's text and identity from the internal read route.
 
     Returns the parsed body: ``content`` plus the facts the caller has to stamp
@@ -143,7 +145,10 @@ def get_document_version_content(version_id: str, organization_id: str, conversa
     route would read any version in the tenant on the say-so of an id — the
     conversation is what says the reader was already looking at this document.
     A version that is not this conversation's subject comes back ``404``, which
-    the caller reads as "no subject to load".
+    the caller reads as "no subject to load". ``user_id`` is the turn's signed
+    asker: a version in a folder not every member may read is sent only once the
+    BFF has admitted that folder for the conversation (ADR-0078, ADR-0079), and
+    without an asker it answers ``404`` too.
 
     Raises :class:`FilingError` for every refusal and every transport failure,
     the same one thing every caller in this module has to catch. Blocking — call
@@ -154,7 +159,10 @@ def get_document_version_content(version_id: str, organization_id: str, conversa
         raise FilingError("GRID_INTERNAL_API_TOKEN is not configured")
 
     path = INTERNAL_DOCUMENT_VERSION_CONTENT_PATH.format(version_id=urllib.parse.quote(version_id, safe=""))
-    query = urllib.parse.urlencode({"organizationId": organization_id, "conversationId": conversation_id})
+    params = {"organizationId": organization_id, "conversationId": conversation_id}
+    if user_id:
+        params["userId"] = user_id
+    query = urllib.parse.urlencode(params)
     request = urllib.request.Request(
         f"{_internal_base_url()}{path}?{query}",
         headers={"X-Grid-Internal-Token": token},

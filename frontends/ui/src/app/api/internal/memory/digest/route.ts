@@ -3,13 +3,13 @@ import { internalApiRoute, parseQuery } from '@/lib/api/handler'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import {
   buildProjectMemoryDigest,
-  PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS,
+  PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS,
   resolveProjectOrganization,
 } from '@/lib/projects/memory-service'
-import { currentRestrictedCollections } from '@/lib/authz/folder-access'
-import { findProjectCollectionName } from '@/lib/projects/repository'
+import { ANY_MEMBER, clearanceOfMember, readableFolderIdsFor } from '@/lib/authz/folder-access'
 import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/projects/proposal-decisions'
 import { buildReviewDecisionsBlock } from '@/lib/documents/review-decisions'
+import { admitSourceFolders } from '@/lib/conversations/restricted-use'
 
 /**
  * INTERNAL service endpoint — the per-turn READ path for the agent's core
@@ -47,16 +47,19 @@ const digestQuerySchema = z
      */
     conversationId: z.string().trim().max(200).optional(),
     /**
-     * The restricted-folder collections in the turn's SIGNED scope (ADR-0078),
-     * comma-separated. The agent sends only what its verified envelope carries,
-     * and only for an interactive chat turn — the one scope the BFF ever puts
-     * them in, for a session cleared for them on a thread only its asker reads.
-     * Restricted memory is served when all of an item's collections are among
-     * them. Intersected below with the project's CURRENT restricted
-     * collections, so a lifted restriction clears nobody. Absent (deep
-     * research, scheduled runs, the handshake): open memory only.
+     * The restricted-folder collections this turn may draw on (ADR-0078,
+     * ADR-0079), comma-separated: the agent sends them only for an interactive
+     * chat turn, the one scope the BFF ever puts them in, and their presence is
+     * what makes the turn eligible for restricted memory at all. A restricted
+     * note is then served when its asker (`userId`) may read every one of its
+     * source folders NOW, and the conversation admits them
+     * (`admitSourceFolders`, which needs `conversationId`): a restricted note in
+     * the prompt is use of its folders. Absent (deep research, scheduled runs,
+     * the handshake): only notes whose folders every member may read now.
      */
     restrictedCollections: z.string().trim().max(5000).optional(),
+    /** The turn's asker, as the BFF signed it; the admission checks them with the conversation's audience. */
+    userId: z.string().trim().max(128).optional(),
   })
   // Empty strings behave like absent params (previous `|| undefined` behavior).
   .transform((query) => ({
@@ -64,37 +67,21 @@ const digestQuerySchema = z
     organizationId: query.organizationId || undefined,
     query: query.query || undefined,
     conversationId: query.conversationId || undefined,
+    userId: query.userId || undefined,
     restrictedCollections: (query.restrictedCollections ?? '')
       .split(',')
       .map((name) => name.trim())
       .filter(Boolean)
-      .slice(0, PROJECT_MEMORY_MAX_RESTRICTED_COLLECTIONS),
+      .slice(0, PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS),
   }))
   .refine((query) => !!(query.projectId || query.organizationId), {
     message: 'projectId or organizationId is required',
   })
 
-/**
- * The turn's restricted collections that are still CURRENT restricted
- * collections of the project. A collection whose restriction was lifted, or
- * whose folder was deleted, clears nobody (ADR-0078): the turn's scope was
- * signed before that happened.
- */
-async function currentClearance(
-  organizationId: string,
-  projectId: string,
-  requested: readonly string[]
-): Promise<string[]> {
-  const projectCollection = await findProjectCollectionName(projectId, organizationId)
-  if (!projectCollection) return []
-  const current = new Set(await currentRestrictedCollections(organizationId, projectId, projectCollection))
-  return requested.filter((name) => current.has(name))
-}
-
 export const GET = internalApiRoute(
   'Internal Memory Digest',
   async ({ request }) => {
-    const { projectId, organizationId, query, conversationId, restrictedCollections } = parseQuery(
+    const { projectId, organizationId, query, conversationId, userId, restrictedCollections } = parseQuery(
       request,
       digestQuerySchema
     )
@@ -122,13 +109,29 @@ export const GET = internalApiRoute(
       // rather than recency-ordered; without it the digest is what it always
       // was. Optional on purpose — a caller that has no question (the WS
       // handshake) must still get a digest.
-      const clearedRestrictedCollections =
-        projectId && restrictedCollections.length > 0
-          ? await currentClearance(tenant, projectId, restrictedCollections)
-          : []
+      // Restricted notes need a conversation to record their use in, and the
+      // asker to check with its audience. Without either, a note is served only
+      // when every member may read all of its folders now (a loosened folder
+      // has opened it), and needs no record.
+      const eligible = Boolean(projectId && conversationId && userId && restrictedCollections.length > 0)
+      const open = projectId ? new Set(await readableFolderIdsFor(tenant, projectId, ANY_MEMBER)) : new Set<string>()
+      const readable =
+        projectId && eligible && userId
+          ? await readableFolderIdsFor(tenant, projectId, await clearanceOfMember(tenant, userId))
+          : [...open]
+      let restrictedFoldersServed: string[] = []
       const digest = await buildProjectMemoryDigest(projectId, tenant, {
         query,
-        clearedRestrictedCollections,
+        readableFolderIds: readable,
+        admitRestricted: async (folderIds) => {
+          if (!eligible || !conversationId || !userId) return new Set(folderIds.filter((id) => open.has(id)))
+          const admission = await admitSourceFolders(
+            { organizationId: tenant, conversationId, userId, projectId: projectId ?? null },
+            folderIds
+          )
+          restrictedFoldersServed = admission.admitted.filter((id) => !open.has(id))
+          return new Set(admission.admitted)
+        },
       })
       // The decisions the project made about the agent's own proposals ride
       // the same channel, so a declined patch is not proposed again. Best
@@ -142,7 +145,9 @@ export const GET = internalApiRoute(
       const reviewDecisions = conversationId
         ? await buildReviewDecisionsBlock(conversationId, tenant).catch(() => null)
         : null
-      return { digest: composeMemoryContext(digest, decisions, reviewDecisions) }
+      // Which restricted folders the served notes drew on: the agent counts them
+      // as this turn's use (memory restriction, ADR-0078); ids, opaque to it.
+      return { digest: composeMemoryContext(digest, decisions, reviewDecisions), restrictedFoldersServed }
     })
   },
   { tenancy: { fromPayload: '?organizationId, else resolved from the project row' } }

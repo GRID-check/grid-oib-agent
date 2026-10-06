@@ -71,7 +71,7 @@ import {
   type InternalDocumentVersionRequest,
 } from '@/lib/documents/lifecycle-types'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { AGENT_REFUSAL_LOCALE, restrictedCollectionsIn } from '@/lib/conversations/restricted-egress'
+import { AGENT_REFUSAL_LOCALE } from '@/lib/conversations/restricted-egress'
 
 // The identity pair lives in `lib/api/internal-envelope.ts` since this route
 // stopped being the only one that needs it (`POST /api/internal/tasks`). Same
@@ -83,11 +83,6 @@ async function runOp(
   request: Request,
   context: VerifiedGridRequestContext,
 ) {
-  // The turn's signed scope: a turn that held a restricted folder's collection
-  // writes only where people cleared for it read (ADR-0078). Both writes below
-  // carry it with the thread, and refuse in German, which the tool relays.
-  const signedRestrictedCollections = restrictedCollectionsIn(context.collectionScope)
-
   if (body.op === 'create') {
     // The project the body names has to be the project the signed envelope
     // names, when the envelope names one. Everything else on this route already
@@ -107,7 +102,6 @@ async function runOp(
       // reading it off that string is precisely the thing this route exists not
       // to do: the ref is the client's, the identity and the origin are not.
       originConversationId: context.conversationId,
-      signedRestrictedCollections,
     })
     return {
       documentId: filed.documentId,
@@ -132,7 +126,6 @@ async function runOp(
         actingHuman: false,
         origin: {
           conversationId: context.conversationId,
-          signedRestrictedCollections,
           locale: AGENT_REFUSAL_LOCALE,
         },
       },

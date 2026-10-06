@@ -8,6 +8,14 @@ informed: everyone working in this repo
 
 # Folder access follows WorkOS roles, and a restricted folder is its own retrieval collection
 
+> **Partly superseded by [ADR-0079](0079-folder-access-is-read-write-per-role.md)** (2026-10-06):
+> who may see a folder (a role list on `restricted_roles`, replaced by per-role read/write
+> grants that only narrow when nested), the per-conversation mark and the per-socket
+> confinement check (replaced by a per-person record of source folders, judged at read time),
+> and restricted memory keyed by collection (now by folder). The retrieval collection per
+> restricted folder, the egress refusals and the IFC rule below still hold. Paragraphs marked
+> „Superseded" below say which.
+
 ## Context and Problem Statement
 
 Not everyone in an office may see everything: fee agreements, contracts,
@@ -52,7 +60,9 @@ outside WorkOS moves there; organization admins see everything.
 
 ## Decision Outcome
 
-**Who: WorkOS custom roles.** An office creates roles such as
+**Who: WorkOS custom roles.** *(The folder's role list and the clearance rule in this
+paragraph are superseded by ADR-0079: per-role read/write grants, the minimum over the path;
+the session's roles now come from the WorkOS membership, at most 60 s stale.)* An office creates roles such as
 „Geschäftsführung" in Piloti (Organisation → Personen & Zugriff → Eigene
 Rollen), which calls WorkOS's organization role API: slug `org-…`, permissions
 chosen from the organization tier of the catalog, and only permissions the
@@ -90,7 +100,10 @@ Deleting a restricted folder, or moving a folder so the restricted folders
 above it change, is a change of folder access: it requires `project:manage`
 and is audited as `project.folder.access_changed`, like drawing a restriction.
 
-**Indirect leaks** are closed where the answer can travel. A conversation that
+**Indirect leaks** are closed where the answer can travel. *(Superseded by ADR-0079: the
+mark, the per-turn confinement check and the `4412` close are replaced by a per-person record
+of the source folders a conversation drew on, admitted per tool round and judged against the
+folders' current access.)* A conversation that
 ran a turn with a restricted collection in its signed scope cannot be shared,
 escalated or widened beyond its owner: the per-turn confinement check records
 the turn (`conversation_restricted_turns`, migration 0105) before the turn
@@ -141,7 +154,9 @@ runner's reflection carries no restricted-scope check: a run's scope is never
 restricted, so such a check could not fire, and the input that could carry
 restricted content is refused where the run is commissioned.
 
-**Memory from a restricted turn is restricted memory** (product owner,
+**Memory from a restricted turn is restricted memory** *(storage by collection superseded
+by ADR-0079: notes record their source folder ids and follow the folders' current access)*
+(product owner,
 2026-10-02: Piloti should remember as it always does; restricted must not feel
 like amnesia). A memory written in a turn whose scope holds restricted
 collections carries the restricted collections it depends on, and only a

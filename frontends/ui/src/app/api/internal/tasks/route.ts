@@ -45,7 +45,6 @@ import {
 } from '@/lib/api/internal-envelope'
 import { withTenant } from '@/lib/db/tenant-context'
 import { commissionResearchRun, delegateTask } from '@/lib/tasks/delegation'
-import { restrictedCollectionsIn } from '@/lib/conversations/restricted-egress'
 import { internalTaskRequestSchema, parseTaskDue } from '@/lib/tasks/wire'
 
 export const POST = internalApiRoute(
@@ -84,11 +83,6 @@ export const POST = internalApiRoute(
       )
     }
 
-    // A turn whose signed scope held a restricted folder's collection hands
-    // nothing over, whatever the thread's mark says (ADR-0078): both services
-    // refuse it, in German, the language the tool relays to the reader.
-    const signedRestrictedCollections = restrictedCollectionsIn(context.collectionScope)
-
     if (body.op === 'research') {
       // A run is one message in the THREAD that commissioned it. An escalation
       // without a conversation is a run with nowhere to narrate itself, and the
@@ -105,7 +99,6 @@ export const POST = internalApiRoute(
           context: body.context ?? null,
           dataSources: body.dataSources ?? null,
           documents: body.documents ?? null,
-          signedRestrictedCollections,
         }),
       )
     }
@@ -129,7 +122,6 @@ export const POST = internalApiRoute(
         // that commissioned it (ADR-0062), and a conversation id a caller could
         // name would be a message written into a thread nobody asked about.
         conversationId: context.conversationId,
-        signedRestrictedCollections,
       })
       const { definition, run } = result
       return {

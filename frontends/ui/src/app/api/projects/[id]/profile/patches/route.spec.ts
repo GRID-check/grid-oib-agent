@@ -28,18 +28,18 @@ vi.mock('@/lib/projects/repository', () => ({
   setProjectProfileSummaryInOrg: vi.fn(),
 }))
 
-// A card's patch names its conversation; the restricted-folder refusal reads the
-// conversation's mark (ADR-0078). The access check is the sharing layer's.
+// A card's patch names its conversation; the restricted-folder refusal reads
+// what the conversation recorded it drew on (ADR-0078). The access check is the
+// sharing layer's.
 vi.mock('@/lib/sharing/access', () => ({ requireResourceAccess: vi.fn() }))
-vi.mock('@/lib/conversations/repository', () => ({
-  hasRestrictedTurn: vi.fn(async () => false),
-  listRestrictedAnswerCollections: vi.fn(async () => []),
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  recordedRestrictedFolders: vi.fn(async () => []),
 }))
 
 import { POST } from './route'
 import { findProjectProfileInOrg, updateProjectProfileIfVersion } from '@/lib/projects/repository'
 import { requireResourceAccess } from '@/lib/sharing/access'
-import { hasRestrictedTurn } from '@/lib/conversations/repository'
+import { recordedRestrictedFolders } from '@/lib/conversations/restricted-use'
 
 const currentState = {
   profile: ProjectProfileSchema.parse({}),
@@ -155,7 +155,7 @@ describe('a patch proposed in a conversation that drew on a restricted folder (A
   it('is refused with a typed 403 and writes nothing: the profile is read by the whole project', async () => {
     vi.mocked(updateProjectProfileIfVersion).mockClear()
     vi.mocked(findProjectProfileInOrg).mockResolvedValue(currentState)
-    vi.mocked(hasRestrictedTurn).mockResolvedValueOnce(true)
+    vi.mocked(recordedRestrictedFolders).mockResolvedValueOnce(['22222222-aaaa-4bbb-8ccc-000000000002'])
 
     const response = await POST(...postRequest({ patch: GK4, conversationId: 's_conv_1' }))
 
@@ -170,7 +170,7 @@ describe('a patch proposed in a conversation that drew on a restricted folder (A
       's_conv_1',
       'viewer'
     )
-    expect(hasRestrictedTurn).toHaveBeenCalledWith('s_conv_1', 'org-1')
+    expect(recordedRestrictedFolders).toHaveBeenCalledWith('s_conv_1', 'org-1')
     expect(updateProjectProfileIfVersion).not.toHaveBeenCalled()
   })
 
@@ -184,13 +184,13 @@ describe('a patch proposed in a conversation that drew on a restricted folder (A
   })
 
   it('asks nothing for the brief’s own editor, which names no conversation', async () => {
-    vi.mocked(hasRestrictedTurn).mockClear()
+    vi.mocked(recordedRestrictedFolders).mockClear()
     vi.mocked(findProjectProfileInOrg).mockResolvedValue(currentState)
     vi.mocked(updateProjectProfileIfVersion).mockResolvedValue({ ...currentState, profileVersion: 2 })
 
     const response = await POST(...postRequest({ patch: GK4 }))
 
     expect(response.status).toBe(200)
-    expect(hasRestrictedTurn).not.toHaveBeenCalled()
+    expect(recordedRestrictedFolders).not.toHaveBeenCalled()
   })
 })

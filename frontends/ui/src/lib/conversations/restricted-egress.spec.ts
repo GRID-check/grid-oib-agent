@@ -4,41 +4,41 @@
 /**
  * What may leave a conversation that drew on a restricted folder (ADR-0078).
  *
- * The decision is driven here with the repository and the folder tree mocked:
- * which origins are confined, that a run, task or profile patch from one is
- * refused outright, and that a filing from one goes only where every reader is
- * cleared for every restricted folder of the project.
+ * The decision is driven here with the conversation's record and the folder
+ * tree mocked: a run, task or profile patch from a conversation that recorded a
+ * source folder not every member may read is refused outright, a filing from
+ * one goes only where every reader may read every folder it recorded, and a
+ * conversation that recorded nothing (however much it could have searched) is
+ * not confined.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
-vi.mock('./repository', () => ({
-  hasRestrictedTurn: vi.fn(),
-  listRestrictedAnswerCollections: vi.fn(),
-}))
-vi.mock('@/lib/authz/folder-access', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/authz/folder-access')>()),
-  currentRestrictedCollections: vi.fn(),
-  restrictedCollectionsAbove: vi.fn(),
-}))
+vi.mock('./restricted-use', () => ({ recordedRestrictedFolders: vi.fn() }))
+vi.mock('@/lib/authz/folder-access-repository', () => ({ listProjectFolderTree: vi.fn() }))
 
 import { ConversationConfinedError } from '@/lib/api/errors'
-import { currentRestrictedCollections, restrictedCollectionsAbove } from '@/lib/authz/folder-access'
-import { hasRestrictedTurn, listRestrictedAnswerCollections } from './repository'
-import {
-  isConversationConfined,
-  requireMayFileFrom,
-  requireMayLeaveConversation,
-  restrictedCollectionsIn,
-} from './restricted-egress'
+import type { AccessFolder } from '@/lib/authz/folder-access'
+import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
+import { recordedRestrictedFolders } from './restricted-use'
+import { requireMayFileFrom, requireMayLeaveConversation } from './restricted-egress'
 
 const ORG = 'org_1'
 const PROJECT = '3f8b0d2e-0000-4000-8000-000000000001'
 const COLLECTION = 'proj_3f8b0d2e'
-const VERTRAEGE = `${COLLECTION}_r0123456789ab`
-const HONORARE = `${COLLECTION}_rba9876543210`
+/** Source folders, by id (ADR-0079): the record names folders, not collections. */
+const VERTRAEGE = 'vertraege'
+const HONORARE = 'honorare'
 const CONV = 's_conv_1'
+
+/** Verträge (own list) › Honorare (own list); Offen inherits; Alt is a deleted folder's tombstone. */
+const TREE: AccessFolder[] = [
+  { id: VERTRAEGE, parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'write' }] },
+  { id: HONORARE, parentId: VERTRAEGE, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'write' }] },
+  { id: 'open', parentId: null, accessMode: 'inherit', grants: [] },
+  { id: 'alt', parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'read' }], deleted: true },
+]
 
 const destination = (folderId: string | null) => ({
   organizationId: ORG,
@@ -49,10 +49,8 @@ const destination = (folderId: string | null) => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(hasRestrictedTurn).mockResolvedValue(false)
-  vi.mocked(listRestrictedAnswerCollections).mockResolvedValue([])
-  vi.mocked(currentRestrictedCollections).mockResolvedValue([VERTRAEGE])
-  vi.mocked(restrictedCollectionsAbove).mockResolvedValue([])
+  vi.mocked(recordedRestrictedFolders).mockResolvedValue([])
+  vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
 })
 
 async function refusal(promise: Promise<unknown>): Promise<ConversationConfinedError> {
@@ -64,45 +62,22 @@ async function refusal(promise: Promise<unknown>): Promise<ConversationConfinedE
   return error as ConversationConfinedError
 }
 
-describe('isConversationConfined — the one predicate, shared with the share refusal', () => {
-  it('is false for a conversation with no mark and no restricted answer', async () => {
-    expect(await isConversationConfined(CONV, ORG)).toBe(false)
-  })
-
-  it('is true for a conversation marked at turn start', async () => {
-    vi.mocked(hasRestrictedTurn).mockResolvedValue(true)
-    expect(await isConversationConfined(CONV, ORG)).toBe(true)
-  })
-
-  it('is true for one whose stored answers cite or read a restricted collection', async () => {
-    vi.mocked(listRestrictedAnswerCollections).mockResolvedValue([VERTRAEGE])
-    expect(await isConversationConfined(CONV, ORG)).toBe(true)
-  })
-})
-
 describe('requireMayLeaveConversation — runs, tasks and the profile', () => {
-  it.each(['deepResearch', 'task', 'profilePatch'] as const)('refuses %s from a marked conversation', async (action) => {
-    vi.mocked(hasRestrictedTurn).mockResolvedValue(true)
-    const error = await refusal(requireMayLeaveConversation({ conversationId: CONV, locale: 'de' }, ORG, action))
-    expect(error.status).toBe(403)
-    expect(error.code).toBe('CONVERSATION_CONFINED')
-    expect(error.details).toEqual({ action })
-    expect(error.message).toContain('Ordner mit eingeschränktem Zugriff')
-  })
-
-  it('refuses on the signed scope alone, without reading the conversation', async () => {
-    await refusal(
-      requireMayLeaveConversation(
-        { conversationId: null, signedRestrictedCollections: [VERTRAEGE], locale: 'en' },
-        ORG,
-        'task'
-      )
-    )
-    expect(hasRestrictedTurn).not.toHaveBeenCalled()
-  })
+  it.each(['deepResearch', 'task', 'profilePatch'] as const)(
+    'refuses %s from a conversation that recorded a restricted folder',
+    async (action) => {
+      vi.mocked(recordedRestrictedFolders).mockResolvedValue([VERTRAEGE])
+      const error = await refusal(requireMayLeaveConversation({ conversationId: CONV, locale: 'de' }, ORG, action))
+      expect(error.status).toBe(403)
+      expect(error.code).toBe('CONVERSATION_CONFINED')
+      expect(error.details).toEqual({ action })
+      expect(error.message).toContain('Ordner mit eingeschränktem Zugriff')
+      expect(recordedRestrictedFolders).toHaveBeenCalledWith(CONV, ORG)
+    }
+  )
 
   it('speaks the reader’s language', async () => {
-    vi.mocked(hasRestrictedTurn).mockResolvedValue(true)
+    vi.mocked(recordedRestrictedFolders).mockResolvedValue([VERTRAEGE])
     const error = await refusal(
       requireMayLeaveConversation({ conversationId: CONV, locale: 'en' }, ORG, 'deepResearch')
     )
@@ -110,15 +85,20 @@ describe('requireMayLeaveConversation — runs, tasks and the profile', () => {
     expect(error.message).toContain('deep research')
   })
 
-  it('lets an open conversation through', async () => {
+  it('lets a conversation through that recorded nothing, whatever its socket could search', async () => {
     await expect(
       requireMayLeaveConversation({ conversationId: CONV, locale: 'de' }, ORG, 'deepResearch')
     ).resolves.toBeUndefined()
   })
+
+  it('lets a call with no conversation through without reading a record', async () => {
+    await expect(requireMayLeaveConversation({ conversationId: null, locale: 'de' }, ORG, 'task')).resolves.toBeUndefined()
+    expect(recordedRestrictedFolders).not.toHaveBeenCalled()
+  })
 })
 
-describe('requireMayFileFrom — only into a folder restricted at least as narrowly', () => {
-  beforeEach(() => vi.mocked(hasRestrictedTurn).mockResolvedValue(true))
+describe('requireMayFileFrom — only where every reader is cleared for what the conversation drew on', () => {
+  beforeEach(() => vi.mocked(recordedRestrictedFolders).mockResolvedValue([VERTRAEGE]))
 
   it('refuses an open folder', async () => {
     const error = await refusal(requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination('open')))
@@ -129,28 +109,24 @@ describe('requireMayFileFrom — only into a folder restricted at least as narro
     await refusal(requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination(null)))
   })
 
-  it('allows the restricted folder itself, and a folder below it', async () => {
-    vi.mocked(restrictedCollectionsAbove).mockResolvedValue([VERTRAEGE])
+  it('allows the recorded folder itself, and a folder below it: nesting only narrows', async () => {
     await expect(
-      requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination('vertraege'))
+      requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination(VERTRAEGE))
     ).resolves.toBeUndefined()
-    vi.mocked(restrictedCollectionsAbove).mockResolvedValue([HONORARE, VERTRAEGE])
     await expect(
-      requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination('honorare'))
+      requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination(HONORARE))
     ).resolves.toBeUndefined()
   })
 
-  it('refuses a sibling restricted folder: its readers need not be cleared for the other one', async () => {
-    vi.mocked(currentRestrictedCollections).mockResolvedValue([VERTRAEGE, HONORARE])
-    vi.mocked(restrictedCollectionsAbove).mockResolvedValue([VERTRAEGE])
-    await refusal(requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination('vertraege')))
+  it('refuses the parent of a recorded folder: its readers need not be able to read the narrower one', async () => {
+    vi.mocked(recordedRestrictedFolders).mockResolvedValue([VERTRAEGE, HONORARE])
+    await refusal(requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination(VERTRAEGE)))
   })
 
-  it('allows anything once the project restricts nothing any more', async () => {
-    vi.mocked(currentRestrictedCollections).mockResolvedValue([])
-    await expect(
-      requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination('open'))
-    ).resolves.toBeUndefined()
+  it('refuses every living folder for content drawn from a deleted folder', async () => {
+    vi.mocked(recordedRestrictedFolders).mockResolvedValue(['alt'])
+    await refusal(requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination(VERTRAEGE)))
+    await refusal(requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination('alt')))
   })
 
   it('refuses a destination outside every project (the Archiv)', async () => {
@@ -162,17 +138,11 @@ describe('requireMayFileFrom — only into a folder restricted at least as narro
     )
   })
 
-  it('lets an open conversation file anywhere, without reading the folder tree', async () => {
-    vi.mocked(hasRestrictedTurn).mockResolvedValue(false)
+  it('lets a conversation that recorded nothing file anywhere, without reading the folder tree', async () => {
+    vi.mocked(recordedRestrictedFolders).mockResolvedValue([])
     await expect(
       requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination('open'))
     ).resolves.toBeUndefined()
-    expect(currentRestrictedCollections).not.toHaveBeenCalled()
-  })
-})
-
-describe('restrictedCollectionsIn', () => {
-  it('keeps only the restricted folders’ collections of a signed scope', () => {
-    expect(restrictedCollectionsIn(['oib_knowledge', COLLECTION, VERTRAEGE, 's_conv_1'])).toEqual([VERTRAEGE])
+    expect(listProjectFolderTree).not.toHaveBeenCalled()
   })
 })

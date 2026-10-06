@@ -1,13 +1,13 @@
 /**
  * @vitest-environment node
  *
- * Restricted folders do not hold IFC models (ADR-0078). The folder tree is the
+ * Folders not every member may read do not hold IFC models (ADR-0078, ADR-0079). The folder tree is the
  * decision's own core, run for real; only the two reads are stubbed.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/authz/folder-access-repository', () => ({
-  projectHasRestrictedFolders: vi.fn(),
+  projectHasCustomFolders: vi.fn(),
   listProjectFolderTree: vi.fn(),
   countIfcDocumentsInFolders: vi.fn(),
 }))
@@ -17,7 +17,7 @@ import type { AccessFolder } from '@/lib/authz/folder-access'
 import {
   countIfcDocumentsInFolders,
   listProjectFolderTree,
-  projectHasRestrictedFolders,
+  projectHasCustomFolders,
 } from '@/lib/authz/folder-access-repository'
 import {
   assertFolderMoveKeepsIfcOpen,
@@ -32,16 +32,19 @@ import {
  *   Verwaltung/           (Geschäftsführung)
  *   Pläne/                (open)
  */
+const GF = [{ role: 'org-geschaeftsfuehrung', level: 'write' as const }]
 const TREE: AccessFolder[] = [
-  { id: 'modelle', parentId: null, restrictedRoles: null },
-  { id: 'modelle-archiv', parentId: 'modelle', restrictedRoles: null },
-  { id: 'verwaltung', parentId: null, restrictedRoles: ['org-geschaeftsfuehrung'] },
-  { id: 'plaene', parentId: null, restrictedRoles: null },
+  { id: 'modelle', parentId: null, accessMode: 'inherit', grants: [] },
+  { id: 'modelle-archiv', parentId: 'modelle', accessMode: 'inherit', grants: [] },
+  { id: 'verwaltung', parentId: null, accessMode: 'custom', grants: GF },
+  { id: 'plaene', parentId: null, accessMode: 'inherit', grants: [] },
+  // A list that narrows only who writes: every member still reads, so it is no restriction here.
+  { id: 'freigaben', parentId: null, accessMode: 'custom', grants: [{ role: '*', level: 'read' }, ...GF] },
 ]
 
 beforeEach(() => {
   vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
-  vi.mocked(projectHasRestrictedFolders).mockResolvedValue(true)
+  vi.mocked(projectHasCustomFolders).mockResolvedValue(true)
   vi.mocked(countIfcDocumentsInFolders).mockResolvedValue(0)
 })
 
@@ -63,7 +66,7 @@ describe('assertRestrictionKeepsIfcOpen', () => {
   it('refuses restricting a folder whose subtree holds IFC models, and counts them', async () => {
     vi.mocked(countIfcDocumentsInFolders).mockResolvedValue(2)
 
-    const error = await assertRestrictionKeepsIfcOpen('org-1', 'proj-1', 'modelle', ['org-geschaeftsfuehrung']).catch(
+    const error = await assertRestrictionKeepsIfcOpen('org-1', 'proj-1', 'modelle', GF).catch(
       (caught: unknown) => caught
     )
 
@@ -80,7 +83,7 @@ describe('assertRestrictionKeepsIfcOpen', () => {
 
   it('allows the restriction when the subtree holds no IFC model', async () => {
     await expect(
-      assertRestrictionKeepsIfcOpen('org-1', 'proj-1', 'plaene', ['org-geschaeftsfuehrung'])
+      assertRestrictionKeepsIfcOpen('org-1', 'proj-1', 'plaene', GF)
     ).resolves.toBeUndefined()
     expect(countIfcDocumentsInFolders).toHaveBeenCalledWith('org-1', 'proj-1', ['plaene'])
   })
@@ -106,13 +109,18 @@ describe('assertFolderMoveKeepsIfcOpen', () => {
     expect([...folderIds].sort()).toEqual(['modelle', 'modelle-archiv'])
   })
 
+  it('asks about no folder when the destination narrows only who writes (`*` reads)', async () => {
+    await expect(assertFolderMoveKeepsIfcOpen('org-1', 'proj-1', 'modelle', 'freigaben')).resolves.toBeUndefined()
+    expect(countIfcDocumentsInFolders).toHaveBeenCalledWith('org-1', 'proj-1', [])
+  })
+
   it('asks about no folder when the destination is open', async () => {
     await expect(assertFolderMoveKeepsIfcOpen('org-1', 'proj-1', 'modelle', 'plaene')).resolves.toBeUndefined()
     expect(countIfcDocumentsInFolders).toHaveBeenCalledWith('org-1', 'proj-1', [])
   })
 
   it('reads nothing more for a project that restricts nothing', async () => {
-    vi.mocked(projectHasRestrictedFolders).mockResolvedValue(false)
+    vi.mocked(projectHasCustomFolders).mockResolvedValue(false)
     await expect(assertFolderMoveKeepsIfcOpen('org-1', 'proj-1', 'modelle', 'plaene')).resolves.toBeUndefined()
     expect(listProjectFolderTree).not.toHaveBeenCalled()
   })

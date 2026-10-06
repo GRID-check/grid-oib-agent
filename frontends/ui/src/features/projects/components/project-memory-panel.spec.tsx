@@ -29,7 +29,7 @@ describe('ProjectMemoryPanel', () => {
             wire({
               id: 'restricted',
               content: 'Honorar LP 5–8 pauschal 184.000 €.',
-              restrictedCollections: ['proj_x_raaaaaaaaaaaa'],
+              restrictedFolderIds: ['aaaaaaaa-0000-4000-8000-000000000001'],
               restrictedFolderNames: ['Verträge'],
             }),
           ],

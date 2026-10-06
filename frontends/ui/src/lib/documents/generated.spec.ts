@@ -53,11 +53,15 @@ vi.mock('@/lib/projects/folder-service', () => ({
   findRootProjectFolderByName: (...args: unknown[]) => findRootProjectFolderByName(...args),
 }))
 
-// The restricted-folder mark (ADR-0078), read by the filing refusal.
-const hasRestrictedTurn = vi.fn()
-vi.mock('@/lib/conversations/repository', () => ({
-  hasRestrictedTurn: (...args: unknown[]) => hasRestrictedTurn(...args),
-  listRestrictedAnswerCollections: vi.fn(async () => []),
+// What the conversation drew on (ADR-0079), read by the filing refusal, and
+// the folder tree it is judged against.
+const recordedRestrictedFolders = vi.fn()
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  recordedRestrictedFolders: (...args: unknown[]) => recordedRestrictedFolders(...args),
+}))
+const listProjectFolderTree = vi.fn()
+vi.mock('@/lib/authz/folder-access-repository', () => ({
+  listProjectFolderTree: (...args: unknown[]) => listProjectFolderTree(...args),
 }))
 
 const findDocumentAuthoredByRef = vi.fn()
@@ -84,7 +88,7 @@ import {
   InsufficientStorageError,
   NotFoundError,
 } from '@/lib/api/errors'
-import { currentRestrictedCollections, restrictedCollectionsAbove } from '@/lib/authz/folder-access'
+import { folderReadOnlyError, requireFolderWrite } from '@/lib/authz/folder-access'
 import type { NewDocument } from '@/lib/db/schema'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { makeProject } from '@/test-utils/db-fixtures'
@@ -186,7 +190,8 @@ beforeEach(() => {
   findProjectInOrg.mockResolvedValue(makeProject({ id: 'proj-1', collectionName: 'proj_abc' }))
   getOrCreateProjectFolderByName.mockResolvedValue(FOLDER)
   findRootProjectFolderByName.mockResolvedValue(FOLDER)
-  hasRestrictedTurn.mockResolvedValue(false)
+  recordedRestrictedFolders.mockResolvedValue([])
+  listProjectFolderTree.mockResolvedValue([])
   ensureTenantBucketChecked.mockResolvedValue('grid-org-org-1')
   s3Send.mockResolvedValue({})
   admitOrDiscard.mockResolvedValue(undefined)
@@ -1039,8 +1044,9 @@ describe('fileGeneratedDocument', () => {
  * this file's fixtures, and a spy proves only what today's fixtures happened to
  * exercise.
  */
-describe('filing out of a conversation that drew on a restricted folder (ADR-0078)', () => {
-  const RESTRICTED = 'proj_abc_r0123456789ab'
+describe('filing out of a conversation that drew on a restricted folder (ADR-0078, ADR-0079)', () => {
+  /** The source folder the conversation recorded. */
+  const VERTRAEGE = 'folder-vertraege'
   const fileFromChat = () =>
     fileGeneratedDocument({
       session: SESSION,
@@ -1051,21 +1057,23 @@ describe('filing out of a conversation that drew on a restricted folder (ADR-007
       render,
       origin: { conversationId: 's_conv_1', locale: 'de' },
     })
+  const tree = (berichteUnderVertraege: boolean) => [
+    { id: VERTRAEGE, parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'write' }] },
+    { id: FOLDER.id, parentId: berichteUnderVertraege ? VERTRAEGE : null, accessMode: 'inherit', grants: [] },
+  ]
 
   beforeEach(() => {
-    vi.mocked(currentRestrictedCollections).mockResolvedValue([RESTRICTED])
-    vi.mocked(restrictedCollectionsAbove).mockResolvedValue([])
+    recordedRestrictedFolders.mockResolvedValue([VERTRAEGE])
+    listProjectFolderTree.mockResolvedValue(tree(false))
   })
 
   it('refuses an open Berichte folder before anything is rendered, created or written', async () => {
-    hasRestrictedTurn.mockResolvedValue(true)
-
     const error = await fileFromChat().catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(ConversationConfinedError)
     expect((error as ConversationConfinedError).action).toBe('filing')
-    expect(hasRestrictedTurn).toHaveBeenCalledWith('s_conv_1', 'org-1')
-    expect(restrictedCollectionsAbove).toHaveBeenCalledWith('org-1', 'proj-1', 'proj_abc', FOLDER.id)
+    expect(recordedRestrictedFolders).toHaveBeenCalledWith('s_conv_1', 'org-1')
+    expect(listProjectFolderTree).toHaveBeenCalledWith('org-1', 'proj-1')
     expect(render).not.toHaveBeenCalled()
     expect(getOrCreateProjectFolderByName).not.toHaveBeenCalled()
     expect(s3Send).not.toHaveBeenCalled()
@@ -1073,28 +1081,54 @@ describe('filing out of a conversation that drew on a restricted folder (ADR-007
   })
 
   it('judges a Berichte folder that does not exist yet as the open root folder it would become', async () => {
-    hasRestrictedTurn.mockResolvedValue(true)
     findRootProjectFolderByName.mockResolvedValue(null)
 
     await expect(fileFromChat()).rejects.toBeInstanceOf(ConversationConfinedError)
-    expect(restrictedCollectionsAbove).toHaveBeenCalledWith('org-1', 'proj-1', 'proj_abc', null)
     expect(getOrCreateProjectFolderByName).not.toHaveBeenCalled()
   })
 
-  it('files into a Berichte folder restricted as narrowly as the project’s restricted folders', async () => {
-    hasRestrictedTurn.mockResolvedValue(true)
-    vi.mocked(restrictedCollectionsAbove).mockResolvedValue([RESTRICTED])
+  it('files into a Berichte folder whose path carries every folder the conversation drew on', async () => {
+    listProjectFolderTree.mockResolvedValue(tree(true))
 
     await fileFromChat()
 
     expect(admitOrDiscard).toHaveBeenCalledTimes(1)
   })
 
-  it('files from an open conversation without reading the folder tree', async () => {
+  it('files from a conversation that drew on nothing without reading the folder tree', async () => {
+    recordedRestrictedFolders.mockResolvedValue([])
     await fileFromChat()
 
-    expect(currentRestrictedCollections).not.toHaveBeenCalled()
+    expect(listProjectFolderTree).not.toHaveBeenCalled()
     expect(admitOrDiscard).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('filing into a folder the commissioning person may only read (ADR-0079)', () => {
+  const file = () =>
+    fileGeneratedDocument({
+      session: SESSION,
+      projectId: 'proj-1',
+      producer: 'agent_document',
+      ref: 'ref-read-only',
+      title: 'Bericht',
+      render,
+    })
+
+  it('refuses a read-only Berichte with a typed 403 before anything is rendered or written', async () => {
+    vi.mocked(requireFolderWrite).mockRejectedValueOnce(folderReadOnlyError())
+
+    await expect(file()).rejects.toBeInstanceOf(ForbiddenError)
+    expect(requireFolderWrite).toHaveBeenCalledWith(SESSION, 'proj-1', [FOLDER.id])
+    expect(render).not.toHaveBeenCalled()
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+  })
+
+  it('asks again for a Berichte created (or raced) after the first check', async () => {
+    findRootProjectFolderByName.mockResolvedValue(null)
+    await file()
+    expect(requireFolderWrite).toHaveBeenNthCalledWith(1, SESSION, 'proj-1', [null])
+    expect(requireFolderWrite).toHaveBeenNthCalledWith(2, SESSION, 'proj-1', [FOLDER.id])
   })
 })
 

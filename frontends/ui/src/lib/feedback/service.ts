@@ -134,7 +134,7 @@ async function implicateFeedbackMemory(
       organizationId: session.organizationId,
       projectId,
       comment,
-      clearedRestrictedCollections: cleared,
+      readableFolderIds: cleared,
     })
   } catch (error) {
     console.warn('[feedback] Memory implication skipped (non-fatal):', error)

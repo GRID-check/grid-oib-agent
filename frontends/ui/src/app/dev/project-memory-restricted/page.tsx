@@ -22,7 +22,8 @@ import { ProjectMemoryPanel } from '@/features/projects/components/project-memor
 
 const CLEARED = 'dev-memory-cleared'
 const UNCLEARED = 'dev-memory-uncleared'
-const RESTRICTED_COLLECTION = 'proj_dev_r0123456789ab'
+/** The source folder of the restricted note (ADR-0079). */
+const RESTRICTED_FOLDER = '01234567-89ab-4cde-8f01-23456789abcd'
 
 function item(id: string, kind: string, content: string, overrides: Record<string, unknown> = {}) {
   return {
@@ -39,7 +40,7 @@ function item(id: string, kind: string, content: string, overrides: Record<strin
     sourceConversationId: null,
     supersedesId: null,
     conflictsWithId: null,
-    restrictedCollections: null,
+    restrictedFolderIds: null,
     salience: 0.5,
     pinned: false,
     createdBy: null,
@@ -62,7 +63,7 @@ const RESTRICTED = item(
   'm-restricted-1',
   'derived_fact',
   'Das Honorar für die Leistungsphasen 5–8 ist mit 184.000 € netto pauschal vereinbart.',
-  { restrictedCollections: [RESTRICTED_COLLECTION], restrictedFolderNames: ['Verträge'] }
+  { restrictedFolderIds: [RESTRICTED_FOLDER], restrictedFolderNames: ['Verträge'] }
 )
 
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {

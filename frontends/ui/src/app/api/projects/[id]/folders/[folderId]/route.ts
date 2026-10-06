@@ -4,8 +4,9 @@
  * Thin handlers; authz and logic live in `@/lib/projects/folder-service`. The
  * delete is the one worth reading before changing: `documents.folder_id` is
  * `ON DELETE CASCADE`, so the service re-files the folder's documents and its
- * child folders BEFORE removing the row. Deleting a label must not delete the
- * work that was filed under it.
+ * child folders first, and then keeps the row as a tombstone (ADR-0079).
+ * Deleting a label must not delete the work that was filed under it, nor the
+ * access that decides who may read what was derived from it.
  */
 
 import { z } from 'zod'
@@ -46,7 +47,7 @@ export const PATCH = apiRoute<Params>(
   {
     authz: {
       enforcedBy:
-        'updateProjectFolder (requireProjectAccess project:documents:write; project:manage when the move changes a restriction)',
+        'updateProjectFolder (requireFolderWrite: project:documents:write + write on the folder and the new parent; project:manage when the move changes an access list over the subtree)',
     },
   }
 )
@@ -64,7 +65,7 @@ export const DELETE = apiRoute<Params>(
   {
     authz: {
       enforcedBy:
-        'deleteProjectFolder (requireProjectAccess project:documents:write; project:manage for a restricted folder)',
+        'deleteProjectFolder (requireFolderWrite: project:documents:write + write on the folder and its child folders; project:manage for a folder with its own access list)',
     },
   }
 )

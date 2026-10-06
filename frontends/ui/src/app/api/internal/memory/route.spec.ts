@@ -272,7 +272,7 @@ describe('restricted memory', () => {
   it('passes the restriction through to the project write', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
     vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(
-      makeMemoryItem({ id: 'item-r', restrictedCollections: [RESTRICTED] })
+      makeMemoryItem({ id: 'item-r', restrictedFolderIds: ['22222222-aaaa-4bbb-8ccc-000000000002'] })
     )
 
     const response = await POST(

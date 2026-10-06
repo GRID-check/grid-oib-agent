@@ -319,8 +319,6 @@ describe('the research op — an escalated question becomes a run', () => {
       // And named nothing: no Rahmen, no Unterlagen.
       dataSources: null,
       documents: null,
-      // An open turn: its signed scope held no restricted folder's collection.
-      signedRestrictedCollections: [],
     })
     expect(delegateTask).not.toHaveBeenCalled()
   })
@@ -373,21 +371,17 @@ describe('the research op — an escalated question becomes a run', () => {
   })
 })
 
-describe('a turn signed a restricted folder hands nothing over (ADR-0078)', () => {
+describe('a turn whose scope could draw on a restricted folder (ADR-0078, ADR-0079)', () => {
   const RESTRICTED = 'proj_3333_r0123456789ab'
   const restrictedTurn = () => envelopeHeaders({ collectionScope: ['oib_knowledge', 'proj_3333', RESTRICTED] })
   const RESEARCH = { op: 'research', projectId: PROJECT, question: 'Welches Honorar gilt für LP 5?' }
 
-  it('gives the research commission the restricted collections of the SIGNED scope', async () => {
+  it('hands the commission and the delegation the conversation, never the scope: only what was USED confines', async () => {
     await call(RESEARCH, restrictedTurn())
-    expect(vi.mocked(commissionResearchRun).mock.calls[0][1]).toMatchObject({
-      signedRestrictedCollections: [RESTRICTED],
-    })
-  })
-
-  it('gives the delegation the same, so the service refuses it', async () => {
+    expect(vi.mocked(commissionResearchRun).mock.calls[0][1]).toMatchObject({ conversationId: 's_conv_1' })
+    expect(vi.mocked(commissionResearchRun).mock.calls[0][1]).not.toHaveProperty('signedRestrictedCollections')
     await call(CREATE, restrictedTurn())
-    expect(vi.mocked(delegateTask).mock.calls[0][1]).toMatchObject({ signedRestrictedCollections: [RESTRICTED] })
+    expect(vi.mocked(delegateTask).mock.calls[0][1]).not.toHaveProperty('signedRestrictedCollections')
   })
 
   it('relays the service’s refusal as a typed 403 with its sentence', async () => {

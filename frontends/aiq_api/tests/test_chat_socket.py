@@ -1351,7 +1351,7 @@ def test_the_answer_id_is_stable_per_turn():
 
 
 # ---------------------------------------------------------------------------
-# A restricted scope runs only on a thread its asker still holds alone (ADR-0078)
+# A restricted scope does not hold the socket hostage (ADR-0078, ADR-0079)
 # ---------------------------------------------------------------------------
 
 _RESTRICTED = "proj_8f2c3b1e_r22222222aaaa"
@@ -1364,63 +1364,21 @@ def _restricted_envelope(*collections: str) -> list[tuple[bytes, bytes]]:
     )
 
 
-class Confinement:
-    """The BFF's answer to "is this thread still the asker's alone?", and every question asked."""
+async def test_a_restricted_scope_runs_the_turn_on_the_same_socket(harness):
+    """Which restricted folders a turn may draw on is the agent's question, per turn, not the socket's.
 
-    def __init__(self) -> None:
-        self.confined = True
-        self.asked: list[dict] = []
-
-    async def __call__(self, **kwargs: Any) -> bool:
-        self.asked.append(kwargs)
-        return self.confined
-
-
-@pytest.fixture
-def confinement(monkeypatch) -> Confinement:
-    check = Confinement()
-    monkeypatch.setattr(chat_socket, "conversation_confined_to", check)
-    return check
-
-
-async def test_a_restricted_scope_on_a_thread_shared_since_the_upgrade_closes_the_socket_and_runs_nothing(
-    harness, confinement
-):
-    """Shared after the upgrade signed the scope: the turn would write restricted content where others read it."""
-    confinement.confined = False
-    h = harness()
-    sock = h.connect(headers=_restricted_envelope(_RESTRICTED))
-
-    sock.client(type="user_message", message_id="t1", text="Was kostet der Zimmerer?")
-    await until(lambda: sock.closed_with is not None)
-
-    assert sock.closed_with == chat_socket.CLOSE_SCOPE_STALE
-    assert confinement.asked == [{"conversation_id": CONV, "organization_id": "org_1", "user_id": "user_asker"}]
-    assert h.sessions.opened == []
-    assert sock.events() == []  # unacknowledged: the client sends it again on the re-signed socket
-    assert h.registry.running(CONV) is None
-
-
-async def test_a_restricted_scope_on_a_thread_still_private_runs_the_turn(harness, confinement):
+    The socket used to close when the thread had been shared since the upgrade
+    signed its scope. A restricted collection is now narrowed away per turn
+    (``aiq_agent.knowledge.restricted_use``), so the socket stays and the turn runs.
+    """
     h = harness()
     sock = h.connect(headers=_restricted_envelope(_RESTRICTED))
 
     sock.client(type="user_message", message_id="t1", text="Was kostet der Zimmerer?")
     await until(lambda: _last(sock) == "RUN_FINISHED")
 
-    assert len(confinement.asked) == 1
     assert sock.closed_with is None
-
-
-async def test_an_open_scope_asks_nobody(harness, confinement):
-    """Nearly every socket: no restricted collection, no round trip in front of the turn."""
-    h = harness()
-    sock = h.connect(headers=_restricted_envelope("proj_8f2c3b1e"))
-
-    sock.client(type="user_message", message_id="t1", text="?")
-    await until(lambda: _last(sock) == "RUN_FINISHED")
-
-    assert confinement.asked == []
+    assert not hasattr(chat_socket, "conversation_confined_to")
 
 
 # ---------------------------------------------------------------------------

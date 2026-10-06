@@ -125,7 +125,7 @@ describe('useDocumentActions — move refusals', () => {
     })
 
     expect(moved).toBe(false)
-    expect(error).toHaveBeenCalledWith(expect.stringMatching(/restricted folder yet|eingeschränkten Ordner/))
+    expect(error).toHaveBeenCalledWith(expect.stringMatching(/not everyone may read yet|den nicht alle lesen dürfen/))
     expect(onMoved).not.toHaveBeenCalled()
   })
 })

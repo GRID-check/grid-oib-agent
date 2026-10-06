@@ -495,7 +495,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                             )}
                             <span className="min-w-0">{item.content}</span>
                           </p>
-                          {item.restrictedCollections && item.restrictedCollections.length > 0 && (
+                          {item.restrictedFolderIds && item.restrictedFolderIds.length > 0 && (
                             <Badge
                               variant="outline"
                               className="text-muted-foreground mt-1.5"

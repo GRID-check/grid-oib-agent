@@ -35,10 +35,17 @@ vi.mock('@/lib/authz/project-membership', () => ({
   isUserInOrganization: vi.fn(),
 }))
 
+// ADR-0078/0079: no conversation here recorded a restricted folder, so every
+// widening is allowed; the rule itself is `restricted-use.spec.ts`.
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  assertMayWidenConversation: vi.fn(async () => undefined),
+  widenConversationAudience: vi.fn(
+    async (_session: unknown, _id: string, _widening: unknown, write: (executor: unknown) => Promise<unknown>) =>
+      write(undefined)
+  ),
+}))
+
 vi.mock('@/lib/conversations/repository', () => ({
-  // ADR-0078: no turn of these threads ran with a restricted folder in scope.
-  listRestrictedAnswerCollections: vi.fn().mockResolvedValue([]),
-  hasRestrictedTurn: vi.fn().mockResolvedValue(false),
   findConversationInOrg: vi.fn(),
   findConversationTenancy: vi.fn(),
   updateConversationVisibilityInOrg: vi.fn(),
@@ -386,7 +393,7 @@ describe('a legacy conversation with no container (matrix E30, spec MG-2)', () =
     })
 
     expect(canUserAccessProject).not.toHaveBeenCalled()
-    expect(upsertGrant).toHaveBeenCalledWith(expect.objectContaining({ subjectUserId: BOB }))
+    expect(upsertGrant).toHaveBeenCalledWith(expect.objectContaining({ subjectUserId: BOB }), undefined)
   })
 
   it('still checks that the invitee is in the ORGANIZATION — no container is not no precondition', async () => {

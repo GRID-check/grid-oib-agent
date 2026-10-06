@@ -20,6 +20,8 @@
 
 import 'server-only'
 import { BadRequestError } from '@/lib/api/errors'
+import type { AuthorizedSession } from '@/lib/auth/types'
+import type { DbExecutor } from '@/lib/db/executor'
 import {
   RESOURCE_ROLES,
   SHAREABLE_RESOURCE_TYPES,
@@ -34,7 +36,11 @@ import {
   listConversationIdsForProject,
   updateConversationVisibilityInOrg,
 } from '@/lib/conversations/repository'
-import { isConversationConfined } from '@/lib/conversations/restricted-egress'
+import {
+  assertMayWidenConversation,
+  widenConversationAudience,
+  type AudienceWidening,
+} from '@/lib/conversations/restricted-use'
 import {
   documentIdsExisting,
   findDocumentTenancy,
@@ -114,12 +120,14 @@ export interface ShareableDescriptor {
   /**
    * Persist a visibility change. Returns false when the row is missing in this
    * org (caller maps to 404). Lives on the descriptor so a new type cannot
-   * compile a silent no-op write (§3.1).
+   * compile a silent no-op write (§3.1). `executor` is the transaction a
+   * {@link widenAudience} guard holds; absent, the write opens its own.
    */
   readonly setVisibility: (
     resourceId: string,
     organizationId: string,
     visibility: ResourceVisibility,
+    executor?: DbExecutor,
   ) => Promise<boolean>
   /** One-line title for inbox / mention copy (§3.3). */
   readonly describeRef: (resourceId: string, organizationId: string) => Promise<ResourceRef | null>
@@ -128,12 +136,22 @@ export interface ShareableDescriptor {
   /** Ids of this type inside a project — project-member cleanup (§3.5). */
   readonly listIdsInProject: (projectId: string, organizationId: string) => Promise<string[]>
   /**
-   * True when the resource must stay with its owner: no wider visibility, no
-   * grant, no escalation (ADR-0078). The sharing service asks before every
-   * widening and refuses with `restricted-content`. Absent: the type has no
-   * such content and may be shared as its roles allow.
+   * Refuse a widening of the resource's audience that its content forbids,
+   * before anything is written or a rate limit spent (ADR-0078). Absent: the
+   * type has no such content and may be shared as its roles allow.
    */
-  readonly confinedToOwner?: (resourceId: string, organizationId: string) => Promise<boolean>
+  readonly assertMayWiden?: (session: AuthorizedSession, resourceId: string, widening: AudienceWidening) => Promise<void>
+  /**
+   * Run a widening's write under the guard that makes the check and the write
+   * one step, passing the write the transaction's handle. Present whenever
+   * {@link assertMayWiden} is: the pre-check alone races.
+   */
+  readonly widenAudience?: <T>(
+    session: AuthorizedSession,
+    resourceId: string,
+    widening: AudienceWidening,
+    write: (executor: DbExecutor) => Promise<T>,
+  ) => Promise<T>
 }
 
 /**
@@ -168,8 +186,8 @@ const conversationDescriptor: ShareableDescriptor = {
   defaultVisibility: 'private',
   roles: RESOURCE_ROLES,
   supportsMentions: true,
-  setVisibility: async (resourceId, organizationId, visibility) => {
-    const row = await updateConversationVisibilityInOrg(resourceId, organizationId, visibility)
+  setVisibility: async (resourceId, organizationId, visibility, executor) => {
+    const row = await updateConversationVisibilityInOrg(resourceId, organizationId, visibility, executor)
     return row !== null
   },
   describeRef: async (resourceId, organizationId) => {
@@ -179,19 +197,14 @@ const conversationDescriptor: ShareableDescriptor = {
   },
   exists: (ids) => conversationIdsExisting(ids),
   listIdsInProject: (projectId, organizationId) => listConversationIdsForProject(projectId, organizationId),
-  // A turn that ran with a restricted folder's collection in its scope may have
-  // put that folder's content into its prose, so the thread stays with its
-  // owner. The signal is the scope, not the citations: the inventory block puts
-  // every in-scope document's summary into the prompt, so an answer can use one
-  // and cite nothing. The confinement route marks the conversation at turn
-  // START (`admitRestrictedTurn`), so a share attempted while the answer streams
-  // is refused too. Stored sources naming a restricted collection are the second
-  // signal, for answers written before the mark existed. The scope builder keeps
-  // restricted collections out of any thread that is already shared, so the
-  // order "share, then ask" cannot get around it. The same predicate refuses a
-  // run, a task, a profile patch or a filing out of the thread
-  // (`restricted-egress.ts`).
-  confinedToOwner: (resourceId, organizationId) => isConversationConfined(resourceId, organizationId),
+  // A conversation that drew on a restricted folder (ADR-0078) may reach only
+  // people cleared for every folder it drew on, and never the whole project.
+  // The record of what it drew on is written when a turn admits restricted
+  // content, under the lock the widening's write takes here, so a share and a
+  // use cannot pass each other (`lib/conversations/restricted-use.ts`).
+  assertMayWiden: (session, resourceId, widening) => assertMayWidenConversation(session, resourceId, widening),
+  widenAudience: (session, resourceId, widening, write) =>
+    widenConversationAudience(session, resourceId, widening, write),
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
     // `?session=` — the parameter the chat surface ALREADY reads (`useSessionUrl`).
@@ -235,8 +248,8 @@ const documentDescriptor: ShareableDescriptor = {
   // Mentions about a file happen on a conversation that has the file as
   // subject (spec F7), not on the document resource itself.
   supportsMentions: false,
-  setVisibility: async (resourceId, organizationId, visibility) => {
-    const row = await updateDocumentVisibilityInOrg(resourceId, organizationId, visibility)
+  setVisibility: async (resourceId, organizationId, visibility, executor) => {
+    const row = await updateDocumentVisibilityInOrg(resourceId, organizationId, visibility, executor)
     return row !== null
   },
   describeRef: async (resourceId, organizationId) => {

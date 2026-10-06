@@ -25,20 +25,26 @@ features:
     outcome and who uploaded it.
   - >
     Your office can now build its own roles in Piloti, under Organisation →
-    Personen & Zugriff → Eigene Rollen, and restrict a project folder to them.
-    Only people holding one of its roles see that folder, its files and what
-    Piloti finds in them, and organization admins see everything.
+    Personen & Zugriff → Eigene Rollen, and decide per project folder which
+    roles may read it and which may edit it. A role not on a folder's list does
+    not see the folder, its files or what Piloti finds in them, and organization
+    admins may read and edit everything.
   - >
-    A chat whose answers draw on a restricted folder stays with the person who
-    asked, so it cannot be shared with colleagues who may not see that folder.
+    A subfolder can only narrow what its parent allows, and someone who may only
+    read a folder sees it marked „Nur lesen“, without upload, rename, move or
+    delete.
+  - >
+    A chat whose answers drew on a folder not everyone may read can be shared
+    only with colleagues who may read that folder too. A chat that is already
+    shared searches only the folders everyone in it may read.
   - >
     Such a chat also cannot start a Tiefenrecherche or an Auftrag, change the
-    project context, or file a draft or diagram where colleagues not cleared for
-    the folder could open it; Piloti says why instead of offering it.
+    project context, or file a draft or diagram where colleagues who may not
+    read the folder could open it; Piloti says why instead of offering it.
   - >
     What Piloti remembers from such a chat is kept for the people allowed to
-    know it. Only those cleared for the folder it came from see the note in
-    the project memory, where a lock names that folder, and only their chats are
+    know it. Only those who may read the folder it came from see the note in the
+    project memory, where a lock names that folder, and only their chats are
     given it.
 fixes:
   - >

@@ -32,6 +32,14 @@ vi.mock('./version-repository', () => ({
 }))
 vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
 vi.mock('@/lib/conversations/repository', () => ({ findConversationInOrg: vi.fn() }))
+// A subject in a folder every member may read admits nothing (ADR-0079); the
+// restricted case overrides `placementCollectionFor` and the admission.
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
+vi.mock('@/lib/conversations/restricted-use', () => ({ admitRestrictedUse: vi.fn() }))
+vi.mock('@/lib/projects/repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/projects/repository')>()),
+  findProjectCollectionName: vi.fn(async () => 'proj_abc'),
+}))
 vi.mock('@/lib/organizations/service', () => ({
   getOrganizationDisplayName: vi.fn().mockResolvedValue('Büro Nord ZT GmbH'),
 }))
@@ -61,6 +69,8 @@ import { s3Client } from '@/lib/s3'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { findConversationInOrg } from '@/lib/conversations/repository'
+import { placementCollectionFor } from '@/lib/authz/folder-access'
+import { admitRestrictedUse } from '@/lib/conversations/restricted-use'
 import { getAccessibleDocument } from './access'
 import { purgeIngestedChunks } from './collection-file-ref'
 import { findDocumentInOrg } from './repository'
@@ -506,6 +516,40 @@ describe('readVersionForService — the conversation is part of the predicate', 
 
     await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).rejects.toMatchObject({
       status: 404,
+    })
+  })
+
+  describe('a subject in a folder not every member may read (ADR-0078, ADR-0079)', () => {
+    const RESTRICTED = 'proj_abc_r0123456789ab'
+    beforeEach(() => {
+      vi.mocked(findConversationInOrg).mockResolvedValue({
+        subjectResourceType: 'document',
+        subjectResourceId: 'doc_1',
+      } as never)
+      vi.mocked(findDocumentInOrg).mockResolvedValue({ ...agentDocument, folderId: 'folder_vertraege' })
+      vi.mocked(placementCollectionFor).mockResolvedValue(RESTRICTED)
+    })
+
+    it('admits the folder for the conversation before the bytes leave, and says so', async () => {
+      vi.mocked(admitRestrictedUse).mockResolvedValue({ admitted: [RESTRICTED], refused: [], recorded: ['folder_vertraege'] })
+
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1', 'user_asker')).resolves.toMatchObject({
+        content: '# Aktenvermerk',
+        drewOnRestrictedFolder: true,
+      })
+      expect(admitRestrictedUse).toHaveBeenCalledWith(
+        { organizationId: 'org_1', conversationId: 'conv_1', userId: 'user_asker', projectId: 'proj_1' },
+        [RESTRICTED],
+      )
+    })
+
+    it('reads as no subject when the admission is refused, or there is no asker to check', async () => {
+      vi.mocked(admitRestrictedUse).mockResolvedValue({ admitted: [], refused: [RESTRICTED], recorded: [] })
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1', 'user_asker')).rejects.toMatchObject({
+        status: 404,
+      })
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).rejects.toMatchObject({ status: 404 })
+      expect(s3Client.send).not.toHaveBeenCalled()
     })
   })
 

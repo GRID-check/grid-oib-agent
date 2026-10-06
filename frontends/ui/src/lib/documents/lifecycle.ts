@@ -1075,8 +1075,7 @@ export async function replaceVersionContent(
     /** False for the agent's internal route and the task outcome path. */
     actingHuman?: boolean
     /**
-     * The conversation (and the turn's signed scope) the new content came out
-     * of, for the agent's rewrite. Content from a thread that drew on a
+     * The conversation the new content came out of, for the agent's rewrite. Content from a thread that drew on a
      * restricted folder goes only into a document filed at least as narrowly
      * (ADR-0078, `restricted-egress.ts`), exactly as a new filing does.
      */

@@ -24,7 +24,6 @@
 import { NextResponse } from 'next/server'
 import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { getGridSession } from '@/lib/auth/session'
-import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/projects/proposal-decisions'
@@ -37,7 +36,6 @@ import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { isAuthzError } from '@/lib/auth-utils'
 import { isAuthRequired } from '@/lib/backend-proxy'
-import { isRestrictedCollectionOf } from '@/lib/authz/folder-access'
 
 /** Run a best-effort lookup: its failure is logged and read as "absent". */
 async function bestEffort<T>(what: string, load: () => Promise<T>): Promise<T | null> {
@@ -66,13 +64,14 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       scopedCollections,
       headerValue,
       projectId: authorizedProjectId,
-      projectCollectionName,
     } = await buildCollectionScopeFromRequest(session, {
         projectId,
         conversationId,
         // The upgrade opens an interactive chat socket: the one scope that may
-        // carry the restricted-folder collections this session is cleared for
-        // (ADR-0078). Fixed for the socket's life, like everything signed here.
+        // carry the restricted-folder collections this session, and everyone the
+        // conversation is shared with, is cleared for (ADR-0078). Fixed for the
+        // socket's life; a turn draws on one only through an admission that
+        // checks the conversation's audience again.
         interactiveChat: true,
       })
 
@@ -109,18 +108,6 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
     // project) with the raw query param as fallback. Using the query param
     // directly dropped the implicit project from every lookup after the scope.
     const effectiveProjectId = authorizedProjectId ?? projectId
-
-    // A socket whose signed scope carries this project's restricted-folder
-    // collections (ADR-0078) is the one turn that may also see those folders'
-    // documents named in the project context. The scope already answered the
-    // whole question — clearance, and a thread only its asker can read — so
-    // the prompt view follows it rather than asking again. Such a scope is only
-    // built for a session with an organization (`resolveRestrictedCollections`).
-    const scopeRestricted =
-      session?.organizationId && projectCollectionName
-        ? scope.filter((name) => isRestrictedCollectionOf(projectCollectionName, name))
-        : []
-    const clearedForRestricted = scopeRestricted.length > 0 ? (session as AuthorizedSession) : null
 
     // Phase 1 — serial gates. Session and scope already ran above; then the
     // reflection flag and the budget status, in that order. They stay serial
@@ -206,7 +193,7 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
     const [projectContext, bundesland, memoryDigest, decisions, reviewDecisions] = await Promise.all([
       // Structured project facts for the envelope's `projectContext` field.
       effectiveProjectId
-        ? loadProjectPromptView(effectiveProjectId, organizationId, clearedForRestricted).catch((error: unknown) => {
+        ? loadProjectPromptView(effectiveProjectId, organizationId).catch((error: unknown) => {
             if (isAuthzError(error)) {
               promptViewAuthzError = error
               return null
@@ -230,16 +217,12 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       // even outside a project-scoped chat. Best-effort: memory must
       // never block the chat handshake, and a failed digest drops the whole
       // block, as it always did.
-      // Restricted memory (ADR-0078) rides along only for the restricted
-      // collections this socket's signed scope carries — the same answer the
-      // scope gave: cleared, and a thread only its asker can read. Any other
-      // socket gets open memory only.
+      // Open memory only (ADR-0078): a restricted note in the prompt is use of
+      // its folders, and only the live per-turn digest admits that use, against
+      // the conversation's audience at that moment. This copy is the fallback
+      // for a turn whose live fetch failed.
       bestEffort('build project memory digest', () =>
-        scopeRestricted.length > 0
-          ? buildProjectMemoryDigest(effectiveProjectId, organizationId ?? undefined, {
-              clearedRestrictedCollections: scopeRestricted,
-            })
-          : buildProjectMemoryDigest(effectiveProjectId, organizationId ?? undefined)
+        buildProjectMemoryDigest(effectiveProjectId, organizationId ?? undefined)
       ),
       // What the project decided about earlier proposals rides the memory
       // channel. Best-effort: a scan failure drops the block, never the handshake.

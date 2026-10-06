@@ -90,7 +90,15 @@ export const collaboration = {
       rateLimited: 'Too many sharing changes. Please wait a few minutes and try again.',
       rosterFull: 'This conversation already has the maximum number of people. Remove someone before inviting more.',
       restrictedContent:
-        'This conversation draws on a folder with restricted access, so only its owner can see it and it cannot be shared.',
+        '{name} may not read every folder with restricted access this conversation draws on, so it cannot be shared with them.',
+      restrictedContentFolders:
+        '{name} may not read every folder with restricted access this conversation draws on ({folders}), so it cannot be shared with them.',
+      restrictedContentSomeone:
+        'This person may not read every folder with restricted access this conversation draws on, so it cannot be shared with them.',
+      restrictedContentSelf:
+        'You may not read every folder with restricted access this conversation draws on, so you cannot take it over.',
+      restrictedContentProject:
+        'This conversation draws on a folder with restricted access, so it cannot be made visible to the whole project. Share it with individual people who may read that folder instead.',
       loadFailed: 'Sharing settings could not be loaded.',
       saveFailed: 'That change could not be saved.',
       tryAgain: 'Try again',

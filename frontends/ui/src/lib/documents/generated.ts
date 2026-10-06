@@ -49,7 +49,7 @@ import { agentDocumentFilename } from './agent-namespace'
 import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
 import { admitOrDiscard } from '@/lib/storage/admission'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { placementCollectionFor } from '@/lib/authz/folder-access'
+import { placementCollectionFor, requireFolderWrite } from '@/lib/authz/folder-access'
 import { aiProvenanceMarking, markingIsInBytes, type AiProvenanceMarking } from '@/lib/ai-provenance'
 import { latinize } from '@/lib/text/latinize'
 import { FEATURE_FLAGS, isAgentAuthoredDocumentsEnabled } from '@/lib/authz/feature-flags'
@@ -304,10 +304,9 @@ export interface FileGeneratedDocumentInput {
   /** Source request, for the audit event's IP + user agent context. */
   request?: Request
   /**
-   * The conversation (and, for the agent, the turn's signed scope) the content
-   * came out of. A thread that drew on a restricted folder files only into a
-   * folder restricted at least as narrowly (ADR-0078,
-   * `lib/conversations/restricted-egress.ts`); checked before anything is
+   * The conversation the content came out of. A thread that drew on a
+   * restricted folder files only into a folder restricted at least as narrowly
+   * (ADR-0078, `lib/conversations/restricted-egress.ts`); checked before anything is
    * rendered or created. Absent for a producer whose input is not a
    * conversation's (a deep-research run, whose scope is always open).
    */
@@ -529,15 +528,21 @@ export async function fileGeneratedDocument(
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
 
-  // Restricted-folder content stays where only people cleared for it read it
-  // (ADR-0078). Before the render and the folder creation, so a refusal leaves
-  // nothing behind; a destination that does not exist yet would be created open
-  // at the root, and is judged as such.
+  // Where it will land, judged before the render and the folder creation, so a
+  // refusal leaves nothing behind; a destination that does not exist yet would
+  // be created at the root, inheriting the project, and is judged as such.
+  const existingDestination = await findRootProjectFolderByName(
+    projectId,
+    resolveGeneratedDocumentDestination(producer).folderName,
+  )
+  // Filing is a write into the destination (ADR-0079): a „Berichte" the
+  // commissioning person may only read refuses (403), one they may not read is
+  // not found.
+  await requireFolderWrite(session, projectId, [existingDestination?.id ?? null])
+  // Restricted-folder content stays where only people who may read it read it
+  // (ADR-0078).
   if (origin) {
-    const destination = await findRootProjectFolderByName(
-      projectId,
-      resolveGeneratedDocumentDestination(producer).folderName,
-    )
+    const destination = existingDestination
     await requireMayFileFrom(origin, {
       organizationId: session.organizationId,
       projectId,
@@ -574,6 +579,9 @@ export async function fileGeneratedDocument(
   // folder standing in a project that never got a report.
   const destination = resolveGeneratedDocumentDestination(producer)
   const folder = await getOrCreateProjectFolderByName(projectId, destination.folderName)
+  // A concurrent writer may have created it, or given it its own list, since
+  // the check above.
+  if (folder.id !== existingDestination?.id) await requireFolderWrite(session, projectId, [folder.id])
 
   const documentId = crypto.randomUUID()
   const storedName = generatedFilename(title, rendered.contentType, new Date())

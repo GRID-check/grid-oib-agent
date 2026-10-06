@@ -179,6 +179,22 @@ describe('ProjectFileWorkspace', () => {
     expect(screen.queryByRole('heading', { name: 'Test' })).toBeNull()
   })
 
+  it('offers no upload where the reader may only read (ADR-0079), and takes no dropped file there', () => {
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFolders={[]}
+        initialRootAccess="read"
+      />,
+    )
+    expect(screen.queryByTestId('project-upload-input')).toBeNull()
+    const dataTransfer = makeDataTransfer([new File(['x'], 'plan.pdf', { type: 'application/pdf' })])
+    fireEvent.dragEnter(screen.getByTestId('workspace-dropzone'), { dataTransfer })
+    expect(screen.queryByTestId('workspace-drop-overlay')).toBeNull()
+  })
+
   it('shows the drop overlay on dragover of a supported file', () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     const dropzone = screen.getByTestId('workspace-dropzone')
@@ -889,7 +905,7 @@ describe('ProjectFileWorkspace — dragging a file into a folder', () => {
     fireEvent.drop(folder, { dataTransfer: dragTransfer('doc-1') })
 
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(expect.stringContaining('cannot be filed in a restricted folder yet'))
+      expect(toastError).toHaveBeenCalledWith(expect.stringContaining('cannot be filed in a folder not everyone may read yet'))
     )
   })
 
@@ -1002,7 +1018,7 @@ describe('ProjectFileWorkspace — dragging a folder into a folder', () => {
     fireEvent.drop(target, { dataTransfer: folderDragTransfer('f-a') })
 
     await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(expect.stringContaining('cannot be filed in a restricted folder yet'))
+      expect(toastError).toHaveBeenCalledWith(expect.stringContaining('cannot be filed in a folder not everyone may read yet'))
     )
   })
 

@@ -282,31 +282,29 @@ describe('the ops it does serve', () => {
       {
         request: expect.any(Request),
         actingHuman: false,
-        // The thread and the turn's signed scope ride along, so content from a
-        // turn that read a restricted folder goes only where it may (ADR-0078).
-        origin: { conversationId: expect.any(String), signedRestrictedCollections: [], locale: 'de' },
+        // The thread rides along, so content from a conversation that drew on a
+        // restricted folder goes only where it may (ADR-0078, ADR-0079).
+        origin: { conversationId: expect.any(String), locale: 'de' },
       },
     )
   })
 
-  it('hands both writes the restricted collections of the SIGNED scope (ADR-0078)', async () => {
+  it('hands both writes the conversation, never the signed scope: what may leave is what the conversation USED (ADR-0079)', async () => {
     const restricted = 'proj_3333_r0123456789ab'
     const headers = envelopeHeaders({ collectionScope: ['oib_knowledge', 'proj_3333', restricted] })
     await call(
       { op: 'create', projectId: PROJECT, ref: 's_conv_1-honorar', title: 'Honorar', content: '# Honorar' },
       headers,
     )
-    expect(vi.mocked(fileAgentDocumentDraft).mock.calls[0][0]).toMatchObject({
-      originConversationId: 's_conv_1',
-      signedRestrictedCollections: [restricted],
-    })
+    expect(vi.mocked(fileAgentDocumentDraft).mock.calls[0][0]).toMatchObject({ originConversationId: 's_conv_1' })
+    expect(vi.mocked(fileAgentDocumentDraft).mock.calls[0][0]).not.toHaveProperty('signedRestrictedCollections')
 
     await call(
       { op: 'update', documentId: DOC, versionId: VERSION, content: 'Honorar 48.000', ifMatch: 'sha256:abc' },
       headers,
     )
     expect(vi.mocked(replaceVersionContent).mock.calls[0][5]).toMatchObject({
-      origin: { conversationId: 's_conv_1', signedRestrictedCollections: [restricted], locale: 'de' },
+      origin: { conversationId: 's_conv_1', locale: 'de' },
     })
   })
 

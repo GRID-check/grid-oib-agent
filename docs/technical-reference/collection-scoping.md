@@ -13,7 +13,7 @@ When a user asks a question, the AI needs to know which knowledge sources to sea
 - The active project collection (`proj_{projectId}`, if working in a project)
 - The restricted-folder collections the session is cleared for
   (`<project collection>_r<12 hex>`, interactive chat turns only — ADR-0078, see
-  [Restricted folders](#restricted-folders-adr-0078))
+  [Restricted folders](#restricted-folders-adr-0078-adr-0079))
 - The session collection (`s_{conversationId}`, if in a conversation)
 
 This page is about which collections a request READS. What writes into the
@@ -121,13 +121,15 @@ async function buildCollectionScopeFromRequest(
 
 ---
 
-## Restricted folders (ADR-0078)
+## Restricted folders (ADR-0078, ADR-0079)
 
-A document under a restricted folder lives in the collection of its nearest
-restricted folder, `<project collection>_r<12 hex of the folder id>`
-(`restrictedCollectionName` in `lib/authz/folder-access.ts`). Retrieval keeps it
-out of reach by leaving that collection out of the scope; no Python read path
-needs to know.
+A folder whose own access list does not include every project member
+(`project_folder_grants` without `*`, migration 0108) restricts READING. A
+document under it lives in the collection of its nearest such folder,
+`<project collection>_r<12 hex of the folder id>` (`restrictedCollectionName`
+in `lib/authz/folder-access-rule.ts`). Who may WRITE never moves anything:
+collections key on read. Retrieval keeps the collection out of reach by leaving
+it out of the scope; no Python read path needs to know.
 
 `buildCollectionScopeFromRequest` adds a project's restricted collections, with
 shelf `project`, only when ALL of these hold:
@@ -138,52 +140,50 @@ shelf `project`, only when ALL of these hold:
   the flag), the `/api/v1` proxy and scheduled or commissioned runs
   (`submitAgentRun`, session-less) never get one: their reports are filed for
   the whole project;
-- the session is cleared for the folder, as `getProjectFolderAccess(session, …)`
-  answers it from the session's roles and permissions and nothing else;
-- the upgrade names a conversation, and that conversation is readable by the
-  caller alone: not created yet, or theirs, `private` and without grants. A
-  thread that is already shared never gets restricted content, so sharing first
-  and asking afterwards cannot walk around the share refusal below.
+- the session may read the folder (`effectiveFolderLevel` over its roles, read
+  from the WorkOS membership at most 60 s ago);
+- everyone the conversation is shared with may read it too
+  (`restrictedCollectionsForChatScope` in `lib/conversations/restricted-use.ts`).
 
-The same clearance gates the collection proxy: `/api/v1/collections/<name>` with
-a restricted name is authorized as its project's collection and then 404s
-unless the session is cleared for it (`lib/proxy/collection-authz.ts`).
+The same rule gates the collection proxy: `/api/v1/collections/<name>` with a
+restricted name is authorized as its project's collection and then 404s unless
+the session may read the folder (`lib/proxy/collection-authz.ts`).
 
-A conversation that ran a turn with a restricted collection in its scope
-cannot be shared beyond its owner: wider visibility, a grant (and so a mention
-that invites) and a project admin's escalation are refused with `409` and
-reason `restricted-content` (`confinedToOwner` on the conversation's sharing
-descriptor). The signal is the scope, not the citations. The inventory block
-puts every in-scope document's summary into the prompt, so an answer can use a
-restricted summary and cite nothing; and nothing is stored while the first
-restricted answer streams. So the turn's admission marks the conversation
-(`conversation_restricted_turns`, migration 0105) before the turn produces a
-word, and the refusal keys on that mark. Stored answers whose `citations` or
-`readSources` name a restricted collection are the second signal, for answers
-written before the mark existed.
+### Per person, by what the conversation used
 
-The share and the turn's admission can race. The admission writes the mark
-first and then reads whether the thread is still private; the sharing service
-writes the widening first and then re-reads the mark, undoing its write when
-the mark has appeared (`confirmMayLeaveOwner`). Whichever commits second sees
-the other, so they cannot both go through.
+A conversation is restricted by what it USED, recorded per source folder in
+`conversation_restricted_folders` (migration 0107): content from a folder not
+every member may read entered the model's context. Being able to search a
+folder is not use. Each use is ADMITTED by the BFF
+(`POST /api/internal/conversations/[id]/restricted-use`) before the content
+reaches the model, against the asker and everyone the conversation is shared
+with, under the same advisory lock every widening of the audience takes, so a
+share and an admission cannot both go through:
 
-The scope is signed into the envelope once per socket, so a withdrawn role or a
-newly restricted folder takes effect on the next connection.
+- at turn start the agent offers the restricted collections of its signed
+  scope and gets back the ones it may draw on (`drawable`) and whether the
+  conversation already recorded a folder (`recorded`). It binds the answer per
+  turn (`aiq_agent.knowledge.restricted_use`), and
+  `get_scoped_collections_from_context` keeps only the drawable ones, so every
+  read path searches only what everyone reading the conversation may read. A
+  thread shared since the socket was signed loses those collections from the
+  next turn on; the socket is not closed;
+- a tool round's results are admitted before the model reads them
+  (`PilotiAgent._tools_node` → `admit_tool_results`); a result carrying a
+  refused collection is replaced by a notice;
+- restricted memory served into the digest, and a subject document from a
+  restricted folder, are admitted by the BFF before they are sent;
+- listing is not use: restricted collections stay out of the inventory block,
+  `list_files` and the document cards, so a name or a summary never reaches the
+  prompt without an admission.
 
-Whether the thread is still its asker's alone is not left to the socket's age.
-The owner can share it while the socket is open, and the next turn would then
-write restricted content into a thread others read and watch live. So before
-every turn on a socket whose signed scope carries a restricted collection, the
-chat socket (`aiq_api.chat_socket`, `_require_confinement`) asks the BFF
-(`POST /api/internal/conversations/[id]/confinement`, the same rule as the
-upgrade: `lib/conversations/confinement.ts`). A yes is also the turn's
-admission and records the mark above (`admitRestrictedTurn`); a no withdraws a
-mark that ask had just created. On anything but a yes it closes
-the socket with `4412` before the turn is claimed; the client reconnects, the
-new upgrade is signed a scope without the restricted collections, and the
-unacknowledged question goes out again. A socket whose scope carries none asks
-nobody.
+Sharing (`assertMayWidenConversation`, `widenConversationAudience`) allows a
+new reader exactly when they may read every recorded folder NOW; a folder
+opened to every member drops out, and a deleted folder's tombstone (0108) keeps
+answering with the access it had. The doors that write something the whole
+project reads refuse a conversation with a record
+(`lib/conversations/restricted-egress.ts`); deep research and tasks stay
+refused for such a conversation for now.
 
 A socket answers for one conversation only: the signed `conversationId`.
 A frame naming another is refused with `conversation_mismatch` before anything
