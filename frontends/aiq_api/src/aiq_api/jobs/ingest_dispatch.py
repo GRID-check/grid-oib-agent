@@ -29,6 +29,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from aiq_agent.common.provider_limiter import priority_scope
 from aiq_agent.knowledge import ingest_queue
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.base import BaseIngestor
@@ -254,7 +255,10 @@ class QueueSource:
         )
         beat.start()
         try:
-            self._ingestor.run_prepared(prepared, still_owner=lambda: self._still_owner(job_id, lost))
+            # Its class at the provider limiter is the job's own priority (ADR-0080).
+            # Read defensively: the queue's priority field is a separate change.
+            with priority_scope(getattr(prepared, "priority", None)):
+                self._ingestor.run_prepared(prepared, still_owner=lambda: self._still_owner(job_id, lost))
         finally:
             stop.set()
             ingest_queue.mark_done(job_id, self._worker)

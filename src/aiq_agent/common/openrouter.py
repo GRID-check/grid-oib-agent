@@ -52,6 +52,7 @@ import contextvars
 import json
 import logging
 import os
+import re
 from collections.abc import Iterator
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -60,6 +61,8 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
+
+from aiq_agent.common import provider_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -250,13 +253,118 @@ def _pinned_request(request: httpx.Request, policy: DataPolicy) -> httpx.Request
     )
 
 
+_MODEL_FIELD = re.compile(rb'"model"\s*:\s*"([^"]{1,120})"')
+
+
+def _request_model(request: httpx.Request) -> str | None:
+    """The ``model`` a JSON request names, for the 429 meter's label; None when it names none.
+
+    Looks the key up and reads a short window after it rather than parsing the
+    body: a vision request carries megabytes of image.
+    """
+    try:
+        body = request.content
+    except httpx.RequestNotRead:
+        return None
+    at = body.find(b'"model"')
+    found = _MODEL_FIELD.match(body, at) if at >= 0 else None
+    return found.group(1).decode("utf-8", "replace") if found else None
+
+
+def _slot_wait(request: httpx.Request) -> float | None:
+    """How long this call may wait for a provider slot.
+
+    A chat call has a latency budget (the query embedding's is three seconds), so
+    it waits no longer than the request's own pool timeout and then fails the way
+    a pool that never freed a connection does. Every other class waits as long as
+    the pool stays full: a bulk call starved for a minute is the limiter working,
+    and a timeout would turn that into failed ingestion.
+    """
+    if provider_limiter.current_class() != provider_limiter.CHAT:
+        return None
+    timeouts = request.extensions.get("timeout")
+    return timeouts.get("pool") if isinstance(timeouts, dict) else None
+
+
+def _takes_slot(request: httpx.Request) -> bool:
+    return targets_openrouter(str(request.url))
+
+
+def _pool_timeout(request: httpx.Request, error: provider_limiter.ProviderWaitTimeout) -> httpx.PoolTimeout:
+    return httpx.PoolTimeout(str(error), request=request)
+
+
+class _ReleasingStream(httpx.SyncByteStream):
+    """A response body that gives its provider slot back when it ends or is closed."""
+
+    def __init__(self, inner: httpx.SyncByteStream, lease: provider_limiter.Lease) -> None:
+        self._inner = inner
+        self._lease = lease
+
+    def __iter__(self):
+        yield from self._inner
+        self._lease.release()
+
+    def close(self) -> None:
+        try:
+            self._inner.close()
+        finally:
+            self._lease.release()
+
+
+class _AsyncReleasingStream(httpx.AsyncByteStream):
+    """:class:`_ReleasingStream` for the async transport."""
+
+    def __init__(self, inner: httpx.AsyncByteStream, lease: provider_limiter.Lease) -> None:
+        self._inner = inner
+        self._lease = lease
+
+    async def __aiter__(self):
+        async for chunk in self._inner:
+            yield chunk
+        await self._lease.arelease()
+
+    async def aclose(self) -> None:
+        try:
+            await self._inner.aclose()
+        finally:
+            await self._lease.arelease()
+
+
 class _PinningTransport(httpx.BaseTransport):
+    """Pins OpenRouter requests to the organization's policy, and queues them for a provider slot.
+
+    The slot is held until the response body is read or closed, so a streamed
+    response keeps it for as long as it streams. A 429 is recorded (it halves the
+    fleet's limit) and given back like any other response: the OpenAI SDK clients
+    on top retry it with the provider's ``Retry-After``, and each retry queues up
+    again, which is the wait outside the slot.
+    """
+
     def __init__(self, policy: DataPolicy) -> None:
         self._policy = policy
         self._inner = httpx.HTTPTransport()
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
-        return self._inner.handle_request(_pinned_request(request, self._policy))
+        request = _pinned_request(request, self._policy)
+        if not _takes_slot(request):
+            return self._inner.handle_request(request)
+        try:
+            lease = provider_limiter.acquire(max_wait_seconds=_slot_wait(request))
+        except provider_limiter.ProviderWaitTimeout as error:
+            raise _pool_timeout(request, error) from error
+        try:
+            response = self._inner.handle_request(request)
+            if response.status_code == 429:
+                provider_limiter.throttle(_request_model(request))
+        except BaseException:
+            lease.release()
+            raise
+        if response.is_closed:  # a body already read in full leaves nothing to wait for
+            lease.release()
+        else:
+            response.stream = _ReleasingStream(response.stream, lease)
+        return response
 
     def close(self) -> None:
         self._inner.close()
@@ -268,7 +376,25 @@ class _AsyncPinningTransport(httpx.AsyncBaseTransport):
         self._inner = httpx.AsyncHTTPTransport()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        return await self._inner.handle_async_request(_pinned_request(request, self._policy))
+        request = _pinned_request(request, self._policy)
+        if not _takes_slot(request):
+            return await self._inner.handle_async_request(request)
+        try:
+            lease = await provider_limiter.aacquire(max_wait_seconds=_slot_wait(request))
+        except provider_limiter.ProviderWaitTimeout as error:
+            raise _pool_timeout(request, error) from error
+        try:
+            response = await self._inner.handle_async_request(request)
+            if response.status_code == 429:
+                await provider_limiter.athrottle(_request_model(request))
+        except BaseException:
+            await lease.arelease()
+            raise
+        if response.is_closed:
+            await lease.arelease()
+        else:
+            response.stream = _AsyncReleasingStream(response.stream, lease)
+        return response
 
     async def aclose(self) -> None:
         await self._inner.aclose()
