@@ -506,4 +506,3 @@ export async function findLivingFolder(tx: DbExecutor, projectId: string, folder
     .limit(1)
   return asProjectFolder(row)
 }
-
