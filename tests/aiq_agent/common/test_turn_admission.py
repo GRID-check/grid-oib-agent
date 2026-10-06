@@ -332,3 +332,37 @@ def test_a_reclaimed_slot_is_not_taken_back_by_its_renewal(monkeypatch: pytest.M
         holders = turn_admission._local_slots[turn_admission._org_key("org_1")]
         assert member not in holders
         assert len(holders) == 1
+
+
+def test_active_turns_counts_this_replicas_slots_without_a_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    _limits(monkeypatch, total=10, per_org=5)
+    assert turn_admission.active_turns() == 0
+    with admit_turn("org-a"), admit_turn("org-b"):
+        assert turn_admission.active_turns() == 2
+    assert turn_admission.active_turns() == 0
+
+
+def test_active_turns_ignores_leases_that_aged_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    _limits(monkeypatch, total=10, per_org=5)
+    turn_admission._local_slots[turn_admission._GLOBAL_KEY] = {"alive": turn_admission.time.time(), "dead": 1.0}
+    assert turn_admission.active_turns() == 1
+
+
+def test_active_turns_is_unknown_when_the_store_is_configured_but_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fleet-wide count must never degrade to this replica's share: it would read as a quiet fleet."""
+    monkeypatch.setenv("REDIS_URL", "redis://unreachable:6379/0")
+    monkeypatch.setattr(turn_admission.cache, "eval_script", lambda *_a, **_k: None)
+    assert turn_admission.active_turns() is None
+
+
+def test_active_turns_reads_the_fleet_count_from_the_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REDIS_URL", "redis://store:6379/0")
+    seen: list[tuple] = []
+
+    def fake_eval(script: str, keys: list[str], args: list) -> int:
+        seen.append((keys, args[1]))
+        return 7
+
+    monkeypatch.setattr(turn_admission.cache, "eval_script", fake_eval)
+    assert turn_admission.active_turns() == 7
+    assert seen == [([turn_admission._GLOBAL_KEY], turn_admission.TURN_LEASE_SECONDS)]
