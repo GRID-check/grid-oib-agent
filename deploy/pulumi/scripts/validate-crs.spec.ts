@@ -6,12 +6,15 @@ import { pathToFileURL } from "node:url";
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { loadConfig } from "../src/config";
+import { KEDA_CHART_VERSION } from "../src/platform/keda";
 import { installIngestWorker } from "../src/app/ingest-worker";
 import { installJobsQueueAuth } from "../src/app/jobs-queue-auth";
 import { baseStackConfig } from "../src/test-support/stack-config";
 
 const ROOT = mkdtempSync(join(__dirname, "..", ".validate-crs-test-"));
-const KEDA_URL = "https://github.com/kedacore/keda/releases/download/v2.21.0/keda-2.21.0-crds.yaml";
+// The release the script validates against is the chart the program installs
+// (`KEDA_CHART_VERSION`, which the script reads from `src/platform/keda.ts`).
+const KEDA_URL = `https://github.com/kedacore/keda/releases/download/v${KEDA_CHART_VERSION}/keda-${KEDA_CHART_VERSION}-crds.yaml`;
 const CNPG_URL = "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v1.28.0/releases/cnpg-1.28.0.yaml";
 const UNKNOWN = "04da6b54-80e4-46f7-8ec5-a065f938c709";
 const resources: Array<{ urn: string; inputs: Record<string, unknown> }> = [];
@@ -66,9 +69,11 @@ const kedaCrds = [
     maxReplicaCount: integer,
     pollingInterval: integer,
     cooldownPeriod: integer,
+    fallback: object({ failureThreshold: integer, replicas: integer, behavior: string }, ["failureThreshold", "replicas"]),
     advanced: { type: "object" },
     triggers: array(object({
       type: string,
+      metricType: string,
       metadata: { type: "object", additionalProperties: string },
       authenticationRef: object({ name: string }, ["name"]),
     }, ["type"])),
@@ -102,6 +107,10 @@ function workspace(): string {
   const dir = mkdtempSync(join(ROOT, "case-"));
   mkdirSync(join(dir, "scripts"));
   copyFileSync(join(__dirname, "validate-crs.mjs"), join(dir, "scripts", "validate-crs.mjs"));
+  // The script reads the KEDA release it validates against from the program's one
+  // constant, so the copy needs the real file beside it.
+  mkdirSync(join(dir, "src", "platform"), { recursive: true });
+  copyFileSync(join(__dirname, "..", "src", "platform", "keda.ts"), join(dir, "src", "platform", "keda.ts"));
   writeFileSync(join(dir, "fetch.mjs"), `
 import { readFileSync } from "node:fs";
 const releases = JSON.parse(readFileSync(new URL("./releases.json", import.meta.url), "utf8"));

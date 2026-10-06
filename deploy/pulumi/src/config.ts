@@ -1,4 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
+import { createHmac } from "node:crypto";
 import { hostsOutsideZone, managedHosts } from "./platform/dns";
 
 /**
@@ -306,6 +307,15 @@ export interface GridConfig {
      * existing stack must set it (and rotate) before the next deploy.
      */
     runtimePassword: pulumi.Output<string>;
+    /**
+     * Password for `grid_keda_scaler`, the read-only login KEDA's `postgresql`
+     * scaler counts the queue tables with (ADR-0078). Optional
+     * (`pgScalerPassword`): unset, it is derived from `pgAppPassword` by a
+     * one-way HMAC, so it is never the owner's password and an existing stack
+     * needs no new secret to deploy. Set it to rotate the scaler's credential
+     * on its own.
+     */
+    scalerPassword: pulumi.Output<string>;
     /**
      * How CNPG rolls the primary during an operator/image update.
      * "unsupervised" = automatic switchover + restart (no human), which is what
@@ -808,7 +818,8 @@ export interface GridConfig {
     /**
      * Ceiling. The real ceiling is the model provider's rate limit on the
      * shared key: replicas × concurrency × `AIQ_VLM_BATCH_WORKERS` is the
-     * peak number of VLM calls in flight.
+     * peak number of VLM calls in flight, and `assertVlmPeakFitsCeiling` fails
+     * the deploy when that is more than twice `vlmFleetConcurrency`.
      */
     maxReplicas: number;
     /** Jobs one replica runs at once (`AIQ_INGEST_MAX_WORKERS`); also KEDA's jobs-per-replica target. */
@@ -854,6 +865,24 @@ export interface GridConfig {
    * (`installKeda=false`).
    */
   keda: { install: boolean };
+
+  /**
+   * What the shared OpenRouter key is asked to carry (ADR-0076, ADR-0080), as
+   * the backend image's environment. The four numbers are one budget:
+   * {@link vlmPeakCalls} is held to `vlmFleetConcurrency` where the ingest tier
+   * is sized (`assertVlmPeakFitsCeiling`), and `vlmFleetConcurrency` is held to
+   * the key-wide `limitCeiling`.
+   */
+  providerLimits: {
+    /** `AIQ_VLM_FLEET_CONCURRENCY`: vision calls in flight across every ingest process at once. */
+    vlmFleetConcurrency: number;
+    /** `AIQ_VLM_BATCH_WORKERS`: vision calls one file runs at once. */
+    vlmBatchWorkers: number;
+    /** `GRID_PROVIDER_LIMIT_CEILING`: model calls in flight fleet-wide, all models together. */
+    limitCeiling: number;
+    /** `GRID_PROVIDER_MODEL_LIMIT_CEILING`: model calls in flight fleet-wide to one model. */
+    modelLimitCeiling: number;
+  };
 
   /** LLM / model-provider settings shared by backend + frontend. */
   llm: {
@@ -1328,6 +1357,20 @@ export interface ResourceSpec {
 function num(cfg: pulumi.Config, key: string, fallback: number): number {
   const v = cfg.getNumber(key);
   return v === undefined ? fallback : v;
+}
+
+/**
+ * The scaler login's password when `pgScalerPassword` is not set: an HMAC of a
+ * fixed label under the owner's password. One-way, so holding the scaler DSN
+ * says nothing about `pgAppPassword` (Postgres authenticates by role AND
+ * password, which is the whole reason `grid_app_rw` has a password of its own),
+ * and URL-safe, so it needs no care in a DSN. It follows `pgAppPassword` when
+ * that rotates.
+ */
+function derivedScalerPassword(appPassword: pulumi.Output<string>): pulumi.Output<string> {
+  return pulumi.secret(
+    appPassword.apply((password) => createHmac("sha256", password).update("grid-keda-scaler").digest("base64url")),
+  );
 }
 
 /** `langfuseV4WriteMode`, refused at load time when it is not one Langfuse knows. */
@@ -2331,6 +2374,7 @@ export function loadConfig(): GridConfig {
       appUser: cfg.get("pgAppUser") ?? "aiq",
       appPassword: cfg.requireSecret("pgAppPassword"),
       runtimePassword: cfg.requireSecret("pgRuntimePassword"),
+      scalerPassword: cfg.getSecret("pgScalerPassword") ?? derivedScalerPassword(cfg.requireSecret("pgAppPassword")),
       primaryUpdateStrategy:
         cfg.get("pgPrimaryUpdateStrategy") === "supervised" ? "supervised" : "unsupervised",
       backups: {
@@ -2574,7 +2618,9 @@ export function loadConfig(): GridConfig {
         limitsMemory: cfg.get("ingestWorkerLimitsMemory") ?? "6Gi",
       },
       minReplicas: Math.max(0, num(cfg, "ingestWorkerMinReplicas", 1)),
-      maxReplicas: Math.max(1, num(cfg, "ingestWorkerMaxReplicas", 20)),
+      // 8 x 3 x `AIQ_VLM_BATCH_WORKERS` (4) = 96 = 2 x the vision pool (48): the most the
+      // default budget can feed (`assertVlmPeakFitsCeiling`).
+      maxReplicas: Math.max(1, num(cfg, "ingestWorkerMaxReplicas", 8)),
       concurrency: Math.max(1, num(cfg, "ingestWorkerConcurrency", 3)),
       drainSeconds: Math.max(30, num(cfg, "ingestWorkerDrainSeconds", 600)),
       maxPerOrg: Math.max(0, num(cfg, "ingestMaxPerOrg", 0)),
@@ -2602,6 +2648,16 @@ export function loadConfig(): GridConfig {
       renditionConcurrency: Math.max(1, num(cfg, "bffJobsRenditionConcurrency", 1)),
     },
     keda: { install: cfg.getBoolean("installKeda") ?? true },
+
+    // Defaults are the backend image's own (`adapter.py`, `processing.py`,
+    // `provider_limiter.py`), written down here so the stack file, not a Python
+    // default, is where the fleet's budget is read and changed.
+    providerLimits: {
+      vlmFleetConcurrency: Math.max(0, num(cfg, "vlmFleetConcurrency", 48)),
+      vlmBatchWorkers: Math.max(1, num(cfg, "vlmBatchWorkers", 4)),
+      limitCeiling: Math.max(1, num(cfg, "providerLimitCeiling", 128)),
+      modelLimitCeiling: Math.max(1, num(cfg, "providerModelLimitCeiling", 32)),
+    },
 
     llm: {
       openrouterApiKey: cfg.requireSecret("openrouterApiKey"),
@@ -2985,4 +3041,67 @@ export function renditionCeiling(cfg: Pick<GridConfig, "bffJobs">): number {
 /** What the converter can take: its replicas times {@link GOTENBERG_SLOTS_PER_REPLICA}. */
 export function gotenbergCapacity(cfg: Pick<GridConfig, "gotenberg">): number {
   return cfg.gotenberg.replicas * GOTENBERG_SLOTS_PER_REPLICA;
+}
+
+/**
+ * Vision calls the ingest tier can have in flight at its ceiling: replicas, times
+ * the jobs one replica runs at once, times the files' own parallelism
+ * (`AIQ_VLM_BATCH_WORKERS`). Every one of them asks the shared provider key for a
+ * slot of the fleet pool (`AIQ_VLM_FLEET_CONCURRENCY`).
+ */
+export function vlmPeakCalls(cfg: Pick<GridConfig, "ingestWorker" | "providerLimits">): number {
+  return cfg.ingestWorker.maxReplicas * cfg.ingestWorker.concurrency * cfg.providerLimits.vlmBatchWorkers;
+}
+
+/**
+ * How far past the fleet pool the ingest tier may be sized. Callers over the pool
+ * wait for a slot, which is what the pool is for, so some overshoot is a queue
+ * that keeps the pool busy between files; a lot of it is replicas that only hold
+ * memory while they wait, and a wait long enough to meet the vision client's
+ * timeout (`AIQ_VLM_TIMEOUT_SECONDS`) is a retry for nothing.
+ */
+export const VLM_OVERSUBSCRIPTION = 2;
+
+/**
+ * Refuse an ingest tier whose peak vision calls run past the fleet's ceiling by
+ * more than {@link VLM_OVERSUBSCRIPTION}, and a fleet pool larger than the
+ * key-wide limiter ceiling it passes through. The numbers are chosen in two
+ * places (the tier's replicas, the provider's budget) and neither looks wrong
+ * alone, which is how a tier gets raised until its replicas queue on a pool
+ * sized for a fraction of them.
+ *
+ * Skipped when the pool is off (`vlmFleetConcurrency` 0: nothing is held back).
+ */
+export function assertVlmPeakFitsCeiling(cfg: Pick<GridConfig, "ingestWorker" | "providerLimits">): void {
+  const { vlmFleetConcurrency, vlmBatchWorkers, limitCeiling } = cfg.providerLimits;
+  if (vlmFleetConcurrency === 0) return;
+  const peak = vlmPeakCalls(cfg);
+  const allowed = VLM_OVERSUBSCRIPTION * vlmFleetConcurrency;
+  if (peak > allowed) {
+    const { maxReplicas, concurrency } = cfg.ingestWorker;
+    throw new Error(
+      `Invalid ingest sizing: ingestWorkerMaxReplicas (${maxReplicas}) x ingestWorkerConcurrency (${concurrency}) ` +
+        `x vlmBatchWorkers (${vlmBatchWorkers}) = ${peak} vision calls at the peak, more than ` +
+        `${VLM_OVERSUBSCRIPTION}x vlmFleetConcurrency (${vlmFleetConcurrency}) = ${allowed}. The extra replicas ` +
+        "would only queue on the fleet pool and add cost without throughput. Lower ingestWorkerMaxReplicas " +
+        `to ${Math.max(1, Math.floor(allowed / (concurrency * vlmBatchWorkers)))} or less, or raise vlmFleetConcurrency ` +
+        "(and the provider's own limit with it).",
+    );
+  }
+  if (vlmFleetConcurrency > limitCeiling) {
+    throw new Error(
+      `Invalid provider budget: vlmFleetConcurrency (${vlmFleetConcurrency}) is above providerLimitCeiling ` +
+        `(${limitCeiling}), the key-wide limit every model call passes. The fleet pool could never fill. ` +
+        "Raise providerLimitCeiling or lower vlmFleetConcurrency.",
+    );
+  }
+}
+
+/**
+ * Whether anything in the stack counts a queue table through KEDA's `postgresql`
+ * scaler, i.e. whether the read-only scaler login and its grants are needed:
+ * the research and ingest tiers (`jobExecution: db`) and the bff-jobs pool.
+ */
+export function queueScalerEnabled(c: Pick<GridConfig, "jobExecution" | "bffJobs">): boolean {
+  return c.jobExecution === "db" || c.bffJobs.enabled;
 }

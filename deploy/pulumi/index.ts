@@ -17,7 +17,7 @@
  */
 import * as pulumi from "@pulumi/pulumi";
 
-import { backendAutoscaled, backendImage, frontendImage, loadConfig, webImage } from "./src/config";
+import { backendAutoscaled, backendImage, frontendImage, loadConfig, queueScalerEnabled, webImage } from "./src/config";
 import { makeProvider } from "./src/platform/providers";
 import { makeAppNamespace } from "./src/platform/namespaces";
 import { installCertManager } from "./src/platform/cert-manager";
@@ -30,7 +30,7 @@ import { installClickHouse } from "./src/data/clickhouse";
 import { installSeaweedFS, type SeaweedFS } from "./src/data/seaweedfs";
 import { installSeaweedFSBackup } from "./src/data/seaweedfs-backup";
 import { installChroma } from "./src/data/chroma";
-import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildSecrets } from "./src/app/config";
+import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildScalerSecret, buildSecrets } from "./src/app/config";
 import { runMigrations } from "./src/app/migrations-job";
 import { reconcileAuditSchemas } from "./src/app/audit-schemas-job";
 import { installBackend } from "./src/app/backend";
@@ -43,6 +43,7 @@ import { installAgentWorker } from "./src/app/agent-worker";
 import { installIngestWorker } from "./src/app/ingest-worker";
 import { installJobsQueueAuth } from "./src/app/jobs-queue-auth";
 import { installBffJobs } from "./src/app/bff-jobs";
+import { installQueueScalerGrants } from "./src/app/queue-scaler-grants";
 import { installKeda } from "./src/platform/keda";
 import { installHttpRoutes } from "./src/app/httproutes";
 import { installObservabilityDashboard } from "./src/platform/observability";
@@ -235,10 +236,35 @@ const keda =
     ? installKeda(provider)
     : undefined;
 
+// What the read-only scaler login may read, and the queue tables it reads, in
+// place before any ScaledObject is created (`app/queue-scaler-grants.ts`): after
+// the cluster (the role) and the migrations (`bff_job_queue`).
+const scalerGrants = queueScalerEnabled(cfg)
+  ? installQueueScalerGrants(wiring, cfg, [postgres.cluster, postgres.initJob, migrations])
+  : undefined;
+
+// What KEDA connects with, in a Secret of its own that no pod reads.
+const scalerSecret = queueScalerEnabled(cfg) ? buildScalerSecret(wiring) : undefined;
+
 // How KEDA reads the two Python claim queues, which share one database. Created
-// once, because the research tier runs whether or not the ingest tier does.
-const jobsQueueAuth = cfg.jobExecution === "db" ? installJobsQueueAuth(wiring, keda ? [keda] : []) : undefined;
-const queueScalerDeps = [...(keda ? [keda] : []), ...(jobsQueueAuth ? [jobsQueueAuth] : [])];
+// once, because the research tier runs whether or not the ingest tier does. After
+// the grants: on a stack that already runs, the existing ScaledObjects start
+// reading through the scaler login the moment this points at it, and the login
+// can read nothing before the Job has run.
+const jobsQueueAuth =
+  cfg.jobExecution === "db"
+    ? installJobsQueueAuth(wiring, [
+        ...(keda ? [keda] : []),
+        ...(scalerGrants ? [scalerGrants] : []),
+        ...(scalerSecret ? [scalerSecret] : []),
+      ])
+    : undefined;
+const queueScalerDeps = [
+  ...(keda ? [keda] : []),
+  ...(jobsQueueAuth ? [jobsQueueAuth] : []),
+  ...(scalerGrants ? [scalerGrants] : []),
+  ...(scalerSecret ? [scalerSecret] : []),
+];
 
 // Research worker tier — only when execution is DB-claimed (ADR-0021). Claims
 // the research queue fairly across organizations (ADR-0078), scaled by KEDA on
@@ -270,7 +296,13 @@ const ingestWorker = cfg.ingestWorker.enabled
 // organisations and runs project reindex and rescan jobs in its own BFF,
 // scaled by KEDA on the queue's depth. Internal only: no Service, no route.
 const bffJobs = cfg.bffJobs.enabled
-  ? installBffJobs(wiring, cfg, secrets, [migrations, backend.service, ...(keda ? [keda] : [])])
+  ? installBffJobs(wiring, cfg, secrets, [
+      migrations,
+      backend.service,
+      ...(keda ? [keda] : []),
+      ...(scalerGrants ? [scalerGrants] : []),
+      ...(scalerSecret ? [scalerSecret] : []),
+    ])
   : undefined;
 
 // Chat tier scale-out (ADR-0079) — KEDA moves the aiq-agent StatefulSet between

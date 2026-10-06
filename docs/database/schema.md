@@ -1043,7 +1043,12 @@ RLS: both are tenant tables whose predicate compares `lane` (not an
 reads only its own organization's jobs. The runner is cross-tenant by nature
 and steps up to `grid_app_platform` per transaction
 (`workers/platform-scope.js`), as the purger and the scheduler do. KEDA counts
-the table as the schema owner, to which RLS does not apply.
+the table as `grid_keda_scaler`, a login with SELECT on this table and nothing
+else; it crosses the tenant boundary by a second policy,
+`grid_keda_scaler_count` (`FOR SELECT TO grid_keda_scaler USING (true)`), which
+the Pulumi grants Job (`deploy/pulumi/src/app/queue-scaler-grants.ts`) creates
+after the migrations, not a migration: the role exists only where CloudNativePG
+declares it. `grid_tenant_isolation` is untouched.
 
 ---
 

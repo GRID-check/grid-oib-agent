@@ -296,7 +296,7 @@ config:
 
   # max, so size that group for maxReplicas × the limits below.
   grid-oib:ingestWorkerMinReplicas: "1"
-  grid-oib:ingestWorkerMaxReplicas: "12"
+  grid-oib:ingestWorkerMaxReplicas: "8"
   grid-oib:ingestWorkerConcurrency: "3"
   grid-oib:ingestWorkerDrainSeconds: "600"
   # Chat/web replicas. Safe at >1 via conversation affinity (the frontend WS
@@ -457,3 +457,20 @@ config:
   # at least two replicas. Flip these two together, never one.
   grid-oib:chatAffinity: "true"
   grid-oib:backendMaxReplicas: "1"
+  # ── Provider budget (ADR-0076, ADR-0080) ──
+  # What the one OpenRouter key is asked to carry, written down here instead of
+  # left to the backend image's defaults (these ARE those defaults). Vision calls
+  # are held to vlmFleetConcurrency fleet-wide whatever the replica count, so the
+  # ingest tier's ceiling is sized against it: ingestWorkerMaxReplicas (8) x
+  # ingestWorkerConcurrency (3) x vlmBatchWorkers (4) = 96, which is 2 x 48. The
+  # program refuses a stack past 2x (assertVlmPeakFitsCeiling), because replicas
+  # beyond it only queue on the pool. It was 12 replicas (144) before this: those
+  # four extra replicas could never have run a vision call the pool did not already
+  # have a slot for. To feed more, raise vlmFleetConcurrency (and the provider's own
+  # limit) first, then the replicas.
+  grid-oib:vlmFleetConcurrency: "48"
+  grid-oib:vlmBatchWorkers: "4"
+  # Model calls in flight fleet-wide: all models together (the key's limit), and
+  # any one model. The adaptive limiter starts at these and halves on a 429.
+  grid-oib:providerLimitCeiling: "128"
+  grid-oib:providerModelLimitCeiling: "32"

@@ -12,25 +12,18 @@ import {
 } from "../platform/rollout";
 import { AppSecrets, AppWiring, workerEnv } from "./config";
 import { JOBS_QUEUE_AUTH } from "./jobs-queue-auth";
+import { installQueueScaledObject, queueDepthQuery } from "./keda-scaling";
 import { UID } from "../constants";
 
 /** The durable queue the tier drains (`aiq_api.jobs.queue.TABLE`). */
-const QUEUE_TABLE = "research_job_queue";
-
-/** The status of a row the queue gave up on (`aiq_agent.common.claim_queue.DEAD`). */
-const DEAD_STATUS = "dead";
+export const QUEUE_TABLE = "research_job_queue";
 
 /**
  * KEDA's measure of the tier's work: every research job queued or held by a
- * worker. Counting claimed jobs too keeps the tier from scaling in underneath
- * the jobs it is running. A FINISHED job is deleted from the table
- * (`queue.mark_done`), so it needs no clause; a DEAD row is kept as the trace of
- * a job that failed every claim and is never work, so it is left out.
+ * worker, dead rows left out (`queueDepthQuery`). A FINISHED job is deleted from
+ * the table (`queue.mark_done`), so it needs no clause.
  */
-export const RESEARCH_QUEUE_DEPTH_QUERY = `SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE status <> '${DEAD_STATUS}'`;
-
-/** Seconds a pod gets, after its drain, to give back the jobs it did not finish and exit. */
-const GIVE_BACK_SLACK_SECONDS = 30;
+export const RESEARCH_QUEUE_DEPTH_QUERY = queueDepthQuery(QUEUE_TABLE);
 
 /**
  * Research worker tier (ADR-0021, ADR-0078) — only deployed when jobExecution = "db".
@@ -54,8 +47,9 @@ const GIVE_BACK_SLACK_SECONDS = 30;
  * research jobs (`aiq_api/jobs/worker.py`), which routinely run for minutes; the
  * Kubernetes default `terminationGracePeriodSeconds` of 30 SIGKILLs it long
  * before that drain finishes. The drain budget is `agentWorkerDrainSeconds`; the
- * grace period is that plus time to give back what is still running (a job given
- * back is claimed again from the start, at no cost in attempts), and the rollout
+ * grace period is that plus time to give back what is still running
+ * (`agentWorkerRollout`: a job given back is claimed again from the start, at no
+ * cost in attempts), and the rollout
  * surges (`maxUnavailable: 0`) so replacement capacity exists before any
  * draining worker goes away.
  */
@@ -70,7 +64,7 @@ export function installAgentWorker(
   pdb: k8s.policy.v1.PodDisruptionBudget;
 } {
   const labels = commonLabels("agent-worker");
-  const profile = agentWorkerRollout(cfg.agentWorker.drainSeconds + GIVE_BACK_SLACK_SECONDS);
+  const profile = agentWorkerRollout(cfg.agentWorker.drainSeconds);
   // No preStop: workers sit behind no Service, so there is no endpoint to
   // deprogram — they pull work from Postgres and stop pulling on SIGTERM.
   const shutdown = gracefulShutdown(profile);
@@ -161,47 +155,19 @@ export function installAgentWorker(
     },
   );
 
-  const scaledObject = new k8s.apiextensions.CustomResource(
-    "agent-worker",
-    {
-      apiVersion: "keda.sh/v1alpha1",
-      kind: "ScaledObject",
-      metadata: { name: "agent-worker", namespace: w.namespace, labels },
-      spec: {
-        scaleTargetRef: { name: deployment.metadata.name },
-        minReplicaCount: cfg.agentWorker.minReplicas,
-        maxReplicaCount: cfg.agentWorker.maxReplicas,
-        pollingInterval: 15,
-        // Scale-in waits this long after the queue empties, so a burst that
-        // arrives in waves does not pay a cold start (NAT build) per wave.
-        cooldownPeriod: 300,
-        advanced: {
-          horizontalPodAutoscalerConfig: {
-            behavior: {
-              // Out fast (the backlog is real), in slowly and a pod at a time
-              // (each one drains for up to `drainSeconds`).
-              scaleUp: { stabilizationWindowSeconds: 0, policies: [{ type: "Percent", value: 100, periodSeconds: 30 }] },
-              scaleDown: { stabilizationWindowSeconds: 300, policies: [{ type: "Pods", value: 1, periodSeconds: 60 }] },
-            },
-          },
-        },
-        triggers: [
-          {
-            type: "postgresql",
-            metadata: {
-              query: RESEARCH_QUEUE_DEPTH_QUERY,
-              targetQueryValue: String(cfg.agentWorker.concurrency),
-              activationTargetQueryValue: "0",
-            },
-            // The shared TriggerAuthentication (`jobs-queue-auth.ts`): both Python
-            // claim queues live in the same database.
-            authenticationRef: { name: JOBS_QUEUE_AUTH },
-          },
-        ],
-      },
-    },
-    { provider: w.provider, dependsOn: [deployment, ...dependsOn] },
-  );
+  const scaledObject = installQueueScaledObject(w, {
+    name: "agent-worker",
+    deployment,
+    labels,
+    minReplicas: cfg.agentWorker.minReplicas,
+    maxReplicas: cfg.agentWorker.maxReplicas,
+    concurrency: cfg.agentWorker.concurrency,
+    table: QUEUE_TABLE,
+    // The shared TriggerAuthentication (`jobs-queue-auth.ts`): both Python claim
+    // queues live in the same database.
+    authName: JOBS_QUEUE_AUTH,
+    dependsOn,
+  });
 
   // One-at-a-time voluntary disruptions so an upgrade node drain can't evict
   // the whole worker tier and stall all in-flight research jobs at once.

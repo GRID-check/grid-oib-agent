@@ -145,18 +145,16 @@ describe("the agent-worker tier", () => {
     expect(spec.scaleTargetRef.name).toBe("agent-worker");
   });
 
-  it("reads the queue through the TriggerAuthentication the ingest tier shares, built for KEDA's namespace", async () => {
+  it("reads the queue through the TriggerAuthentication the ingest tier shares, as the read-only scaler login", async () => {
     const spec = await resolve(find(SCALED_OBJECT, "agent-worker").inputs.spec);
     const auth = await resolve(find(TRIGGER_AUTH, "jobs-queue-auth").inputs.spec);
-    const key = auth.secretTargetRef[0].key as string;
 
     expect(spec.triggers[0].authenticationRef.name).toBe("jobs-queue-auth");
-    // The operator runs in `keda`; a bare `grid-pg-rw` resolves there to
-    // nothing, the scaler errors on every poll, and the tier never scales out.
-    expect(key).toBe("KEDA_JOBS_QUEUE_DB_URL");
-    expect(read("deploy", "pulumi", "src", "app", "config.ts")).toMatch(
-      new RegExp(`${key}: w\\.dsn\\(\\{ db: "aiq_jobs", clusterWide: true \\}\\)`),
-    );
+    // The DSN is in the scaler's own Secret, not `grid-secrets`: no pod reads it,
+    // so a rotation must not roll the tier.
+    expect(auth.secretTargetRef).toEqual([
+      { parameter: "connection", name: "grid-keda-scaler", key: "KEDA_JOBS_QUEUE_DB_URL" },
+    ]);
     // Created once by the program, not by either tier, so the research tier runs
     // with the ingest tier switched off.
     expect(read("deploy", "pulumi", "index.ts")).toMatch(/installJobsQueueAuth\(wiring/);
@@ -167,7 +165,7 @@ describe("the agent-worker tier", () => {
 
     // The worker waits `drainSeconds`, then requeues what still runs: SIGKILL
     // before that is done would cost the job its claim until the stale window.
-    expect(spec.template.spec.terminationGracePeriodSeconds).toBeGreaterThan(drainSeconds);
+    expect(spec.template.spec.terminationGracePeriodSeconds).toBe(drainSeconds + 30);
     expect(spec.strategy.rollingUpdate.maxUnavailable).toBe(0);
   });
 

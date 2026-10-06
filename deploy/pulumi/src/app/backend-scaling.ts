@@ -3,6 +3,7 @@ import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { AppWiring, SECRET_NAME } from "./config";
+import { SCALER_POLLING_SECONDS, installTriggerAuth } from "./keda-scaling";
 import { PORT } from "../constants";
 
 /** The route that reports the fleet's running chat turns (`aiq_api/routes/chat_occupancy.py`). */
@@ -40,9 +41,15 @@ export function occupancyUrl(namespace: pulumi.Input<string>): pulumi.Output<str
  * time after a long stabilisation window. A turn on the leaving replica keeps
  * running and publishing until it ends; its readers move to another replica.
  *
- * `fallback` is deliberately absent: KEDA only honours it for AverageValue
- * triggers and refuses it beside a cpu trigger. A scaler that cannot be read
- * makes the HPA hold the current count rather than scale in.
+ * `fallback` is deliberately absent, the one ScaledObject here without it: KEDA
+ * honours it only for AverageValue triggers and refuses it beside a `cpu`
+ * trigger, and the cpu trigger is what covers the work that is not a turn. A
+ * trigger that cannot be read makes the HPA hold the current count rather than
+ * scale in, which is what a blind chat tier should do anyway: its replicas hold
+ * live sockets and running turns, and the fallback's only other move would be to
+ * add replicas to a tier whose own route is the thing that failed.
+ * `keda-scaling.spec.ts` holds the rule: every ScaledObject has `fallback`
+ * unless it has a cpu trigger.
  */
 export function installBackendScaling(
   w: AppWiring,
@@ -54,16 +61,14 @@ export function installBackendScaling(
 
   // The route is internal-token only. The operator reads the token from the
   // same Secret the pods get it from, so a rotation reaches both.
-  const auth = new k8s.apiextensions.CustomResource(
-    "aiq-agent-occupancy-auth",
-    {
-      apiVersion: "keda.sh/v1alpha1",
-      kind: "TriggerAuthentication",
-      metadata: { name: "aiq-agent-occupancy-auth", namespace: w.namespace, labels },
-      spec: { secretTargetRef: [{ parameter: "apiKey", name: SECRET_NAME, key: "GRID_INTERNAL_API_TOKEN" }] },
-    },
-    { provider: w.provider, dependsOn },
-  );
+  const auth = installTriggerAuth(w, {
+    name: "aiq-agent-occupancy-auth",
+    parameter: "apiKey",
+    secretName: SECRET_NAME,
+    key: "GRID_INTERNAL_API_TOKEN",
+    labels,
+    dependsOn,
+  });
 
   const scaledObject = new k8s.apiextensions.CustomResource(
     "aiq-agent",
@@ -75,7 +80,7 @@ export function installBackendScaling(
         scaleTargetRef: { apiVersion: "apps/v1", kind: "StatefulSet", name: statefulSet.metadata.name },
         minReplicaCount: cfg.backend.replicas,
         maxReplicaCount: cfg.backend.maxReplicas,
-        pollingInterval: 15,
+        pollingInterval: SCALER_POLLING_SECONDS,
         advanced: {
           horizontalPodAutoscalerConfig: {
             behavior: {

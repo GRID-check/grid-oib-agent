@@ -194,19 +194,31 @@ describe("the bff-jobs pool", () => {
     });
   });
 
-  it("gives KEDA a DSN it can resolve from its own namespace, for the app database", async () => {
+  it("gives KEDA the read-only scaler's DSN, from the scaler's own Secret, built for KEDA's namespace", async () => {
     const auth = await resolve(find(TRIGGER_AUTH, "bff-jobs-queue-auth").inputs.spec);
-    const key = auth.secretTargetRef[0].key as string;
+    const { buildScalerSecret, SCALER_SECRET_NAME } = await import("./config");
+    const { loadConfig } = await import("../config");
+    const requests: Array<Record<string, any>> = [];
+    buildScalerSecret({
+      cfg: loadConfig(),
+      namespace: "grid",
+      provider: new k8s.Provider("test-scaler", { kubeconfig: "apiVersion: v1" }),
+      dsn: (opts: Record<string, any>) => {
+        requests.push(opts);
+        return pulumi.output(`postgresql://x/${opts.db}`);
+      },
+    } as never);
 
     // The operator runs in `keda`; a bare `grid-pg-rw` resolves there to
     // nothing, the scaler errors on every poll, and the pool never scales out.
-    expect(key).toBe("KEDA_BFF_QUEUE_DB_URL");
-    // The Secret's values are secret-wrapped, so what is checked is how the
-    // entry the scaler reads is BUILT: the FQDN host, for the app database.
-    expect(read("deploy", "pulumi", "src", "app", "config.ts")).toMatch(
-      new RegExp(`${key}: w\\.dsn\\(\\{ db: "grid_app", clusterWide: true \\}\\)`),
+    expect(auth.secretTargetRef).toEqual([
+      { parameter: "connection", name: SCALER_SECRET_NAME, key: "KEDA_BFF_QUEUE_DB_URL" },
+    ]);
+    // Not the schema owner: the read-only login `queue-scaler-grants.ts` grants.
+    expect(requests).toContainEqual(
+      expect.objectContaining({ db: "grid_app", clusterWide: true, as: expect.objectContaining({ user: "grid_keda_scaler" }) }),
     );
-    expect(dsnRequests).toContainEqual({ db: "grid_app", clusterWide: true });
+    expect(requests.every((r) => r.as?.user === "grid_keda_scaler" && r.clusterWide === true)).toBe(true);
   });
 
   it("lets KEDA reach Postgres even when the ingest tier is off", async () => {

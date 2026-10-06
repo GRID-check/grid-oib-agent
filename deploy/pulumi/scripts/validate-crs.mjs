@@ -42,6 +42,20 @@ const CNPG_RELEASE_URL =
   "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v1.28.0/releases/cnpg-1.28.0.yaml";
 const CNPG_GROUP = "postgresql.cnpg.io/v1";
 const CNPG_KINDS = new Set(["Cluster", "ScheduledBackup", "Backup", "Pooler", "Database"]);
+/**
+ * The KEDA release whose CRDs the plan is validated against IS the chart the
+ * program installs: one constant, `KEDA_CHART_VERSION` in `src/platform/keda.ts`,
+ * read from there so the two cannot be moved apart. (The chart's version is
+ * KEDA's own.) Fails closed when the constant cannot be found.
+ */
+function kedaVersion() {
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/platform/keda.ts"), "utf8");
+  const version = /KEDA_CHART_VERSION = "(\d+\.\d+\.\d+)"/.exec(source)?.[1];
+  if (!version) throw new Error("KEDA_CHART_VERSION not found in src/platform/keda.ts");
+  return version;
+}
+const KEDA_VERSION = kedaVersion();
+
 const RELEASE_SCHEMAS = {
   [CNPG_GROUP]: {
     name: "CNPG",
@@ -53,7 +67,7 @@ const RELEASE_SCHEMAS = {
   "keda.sh/v1alpha1": {
     name: "KEDA",
     prefix: "keda",
-    url: "https://github.com/kedacore/keda/releases/download/v2.21.0/keda-2.21.0-crds.yaml",
+    url: `https://github.com/kedacore/keda/releases/download/v${KEDA_VERSION}/keda-${KEDA_VERSION}-crds.yaml`,
     kinds: new Set(["TriggerAuthentication", "ClusterTriggerAuthentication", "ScaledObject", "ScaledJob"]),
   },
 };

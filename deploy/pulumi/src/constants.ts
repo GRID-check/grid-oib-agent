@@ -406,6 +406,14 @@ export const GOTENBERG = {
   },
 } as const;
 
+/**
+ * The read-only Postgres login KEDA's `postgresql` scaler counts the queues with
+ * (ADR-0078). It is the one name the Cluster's managed roles, the grants Job and
+ * the DSNs in `grid-secrets` must agree on. Its password is
+ * `postgres.scalerPassword` (`config.ts`).
+ */
+export const KEDA_SCALER_ROLE = "grid_keda_scaler";
+
 /** Kubernetes Job retry/cleanup defaults for bootstrap work. */
 export const JOB_DEFAULTS = {
   /** Generous retry budget: bootstrap Jobs wait on other services. */

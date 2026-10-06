@@ -1,12 +1,13 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig } from "../config";
+import { GridConfig, queueScalerEnabled } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { hardenedJobSecurityContext } from "../platform/security";
 import {
   BOOTSTRAP_JOB_RESOURCES,
   DATA_RESOURCES,
   JOB_DEFAULTS,
+  KEDA_SCALER_ROLE,
   LANGFUSE,
   PLATFORM_RESOURCES,
   PORT,
@@ -227,6 +228,31 @@ export function installPostgres(
   );
 
   /**
+   * Login for `grid_keda_scaler`, the read-only role KEDA's `postgresql` scaler
+   * counts the queue tables with (ADR-0078), where it used to borrow the owner
+   * (`aiq_jobs`) and the schema owner (`grid_app`): a credential held by an
+   * operator in another namespace that could write every table in both.
+   *
+   * Declared here, with the other roles, because CloudNativePG reconciles it as
+   * superuser and so the role exists before the grants Job
+   * (`app/queue-scaler-grants.ts`) tries to grant it anything. It has no
+   * attribute beyond LOGIN: what it may read is exactly what that Job grants,
+   * which is SELECT on the queue tables and nothing else. One role for both
+   * databases, because a role is cluster-wide and its grants are per database.
+   */
+  const scalerCredentials = queueScalerEnabled(cfg)
+    ? new k8s.core.v1.Secret(
+        "pg-keda-scaler-credentials",
+        {
+          metadata: { name: `${CLUSTER_NAME}-keda-scaler-credentials`, namespace },
+          type: "kubernetes.io/basic-auth",
+          stringData: { username: KEDA_SCALER_ROLE, password: cfg.postgres.scalerPassword },
+        },
+        { provider },
+      )
+    : undefined;
+
+  /**
    * Login for the SeaweedFS filer's metadata store (ADR-0043).
    *
    * Its own role and its own database, deliberately not one of the three
@@ -401,6 +427,27 @@ export function installPostgres(
               inRoles: ["grid_app_platform"],
               passwordSecret: { name: runtimeCredentials.metadata.apply((m) => m!.name!) },
             },
+            // KEDA's read-only queue counter (ADR-0078). LOGIN and nothing else:
+            // no BYPASSRLS (its one read of a tenant table is a policy of its
+            // own, written by the grants Job), no DDL, no role membership, and a
+            // connection limit, because the operator opens one per poll.
+            ...(scalerCredentials
+              ? [
+                  {
+                    name: KEDA_SCALER_ROLE,
+                    ensure: "present",
+                    login: true,
+                    inherit: false,
+                    superuser: false,
+                    createdb: false,
+                    createrole: false,
+                    replication: false,
+                    bypassrls: false,
+                    connectionLimit: 8,
+                    passwordSecret: { name: scalerCredentials.metadata.apply((m) => m!.name!) },
+                  },
+                ]
+              : []),
             // The SeaweedFS filer's own login (ADR-0043). It owns exactly one
             // database and needs DDL inside it — the `[postgres2]` store
             // creates a table per S3 bucket on demand, which is what makes

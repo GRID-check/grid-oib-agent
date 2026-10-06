@@ -171,13 +171,20 @@ describe("the chat tier's scale-out", () => {
     expect(spec).not.toHaveProperty("fallback");
   });
 
-  it("lets KEDA's namespace reach the backend port, and nothing else", async () => {
+  it("lets KEDA's operator reach the backend port, and nothing else", async () => {
     expect(RESOURCES.filter((r) => r.type === NETPOL).map((r) => r.name)).toContain("allow-keda-to-aiq-agent");
     const pol = await resolve(find(NETPOL, "allow-keda-to-aiq-agent").inputs.spec);
     expect(pol.podSelector.matchLabels).toEqual({ "app.kubernetes.io/name": "aiq-agent" });
     expect(pol.ingress).toEqual([
       {
-        from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "keda" } } }],
+        // The operator runs the scalers; the metrics server and the webhooks in the
+        // same namespace poll nothing and get no connection into `grid`.
+        from: [
+          {
+            namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "keda" } },
+            podSelector: { matchLabels: { "app.kubernetes.io/name": "keda-operator" } },
+          },
+        ],
         ports: [{ protocol: "TCP", port: 8000 }],
       },
     ]);

@@ -5,23 +5,20 @@ import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedContainerSecurityContext } from "../platform/security";
 import { agentWorkerRollout, gracefulShutdown, secretChecksumAnnotations, surgeRollout } from "../platform/rollout";
-import { AppSecrets, AppWiring, SECRET_NAME, bffJobsEnv } from "./config";
+import { AppSecrets, AppWiring, BFF_QUEUE_DSN_KEY, SCALER_SECRET_NAME, bffJobsEnv } from "./config";
+import { installQueueScaledObject, installTriggerAuth, queueDepthQuery } from "./keda-scaling";
 import { PORT, UID } from "../constants";
 
 /** The durable queue the pool drains (`frontends/ui/drizzle/0102_bff_job_queue.sql`). */
-const QUEUE_TABLE = "bff_job_queue";
+export const QUEUE_TABLE = "bff_job_queue";
 
 /**
  * KEDA's measure of the pool's work: every job a worker could still run or is
- * running. Dead rows are the one status left out: a job that failed every
- * attempt waits for an operator, and counting it would hold a replica up
- * forever for work nothing will ever claim. The ingest and research tiers'
- * queries leave dead rows out the same way.
+ * running, dead rows left out (`queueDepthQuery`): a job that failed every
+ * attempt waits for an operator, and counting it would hold a replica up forever
+ * for work nothing will ever claim.
  */
-export const BFF_QUEUE_DEPTH_QUERY = `SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE status <> 'dead'`;
-
-/** Seconds a pod gets, after its drain, to stop the BFF it supervises and exit. */
-const EXIT_SLACK_SECONDS = 30;
+export const BFF_QUEUE_DEPTH_QUERY = queueDepthQuery(QUEUE_TABLE);
 
 /**
  * The BFF's background pool (ADR-0078): replicas of the FRONTEND image that run
@@ -62,8 +59,8 @@ export function installBffJobs(
 } {
   const labels = commonLabels("bff-jobs");
   // The grace period is the drain budget (the runner's) plus the time to stop
-  // the BFF after it.
-  const profile = agentWorkerRollout(cfg.bffJobs.drainSeconds + EXIT_SLACK_SECONDS);
+  // the BFF after it (`agentWorkerRollout` adds it).
+  const profile = agentWorkerRollout(cfg.bffJobs.drainSeconds);
   const shutdown = gracefulShutdown(profile);
 
   const deployment = new k8s.apps.v1.Deployment(
@@ -130,58 +127,28 @@ export function installBffJobs(
     },
   );
 
-  // How KEDA reads the queue: a libpq DSN whose host is the FQDN, because the
-  // operator resolves names in its own namespace (`KEDA_BFF_QUEUE_DB_URL`).
-  const auth = new k8s.apiextensions.CustomResource(
-    "bff-jobs-queue-auth",
-    {
-      apiVersion: "keda.sh/v1alpha1",
-      kind: "TriggerAuthentication",
-      metadata: { name: "bff-jobs-queue-auth", namespace: w.namespace, labels },
-      spec: { secretTargetRef: [{ parameter: "connection", name: SECRET_NAME, key: "KEDA_BFF_QUEUE_DB_URL" }] },
-    },
-    { provider: w.provider, dependsOn },
-  );
+  // How KEDA reads the queue: the read-only scaler login's DSN on the app
+  // database, from the scaler's own Secret (`buildScalerSecret`).
+  const auth = installTriggerAuth(w, {
+    name: "bff-jobs-queue-auth",
+    parameter: "connection",
+    secretName: SCALER_SECRET_NAME,
+    key: BFF_QUEUE_DSN_KEY,
+    labels,
+    dependsOn,
+  });
 
-  const scaledObject = new k8s.apiextensions.CustomResource(
-    "bff-jobs",
-    {
-      apiVersion: "keda.sh/v1alpha1",
-      kind: "ScaledObject",
-      metadata: { name: "bff-jobs", namespace: w.namespace, labels },
-      spec: {
-        scaleTargetRef: { name: deployment.metadata.name },
-        minReplicaCount: cfg.bffJobs.minReplicas,
-        maxReplicaCount: cfg.bffJobs.maxReplicas,
-        pollingInterval: 15,
-        // Scale-in waits this long after the queue empties, so a burst that
-        // arrives in waves does not pay a cold start (Next boot) per wave.
-        cooldownPeriod: 300,
-        advanced: {
-          horizontalPodAutoscalerConfig: {
-            behavior: {
-              // Out fast (the backlog is real), in slowly and a pod at a time
-              // (each one drains for up to `drainSeconds`).
-              scaleUp: { stabilizationWindowSeconds: 0, policies: [{ type: "Percent", value: 100, periodSeconds: 30 }] },
-              scaleDown: { stabilizationWindowSeconds: 300, policies: [{ type: "Pods", value: 1, periodSeconds: 60 }] },
-            },
-          },
-        },
-        triggers: [
-          {
-            type: "postgresql",
-            metadata: {
-              query: BFF_QUEUE_DEPTH_QUERY,
-              targetQueryValue: String(cfg.bffJobs.concurrency),
-              activationTargetQueryValue: "0",
-            },
-            authenticationRef: { name: auth.metadata.name },
-          },
-        ],
-      },
-    },
-    { provider: w.provider, dependsOn: [deployment, auth] },
-  );
+  const scaledObject = installQueueScaledObject(w, {
+    name: "bff-jobs",
+    deployment,
+    labels,
+    minReplicas: cfg.bffJobs.minReplicas,
+    maxReplicas: cfg.bffJobs.maxReplicas,
+    concurrency: cfg.bffJobs.concurrency,
+    table: QUEUE_TABLE,
+    authName: auth.metadata.name,
+    dependsOn: [auth, ...dependsOn],
+  });
 
   const pdb = installPdb("bff-jobs", w.namespace, w.provider, labels, [deployment]);
   return { deployment, scaledObject, pdb };

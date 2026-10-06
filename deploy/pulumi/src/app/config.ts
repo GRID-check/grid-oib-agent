@@ -1,7 +1,7 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
-import { APP_DEFAULTS, PORT } from "../constants";
+import { APP_DEFAULTS, KEDA_SCALER_ROLE, PORT } from "../constants";
 import { FRONTEND_DRAIN_SECONDS, secretChecksum } from "../platform/rollout";
 
 type EnvVar = k8s.types.input.core.v1.EnvVar;
@@ -86,6 +86,48 @@ export interface AppSecrets {
   checksum: pulumi.Output<string>;
 }
 
+/** The Secret KEDA's TriggerAuthentications read the queue DSNs from; no pod references it. */
+export const SCALER_SECRET_NAME = "grid-keda-scaler"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+
+/**
+ * The Secret key of the DSN KEDA reads the Python claim queues (`aiq_jobs`)
+ * through, and the one for the BFF queue (`grid_app`).
+ */
+export const JOBS_QUEUE_DSN_KEY = "KEDA_JOBS_QUEUE_DB_URL";
+export const BFF_QUEUE_DSN_KEY = "KEDA_BFF_QUEUE_DB_URL";
+
+/**
+ * What KEDA's `postgresql` scaler connects with, in a Secret of its own
+ * (ADR-0078): the read-only scaler login (`KEDA_SCALER_ROLE`, SELECT on the queue
+ * tables and nothing else, `queue-scaler-grants.ts`), never the owner.
+ *
+ * Its own Secret, not keys of `grid-secrets`, for two reasons. No pod reads these
+ * values, and a Secret that every pod's checksum covers would roll the frontend,
+ * the backend and every worker on a rotation of a credential none of them holds.
+ * And the operator in `keda` reads only what a TriggerAuthentication names, so
+ * the scaler's credential sits apart from the keys of the application's own.
+ *
+ * Each DSN's host is the FQDN, because the operator resolves names in its own
+ * namespace and a bare service name resolves there to nothing: the scaler would
+ * error on every poll and the tier would never scale out. Both Python queues
+ * live in one database, so the ingest and research tiers read one key.
+ */
+export function buildScalerSecret(w: AppWiring): k8s.core.v1.Secret {
+  const dsn = (db: string) =>
+    w.dsn({ db, as: { user: KEDA_SCALER_ROLE, password: w.cfg.postgres.scalerPassword }, clusterWide: true });
+  return new k8s.core.v1.Secret(
+    "grid-keda-scaler",
+    {
+      metadata: { name: SCALER_SECRET_NAME, namespace: w.namespace },
+      stringData: {
+        ...(w.cfg.jobExecution === "db" ? { [JOBS_QUEUE_DSN_KEY]: dsn("aiq_jobs") } : {}),
+        ...(w.cfg.bffJobs.enabled ? { [BFF_QUEUE_DSN_KEY]: dsn("grid_app") } : {}),
+      },
+    },
+    { provider: w.provider },
+  );
+}
+
 /**
  * One Kubernetes Secret holding every sensitive value (API keys, tokens, the
  * BYOK KEK, S3 secret key, and the fully-formed DB DSNs — which embed the PG
@@ -129,17 +171,6 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
     AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
     AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
-    // The same database for KEDA's postgresql scaler, which runs in the `keda`
-    // namespace and cannot resolve the bare service name. Read by no pod. Both
-    // Python claim queues (ingest and research) live in it, so both ScaledObjects
-    // read it (`./jobs-queue-auth.ts`).
-    KEDA_JOBS_QUEUE_DB_URL: w.dsn({ db: "aiq_jobs", clusterWide: true }),
-    // The app database, for the postgresql scaler of the bff-jobs pool. The
-    // schema owner, deliberately: `bff_job_queue` is row-level secured per
-    // organization, and the scaler runs one COUNT(*) over every lane, which only
-    // a role that RLS does not apply to can see. A read-only scaler role is the
-    // phase-3 hardening of every ScaledObject (ADR-0078).
-    ...(cfg.bffJobs.enabled ? { KEDA_BFF_QUEUE_DB_URL: w.dsn({ db: "grid_app", clusterWide: true }) } : {}),
     AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
     // The app tier connects as the least-privilege role, so row-level security
     // applies to it (ADR-0041). Migrations get the owner credential below —
@@ -274,6 +305,13 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "AIQ_VLM_MODEL", value: cfg.llm.vlmModel },
     { name: "AIQ_VLM_BASE_URL", value: cfg.llm.vlmBaseUrl },
     srefAs("AIQ_VLM_API_KEY", "OPENROUTER_API_KEY"),
+    // What the one OpenRouter key is asked to carry (ADR-0076, ADR-0080). Set
+    // from the stack so the budget is read where `ingestWorkerMaxReplicas` is:
+    // `assertVlmPeakFitsCeiling` holds the two together.
+    { name: "AIQ_VLM_FLEET_CONCURRENCY", value: String(cfg.providerLimits.vlmFleetConcurrency) },
+    { name: "AIQ_VLM_BATCH_WORKERS", value: String(cfg.providerLimits.vlmBatchWorkers) },
+    { name: "GRID_PROVIDER_LIMIT_CEILING", value: String(cfg.providerLimits.limitCeiling) },
+    { name: "GRID_PROVIDER_MODEL_LIMIT_CEILING", value: String(cfg.providerLimits.modelLimitCeiling) },
     // No AIQ_EXTRACT_* here: tables, images and charts are on in code and a
     // flag only switches one off. Setting them per deployment is how production
     // ran without tables and dropped every chart it had paid to analyse.

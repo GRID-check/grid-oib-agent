@@ -41,15 +41,10 @@ describe("the ingest-worker tier", () => {
     expect(QUEUE_DEPTH_QUERY).toBe(`SELECT COUNT(*) FROM ${table} WHERE status <> '${dead}'`);
   });
 
-  it("gives KEDA a DSN it can resolve from its own namespace", () => {
-    // The operator runs in `keda`; a bare `grid-pg-rw` resolves there to
-    // nothing, the scaler errors on every poll, and the tier never scales out.
-    // The TriggerAuthentication is shared with the research tier (one database).
-    const key = read("deploy", "pulumi", "src", "app", "jobs-queue-auth.ts").match(
-      /JOBS_QUEUE_DSN_KEY = "([A-Z_]+)"/,
-    )?.[1];
-    expect(key).toBeDefined();
-    expect(configSource).toMatch(new RegExp(`${key}: w\\.dsn\\(\\{[^}]*clusterWide: true`));
+  it("reads the queue through the one TriggerAuthentication both Python tiers share", () => {
+    // The Secret key the scaler's DSN is in (`buildScalerSecret`): the tiers share
+    // it because both queues live in one database.
+    expect(configSource).toMatch(/JOBS_QUEUE_DSN_KEY = "KEDA_JOBS_QUEUE_DB_URL"/);
     expect(read("deploy", "pulumi", "src", "app", "ingest-worker.ts")).toContain("JOBS_QUEUE_AUTH");
   });
 

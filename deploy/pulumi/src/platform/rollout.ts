@@ -289,19 +289,30 @@ export const ROLLOUT = {
 assertFrontendBudgetFits();
 
 /**
- * The research worker's profile is derived, not fixed: its grace period IS the
- * operator's `agentWorkerDrainSeconds` budget. On SIGTERM the worker stops
- * claiming and awaits its in-flight jobs (`jobs/worker.py`), so the grace period
- * is the difference between "a deploy finishes the research a user is waiting
- * on" and "a deploy kills it at the 30s default".
+ * Seconds a queue worker gets, after its drain budget ends, to give back the
+ * claims it did not finish and exit (`release_claims`, ADR-0078). The kubelet
+ * SIGKILLs at the end of the grace period, so a worker whose drain used its whole
+ * budget and had no time left would lose its claims to the stale window and
+ * spend an attempt on each, which is the defect the release exists to remove.
+ */
+export const DRAIN_GIVE_BACK_SECONDS = 30;
+
+/**
+ * The profile of a queue worker (research, ingestion, the BFF job pool): its
+ * grace period is derived from the operator's drain budget, not chosen beside it.
+ * On SIGTERM the worker stops claiming and awaits its in-flight jobs
+ * (`jobs/worker.py`), so the grace period is the difference between "a deploy
+ * finishes the work a user is waiting on" and "a deploy kills it at the 30s
+ * default". It is the drain plus {@link DRAIN_GIVE_BACK_SECONDS}.
  */
 export function agentWorkerRollout(drainSeconds: number): RolloutProfile {
+  const grace = drainSeconds + DRAIN_GIVE_BACK_SECONDS;
   return {
     minReadySeconds: 30,
     // Worst case the whole tier rolls one pod at a time, each waiting out a full
     // drain, plus a cold-start startupProbe budget (10 min) on the replacement.
-    progressDeadlineSeconds: drainSeconds * 2 + 900,
-    terminationGracePeriodSeconds: drainSeconds,
+    progressDeadlineSeconds: grace * 2 + 900,
+    terminationGracePeriodSeconds: grace,
     endpointDrainSeconds: 0,
   };
 }

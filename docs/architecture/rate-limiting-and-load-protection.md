@@ -492,7 +492,13 @@ than an admission.
   and is not counted as work.
 - **Elastic.** The ingest-worker tier scales on the queue's depth through
   KEDA, not on CPU (`deploy/pulumi/src/app/ingest-worker.ts`); dead rows are
-  excluded from that depth.
+  excluded from that depth. Its ceiling is held to the provider budget at plan
+  time: `ingestWorkerMaxReplicas` x `ingestWorkerConcurrency` x
+  `AIQ_VLM_BATCH_WORKERS` may not exceed twice `AIQ_VLM_FLEET_CONCURRENCY`, or
+  `pulumi up` fails with the numbers (`assertVlmPeakFitsCeiling`); replicas past
+  that only queue on the pool. The budget (`vlmFleetConcurrency`,
+  `vlmBatchWorkers`, `providerLimitCeiling`, `providerModelLimitCeiling`) is
+  stack config, not image defaults.
 - **Measured.** `grid.queue.depth{queue,status}`,
   `grid.queue.oldest_age_seconds`, `grid.queue.claim_latency_ms`,
   `grid.queue.job_duration_seconds{kind}` and `grid.queue.dead_total`, through
