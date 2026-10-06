@@ -313,7 +313,12 @@ recorded folders.
   the per-socket confinement check, and restricted memory keyed by collection. ADR-0078's
   retrieval collection per restricted folder, its egress refusals and its IFC rule stand.
 * User guide: [`sensitive-data-and-access.md`](../user-guides/sensitive-data-and-access.md#who-may-read-and-edit-a-folder).
+* The download log is built: [`user-guides/download-log.md`](../user-guides/download-log.md) (what it records,
+  retention, who reads it, the works-council note), the table in
+  [`database/schema.md`](../database/schema.md#document_access_log-migration-0110-adr-0079), and
+  `lib/download-log/service.ts` — `recordDocumentAccess` is called by every function that hands a
+  document's bytes to a person, held to the list by `coverage.spec.ts`.
 * Where a later lifecycle feature would attach (participant notices, an organization setting for
-  deleted-folder content, a download log): `setFolderAccess` after placement, the tombstone in
+  deleted-folder content): `setFolderAccess` after placement, the tombstone in
   `deleteProjectFolder`, `effectiveFolderLevel`, `resolveMembershipRoles`, `admitSourceFolders`
   and `widenConversationAudience`, `memoryVisibleTo` and `readableFolderIdsFor`.

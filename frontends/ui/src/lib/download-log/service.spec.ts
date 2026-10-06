@@ -368,3 +368,20 @@ describe('the retention setting', () => {
     }
   })
 })
+
+describe('the scheduler and the app agree on the bounds', () => {
+  it('purges at the ceiling and the floor the retention setting accepts', async () => {
+    const { DOWNLOAD_LOG_MAX_DAYS, DOWNLOAD_LOG_MIN_DAYS } = await import('../../../scheduler/db.js')
+    const { DOWNLOAD_LOG_MAX_RETENTION_DAYS, DOWNLOAD_LOG_MIN_RETENTION_DAYS } = await import('./kinds')
+
+    expect(DOWNLOAD_LOG_MAX_DAYS).toBe(DOWNLOAD_LOG_MAX_RETENTION_DAYS)
+    expect(DOWNLOAD_LOG_MIN_DAYS).toBe(DOWNLOAD_LOG_MIN_RETENTION_DAYS)
+  })
+
+  it('reads the same settings key', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { DOWNLOAD_LOG_RETENTION_SETTING } = await import('./kinds')
+
+    expect(readFileSync('scheduler/db.js', 'utf8')).toContain(`settings->>'${DOWNLOAD_LOG_RETENTION_SETTING}'`)
+  })
+})

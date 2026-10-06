@@ -50,7 +50,15 @@ features:
     know it. Only those who may read the folder it came from see the note in the
     project memory, where a lock names that folder, and only their chats are
     given it.
+  - >
+    Organisation admins can now see who downloaded which document, and who
+    opened one in a folder with its own access list, under Organisation →
+    Download-Protokoll. Entries are kept 12 months at most, which an
+    organization can shorten to 30 days, and reading the log is itself recorded.
 fixes:
+  - >
+    Pictures in a folder you may no longer read stop loading within minutes
+    instead of up to two hours.
   - >
     A chat in a project with a great deal of project information can no longer
     fail to connect and wait forever.

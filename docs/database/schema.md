@@ -34,6 +34,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
 | `conversation-restricted-folders.ts` | `conversation_restricted_folders` |
+| `document-access-log.ts` | `document_access_log` (the download log) |
 | `project-memory.ts` | `project_memory` (documented in [`project-memory-design.md`](../architecture/project-memory-design.md); the restricted-memory column below) |
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
@@ -741,6 +742,50 @@ Postgres in `restricted-use.integration.spec.ts`; backfill and down in
 `scripts/rls-test-db.sh`. `listRecentMessagesWithCardDecisions` also reads it:
 a conversation with a row here keeps its card decisions out of the
 project-wide `PROPOSAL_DECISIONS` block.
+
+---
+
+## document_access_log (migration 0110, ADR-0079)
+
+The download log: one row per hand-over of a document's bytes to a person,
+written in the request that hands them over (`recordDocumentAccess`,
+`lib/download-log/service.ts`; the one writer). A `download` is recorded
+wherever the document is filed; an open (`preview`, `pdf`, `text`, `version`,
+`model`) only when the document's folder, or an ancestor, has its own access
+list. **Personal data about staff**, kept for security and accountability only,
+12 months at most, never aggregated by person. Purpose, retention and who may
+read it: [`user-guides/download-log.md`](../user-guides/download-log.md).
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK, `gen_random_uuid()` | |
+| `organization_id` | `text` | NOT NULL | RLS: `organization_id = grid_current_org()` |
+| `occurred_at` | `timestamptz` | NOT NULL, `now()` | The database's clock; the keyset cursor reads it as text to the microsecond |
+| `user_id` | `text` | NOT NULL | The WorkOS user id. Names and emails are resolved from WorkOS when the admin page is read, never copied here |
+| `kind` | `text` | NOT NULL, CHECK `download`/`preview`/`pdf`/`text`/`version`/`model` | |
+| `scope` | `text` | NOT NULL, CHECK `project`/`archiv`/`session` | Same names as `documents.scope` |
+| `project_id` | `uuid` | | CHECK `(scope = 'project') = (project_id IS NOT NULL)` |
+| `document_id` | `uuid` | NOT NULL | No FK: the row outlives the document |
+| `document_name` | `text` | NOT NULL, CHECK 1–500 characters | The name the document was shown under then |
+| `version_id` | `uuid` | | The version the route named (`version`), else the document's published one |
+| `folder_id` | `uuid` | | The folder at that time; CHECK it needs a project |
+| `own_list` | `boolean` | NOT NULL, default false | Whether the folder or an ancestor had its own list; CHECK `kind = 'download' OR own_list`, so the database refuses an open that the product must not log |
+
+No foreign keys, on purpose (the log must outlive what it names). Indexes, all
+for bounded keyset pages `(occurred_at DESC, id DESC)` within one organization:
+`document_access_log_org_time_idx`, `…_org_user_idx` (by person),
+`…_org_document_idx` (by document), and `…_occurred_idx (occurred_at)` for the
+purge's 12-month cap. A trigger (`grid_document_access_log_guard`) refuses any
+UPDATE and any DELETE except by the platform role, which is the retention sweep.
+
+Retention: `organizations.settings.downloadLogRetentionDays` (30–365; absent,
+malformed or out of range means 365), written only by
+`PUT /api/organization/download-log/retention`. The scheduler
+(`scheduler/db.js`, `pruneDownloadLog`) deletes once a day, in batches of 1000
+and at most 50 batches a run: first everything older than 365 days, then each
+organization's own shorter cutoff. Proven against Postgres in
+`lib/download-log/download-log.integration.spec.ts`; constraints, down and
+re-apply in `scripts/rls-test-db.sh`.
 
 ---
 

@@ -168,7 +168,10 @@ DPA template say so, and an organization can shorten the retention.
    chat's folder tags and is shown only to people who can read them (instead
    of being refused).
 5. **Download log** for every download, plus opens in folders with an own
-   list; an admin view; 12-month retention.
+   list; an admin view; 12-month retention. **Built**: see
+   [`docs/user-guides/download-log.md`](../docs/user-guides/download-log.md).
+   A failed record refuses the hand-over under a folder with its own list
+   (there the log is the control) and only warns elsewhere.
 6. **Deletion**: folders join the deletion pipeline (Papierkorb, purge,
    tombstone, legal hold), the organization setting for derived content, the
    DSGVO erasure action, Langfuse trace retention and erasure.
