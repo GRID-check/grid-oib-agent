@@ -77,6 +77,7 @@ import type { AnswerKind, AnswerMeta } from '@/lib/conversations/message-answer-
 import type { Finding, Findings } from '@/lib/conversations/message-findings'
 import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
+import { RetryThoroughButton } from './RetryThoroughButton'
 import { AnswerActions } from './AnswerActions'
 import { CardSlot, CardSlotLiveProvider } from './CardSlotArrival'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
@@ -1180,7 +1181,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const feedback = useMemo(
     () =>
       hasFeedback && messageId ? (
-        <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
+        <>
+          <RetryThoroughButton messageId={messageId} conversationId={conversationId} />
+          <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
+        </>
       ) : null,
     [hasFeedback, messageId, conversationId]
   )

@@ -21,6 +21,25 @@ type ConversationFeedbackMap = Map<string, AnswerFeedbackState>
  */
 const conversationCache = new Map<string, Promise<ConversationFeedbackMap>>()
 
+/**
+ * Confirmed writes, announced to every other reader of the same answer. Each
+ * `useAnswerFeedback` keeps its own optimistic state, so a second component
+ * that follows the verdict (the retry action under a down-vote) would
+ * otherwise see only what was hydrated, never the vote cast beside it.
+ */
+type VerdictListener = (next: AnswerFeedbackState | null) => void
+const listeners = new Map<string, Set<VerdictListener>>()
+
+function subscribeToVerdict(messageId: string, listener: VerdictListener): () => void {
+  const set = listeners.get(messageId) ?? new Set<VerdictListener>()
+  set.add(listener)
+  listeners.set(messageId, set)
+  return () => {
+    set.delete(listener)
+    if (set.size === 0) listeners.delete(messageId)
+  }
+}
+
 /** Test hook: reset the module-level hydration cache between specs. */
 export function __clearAnswerFeedbackCache(): void {
   conversationCache.clear()
@@ -55,6 +74,7 @@ async function loadConversationFeedback(conversationId: string): Promise<Convers
 
 /** Keep the shared hydration map in sync with a confirmed server write. */
 function updateCache(conversationId: string | null | undefined, messageId: string, next: AnswerFeedbackState | null): void {
+  listeners.get(messageId)?.forEach((listener) => listener(next))
   if (!conversationId) return
   void conversationCache.get(conversationId)?.then((map) => {
     if (next) map.set(messageId, next)
@@ -101,6 +121,8 @@ export function useAnswerFeedback(
       cancelled = true
     }
   }, [conversationId, messageId])
+
+  useEffect(() => subscribeToVerdict(messageId, setState), [messageId])
 
   const setFeedback = useCallback(
     (next: AnswerFeedbackState | null): void => {

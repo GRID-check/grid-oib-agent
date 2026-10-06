@@ -1204,6 +1204,11 @@ export const chat: typeof en.chat = {
     commentPlaceholder: 'Optional — was ist schiefgelaufen?',
     commentSubmit: 'Hinweis senden',
   },
+  // Nach einem Daumen nach unten: dieselbe Frage mit mehr Aufwand erneut stellen.
+  retryThorough: {
+    action: 'Gründlicher neu beantworten',
+    aria: 'Dieselbe Frage mit höherem Aufwand erneut beantworten lassen',
+  },
   // Schaltfläche „Nachricht kopieren" auf den Nutzernachrichtenblasen
   copyMessage: {
     copy: 'Nachricht kopieren',

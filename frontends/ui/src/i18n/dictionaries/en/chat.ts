@@ -1189,6 +1189,11 @@ export const chat = {
     commentPlaceholder: 'Optional — tell us what went wrong',
     commentSubmit: 'Send note',
   },
+  // After a thumbs-down: ask the same question again with more effort.
+  retryThorough: {
+    action: 'Answer again, more thoroughly',
+    aria: 'Answer the same question again with more reasoning effort',
+  },
   // Copy message button on user message bubbles
   copyMessage: {
     copy: 'Copy message',
