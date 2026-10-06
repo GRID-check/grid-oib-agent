@@ -7,9 +7,9 @@
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/projects/folder-visibility.integration.spec.ts
  *
- * Both read `documents` beside the listing repository and both name files: the
- * overview's recent list and its counts, a binding's filename in the roles
- * route and in every member's agent prompt. The unit specs prove the hidden
+ * Each reads `documents` beside the listing repository: the overview's recent
+ * list and its counts, the projects grid's number, and a binding's filename in
+ * the roles route and in every member's agent prompt. The unit specs prove the hidden
  * folders are passed on; this proves the SQL that receives them leaves the
  * documents out.
  */
@@ -30,6 +30,7 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
   let access: typeof import('@/lib/authz/folder-access')
   let overview: typeof import('./overview-query')
   let roles: typeof import('@/lib/document-roles/repository')
+  let documentsRepository: typeof import('@/lib/documents/repository')
   let projectId: string
   const folder = { verwaltung: '', vertraege: '' }
   const doc: Record<string, string> = {}
@@ -92,6 +93,7 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
     access = await import('@/lib/authz/folder-access')
     overview = await import('./overview-query')
     roles = await import('@/lib/document-roles/repository')
+    documentsRepository = await import('@/lib/documents/repository')
 
     projectId = firstId(
       await inTenant(() =>
@@ -136,6 +138,18 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
     const everything = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds: [] }))
     expect(everything?.documentCount).toBe(3)
     expect(everything?.totalFileSize).toBe(4300)
+  })
+
+  it('leaves a hidden folder out of the number on the projects grid', async () => {
+    const hiddenFolderIds = await access.getRestrictedFolderIds(ORG, projectId)
+
+    const counted = await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId], hiddenFolderIds))
+    expect(counted).toEqual({ [projectId]: 2 })
+
+    const everything = await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId], []))
+    expect(everything).toEqual({ [projectId]: 3 })
+    // Without a reader's hidden list the count is what it always was.
+    expect(await inTenant(() => documentsRepository.countDocumentsByProject(ORG, [projectId]))).toEqual({ [projectId]: 3 })
   })
 
   it('lists no binding to a document in a hidden folder', async () => {

@@ -1150,10 +1150,17 @@ export async function findFolderPathInProject(
  * shown — and hand back the size of the tenant's estate to someone scoped to
  * one project. Returns a plain id → count map; projects with no documents are
  * simply absent.
+ *
+ * `hiddenFolderIds` are the folders the viewer may not read in any of those
+ * projects (`getHiddenFolderIds`; folder ids are unique, so one list serves
+ * all). Their documents are left out as `listProjectDocuments` leaves them out:
+ * a number on the grid that counts a file the viewer cannot see tells them it
+ * exists.
  */
 export async function countDocumentsByProject(
   organizationId: string,
   projectIds: string[],
+  hiddenFolderIds?: readonly string[],
 ): Promise<Record<string, number>> {
   if (projectIds.length === 0) return {}
   const db = getDb()
@@ -1170,6 +1177,7 @@ export async function countDocumentsByProject(
           // asking the same question rather than by both happening to exclude
           // the other shelves.
           eq(documents.scope, 'project'),
+          ...outsideHiddenFolders(hiddenFolderIds),
         ),
       )
       .groupBy(documents.projectId),
