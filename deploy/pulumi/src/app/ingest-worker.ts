@@ -11,12 +11,18 @@ import { UID } from "../constants";
 /** The durable queue the tier drains (`aiq_agent.knowledge.ingest_queue.TABLE`). */
 const QUEUE_TABLE = "ingest_job_queue";
 
+/** The status of a row the queue gave up on (`aiq_agent.common.claim_queue.DEAD`). */
+const DEAD_STATUS = "dead";
+
 /**
  * KEDA's measure of the tier's work: every job queued or held by a worker.
  * Counting claimed jobs too keeps the tier from scaling in underneath the jobs
  * it is running; a crashed claim ages out of the table through the reaper.
+ *
+ * A DEAD row is kept as the trace of a job that failed every claim, and is
+ * never work: counting it would hold replicas up for a job nobody will run.
  */
-export const QUEUE_DEPTH_QUERY = `SELECT COUNT(*) FROM ${QUEUE_TABLE}`;
+export const QUEUE_DEPTH_QUERY = `SELECT COUNT(*) FROM ${QUEUE_TABLE} WHERE status <> '${DEAD_STATUS}'`;
 
 /**
  * The ingestion tier (ADR-0076) — only deployed with `jobExecution = "db"`.
