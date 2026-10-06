@@ -426,6 +426,8 @@ export const APP_DEFAULTS = {
   presignedUrlTtlSeconds: 600,
   /** Grace window before a deleted project is purged for real (days). */
   projectPurgeGraceDays: 7,
+  /** Days a deleted folder stays in the Papierkorb before its purge (ADR-0081; at most 23). */
+  folderPurgeGraceDays: 14,
   /** Purger poll interval (ms). */
   purgerPollMs: 60_000,
   /** Skill-scheduler poll interval (ms) and per-tick claim batch. */

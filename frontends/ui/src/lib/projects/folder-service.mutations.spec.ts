@@ -107,89 +107,11 @@ vi.mock('@/lib/backend-proxy', () => ({
   getBackendUrl: vi.fn().mockReturnValue('http://backend:8000'),
 }))
 
-import { deleteProjectFolder, updateProjectFolder } from './folder-service'
+import { updateProjectFolder } from './folder-service'
 
 const SESSION = { organizationId: 'org-1', userId: 'user-1' } as never
 
 let fetchSpy: ReturnType<typeof vi.fn>
-
-describe('deleteProjectFolder', () => {
-  beforeEach(() => {
-    fetchSpy = vi.fn().mockResolvedValue({ ok: true })
-    vi.stubGlobal('fetch', fetchSpy)
-    db.calls = []
-    db.folders = [
-      {
-        __match: 'one',
-        row: {
-          id: 'folder-1',
-          projectId: 'proj-1',
-          parentId: null,
-          name: 'Brandschutz',
-          path: 'Brandschutz',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      },
-    ]
-  })
-
-  it('re-files the documents BEFORE deleting the folder, and keeps the row as a tombstone', async () => {
-    const result = await deleteProjectFolder({ projectId: 'proj-1', folderId: 'folder-1' }, SESSION)
-
-    expect(result.ok).toBe(true)
-    // The order is the whole assertion: the documents leave before the folder
-    // is marked deleted, so nothing is ever filed in a folder no listing shows.
-    const documentsMoved = db.calls.indexOf('update:documents')
-    const folderDeleted = db.calls.indexOf('update:folders')
-    expect(documentsMoved).toBeGreaterThanOrEqual(0)
-    expect(folderDeleted).toBeGreaterThan(documentsMoved)
-    // A tombstone, not a delete (ADR-0081): the row keeps its access mode and
-    // grants, so the access rule still answers for content drawn from it.
-    expect(db.calls).not.toContain('delete:folder')
-    // And in one transaction, so a failure half-way cannot strand documents in
-    // a folder that no longer exists.
-    expect(db.calls[0]).toBe('begin')
-    expect(db.calls.at(-1)).toBe('commit')
-  })
-
-  it('reports what it moved, so the surface can say where the files went', async () => {
-    const result = await deleteProjectFolder({ projectId: 'proj-1', folderId: 'folder-1' }, SESSION)
-
-    expect(result.ok && result.result.documentsMoved).toBe(2)
-  })
-
-  /**
-   * The join. The backend files documents under the materialised PATH, so a
-   * delete that re-files this folder's contents at its parent has to say so —
-   * otherwise the agent goes on describing a folder the user just removed.
-   *
-   * `to_path` is the parent's path, empty at the project root, which the mirror
-   * sends as null. The backend twin asserting the same body is
-   * `frontends/aiq_api/tests/test_documents_folder_paths_patch.py`.
-   */
-  it('mirrors the re-filing onto the backend AFTER the rows are committed', async () => {
-    await deleteProjectFolder({ projectId: 'proj-1', folderId: 'folder-1' }, SESSION)
-
-    expect(db.calls.at(-1)).toBe('commit')
-    expect(fetchSpy).toHaveBeenCalledWith(
-      'http://backend:8000/v1/collections/proj_abc/folder-paths',
-      expect.objectContaining({ method: 'PATCH' })
-    )
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string) as Record<string, unknown>
-    expect(body).toEqual({ from_path: 'Brandschutz', to_path: null })
-  })
-
-  it('does not fail the delete when the backend mirror is unreachable', async () => {
-    // The folder rows are the durable truth. A backend that is down must not
-    // stop somebody removing a label from their own project.
-    fetchSpy.mockRejectedValue(new Error('backend down'))
-
-    const result = await deleteProjectFolder({ projectId: 'proj-1', folderId: 'folder-1' }, SESSION)
-
-    expect(result.ok).toBe(true)
-  })
-})
 
 /**
  * The other half of the mirror's caller-side join: a RENAME is the common case,

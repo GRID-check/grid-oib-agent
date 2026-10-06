@@ -20,10 +20,12 @@
  * of its NEAREST such folder. Only a session that may read that folder gets the
  * collection in its signed scope. Write never affects retrieval.
  *
- * Deleted folders stay in the tree as tombstones (migration 0109): they are
- * hidden from every listing and from placement, and {@link effectiveFolderLevel}
- * still answers for them, because content derived from a deleted folder is
- * judged by the access it had.
+ * Deleted folders stay in the tree (migration 0109): in the Papierkorb, then as
+ * purged tombstones (0112). They are hidden from every listing and from
+ * placement, what is filed in them is hidden from everyone, and
+ * {@link effectiveFolderLevel} still answers for them, because content derived
+ * from a deleted folder is judged by the access it had (once purged, as the
+ * organization's „Inhalte aus gelöschten Ordnern" setting says).
  *
  * The core is pure ({@link effectiveFolderLevel}, {@link computeFolderAccess});
  * the loaders cost one indexed probe when the project has no custom folder,
@@ -37,7 +39,7 @@ import { hasPermission, ORG_PERMISSIONS } from './permissions'
 import { orgRoleHoldsPermission } from './org-role-permissions'
 import { resolveMembershipRoles } from '@/lib/auth/membership-roles'
 import { requireProjectAccess } from './projects'
-import { listCustomFolderNames, listProjectFolderTree, projectHasCustomFolders } from './folder-access-repository'
+import { listCustomFolderNames, listProjectFolderTree, projectHasCustomOrBinnedFolders } from './folder-access-repository'
 import {
   ANY_MEMBER,
   atLeast,
@@ -83,9 +85,13 @@ export async function clearanceOf(session: AuthorizedSession): Promise<FolderCle
   return { roles, seesEverything: await anyRoleAdministers(session.organizationId, current) }
 }
 
-/** The project's folder tree, or null when no folder (living or deleted) has its own list. */
+/**
+ * The project's folder tree, or null when nothing in it hides a document from
+ * anyone: no folder (living or deleted) has its own list and none is in the
+ * Papierkorb.
+ */
 export async function loadCustomFolderTree(organizationId: string, projectId: string): Promise<AccessFolder[] | null> {
-  if (!(await projectHasCustomFolders(organizationId, projectId))) return null
+  if (!(await projectHasCustomOrBinnedFolders(organizationId, projectId))) return null
   return listProjectFolderTree(organizationId, projectId)
 }
 
@@ -345,4 +351,14 @@ export async function sourceFoldersOfCollections(
     if (folderId) found.set(collection, folderId)
   }
   return found
+}
+
+/**
+ * When each purged folder of the project was purged (ADR-0081): what a surface
+ * shows as „Quelle gelöscht am …" under content drawn from it. Labels, never a
+ * decision: who may see that content is {@link effectiveFolderLevel}'s.
+ */
+export async function purgedFolderDates(organizationId: string, projectId: string): Promise<Map<string, Date>> {
+  const folders = await listProjectFolderTree(organizationId, projectId)
+  return new Map(folders.flatMap((folder) => (folder.purgedAt ? [[folder.id, folder.purgedAt] as const] : [])))
 }

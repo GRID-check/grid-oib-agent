@@ -127,6 +127,9 @@ export function updateFolderHandler<P extends { folderId: string }>(
  * `ON DELETE CASCADE`, so the service re-files the folder's documents and its
  * child folders BEFORE removing the row. Deleting a label must not delete the
  * work that was filed under it.
+ *
+ * The Archiv's alone. A project folder's delete is the Papierkorb's
+ * (`@/lib/projects/folder-bin`, ADR-0081), with its own route body and answer.
  */
 export function deleteFolderHandler<P extends { folderId: string }>(
   remove: (params: P, session: AuthorizedSession, request: Request) => Promise<Outcome<{ result: DeleteFolderResult }>>,

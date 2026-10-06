@@ -957,6 +957,11 @@ export async function findStorageKeyByIdAndCollection(
  * No authorship predicate, unlike the presign lookup. A published
  * machine-authored version IS ingested (ADR-0054's publish door), and
  * answering "gone" for it would have the pipeline discard a live document.
+ *
+ * A document filed in a folder that is in the Papierkorb (or purged) is gone
+ * for this question: its chunks were purged when the folder went to the bin,
+ * and an ingest that was still running then must take back out what it
+ * inserted afterwards. A restore dispatches it again.
  */
 export async function documentExistsInCollection(
   documentId: string,
@@ -977,6 +982,7 @@ export async function documentExistsInCollection(
             eq(documents.id, documentId),
             eq(documents.collectionName, collectionName),
             ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),
+            sql`NOT EXISTS (SELECT 1 FROM project_folders f WHERE f.id = ${documents.folderId} AND f.deleted_at IS NOT NULL)`,
           ),
         )
         .limit(1),

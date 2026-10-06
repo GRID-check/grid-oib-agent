@@ -2,17 +2,21 @@
  * The reads the folder-access decision makes (ADR-0080, ADR-0081). Kept apart
  * from the documents repository so the decision point owns its own SQL.
  *
- * The tree includes deleted folders' tombstones (migration 0109): content
- * derived from a deleted folder is still judged by the access it had. Every
- * other read here — names, the sweep — is of living folders only.
+ * The tree includes deleted folders (migration 0109): in the Papierkorb, and
+ * purged tombstones (0112). Content derived from a deleted folder is still
+ * judged by the access it had, and once it is purged by the organization's
+ * „Inhalte aus gelöschten Ordnern" setting, which the tree carries on each
+ * purged folder. Every other read here — names, the sweep — is of living
+ * folders only.
  */
 
 import 'server-only'
-import { and, asc, count, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, count, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
 import { documents, projectFolderGrants, projectFolders, projects } from '@/lib/db/schema'
 import { IFC_EXTENSIONS } from '@/lib/bim/types'
+import { getDeletedFolderContentPolicy } from '@/lib/organizations/deleted-folder-content'
 import type { AccessFolder, FolderGrant } from './folder-access'
 
 /**
@@ -39,6 +43,35 @@ export async function projectHasCustomFolders(organizationId: string, projectId:
   return rows.length > 0
 }
 
+/**
+ * Whether the project has a folder that hides documents from someone: a folder
+ * with its own access list (living or deleted), or one in the Papierkorb. The
+ * two partial indexes make this two probes; false is the fast path, where every
+ * folder is what the project's permissions make it and every document is
+ * visible. A purged tombstone holds nothing and does not count.
+ */
+export async function projectHasCustomOrBinnedFolders(organizationId: string, projectId: string): Promise<boolean> {
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({ id: projectFolders.id })
+      .from(projectFolders)
+      .innerJoin(projects, eq(projects.id, projectFolders.projectId))
+      .where(
+        and(
+          eq(projectFolders.projectId, projectId),
+          eq(projects.organizationId, organizationId),
+          or(
+            eq(projectFolders.accessMode, 'custom'),
+            and(isNotNull(projectFolders.deletedAt), isNull(projectFolders.purgedAt))
+          )
+        )
+      )
+      .limit(1)
+  )
+  return rows.length > 0
+}
+
 /** Most grants one project's folders hold, read back; 20 per custom folder by the 0109 trigger. */
 const PROJECT_GRANTS_LIMIT = 20_000
 
@@ -53,6 +86,7 @@ export async function listProjectFolderTree(organizationId: string, projectId: s
           parentId: projectFolders.parentId,
           accessMode: projectFolders.accessMode,
           deletedAt: projectFolders.deletedAt,
+          purgedAt: projectFolders.purgedAt,
         })
         .from(projectFolders)
         .innerJoin(projects, eq(projects.id, projectFolders.projectId))
@@ -76,12 +110,18 @@ export async function listProjectFolderTree(organizationId: string, projectId: s
     list.push({ role: grant.role, level: grant.level })
     byFolder.set(grant.folderId, list)
   }
+  // The setting is read only when a purged folder is in the tree: almost no
+  // project has one, and the rest never pay for the read.
+  const purgedContent = rows.some((row) => row.purgedAt !== null)
+    ? await getDeletedFolderContentPolicy(organizationId)
+    : undefined
   return rows.map((row) => ({
     id: row.id,
     parentId: row.parentId,
     accessMode: row.accessMode,
     grants: row.accessMode === 'custom' ? (byFolder.get(row.id) ?? []) : [],
     deleted: row.deletedAt !== null,
+    ...(row.purgedAt !== null ? { purgedAt: new Date(row.purgedAt), purgedContent } : {}),
   }))
 }
 

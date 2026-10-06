@@ -332,6 +332,7 @@ The scheduler also reuses `GRID_APP_DATABASE_URL`, `FRONTEND_INTERNAL_URL`, and 
 | `WEBSOCKETS_MAX_LINE_LENGTH` | No | `65536` (set by `deploy/start_web.py`) | Backend (aiq-agent) service. The longest header line a chat socket's upgrade may carry, read by websockets at import. The BFF signs everything a turn needs into one line, `X-Grid-Request-Context`, whose project context is unbounded; at websockets' own default of 8192 a project whose envelope grew past it would have its upgrade dropped without a response. Raise it rather than lower it. |
 | `PYTHONWARNINGS` | No | `ignore` | Python warnings filter. |
 | `PROJECT_PURGE_GRACE_DAYS` | No | see `docs/architecture/deletion-pipeline.md` | Grace period before soft-deleted projects are hard-purged (ADR-0011). |
+| `FOLDER_PURGE_GRACE_DAYS` | No | `14` | Days a deleted folder stays in the project's Papierkorb, restorable, before the purger erases its documents and keeps it as a tombstone (ADR-0081). Capped at 23, like every grace period, so an erasure still finishes inside the GDPR's one month; empty or invalid means 14. Read by the BFF when a folder is deleted. |
 
 ---
 

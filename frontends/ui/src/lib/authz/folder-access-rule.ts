@@ -25,6 +25,19 @@ export interface FolderGrant {
   level: FolderGrantLevel
 }
 
+/**
+ * Who sees what was derived from a folder once its purge has run, by the
+ * organization's „Inhalte aus gelöschten Ordnern" setting:
+ *
+ * - `unchanged` (default): whoever could read the folder, by its kept grants;
+ * - `project`: every project member;
+ * - `admins`: organization admins only;
+ * - `remove`: the purge removed it with the folder; anything that
+ *   survived is for admins only.
+ */
+export const DELETED_FOLDER_CONTENT_POLICIES = ['unchanged', 'project', 'admins', 'remove'] as const
+export type DeletedFolderContentPolicy = (typeof DELETED_FOLDER_CONTENT_POLICIES)[number]
+
 /** What the decision needs of a folder. */
 export interface AccessFolder {
   id: string
@@ -32,8 +45,12 @@ export interface AccessFolder {
   accessMode: 'inherit' | 'custom'
   /** The folder's own list; read only when `accessMode` is `custom`. */
   grants: readonly FolderGrant[]
-  /** A deleted folder's tombstone: hidden everywhere, still answered for. */
+  /** Deleted: in the Papierkorb or a tombstone. Hidden everywhere, and so is what is filed in it; still answered for. */
   deleted?: boolean
+  /** When the purge ran: a permanent tombstone. Unset for a living folder and one in the bin. */
+  purgedAt?: Date | null
+  /** The organization's setting for content derived from a purged folder; read only with `purgedAt`. */
+  purgedContent?: DeletedFolderContentPolicy
 }
 
 /** Who is asking, reduced to what the grants are matched against. */
@@ -85,12 +102,21 @@ export function folderTree(folders: readonly AccessFolder[]): FolderTree {
  * everywhere the folder exists. A folder this tree does not know, or a path
  * that breaks off (a parent the tree does not hold), is `none`: the safe
  * direction for a row that names it. A deleted folder's tombstone answers like
- * a living folder, from its stored parent and grants.
+ * a living folder, from its stored parent and grants, until it is purged: then
+ * the organization's {@link DeletedFolderContentPolicy} decides (`unchanged`
+ * keeps the grants, `project` lets every member read, `admins` and `remove`
+ * leave it to organization admins).
  */
 export function effectiveFolderLevel(tree: FolderTree, clearance: FolderClearance, folderId: string | null): FolderLevel {
   if (folderId === null) return 'write'
-  if (!tree.has(folderId)) return 'none'
+  const target = tree.get(folderId)
+  if (!target) return 'none'
   if (clearance.seesEverything) return 'write'
+  // A purged folder's derived content follows the organization's setting
+  // (ADR-0081); `unchanged` reads the kept grants below.
+  const purgedPolicy = target.purgedAt ? (target.purgedContent ?? 'unchanged') : 'unchanged'
+  if (purgedPolicy === 'project') return 'read'
+  if (purgedPolicy === 'admins' || purgedPolicy === 'remove') return 'none'
   let level: FolderLevel = 'write'
   // A cycle cannot exist (the parent FK is acyclic by construction), but the
   // guard keeps a corrupt row from hanging a request.
@@ -193,7 +219,10 @@ export function isUnderOwnList(tree: FolderTree, folderId: string | null): boole
 }
 
 export interface ProjectFolderAccess {
-  /** Living folders this clearance may not read: not listed, and nothing below them either. */
+  /**
+   * Folders this clearance may not read, and every deleted folder (in the
+   * Papierkorb or a tombstone): not listed, and nothing filed in them is either.
+   */
   readonly hiddenFolderIds: ReadonlySet<string>
   /** Whether a document filed in `folderId` (null: the project root) may be read. A tombstone never is. */
   isVisible(folderId: string | null): boolean
@@ -205,7 +234,7 @@ export interface ProjectFolderAccess {
   sourceFolderOf(collection: string): string | null
   /** The restricted collections this clearance may read: what its chat turns may search. */
   readonly clearedRestrictedCollections: readonly string[]
-  /** Whether any living folder of the project has its own list; false is the fast path. */
+  /** Whether a folder hides rows from someone: a living one with its own list, or one in the bin. False is the fast path. */
   readonly anyRestricted: boolean
 }
 
@@ -239,7 +268,7 @@ export function restrictedCollectionBase(collection: string): string | null {
 
 /** The open answer: no folder has its own list, so every folder is what the project makes it. */
 export const OPEN_ACCESS = (projectCollection: string, tree: FolderTree = new Map()): ProjectFolderAccess => ({
-  hiddenFolderIds: new Set(),
+  hiddenFolderIds: new Set([...tree.values()].filter((folder) => folder.deleted).map((folder) => folder.id)),
   isVisible: (folderId) => folderId === null || tree.size === 0 || (tree.has(folderId) && !tree.get(folderId)?.deleted),
   levelOf: (folderId) => (folderId === null || tree.size === 0 || tree.has(folderId) ? 'write' : 'none'),
   collectionFor: () => projectCollection,
@@ -256,12 +285,16 @@ export function computeFolderAccess(
 ): ProjectFolderAccess {
   const tree = folderTree(folders)
   const living = folders.filter((folder) => !folder.deleted)
-  if (!folders.some((folder) => folder.accessMode === 'custom')) return OPEN_ACCESS(projectCollection, tree)
+  if (!folders.some((folder) => folder.accessMode === 'custom' || folder.deleted)) return OPEN_ACCESS(projectCollection, tree)
   const levels = new Map(folders.map((folder) => [folder.id, effectiveFolderLevel(tree, clearance, folder.id)]))
   const levelOf = (folderId: string | null): FolderLevel =>
     folderId === null ? 'write' : (levels.get(folderId) ?? 'none')
 
-  const hidden = new Set(living.filter((folder) => !atLeast(levelOf(folder.id), 'read')).map((folder) => folder.id))
+  // A deleted folder hides what is filed in it from everyone, admins included:
+  // the Papierkorb is the one place it is seen.
+  const hidden = new Set(
+    folders.filter((folder) => folder.deleted || !atLeast(levelOf(folder.id), 'read')).map((folder) => folder.id)
+  )
   const nearestRestricting = new Map(living.map((folder) => [folder.id, readRestrictingFoldersOnPath(tree, folder.id)[0] ?? null]))
   const restricting = living.filter(restrictsReading)
   const bySourceCollection = new Map(
@@ -283,7 +316,7 @@ export function computeFolderAccess(
     clearedRestrictedCollections: restricting
       .filter((folder) => atLeast(levelOf(folder.id), 'read'))
       .map((folder) => restrictedCollectionName(projectCollection, folder.id)),
-    anyRestricted: living.some((folder) => folder.accessMode === 'custom'),
+    anyRestricted: living.some((folder) => folder.accessMode === 'custom') || folders.some((folder) => folder.deleted && !folder.purgedAt),
   }
 }
 

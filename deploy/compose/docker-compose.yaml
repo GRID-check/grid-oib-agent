@@ -435,6 +435,7 @@ services:
       - SEAWEED_TENANT_ADMIN_SECRET_KEY=${SEAWEED_TENANT_ADMIN_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_PRESIGNED_URL_TTL_SECONDS=600
       - PROJECT_PURGE_GRACE_DAYS=${PROJECT_PURGE_GRACE_DAYS:-7}
+      - FOLDER_PURGE_GRACE_DAYS=${FOLDER_PURGE_GRACE_DAYS:-14}
       # OpenRouter model catalog for the org model-config picker/validation.
       # The catalog endpoint works unauthenticated; the key (same one the
       # backend uses) scopes the listing to account availability when set.

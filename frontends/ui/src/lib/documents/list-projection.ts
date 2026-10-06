@@ -76,6 +76,7 @@ export function toDocumentWireRow(
     tags: row.tags ?? null,
     queueAhead: row.queueAhead ?? null,
     assignees: row.assignees,
+    sourceDeletedAt: row.sourceDeletedAt ?? null,
   }
 }
 

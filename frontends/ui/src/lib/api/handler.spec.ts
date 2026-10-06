@@ -41,6 +41,18 @@ describe('errorResponse', () => {
     })
   })
 
+  it('answers a write into a deleted folder (GFD01) as the folder being gone', async () => {
+    // Migration 0112: a folder went to the Papierkorb between the write check and the insert.
+    const error = Object.assign(new Error('Failed query: insert into "documents"'), {
+      cause: Object.assign(new Error('folder f1 is deleted; nothing may be filed into it'), { code: 'GFD01' }),
+    })
+
+    const response = errorResponse(error, new Request('https://grid.test/api/documents', { method: 'POST' }))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toMatchObject({ code: 'NOT_FOUND', details: { reason: 'folder_deleted' } })
+  })
+
   it('logs the postgres code beside an unhandled database failure (#581)', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {

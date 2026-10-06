@@ -101,7 +101,7 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, restricted memory, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger and download-log suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, restricted memory, Papierkorb, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger and download-log suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
@@ -116,6 +116,7 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/projects/collection-placement.integration.spec.ts \
     src/lib/projects/folder-visibility.integration.spec.ts \
     src/lib/documents/shelf-folders.integration.spec.ts \
+    src/lib/projects/folder-bin.integration.spec.ts \
     src/lib/project-profile/profile-bindings.integration.spec.ts \
     src/lib/compliance/legal-hold.integration.spec.ts \
     src/lib/conversations/erasure-queue.integration.spec.ts \
@@ -638,6 +639,69 @@ $MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0111_document_access_log.sql" >/dev
 checkr "SELECT count(*) FROM document_access_log" "0" "0111 re-applies, empty"
 
 echo "==> 0111 download log and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0112: the Papierkorb, and its DOWN.
+#
+# On grid_restricted, after 0111: a tombstone the old delete left behind is
+# backfilled as PURGED (its contents had been moved out), a living folder is
+# not; the trigger refuses a document filed into a deleted folder and a folder
+# created under one, and lets an Archiv folder (no project, no bin lock) take a
+# document; an Archiv folder cannot be deleted in place, since the Archiv has no
+# Papierkorb; the hold predicate covers a folder through a document in it. The
+# down refuses while a folder is in the bin, runs once the bin is empty
+# (columns, triggers and functions gone, the 0093 predicate back, which does not
+# know folders), and 0112 re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0112 Papierkorb backfill, triggers and down migration on grid_restricted"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO project_folders (id, organization_id, project_id, name, path, deleted_at, deleted_by) VALUES
+  ('e1e1e1e1-e1e1-4000-8000-000000000112', 'org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Ablage 0112', 'Ablage 0112', '2026-10-01T08:00:00Z', 'user_1');
+INSERT INTO project_folders (id, organization_id, project_id, name, path) VALUES
+  ('e2e2e2e2-e2e2-4000-8000-000000000112', 'org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'Plaene 0112', 'Plaene 0112');
+INSERT INTO project_folders (id, organization_id, scope, name, path) VALUES
+  ('e3e3e3e3-e3e3-4000-8000-000000000112', 'org_0107', 'archiv', 'Normen 0112', 'Normen 0112');
+SQL
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0112_folder_bin.sql" >/dev/null || {
+  echo "MIGRATION 0112 FAILED on the seeded database — re-run without -q to see the error" >&2
+  exit 1
+}
+checkr "SELECT (purged_at = deleted_at)::text || ',' || coalesce(bin_root_id::text, 'none') FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000112'" "true,none" "an older tombstone is backfilled as purged, with no bin entry"
+checkr "SELECT count(*) FROM project_folders WHERE id IN ('e2e2e2e2-e2e2-4000-8000-000000000112', 'e3e3e3e3-e3e3-4000-8000-000000000112') AND purged_at IS NULL AND deleted_at IS NULL" "2" "a living project folder and an Archiv folder are untouched"
+refusedr "INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id) VALUES ('org_0107', 'user_1', 'spaet.pdf', 'k/spaet', 'proj_0107', 'completed', 'project', 'aaaaaaaa-0000-4000-8000-000000000107', 'e1e1e1e1-e1e1-4000-8000-000000000112');" "is deleted; nothing may be filed into it" "a document cannot be filed into a deleted folder"
+refusedr "INSERT INTO project_folders (organization_id, project_id, parent_id, name, path) VALUES ('org_0107', 'aaaaaaaa-0000-4000-8000-000000000107', 'e1e1e1e1-e1e1-4000-8000-000000000112', 'Neu', 'Ablage 0112/Neu');" "is deleted; nothing may be filed into it" "a folder cannot be created under a deleted folder"
+refusedr "UPDATE project_folders SET purged_at = now() WHERE id = 'e2e2e2e2-e2e2-4000-8000-000000000112';" "project_folders_bin_state_check" "a living folder cannot be purged"
+refusedr "UPDATE project_folders SET deleted_at = now(), deleted_by = 'user_1' WHERE id = 'e3e3e3e3-e3e3-4000-8000-000000000112';" "project_folders_bin_state_check" "an Archiv folder has no Papierkorb and no tombstone"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -c "INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, folder_id) VALUES ('org_0107', 'user_1', 'norm.pdf', 'k/norm', 'archiv_org_0107', 'completed', 'archiv', 'e3e3e3e3-e3e3-4000-8000-000000000112');" >/dev/null
+checkr "SELECT count(*) FROM documents WHERE folder_id = 'e3e3e3e3-e3e3-4000-8000-000000000112'" "1" "an Archiv folder takes a document: the trigger takes no bin lock for it"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO documents (id, organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id) VALUES
+  ('d1d1d1d1-d1d1-4000-8000-000000000112', 'org_0107', 'user_1', 'Plan.pdf', 'k/plan', 'proj_0107', 'completed', 'project', 'aaaaaaaa-0000-4000-8000-000000000107', 'e2e2e2e2-e2e2-4000-8000-000000000112');
+INSERT INTO legal_holds (entity_type, entity_id, organization_id, reason, created_by) VALUES
+  ('document', 'd1d1d1d1-d1d1-4000-8000-000000000112', 'org_0107', 'rls test', 'user_1');
+SQL
+checkr "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000112', 'org_0107')::text" "true" "a hold on a document in a folder covers the folder"
+$MIGRATE_R -q -c "UPDATE legal_holds SET released_at = now() WHERE organization_id = 'org_0107';" >/dev/null
+$MIGRATE_R -q -c "UPDATE project_folders SET deleted_at = now(), deleted_by = 'user_1', bin_root_id = id WHERE id = 'e2e2e2e2-e2e2-4000-8000-000000000112';" >/dev/null
+refusedr "$(cat drizzle/0112_folder_bin.down.sql)" "the Papierkorb is not empty" "the down refuses while a folder is in the bin"
+checkr "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('bin_root_id', 'purged_at')" "2" "the refused down changed nothing"
+$MIGRATE_R -q -c "UPDATE project_folders SET deleted_at = NULL, deleted_by = NULL, bin_root_id = NULL WHERE id = 'e2e2e2e2-e2e2-4000-8000-000000000112';" >/dev/null
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0112_folder_bin.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0112 FAILED — re-run without -q to see the error" >&2
+  exit 1
+}
+checkr "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('bin_root_id', 'purged_at')" "0" "down dropped the bin columns"
+checkr "SELECT count(*) FROM pg_trigger WHERE tgname IN ('documents_deleted_folder_guard', 'project_folders_deleted_parent_guard')" "0" "down dropped the triggers"
+checkr "SELECT count(*) FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000112' AND deleted_at IS NOT NULL" "1" "the tombstone stays a tombstone"
+$MIGRATE_R -q -c "INSERT INTO legal_holds (entity_type, entity_id, organization_id, reason, created_by) VALUES ('document', 'd1d1d1d1-d1d1-4000-8000-000000000112', 'org_0107', 'rls test 2', 'user_1');" >/dev/null
+checkr "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000112', 'org_0107')::text" "false" "the 0093 predicate is back: it does not know folders"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0112_folder_bin.sql" >/dev/null || {
+  echo "MIGRATION 0112 FAILED on re-apply — re-run without -q to see the error" >&2
+  exit 1
+}
+checkr "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000112', 'org_0107')::text || ',' || (SELECT (purged_at IS NOT NULL)::text FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000112')" "true,true" "0112 re-applies"
+
+echo "==> 0112 backfill, triggers and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),
