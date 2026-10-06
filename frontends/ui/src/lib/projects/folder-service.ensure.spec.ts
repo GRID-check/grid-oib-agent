@@ -365,4 +365,33 @@ describe('ensureProjectFolderPaths and folders the reader may only read (ADR-008
     ).rejects.toBeInstanceOf(ForbiddenError)
     expect(fake.insert).not.toHaveBeenCalled()
   })
+
+  it('creates a nested new path under a writable folder, though the access read before knows none of the new folders', async () => {
+    // What `computeFolderAccess` answers for an id its tree does not hold:
+    // `none`. Every folder this upload creates is such an id; it inherits the
+    // parent it was created in, which was asked about.
+    vi.mocked(getProjectFolderAccess).mockResolvedValue({
+      hiddenFolderIds: new Set(),
+      isVisible: () => true,
+      collectionFor: () => 'proj_collection',
+      clearedRestrictedCollections: [],
+      levelOf: (id: string | null): FolderLevel => (id === null || id === 'f-statik' ? 'write' : 'none'),
+      sourceFolderOf: () => null,
+      anyRestricted: true,
+    })
+    const fake = fakeDb([row('f-statik', 'Statik', 'Statik')])
+    vi.mocked(getDb).mockReturnValue(fake.db)
+
+    const result = await ensureProjectFolderPaths(
+      { projectId: 'proj-1', parentId: null, paths: ['Statik/Einreichung/Pläne', 'Statik/Einreichung/Berichte'] },
+      session
+    )
+
+    if (!result.ok) throw new Error(result.error)
+    expect(fake.inserted.map((folder) => folder.path)).toEqual([
+      'Statik/Einreichung',
+      'Statik/Einreichung/Pläne',
+      'Statik/Einreichung/Berichte',
+    ])
+  })
 })

@@ -360,7 +360,7 @@ export async function ensureShelfFolderPaths(
   // One read of the shelf's folders, then resolution happens against this
   // index. A lookup per segment would be a query per directory in the tree.
   const existing = await db.select().from(projectFolders).where(shelfFolderWhere(shelf, organizationId))
-  const walk: FolderWalk = { byParentAndKey: new Map(), hiddenNames: new Set(), visibility }
+  const walk: FolderWalk = { byParentAndKey: new Map(), hiddenNames: new Set(), createdHere: new Set(), visibility }
   const index = (row: FolderRow): void => {
     walk.byParentAndKey.set(`${row.parentId ?? ''}\u0000${folderMatchKey(row.name)}`, row)
   }
@@ -390,6 +390,15 @@ export async function ensureShelfFolderPaths(
 interface FolderWalk {
   byParentAndKey: Map<string, FolderRow>
   hiddenNames: Set<string>
+  /**
+   * The folders this walk inserted itself. Each inherits its parent's access,
+   * which the walk asked `assertMayCreateIn` about before inserting it, so a
+   * folder created inside one needs no second ask. It could not get one: the
+   * reader's access was read before the folder existed, and a folder that
+   * access does not know reads as `none`, which refused every nested path of a
+   * folder upload into a project with any own list or a folder in the bin.
+   */
+  createdHere: Set<string>
   visibility: ShelfFolderVisibility | undefined
 }
 
@@ -422,9 +431,11 @@ async function resolvePath(
     if (walk.hiddenNames.has(`${current?.id ?? ''}\u0000${name}`)) return { ok: false, error: FOLDER_NAME_TAKEN }
     // Creating a folder is a write into its parent (ADR-0081); matching an
     // existing one is not, and the upload into it asks on its own.
-    if (current) walk.visibility?.assertMayCreateIn(current.id)
+    if (current && !walk.createdHere.has(current.id)) walk.visibility?.assertMayCreateIn(current.id)
     const created = await getOrCreateChild(db, shelf, organizationId, current, name)
     if (!created.ok) return created
+    // A raced winner is somebody else's folder: its access is theirs to have set.
+    if (!created.raced) walk.createdHere.add(created.folder.id)
     if (created.raced && walk.visibility && !(await walk.visibility.recheckVisible(created.folder.id))) {
       return { ok: false, error: FOLDER_NAME_TAKEN }
     }
