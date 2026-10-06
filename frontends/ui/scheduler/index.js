@@ -14,7 +14,9 @@
  *      „läuft" (`lib/runs/reconcile.ts`, backlog T3-11);
  *   5. once a day, deletes the Langfuse traces older than the retention window
  *      (`sweepTraceRetention`; ADR-0044 — Langfuse's own retention setting is an
- *      Enterprise feature, the delete API is not).
+ *      Enterprise feature, the delete API is not);
+ *   6. every tick, deletes the Langfuse traces of chats the BFF erased in its
+ *      delete request, which the purger never sees (`sweepConversationTraces`).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
@@ -37,13 +39,21 @@
  * container is a reconcile-only worker rather than exiting.
  */
 
-const { createSql, claimDue, pruneOldRuns } = require('./db')
+const {
+  createSql,
+  claimDue,
+  pruneOldRuns,
+  findConversationsAwaitingTraceErasure,
+  conversationIsHeld,
+  markConversationTracesErased,
+} = require('./db')
 const { nextOccurrence } = require('./cron')
 const { initOtelLogs } = require('../observability/otel-logs')
 const {
   LangfuseError,
   createTraceClient,
   deleteTracesBefore,
+  eraseSessionTraces,
   readLangfuseConfig,
   readTraceRetentionDays,
 } = require('../workers/langfuse-traces')
@@ -122,6 +132,10 @@ function createStreaks(config) {
     // When the retention sweep may next run. Lives with the streaks because both
     // must outlive the tick; a fresh one per tick would sweep on every tick.
     traceRetentionClock: { nextRunAt: 0 },
+    conversationTraces: createFailureStreak({ label: `${LOG} conversation trace erasure`, escalateAfter }),
+    // Backoff after a failure that is not transient: a 401 or a poisoned row
+    // would otherwise log an ERROR on every tick.
+    conversationTracesClock: { nextRunAt: 0 },
   }
 }
 
@@ -232,6 +246,76 @@ async function sweepTraceRetention(config, fetchImpl, streak, clock, now = new D
       console.error(`${LOG} trace retention failed: ${kind} (${error instanceof Error ? error.message : error})`)
     }
     return null
+  }
+}
+
+/** The BFF-erased chats handled in one run, and how long a run may take. */
+const CONVERSATION_TRACES_PER_RUN = 100
+const CONVERSATION_TRACES_BUDGET_MS = 120_000
+/** After a failure that is not transient. A transient one retries on the next tick. */
+const CONVERSATION_TRACES_BACKOFF_MS = 60 * 60 * 1000
+
+const conversationTraceStore = {
+  candidates: findConversationsAwaitingTraceErasure,
+  held: conversationIsHeld,
+  markErased: markConversationTracesErased,
+}
+
+/**
+ * Erase the Langfuse traces of chats the BFF erased in the delete request.
+ *
+ * `DELETE /api/conversations/[id]` erases in the BFF and closes its queue row
+ * as 'purged', and the purger never runs for it, so nothing deleted the chat's
+ * traces. This finds those rows (`findConversationsAwaitingTraceErasure`: erased
+ * within 35 days, at least 15 minutes ago, not yet stamped, not under a legal
+ * hold), deletes each chat's traces with the client the purger uses, and stamps
+ * `payload.langfuseTracesErasedAt` so it is done once. The hold is asked again
+ * right before each deletion.
+ *
+ * Not configured is a no-op (the boot line says so). A transient failure
+ * (transport, timeout, 429, 5xx) stops the run and retries on the next tick,
+ * going to `streak` as a WARN that escalates to one ERROR; any other failure
+ * logs ERROR with no ids and no body and backs off for an hour. A run handles at
+ * most `CONVERSATION_TRACES_PER_RUN` chats in two minutes. Never throws.
+ * Returns the number erased, or null when it did not run.
+ */
+async function sweepConversationTraces(
+  sql,
+  config,
+  fetchImpl,
+  streak,
+  clock,
+  now = new Date(),
+  store = conversationTraceStore,
+) {
+  if (!config.langfuse || now.getTime() < clock.nextRunAt) return null
+  const startedMs = Date.now()
+  let erased = 0
+  try {
+    const rows = await store.candidates(sql, CONVERSATION_TRACES_PER_RUN)
+    const client = createTraceClient(config.langfuse, fetchImpl)
+    for (const row of rows) {
+      if (Date.now() - startedMs >= CONVERSATION_TRACES_BUDGET_MS) break
+      if (await store.held(sql, row)) continue
+      await eraseSessionTraces(client, row.entity_id)
+      await store.markErased(sql, row.id)
+      erased += 1
+    }
+    streak.succeeded()
+    if (erased > 0) console.log(`${LOG} conversation trace erasure: asked Langfuse to delete the traces of ${erased} erased chat(s)`)
+    return erased
+  } catch (error) {
+    const outage = databaseOutage(error)
+    if (outage) {
+      streak.failed(outage)
+    } else if (error instanceof LangfuseError && error.transient) {
+      streak.failed({ kind: error.kind, detail: error.message })
+    } else {
+      clock.nextRunAt = now.getTime() + CONVERSATION_TRACES_BACKOFF_MS
+      const kind = error instanceof LangfuseError ? error.kind : 'unexpected error'
+      console.error(`${LOG} conversation trace erasure failed: ${kind} (${error instanceof Error ? error.message : error})`)
+    }
+    return erased > 0 ? erased : null
   }
 }
 
@@ -349,6 +433,7 @@ async function tick(sql, config, fetchImpl, streaks) {
   await sweepUploads(config, fetchImpl, streaks.uploads)
   await sweepPlacement(config, fetchImpl, streaks.placement)
   await sweepTraceRetention(config, fetchImpl, streaks.traceRetention, streaks.traceRetentionClock)
+  await sweepConversationTraces(sql, config, fetchImpl, streaks.conversationTraces, streaks.conversationTracesClock)
   return fired
 }
 
@@ -432,7 +517,7 @@ function main() {
     )
   }
   console.log(
-    `${LOG} Langfuse trace retention: ` +
+    `${LOG} Langfuse trace erasure of deleted chats and retention: ` +
       (config.langfuse
         ? `${config.traceRetentionDays} days${config.traceRetentionClamped ? ' (GRID_LANGFUSE_TRACE_RETENTION_DAYS is below the minimum of 3 or invalid, corrected)' : ''}`
         : `off (missing ${config.langfuseMissing.join(', ')})`),
@@ -455,6 +540,7 @@ module.exports = {
   sweepUploads,
   sweepPlacement,
   sweepTraceRetention,
+  sweepConversationTraces,
   tick,
   INTERNAL_TOKEN_HEADER,
 }

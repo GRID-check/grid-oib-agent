@@ -11,6 +11,7 @@ import {
   sweepUploads,
   sweepPlacement,
   sweepTraceRetention,
+  sweepConversationTraces,
   tick,
   INTERNAL_TOKEN_HEADER,
 } from './index.js'
@@ -564,10 +565,151 @@ describe('Langfuse trace retention (ADR-0044)', () => {
       )
       const streaks = createStreaks(base)
 
-      await tick({ begin: vi.fn() }, base, fetchImpl, streaks)
-      await tick({ begin: vi.fn() }, base, fetchImpl, streaks)
+      const sql = { begin: vi.fn().mockResolvedValue([]) }
+      await tick(sql, base, fetchImpl, streaks)
+      await tick(sql, base, fetchImpl, streaks)
 
       expect(lf.lists).toHaveLength(1)
+      // The schedules gate is off, so the only reader of the queue is the sweep of
+      // chats the BFF erased, and it runs on every tick.
+      expect(sql.begin).toHaveBeenCalledTimes(2)
     })
+  })
+})
+
+describe('sweepConversationTraces (chats the BFF erased in the delete request)', () => {
+  const NOW = new Date('2026-10-06T12:00:00.000Z')
+  const env = {
+    LANGFUSE_HOST: 'http://langfuse-web:3000',
+    LANGFUSE_PUBLIC_KEY: 'pk-lf-1',
+    LANGFUSE_SECRET_KEY: 'sk-lf-2', // pragma: allowlist secret
+  }
+  const streak = () => ({ failed: vi.fn(), succeeded: vi.fn() })
+  const answer = (status, body = {}) => ({ ok: status < 300, status, json: () => Promise.resolve(body) })
+  const row = (n) => ({ id: `q${n}`, entity_id: `s_${n}`, organization_id: 'org_1' })
+
+  /** Langfuse with one trace per session id; records lists and deletes. */
+  function langfuse({ failWith } = {}) {
+    const lists = []
+    const deletes = []
+    const fetchImpl = vi.fn(async (url, init) => {
+      if (failWith) return answer(failWith)
+      if (init.method === 'DELETE') {
+        deletes.push(JSON.parse(init.body).traceIds)
+        return answer(200, { message: 'ok' })
+      }
+      const sessionId = new URL(url).searchParams.get('sessionId')
+      lists.push(sessionId)
+      return answer(200, { data: [{ traceId: `trace-of-${sessionId}`, sessionId }], meta: {} })
+    })
+    return { fetchImpl, lists, deletes }
+  }
+
+  const storeOf = ({ rows = [], held = () => false } = {}) => ({
+    candidates: vi.fn().mockResolvedValue(rows),
+    held: vi.fn(async (_sql, r) => held(r)),
+    markErased: vi.fn().mockResolvedValue(undefined),
+  })
+
+  it('is a no-op without Langfuse configured: it does not even read the queue', async () => {
+    const store = storeOf({ rows: [row(1)] })
+    const { fetchImpl } = langfuse()
+    const result = await sweepConversationTraces({}, readConfig({}), fetchImpl, streak(), { nextRunAt: 0 }, NOW, store)
+    expect(result).toBeNull()
+    expect(store.candidates).not.toHaveBeenCalled()
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('deletes each erased chat’s traces by its conversation id and stamps its queue row', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const store = storeOf({ rows: [row(1), row(2)] })
+    const { fetchImpl, lists, deletes } = langfuse()
+    const s = streak()
+
+    const result = await sweepConversationTraces({}, readConfig(env), fetchImpl, s, { nextRunAt: 0 }, NOW, store)
+
+    expect(result).toBe(2)
+    expect(lists).toEqual(['s_1', 's_2'])
+    expect(deletes).toEqual([['trace-of-s_1'], ['trace-of-s_2']])
+    expect(store.markErased.mock.calls.map(([, id]) => id)).toEqual(['q1', 'q2'])
+    expect(s.succeeded).toHaveBeenCalled()
+  })
+
+  it('leaves a conversation under a legal hold alone: no deletion, no stamp, and the rest go on', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const store = storeOf({ rows: [row(1), row(2)], held: (r) => r.entity_id === 's_1' })
+    const { fetchImpl, lists, deletes } = langfuse()
+
+    const result = await sweepConversationTraces({}, readConfig(env), fetchImpl, streak(), { nextRunAt: 0 }, NOW, store)
+
+    expect(result).toBe(1)
+    expect(lists).toEqual(['s_2'])
+    expect(deletes).toEqual([['trace-of-s_2']])
+    expect(store.markErased.mock.calls.map(([, id]) => id)).toEqual(['q2'])
+  })
+
+  it('on a Langfuse 503 stops the run, stamps nothing, WARNs through the streak and retries on the next tick', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const store = storeOf({ rows: [row(1), row(2)] })
+    const s = streak()
+    const clock = { nextRunAt: 0 }
+
+    const result = await sweepConversationTraces({}, readConfig(env), langfuse({ failWith: 503 }).fetchImpl, s, clock, NOW, store)
+
+    expect(result).toBeNull()
+    expect(store.markErased).not.toHaveBeenCalled()
+    expect(s.failed).toHaveBeenCalledWith(expect.objectContaining({ kind: 'HTTP 503' }))
+    expect(error).not.toHaveBeenCalled()
+    expect(clock.nextRunAt).toBe(0)
+  })
+
+  it('treats a 429 as transient too', async () => {
+    const s = streak()
+    await sweepConversationTraces({}, readConfig(env), langfuse({ failWith: 429 }).fetchImpl, s, { nextRunAt: 0 }, NOW, storeOf({ rows: [row(1)] }))
+    expect(s.failed).toHaveBeenCalledWith(expect.objectContaining({ kind: 'HTTP 429' }))
+  })
+
+  it('logs a 401 at ERROR without ids or keys and backs off for an hour', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const s = streak()
+    const clock = { nextRunAt: 0 }
+
+    await sweepConversationTraces({}, readConfig(env), langfuse({ failWith: 401 }).fetchImpl, s, clock, NOW, storeOf({ rows: [row(1)] }))
+
+    expect(s.failed).not.toHaveBeenCalled()
+    const line = error.mock.calls[0].join(' ')
+    expect(line).toContain('conversation trace erasure failed: HTTP 401')
+    expect(line).not.toContain('s_1')
+    expect(line).not.toContain('sk-lf')
+    expect(clock.nextRunAt).toBe(NOW.getTime() + 60 * 60 * 1000)
+
+    // Backed off: the next tick does not even read the queue.
+    const store = storeOf({ rows: [row(1)] })
+    await sweepConversationTraces({}, readConfig(env), langfuse().fetchImpl, s, clock, new Date(NOW.getTime() + 1000), store)
+    expect(store.candidates).not.toHaveBeenCalled()
+  })
+
+  it('treats a database outage as transient', async () => {
+    const down = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })
+    const store = storeOf()
+    store.candidates.mockRejectedValue(down)
+    const s = streak()
+    await sweepConversationTraces({}, readConfig(env), langfuse().fetchImpl, s, { nextRunAt: 0 }, NOW, store)
+    expect(s.failed).toHaveBeenCalledWith(expect.objectContaining({ kind: expect.stringContaining('database unavailable') }))
+  })
+
+  it('asks for at most 100 chats per run', async () => {
+    const store = storeOf()
+    await sweepConversationTraces({}, readConfig(env), langfuse().fetchImpl, streak(), { nextRunAt: 0 }, NOW, store)
+    expect(store.candidates).toHaveBeenCalledWith({}, 100)
+  })
+
+  it('runs on every tick (it is not a daily job): a second tick reads the queue again', async () => {
+    const store = storeOf()
+    const config = readConfig(env)
+    const clock = { nextRunAt: 0 }
+    await sweepConversationTraces({}, config, langfuse().fetchImpl, streak(), clock, NOW, store)
+    await sweepConversationTraces({}, config, langfuse().fetchImpl, streak(), clock, new Date(NOW.getTime() + 30_000), store)
+    expect(store.candidates).toHaveBeenCalledTimes(2)
   })
 })
