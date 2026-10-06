@@ -896,9 +896,13 @@ def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]
     return content, None
 
 
-#: The tail of an envelope whose head never arrived: the prose, then `", "kind":`
-#: and the rest of the object, then the closing fence.
-_HEADLESS_TAIL_RE = re.compile(r'"\s*,\s*(?="kind"\s*:)')
+#: The keys an envelope may carry besides ``answer``. A headless tail is made of
+#: these and nothing else.
+_HEADLESS_TAIL_KEYS = frozenset(AnswerMeta.model_fields)
+
+#: The tail of an envelope whose head never arrived: the prose, then `", "<key>":`
+#: for any envelope key and the rest of the object, then the closing fence.
+_HEADLESS_TAIL_RE = re.compile(r'"\s*,\s*(?="(?:' + "|".join(sorted(map(re.escape, _HEADLESS_TAIL_KEYS))) + r')"\s*:)')
 
 
 def _salvage_headless(content: str) -> tuple[str, AnswerMeta | None] | None:
@@ -908,10 +912,12 @@ def _salvage_headless(content: str) -> tuple[str, AnswerMeta | None] | None:
     prose itself and switched into JSON half way, `…p.5", "kind":"ruling",
     "confidence":{…}}` plus the closing fence. Read as plain prose, the reader
     got that JSON tail under the answer and the turn lost its verdict, its
-    confidence and its cards. Whatever stands before `", "kind":` is the
-    answer; the rest, opened with `{`, is the object. The FIRST `", "kind":`
-    whose tail parses whole as one object with an answer kind is taken, so a
-    nested card's kind is never the cut and prose quoting JSON is untouched.
+    confidence and its cards. The tail need not open with ``kind``: answer
+    feedback (October 2026) caught one that opened `…p.1", "confidence":{…}}`
+    and shipped as prose. Whatever stands before the first `", "<key>":` is
+    the answer when the rest, opened with `{`, parses whole as one envelope
+    object. The top-level keys come before any nested card's, so a nested
+    `", "kind":` is never the cut, and prose quoting JSON is untouched.
 
     A reply that opens with `{` or the ``answer_json`` fence HAS its head: it is
     an object that did not parse, and a nested `", "kind":` (a callout's) would
@@ -926,17 +932,12 @@ def _salvage_headless(content: str) -> tuple[str, AnswerMeta | None] | None:
     body = re.sub(r"\n?```\s*$", "", content.rstrip()).rstrip()
     if not body.endswith("}"):
         return None
-    found = next(
-        (
-            (split, payload)
-            for split in _HEADLESS_TAIL_RE.finditer(body)
-            if (payload := _headless_tail(body[split.end() :])) is not None
-        ),
-        None,
-    )
-    if found is None:
+    # Only the FIRST candidate: a later one that parses would leave the
+    # refused part of the object standing in the prose as a JSON fragment.
+    split = _HEADLESS_TAIL_RE.search(body)
+    payload = _headless_tail(body[split.end() :]) if split is not None else None
+    if split is None or payload is None:
         return None
-    split, payload = found
     prose = body[: split.start()].strip()
     if not prose:
         return None
@@ -949,17 +950,23 @@ def _salvage_headless(content: str) -> tuple[str, AnswerMeta | None] | None:
 def _headless_tail(tail: str) -> dict | None:
     """``tail`` as the envelope's remaining top-level object, or None.
 
-    The whole tail must be ONE object carrying an answer kind. A nested card's
-    `", "kind":` (a callout's ``hinweis``) leaves `]}` after its own object and
-    a kind that is no answer kind, so it is refused rather than cut at.
+    The whole tail must be ONE object whose keys are all envelope keys, and
+    whose kind, if it has one, is an answer kind. A nested card's `", "kind":`
+    (a callout's ``hinweis``) leaves `]}` after its own object and a kind that
+    is no answer kind, so it is refused rather than cut at; an object with a
+    key the envelope does not have is someone else's JSON.
     """
     try:
         payload, end = json.JSONDecoder(strict=False).raw_decode("{" + tail)
     except json.JSONDecodeError:
         return None
-    if end != len(tail) + 1 or not isinstance(payload, dict):
+    if end != len(tail) + 1 or not isinstance(payload, dict) or not payload:
         return None
-    return payload if payload.get("kind") in ANSWER_KINDS else None
+    if not payload.keys() <= _HEADLESS_TAIL_KEYS:
+        return None
+    if "kind" in payload and payload["kind"] not in ANSWER_KINDS:
+        return None
+    return payload
 
 
 def gate_answer_meta(
