@@ -108,8 +108,8 @@ Phase 1, in parallel:
 3. **BFF job substrate.** `bff_job_queue` (drizzle migration), the TypeScript
    claim, the `bff-jobs` Deployment and its ScaledObject; project reindex and
    rescan-failed become jobs that enqueue `priority: "bulk"` ingests.
-4. **Chat scale-out.** Owner leases, routing by lease, the occupancy endpoint,
-   a ScaledObject for the backend.
+4. **Chat scale-out.** Affinity off behind `GRID_CHAT_AFFINITY` (on by
+   default), the occupancy endpoint, drain, a ScaledObject for the backend.
 
 Phase 2, on the merged result:
 

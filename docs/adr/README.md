@@ -137,7 +137,7 @@ Consequences, where a reader looks for them.
 | [0076](0076-ingestion-is-claimed-fairly-from-a-durable-queue.md) | Ingestion is claimed fairly from a durable queue, by a tier that scales on its depth | Proposed |
 | [0077](0077-prompt-context-is-loaded-over-http-not-websocket-headers.md) | Prompt context is loaded over HTTP, not carried in WebSocket headers | Accepted |
 | [0078](0078-background-work-runs-on-one-claim-substrate.md) | Background work runs on one claim substrate, in worker pools KEDA scales on their queues | Proposed |
-| [0079](0079-chat-routes-by-owner-lease-and-scales-on-turn-occupancy.md) | Chat routes a conversation by an owner lease, and the backend scales on turn occupancy | Proposed |
+| [0079](0079-chat-drops-affinity-for-the-conversation-bus.md) | Chat drops conversation affinity for the conversation bus, and the backend scales on turn occupancy | Proposed |
 | [0080](0080-every-model-call-passes-one-priority-aware-provider-limiter.md) | Every model call passes one priority-aware provider limiter that adapts to 429s | Proposed |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every

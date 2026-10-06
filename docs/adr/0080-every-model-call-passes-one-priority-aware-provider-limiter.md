@@ -38,8 +38,14 @@ Chosen option 3, `aiq_agent.common.provider_limiter`.
 * A Dragonfly lease pool, the scripts of `common.lease_slots`, with four
   priority classes: `chat`, `interactive`, `research`, `bulk`. A free slot goes
   to the highest class waiting; inside a class, to the longest waiter.
-* The limit is adaptive: a 429 halves it (not below a floor), each quiet
-  interval adds one (not above a ceiling). The 429 itself still waits out its
+* The limit is adaptive, and scoped to the quota that produced the 429. A
+  429 from an upstream provider (OpenRouter's error names the provider) halves
+  the limit for that model only; a 429 from OpenRouter itself, which carries no
+  upstream provider, is the key's limit and halves the key-wide pool. Each
+  quiet interval adds one back, within a floor and a ceiling per scope. A call
+  holds a slot in the key-wide pool and in its model's pool. When a 429 cannot
+  be classified it counts against the model, so one model's brown-out never
+  shrinks capacity for the others. The 429 itself still waits out its
   `Retry-After` outside the slot.
 * The class comes from the caller's context (a ContextVar set by the chat turn,
   the research job and the ingest job, with the job's priority), so call sites
@@ -62,10 +68,18 @@ Chosen option 3, `aiq_agent.common.provider_limiter`.
 
 ### Confirmation
 
-Unit tests for class order, AIMD and fail-open; an integration test that a
-`bulk` waiter yields to a `chat` waiter.
+* Unit tests for class order, FIFO inside a class, AIMD per scope (a 429 for
+  one model leaves another's limit untouched), and fail-open; an integration
+  test that a `bulk` waiter yields to a `chat` waiter.
+* The invariant that every model and embedding call passes the limiter: a
+  call-site test beside `tests/aiq_agent/common/test_openrouter_call_sites.py`
+  that fails when a chat model or an embedding client is built outside the
+  limited seam. Until it lands, nothing enforces this yet; review is the only
+  gate.
 
 ## More Information
 
 * ADR-0040 (layered rate limiting), ADR-0074 (the OpenRouter seam), ADR-0076,
   ADR-0078.
+* Open gap until the call-site test lands: a new model or embedding call site
+  that bypasses the limiter is caught only in review.
