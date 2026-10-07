@@ -103,7 +103,28 @@ export const crossProjectHitSchema = z.object({
 })
 export type CrossProjectHit = z.infer<typeof crossProjectHitSchema>
 
+/**
+ * A decision another project recorded in its memory (`decision` or
+ * `constraint`): what the project itself wrote down while it ran. Retrieved
+ * before passages: short, comparable, and it says why.
+ */
+export const crossProjectDecisionSchema = z.object({
+  project: crossProjectRefSchema,
+  /** The project's retrieval collection: the decision's identity as a citable source. */
+  collection: z.string(),
+  kind: z.enum(['decision', 'constraint']),
+  content: z.string(),
+  /** A person confirmed, pinned or wrote it, rather than only the agent. */
+  confirmed: z.boolean(),
+  recordedAt: z.string(),
+  /** It came from a folder with its own access list: it narrows who may read the chat, as such a passage does. */
+  restricted: z.boolean(),
+})
+export type CrossProjectDecision = z.infer<typeof crossProjectDecisionSchema>
+
 export const crossProjectSearchResponseSchema = z.object({
+  /** Recorded decisions of the searched projects that match the question, best first; at most 6. */
+  decisions: z.array(crossProjectDecisionSchema),
   hits: z.array(crossProjectHitSchema),
   /** The projects in the scope the reader may open, the conversation's own left out. */
   projectsInScope: z.number().int(),

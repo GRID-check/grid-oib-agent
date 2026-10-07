@@ -146,12 +146,23 @@ class FixtureOffice:
         hits.sort(key=lambda hit: hit["score"], reverse=True)
         following = offset + len(page)
         return {
+            "decisions": self._decisions(page, str(body.get("query") or "")),
             "hits": hits[: int(body.get("limit") or 10)],
             "projectsInScope": len(scope),
             "projectsSearched": len(page),
             "nextOffset": following if following < len(scope) else None,
             "statusKnown": True,
         }
+
+    def _decisions(self, page: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
+        """The page's recorded decisions sharing a word with the question, as the BFF's full-text search would."""
+        found = []
+        for project in page:
+            for decision in project.get("decisions") or []:
+                if _score(query, {"text": decision["content"]}) == 0:
+                    continue
+                found.append({"project": self._ref(project), "collection": project["collection"], **decision})
+        return found[:6]
 
     def projects_listing(self, body: dict[str, Any]) -> dict[str, Any]:
         needle = _fold(str(body.get("query") or ""))
@@ -175,6 +186,40 @@ class FixtureOffice:
             "summary": project.get("summary"),
             "facts": self.rendered["briefs"].get(project["id"], ""),
         }
+
+
+def _conversation_of(envelope: str | None) -> str | None:
+    """The conversation a request's envelope names: which run asked, for the checks. Not verified: only read."""
+    import base64
+
+    if not envelope:
+        return None
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(envelope + "=" * (-len(envelope) % 4)).decode("utf-8"))
+    except ValueError:
+        return None
+    conversation = payload.get("conversationId") if isinstance(payload, dict) else None
+    return conversation if isinstance(conversation, str) else None
+
+
+def lookups_served(log_path: Path, conversation_id: str) -> list[str]:
+    """The cross-project lookups this fixture answered for one conversation, in order: `search`, `projects`, `brief`.
+
+    What a turn READ, whoever asked for it: the model's own call, or the
+    turn decision's round-0 prefetch, which no model call shows.
+    """
+    if not log_path.exists():
+        return []
+    served = []
+    for line in log_path.read_text(encoding="utf-8").splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        path = str(entry.get("path") or "")
+        if entry.get("served") and entry.get("conversation") == conversation_id and "/cross-project/" in path:
+            served.append(path.rsplit("/", 1)[-1])
+    return served
 
 
 class FixtureBFF:
@@ -232,9 +277,9 @@ class FixtureBFF:
                 except ValueError:
                     body = {}
                 path = self.path.split("?", 1)[0]
-                conversation = self.headers.get("X-Grid-Request-Context") or ""
                 answer = bff._answer(path, body) if self.headers.get("X-Grid-Internal-Token") == bff.token else None
-                bff._log({"path": path, "body": body, "served": answer is not None, "envelope": conversation[:24]})
+                conversation = _conversation_of(self.headers.get("X-Grid-Request-Context"))
+                bff._log({"path": path, "body": body, "served": answer is not None, "conversation": conversation})
                 if answer is None:
                     # As unreachable as today's suite's BFF: no status line at all.
                     self.close_connection = True

@@ -64,6 +64,7 @@ def _hit(filename: str, collection: str = OTHER_COLLECTION, **extra: Any) -> dic
 
 
 SEARCH_BODY = {
+    "decisions": [],
     "hits": [_hit("Detail Traufe.pdf"), _hit("Honorar.pdf", HONORARE)],
     "projectsInScope": 12,
     "projectsSearched": 8,
@@ -271,6 +272,69 @@ async def test_project_lookup_admits_what_the_bff_handed_out_and_shuts_the_turns
     assert admitted.content == result
     assert turn.drew_on_others
     assert may_name(HONORARE)
+
+
+def _decision(content: str, *, status: str = "closed", restricted: bool = False, **extra: Any) -> dict[str, Any]:
+    return {
+        "project": {"id": OTHER, "name": "Wohnbau Graz", "status": status},
+        "collection": OTHER_COLLECTION,
+        "kind": "decision",
+        "content": content,
+        "confirmed": True,
+        "recordedAt": "2021-04-02T08:00:00.000Z",
+        "restricted": restricted,
+        **extra,
+    }
+
+
+class TestTheRecordedDecisions:
+    async def test_they_come_first_as_one_citable_source_per_project_named_by_its_project(
+        self, monkeypatch, calls, turn, schema
+    ) -> None:
+        body = {
+            **SEARCH_BODY,
+            "decisions": [
+                _decision("Stiegenhaus in Stahlbeton, weil das Gutachten nur so die Abweichung zuließ."),
+                _decision("Brandsperre je Geschoß in der Hinterlüftung.", kind="constraint", confirmed=False),
+            ],
+        }
+        _validator(schema, "CrossProjectSearchResponse").validate(body)
+        _answering(monkeypatch, calls, body)
+
+        result = await lookup.run_project_lookup("search", query="Stiegenhaus")
+        sources = extract_sources_from_tool_result("project_lookup", result)
+
+        assert sources[0].citation_key == "Projektgedächtnis (Wohnbau Graz)"
+        assert sources[0].project_name == "Wohnbau Graz"
+        assert "Entscheidung (von einer Person bestätigt, 2021): Stiegenhaus in Stahlbeton" in result
+        assert "Vorgabe (von Piloti festgehalten, 2021): Brandsperre" in result
+        assert result.index("Projektgedächtnis") < result.index("Detail Traufe.pdf")
+
+    async def test_decisions_alone_are_still_a_source_so_the_answer_is_not_replaced(self, monkeypatch, calls, turn):
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "decisions": [_decision("Holz-Massivbau-Treppe.")]})
+
+        result = await lookup.run_project_lookup("search", query="Treppe")
+
+        assert len(extract_sources_from_tool_result("project_lookup", result)) == 1
+        assert turn.admitted == {OTHER_COLLECTION}
+
+    async def test_a_closed_projects_open_decision_shuts_no_door(self, monkeypatch, calls, turn):
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "decisions": [_decision("x")]})
+
+        await lookup.run_project_lookup("search", query="x")
+
+        assert not turn.drew_on_others
+
+    @pytest.mark.parametrize("decision", [{"status": "active"}, {"restricted": True}])
+    async def test_a_running_projects_or_a_restricted_decision_shuts_the_doors(
+        self, monkeypatch, calls, turn, decision
+    ):
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "decisions": [_decision("x", **decision)]})
+
+        result = await lookup.run_project_lookup("search", query="x")
+
+        assert turn.drew_on_others
+        assert "laufende andere Projekte" in result
 
 
 class TestTheAdmission:

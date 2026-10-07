@@ -1,5 +1,5 @@
 {
-  "$comment": "The precedent eval's fixture office (docs/roadmap/office-experience.md, step A). Invented projects with realistic Austrian permitting content. office.json is the source; rendered.json is written from it by the real TypeScript renderers (reference-brief.fixture.spec.ts) and served by scripts/turn_census/fixture_bff.py.",
+  "$comment": "The precedent eval's fixture office (docs/roadmap/office-experience.md, step A). Invented projects with realistic Austrian permitting content. office.json is the source; rendered.json is written from it by the real TypeScript renderers (reference-brief.fixture.spec.ts) and served by scripts/turn_census/fixture_bff.py. A project's `decisions` are its project memory's decision and constraint items: served by the search like the BFF's recorded decisions.",
   "organizationId": "org_precedent_eval",
   "userId": "user_precedent_eval",
   "current": {
@@ -11,8 +11,12 @@
     "facts": {
       "bundesland": "niederoesterreich",
       "gebaeudeklasse": 4,
-      "bauweise": ["holzbau"],
-      "nutzungen": ["wohnen"],
+      "bauweise": [
+        "holzbau"
+      ],
+      "nutzungen": [
+        "wohnen"
+      ],
       "vorhabensart": "neubau",
       "standort_adresse": "Hochstraße 12, 2380 Perchtoldsdorf",
       "geschosse_oberirdisch": 4
@@ -30,8 +34,12 @@
       "facts": {
         "bundesland": "niederoesterreich",
         "gebaeudeklasse": 4,
-        "bauweise": ["holzbau"],
-        "nutzungen": ["wohnen"],
+        "bauweise": [
+          "holzbau"
+        ],
+        "nutzungen": [
+          "wohnen"
+        ],
         "vorhabensart": "neubau",
         "standort_adresse": "Wiener Straße 40, 2500 Baden"
       },
@@ -42,7 +50,10 @@
           "filename": "Brandschutzgutachten_Baden.pdf",
           "title": "Brandschutzgutachten Holzwohnbau Baden",
           "page": 4,
-          "tags": ["Gutachten", "Brandschutz"],
+          "tags": [
+            "Gutachten",
+            "Brandschutz"
+          ],
           "text": "Für die tragenden und aussteifenden Holzbauteile (Brettsperrholz) der Gebäudeklasse 4 wird REI 60 nachgewiesen. Abweichend von OIB-Richtlinie 2, Ausgabe 2019, Tabelle 1b, werden die Wände und Decken nicht in A2 ausgeführt; die Gleichwertigkeit nach Punkt 0.2 der Richtlinie wird durch eine Kapselung K2 60 aus zwei Lagen Gipsfaserplatten (je 18 mm) auf allen Decken und Wänden der Aufenthaltsräume erreicht. Das Stiegenhaus wird als Fluchtweg in Stahlbeton (REI 90, A2) ausgeführt. Die Baubehörde hat das Gutachten als Bestandteil der Bewilligung übernommen."
         },
         {
@@ -50,7 +61,10 @@
           "filename": "Detail_Traufe_Holzbau.pdf",
           "title": "Detail Traufe hinterlüftet",
           "page": 2,
-          "tags": ["Detail", "Brandschutz"],
+          "tags": [
+            "Detail",
+            "Brandschutz"
+          ],
           "text": "Traufe der hinterlüfteten Holzfassade: Konterlattung 5/8 cm, Insektenschutzgitter an der Zuluftöffnung, Brandsperre im Hinterlüftungsraum je Geschoß aus verzinktem Stahlblech 1 mm mit 20 cm Auskragung, damit ein Brand in der Hinterlüftung nicht über mehr als ein Geschoß weiterläuft. Ausgeführt 2021, abgenommen ohne Mängel."
         },
         {
@@ -58,8 +72,19 @@
           "filename": "Baubescheid_Baden_2020.pdf",
           "title": "Baubescheid Stadtgemeinde Baden",
           "page": 1,
-          "tags": ["Bescheid"],
+          "tags": [
+            "Bescheid"
+          ],
           "text": "Die Baubewilligung wird am 14. September 2020 unter folgenden Auflagen erteilt: 1. Das Brandschutzgutachten vom 3. Juli 2020 ist Bestandteil dieser Bewilligung und bei der Ausführung einzuhalten. 2. Mit der Fertigstellungsanzeige ist eine Bestätigung des Brandschutzplaners über die plan- und gutachtensgemäße Ausführung der Kapselung vorzulegen. 3. Die Brandsperren der Fassade sind vor dem Schließen der Fassade fotografisch zu dokumentieren. Eingereicht am 2. März 2020."
+        }
+      ],
+      "decisions": [
+        {
+          "kind": "decision",
+          "confirmed": true,
+          "recordedAt": "2020-06-18T09:00:00.000Z",
+          "restricted": false,
+          "content": "Für die Kapselung K2 60 wurden Gipsfaserplatten statt Gipskartonplatten gewählt, weil nur für den Gipsfaser-Aufbau 2 × 18 mm ein Prüfbericht vorlag, den die Baubehörde ohne Einzelnachweis anerkannte; Mehrkosten rund 6 € je m²."
         }
       ]
     },
@@ -73,8 +98,12 @@
       "facts": {
         "bundesland": "niederoesterreich",
         "gebaeudeklasse": 4,
-        "bauweise": ["mauerwerk_massivbau"],
-        "nutzungen": ["wohnen"],
+        "bauweise": [
+          "mauerwerk_massivbau"
+        ],
+        "nutzungen": [
+          "wohnen"
+        ],
         "vorhabensart": "neubau",
         "standort_adresse": "Brunner Gasse 7, 2340 Mödling"
       },
@@ -85,7 +114,10 @@
           "filename": "Maengelbehebung_Baubehoerde_Moedling.pdf",
           "title": "Mängelbehebungsauftrag Stadtgemeinde Mödling",
           "page": 1,
-          "tags": ["Bescheid", "Brandschutz"],
+          "tags": [
+            "Bescheid",
+            "Brandschutz"
+          ],
           "text": "Mängelbehebungsauftrag gemäß § 13 Abs. 3 AVG vom 18. Juni 2019: Die Einreichunterlagen sind binnen vier Wochen zu ergänzen um a) den Nachweis der lichten Breite der Fluchtwege im Stiegenhaus von mindestens 1,20 m, bemaßt in den Grundrissen aller Geschoße, b) die Darstellung der Rauchabzugsöffnung an der obersten Stelle des Stiegenhauses mit mindestens 1 m² geometrisch freier Fläche, c) eine Bestätigung über die Erreichbarkeit der außenliegenden Fluchttreppe von jeder Wohnung."
         },
         {
@@ -93,7 +125,9 @@
           "filename": "Baubescheid_Moedling_2019.pdf",
           "title": "Baubescheid Stadtgemeinde Mödling",
           "page": 2,
-          "tags": ["Bescheid"],
+          "tags": [
+            "Bescheid"
+          ],
           "text": "Die Baubewilligung wird am 9. Oktober 2019 unter folgenden Auflagen erteilt: 1. Vor Baubeginn ist ein Brandschutzkonzept eines befugten Fachplaners vorzulegen. 2. Die außenliegende Fluchttreppe ist nichtbrennbar (A2) herzustellen. 3. Die Stellplatzverpflichtung ist durch 18 Stellplätze am Bauplatz zu erfüllen. Eingereicht am 12. April 2019."
         },
         {
@@ -101,8 +135,20 @@
           "filename": "Detail_Fluchttreppe_aussen.pdf",
           "title": "Detail außenliegende Fluchttreppe",
           "page": 1,
-          "tags": ["Detail", "Brandschutz"],
+          "tags": [
+            "Detail",
+            "Brandschutz"
+          ],
           "text": "Außenliegende Fluchttreppe als Stahlkonstruktion, feuerverzinkt, Gitterroststufen, lichte Laufbreite 1,20 m, Baustoffklasse A2, über Laubengang an jede Wohnung angeschlossen; bemessen nach OIB-Richtlinie 2, Ausgabe 2015."
+        }
+      ],
+      "decisions": [
+        {
+          "kind": "constraint",
+          "confirmed": true,
+          "recordedAt": "2019-07-02T09:00:00.000Z",
+          "restricted": false,
+          "content": "Die Baubehörde Mödling akzeptiert die Fluchtwegbreite nur bemaßt in jedem einzelnen Grundriss, nicht als Verweis auf ein Regeldetail."
         }
       ]
     },
@@ -116,8 +162,12 @@
       "facts": {
         "bundesland": "wien",
         "gebaeudeklasse": 5,
-        "bauweise": ["stahlbeton"],
-        "nutzungen": ["buero"],
+        "bauweise": [
+          "stahlbeton"
+        ],
+        "nutzungen": [
+          "buero"
+        ],
         "vorhabensart": "neubau",
         "standort_adresse": "Wagramer Straße 150, 1220 Wien"
       },
@@ -128,7 +178,10 @@
           "filename": "Brandschutzkonzept_Sicherheitstreppenhaus.pdf",
           "title": "Brandschutzkonzept Sicherheitstreppenhaus",
           "page": 6,
-          "tags": ["Gutachten", "Brandschutz"],
+          "tags": [
+            "Gutachten",
+            "Brandschutz"
+          ],
           "text": "Bei einem Fluchtniveau von 24,5 m wird das Treppenhaus als Sicherheitstreppenhaus mit Druckbelüftungsanlage ausgeführt. Die Druckbelüftung hält im Brandfall einen Überdruck gegenüber den Geschoßen, die Türen sind selbstschließend in EI2 30-C, die Anlage wird über die Brandmeldeanlage angesteuert."
         },
         {
@@ -136,7 +189,10 @@
           "filename": "MA37_Nachforderung_Druckbelueftung.pdf",
           "title": "Nachforderung MA 37",
           "page": 1,
-          "tags": ["Bescheid", "Brandschutz"],
+          "tags": [
+            "Bescheid",
+            "Brandschutz"
+          ],
           "text": "Die MA 37 fordert für das Sicherheitstreppenhaus vor Erteilung der Baubewilligung einen rechnerischen Nachweis der Druckbelüftung samt Prüfbericht einer akkreditierten Stelle sowie die Darstellung der Zuluft- und Abströmöffnungen. Eingelangt am 4. Dezember 2017."
         }
       ]
@@ -150,8 +206,13 @@
       "facts": {
         "bundesland": "oberoesterreich",
         "gebaeudeklasse": 3,
-        "bauweise": ["holzbau", "stahlbeton"],
-        "nutzungen": ["bildung"],
+        "bauweise": [
+          "holzbau",
+          "stahlbeton"
+        ],
+        "nutzungen": [
+          "bildung"
+        ],
         "vorhabensart": "neubau",
         "standort_adresse": "Hafenstraße 3, 4020 Linz"
       },
@@ -162,7 +223,9 @@
           "filename": "Detail_HBV_Decke.pdf",
           "title": "Detail Holz-Beton-Verbunddecke",
           "page": 3,
-          "tags": ["Detail"],
+          "tags": [
+            "Detail"
+          ],
           "text": "Holz-Beton-Verbunddecke aus Brettsperrholz 16 cm mit 12 cm Aufbeton, schubfest verbunden über eingeklebte Kerven, Feuerwiderstand REI 90 nachgewiesen nach ÖNORM EN 1995-1-2, Trittschall über schwimmenden Estrich."
         }
       ]
@@ -177,8 +240,12 @@
       "facts": {
         "bundesland": "niederoesterreich",
         "gebaeudeklasse": 1,
-        "bauweise": ["holzbau"],
-        "nutzungen": ["wohnen"],
+        "bauweise": [
+          "holzbau"
+        ],
+        "nutzungen": [
+          "wohnen"
+        ],
         "vorhabensart": "neubau"
       },
       "summary": "Freistehendes Einfamilienhaus in Holzriegelbauweise.",
@@ -188,7 +255,9 @@
           "filename": "Einreichplan_Gaenserndorf.pdf",
           "title": "Einreichplan Einfamilienhaus",
           "page": 1,
-          "tags": ["Grundriss"],
+          "tags": [
+            "Grundriss"
+          ],
           "text": "Einreichplan Erdgeschoß und Obergeschoß, Holzriegelbau, Wohnnutzfläche 142 m², freistehend, ein Stellplatz im Carport."
         }
       ]
@@ -203,8 +272,13 @@
       "facts": {
         "bundesland": "wien",
         "gebaeudeklasse": 4,
-        "bauweise": ["stahlbau", "holzbau"],
-        "nutzungen": ["wohnen"],
+        "bauweise": [
+          "stahlbau",
+          "holzbau"
+        ],
+        "nutzungen": [
+          "wohnen"
+        ],
         "vorhabensart": "zubau"
       },
       "summary": "Dachgeschoßausbau mit zwei Geschoßen auf einem Gründerzeithaus.",
@@ -214,7 +288,10 @@
           "filename": "Bescheid_MA37_Dachgeschossausbau.pdf",
           "title": "Bescheid MA 37 Dachgeschoßausbau",
           "page": 2,
-          "tags": ["Bescheid", "Brandschutz"],
+          "tags": [
+            "Bescheid",
+            "Brandschutz"
+          ],
           "text": "Auflage: Zwischen dem Dachgeschoßausbau und dem Bestand ist eine brandabschnittsbildende Decke in REI 90 herzustellen; die bestehende Holzbalkendecke ist von unten mit einer Bekleidung K2 60 zu versehen. Bewilligt am 22. Mai 2018."
         }
       ]
@@ -232,7 +309,9 @@
           "filename": "Bescheid_Hinterbruehl_2012.pdf",
           "title": "Bescheid Marktgemeinde Hinterbrühl",
           "page": 1,
-          "tags": ["Bescheid"],
+          "tags": [
+            "Bescheid"
+          ],
           "text": "Baubewilligung vom 3. März 2012 für den Zubau eines Wintergartens; Auflage: Ausführung der Verglasung in Sicherheitsglas."
         }
       ]

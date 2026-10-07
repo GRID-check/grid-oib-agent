@@ -96,6 +96,70 @@
     "CrossProjectSearchResponse": {
       "type": "object",
       "properties": {
+        "decisions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "closed"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "status"
+                ],
+                "additionalProperties": true
+              },
+              "collection": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "decision",
+                  "constraint"
+                ]
+              },
+              "content": {
+                "type": "string"
+              },
+              "confirmed": {
+                "type": "boolean"
+              },
+              "recordedAt": {
+                "type": "string"
+              },
+              "restricted": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "project",
+              "collection",
+              "kind",
+              "content",
+              "confirmed",
+              "recordedAt",
+              "restricted"
+            ],
+            "additionalProperties": true
+          }
+        },
         "hits": {
           "type": "array",
           "items": {
@@ -206,6 +270,7 @@
         }
       },
       "required": [
+        "decisions",
         "hits",
         "projectsInScope",
         "projectsSearched",

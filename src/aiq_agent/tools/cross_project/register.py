@@ -150,9 +150,9 @@ _NOT_FOUND = (
 
 #: Said once per answer that handed out content narrowing the chat's readers: the doors it shut.
 _CLOSED_DOORS = (
-    "[Dieser Chat stützt sich jetzt auf laufende andere Projekte: kein Projektgedächtnis, keine "
-    "Aufträge, keine Tiefenrecherche, keine Ablage ins Projekt, und teilbar nur mit Personen, die diese "
-    "Projekte öffnen dürfen.]"
+    "[Dieser Chat stützt sich jetzt auf laufende andere Projekte oder auf Ordner mit eigener Zugriffsliste: "
+    "kein Projektgedächtnis, keine Aufträge, keine Tiefenrecherche, keine Ablage ins Projekt, und teilbar "
+    "nur mit Personen, die diese Projekte und Ordner öffnen dürfen.]"
 )
 
 
@@ -304,19 +304,88 @@ def _search_preamble(body: dict[str, Any], hits: tuple[GroundingHit, ...]) -> li
     return lines
 
 
+_DECISION_KIND = {"decision": "Entscheidung", "constraint": "Vorgabe"}
+
+#: The file name a project's recorded decisions are cited under: not a document, its memory.
+MEMORY_SOURCE_NAME = "Projektgedächtnis"
+
+
+def _decisions(body: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = body.get("decisions") if isinstance(body.get("decisions"), list) else []
+    usable = (item for item in raw if isinstance(item, dict) and isinstance(item.get("project"), dict))
+    return [item for item in usable if item.get("content") and item.get("collection")]
+
+
+def _decision_line(item: dict[str, Any]) -> str:
+    year = str(item.get("recordedAt") or "")[:4]
+    label = _DECISION_KIND.get(str(item.get("kind")), "Entscheidung")
+    who = "von einer Person bestätigt" if item.get("confirmed") else "von Piloti festgehalten"
+    return f"{label} ({who}{', ' + year if year else ''}): {_text(item['content'])}"
+
+
+def _decision_hits(decisions: list[dict[str, Any]]) -> list[GroundingHit]:
+    """One citable source per project: the decisions its memory recorded, before its passages.
+
+    One per project because the registry merges a source by (collection, file,
+    page): two decisions of one project are one source, the project's memory.
+    """
+    by_project: dict[str, list[dict[str, Any]]] = {}
+    for item in decisions:
+        by_project.setdefault(str(item["project"].get("id")), []).append(item)
+    hits = []
+    for items in by_project.values():
+        project = items[0]["project"]
+        name = _text(project.get("name")) or "Projekt"
+        hits.append(
+            GroundingHit(
+                citation_key=f"{MEMORY_SOURCE_NAME} ({name})",
+                file_name=MEMORY_SOURCE_NAME,
+                page=None,
+                shelf=Shelf.PROJECT,
+                collection=str(items[0]["collection"]),
+                doc_class=None,
+                display_title="Festgehaltene Entscheidungen (aus dem Projektgedächtnis, kein Dokument)",
+                folder_path=None,
+                punkt=None,
+                score=1.0,
+                content_type="text",
+                provenance=None,
+                stored_image_index=None,
+                status_note=None,
+                body="\n".join(_decision_line(item) for item in items),
+                body_truncated=False,
+                project=SourceProject(
+                    id=str(project.get("id")), name=name, status=str(project.get("status") or "active")
+                ),
+            )
+        )
+    return hits
+
+
+def _decisions_restrict(decisions: list[dict[str, Any]]) -> bool:
+    """Whether a decision narrows the chat's readers: a running project's, or one from a restricted folder."""
+    return any(str(item["project"].get("status")) != "closed" or item.get("restricted") for item in decisions)
+
+
 def _render_search(body: dict[str, Any]) -> str:
     raw_hits = body.get("hits") if isinstance(body.get("hits"), list) else []
-    hits = tuple(hit for hit in (_hit(raw) for raw in raw_hits if isinstance(raw, dict)) if hit is not None)
-    preamble = _search_preamble(body, hits)
+    passages = tuple(hit for hit in (_hit(raw) for raw in raw_hits if isinstance(raw, dict)) if hit is not None)
+    decisions = _decisions(body)
+    # The decisions first: short, comparable, and they say why.
+    hits = (*_decision_hits(decisions), *passages)
+    preamble = _search_preamble(body, passages)
+    if decisions and _decisions_restrict(decisions) and _CLOSED_DOORS not in preamble:
+        preamble.append(_CLOSED_DOORS)
     if not hits:
-        return "\n".join([*preamble, "Keine passenden Dokumente in diesen Projekten."])
+        return "\n".join([*preamble, "Keine passenden Dokumente oder Entscheidungen in diesen Projekten."])
     from knowledge_layer.register import _trace_lanes_for_hits
 
     # Handed out by the BFF, which recorded every one before it answered: what
     # the admission lets through for this turn, and what shuts its doors.
     note_cross_project_hand_out(
         (hit.collection for hit in hits),
-        restricting=any(_restricts(hit.project.status if hit.project else None, hit.collection) for hit in hits),
+        restricting=_decisions_restrict(decisions)
+        or any(_restricts(hit.project.status if hit.project else None, hit.collection) for hit in passages),
     )
     return render_grounding_block(
         GroundingBlock(

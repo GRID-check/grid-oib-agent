@@ -395,7 +395,12 @@ Gebäudeklasse, Bauweise and use), and it can search their documents (by topic,
 optionally by document type such as Detail or Gutachten, by OIB discipline,
 and by the project's period), find a project by name or address, and read a
 project's brief. While it searches, the status line says „in anderen
-Projekten". Every source from another project names that project on its chip
+Projekten". Piloti also finds what other projects **decided**: the decisions and
+constraints their project memory recorded while they ran („Stiegenhaus in
+Stahlbeton, weil das Gutachten nur so die Abweichung zuließ"). These often
+say why, which a document rarely does. They come first in the answer, cited
+as „Projektgedächtnis · ‹Projekt›". Every source from another project names
+that project on its chip
 („Detail Traufe · Wohnbau Graz"), says „Abgeschlossenes Projekt" when it is
 closed, and opens the document in that project. Piloti treats such a source as
 a precedent, not as a rule, and says when the regulations may have changed

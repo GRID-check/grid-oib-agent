@@ -103,6 +103,19 @@ ADR-0086): they go to a model, so the asker's own held uploads in that project,
 and what they review in its quarantine, stay out, although the asker's own
 listing of the project shows them.
 
+**Decisions before passages** (added 2026-10-07). The search also returns
+the searched projects' recorded decisions: their active `decision` and
+`constraint` memory items, matched by Postgres' German full-text search with
+OR semantics, at most 6 (`lib/cross-project/decisions-repository.ts`). Each
+project's items are filtered exactly as its own memory panel filters them.
+In a solo chat, a restricted item is served only when the asker is cleared,
+in that project, for every folder it came from. A shared chat gets open
+memory only. Decisions are recorded at hand-out like passages, with their
+projects and restricted folders. The agent cites each project's matching
+decisions as one source, „Projektgedächtnis (‹Projekt›)", listed before the
+passages. A decision from a running project, or from a restricted folder,
+shuts the turn's doors as such a passage does.
+
 **The catalog.** `POST /api/internal/turn-context` answers `referenceProjects`:
 up to 12 closed projects, most like the current one first, one line each with
 id, years, Bundesland, Gebäudeklasse, Bauweise, uses, kind of work, what they

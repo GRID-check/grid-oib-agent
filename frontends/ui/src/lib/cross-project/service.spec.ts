@@ -28,6 +28,11 @@ const state = vi.hoisted(() => ({
   searched: [] as Array<{ projectId: string; topK: number; snippetMaxChars?: number; forModel?: boolean }>,
   recorded: [] as Array<{ projectIds: readonly string[]; folderIds: readonly string[] }>,
   recordedFor: [] as string[],
+  /** What the decisions repository answers, and the scopes it was asked with. */
+  decisions: [] as Array<Record<string, unknown>>,
+  decisionScopes: [] as Array<{ projectId: string; readableFolderIds: readonly string[] }>,
+  /** Per project, the folders the asker may read (solo chat only). */
+  readable: new Map<string, string[]>(),
   /** Restricted collection → source folder, for the project whose folder tree is asked. */
   folders: new Map<string, string>(),
   inFlight: 0,
@@ -47,6 +52,14 @@ vi.mock('@/lib/conversations/cross-project-use', () => ({
 }))
 vi.mock('@/lib/authz/folder-access', () => ({
   getProjectFolderAccess: vi.fn(async () => ({ sourceFolderOf: (collection: string) => state.folders.get(collection) ?? null })),
+  clearanceOf: vi.fn(async () => ({ roles: ['org-gf'], seesEverything: false })),
+  readableFolderIdsFor: vi.fn(async (_org: string, projectId: string) => state.readable.get(projectId) ?? []),
+}))
+vi.mock('./decisions-repository', () => ({
+  searchProjectDecisions: vi.fn(async (_org: string, scopes: Array<{ projectId: string; readableFolderIds: readonly string[] }>) => {
+    state.decisionScopes.push(...scopes)
+    return state.decisions
+  }),
 }))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectInOrg: vi.fn(
@@ -133,6 +146,9 @@ beforeEach(() => {
   state.searched = []
   state.recorded = []
   state.recordedFor = []
+  state.decisions = []
+  state.decisionScopes = []
+  state.readable = new Map()
   state.folders = new Map()
   state.inFlight = 0
   state.peak = 0
@@ -310,6 +326,60 @@ describe('searchAcrossProjects', () => {
     const result = await searchAcrossProjects(caller(), search({ limit: 2 }))
 
     expect(result.hits.map((found) => found.filename)).toEqual(['x.pdf', 'y.pdf'])
+  })
+})
+
+describe('the decisions other projects recorded', () => {
+  const decision = (projectId: string, extra: Record<string, unknown> = {}) => ({
+    projectId,
+    kind: 'decision',
+    content: 'Stiegenhaus in Stahlbeton, weil das Gutachten nur so die Abweichung zuließ.',
+    confirmed: true,
+    updatedAt: new Date('2022-05-01T08:00:00Z'),
+    restrictedFolderIds: null,
+    ...extra,
+  })
+
+  it('come first in the answer, named by their project, and are recorded with their project and folders', async () => {
+    const [one, two] = state.reachable
+    state.decisions = [decision(one.id), decision(two.id, { kind: 'constraint', restrictedFolderIds: ['folder-vertrag'] })]
+
+    const result = await searchAcrossProjects(caller(), search({}))
+
+    expect(result.decisions).toEqual([
+      {
+        project: { id: one.id, name: 'Projekt 1', status: 'active' },
+        collection: 'proj_1',
+        kind: 'decision',
+        content: 'Stiegenhaus in Stahlbeton, weil das Gutachten nur so die Abweichung zuließ.',
+        confirmed: true,
+        recordedAt: '2022-05-01T08:00:00.000Z',
+        restricted: false,
+      },
+      expect.objectContaining({ kind: 'constraint', restricted: true }),
+    ])
+    expect(state.recorded).toEqual([{ projectIds: [one.id, two.id], folderIds: ['folder-vertrag'] }])
+  })
+
+  it('come only from the page of projects searched, never from the conversation’s own', async () => {
+    const [one, two, three] = state.reachable
+
+    await searchAcrossProjects(caller(two.id), search({}))
+
+    expect(state.decisionScopes.map((scope) => scope.projectId)).toEqual([one.id, three.id])
+  })
+
+  it('include restricted memory only in a solo chat, by the asker’s clearance in each project', async () => {
+    const [one] = state.reachable
+    state.readable.set(one.id, ['folder-vertrag'])
+
+    await searchAcrossProjects(caller(), search({}))
+    expect(state.decisionScopes.find((scope) => scope.projectId === one.id)?.readableFolderIds).toEqual(['folder-vertrag'])
+
+    state.decisionScopes = []
+    state.restrictedFolders = false
+    await searchAcrossProjects(caller(), search({}))
+    expect(state.decisionScopes.every((scope) => scope.readableFolderIds.length === 0)).toBe(true)
   })
 })
 

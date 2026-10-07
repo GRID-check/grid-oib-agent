@@ -125,6 +125,9 @@ class Run:
     #: The envelope's cards, kept so `--report` can re-check against edited expectations.
     envelope: dict | None = None
     checks: dict[str, bool] = field(default_factory=dict)
+    #: The cross-project lookups the fixture BFF served this run (`--set precedent`):
+    #: the model's own calls and the turn decision's round-0 prefetch alike.
+    lookups: list[str] = field(default_factory=list)
     answer: str = ""
     error: str = ""
 
@@ -275,6 +278,9 @@ def observe(question: dict, index: int, record: Path, log: Path) -> Run:
     run.envelope = {"kind": envelope.get("kind"), "cards": envelope.get("cards") or []} if envelope else None
     run.kind = str((envelope or {}).get("kind") or "")
     run.cited_families = sorted(set(_CITED_FAMILY.findall(run.answer)))
+    from fixture_bff import lookups_served
+
+    run.lookups = lookups_served(record.parent / "requests.jsonl", record.stem)
     if "escalated" in run.signals:
         run.kind = run.kind or "handoff"
     run.checks = check(question, run, envelope)
@@ -388,8 +394,8 @@ _CAVEAT = re.compile(
 
 
 def looked_up(run: Run) -> bool:
-    """Whether the turn called the cross-project lookup (by the tool's name, however NAT prefixed it)."""
-    return any(str(name).endswith("project_lookup") for name in run.tool_calls)
+    """Whether the turn read another project: a lookup the fixture BFF served it (round 0 included), or a model call."""
+    return bool(run.lookups) or any(str(name).endswith("project_lookup") for name in run.tool_calls)
 
 
 def precedent_checks(expect: dict, run: Run, answer: str) -> dict[str, bool]:
