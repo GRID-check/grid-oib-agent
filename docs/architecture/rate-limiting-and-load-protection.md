@@ -496,7 +496,9 @@ than an admission.
   time: `ingestWorkerMaxReplicas` x `ingestWorkerConcurrency` x
   `AIQ_VLM_BATCH_WORKERS` may not exceed twice `AIQ_VLM_FLEET_CONCURRENCY`, or
   `pulumi up` fails with the numbers (`assertVlmPeakFitsCeiling`); replicas past
-  that only queue on the pool. The budget (`vlmFleetConcurrency`,
+  that only queue on the pool. The pool itself may not exceed either limiter
+  ceiling a vision call passes (key-wide, and its model's own: 32), or it could
+  never fill. The budget (`vlmFleetConcurrency`,
   `vlmBatchWorkers`, `providerLimitCeiling`, `providerModelLimitCeiling`) is
   stack config, not image defaults.
 - **Measured.** `grid.queue.depth{queue,status}`,

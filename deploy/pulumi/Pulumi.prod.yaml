@@ -296,7 +296,7 @@ config:
 
   # max, so size that group for maxReplicas × the limits below.
   grid-oib:ingestWorkerMinReplicas: "1"
-  grid-oib:ingestWorkerMaxReplicas: "8"
+  grid-oib:ingestWorkerMaxReplicas: "5"
   grid-oib:ingestWorkerConcurrency: "3"
   grid-oib:ingestWorkerDrainSeconds: "600"
   # Chat/web replicas. Safe at >1 via conversation affinity (the frontend WS
@@ -461,14 +461,17 @@ config:
   # What the one OpenRouter key is asked to carry, written down here instead of
   # left to the backend image's defaults (these ARE those defaults). Vision calls
   # are held to vlmFleetConcurrency fleet-wide whatever the replica count, so the
-  # ingest tier's ceiling is sized against it: ingestWorkerMaxReplicas (8) x
-  # ingestWorkerConcurrency (3) x vlmBatchWorkers (4) = 96, which is 2 x 48. The
+  # ingest tier's ceiling is sized against it: ingestWorkerMaxReplicas (5) x
+  # ingestWorkerConcurrency (3) x vlmBatchWorkers (4) = 60, within 2 x 32. The
   # program refuses a stack past 2x (assertVlmPeakFitsCeiling), because replicas
-  # beyond it only queue on the pool. It was 12 replicas (144) before this: those
-  # four extra replicas could never have run a vision call the pool did not already
-  # have a slot for. To feed more, raise vlmFleetConcurrency (and the provider's own
-  # limit) first, then the replicas.
-  grid-oib:vlmFleetConcurrency: "48"
+  # beyond it only queue on the pool. It was 12 replicas (144), then 8 (96 against
+  # a pool of 48), before this: a vision call also holds a slot in its model's own
+  # pool (providerModelLimitCeiling, 32), so 48 was never reachable, and the three
+  # replicas it paid for could never have run a vision call. The program also
+  # refuses a pool above that model limit. To feed more, raise
+  # providerModelLimitCeiling and vlmFleetConcurrency together (and the provider's
+  # own limit with them) first, then the replicas.
+  grid-oib:vlmFleetConcurrency: "32"
   grid-oib:vlmBatchWorkers: "4"
   # Model calls in flight fleet-wide: all models together (the key's limit), and
   # any one model. The adaptive limiter starts at these and halves on a 429.

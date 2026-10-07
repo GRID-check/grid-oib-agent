@@ -21,7 +21,7 @@ their own namespaces.
 | `aiq-agent` (agent web tier) | **StatefulSet** | 1 (dask) / N (db, default 2) | RWO PVC `/app/data` per replica | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4; with `chatAffinity: false` a KEDA ScaledObject on running turns, `backendReplicas`→`backendMaxReplicas` (§6.4b; prod stays at 1) |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | `frontendMinReplicas`→`frontendMaxReplicas` (default 2→6; prod and dev 1→3) | — | Horizontally (CPU HPA) |
 | `agent-worker` (research, `jobExecution: db`) | Deployment + KEDA ScaledObject | `agentWorkerMinReplicas`→`agentWorkerMaxReplicas` (default 1→8; prod 1→3, dev 0→3) | — | Horizontally, on `research_job_queue` depth (§6.3) |
-| `ingest-worker` (ingestion, `jobExecution: db`) | Deployment + KEDA ScaledObject | `ingestWorkerMinReplicas`→`ingestWorkerMaxReplicas` (default 1→8; prod 1→8, dev 0→3) | — | Horizontally, on `ingest_job_queue` depth; the ceiling is held to the provider budget (§6.3b, §6.3d) |
+| `ingest-worker` (ingestion, `jobExecution: db`) | Deployment + KEDA ScaledObject | `ingestWorkerMinReplicas`→`ingestWorkerMaxReplicas` (default 1→5; prod 1→5, dev 0→3) | — | Horizontally, on `ingest_job_queue` depth; the ceiling is held to the provider budget (§6.3b, §6.3d) |
 | `bff-jobs` (the BFF's background pool: reindex, rescan, IFC, rendition, report filing; no Service, no route) | Deployment + KEDA ScaledObject | `bffJobsMinReplicas`→`bffJobsMaxReplicas` (default 1→4; prod 1→4, dev 0→2) | — | Horizontally, on `bff_job_queue` depth (§6.3c) |
 | KEDA (`keda` namespace) | Helm release, chart pinned to the release the plan's CRDs are validated against | 1 operator | — | n/a; what it may read and reach is §6.3d |
 | `purger` | Deployment | 1 | — | n/a (SKIP LOCKED-safe) |
@@ -90,7 +90,8 @@ pulumi config set --secret pgRuntimePassword "$(openssl rand -base64 32)"
 
 A fourth login, `grid_keda_scaler`, is declared the same way and is not an
 application role: it is what KEDA's `postgresql` scaler counts the queue tables
-with, SELECT on three tables and nothing else, with no `BYPASSRLS` (§6.3d). Its
+with, SELECT on the `status` column of three tables and nothing else, with no
+`BYPASSRLS` (§6.3d). Its
 password is `pgScalerPassword`, or derived from `pgAppPassword` when unset.
 
 Migration `0030` therefore only *asserts* the roles, failing with a hint rather
@@ -1061,16 +1062,17 @@ lost on restart. Now, with `jobExecution: db`:
   a minute; dev's floor is 0. Pulumi installs KEDA (`installKeda`, default on)
   and a NetworkPolicy letting it reach Postgres.
 - **The provider sees a fixed ceiling.** `AIQ_VLM_FLEET_CONCURRENCY`
-  (`vlmFleetConcurrency`, 48) vision calls in flight fleet-wide, a Dragonfly
+  (`vlmFleetConcurrency`, 32) vision calls in flight fleet-wide, a Dragonfly
   lease pool; more workers queue on it instead of multiplying 429s on the shared
-  OpenRouter key.
+  OpenRouter key. A vision call also holds a slot in its model's own limiter pool
+  (`providerModelLimitCeiling`, 32), so the fleet pool is held to that too.
 
 Sizing: at `ingestWorkerMaxReplicas` the tier asks for max × the ingest-worker
 limits; make the worker group's max hold that (below), or the extra replicas
 sit Pending and add nothing. The ceiling is also bounded from the other side:
 `ingestWorkerMaxReplicas` × `ingestWorkerConcurrency` × `vlmBatchWorkers` is the
 tier's peak of vision calls, and the program fails the deploy when that is more
-than twice `vlmFleetConcurrency` (§6.3d). Prod's 8 × 3 × 4 is exactly 96 = 2 × 48.
+than twice `vlmFleetConcurrency` (§6.3d). Prod's 5 × 3 × 4 is 60, within 2 × 32 = 64.
 
 ### 6.3c BFF background jobs — a pool of frontend-image pods on `bff_job_queue` (ADR-0078)
 
@@ -1182,9 +1184,10 @@ parts that are not about their own signal, and `keda-scaling.spec.ts` holds it.
   drains for up to its tier's budget.
 - **The scaler cannot write.** KEDA reads the queues as `grid_keda_scaler`
   (declared with the other roles on the Cluster, `data/postgres.ts`), a login with
-  nothing but `LOGIN` whose rights are SELECT on `ingest_job_queue` and
-  `research_job_queue` in `aiq_jobs` and on `bff_job_queue` in `grid_app`. That
-  last table is secured per organisation, so the role reads it through a policy of
+  nothing but `LOGIN` whose rights are SELECT on the `status` column (the one its
+  `COUNT(*) … WHERE status <> 'dead'` reads, so a leaked DSN cannot read a
+  payload) of `ingest_job_queue` and `research_job_queue` in `aiq_jobs` and of
+  `bff_job_queue` in `grid_app`. That last table is secured per organisation, so the role reads it through a policy of
   its own (`FOR SELECT TO grid_keda_scaler`), not through `BYPASSRLS`. Its password
   is `pgScalerPassword`, or an HMAC of `pgAppPassword` when unset, and its DSNs sit
   in the `grid-keda-scaler` Secret, which no pod references: rotating it restarts
@@ -1209,10 +1212,14 @@ parts that are not about their own signal, and `keda-scaling.spec.ts` holds it.
   `GRID_PROVIDER_MODEL_LIMIT_CEILING`). `assertVlmPeakFitsCeiling` fails the plan
   when `ingestWorkerMaxReplicas` × `ingestWorkerConcurrency` × `vlmBatchWorkers`
   is more than twice `vlmFleetConcurrency`, or when the vision pool is larger
-  than the key-wide limit. Replicas beyond that only wait for a slot. Prod went
-  from 12 to 8 replicas for it (144 → 96 against a pool of 48): the four it lost
-  could not have run a vision call the pool had a slot for. Raise the pool, and
-  the provider's own limit with it, before the replicas.
+  than the key-wide limit or than the vision model's own limit
+  (`providerModelLimitCeiling`: every vision call holds a slot in both pools, so
+  a pool above either never fills). Replicas beyond that only wait for a slot. Prod went
+  from 12 to 8 replicas for it (144 → 96 against a pool of 48), then to 5 (60
+  against a pool of 32) when the vision model's own pool, which the 48 never
+  cleared, was counted: the replicas it lost could not have run a vision call a
+  slot existed for. Raise the model limit and the pool together, and the
+  provider's own limit with them, before the replicas.
 - **KEDA reaches exactly its triggers' targets.** Two NetworkPolicies admit the
   KEDA **operator** pod (the metrics server and the webhooks in `keda` poll
   nothing): Postgres on 5432 when any queue tier runs, and the backend on 8000

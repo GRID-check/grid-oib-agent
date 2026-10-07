@@ -167,7 +167,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `pgBackupRetention` | `30d` | Barman retention window |
 | `pgBackupSchedule` | `0 0 2 * * *` | 6-field CNPG cron (sec min hour …) |
 | `pgBackupEncryption` | unset | Server-side encryption on the PITR archive: `AES256` or `aws:kms`, written to `barmanObjectStore.{wal,data}.encryption`. **Refused against the in-cluster SeaweedFS**, which has no SSE and would answer 200 while storing plaintext — use it only with an external S3 that documents SSE. Unset (the default) means the archive is unencrypted and `pulumi up` warns. See `docs/deployment/kubernetes.md` §7e |
-| 🔒 `pgScalerPassword` | derived from `pgAppPassword` | Password of `grid_keda_scaler`, the read-only login KEDA's `postgresql` scaler counts the queue tables with (SELECT on `ingest_job_queue`, `research_job_queue`, `bff_job_queue` and nothing else). Optional: unset, it is an HMAC of `pgAppPassword`, so it is never the owner's password and needs no new secret to deploy. Set it to rotate the scaler's credential alone; it lives in the `grid-keda-scaler` Secret, which no pod reads, so a rotation restarts nothing |
+| 🔒 `pgScalerPassword` | derived from `pgAppPassword` | Password of `grid_keda_scaler`, the read-only login KEDA's `postgresql` scaler counts the queue tables with (SELECT on the `status` column of `ingest_job_queue`, `research_job_queue` and `bff_job_queue`, and nothing else). Optional: unset, it is an HMAC of `pgAppPassword`, so it is never the owner's password and needs no new secret to deploy. Set it to rotate the scaler's credential alone; it lives in the `grid-keda-scaler` Secret, which no pod reads, so a rotation restarts nothing |
 | **Dragonfly (cache)** | | |
 | `dragonflyMaxmemory` | `512mb` | Dataset cap (cache evicts above it) |
 | `dragonflyMemoryLimit` | `768Mi` | Pod memory limit; must exceed maxmemory |
@@ -227,13 +227,13 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `agentWorkerConcurrency` | `1` | Jobs per worker process; KEDA asks for one replica per this many open jobs |
 | `agentWorkerDrainSeconds` | `600` | Seconds a terminating worker may spend finishing already-claimed research jobs (`GRID_RESEARCH_WORKER_DRAIN_SECONDS`); the grace period is this plus 30 s. A job still running when it ends is requeued without costing an attempt and started over by another worker, so the budget decides how much work a deploy repeats. Costs deploy latency — workers roll one at a time. Floor 30 |
 | **Ingestion tier, BFF pool and KEDA** (ADR-0076, ADR-0078) | | |
-| `ingestWorkerMinReplicas` / `ingestWorkerMaxReplicas` | 1 / 8 | KEDA bounds for the ingest tier, which scales on `ingest_job_queue` depth. The ceiling is held to the provider budget below: the deploy fails when it is more than 2x `vlmFleetConcurrency` |
+| `ingestWorkerMinReplicas` / `ingestWorkerMaxReplicas` | 1 / 5 | KEDA bounds for the ingest tier, which scales on `ingest_job_queue` depth. The ceiling is held to the provider budget below: the deploy fails when it is more than 2x `vlmFleetConcurrency` |
 | `ingestWorkerConcurrency` / `ingestWorkerDrainSeconds` | 3 / 600 | Jobs per worker (also KEDA's jobs-per-replica target) / SIGTERM budget; the grace period is the drain plus 30 s |
 | `bffJobsMinReplicas` / `bffJobsMaxReplicas` | 1 / 4 | KEDA bounds for the `bff-jobs` pool, which scales on `bff_job_queue` depth |
 | `bffJobsConcurrency` / `bffJobsDrainSeconds` | 2 / 60 | Jobs per pod (also KEDA's target) / SIGTERM budget; the grace period is the drain plus 30 s |
 | `installKeda` | `true` | Install KEDA (chart pinned in `src/platform/keda.ts`, the release the plan's CRDs are validated against). `false` when the cluster already runs one, which must then be the same release |
 | **Provider budget** (ADR-0076, ADR-0080) | | |
-| `vlmFleetConcurrency` | `48` | `AIQ_VLM_FLEET_CONCURRENCY`: vision calls in flight across every ingest process at once (0 = off) |
+| `vlmFleetConcurrency` | `32` | `AIQ_VLM_FLEET_CONCURRENCY`: vision calls in flight across every ingest process at once (0 = off). Held to `providerModelLimitCeiling` and `providerLimitCeiling`: a vision call holds a slot in both pools, so a larger pool never fills |
 | `vlmBatchWorkers` | `4` | `AIQ_VLM_BATCH_WORKERS`: vision calls one file runs at once. With the ingest tier's replicas and concurrency it sets the peak that `vlmFleetConcurrency` is checked against |
 | `providerLimitCeiling` / `providerModelLimitCeiling` | 128 / 32 | `GRID_PROVIDER_LIMIT_CEILING` / `GRID_PROVIDER_MODEL_LIMIT_CEILING`: model calls in flight fleet-wide, all models together and any one model; where the adaptive limiter starts and what it recovers to |
 | **Frontend** | | |
