@@ -88,7 +88,7 @@ describe('QuarantineQueue', () => {
     await waitFor(() =>
       expect(within(screen.getByTestId('quarantine-row-doc-1')).getByText(/Project Wohnbau Nord/)).toBeInTheDocument()
     )
-    expect(within(screen.getByTestId('quarantine-row-doc-2')).getByText(/Archiv/)).toBeInTheDocument()
+    expect(within(screen.getByTestId('quarantine-row-doc-2')).getByText(/Office filing/)).toBeInTheDocument()
     expect(within(screen.getByTestId('quarantine-row-doc-3')).getByText(/Chat attachment/)).toBeInTheDocument()
   })
 
