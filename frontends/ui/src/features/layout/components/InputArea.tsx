@@ -170,7 +170,7 @@ function mentionRefusalMessage(
       return name
         ? tCollab('sharing.errors.restrictedContent', { name })
         : tCollab('sharing.errors.restrictedContentSomeone')
-    // Likewise a solo chat that drew on another project (ADR-0082).
+    // Likewise a solo chat that drew on another project (ADR-0085).
     case SHARING_ERROR_REASONS.crossProjectContent:
       return name
         ? tCollab('sharing.errors.crossProjectContent', { name })
@@ -471,7 +471,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // File upload hook - provides session files and handles validation internally.
   // Attachments go through `/api/session/documents` (type gate, quota, a row).
   const chatProjectId = useChatStore((state) => state.projectId)
-  // The other projects this chat's answers drew on (ADR-0082), for the notice.
+  // The other projects this chat's answers drew on (ADR-0085), for the notice.
   const otherProjects = useChatStore(useShallow((state) => otherProjectsOf(state.currentConversation?.messages ?? [])))
   const {
     uploadFiles,
@@ -1775,7 +1775,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             {/* „Sensible Daten" (ADR-0079): what the screen found in the message
             that was not sent, and the only two ways on. Under the textarea, which
             still holds the text as typed. */}
-            {/* A chat that drew on another project (ADR-0082): which, and what that
+            {/* A chat that drew on another project (ADR-0085): which, and what that
             closes, where the reader is about to share or ask for more. */}
             {otherProjects.length > 0 && !screeningHold && <OtherProjectsNotice projects={otherProjects} />}
 

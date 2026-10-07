@@ -54,7 +54,7 @@ const state = vi.hoisted(() => ({
   written: [] as string[][],
   members: new Map<string, FolderClearance>(),
   tree: [] as AccessFolder[],
-  /** Another project's folder tree, by project id (ADR-0082); every other project reads `tree`. */
+  /** Another project's folder tree, by project id (ADR-0085); every other project reads `tree`. */
   trees: new Map<string, AccessFolder[]>(),
   /** Which project a folder of another project belongs to. */
   folderOwners: new Map<string, string>(),
@@ -106,7 +106,10 @@ vi.mock('@/lib/authz/folder-access-repository', () => ({
   listProjectFolderTree: vi.fn(async (_org: string, projectId: string) => state.trees.get(projectId) ?? state.tree),
   projectHasCustomOrBinnedFolders: vi.fn(async () => state.tree.some((folder) => folder.accessMode === 'custom')),
 }))
-vi.mock('@/lib/projects/repository', () => ({ findProjectCollectionName: vi.fn(async () => COLLECTION) }))
+vi.mock('@/lib/projects/repository', () => ({
+  findProjectCollectionName: vi.fn(async () => COLLECTION),
+  findProjectTenancy: vi.fn(async () => ({ organizationId: 'org_1', deletedAt: null, status: 'active' })),
+}))
 vi.mock('@/lib/sharing/directory', () => ({
   loadOrganizationDirectory: vi.fn(async () => new Map([['user_ina', { userId: 'user_ina', email: null, name: 'Ina', profilePictureUrl: null }]])),
 }))
@@ -498,7 +501,7 @@ describe('lockedConversationIds: which of a list the session may no longer read 
   })
 })
 
-describe('a solo chat that drew on another project (ADR-0082)', () => {
+describe('a solo chat that drew on another project (ADR-0085)', () => {
   const OTHER = 'project_2'
   /** „Honorare" in the other project: Geschäftsführung only. */
   const HONORARE_ID = 'aaaa0000-0000-4000-8000-0000000000aa'
@@ -612,7 +615,7 @@ describe('a solo chat that drew on another project (ADR-0082)', () => {
   })
 })
 
-describe('the cost of asking who may open the recorded projects (ADR-0082)', () => {
+describe('the cost of asking who may open the recorded projects (ADR-0085)', () => {
   it('stops asking about a person at their first project they may not open', async () => {
     state.projects = ['project_a', 'project_b', 'project_c']
     state.opens = new Set([`${OWNER}:project_a`, `${OWNER}:project_b`, `${OWNER}:project_c`])

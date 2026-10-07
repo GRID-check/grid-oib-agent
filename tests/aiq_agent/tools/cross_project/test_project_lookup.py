@@ -1,4 +1,4 @@
-"""``project_lookup`` (ADR-0082): what it sends, what it renders, what it admits.
+"""``project_lookup`` (ADR-0085): what it sends, what it renders, what it admits.
 
 The HTTP call is the only thing faked. The tool, the grounding renderer, the
 citation readers and the admission are the real ones, because what is under
@@ -294,7 +294,7 @@ class TestFindAndBrief:
 
 
 class TestTheWire:
-    """What the browser is told about a source from another project (ADR-0082)."""
+    """What the browser is told about a source from another project (ADR-0085)."""
 
     def _entry(self):
         from aiq_agent.common.citation_verification import SourceEntry

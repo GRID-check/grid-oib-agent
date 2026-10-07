@@ -1,4 +1,4 @@
--- Reverse 0120. ORDER: roll the frontend back first; the newer build writes and
+-- Reverse 0116. ORDER: roll the frontend back first; the newer build writes and
 -- reads `conversation_source_projects`.
 --
 -- In the safe direction: a conversation that drew on another project must not

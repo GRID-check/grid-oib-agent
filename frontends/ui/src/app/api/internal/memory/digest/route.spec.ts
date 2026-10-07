@@ -276,7 +276,7 @@ describe('restricted memory in the per-turn digest', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(clearanceOfMember).toHaveBeenCalledWith(ORG_ID, 'user_gf')
+    expect(clearanceOfMember).toHaveBeenCalledWith(ORG_ID, 'user_gf', PROJECT_ID)
     expect(options().readableFolderIds).toEqual(['folder-open', 'folder-secret'])
     expect(admitSourceFolders).toHaveBeenCalledWith(
       { organizationId: ORG_ID, conversationId: 's_conv_1', userId: 'user_gf', projectId: PROJECT_ID },

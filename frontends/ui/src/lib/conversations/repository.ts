@@ -575,7 +575,7 @@ export async function listRecentMessagesWithCardDecisions(
         // proposals to itself: the block is read into every member's digest,
         // and a card's words can carry what a restricted folder said.
         sql`not exists (select 1 from ${conversationRestrictedFolders} r where r.organization_id = ${conversations.organizationId} and r.conversation_id = ${conversations.id})`,
-        // Nor does one that drew on another project (ADR-0082): its cards can
+        // Nor does one that drew on another project (ADR-0085): its cards can
         // restate what that project's documents said.
         sql`not exists (select 1 from ${conversationSourceProjects} p where p.organization_id = ${conversations.organizationId} and p.conversation_id = ${conversations.id})`,
       ),

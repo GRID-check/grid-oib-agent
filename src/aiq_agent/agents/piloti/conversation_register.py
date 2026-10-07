@@ -491,7 +491,7 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
         # turn, None included, so one turn never runs on the last one's answer;
         # the scope read below and every read path after it keep only these.
         bind_restricted_use(await begin_restricted_use(request, conversation_id))
-        # What the conversation drew on from OTHER projects (ADR-0082): a fresh
+        # What the conversation drew on from OTHER projects (ADR-0085): a fresh
         # object every turn, filled from the turn context and by the lookups.
         bind_cross_project_turn(CrossProjectTurn())
         header_scope = get_scoped_collections_from_context()

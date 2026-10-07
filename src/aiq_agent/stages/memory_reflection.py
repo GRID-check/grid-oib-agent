@@ -173,7 +173,7 @@ async def _handler(ctx: StageContext) -> dict[str, Any] | None:
 
     facts = ctx.facts
     if facts.drew_on_other_projects:
-        # ADR-0082: nothing from a conversation that drew on another project is
+        # ADR-0085: nothing from a conversation that drew on another project is
         # remembered (the BFF refuses the write too), so the model call is saved.
         return None
     recorded = await run_memory_reflection(

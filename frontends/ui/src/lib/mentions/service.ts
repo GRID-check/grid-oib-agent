@@ -395,7 +395,7 @@ async function inviteMentionTarget(
     }
     // Not cleared for a restricted folder the thread drew on (ADR-0080): the
     // same refusal, told about the person it names, as the container one is.
-    // Likewise a thread that drew on another project the person may not open (ADR-0082).
+    // Likewise a thread that drew on another project the person may not open (ADR-0085).
     const namesPerson =
       reason === SHARING_ERROR_REASONS.restrictedContent || reason === SHARING_ERROR_REASONS.crossProjectContent
     if (namesPerson && error instanceof ApiError) {

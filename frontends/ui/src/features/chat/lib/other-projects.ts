@@ -1,5 +1,5 @@
 /**
- * Which OTHER projects a chat's answers drew on (ADR-0082): the projects named
+ * Which OTHER projects a chat's answers drew on (ADR-0085): the projects named
  * by the sources of its messages. What the cross-project notice lists, so the
  * reader sees the chat left its project before it tries to share it.
  *

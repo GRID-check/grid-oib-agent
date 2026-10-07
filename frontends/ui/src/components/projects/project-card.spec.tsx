@@ -89,7 +89,13 @@ describe('ProjectCard', () => {
 })
 
 describe('getProjectStatus', () => {
-  test('is honest about the data: every non-deleted project is active (no fake "Done")', () => {
-    expect(getProjectStatus({ deletedAt: null })).toBe('active')
+  test('reads the stored status (ADR-0082): active, or closed', () => {
+    expect(getProjectStatus({ status: 'active' })).toBe('active')
+    expect(getProjectStatus({ status: 'closed' })).toBe('closed')
+  })
+
+  test('a closed project card says so', () => {
+    render(<ProjectCard project={createProject({ status: 'closed', closedAt: new Date(), closedBy: 'u' })} docCount={0} />)
+    expect(screen.getByText('Closed')).toBeInTheDocument()
   })
 })

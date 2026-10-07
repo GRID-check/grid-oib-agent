@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * A solo chat's use of OTHER projects (ADR-0082, migration 0120) against a REAL
+ * A solo chat's use of OTHER projects (ADR-0085, migration 0116) against a REAL
  * Postgres, through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -80,7 +80,7 @@ describe('the cross-project suite is not silently skipped in CI', () => {
   })
 })
 
-describe.skipIf(!url)('cross-project use against Postgres (migration 0120)', () => {
+describe.skipIf(!url)('cross-project use against Postgres (migration 0116)', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess

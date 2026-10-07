@@ -69,6 +69,8 @@ function restrictionTitle(item: MemoryItem, t: Translator): string {
 
 interface ProjectMemoryPanelProps {
   projectId: string
+  /** A closed project's memory is read-only (ADR-0082): no add, edit, pin or remove. */
+  readOnly?: boolean
 }
 
 const KNOWN_VERIFICATIONS = ['unverified', 'source_grounded', 'user_confirmed']
@@ -117,7 +119,10 @@ async function requestJson<T>(url: string, init?: RequestInit, t?: Translator): 
   return (await res.json()) as T
 }
 
-export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.Element {
+export function ProjectMemoryPanel({
+  projectId,
+  readOnly = false,
+}: ProjectMemoryPanelProps): JSX.Element {
   const t = useTranslations('projects')
   const { locale } = useLocale()
   const [items, setItems] = useState<MemoryItem[] | null>(null)
@@ -302,17 +307,19 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
           <h2 className="text-foreground text-sm font-semibold">{t('memory.heading')}</h2>
           <p className="text-muted-foreground mt-1 text-sm">{t('memory.description')}</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setAdding(true)}
-          className={adding ? 'pointer-events-none invisible' : undefined}
-          tabIndex={adding ? -1 : undefined}
-          aria-hidden={adding || undefined}
-        >
-          <Plus className="size-4" aria-hidden />
-          {t('memory.addMemory')}
-        </Button>
+        {!readOnly && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAdding(true)}
+            className={adding ? 'pointer-events-none invisible' : undefined}
+            tabIndex={adding ? -1 : undefined}
+            aria-hidden={adding || undefined}
+          >
+            <Plus className="size-4" aria-hidden />
+            {t('memory.addMemory')}
+          </Button>
+        )}
       </div>
 
       {adding && (
@@ -511,7 +518,9 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                               {t('memory.restricted.badge')}
                             </Badge>
                           )}
-                          {item.sourceDeletedAt && <SourceDeletedNote at={item.sourceDeletedAt} className="mt-1" />}
+                          {item.sourceDeletedAt && (
+                            <SourceDeletedNote at={item.sourceDeletedAt} className="mt-1" />
+                          )}
                           {item.conflictsWithId && (
                             <Badge
                               variant="outline"
@@ -542,7 +551,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                       )}
                     </ItemContent>
 
-                    {!isEditing && (
+                    {!isEditing && !readOnly && (
                       <ItemActions className="duration-quick pointer-coarse:opacity-100 gap-1 opacity-0 transition-opacity ease-out focus-within:opacity-100 group-hover:opacity-100 motion-reduce:opacity-100 motion-reduce:transition-none">
                         <Button
                           variant="ghost"

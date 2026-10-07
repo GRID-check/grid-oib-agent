@@ -103,7 +103,7 @@ export const SHARING_ERROR_REASONS = {
   restrictedContentProject: 'restricted-content-project',
   /**
    * The person being let in may not open every other project the conversation
-   * drew on through a cross-project lookup (ADR-0082). `details.person` names
+   * drew on through a cross-project lookup (ADR-0085). `details.person` names
    * them; the projects are never named.
    */
   crossProjectContent: 'cross-project-content',

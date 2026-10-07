@@ -143,7 +143,7 @@ describe('/api/v1/[...path]', () => {
         projectCollectionName: undefined,
       })
       mockDbProjectLookup([{ id: 'proj-1' }])
-      mockRequireProjectAccess.mockResolvedValue({ role: 'project-editor' })
+      mockRequireProjectAccess.mockResolvedValue({ role: 'project-editor', closed: false, readsBecauseClosed: false })
       const fetchMock = mockFetch()
 
       const req = new Request('http://localhost:3000/api/v1/collections', {

@@ -1,6 +1,6 @@
 /**
  * INTERNAL — search documents across the projects the asker may open, from a
- * solo chat (ADR-0082). The agent's `search_projects` tool is the caller.
+ * solo chat (ADR-0085). The agent's `search_projects` tool is the caller.
  *
  * The acting person is the one the turn's signed envelope names, as a pinned
  * session (ADR-0054 §4): the tool echoes the envelope, never signs one. Scope,

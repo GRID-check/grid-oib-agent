@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * The record a cross-project lookup writes before it answers (ADR-0082), with
+ * The record a cross-project lookup writes before it answers (ADR-0085), with
  * the store mocked: the solo rule, read under the lock; the projects and
  * restricted folders recorded in one transaction; nothing recorded and a typed
  * refusal once the chat is not the asker's alone. And the memory writer's

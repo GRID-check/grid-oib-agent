@@ -1,6 +1,6 @@
 /**
  * What the composer says once a chat's answers drew on another project
- * (ADR-0082): which projects, and what that closes. The chat stays with the
+ * (ADR-0085): which projects, and what that closes. The chat stays with the
  * people who may open them, and nothing from it reaches what the whole project
  * reads (memory, tasks, deep research, filing). Said here, at the place the
  * reader is about to act, rather than first in a refused share.

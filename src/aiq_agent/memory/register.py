@@ -67,7 +67,7 @@ _ORG_DISABLED_RESULT = (
     "deployment; the finding was NOT saved. Tell the user that firm-wide rules "
     "currently have to be added by hand in the organization memory panel. Do not retry."
 )
-#: A conversation that drew on another project (ADR-0082) remembers nothing:
+#: A conversation that drew on another project (ADR-0085) remembers nothing:
 #: project and organization memory are read by people who may not open it.
 _CROSS_PROJECT_RESULT = (
     "Nicht gespeichert: Diese Unterhaltung stützt sich auf andere Projekte, deshalb wird nichts aus ihr "
@@ -364,7 +364,7 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
         content = content[: tool_config.max_content_chars]
         supersedes = supersedes.strip()
         if drew_on_other_projects():
-            # ADR-0082; the BFF refuses the write too.
+            # ADR-0085; the BFF refuses the write too.
             return _CROSS_PROJECT_RESULT
 
         project_id = project_context.get_project_id_from_context()

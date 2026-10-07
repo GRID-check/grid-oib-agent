@@ -148,7 +148,7 @@ describe('requireMayFileFrom — only where every reader is cleared for what the
   })
 })
 
-describe('a conversation that drew on another project (ADR-0082)', () => {
+describe('a conversation that drew on another project (ADR-0085)', () => {
   const origin = { conversationId: CONV, locale: 'de' as const }
 
   beforeEach(() => {

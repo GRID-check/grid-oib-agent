@@ -79,6 +79,8 @@ import { askAboutFile } from '../lib/ask-about-file'
 import { DiscussDocumentButton } from './discuss-document-button'
 import { dropFileSubject } from '../lib/open-file-peek'
 import { useFilePreviewStore } from '../stores/file-preview-store'
+import { useCurrentProject } from '@/features/projects/lib/current-project'
+import { ProjectClosedChip } from '@/components/projects/project-status'
 
 interface FilePreviewPaneProps {
   file: FileItem
@@ -216,6 +218,13 @@ export function FilePreviewPane({
   onAssigneesChanged,
 }: FilePreviewPaneProps) {
   const t = useTranslations('files')
+  // The project this pane sits in, when it is closed and the file is one of its
+  // own (not an Archiv file, not another project's): the chip under the name.
+  const currentProject = useCurrentProject()
+  const closedProjectName =
+    currentProject?.status === 'closed' && scope !== 'archiv' && (projectId ?? currentProject.id) === currentProject.id
+      ? (projectName ?? currentProject.name)
+      : null
   const { locale } = useLocale()
   /**
    * „Von Piloti indexiert" is a claim, and on a report Piloti WROTE it is a
@@ -681,6 +690,11 @@ export function FilePreviewPane({
                 className="shrink-0"
                 testId="file-preview-lifecycle-badge"
               />
+              {/* A file of a closed project says which project, and that it is
+                  closed (ADR-0082), wherever it is previewed. */}
+              {closedProjectName !== null && (
+                <ProjectClosedChip projectName={closedProjectName} className="shrink-0" />
+              )}
               {/* The well shows a PDF made from this file, not the file. Said
                 once, calmly, next to the name, so nobody mistakes the rendition's
                 pagination or fonts for the original's; Download beside it still

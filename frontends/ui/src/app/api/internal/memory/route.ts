@@ -132,7 +132,7 @@ export const POST = internalApiRoute(
           }
         }
 
-        // Nothing found in another project may be remembered (ADR-0082): the
+        // Nothing found in another project may be remembered (ADR-0085): the
         // conversation's cross-project record refuses before anything is written.
         const tenant = organizationId ?? (projectId ? (await findProjectTenancy(projectId))?.organizationId : null)
         await requireMayRememberFrom(sourceConversationId, tenant)

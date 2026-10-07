@@ -1,5 +1,5 @@
 /**
- * A source from another project (ADR-0082) keeps naming that project from the
+ * A source from another project (ADR-0085) keeps naming that project from the
  * wire to the stored message, the document model, the chip and the notice: the
  * reader sees where a passage came from, and the preview opens it in that
  * project rather than in the chat's own.

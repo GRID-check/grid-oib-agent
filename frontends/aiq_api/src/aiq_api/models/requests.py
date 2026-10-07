@@ -170,7 +170,7 @@ class DocumentSearchRequest(BaseModel):
         le=1500,
         description=(
             "Max characters kept from each document's best-matching chunk. 300 for a hit list a person scans; "
-            "the cross-project lookups (ADR-0082) ask for more, because their snippet is the evidence the agent "
+            "the cross-project lookups (ADR-0085) ask for more, because their snippet is the evidence the agent "
             "answers from and cites: it cannot open another project's document further."
         ),
     )

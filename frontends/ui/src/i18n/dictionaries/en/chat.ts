@@ -1207,7 +1207,7 @@ export const chat = {
    * Sensitive data in chat (ADR-0079): what the composer reports before sending.
    * The placeholders themselves are domain data and come from `content-screen.ts`.
    */
-  /** The notice once a chat's answers drew on another project (ADR-0082). */
+  /** The notice once a chat's answers drew on another project (ADR-0085). */
   otherProjects: {
     title: 'This chat draws on other projects: {projects}.',
     closed: '{name} (closed)',

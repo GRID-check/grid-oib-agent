@@ -16,6 +16,8 @@ const DATA: ProjectOverviewData = {
   id: 'proj-demo',
   name: 'Wohnbau Mariahilf',
   collectionName: 'proj_demo',
+  status: 'active',
+  closedAt: null,
   createdAt: '2026-03-01T09:00:00Z',
   profileDisplay: {
     summary:

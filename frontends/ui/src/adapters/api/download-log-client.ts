@@ -12,6 +12,7 @@
 import { z } from 'zod'
 import { DOWNLOAD_LOG_KINDS, DOWNLOAD_LOG_SCOPES } from '@/lib/download-log/kinds'
 import { ApiRequestError } from './api-error'
+import { PROJECT_STATUSES } from '@/lib/projects/project-status'
 
 const EntrySchema = z.object({
   id: z.string(),
@@ -23,6 +24,8 @@ const EntrySchema = z.object({
   scope: z.enum(DOWNLOAD_LOG_SCOPES),
   projectId: z.string().nullable(),
   projectName: z.string().nullable(),
+  // Optional for a response from a build before ADR-0082.
+  projectStatus: z.enum(PROJECT_STATUSES).nullable().optional(),
   documentId: z.string(),
   documentName: z.string(),
   versionId: z.string().nullable(),

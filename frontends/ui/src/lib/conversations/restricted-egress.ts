@@ -71,7 +71,7 @@ async function originFolders(origin: ConversationOrigin, organizationId: string)
 
 /**
  * The other projects the origin's conversation drew on through a cross-project
- * lookup (ADR-0082); none without a conversation. Every one counts: a door a
+ * lookup (ADR-0085); none without a conversation. Every one counts: a door a
  * whole project reads cannot enumerate whether each of its readers may open
  * them, so content from another project leaves by none of these doors.
  */
@@ -124,7 +124,7 @@ export interface FilingDestination {
  */
 export async function requireMayFileFrom(origin: ConversationOrigin, destination: FilingDestination): Promise<void> {
   const { organizationId, projectId, folderId } = destination
-  // No folder of this project is narrow enough for another project's content (ADR-0082).
+  // No folder of this project is narrow enough for another project's content (ADR-0085).
   if ((await originProjects(origin, organizationId)).length > 0) throw confinementRefusal('filing', origin.locale)
   const required = await originFolders(origin, organizationId)
   if (required.length === 0) return

@@ -150,7 +150,7 @@ export async function deleteRecordedSourceFolders(
  */
 export const RECORDED_PROJECTS_LIMIT = 200
 
-/** The other projects this conversation drew on (ADR-0082, migration 0120), sorted. */
+/** The other projects this conversation drew on (ADR-0085, migration 0116), sorted. */
 export async function listRecordedSourceProjects(
   executor: DbExecutor,
   organizationId: string,
@@ -223,7 +223,7 @@ export async function recordSourceProjects(
 /**
  * The project each of these folders belongs to, for the folders of this
  * organization that belong to one (an Archiv folder has none). How a record
- * that names a folder of ANOTHER project (ADR-0082) finds the tree that judges
+ * that names a folder of ANOTHER project (ADR-0085) finds the tree that judges
  * it; a folder id not found stays unknown, which is a folder nobody may read.
  */
 export async function projectsOfFolders(

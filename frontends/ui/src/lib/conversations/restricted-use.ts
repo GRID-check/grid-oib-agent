@@ -41,6 +41,7 @@ import 'server-only'
 import { ConflictError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import {
+  ANY_MEMBER,
   atLeast,
   clearanceOf,
   clearanceOfMember,
@@ -132,29 +133,64 @@ async function treeOf(organizationId: string, project: ProjectRef): Promise<Fold
 }
 
 /**
- * The folder tree that judges a record: the conversation's own project's, plus
- * that of every project a recorded folder belongs to that it does not hold. A
- * cross-project lookup (ADR-0082) records folders of OTHER projects, and a
- * conversation with no project has no tree of its own; without this, such a
- * folder would read as unknown and lock the conversation for everyone, its
- * creator included. Folder ids are unique across projects, so the trees merge
- * into one map. A folder no project holds stays unknown: nobody reads it.
+ * What judges a record: one folder tree holding the conversation's own
+ * project's folders and those of every project a recorded folder belongs to
+ * (a cross-project lookup, ADR-0085, records folders of OTHER projects, and a
+ * conversation with no project has no tree of its own), and which project owns
+ * each folder. Folder ids are unique across projects, so the trees merge into
+ * one map. The owner matters because a clearance is one project's (ADR-0082:
+ * someone who reads a closed project only because it is closed clears
+ * less there), so a folder is judged with the reader's clearance IN ITS OWN
+ * project. A folder no project owns stays unknown: nobody reads it.
  */
-async function treeForRecord(
+interface RecordView {
+  tree: FolderTree
+  /** Folder id → the project that owns it. */
+  ownerOf: ReadonlyMap<string, string>
+}
+
+async function recordView(
   organizationId: string,
   projectId: string | null,
   folderIds: readonly string[]
-): Promise<FolderTree> {
+): Promise<RecordView> {
   const merged = new Map<string, AccessFolder>()
-  if (projectId) for (const folder of await listProjectFolderTree(organizationId, projectId)) merged.set(folder.id, folder)
+  const ownerOf = new Map<string, string>()
+  const load = async (owner: string) => {
+    for (const folder of await listProjectFolderTree(organizationId, owner)) {
+      merged.set(folder.id, folder)
+      ownerOf.set(folder.id, owner)
+    }
+  }
+  if (projectId) await load(projectId)
   const missing = folderIds.filter((folderId) => !merged.has(folderId))
-  if (missing.length === 0) return merged
+  if (missing.length === 0) return { tree: merged, ownerOf }
   const owners = new Set((await projectsOfFolders(getDb(), organizationId, missing)).values())
   owners.delete(projectId ?? '')
-  for (const owner of owners) {
-    for (const folder of await listProjectFolderTree(organizationId, owner)) merged.set(folder.id, folder)
-  }
-  return merged
+  for (const owner of owners) await load(owner)
+  return { tree: merged, ownerOf }
+}
+
+/** The projects that own `folderIds` in this view; a folder no project owns is left out (nobody reads it). */
+function ownersOf(view: RecordView, folderIds: readonly string[]): string[] {
+  return [...new Set(folderIds.map((folderId) => view.ownerOf.get(folderId)).filter((owner): owner is string => !!owner))]
+}
+
+/**
+ * Whether every one of `folderIds` may be read with the clearance its own
+ * project gives (`clearanceIn`). A folder no project owns, or a project with
+ * no clearance known, reads as not readable.
+ */
+function mayReadEvery(
+  view: RecordView,
+  clearanceIn: (projectId: string) => FolderClearance | undefined,
+  folderIds: readonly string[]
+): boolean {
+  return folderIds.every((folderId) => {
+    const owner = view.ownerOf.get(folderId)
+    const clearance = owner ? clearanceIn(owner) : undefined
+    return clearance !== undefined && mayReadFolder(view.tree, clearance, folderId)
+  })
 }
 
 /** How many people one question about a conversation's readers asks about projects at the same time. */
@@ -162,7 +198,7 @@ const PROJECT_CHECK_CONCURRENCY = 20
 
 /**
  * The people among `people` who may open every one of `projectIds` now: the
- * question a cross-project record (ADR-0082) puts to everyone who would read
+ * question a cross-project record (ADR-0085) puts to everyone who would read
  * the conversation. Asked of WorkOS the way an invitation asks
  * (`userHoldsProjectPermission`, `project:view`, the admin bypass mirrored),
  * failing closed. Per person the projects are asked one after another and the
@@ -223,6 +259,7 @@ const CLEARANCE_CONCURRENCY = 20
  */
 async function clearancesOf(
   organizationId: string,
+  projectId: string | null,
   people: readonly string[],
   known: ReadonlyMap<string, FolderClearance> = new Map()
 ): Promise<Map<string, FolderClearance>> {
@@ -230,7 +267,8 @@ async function clearancesOf(
   for (let start = 0; start < people.length; start += CLEARANCE_CONCURRENCY) {
     const chunk = people.slice(start, start + CLEARANCE_CONCURRENCY)
     const found = await Promise.all(
-      chunk.map((person) => known.get(person) ?? clearanceOfMember(organizationId, person))
+      // No project: no folder is known, so no clearance could read one.
+      chunk.map((person) => known.get(person) ?? (projectId ? clearanceOfMember(organizationId, person, projectId) : ANY_MEMBER))
     )
     chunk.forEach((person, index) => clearances.set(person, found[index]))
   }
@@ -258,22 +296,17 @@ export async function recordedRestrictedFolders(conversationId: string, organiza
   const audience = await readConversationAudience(getDb(), organizationId, conversationId)
   // A folder no project holds any more (or a record whose conversation never
   // got its row and names no other project) stays: unknown counts as restricting.
-  return stillRestricting(await treeForRecord(organizationId, audience.projectId, recorded), recorded)
+  return stillRestricting((await recordView(organizationId, audience.projectId, recorded)).tree, recorded)
 }
 
 /**
  * The other projects this conversation drew on through a cross-project lookup
- * (ADR-0082), sorted. Every one counts, whoever may open it now: the doors a
+ * (ADR-0085), sorted. Every one counts, whoever may open it now: the doors a
  * whole project reads (`restricted-egress.ts`) cannot enumerate their readers,
  * so none of them may carry another project's content.
  */
 export async function recordedSourceProjects(conversationId: string, organizationId: string): Promise<string[]> {
   return listRecordedSourceProjects(getDb(), organizationId, conversationId)
-}
-
-/** Whether `clearance` may read every one of `folderIds` now. */
-function mayReadAll(tree: FolderTree, clearance: FolderClearance, folderIds: readonly string[]): boolean {
-  return folderIds.every((folderId) => mayReadFolder(tree, clearance, folderId))
 }
 
 /**
@@ -301,7 +334,9 @@ export async function peopleWhoMayRead(
   organizationId: string,
   conversationId: string,
   userIds: readonly string[],
-  known: ReadonlyMap<string, FolderClearance> = new Map()
+  known: ReadonlyMap<string, FolderClearance> = new Map(),
+  /** The session asking, whose clearance is read from it rather than from WorkOS. */
+  asker?: AuthorizedSession
 ): Promise<Set<string>> {
   const [recorded, projects] = await Promise.all([
     listRecordedSourceFolders(getDb(), organizationId, conversationId),
@@ -309,19 +344,26 @@ export async function peopleWhoMayRead(
   ])
   if (recorded.length === 0 && projects.length === 0) return new Set(userIds)
   const audience = await readConversationAudience(getDb(), organizationId, conversationId)
-  const tree = await treeForRecord(organizationId, audience.projectId, recorded)
-  const restricting = stillRestricting(tree, recorded)
+  const view = await recordView(organizationId, audience.projectId, recorded)
+  const restricting = stillRestricting(view.tree, recorded)
   if (restricting.length === 0 && projects.length === 0) return new Set(userIds)
   const asked = [...new Set(userIds)].slice(0, READERS_MAX_PEOPLE)
-  // A cross-project record (ADR-0082): only people who may open every project it names.
+  // A cross-project record (ADR-0085): only people who may open every project it names.
   const opening = await peopleWhoMayOpen(organizationId, asked, projects)
   if (restricting.length === 0) return opening
-  const clearances = await clearancesOf(organizationId, asked, known)
+  // Each folder is judged with each person's clearance in the folder's own project.
+  const clearancesByProject = new Map<string, Map<string, FolderClearance>>()
+  for (const owner of ownersOf(view, restricting)) {
+    const knownHere = new Map(owner === audience.projectId ? known : [])
+    if (asker) knownHere.set(asker.userId, await clearanceOf(asker, owner))
+    clearancesByProject.set(owner, await clearancesOf(organizationId, owner, asked, knownHere))
+  }
   return new Set(
-    asked.filter((person) => {
-      const clearance = clearances.get(person)
-      return opening.has(person) && clearance !== undefined && mayReadAll(tree, clearance, restricting)
-    })
+    asked.filter(
+      (person) =>
+        opening.has(person) &&
+        mayReadEvery(view, (owner) => clearancesByProject.get(owner)?.get(person), restricting)
+    )
   )
 }
 
@@ -349,9 +391,10 @@ export async function lockedConversationIds(
   ])
   const locked = new Set<string>()
   if (recorded.size === 0 && projects.size === 0) return locked
-  const clearance = recorded.size > 0 ? await clearanceOf(session) : null
-  const trees = new Map<string | null, FolderTree>()
+  const views = new Map<string | null, RecordView>()
   const opens = new Map<string, boolean>()
+  // A clearance is one project's; asked once per project for the whole list.
+  const clearances = new Map<string, FolderClearance>()
   for (const conversation of conversations) {
     const foreign = projects.get(conversation.id) ?? []
     if (foreign.length > 0 && !(await sessionMayOpenAll(session, foreign, opens))) {
@@ -359,27 +402,31 @@ export async function lockedConversationIds(
       continue
     }
     const folders = recorded.get(conversation.id)
-    if (!folders || !clearance) continue
-    const tree = await listTree(session.organizationId, conversation.projectId, folders, trees)
-    if (!mayReadAll(tree, clearance, stillRestricting(tree, folders))) locked.add(conversation.id)
+    if (!folders) continue
+    const view = await listView(session.organizationId, conversation.projectId, folders, views)
+    const restricting = stillRestricting(view.tree, folders)
+    for (const owner of ownersOf(view, restricting)) {
+      if (!clearances.has(owner)) clearances.set(owner, await clearanceOf(session, owner))
+    }
+    if (!mayReadEvery(view, (owner) => clearances.get(owner), restricting)) locked.add(conversation.id)
   }
   return locked
 }
 
 /**
- * The tree for one listed conversation's record: its project's, cached for the
- * list, unless the record names a folder of another project (ADR-0082), which
- * gets a tree of its own.
+ * The view for one listed conversation's record: its project's, cached for the
+ * list, unless the record names a folder of another project (ADR-0085), which
+ * gets a view of its own.
  */
-async function listTree(
+async function listView(
   organizationId: string,
   projectId: string | null,
   folders: readonly string[],
-  trees: Map<string | null, FolderTree>
-): Promise<FolderTree> {
-  const own = trees.get(projectId) ?? (await treeForRecord(organizationId, projectId, []))
-  trees.set(projectId, own)
-  return folders.every((folderId) => own.has(folderId)) ? own : treeForRecord(organizationId, projectId, folders)
+  views: Map<string | null, RecordView>
+): Promise<RecordView> {
+  const own = views.get(projectId) ?? (await recordView(organizationId, projectId, []))
+  views.set(projectId, own)
+  return folders.every((folderId) => own.tree.has(folderId)) ? own : recordView(organizationId, projectId, folders)
 }
 
 /** Who asks about a conversation's restricted use, and in which project. */
@@ -420,7 +467,7 @@ export async function drawableRestrictedCollections(
   const tree = await treeOf(request.organizationId, project)
   const folders = sourceFolders(tree, project, candidates)
   const people = audiencePeople(audience, request.userId)
-  const clearances = await clearancesOf(request.organizationId, people)
+  const clearances = await clearancesOf(request.organizationId, project.projectId, people)
   const readable = new Set(foldersEveryoneMayRead(tree, [...folders.values()], audience, people, clearances))
   return candidates.filter((collection) => readable.has(folders.get(collection) ?? ''))
 }
@@ -444,7 +491,12 @@ export async function restrictedCollectionsForChatScope(
   const tree = await treeOf(session.organizationId, project)
   const folders = sourceFolders(tree, project, sessionCleared)
   const people = audiencePeople(audience, session.userId)
-  const clearances = await clearancesOf(session.organizationId, people, new Map([[session.userId, await clearanceOf(session)]]))
+  const clearances = await clearancesOf(
+    session.organizationId,
+    project.projectId,
+    people,
+    new Map([[session.userId, await clearanceOf(session, project.projectId)]])
+  )
   const readable = new Set(foldersEveryoneMayRead(tree, [...folders.values()], audience, people, clearances))
   return sessionCleared.filter((collection) => readable.has(folders.get(collection) ?? ''))
 }
@@ -480,7 +532,9 @@ export async function admitSourceFolders(request: RestrictedUseRequest, folderId
   const open = asked.filter((folderId) => tree.has(folderId) && readableByEveryMember(tree, folderId))
   const restricted = asked.filter((folderId) => tree.has(folderId) && !open.includes(folderId))
   const clearances =
-    restricted.length > 0 ? await clearancesOf(organizationId, audiencePeople(before, request.userId)) : new Map()
+    restricted.length > 0 && project
+      ? await clearancesOf(organizationId, project.projectId, audiencePeople(before, request.userId))
+      : new Map()
   return getDb().transaction(async (tx) => {
     await lockConversationAudience(tx, organizationId, conversationId)
     const audience = await readConversationAudience(tx, organizationId, conversationId)
@@ -539,7 +593,7 @@ export type AudienceWidening =
 interface Uncovered {
   /** Recorded folders that still restrict someone and the person may not read. */
   folders: string[]
-  /** Recorded other projects (ADR-0082) the person may not open; every one for a visibility widening. */
+  /** Recorded other projects (ADR-0085) the person may not open; every one for a visibility widening. */
   projects: string[]
 }
 
@@ -599,9 +653,9 @@ async function folderNamesReadableBy(
 ): Promise<string[]> {
   if (!context.project) return []
   const names = await customFolderNames(session.organizationId, context.project.projectId)
-  const sharer = await clearanceOf(session)
+  const sharer = await clearanceOf(session, context.project.projectId)
   return folderIds
-    .filter((folderId) => mayReadFolder(context.tree, sharer, folderId))
+    .filter((folderId) => mayReadFolder(context.view.tree, sharer, folderId))
     .map((folderId) => names.get(folderId))
     .filter((name): name is string => Boolean(name))
 }
@@ -619,19 +673,24 @@ function uncovered(
   context: WideningContext
 ): Uncovered {
   if (widening.kind === 'visibility') return { folders: [...restricted], projects: [...projects] }
-  const person = context.person
+  const clearances = context.personClearances
   return {
-    folders: restricted.filter((folderId) => !person || !mayReadFolder(context.tree, person, folderId)),
+    folders: restricted.filter(
+      (folderId) => !clearances || !mayReadEvery(context.view, (owner) => clearances.get(owner), [folderId])
+    ),
     projects: projects.filter((projectId) => !context.personOpens.has(projectId)),
   }
 }
 
 interface WideningContext {
   project: ProjectRef | null
-  tree: FolderTree
-  /** The clearance of the person being let in; null for a visibility widening. */
-  person: FolderClearance | null
-  /** The recorded other projects (ADR-0082) the person being let in may open; empty for a visibility widening. */
+  view: RecordView
+  /**
+   * The clearance of the person being let in, in each project that owns a
+   * recorded folder (a clearance is one project's); null for a visibility widening.
+   */
+  personClearances: ReadonlyMap<string, FolderClearance> | null
+  /** The recorded other projects (ADR-0085) the person being let in may open; empty for a visibility widening. */
   personOpens: ReadonlySet<string>
 }
 
@@ -647,19 +706,24 @@ async function wideningContext(
     listRecordedSourceProjects(getDb(), organizationId, conversationId),
   ])
   const project = await projectOf(organizationId, audience, null)
-  const tree = await treeForRecord(organizationId, audience.projectId, recorded)
-  if (widening.kind === 'visibility') return { project, tree, person: null, personOpens: new Set() }
-  if (widening.self) {
-    const opens = new Map<string, boolean>()
-    await sessionMayOpenAll(session, projects, opens)
-    const personOpens = new Set(projects.filter((projectId) => opens.get(projectId) === true))
-    return { project, tree, person: await clearanceOf(session), personOpens }
-  }
-  const [person, opening] = await Promise.all([
-    clearanceOfMember(organizationId, widening.userId),
-    peopleWhoMayOpenEach(organizationId, widening.userId, projects),
+  const view = await recordView(organizationId, audience.projectId, recorded)
+  if (widening.kind === 'visibility') return { project, view, personClearances: null, personOpens: new Set() }
+  const owners = ownersOf(view, stillRestricting(view.tree, recorded))
+  const clearanceIn = (owner: string) =>
+    widening.self ? clearanceOf(session, owner) : clearanceOfMember(organizationId, widening.userId, owner)
+  const [found, personOpens] = await Promise.all([
+    Promise.all(owners.map(clearanceIn)),
+    widening.self ? sessionOpens(session, projects) : peopleWhoMayOpenEach(organizationId, widening.userId, projects),
   ])
-  return { project, tree, person, personOpens: opening }
+  const personClearances = new Map(owners.map((owner, index) => [owner, found[index]]))
+  return { project, view, personClearances, personOpens }
+}
+
+/** The projects among `projectIds` the session may open now. */
+async function sessionOpens(session: AuthorizedSession, projectIds: readonly string[]): Promise<Set<string>> {
+  const opens = new Map<string, boolean>()
+  for (const projectId of projectIds) await sessionMayOpenAll(session, [projectId], opens)
+  return new Set(projectIds.filter((projectId) => opens.get(projectId) === true))
 }
 
 /** The projects among `projectIds` one person may open now. */
@@ -672,7 +736,7 @@ async function peopleWhoMayOpenEach(organizationId: string, userId: string, proj
 
 /** The recorded folders that restrict someone, judged against the context's tree. */
 function restrictedRecord(context: WideningContext, recorded: readonly string[]): string[] {
-  return stillRestricting(context.tree, recorded)
+  return stillRestricting(context.view.tree, recorded)
 }
 
 /**
@@ -699,7 +763,7 @@ export async function assertMayWidenConversation(
  * Widen the conversation's audience with `write`, under the lock admission
  * takes, after checking the record inside it: a person must be able to read
  * every folder the conversation recorded and open every other project it drew
- * on (ADR-0082), and a project-wide visibility needs a record that restricts
+ * on (ADR-0085), and a project-wide visibility needs a record that restricts
  * nobody and names no other project. `write` runs on the transaction's handle
  * and must not call `getDb()`.
  */

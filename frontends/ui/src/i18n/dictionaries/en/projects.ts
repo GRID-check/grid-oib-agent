@@ -33,15 +33,100 @@ export const projects = {
         'Piloti is the workspace in which a planning office runs a building project. Create a project to bring its documents, members, and chat together — then ask Piloti about the work, grounded in the files, the office archive, and Austrian building law.',
       action: 'Create your first project',
     },
+    filter: {
+      label: 'Filter projects by status',
+      active: 'Active',
+      closed: 'Closed',
+      all: 'All',
+    },
+    noneInFilter: {
+      active: 'No active projects',
+      closed: 'No closed projects',
+      description: 'There are no projects in this view.',
+      showAll: 'Show all projects',
+    },
   },
   section: {
     loading: 'Loading…',
+  },
+  steckbrief: {
+    heading: 'Project profile',
+    description: 'The key facts that stay once the project is closed: where, when and with whom.',
+    address: 'Address',
+    addressMissing: 'No address yet. It is entered in the brief.',
+    period: 'Period',
+    startedOn: 'Start',
+    endedOn: 'Completion',
+    open: 'open',
+    savePeriod: 'Save period',
+    periodSaved: 'Period saved.',
+    periodInvalid: 'The completion lies before the start.',
+    people: 'People',
+    peopleDescription:
+      'Everyone who worked on the project, including former staff and external planners without a Piloti account. Only name, function, company and period; Piloti does not use these details in answers.',
+    noPeople: 'Nobody entered yet.',
+    name: 'Name',
+    function: 'Function',
+    company: 'Company',
+    from: 'from',
+    to: 'to',
+    account: 'Piloti account',
+    noAccount: 'No account',
+    add: 'Add person',
+    save: 'Save',
+    cancel: 'Cancel',
+    edit: 'Edit {name}',
+    remove: 'Remove {name}',
+    removeTitle: 'Remove this person?',
+    removeDescription: '{name} and every detail about them will be deleted from the project profile for good.',
+    removeConfirm: 'Remove for good',
+    removed: 'Person removed.',
+    saved: 'Saved.',
+    error: 'That did not work. Please try again.',
+  },
+  lifecycle: {
+    fileChip: '{name} · closed',
+    fileChipNoName: 'Closed project',
+    banner: {
+      title: 'Closed project · read-only',
+      closedOn: 'Closed on {date}.',
+      body: 'Files, folders, the brief and project memory can no longer be changed. You can still ask about it in chat.',
+      outsider:
+        'You can see this project because closed projects are readable by the whole office. Folders with their own access list stay hidden from you.',
+    },
+    card: {
+      heading: 'Project status',
+      activeDescription:
+        'Close the project when the work is done. It stays complete and searchable, becomes read-only and can be read by everyone in the office. Folders with their own access list stay restricted.',
+      closedDescription:
+        'The project is closed and read-only. Reopen it to change files, folders, the brief or project memory. Only its members will see it again.',
+      closedOn: 'Closed on {date}',
+      close: 'Close project',
+      reopen: 'Reopen project',
+    },
+    closeDialog: {
+      title: 'Close this project?',
+      description:
+        'Afterwards nobody can change its files, folders, brief or project memory, and deep research and tasks stop running. Everyone in the office can read it and ask about it. You can reopen it at any time. If the project profile has no completion yet, the current month is entered.',
+      confirm: 'Close project',
+    },
+    reopenDialog: {
+      title: 'Reopen this project?',
+      description: 'The project becomes editable again, and only its members will see it.',
+      confirm: 'Reopen',
+    },
+    toast: {
+      closed: 'Project closed.',
+      reopened: 'Project reopened.',
+      error: 'The project status could not be changed.',
+    },
   },
   card: {
     summaryFallback:
       'Planning-office workspace. Add documents and a brief so Piloti can work from this project.',
     status: {
       active: 'Active',
+      closed: 'Closed',
     },
     lastActivity: 'Last activity',
     /** The viewer's OWN last message in the project — not the project's. */

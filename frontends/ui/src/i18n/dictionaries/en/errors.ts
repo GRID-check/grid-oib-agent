@@ -53,7 +53,7 @@ export const errors = {
       'This conversation draws on a folder with restricted access or on another project, so nothing from it can be filed there: that place is visible to people who may not read the restricted folder or the other project. Filing works only into a folder restricted at least as narrowly, and never for content from other projects.',
   },
   /**
-   * The cross-project lookups (ADR-0082), refusing where their findings could
+   * The cross-project lookups (ADR-0085), refusing where their findings could
    * reach someone who may not open the other project. Relayed as the API error;
    * the agent quotes the German one to the reader.
    */

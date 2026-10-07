@@ -51,4 +51,19 @@ describe('ProjectMemoryPanel', () => {
     expect(marks[0].querySelector('[data-roles]')?.getAttribute('data-roles')).toBe('Verträge')
     expect(screen.getByText('Flachdach extensiv begrünt.')).toBeInTheDocument()
   })
+
+  test('a closed project: the notes, and no control that would change them (ADR-0082)', async () => {
+    render(<ProjectMemoryPanel projectId="p1" readOnly />)
+
+    await screen.findByText('Flachdach extensiv begrünt.')
+    expect(screen.queryByRole('button', { name: /add/i })).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('button', { name: /edit|remove|pin/i })).toHaveLength(0)
+  })
+
+  test('an active project keeps them', async () => {
+    render(<ProjectMemoryPanel projectId="p1" />)
+
+    await screen.findByText('Flachdach extensiv begrünt.')
+    expect(screen.getAllByRole('button', { name: /edit/i }).length).toBeGreaterThan(0)
+  })
 })

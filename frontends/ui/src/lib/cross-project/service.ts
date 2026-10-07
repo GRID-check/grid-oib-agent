@@ -1,5 +1,5 @@
 /**
- * Cross-project lookups for a solo chat (ADR-0082): list and find the projects
+ * Cross-project lookups for a solo chat (ADR-0085): list and find the projects
  * the reader may chat in, read one project's brief, and search documents across
  * them. The one place that decides what a lookup may return; the agent's routes
  * (`app/api/internal/cross-project/*`) are thin adapters over it.
@@ -171,7 +171,7 @@ export function projectsInScope(
   return others
 }
 
-/** List and find the projects the reader may chat in (ADR-0082). Every project listed is recorded. */
+/** List and find the projects the reader may chat in (ADR-0085). Every project listed is recorded. */
 export async function listLookupProjects(
   caller: CrossProjectCaller,
   request: CrossProjectListRequest
@@ -300,7 +300,7 @@ async function searchOneProject(
   })
 }
 
-/** Search documents across the projects the reader may chat in, one bounded page of projects per call (ADR-0082). */
+/** Search documents across the projects the reader may chat in, one bounded page of projects per call (ADR-0085). */
 export async function searchAcrossProjects(
   caller: CrossProjectCaller,
   request: CrossProjectSearchRequest

@@ -1,8 +1,5 @@
--- 0120: conversation_source_projects — the OTHER projects whose content a
--- conversation drew on through the cross-project lookups (ADR-0082).
---
--- Numbered 0120 on purpose: ticket 1 (project status) takes 0114 onwards on a
--- parallel branch, and the two are renumbered when they are integrated.
+-- 0116: conversation_source_projects — the OTHER projects whose content a
+-- conversation drew on through the cross-project lookups (ADR-0085).
 --
 -- A solo chat may search the projects its asker may open. Content from such a
 -- project then sits in the conversation, so whoever may later read the
@@ -33,6 +30,6 @@ CREATE TABLE IF NOT EXISTS "conversation_source_projects" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "conversation_source_projects" IS
-  'Another project whose content this conversation drew on through a cross-project lookup (ADR-0082). Who may read the conversation is decided at read time: only people who may open every recorded project.';
+  'Another project whose content this conversation drew on through a cross-project lookup (ADR-0085). Who may read the conversation is decided at read time: only people who may open every recorded project.';
 --> statement-breakpoint
 SELECT grid_secure_table('conversation_source_projects', 'organization_id = grid_current_org()');

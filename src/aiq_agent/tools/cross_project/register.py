@@ -1,4 +1,4 @@
-"""``project_lookup``: a solo chat looks across the office's other projects (ADR-0082).
+"""``project_lookup``: a solo chat looks across the office's other projects (ADR-0085).
 
 ## One tool, three actions
 

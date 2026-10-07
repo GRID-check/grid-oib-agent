@@ -101,7 +101,7 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, restricted memory, Papierkorb, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger and download-log suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, restricted memory, Papierkorb, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, download-log, closed-project and Steckbrief suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
@@ -124,7 +124,9 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/conversations/cross-project-use.integration.spec.ts \
     src/lib/download-log/download-log.integration.spec.ts \
     src/lib/runs/reconcile.integration.spec.ts \
-    src/lib/budgets/service.integration.spec.ts
+    src/lib/budgets/service.integration.spec.ts \
+    src/lib/projects/project-status.integration.spec.ts \
+    src/lib/projects/steckbrief.integration.spec.ts
 
 # ---------------------------------------------------------------------------
 # Migration 0086: the backfill, asserted per row shape, and its DOWN migration.
@@ -705,33 +707,33 @@ checkr "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-0000000
 echo "==> 0113 backfill, triggers and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0120: the cross-project record, and its DOWN.
+# Migration 0116: the cross-project record, and its DOWN.
 #
 # On grid_restricted, after 0113: a
 # conversation that drew on another project. The down must not make it
 # shareable: it leaves a nil-folder row in conversation_restricted_folders,
-# which the older build reads as a folder nobody may read. 0120 re-applies.
+# which the older build reads as a folder nobody may read. 0116 re-applies.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0120 cross-project record and its down migration on grid_restricted"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0120_conversation_source_projects.sql" >/dev/null || {
-  echo "MIGRATION 0120 FAILED on the seeded database — re-run without -q to see the error" >&2
+echo "==> verifying the 0116 cross-project record and its down migration on grid_restricted"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0116_conversation_source_projects.sql" >/dev/null || {
+  echo "MIGRATION 0116 FAILED on the seeded database — re-run without -q to see the error" >&2
   exit 1
 }
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -c "INSERT INTO conversation_source_projects (organization_id, conversation_id, project_id) VALUES ('org_0107', 's_xp_0120', 'aaaaaaaa-0000-4000-8000-000000000107');" >/dev/null
-refusedr "UPDATE conversation_source_projects SET last_at = first_at - interval '1 day' WHERE conversation_id = 's_xp_0120';" "conversation_source_projects_order" "a record cannot end before it began"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0120_conversation_source_projects.down.sql" >/dev/null || {
-  echo "DOWN MIGRATION 0120 FAILED — re-run without -q to see the error" >&2
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -c "INSERT INTO conversation_source_projects (organization_id, conversation_id, project_id) VALUES ('org_0107', 's_xp_0116', 'aaaaaaaa-0000-4000-8000-000000000107');" >/dev/null
+refusedr "UPDATE conversation_source_projects SET last_at = first_at - interval '1 day' WHERE conversation_id = 's_xp_0116';" "conversation_source_projects_order" "a record cannot end before it began"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0116_conversation_source_projects.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0116 FAILED — re-run without -q to see the error" >&2
   exit 1
 }
 checkr "SELECT count(*) FROM information_schema.tables WHERE table_name = 'conversation_source_projects'" "0" "down dropped the table"
-checkr "SELECT folder_id::text FROM conversation_restricted_folders WHERE conversation_id = 's_xp_0120'" "00000000-0000-0000-0000-000000000000" "down leaves the chat recorded on a folder nobody may read"
-$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0120_conversation_source_projects.sql" >/dev/null || {
-  echo "MIGRATION 0120 FAILED on re-apply — re-run without -q to see the error" >&2
+checkr "SELECT folder_id::text FROM conversation_restricted_folders WHERE conversation_id = 's_xp_0116'" "00000000-0000-0000-0000-000000000000" "down leaves the chat recorded on a folder nobody may read"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0116_conversation_source_projects.sql" >/dev/null || {
+  echo "MIGRATION 0116 FAILED on re-apply — re-run without -q to see the error" >&2
   exit 1
 }
-checkr "SELECT count(*) FROM conversation_source_projects" "0" "0120 re-applies, empty"
-checkr "SELECT relrowsecurity::text FROM pg_class WHERE relname = 'conversation_source_projects'" "true" "0120 re-applies under row-level security"
-echo "==> 0120 cross-project record and down migration verified"
+checkr "SELECT count(*) FROM conversation_source_projects" "0" "0116 re-applies, empty"
+checkr "SELECT relrowsecurity::text FROM pg_class WHERE relname = 'conversation_source_projects'" "true" "0116 re-applies under row-level security"
+echo "==> 0116 cross-project record and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),
@@ -854,3 +856,78 @@ $MIGRATE_F -v ON_ERROR_STOP=1 -q -f "drizzle/0102_archiv_folders.sql" >/dev/null
 }
 
 echo "==> 0102 backfill, constraints and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0114: project status, its CHECKs, the closed-project insert guard,
+# and its DOWN migration, on the fully migrated database as the owner. The down
+# refuses while a project is closed (an older build would let every write in);
+# once every project is active it goes, and 0114 applies again.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0114 project status and its down migration on grid_app"
+# Down migrations run newest first: 0115's trigger uses 0114's function.
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_steckbrief.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0115 FAILED before the 0114 check — re-run without -q to see the error" >&2
+  exit 1
+}
+check14() {
+  local got
+  got=$($MIGRATE -tAc "$1")
+  if [ "$got" != "$2" ]; then
+    echo "0114 ASSERTION FAILED: $3" >&2
+    echo "  query: $1" >&2
+    echo "  got:   $got" >&2
+    echo "  want:  $2" >&2
+    exit 1
+  fi
+}
+$MIGRATE -v ON_ERROR_STOP=1 -q <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name)
+VALUES ('aaaaaaaa-0000-4000-8000-000000000114', 'org_0114', 'Status 0114', 'user_1', 'proj_0114');
+SQL
+check14 "SELECT status FROM projects WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'" "active" "a new project is active"
+$MIGRATE -v ON_ERROR_STOP=1 -q -c "UPDATE projects SET status = 'closed', closed_at = now(), closed_by = 'user_1' WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
+if $MIGRATE -q -c "INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id) VALUES ('org_0114', 'user_1', 'x.pdf', 'k/0114/x', 'proj_0114', 'completed', 'project', 'aaaaaaaa-0000-4000-8000-000000000114')" >/dev/null 2>&1; then
+  echo "0114 ASSERTION FAILED: a document was inserted into a closed project" >&2
+  exit 1
+fi
+if $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0114_project_status.down.sql" >/dev/null 2>&1; then
+  echo "0114 ASSERTION FAILED: the down migration ran with a closed project standing" >&2
+  exit 1
+fi
+check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "4" "the refused down migration changed nothing"
+$MIGRATE -v ON_ERROR_STOP=1 -q -c "UPDATE projects SET status = 'active', closed_at = NULL, closed_by = NULL WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0114_project_status.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0114 FAILED — re-run without -q to see the error" >&2
+  exit 1
+}
+check14 "SELECT count(*) FROM information_schema.columns WHERE table_name = 'projects' AND column_name IN ('status','closed_at','closed_by')" "0" "down dropped the three columns"
+check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "0" "down dropped the four triggers"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0114_project_status.sql" >/dev/null || {
+  echo "MIGRATION 0114 FAILED when re-applied after its down migration" >&2
+  exit 1
+}
+check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "4" "0114 applies again"
+$MIGRATE -v ON_ERROR_STOP=1 -q -c "DELETE FROM projects WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_steckbrief.sql" >/dev/null || {
+  echo "MIGRATION 0115 FAILED when re-applied after the 0114 check" >&2
+  exit 1
+}
+echo "==> 0114 project status and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0115: the Steckbrief's period and people, and its DOWN migration
+# (lossy on purpose: the people go with the table), then 0115 again.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0115 Steckbrief down migration on grid_app"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_steckbrief.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0115 FAILED — re-run without -q to see the error" >&2
+  exit 1
+}
+check14 "SELECT to_regclass('public.project_people') IS NULL" "t" "down dropped project_people"
+check14 "SELECT count(*) FROM information_schema.columns WHERE table_name = 'projects' AND column_name IN ('started_on','ended_on')" "0" "down dropped the period"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_steckbrief.sql" >/dev/null || {
+  echo "MIGRATION 0115 FAILED when re-applied after its down migration" >&2
+  exit 1
+}
+check14 "SELECT relrowsecurity FROM pg_class WHERE relname = 'project_people'" "t" "0115 applies again, with row-level security"
+echo "==> 0115 Steckbrief and down migration verified"

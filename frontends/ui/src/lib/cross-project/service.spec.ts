@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * The cross-project lookups (ADR-0082), with the projects listing, the
+ * The cross-project lookups (ADR-0085), with the projects listing, the
  * project's own search and the stores mocked: only a solo chat may ask; a
  * project the reader cannot open is invisible (the listing decides, and the
  * search never reaches it); the conversation's own project is left out; one
@@ -97,6 +97,11 @@ function project(index: number, extra: Partial<Project> = {}): Project {
     profilePromptView: null,
     profileDisplay: null,
     profileUpdatedAt: null,
+    status: 'active',
+    closedAt: null,
+    closedBy: null,
+    startedOn: null,
+    endedOn: null,
     deletedAt: null,
     createdAt: new Date(`2026-0${(index % 9) + 1}-15T10:00:00Z`),
     ...extra,

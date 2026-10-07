@@ -1,5 +1,5 @@
 /**
- * What a solo chat drew on from OTHER projects (ADR-0082): the record the
+ * What a solo chat drew on from OTHER projects (ADR-0085): the record the
  * cross-project lookups write, and what it refuses.
  *
  * ## Recorded when the BFF hands the content out
@@ -14,7 +14,7 @@
  *     read under that lock, so a share cannot slip between the check and the
  *     record; otherwise the lookup is refused and nothing is handed out;
  *   * each project the answer says anything about is recorded in
- *     `conversation_source_projects` (migration 0120);
+ *     `conversation_source_projects` (migration 0116);
  *   * each restricted folder a passage came from is recorded by id in
  *     `conversation_restricted_folders`, beside the conversation's own folders.
  *
@@ -91,7 +91,7 @@ export async function recordCrossProjectHandOut(party: HandOutParty, handOut: Cr
   if (!solo) throw sharedChatRefusal()
 }
 
-/** Whether this conversation drew on another project (ADR-0082): what a turn reads to know its doors are shut. */
+/** Whether this conversation drew on another project (ADR-0085): what a turn reads to know its doors are shut. */
 export async function drewOnOtherProjects(conversationId: string, organizationId: string): Promise<boolean> {
   return (await listRecordedSourceProjects(getDb(), organizationId, conversationId)).length > 0
 }

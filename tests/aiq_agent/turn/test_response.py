@@ -140,7 +140,7 @@ class TestPostAnswerTurnFacts:
         assert self._facts(_state(research_truncated=True)).research_truncated is True
 
     def test_a_conversation_that_drew_on_another_project_crosses(self):
-        """Read while the turn is bound, because reflection runs after it is gone (ADR-0082)."""
+        """Read while the turn is bound, because reflection runs after it is gone (ADR-0085)."""
         from aiq_agent.knowledge.restricted_use import CrossProjectTurn
         from aiq_agent.knowledge.restricted_use import bind_cross_project_turn
         from aiq_agent.knowledge.restricted_use import reset_cross_project_turn

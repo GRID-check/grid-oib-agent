@@ -89,7 +89,7 @@ class TurnFacts:
     #: restricted accordingly (``memory/restriction.py``); empty for an open turn.
     restriction: RestrictionEvidence = RestrictionEvidence()
     #: The conversation drew on another project through a cross-project lookup
-    #: (ADR-0082): nothing from it is remembered, so reflection does not run.
+    #: (ADR-0085): nothing from it is remembered, so reflection does not run.
     drew_on_other_projects: bool = False
     bundesland: str | None = None
 

@@ -179,7 +179,7 @@ async def test_search_snippet_truncated_to_300_chars(app):
 
 @pytest.mark.asyncio
 async def test_search_snippet_length_is_the_requests_within_bounds(app):
-    """The cross-project lookups ask for a longer passage; the bound still holds (ADR-0082)."""
+    """The cross-project lookups ask for a longer passage; the bound still holds (ADR-0085)."""
     set_active_retriever(_make_retriever([_chunk("big.pdf", 0.8, "B" * 2000)]))
 
     async with _client(app) as client:

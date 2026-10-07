@@ -1222,7 +1222,7 @@ export const chat: typeof en.chat = {
    * Sensible Daten im Chat (ADR-0079): was der Composer vor dem Senden meldet.
    * Die Platzhalter selbst sind Fachdaten und kommen aus `content-screen.ts`.
    */
-  /** The notice once a chat's answers drew on another project (ADR-0082). */
+  /** The notice once a chat's answers drew on another project (ADR-0085). */
   otherProjects: {
     title: 'Dieser Chat stützt sich auf andere Projekte: {projects}.',
     closed: '{name} (abgeschlossen)',

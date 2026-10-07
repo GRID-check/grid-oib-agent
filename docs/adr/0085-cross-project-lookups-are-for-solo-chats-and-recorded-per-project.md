@@ -97,7 +97,7 @@ typed 409 (`CROSS_PROJECT_SHARED_CHAT`) whose German sentence the agent relays.
 `recordCrossProjectHandOut` (`lib/conversations/cross-project-use.ts`) takes the
 per-conversation lock every share takes, checks again that the conversation is
 the asker's alone, and records, in one transaction, every project the answer
-says anything about (`conversation_source_projects`, migration 0120) and every
+says anything about (`conversation_source_projects`, migration 0116) and every
 restricted folder a passage came from (by id, in
 `conversation_restricted_folders`). A passage whose folder cannot be named is
 dropped rather than handed out unrecorded. A listing and a brief record their

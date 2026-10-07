@@ -16,7 +16,7 @@
  */
 
 import 'server-only'
-import { and, asc, desc, eq, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { isUuid } from '@/lib/ids'
 import { salvageProjectProfile } from '@/lib/project-profile/salvage'
@@ -100,17 +100,60 @@ export async function findProjectInOrg(
  */
 export async function findProjectTenancy(
   projectId: string
-): Promise<Pick<Project, 'organizationId' | 'deletedAt'> | null> {
+): Promise<Pick<Project, 'organizationId' | 'deletedAt' | 'status'> | null> {
   if (!isUuid(projectId)) return null
   const db = getDb()
   const [row] = await withPlatformAccess(
     'project tenancy probe: resolve the owning org before authorizing',
     () =>
       db
-        .select({ organizationId: projects.organizationId, deletedAt: projects.deletedAt })
+        .select({ organizationId: projects.organizationId, deletedAt: projects.deletedAt, status: projects.status })
         .from(projects)
         .where(eq(projects.id, projectId))
         .limit(1)
+  )
+  return row ?? null
+}
+
+/**
+ * Close or reopen a project: the status, and when and by whom it was closed
+ * (cleared on reopen). Closing also fills the Steckbrief's Abschluss with the
+ * month of the close when nobody set one; a reopen leaves it as it is. Only a row in the other state changes, so two people
+ * closing at once write once; null when nothing changed (already in that
+ * state, deleted, or not in the organization).
+ */
+export async function setProjectStatusInOrg(
+  projectId: string,
+  organizationId: string,
+  change: { status: 'closed'; closedBy: string; at: Date } | { status: 'active' }
+): Promise<Project | null> {
+  const db = getDb()
+  const closing = change.status === 'closed'
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .update(projects)
+      .set(
+        closing
+          ? {
+              status: 'closed',
+              closedAt: change.at,
+              closedBy: change.closedBy,
+              // The Steckbrief's Abschluss (ADR-0083): the month it was closed
+              // in, unless someone set one. GREATEST keeps it from landing
+              // before a Beginn set in the future.
+              endedOn: sql`COALESCE(${projects.endedOn}, GREATEST(date_trunc('month', ${change.at.toISOString()}::timestamptz)::date, ${projects.startedOn}))`,
+            }
+          : { status: 'active', closedAt: null, closedBy: null }
+      )
+      .where(
+        and(
+          eq(projects.id, projectId),
+          eq(projects.organizationId, organizationId),
+          isNull(projects.deletedAt),
+          eq(projects.status, closing ? 'active' : 'closed')
+        )
+      )
+      .returning()
   )
   return row ?? null
 }

@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class CrossProjectMemoryRefusedError(RuntimeError):
-    """The frontend refused a write from a conversation that drew on another project (ADR-0082).
+    """The frontend refused a write from a conversation that drew on another project (ADR-0085).
 
     Raised when ``POST /api/internal/memory`` answers 409 ``CROSS_PROJECT_MEMORY``.
     Nothing is remembered from such a conversation, at any scope and by any

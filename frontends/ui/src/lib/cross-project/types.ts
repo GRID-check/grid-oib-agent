@@ -1,5 +1,5 @@
 /**
- * The cross-project lookups' wire contract (ADR-0082): what the agent's tools
+ * The cross-project lookups' wire contract (ADR-0085): what the agent's tools
  * send and what the BFF answers. The one description, in zod, shared by the
  * routes and the specs and exported as JSON Schema for the Python tier
  * (`cross-project-schema.ts`, `tests/fixtures/cross-project.schema.json`), as
