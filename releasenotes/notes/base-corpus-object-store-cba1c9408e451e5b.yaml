@@ -1,8 +1,16 @@
 ---
 operators:
   - >
-    On Kubernetes the base corpus an admin uploads now lives in the object store
-    and the shared database instead of on one backend replica's disk, so every
-    replica serves and re-ingests the same documents. Each replica copies its
-    existing uploads over the first time it starts. Set GRID_BASE_CORPUS_STORE
-    to disk to keep the old behavior, which Docker Compose does.
+    Base-corpus PDFs now live in object storage (SeaweedFS), listed in one table
+    in the knowledge database. The PDFs uploaded before this deploy are not
+    carried over, so upload them again in the admin UI after the deploy. Until
+    you do, they show as not in the corpus and can be deleted there.
+  - >
+    The per-replica data volume is removed and the backend keeps no files. On
+    Kubernetes the first deploy replaces the aiq-agent StatefulSet without its
+    claim, the old data-aiq-agent claims stay behind unused until you delete
+    them, and chromaEnabled must be true.
+  - >
+    In Docker Compose the aiq-data volume and the OIB directory mount are gone.
+    The corpus is ingested by a housekeeping job every ten minutes instead of at
+    boot, and OIB_FORCE_REINGEST no longer exists.

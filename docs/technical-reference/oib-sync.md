@@ -1,214 +1,169 @@
 # OIB Richtlinien Sync
 
-Incremental ingestion pipeline for OIB (Österreichisches Institut für Bautechnik) PDFs into the `oib_knowledge` ChromaDB collection.
+How the base corpus (the OIB, Österreichisches Institut für Bautechnik, Richtlinien and the other documents the platform owner uploads) is stored and ingested into the `oib_knowledge` ChromaDB collection. ADR-0082 step A2.
+
+There is one design and no switch: the corpus lives in object storage, one table says what is in it, and a scheduled sync cycle ingests what is not indexed yet. The code is `src/aiq_agent/corpus_store.py` (storage, table, cache), `src/aiq_agent/oib_sync.py` (ingestion), `src/aiq_agent/oib_status.py` (the status view) and `frontends/aiq_api/src/aiq_api/routes/oib.py` (the routes).
 
 ---
 
-## CLI Entry Point
+## Where things live
 
-**File**: `scripts/ingest_oib.py`
+| Piece | Where |
+|-------|-------|
+| A PDF | The object `base-corpus/<file name>` in `SEAWEED_BUCKET`. Written through the BFF (`POST /api/internal/base-corpus/upload-url`, then a presigned `PUT` as `application/pdf`; `DELETE /api/internal/base-corpus/<name>`, header `x-grid-internal-token`), because the backend's S3 credential is read-only. Read with that credential (`aiq_agent.common.seaweed_s3`, shared with `view_knowledge_image`) |
+| The list of PDFs and what ingestion knows about each | One table in the knowledge database (`AIQ_SUMMARY_DB`), `oib_corpus_files`, created on first use |
+| A copy on a replica's disk | A cache in `GRID_BASE_CORPUS_CACHE_DIR` (default `/tmp/base-corpus`), filled one file at a time |
 
-```python
-from aiq_agent.oib_sync import sync
-
-if __name__ == "__main__":
-    added, total = sync()
-    print(f"OIB sync complete: {added} added/changed, {total} total tracked")
+```
+oib_corpus_files
+  file_name              text pk
+  storage_key            text not null      -- base-corpus/<file name>
+  sha256                 text not null      -- of the stored bytes
+  size_bytes             bigint not null
+  uploaded_at            timestamptz not null default now()
+  ingested_sha256        text null          -- the bytes the index was last built from
+  chunk_format_version   int null           -- the chunking pipeline's version at that ingestion
 ```
 
-Run via Docker:
+Without `AIQ_SUMMARY_DB` the store fails with an error. It does not fall back to a local SQLite file, which would recreate the per-replica state it exists to remove.
 
-```bash
-docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec aiq-agent python scripts/ingest_oib.py
-```
+There are no files on the backend that matter. A replica that loses its cache downloads again what it needs; nothing is pulled speculatively. The backend image ships no PDFs and reads no bind mount.
 
 ---
 
-## Sync Algorithm
+## The one rule: when a file needs ingestion
 
-**File**: `src/aiq_agent/oib_sync.py`
+A file needs ingestion when
+
+```
+ingested_sha256 IS DISTINCT FROM sha256
+OR chunk_format_version IS DISTINCT FROM CHUNK_FORMAT_VERSION
+```
+
+(`FileRow.needs_ingestion`). That single rule is the whole change detector:
+
+| Case | Why the rule fires |
+|------|--------------------|
+| A new upload | `ingested_sha256` is `NULL` |
+| An upload that replaces a file | `sha256` changed, `ingested_sha256` is still the old one |
+| A failed or timed-out ingestion | Nothing was recorded, so the next cycle tries again |
+| A change to chunking or to what a chunk carries | Bump `CHUNK_FORMAT_VERSION` in `oib_sync.py`; every file's recorded version differs, so the next cycle re-ingests the corpus. The ingestor replaces a document's chunks by name once the new version is indexed, so the re-ingest is not additive |
+| A Chroma server that was wiped or repointed | The cycle sees rows claiming ingestion while the collection is empty, forgets every `ingested_sha256` and re-ingests |
+| An admin's "re-index" | `POST /v1/admin/oib/reingest` clears `ingested_sha256` for the named files and queues them |
+
+The hash and version are written only when the file reaches `FileStatus.SUCCESS`, and only if the row still holds the bytes that were ingested (`mark_ingested` is a conditional update), so a file replaced while it was being ingested still needs ingestion afterwards.
+
+---
+
+## Who runs ingestion
+
+**An upload** (`POST /v1/admin/oib/documents`, one PDF or a ZIP of PDFs) stores the object, writes the row and the cache file, answers, and queues `ingest_single(name)` for that file at once. An upload is not a ten-minute wait. A store that refuses the object fails the request with an error, and no job is started for a file that was never kept.
+
+**A sync cycle** (`oib_sync.sync()`) is housekeeping. It runs
+
+- every ten minutes, as the base-corpus housekeeping route `POST /v1/maintenance/housekeeping/base-corpus` (internal token). On Kubernetes that is the `housekeeping-base-corpus` CronJob (`deploy/pulumi/src/app/workers.ts`, `*/10 * * * *`, `concurrencyPolicy: Forbid`); in Compose it is the housekeeping clock (`frontends/ui/workers/housekeeping-clock.js`);
+- on demand, as `POST /v1/admin/oib/sync`, the admin's "run it now". It calls the same function.
+
+There is no sync at boot and no boot thread. A cycle:
 
 ```
 sync()
-  │
-  ├─ 1. Scan data/oib/ and data/oib_uploads/ for *.pdf (recursive; may be empty)
-  │
-  ├─ 2. Load data/oib_registry.json (SHA-256 → filename mapping)
-  │
-  ├─ 3. Compute SHA-256 for each PDF
-  │
-  ├─ 4. Compare against registry → identify new/changed files
-  │
-  ├─ 5. If no changes → return (0, total)
-  │
-  ├─ 6. Initialize LlamaIndex ingestor
-  │
-  ├─ 7. Ensure oib_knowledge collection exists
-  │
-  └─ 8. For each new/changed PDF:
-       │
-       ├─ ingestor.upload_file(path, collection)
-       ├─ _wait_for_file(ingestor, file_id) → poll every 2s, timeout 600s
-       ├─ If SUCCESS → record SHA-256 in registry, save
-       └─ If FAILED  → leave registry unchanged (retry on next run)
+  keyed_lock("oib-sync")                       one cycle at a time, across replicas
+  ├─ read every row
+  ├─ if rows claim ingestion but the collection is empty: forget all ingested hashes
+  ├─ pending = rows where needs_ingestion
+  └─ ingest each pending file, OIB_SYNC_MAX_WORKERS at a time (default 4):
+        ingest_single(name)
+          keyed_lock("oib-file:<name>")          one operation per document, across replicas
+          ├─ re-read the row; if the file is current → done (an upload and a cycle can meet here)
+          ├─ ensure_local(name)                  download, sha-verified, atomic rename
+          ├─ ingestor.upload_file(path, collection)
+          ├─ poll the file status every 2 s, up to 600 s
+          └─ on SUCCESS: record ingested_sha256 and chunk_format_version
+  returns {ingested, failed, total}
 ```
 
-### Incremental Sync
-
-The registry file (`data/oib_registry.json`) maps relative PDF paths to their SHA-256 hashes:
-
-```json
-{
-  "data/oib/OIB-Richtlinie-1.pdf": "abc123def456...",
-  "data/oib/OIB-Richtlinie-2.pdf": "789012ghi345..."
-}
-```
-
-On each run:
-- Files with a **changed hash** are re-ingested (content was modified)
-- **New files** (not in registry) are ingested
-- **Unchanged files** are skipped
-- **Failed files** are retried on the next run (registry not updated on failure)
-
-### Polling (`_wait_for_file`)
-
-| Parameter | Value |
-|-----------|-------|
-| Poll interval | 2 seconds |
-| Timeout | 600 seconds (10 minutes) |
-| Terminal states | `SUCCESS`, `FAILED` |
-| On timeout | Returns `FAILED` (retry next run) |
-
-The function calls `ingestor.get_file_status(file_id, collection_name)` in a loop until a terminal status is reached or the deadline is exceeded.
+A second cycle (the next tick, an admin's click) waits for the running one and then finds nothing to do. A failure is one file's: the others go on, and the failed one is retried by the next cycle.
 
 ---
 
-## Registry Management
+## The cache
 
-**Functions**:
-- `_load_registry()` — Reads `REGISTRY_PATH` (default: `data/oib_registry.json`), returns `dict[str, str]`
-- `_save_registry(registry)` — Writes sorted JSON to `REGISTRY_PATH`, creates parent directories if needed
-- `_file_hash(path)` — Streams the file through SHA-256 (8KB chunks)
+`ensure_local(name)` is the one way to get a path: it looks the name up in the table, downloads the object if this process lacks the current bytes (to a temp file beside the target, verified against the row's sha256, then renamed into place), and returns the path. A file counts as present when its sha256 equals the row's; hashes are memoised by size and mtime, so the check is a `stat`.
 
-Only files that reach `FileStatus.SUCCESS` have their hash recorded. Failures and timeouts leave the registry unchanged, guaranteeing automatic retry.
+- A name the table does not list returns `None`, and any copy this process still holds is deleted: the table says what exists.
+- A listed file that cannot be fetched (the object is gone, the hash does not match) raises `CorpusStoreError`; a table that cannot be read raises too. Neither is "not in the corpus", and nothing is deleted on a guess.
+
+What calls it: ingestion, `GET /v1/oib/documents/{file_name}` (the PDF viewer; 404 for a name the table does not list, 503 for a listed one the store cannot serve), the corpus export (`GET /v1/admin/oib/corpus.tar.gz`, which fails rather than ship half a corpus) and the chat tool `view_knowledge_image`.
+
+---
+
+## Deleting
+
+`DELETE /v1/admin/oib/documents/{file_name}` deletes. There is no exclusion list and no second kind of removal. It takes the document's lock, then removes, in this order, the chunks, the summary registration, the row, the object (through the BFF) and this replica's cached file. The row goes after the chunks, so a failure in between leaves the document listed and a retry finds it; the object goes after the row, so a failure there leaves an unreachable object that a later upload of the same name overwrites. A name only the index knows (chunks a half-finished delete left behind, a restored vector store) is cleared the same way; the status shows it as `removed`. Uploading the same file again adds it back.
+
+---
+
+## The status view
+
+`GET /v1/oib/status` merges the table with the Chroma file listing, one entry per file:
+
+| State | Meaning |
+|-------|---------|
+| `ingested` | The index was built from the file's current bytes by the current pipeline, and chunks exist |
+| `stale` | The file changed (or the pipeline did) since it was ingested; the index still reflects the old version |
+| `pending` | Never ingested |
+| `inconsistent` | The table says ingested, the collection holds no chunks for it |
+| `removed` | The collection holds chunks for it, the table does not list it. Delete the document to clear them |
+
+The fields per file are `file_name`, `state`, `size_bytes`, `chunk_count`, `ingested_sha256`, `current_sha256`, `ingested_at`, `summary`, `doc_class`, `doc_class_suggestion` and `display_title`; the summary carries a count per state and `total_chunks`.
 
 ---
 
 ## Concurrency
 
-The admin route's executor runs more than one worker, so a corpus `sync()`, a
-ZIP member's `ingest_single()` and a delete can be in flight at the same time.
-Four locks keep that safe:
-
 | Lock | Protects |
 |------|----------|
-| `_SYNC_LOCK` | Single-flight `sync()` — a second sync waits instead of ingesting the same work list twice |
-| `_file_lock(basename)` | All corpus mutations for **one** document: `ingest_single`, `remove_uploaded_document`, `exclude_document`, and each file of a `sync()` (held from its delete/upload until its terminal status). Different documents stay fully concurrent |
-| `_REGISTRY_LOCK` | Registry read-modify-write |
-| `_EXCLUDED_LOCK` | Exclusion-set read-modify-write (`exclude`/`unexclude`/prune) |
+| `keyed_lock("oib-sync")` | One sync cycle at a time, across replicas |
+| `keyed_lock("oib-file:<name>")` | All corpus mutations for **one** document: `ingest_single` (so an upload's queued ingestion and a cycle never both ingest it) and `remove_document`. Different documents stay fully concurrent |
 
-Every registry and exclusion write **reloads the file inside its lock** and
-merges. The lock alone would only serialize the saves: `sync()` loads the
-registry once and then runs for minutes, so saving that snapshot would drop
-hashes a concurrent ingestion recorded in the meantime (a lost hash means a
-wasteful re-ingest next run; a lost exclusion means a removed document coming
-back).
+`keyed_lock` waits, in this process and, on Postgres, across replicas (a Postgres advisory lock); without Postgres only the process lock holds. The ingestor also serialises the replacement of one document's previous version, under its own key.
 
 ---
 
-## Object mode (`GRID_BASE_CORPUS_STORE=object`)
+## Collection management
 
-`disk` (the default, Compose and local dev) is everything above. `object` is the
-Kubernetes setting (ADR-0082 step A2): an admin upload used to land on one
-replica's disk, with that replica's registry and exclusion files beside it. In
-object mode the object store is the record and `OIB_UPLOADS_DIR` is a local
-cache of it, so hashing, `ingestor.upload_file(path)`, `FileResponse` and
-`rglob` still work on paths, and the registry keys (absolute paths under
-`OIB_UPLOADS_DIR`) are the ones already recorded: nothing re-ingests because of
-the move. The module is `src/aiq_agent/corpus_store.py`; `oib_sync` branches on
-`corpus_store.object_mode()` in the four registry/exclusion functions and in a
-few calls (`_refresh_cache`, `remove`, the locks), not throughout.
-
-| Piece | Where it lives in object mode |
-|-------|-------------------------------|
-| The PDFs | SeaweedFS, key `base-corpus/<file name>` in `SEAWEED_BUCKET`. Written through the BFF (`POST /api/internal/base-corpus/upload-url`, then a presigned `PUT` as `application/pdf`; `DELETE /api/internal/base-corpus/<name>`, header `x-grid-internal-token`), because the backend's S3 credential is read-only. Read with that credential (`aiq_agent.common.seaweed_s3`, shared with `view_knowledge_image`) |
-| The list of PDFs | `oib_corpus_files(file_name pk, storage_key, sha256, size_bytes, uploaded_at)` |
-| The registry | `oib_corpus_registry(doc_key pk, value)`: the JSON registry key for key, including `__chunk_format_version__` |
-| The exclusions | `oib_corpus_excluded(file_name pk)` |
-| This replica's copy | `OIB_UPLOADS_DIR`, a cache |
-
-The tables are in the knowledge database (`AIQ_SUMMARY_DB`) and created on first
-use. Object mode without that database fails with an error instead of falling
-back to a local SQLite file, which would recreate the per-replica state.
-
-**The cache is checked, not trusted.** A cached PDF counts when its sha256
-equals the table row's (memoised by size and mtime, so a check is a `stat`).
-A download goes to a temp file beside its target, is verified against the row,
-and only then renamed in; a mismatch is logged and the cached copy stays. `pull`
-makes the cache match the table: it fetches what is missing or different and
-removes top-level `*.pdf` files the table does not list. It reads the table
-first, so a table that cannot be read raises before any file is touched.
-
-**Who refreshes it.** `discover_pdfs()` (so `/v1/oib/status`, the corpus export
-and `sync()`), `remove_document`/`remove_uploaded_document`, and the start of
-`sync()` all run `_refresh_cache()`. `GET /v1/oib/documents/{file}` and the chat
-tool `view_knowledge_image` fetch the one file they need (`ensure_local`). An
-upload (`corpus_store.put`) stores the object, then writes the row and the cache
-file together under a lock, so a concurrent pull cannot drop the file it just
-wrote. A store that refuses the object fails the upload with an error (no
-pending job for a file that was never kept).
-
-**Locks across replicas.** The in-process locks above stay, and each registry
-or exclusion read-modify-write also takes a Postgres advisory lock
-(`oib-registry`, `oib-excluded`), and the whole `sync()` takes `oib-sync`, via
-`corpus_store.shared_lock` (`keyed_lock`, which waits, and is a no-op without
-Postgres). Every web replica runs `sync()` at boot, so the second one waits for
-the first and then finds nothing new. `OIB_FORCE_REINGEST` also clears the
-shared registry.
-
-**One-time move of an existing volume** (`corpus_store.migrate_once`, run before
-the first `pull` on a replica, until `OIB_UPLOADS_DIR/.object-store-migrated`
-exists):
-
-1. import the local JSON registry into `oib_corpus_registry`, when that table is empty;
-2. add the local exclusion file to `oib_corpus_excluded` (union);
-3. upload every top-level local PDF the table does not list;
-4. write the marker.
-
-It is idempotent, and every replica contributes the files only it holds, which
-also repairs a corpus an upload had left on one replica of several. Files of a
-replica that migrates after the registry was imported have no registry entry and
-are ingested once more. The remaining edge: a document an admin deletes after the
-first replica migrated, but before a second one that still holds its file has
-booted, is uploaded again by that second replica; delete it again.
+`_ensure_collection(ingestor)` creates `OIB_COLLECTION_NAME` (default `oib_knowledge`) with the description `"Persistent OIB Richtlinien knowledge base."` if it is missing, and is safe to call repeatedly. Base and project collections like `oib_knowledge` are **never** subject to TTL auto-deletion (only `s_`-prefixed session collections are reaped).
 
 ---
 
-## Collection Management
-
-`_ensure_collection(ingestor)`:
-- Checks if `OIB_COLLECTION_NAME` (default: `oib_knowledge`) exists
-- Creates it if missing, with description `"Persistent OIB Richtlinien knowledge base."`
-- Idempotent — safe to call multiple times
-
-Base/project collections like `oib_knowledge` are **never** subject to TTL auto-deletion (only `s_`-prefixed session collections are reaped).
-
----
-
-## Environment Variables
+## Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OIB_DOCUMENTS_DIR` | `data/oib` | Operator-provided OIB PDFs, bind-mounted read-only. Gitignored and empty in a fresh clone |
-| `OIB_UPLOADS_DIR` | `data/oib_uploads` | PDFs uploaded through the platform-admin UI, on the persistent volume |
-| `OIB_REGISTRY_PATH` | `data/oib_registry.json` | Path to SHA-256 registry file (object mode: read once, to move an existing volume into the store) |
-| `GRID_BASE_CORPUS_STORE` | `disk` | `object` keeps the uploaded corpus, registry and exclusions in SeaweedFS and the knowledge database; see [Object mode](#object-mode-grid_base_corpus_storeobject) |
+| `GRID_BASE_CORPUS_CACHE_DIR` | `/tmp/base-corpus` | This process's cache of corpus files. May be lost at any restart |
+| `AIQ_SUMMARY_DB` | none | The knowledge database; holds `oib_corpus_files`. Required |
+| `FRONTEND_INTERNAL_URL`, `GRID_INTERNAL_API_TOKEN` | none | How the backend reaches the BFF to write and delete objects |
+| `SEAWEED_ENDPOINT`, `SEAWEED_ACCESS_KEY`, `SEAWEED_SECRET_KEY`, `SEAWEED_BUCKET` | none, none, none, `grid-documents` | The read-only credential and bucket the backend downloads with |
+| `OIB_SYNC_MAX_WORKERS` | `4` | Files ingested at once in a sync cycle |
 | `OIB_COLLECTION_NAME` | `oib_knowledge` | Target ChromaDB collection |
-| `AIQ_CHROMA_DIR` | `/tmp/chroma_data` | ChromaDB persistence directory |
+| `AIQ_CHROMA_URL` / `AIQ_CHROMA_DIR` | none / `/tmp/chroma_data` | The shared Chroma server, or the embedded store's directory (Compose and local development only) |
 
 ---
 
-## Ingestor Initialization
+## Getting PDFs in
+
+Upload them in the platform-admin UI. A developer with a directory of PDFs runs
+
+```bash
+GRID_ADMIN_TOKEN=... uv run python scripts/upload_oib_corpus.py data/oib --url http://localhost:8000
+```
+
+which sends each PDF through `POST /v1/admin/oib/documents` (header `X-Admin-Token`). The upload queues ingestion; watch `/v1/oib/status`.
+
+---
+
+## Ingestor initialization
 
 The sync imports `knowledge_layer.llamaindex.adapter` eagerly to register the ingestor backend with the factory, then obtains an ingestor via:
 
@@ -217,23 +172,22 @@ from aiq_agent.knowledge.factory import get_ingestor
 ingestor = get_ingestor("llamaindex", {"persist_dir": CHROMA_DIR})
 ```
 
-This creates a `LlamaIndexIngestor` with ChromaDB persistence at `AIQ_CHROMA_DIR`.
+With `AIQ_CHROMA_URL` set (every Kubernetes and Coolify deployment) the adapter talks to the shared Chroma server and `persist_dir` is unused.
 
 ---
 
-## Dependency Graph
+## Dependency graph
 
 ```
-scripts/ingest_oib.py
+frontends/aiq_api routes/oib.py  ·  routes/jobs.py (housekeeping/base-corpus)
        │
        ▼
-src/aiq_agent/oib_sync.py
-       │
-       ├── knowledge_layer.llamaindex.adapter  (registers backend)
-       ├── aiq_agent.knowledge.factory          (get_ingestor)
-       ├── aiq_agent.knowledge.schema           (FileStatus)
-       │
-       └── ChromaDB (@ AIQ_CHROMA_DIR / oib_knowledge collection)
+src/aiq_agent/oib_sync.py ──────────► src/aiq_agent/corpus_store.py
+       │                                  │ table: oib_corpus_files (AIQ_SUMMARY_DB)
+       ├── knowledge_layer.llamaindex.adapter   │ writes: BFF presigned URLs / delete
+       ├── aiq_agent.knowledge.factory          │ reads:  aiq_agent.common.seaweed_s3
+       ├── aiq_agent.knowledge.leader_lock      └ cache:  GRID_BASE_CORPUS_CACHE_DIR
+       └── ChromaDB (oib_knowledge collection)
 ```
 
 The OIB collection is included as the default `base_collection` in every query's scope (see [Collection Scoping](collection-scoping.md)).

@@ -76,7 +76,7 @@ The NAT framework is extended with:
 | AIQ API worker | `frontends/aiq_api/` | Async job processing with SSE streaming |
 | Knowledge layer | `sources/knowledge_layer/` | LlamaIndex-backed RAG with ChromaDB |
 | Custom auth utils | `src/aiq_agent/auth/` | JWT extraction, WorkOS token validation |
-| OIB sync | `src/aiq_agent/oib_sync.py` | Incremental OIB PDF ingestion with SHA-256 registry |
+| OIB sync | `src/aiq_agent/oib_sync.py`, `src/aiq_agent/corpus_store.py` | Base corpus in object storage + the `oib_corpus_files` table; ingests what the index was not built from (SHA-256, chunk-format version) |
 
 ### Data Flow
 

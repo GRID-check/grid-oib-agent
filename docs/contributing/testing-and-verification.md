@@ -57,6 +57,18 @@ from whatever the venv has installed, possibly another worktree, and validates
 the wrong code while appearing to pass. `Taskfile.yml` sets it. Call `pytest`
 directly and you own it again.
 
+**The base-corpus tests run on SQLite by default, and the Postgres paths need
+`GRID_TEST_CORPUS_DB`.** `tests/test_corpus_store.py`, `test_oib_sync.py`,
+`test_oib_status.py` and `frontends/aiq_api/tests/test_oib_documents_routes.py`
+keep the corpus table in a throwaway SQLite file and the object store in memory.
+The Postgres upsert, the conditional update that records an ingested hash and the
+advisory locks behind `keyed_lock` (SQLite has none) are only exercised when you
+point `GRID_TEST_CORPUS_DB` at a scratch database, for example
+`postgresql://postgres@127.0.0.1:5432/corpus_test`. Prefer the IP to `localhost`: in
+the sandbox this was written in, `localhost` resolved to another host under the
+`frontends/aiq_api` suite and the first test hung on the connect. The table is emptied before each test, so never
+aim it at a database that holds a real corpus.
+
 **Static green is not runtime green.** Typecheck, lint and unit tests are the
 bar for most changes. Behaviour that only exists at runtime, WebSocket flows,
 auth, and the deletion pipeline among them, needs the Compose stack with real
@@ -332,9 +344,9 @@ the case to `tests/fixtures/herleitung/loop_eval_questions.yaml` with a
 `Source: answer feedback <date>` comment. A question answered from the web has no
 `family`, which the suite treats as needing a project, so it cannot be a case.
 
-It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus in
-`data/oib` ingested into `AIQ_CHROMA_DIR` (`-- --ingest` runs the sync
-first). Every run costs model calls: the core set at two runs is twelve
+It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus
+(uploaded with `scripts/upload_oib_corpus.py`) ingested into `AIQ_CHROMA_DIR`
+(`-- --ingest` runs the sync first). Every run costs model calls: the core set at two runs is twelve
 turns, about four minutes three at a time.
 
 **The CI run is paused.** `.github/workflows/answer-suite.yml` is commented

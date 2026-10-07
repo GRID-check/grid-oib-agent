@@ -105,7 +105,7 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `BACKEND_CONFIG` | Yes | `/app/configs/config_oib_openrouter.yml` | Path to the NAT workflow YAML config file inside the container. The compose stack mounts `configs/` at `/app/configs`. |
-| `AIQ_CHROMA_DIR` | No | `/tmp/chroma_data` | Directory for ChromaDB persistence. In Docker: `/app/data/chroma_data`. Ignored once `AIQ_CHROMA_URL`/`AIQ_CHROMA_HOST` selects a shared server. |
+| `AIQ_CHROMA_DIR` | No | `/tmp/chroma_data` | Directory for the embedded ChromaDB store. Compose's default stack: `/app/data/chroma_data`, on its own `chroma_data` volume. Ignored once `AIQ_CHROMA_URL`/`AIQ_CHROMA_HOST` selects a shared server, which every Kubernetes and Coolify deployment does (the backend has no volume there). |
 | `AIQ_CHROMA_URL` | No | (unset — embedded client) | Full URL of a **shared** Chroma server (e.g. `http://chroma:8000`). Setting this (or `AIQ_CHROMA_HOST`) makes every backend replica and research worker talk to ONE Chroma over HTTP instead of each opening its own embedded `PersistentClient` on local disk — which is what otherwise pins the vector store to a single pod. A scheme-less value (`chroma:8000`) is accepted; `https://` implies TLS. Unset keeps today's embedded behaviour, so local dev and single-node are untouched. |
 | `AIQ_CHROMA_HOST` | No | (unset — embedded client) | Host of a shared Chroma server, as an alternative to `AIQ_CHROMA_URL`. |
 | `AIQ_CHROMA_PORT` | No | `8000`, or `443` when TLS is on | Port for the shared Chroma server. A port embedded in `AIQ_CHROMA_URL` wins over this. |
@@ -212,15 +212,12 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 
 ## OIB Base Corpus Sync
 
-The platform-owner base corpus (`oib_knowledge`) — repo-shipped OIB Richtlinien PDFs plus admin uploads — is discovered and ingested by `src/aiq_agent/oib_sync.py`. aiq-agent service.
+The platform-owner base corpus (`oib_knowledge`) is the PDFs admins upload. They live in SeaweedFS and are listed in one table; `src/aiq_agent/oib_sync.py` ingests what is not indexed yet, one sync cycle every ten minutes (the `base-corpus` housekeeping route). See [`docs/technical-reference/oib-sync.md`](../technical-reference/oib-sync.md). aiq-agent service.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OIB_COLLECTION_NAME` | No | `COLLECTION_NAME`, then `oib_knowledge` | Chroma collection the base corpus is ingested into. |
-| `GRID_BASE_CORPUS_STORE` | No | `disk` | Where the admin-uploaded base corpus lives (ADR-0082 step A2). `disk` (Compose, local dev): PDFs in `OIB_UPLOADS_DIR`, the registry and exclusions in the JSON files below, all per replica. `object` (the Kubernetes stack sets it): the PDFs are objects in SeaweedFS (`base-corpus/<file name>` in `SEAWEED_BUCKET`, written through the BFF's `/api/internal/base-corpus/*`, read with the backend's read credential), the registry and exclusions are the `oib_corpus_registry` and `oib_corpus_excluded` tables, the file list is `oib_corpus_files`, all in `AIQ_SUMMARY_DB`, and `OIB_UPLOADS_DIR` becomes a per-replica cache of them. Needs `AIQ_SUMMARY_DB`, `FRONTEND_INTERNAL_URL`, `GRID_INTERNAL_API_TOKEN` and the `SEAWEED_*` read set on the backend; without the database the backend refuses to start a sync rather than fall back to per-replica state. Any value other than `object` is `disk`. `OIB_REGISTRY_PATH` and `OIB_EXCLUDED_PATH` are then read once, to move an existing volume into the store. Backend (aiq-agent) service. |
-| `OIB_UPLOADS_DIR` | No | `data/oib_uploads` | Writable home for base-corpus PDFs uploaded through the platform admin UI (inside the persistent `aiq-data` volume). Scanned by sync alongside the read-only repo corpus. With `GRID_BASE_CORPUS_STORE=object` it is a cache of the shared corpus, and a PDF in it that the shared corpus does not list is removed at the next refresh (after the one-time move of an existing volume). |
-| `OIB_REGISTRY_PATH` | No | `data/oib_registry.json` | Sync bookkeeping: which corpus files have been ingested, and at what content hash. |
-| `OIB_EXCLUDED_PATH` | No | `data/oib_excluded.json` | Persistent set of corpus basenames an admin removed. Repo-shipped PDFs live in git and cannot be physically deleted, so "delete" means excluding them here: their chunks are dropped and both `discover_pdfs()` and `sync()` skip them from then on, so a later sync never silently re-ingests a document that was removed on purpose. Losing this file re-admits every previously deleted document. |
+| `GRID_BASE_CORPUS_CACHE_DIR` | No | `/tmp/base-corpus` | This process's cache of base-corpus PDFs (ADR-0082 step A2). The corpus itself is the object `base-corpus/<file name>` in `SEAWEED_BUCKET` plus the `oib_corpus_files` table in `AIQ_SUMMARY_DB`; a cached file is downloaded on demand, checked against the table's sha256, and may be lost at any restart. Nothing needs to persist here, and the backend needs no volume for it. |
 | `OIB_SYNC_MAX_WORKERS` | No | `4` | Concurrent files ingested per sync run. Invalid values warn and fall back to `4`; values below `1` are clamped to `1`. |
 
 ---
