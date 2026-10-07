@@ -379,6 +379,11 @@ functions:
           # The file browser reads the same files through the same scope, so
           # switching the knowledge base off must take it too.
           - list_files
+          # Other projects' uploaded documents (ADR-0085). Without this line
+          # nothing the lookup returns is captured as a citable source, and a
+          # turn whose only finding was a precedent was replaced by the canned
+          # "search unavailable" reply (found by the precedent eval).
+          - project_lookup
       - id: ris
         name: "RIS – Österreichisches Recht"
         description: "Search Austrian federal/state law and case law in the official RIS (Rechtsinformationssystem des Bundes) and fetch entire documents on demand."
