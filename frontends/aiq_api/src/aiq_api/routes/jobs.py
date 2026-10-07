@@ -1100,18 +1100,38 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     # table is otherwise created lazily on first EventStore write).
     EventStore._ensure_table_exists(db_url)
 
+    # One cycle of each housekeeping loop as an internal route, for a scheduler
+    # outside this process (the Kubernetes CronJobs, ADR-0082 step A1). The
+    # in-process loops below run unless GRID_HOUSEKEEPING=external says that
+    # scheduler exists; Compose has none, so in-process stays the default.
+    _add_housekeeping_routes(app, job_store, db_url, scheduler_address, default_expiry_seconds)
+    in_process = housekeeping_in_process()
+    if not in_process:
+        logger.info("GRID_HOUSEKEEPING=external: loops off; /v1/maintenance/housekeeping/* is called on a schedule")
+
     # Start the ghost job reaper background task
-    asyncio.create_task(_reap_ghost_jobs(job_store, db_url, scheduler_address))
+    if in_process:
+        asyncio.create_task(_reap_ghost_jobs(job_store, db_url, scheduler_address))
 
     # Start periodic cleanup of expired jobs (NAT's job_info table) and old events (job_events table).
     # NAT provides periodic_cleanup as a Dask task for job_info, but it must be explicitly submitted.
     # We also run a local asyncio task for job_events cleanup since NAT doesn't manage that table.
-    _start_periodic_cleanup(job_store, scheduler_address, db_url, default_expiry_seconds, log_level, use_threads)
+    # The Dask submit runs in the Dask cluster, not here, so it stays even when the loop is external.
+    _start_periodic_cleanup(
+        job_store,
+        scheduler_address,
+        db_url,
+        default_expiry_seconds,
+        log_level,
+        use_threads,
+        local_loop=in_process,
+    )
 
     # Age-based retention for the interactive chat checkpoint store. Chat threads
     # have no terminal event, so they accumulate forever without this (P0 #1,
     # chat side — see checkpoint_retention.py). Runs regardless of execution mode.
-    _start_checkpoint_reaper()
+    if in_process:
+        _start_checkpoint_reaper()
 
 
 KILL_REASON = "killed by platform operator"
@@ -1593,12 +1613,14 @@ def _start_periodic_cleanup(
     expiry_seconds: int,
     log_level: int,
     use_threads: bool,
+    local_loop: bool = True,
 ) -> None:
     """
     Start periodic cleanup of expired jobs and old events.
 
     Submits NAT's periodic_cleanup as a Dask task (handles job_info expiry)
-    and starts a local asyncio task for coordinated event cleanup.
+    and, with ``local_loop``, starts a local asyncio task for coordinated event
+    cleanup. Without it the same cycle is ``POST /v1/maintenance/housekeeping/job-events``.
     """
     global _cleanup_task
 
@@ -1648,8 +1670,9 @@ def _start_periodic_cleanup(
     # In db-execution mode (no Dask client) NAT's job_info expiry never runs, so this loop
     # also ages out job_info/job_access under the same lock (ADR-0021; expire_terminal_jobs).
     # Cancel any previously-started task before overwriting the reference.
-    expire_job_info = db_execution
-    delete_grace_seconds = _int_env("GRID_JOB_INFO_DELETE_GRACE_SECONDS", 604800)  # 7d
+    if not local_loop:
+        return
+    expire_job_info, delete_grace_seconds = _job_info_expiry()
     if _cleanup_task and not _cleanup_task.done():
         _cleanup_task.cancel()
     _cleanup_task = asyncio.create_task(
@@ -1687,7 +1710,7 @@ def _start_checkpoint_reaper() -> None:
 
     global _checkpoint_reaper_task
     dsn = os.environ.get("AIQ_CHECKPOINT_DB")
-    retention_seconds = _int_env("GRID_CHAT_CHECKPOINT_RETENTION_SECONDS", 1209600)  # 14d
+    retention_seconds = _checkpoint_retention_seconds()
     if not dsn:
         logger.info("No AIQ_CHECKPOINT_DB configured - chat checkpoint reaper not started")
         return
@@ -1696,6 +1719,71 @@ def _start_checkpoint_reaper() -> None:
     _checkpoint_reaper_task = asyncio.create_task(
         _reap_idle_checkpoints_loop(dsn, retention_seconds, CHECKPOINT_REAPER_INTERVAL_SECONDS)
     )
+
+
+def housekeeping_in_process() -> bool:
+    """Whether this process runs the housekeeping loops itself.
+
+    ``GRID_HOUSEKEEPING=external`` means a scheduler outside the process calls
+    the ``/v1/maintenance/housekeeping/*`` routes instead (ADR-0082 step A1).
+    Anything else, unset included, keeps the loops here.
+    """
+    import os
+
+    return os.environ.get("GRID_HOUSEKEEPING", "in-process").strip().lower() != "external"
+
+
+def _checkpoint_retention_seconds() -> int:
+    return _int_env("GRID_CHAT_CHECKPOINT_RETENTION_SECONDS", 1209600)  # 14d
+
+
+def _job_info_expiry() -> tuple[bool, int]:
+    """Whether the event cleanup also expires job_info rows, and their delete grace.
+
+    In db-execution mode NAT's Dask expiry never runs, so the cleanup does it
+    (ADR-0021; ``expire_terminal_jobs``).
+    """
+    from ..jobs.submit import job_execution_mode
+
+    return job_execution_mode() == "db", _int_env("GRID_JOB_INFO_DELETE_GRACE_SECONDS", 604800)  # 7d
+
+
+def _add_housekeeping_routes(
+    app: FastAPI, job_store, db_url: str, scheduler_address: str | None, expiry_seconds: int
+) -> None:
+    """One cycle of each housekeeping loop, behind the internal token.
+
+    Each takes the same Postgres advisory lock as its loop, so a call that
+    overlaps a running cycle (a loop still on during a rollout, a slow previous
+    call) skips and reports nothing done.
+    """
+
+    @app.post("/v1/maintenance/housekeeping/ghost-jobs", tags=["maintenance"], include_in_schema=False)
+    async def housekeeping_ghost_jobs(request: Request) -> dict:
+        _require_internal_token(request)
+        reaped = await _reap_stale_jobs_once(job_store, db_url, scheduler_address)
+        return {"reaped": reaped}
+
+    @app.post("/v1/maintenance/housekeeping/job-events", tags=["maintenance"], include_in_schema=False)
+    async def housekeeping_job_events(request: Request) -> dict:
+        _require_internal_token(request)
+        expire_job_info, delete_grace_seconds = _job_info_expiry()
+        return await _run_event_cleanup(
+            db_url, expiry_seconds, db_url.startswith("postgres"), expire_job_info, delete_grace_seconds
+        )
+
+    @app.post("/v1/maintenance/housekeeping/chat-checkpoints", tags=["maintenance"], include_in_schema=False)
+    async def housekeeping_chat_checkpoints(request: Request) -> dict:
+        import os
+
+        from ..jobs.checkpoint_retention import reap_idle_threads
+
+        _require_internal_token(request)
+        dsn = os.environ.get("AIQ_CHECKPOINT_DB")
+        if not dsn:
+            return {"threads_reaped": 0, "skipped": "AIQ_CHECKPOINT_DB is not set"}
+        retention_seconds = _checkpoint_retention_seconds()
+        return {"threads_reaped": await asyncio.to_thread(reap_idle_threads, dsn, retention_seconds)}
 
 
 async def _reap_idle_checkpoints_loop(dsn: str, retention_seconds: int, interval_seconds: int) -> None:
@@ -1783,9 +1871,11 @@ async def _run_event_cleanup(
     is_postgres: bool,
     expire_job_info: bool = False,
     delete_grace_seconds: int = 604800,
-) -> None:
+) -> dict[str, int]:
     """
     Execute one cleanup cycle: time-based event pruning + removal of events for expired jobs.
+
+    Returns what the cycle removed; all zeros when another pod held the lock.
 
     On PostgreSQL, acquires a transaction-level advisory lock (pg_try_advisory_xact_lock)
     so concurrent pods skip the cycle rather than doing redundant work. The lock is
@@ -1846,9 +1936,8 @@ async def _run_event_cleanup(
             conn.commit()
             return (time_deleted, expired_deleted, access_deleted, job_marked, job_deleted)
 
-    time_deleted, expired_deleted, access_deleted, job_marked, job_deleted = await loop.run_in_executor(
-        None, _do_cleanup
-    )
+    counts = await loop.run_in_executor(None, _do_cleanup)
+    time_deleted, expired_deleted, access_deleted, job_marked, job_deleted = counts
 
     if time_deleted > 0 or expired_deleted > 0 or access_deleted > 0 or job_marked > 0 or job_deleted > 0:
         logger.info(
@@ -1860,6 +1949,13 @@ async def _run_event_cleanup(
             job_marked,
             job_deleted,
         )
+    return dict(
+        zip(
+            ("old_events", "expired_job_events", "access_rows", "job_info_expired", "job_info_deleted"),
+            counts,
+            strict=True,
+        )
+    )
 
 
 async def _cancel_dask_task(scheduler_address: str, job_id: str) -> bool:

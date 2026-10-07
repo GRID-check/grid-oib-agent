@@ -10,10 +10,12 @@ import {
   secretChecksumAnnotations,
 } from "../platform/rollout";
 import { BOOTSTRAP_JOB_RESOURCES, JOB_DEFAULTS, LIGHT_WORKER_RESOURCES, PORT, UID } from "../constants";
-import { AppSecrets, AppWiring, purgerEnv, schedulerEnv, sref } from "./config";
+import { AppSecrets, AppWiring, BACKEND_URL, purgerEnv, schedulerEnv, sref } from "./config";
+
+const FRONTEND_URL = `http://frontend:${PORT.frontend}`;
 
 /**
- * One POST to an internal BFF sweep, as a `node -e` program.
+ * One POST to an internal sweep route, as a `node -e` program.
  *
  * Written out here rather than inline so the quoting stays readable and so the
  * two things that make it a real check — a non-2xx becoming a non-zero exit, and
@@ -47,7 +49,8 @@ function internalSweepScript(label: string, timeoutMs: number): string {
 }
 
 /**
- * A CronJob that POSTs to one internal BFF route on a schedule.
+ * A CronJob that POSTs to one internal route, the BFF's or the backend's, on a
+ * schedule.
  *
  * A CronJob rather than a polling Deployment, which is the opposite choice
  * from the two workers below and deliberate. Those two hold a claim on rows
@@ -55,10 +58,10 @@ function internalSweepScript(label: string, timeoutMs: number): string {
  * no state between ticks and nothing to claim, so a resident pod would spend
  * the whole period idle to do a few seconds of work.
  *
- * It calls the BFF rather than doing the work itself because the sweep needs
- * the app's database context and clients — all of which already exist behind
- * the internal route. Re-implementing them in a worker image would be a second
- * copy of the rules to keep in step.
+ * It calls an app route rather than doing the work itself because the sweep
+ * needs the app's database context and clients — all of which already exist
+ * behind the internal route. Re-implementing them in a worker image would be a
+ * second copy of the rules to keep in step.
  *
  * `concurrencyPolicy: Forbid` because a tick that overruns its period must not
  * be joined by the next one. The endpoints are idempotent across SEQUENTIAL
@@ -73,7 +76,7 @@ function internalSweepCronJob(
   cfg: GridConfig,
   secrets: AppSecrets,
   dependsOn: pulumi.Resource[],
-  sweep: { name: string; schedule: string; path: string; timeoutMs: number },
+  sweep: { name: string; schedule: string; url: string; timeoutMs: number },
 ): k8s.batch.v1.CronJob {
   return new k8s.batch.v1.CronJob(
     sweep.name,
@@ -117,7 +120,7 @@ function internalSweepCronJob(
                     resources: BOOTSTRAP_JOB_RESOURCES,
                     command: ["node", "-e", internalSweepScript(sweep.name, sweep.timeoutMs)],
                     env: [
-                      { name: "SWEEP_URL", value: `http://frontend:${PORT.frontend}${sweep.path}` },
+                      { name: "SWEEP_URL", value: sweep.url },
                       // The token never reaches the command line — an `-H`
                       // argument would show up in `kubectl describe pod` and
                       // in every process listing in the container.
@@ -154,6 +157,7 @@ export function installWorkers(
   scheduler: k8s.apps.v1.Deployment;
   storageAlerts?: k8s.batch.v1.CronJob;
   vectorReconcile?: k8s.batch.v1.CronJob;
+  housekeeping: k8s.batch.v1.CronJob[];
 } {
   const workerResources = LIGHT_WORKER_RESOURCES;
   const shutdown = gracefulShutdown(ROLLOUT.lightWorker);
@@ -258,7 +262,7 @@ export function installWorkers(
     ? internalSweepCronJob(w, cfg, secrets, dependsOn, {
         name: "storage-alerts",
         schedule: cfg.storageAlerts.schedule,
-        path: "/api/internal/storage/alerts",
+        url: `${FRONTEND_URL}/api/internal/storage/alerts`,
         timeoutMs: 600_000,
       })
     : undefined;
@@ -276,10 +280,35 @@ export function installWorkers(
     ? internalSweepCronJob(w, cfg, secrets, dependsOn, {
         name: "vector-reconcile",
         schedule: cfg.vectorReconcile.schedule,
-        path: "/api/internal/maintenance/reconcile-vectors",
+        url: `${FRONTEND_URL}/api/internal/maintenance/reconcile-vectors`,
         timeoutMs: 1_800_000,
       })
     : undefined;
 
-  return { purger, scheduler, storageAlerts, vectorReconcile };
+  /**
+   * The backend's housekeeping, one CronJob per loop it replaces (ADR-0082 step
+   * A1): the web role runs no loop of its own while these exist
+   * (`GRID_HOUSEKEEPING=external`, app/config.ts). Each route takes the same
+   * advisory lock as its loop did, so a tick that lands on a pod still running
+   * the old loop mid-rollout skips instead of doing the work twice.
+   *
+   * The ghost reaper ran every minute against a 300-second silence window; every
+   * two minutes moves the worst case from 360 to 420 seconds and halves the pods
+   * the schedule starts. The other two ran hourly and stay hourly, on minutes
+   * apart from each other and from the hourly storage sweep.
+   */
+  const housekeeping = cfg.backendHousekeeping.cronJobs
+    ? [
+        { name: "housekeeping-ghost-jobs", schedule: "*/2 * * * *", route: "ghost-jobs", timeoutMs: 90_000 },
+        { name: "housekeeping-job-events", schedule: "7 * * * *", route: "job-events", timeoutMs: 900_000 },
+        { name: "housekeeping-chat-checkpoints", schedule: "37 * * * *", route: "chat-checkpoints", timeoutMs: 900_000 },
+      ].map(({ route, ...sweep }) =>
+        internalSweepCronJob(w, cfg, secrets, dependsOn, {
+          ...sweep,
+          url: `${BACKEND_URL}/v1/maintenance/housekeeping/${route}`,
+        }),
+      )
+    : [];
+
+  return { purger, scheduler, storageAlerts, vectorReconcile, housekeeping };
 }

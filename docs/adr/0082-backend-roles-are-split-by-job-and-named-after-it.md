@@ -122,9 +122,13 @@ product owner.
 
 ### Confirmation
 
-Nothing enforces this yet; review is the only gate. Each step adds its own:
-a Pulumi spec that the web role mounts no PVC (A2), and one that the `chat` and
-`api` Deployments mount disjoint route sets (B).
+Each step adds its own gate as it lands:
+- A1: `index.spec.ts` asserts that the three `housekeeping-*` CronJobs exist
+  and that the web role gets `GRID_HOUSEKEEPING=external` with them.
+  `src/app/housekeeping.spec.ts` asserts that the CronJobs call exactly the
+  routes the backend registers.
+- A2: a Pulumi spec that the web role mounts no PVC.
+- B: a spec that the `chat` and `api` Deployments mount disjoint route sets.
 
 ## More Information
 

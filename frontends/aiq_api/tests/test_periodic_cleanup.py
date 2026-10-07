@@ -197,6 +197,19 @@ class TestRunEventCleanup:
         assert len(remaining) == 0
 
     @pytest.mark.asyncio
+    async def test_reports_what_the_cycle_removed(self, db_url):
+        """The housekeeping route returns these counts to its CronJob (ADR-0082 A1)."""
+        from aiq_api.routes.jobs import _run_event_cleanup
+
+        EventStore(db_url, job_id="expired-job").store({"type": "test", "data": {}})
+        _create_expired_job(db_url, "expired-job")
+
+        counts = await _run_event_cleanup(db_url, retention_seconds=86400, is_postgres=False)
+
+        assert counts["expired_job_events"] == 1
+        assert counts["old_events"] == 0
+
+    @pytest.mark.asyncio
     async def test_preserves_events_for_non_expired_jobs(self, db_url):
         """Events for jobs NOT marked expired should be preserved (if within retention)."""
         from aiq_api.routes.jobs import _run_event_cleanup
