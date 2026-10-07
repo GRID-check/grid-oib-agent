@@ -206,20 +206,20 @@ def expire_terminal_jobs(
     delete_grace_seconds: int,
     conn: Connection | None = None,
 ) -> tuple[int, int]:
-    """Age out finished ``job_info`` rows so the table stays bounded in db mode.
+    """Age out finished ``job_info`` rows so the table stays bounded.
 
     Two phases, both preserving the single most-recent finished job so an idle
     deployment always shows its last run:
 
     1. **Mark** terminal rows ``is_expired = true`` once ``updated_at +
-       expiry_seconds`` has passed (the per-row expiry NAT itself honors). This
-       mirrors NAT's ``cleanup_expired_jobs`` — which runs only via the Dask
-       cleanup task and is therefore skipped in ``db`` execution mode (ADR-0021),
-       leaving ``job_info``/``job_access`` to grow forever. Marking here re-arms
-       the existing access/event cleanup, which keys off ``is_expired``.
-    2. **Delete** rows whose ``updated_at`` is older than ``delete_grace_seconds``
+       expiry_seconds`` has passed (the per-row expiry NAT itself honors). It
+       is the only job_info expiry, in both execution modes (ADR-0082 A1: the
+       job-events housekeeping route runs it). Marking re-arms the
+       access/event cleanup, which keys off ``is_expired``.
+    2. **Delete** rows past BOTH their own expiry and ``delete_grace_seconds``
        (job_events + job_access + job_info together) so the table is actually
-       bounded, not merely flagged.
+       bounded, not merely flagged. Requiring the expiry too means a grace set
+       shorter than a job's expiry never deletes that job early.
 
     Runs on the caller's connection (under its advisory lock) without committing
     when ``conn`` is given, else opens and commits its own. Returns
@@ -279,7 +279,10 @@ def _expire_terminal_jobs(conn: Connection, db_url: str, delete_grace_seconds: i
             # Interpolated fragments are trusted dialect literals + generated ":sN"
             # placeholders; grace/status values are bound.
             # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-            text(f"SELECT job_id FROM job_info WHERE status IN ({placeholders}) AND {past_grace} AND {keep_newest}"),
+            text(
+                f"SELECT job_id FROM job_info WHERE status IN ({placeholders}) "
+                f"AND {past_grace} AND {past_expiry} AND {keep_newest}"
+            ),
             {**status_params, "grace": delete_grace_seconds},
         ).scalars()
     )
