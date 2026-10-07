@@ -20,12 +20,13 @@ export interface SimilarityFacts {
   /** A multi-select in the intake (a hybrid is „holzbau" and „stahlbeton"). */
   bauweise: readonly string[]
   nutzungen: readonly string[]
-  vorhabensart: string | null
+  /** A multi-select too (Neubau and Zubau); an older profile may hold one token. */
+  vorhabensart: readonly string[]
 }
 
 type Profile = Pick<Project, 'profile'>['profile']
 
-function factValue(profile: Profile, key: string): unknown {
+function factValue(profile: Profile | null, key: string): unknown {
   return profile?.facts?.[key]?.value ?? null
 }
 
@@ -54,13 +55,13 @@ function overlap(a: readonly string[], b: readonly string[]): string[] {
 }
 
 /** The facts of one profile the ranking reads; missing or malformed facts read as unknown. */
-export function similarityFacts(profile: Profile): SimilarityFacts {
+export function similarityFacts(profile: Profile | null): SimilarityFacts {
   return {
     bundesland: token(factValue(profile, 'bundesland')),
     gebaeudeklasse: gebaeudeklasse(factValue(profile, 'gebaeudeklasse')),
     bauweise: tokens(factValue(profile, 'bauweise')),
     nutzungen: tokens(factValue(profile, 'nutzungen')),
-    vorhabensart: token(factValue(profile, 'vorhabensart')),
+    vorhabensart: tokens(factValue(profile, 'vorhabensart')),
   }
 }
 
@@ -88,7 +89,7 @@ export function similarity(current: SimilarityFacts, candidate: SimilarityFacts)
   if (overlap(current.bauweise, candidate.bauweise).length > 0) score += w.bauweise
   const shared = overlap(current.nutzungen, candidate.nutzungen).length
   score += Math.min(shared * w.nutzung, w.nutzungMax)
-  if (current.vorhabensart && current.vorhabensart === candidate.vorhabensart) score += w.vorhabensart
+  if (overlap(current.vorhabensart, candidate.vorhabensart).length > 0) score += w.vorhabensart
   return score
 }
 

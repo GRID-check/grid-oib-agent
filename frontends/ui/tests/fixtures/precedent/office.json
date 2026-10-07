@@ -17,7 +17,7 @@
       "nutzungen": [
         "wohnen"
       ],
-      "vorhabensart": "neubau",
+      "vorhabensart": ["neubau"],
       "standort_adresse": "Hochstraße 12, 2380 Perchtoldsdorf",
       "geschosse_oberirdisch": 4
     },
@@ -40,7 +40,7 @@
         "nutzungen": [
           "wohnen"
         ],
-        "vorhabensart": "neubau",
+        "vorhabensart": ["neubau"],
         "standort_adresse": "Wiener Straße 40, 2500 Baden"
       },
       "summary": "Viergeschoßiger Holzwohnbau (CLT) mit Stiegenhaus in Stahlbeton; Brandschutz über Gutachten mit Kapselung.",
@@ -104,7 +104,7 @@
         "nutzungen": [
           "wohnen"
         ],
-        "vorhabensart": "neubau",
+        "vorhabensart": ["neubau"],
         "standort_adresse": "Brunner Gasse 7, 2340 Mödling"
       },
       "summary": "Wohnhausanlage in Massivbau mit außenliegender Fluchttreppe; Mängelbehebungsauftrag der Baubehörde zur Fluchtwegbreite.",
@@ -168,7 +168,7 @@
         "nutzungen": [
           "buero"
         ],
-        "vorhabensart": "neubau",
+        "vorhabensart": ["neubau"],
         "standort_adresse": "Wagramer Straße 150, 1220 Wien"
       },
       "summary": "Achtgeschoßiges Bürogebäude, Fluchtniveau 24,5 m, Sicherheitstreppenhaus mit Druckbelüftung.",
@@ -213,7 +213,7 @@
         "nutzungen": [
           "bildung"
         ],
-        "vorhabensart": "neubau",
+        "vorhabensart": ["neubau"],
         "standort_adresse": "Hafenstraße 3, 4020 Linz"
       },
       "summary": "Dreigeschoßige Volksschule als Holz-Hybridbau, in Ausführungsplanung.",
@@ -246,7 +246,7 @@
         "nutzungen": [
           "wohnen"
         ],
-        "vorhabensart": "neubau"
+        "vorhabensart": ["neubau"]
       },
       "summary": "Freistehendes Einfamilienhaus in Holzriegelbauweise.",
       "documents": [
@@ -279,7 +279,7 @@
         "nutzungen": [
           "wohnen"
         ],
-        "vorhabensart": "zubau"
+        "vorhabensart": ["zubau"]
       },
       "summary": "Dachgeschoßausbau mit zwei Geschoßen auf einem Gründerzeithaus.",
       "documents": [

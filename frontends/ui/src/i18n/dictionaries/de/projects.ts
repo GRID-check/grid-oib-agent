@@ -107,6 +107,49 @@ export const projects: typeof en.projects = {
         'Danach kann niemand mehr Dateien, Ordner, das Briefing oder das Projektgedächtnis ändern, auch Tiefenrecherchen und Aufträge laufen nicht mehr. Alle im Büro können das Projekt lesen und dazu fragen. Sie können es jederzeit wieder öffnen. Ist im Steckbrief noch kein Abschluss eingetragen, wird der aktuelle Monat gesetzt.',
       confirm: 'Abschließen',
     },
+    debrief: {
+      intro:
+        'Was dieses Projekt gelernt hat, kann jedes künftige Projekt im Büro nutzen: Piloti schlägt es vor, wenn eine ähnliche Frage kommt. Prüfen Sie vor dem Abschluss kurz, was davon bleibt.',
+      fingerprint: {
+        heading: 'Woran Piloti es wiederfindet',
+        description: 'Nach diesen Angaben findet Piloti vergleichbare Projekte. Fehlende ergänzen Sie im Briefing.',
+        missing: '{count, plural, one {# Angabe fehlt} other {# Angaben fehlen}}',
+        complete: 'Vollständig',
+        open: 'offen',
+        edit: 'Im Briefing ergänzen',
+        period: 'Zeitraum',
+        periodOpen: '{start} bis heute',
+        periodNone: 'offen; im Steckbrief eintragen',
+        labels: {
+          bundesland: 'Bundesland',
+          gebaeudeklasse: 'Gebäudeklasse',
+          bauweise: 'Bauweise',
+          nutzungen: 'Nutzungen',
+          vorhabensart: 'Art des Vorhabens',
+        },
+      },
+      decisions: {
+        heading: 'Was das Büro behalten soll',
+        description:
+          'Entscheidungen und Vorgaben aus dem Projektgedächtnis. Bestätigte nennt Piloti in anderen Projekten „von einer Person bestätigt".',
+        empty: 'Piloti hat für dieses Projekt noch keine Entscheidungen festgehalten.',
+        confirm: 'Bestätigen',
+        confirmed: 'Bestätigt',
+        kind: { decision: 'Entscheidung', constraint: 'Vorgabe' },
+      },
+      lesson: {
+        label: 'Erkenntnis festhalten',
+        placeholder: 'z. B. „Die Behörde verlangte die Fluchtwegbreite in jedem Grundriss bemaßt."',
+        add: 'Festhalten',
+        added: 'Erkenntnis festgehalten.',
+      },
+      readOnly:
+        'Entscheidungen bestätigen und Erkenntnisse festhalten können nur Personen, die das Projektgedächtnis bearbeiten dürfen. Abschließen können Sie trotzdem.',
+      errors: {
+        load: 'Das Projektgedächtnis konnte nicht geladen werden.',
+        save: 'Das konnte nicht gespeichert werden.',
+      },
+    },
     reopenDialog: {
       title: 'Projekt wieder öffnen?',
       description:

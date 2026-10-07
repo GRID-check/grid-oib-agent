@@ -3,6 +3,9 @@
 /**
  * Close a project, or reopen it (ADR-0082) — the settings card for whoever
  * holds `project:manage`. Both directions ask once; neither deletes anything.
+ * Closing asks with the closing debrief inside the dialog
+ * (`closing-debrief.tsx`): what the project leaves the office, while its
+ * memory can still be written.
  * The server decides and audits (`PUT /api/projects/[id]/status`); this card
  * only asks and then refreshes the page, whose every section reads the new
  * status from the server.
@@ -17,16 +20,32 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { RaisedCard, RaisedCardBody } from '@/components/ui/raised-card'
 import { ProjectStatusChip } from '@/components/projects/project-status'
 import { useLocale, useTranslations } from '@/i18n'
+import type { ProjectProfile } from '@/lib/project-profile/types'
+import type { Month } from '@/lib/projects/month'
 import type { ProjectStatus } from '@/lib/projects/project-status'
+import { ClosingDebrief } from './closing-debrief'
 
 export interface ProjectLifecycleCardProps {
   projectId: string
   status: ProjectStatus
   /** ISO timestamp; set when closed. */
   closedAt: string | null
+  /** The profile, for the debrief's fingerprint. */
+  profile?: ProjectProfile | null
+  /** The Steckbrief's Beginn, for the debrief. */
+  startedOn?: Month | null
+  /** Whether the closer may confirm decisions and record a lesson in the debrief. */
+  canWriteMemory?: boolean
 }
 
-export function ProjectLifecycleCard({ projectId, status, closedAt }: ProjectLifecycleCardProps): JSX.Element {
+export function ProjectLifecycleCard({
+  projectId,
+  status,
+  closedAt,
+  profile = null,
+  startedOn = null,
+  canWriteMemory = false,
+}: ProjectLifecycleCardProps): JSX.Element {
   const t = useTranslations('projects')
   const tCommon = useTranslations('common')
   const { locale } = useLocale()
@@ -84,7 +103,16 @@ export function ProjectLifecycleCard({ projectId, status, closedAt }: ProjectLif
           cancelLabel={tCommon('actions.cancel')}
           onConfirm={submit}
           pending={pending}
-        />
+        >
+          {!closed && open && (
+            <ClosingDebrief
+              projectId={projectId}
+              profile={profile}
+              startedOn={startedOn}
+              canWriteMemory={canWriteMemory}
+            />
+          )}
+        </ConfirmDialog>
       </RaisedCardBody>
     </RaisedCard>
   )

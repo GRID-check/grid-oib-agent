@@ -27,7 +27,7 @@ that never meets data delivers nothing.
 | „Fragt die Behörde das wieder nach?" | The office's past Nachforderungen and Auflagen for this Behörde | **Not built** | No Bescheid extraction, no Gemeinde, no dates |
 | Starting a project | Similar projects, typical Auflagen, Gutachten, durations | **Not built** | Depends on the two rows above |
 | A tender | Reference sheets | **Not built** | No Bausumme or BGF fields |
-| A colleague leaves | Their projects' lessons stay | **Not built** | Nothing runs at closing |
+| A colleague leaves | Their projects' lessons stay | **Built, not drafted** | The close dialog carries the closing debrief: the fingerprint with its open facts named, the project's decisions to confirm, a lesson to record. Confirmed ones are cited elsewhere as a person's. Piloti does not yet DRAFT the debrief (what went wrong, the Auflagen and their outcome); a person reviews what the memory already holds |
 | Trusting the answer | Every precedent with project, year, edition; never confused with the norm | **Partly** | Project and status are on every source. The prompt says „Präzedenzfall, nicht Norm". The edition the precedent was decided under is not known, so drift is not flagged |
 | Nothing leaks | A colleague never sees what they may not read | **Delivered** | Audience search, record at hand-out, read-time judges; 24 access rules each with a test that fails without it |
 | Knowing it works | A measured answer quality for precedent questions | **Built** | `suite.py --set precedent`: 16 questions in a fixture office, checks for looking when it should, not on a norm question, the right project cited, an honest „nichts Vergleichbares", an older edition named. Its first question found a bug that replaced every precedent-only answer with an error, and the fix is in |
@@ -244,9 +244,17 @@ The loop is closed by **the closing debrief**. When a project is closed
 The Projektleiter confirms in ten minutes what would otherwise be lost. This
 is the Projektabschlussgespräch offices intend and skip, made cheap.
 
-*Needs:* the debrief at close. Closing currently blocks memory writes (trigger
-GPC01), so the debrief writes before the status flips. Also needed: a
-promotion card, and the decision schema.
+*Built (7 Oct):* the debrief at close, in the close dialog
+(`closing-debrief.tsx`). Closing blocks memory writes (trigger GPC01), so it
+writes before the status flips: confirming a decision, recording a lesson. The
+fingerprint it shows is the one the ranking reads (`lib/cross-project/fingerprint.ts`),
+so what it asks for is exactly what makes the project findable. It asks; it
+never blocks the close.
+
+*Still needed:* the draft. Piloti proposing the missing facts, what went wrong,
+and the Auflagen with their outcome, from the project's own Bescheide, needs
+the sieve and the pen of step 2. Also a promotion card, and the decision
+schema.
 
 ## Augmentation: three levels, not one search box
 
@@ -436,6 +444,8 @@ authority. The access model and the "only add" rule stay unchanged.
    an onboarding service we run with the office? The second one teaches us
    the data faster.
 3. **Who confirms the debrief.** Is it the Projektleiter, or whoever closes?
-   Closing needs `project:manage`.
+   Built for whoever closes (`project:manage`), with confirming and recording
+   asking `project:memory:write`, which every project admin and editor holds.
+   A Projektleiter-only confirmation would need a role the office assigns.
 4. **Numbers about authorities.** Counts like „6 von 8" invite
    over-reading. What is the minimum sample before Piloti states a pattern?

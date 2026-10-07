@@ -176,6 +176,13 @@ Whoever may edit the brief may change the period and the people. In a closed pro
 
 When the work on a project is done, close it: **Settings → Project status → Close project**. You need the project's admin role (`project:manage`). Nothing is deleted.
 
+The close dialog asks one thing first: what this project should leave the office. Piloti offers a closed project's experience to every similar project later, so the dialog shows
+
+- **How Piloti finds it again**: the Bundesland, Gebäudeklasse, Bauweise, uses and kind of work it compares projects by, and the period. A fact still *open* makes the project harder to find; **Add in the brief** opens the intake wizard.
+- **What the office should keep**: the decisions and constraints the project memory holds. **Confirm** the ones that are right, and other projects cite them as confirmed by a person rather than as Piloti's reading. **Record a lesson** adds one in your words.
+
+Confirming and recording need the right to edit the project memory (`project:memory:write`); without it the dialog shows what stays and you can still close. Nothing here is required: an incomplete profile is named, not enforced. After closing, the project memory is read-only, so this is the last moment to write to it.
+
 A closed project
 
 - is **read-only**: nobody can upload, move, rename or delete files or folders, change the brief or the project memory, start a deep research or a task. Scheduled tasks are skipped, and resume when the project is reopened. Organization admins are bound by this too.

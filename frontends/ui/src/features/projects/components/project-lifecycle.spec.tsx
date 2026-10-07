@@ -60,12 +60,16 @@ describe('ProjectLifecycleCard', () => {
   })
 
   test('closes the project after one confirmation, and refreshes the page', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'closed' }), { status: 200 }))
+    const fetchMock = vi.fn(async (url: string) =>
+      url.endsWith('/memory') ? Response.json({ items: [] }) : Response.json({ status: 'closed' })
+    )
     vi.stubGlobal('fetch', fetchMock)
     render(<ProjectLifecycleCard projectId="p1" status="active" closedAt={null} />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Close project' }))
-    expect(fetchMock).not.toHaveBeenCalled()
+    // The dialog asks with the closing debrief, and changes nothing before the confirmation.
+    expect(await screen.findByTestId('closing-debrief')).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/projects/p1/status', expect.anything())
     await userEvent.click(screen.getAllByRole('button', { name: 'Close project' }).at(-1) as HTMLElement)
 
     expect(fetchMock).toHaveBeenCalledWith(
@@ -82,6 +86,7 @@ describe('ProjectLifecycleCard', () => {
 
     expect(screen.getByText('Closed on October 6, 2026')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Reopen project' }))
+    expect(screen.queryByTestId('closing-debrief')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Reopen' }))
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/projects/p1/status',
