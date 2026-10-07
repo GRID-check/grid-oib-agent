@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { Project } from '@/lib/db/schema'
+import { buildIntakeProfile, projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definition'
 import { SIMILARITY_WEIGHTS, rankBySimilarity, sharedTraits, similarity, similarityFacts } from './similarity'
 
 type Profile = Project['profile']
@@ -31,17 +32,63 @@ const here = similarityFacts(
 
 describe('similarityFacts', () => {
   it('reads the class from a number or any spelling with a digit, and treats anything else as unknown', () => {
-    expect(similarityFacts(profile({ gebaeudeklasse: 4 })).gebaeudeklasse).toBe(4)
-    expect(similarityFacts(profile({ gebaeudeklasse: 'GK4' })).gebaeudeklasse).toBe(4)
-    expect(similarityFacts(profile({ gebaeudeklasse: 'unklar' })).gebaeudeklasse).toBeNull()
+    expect(similarityFacts(profile({ gebaeudeklasse: 4 })).gebaeudeklasse).toEqual([4])
+    expect(similarityFacts(profile({ gebaeudeklasse: 'GK4' })).gebaeudeklasse).toEqual([4])
+    expect(similarityFacts(profile({ gebaeudeklasse: 'unklar' })).gebaeudeklasse).toEqual([])
     expect(similarityFacts(profile({ bundesland: 42, nutzungen: 'Wohnen' }))).toMatchObject({
       bundesland: null,
       nutzungen: ['wohnen'],
     })
   })
+
+  it('reads what the intake wizard stores: a building’s answers under its instance, every building', () => {
+    // The producer, not a hand-written profile: the wizard keys a building's
+    // answers `bauweise@bw1`, and a ranking that read only `bauweise` saw
+    // nothing of a real project but its Bundesland and kind of work.
+    const facts = similarityFacts(
+      buildIntakeProfile(
+        {
+          A2_country: 'at',
+          A2_land: 'niederoesterreich',
+          A5: ['neubau'],
+          'C1@bw1': 'gebaeude',
+          'C10@bw1': ['holzbau'],
+          'D0@bw1': ['wohnen'],
+          'C1@bw2': 'gebaeude',
+          'C10@bw2': ['mauerwerk_massivbau'],
+          'D0@bw2': ['buero'],
+        },
+        projectIntakeDefinitionV1,
+        {
+          bauwerke: [
+            { id: 'bw1', name: 'Haupthaus' },
+            { id: 'bw2', name: 'Nebengebäude' },
+          ],
+        }
+      )
+    )
+
+    expect(facts).toMatchObject({
+      bundesland: 'niederoesterreich',
+      bauweise: ['holzbau', 'mauerwerk_massivbau'],
+      nutzungen: ['wohnen', 'buero'],
+      vorhabensart: ['neubau'],
+    })
+  })
+
+  it('reads every building’s class, and a use zone’s copy of a fact as no building’s', () => {
+    expect(similarityFacts(profile({ 'gebaeudeklasse@bw2': 'GK 2', 'gebaeudeklasse@bw1': 4 })).gebaeudeklasse).toEqual([2, 4])
+    expect(similarityFacts(profile({ 'nutzungen@bw1@wohnen': ['garage'] })).nutzungen).toEqual([])
+  })
 })
 
 describe('similarity', () => {
+  it('matches a project of several buildings on its closest one', () => {
+    const mixed = similarityFacts(profile({ 'gebaeudeklasse@bw1': 2, 'gebaeudeklasse@bw2': 4 }))
+    expect(similarity(mixed, similarityFacts(profile({ gebaeudeklasse: 4 })))).toBe(SIMILARITY_WEIGHTS.gebaeudeklasse)
+    expect(similarity(mixed, similarityFacts(profile({ gebaeudeklasse: 5 })))).toBe(SIMILARITY_WEIGHTS.gebaeudeklasseAdjacent)
+  })
+
   it('weighs the same Bundesland above any single trait, and below class, construction and uses together', () => {
     const at = (facts: Record<string, unknown>) => similarity(here, similarityFacts(profile(facts)))
     const sameLand = at({ bundesland: 'niederoesterreich' })

@@ -5,16 +5,34 @@
  * the closing debrief a person fills in (`closing-debrief.tsx`), so what the
  * debrief asks for is exactly what the ranking reads.
  *
+ * What a fact means for a project comes from the intake definition, never from
+ * a list kept here: whether the wizard asks it at all for this project (the
+ * Bauweise is asked of a building, not of a Stützmauer), and whether the wizard
+ * can write it (the Gebäudeklasse is derived, so „im Briefing ergänzen" cannot
+ * fill it).
+ *
  * Pure, and safe in the browser: no I/O, no `server-only`.
  */
 
-import { flattenIntakeQuestions, projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definition'
-import type { ProjectProfile } from '@/lib/project-profile/types'
+import {
+  answerKeyFor,
+  answersFromProfile,
+  defaultBauwerke,
+  evaluateIntakeCondition,
+  flattenIntakeQuestions,
+  isIntakeAnswerProvided,
+  projectIntakeDefinitionV1,
+  type ProjectIntakeQuestion,
+} from '@/lib/project-profile/intake-definition'
+import type { ProjectPrimitiveValue, ProjectProfile } from '@/lib/project-profile/types'
 import { similarityFacts, type SimilarityFacts } from './similarity'
 
 /** The fingerprint's facts, in the order the similarity weighs them. */
 export const FINGERPRINT_KEYS = ['bundesland', 'gebaeudeklasse', 'bauweise', 'nutzungen', 'vorhabensart'] as const
 export type FingerprintKey = (typeof FINGERPRINT_KEYS)[number]
+
+const DEFINITION = projectIntakeDefinitionV1
+const FACT_PATH = /^\/facts\/([a-z_]+)\/value$/
 
 /**
  * The wizard's own label for a fact's token („niederoesterreich" →
@@ -23,8 +41,8 @@ export type FingerprintKey = (typeof FINGERPRINT_KEYS)[number]
  */
 const FACT_LABELS: ReadonlyMap<string, ReadonlyMap<string, string>> = (() => {
   const labels = new Map<string, Map<string, string>>()
-  for (const question of flattenIntakeQuestions(projectIntakeDefinitionV1)) {
-    const key = /^\/facts\/([a-z_]+)\/value$/.exec(question.writesTo ?? '')?.[1]
+  for (const question of flattenIntakeQuestions(DEFINITION)) {
+    const key = FACT_PATH.exec(question.writesTo ?? '')?.[1]
     if (!key || !question.options?.length) continue
     const options = labels.get(key) ?? new Map<string, string>()
     for (const option of question.options) options.set(String(option.value).toLocaleLowerCase('de'), option.label)
@@ -37,10 +55,48 @@ export function factLabel(key: string, token: string): string {
   return FACT_LABELS.get(key)?.get(token) ?? token
 }
 
-/** One fact of the fingerprint as a reader sees it: its value's label, or null when the project leaves it open. */
+/** A question that writes or derives a fact, and whether it is asked once per building. */
+interface Asker {
+  question: ProjectIntakeQuestion
+  perBuilding: boolean
+}
+
+/** The intake questions behind each fingerprint fact, read off the definition once. */
+const ASKERS: ReadonlyMap<string, readonly Asker[]> = (() => {
+  const askers = new Map<string, Asker[]>()
+  for (const stage of DEFINITION.stages) {
+    for (const question of stage.questions) {
+      const key = FACT_PATH.exec(question.writesTo ?? '')?.[1] ?? question.derives
+      if (!key) continue
+      askers.set(key, [...(askers.get(key) ?? []), { question, perBuilding: stage.scope === 'bauwerk' }])
+    }
+  }
+  return askers
+})()
+
+/**
+ * Whether the wizard asks this question here, or would once a condition it
+ * hangs on is answered: an unanswered Bauwerkstyp leaves the Bauweise open,
+ * not inapplicable.
+ */
+function asked(question: ProjectIntakeQuestion, answers: Record<string, ProjectPrimitiveValue>, building?: string): boolean {
+  if (evaluateIntakeCondition(question, answers, building)) return true
+  return (question.conditions ?? []).some(
+    (condition) =>
+      !isIntakeAnswerProvided(answers[building ? answerKeyFor(condition.param, building) : condition.param]) &&
+      !isIntakeAnswerProvided(answers[condition.param])
+  )
+}
+
+/** One fact of the fingerprint as a reader sees it. */
 export interface FingerprintFact {
   key: FingerprintKey
+  /** Its value's label, or null when the project leaves it open. */
   value: string | null
+  /** Whether the intake asks it of this project at all (no Bauweise for a Stützmauer). */
+  applies: boolean
+  /** Whether the intake wizard writes it, so the briefing is where to add it. */
+  editable: boolean
 }
 
 function valueOf(key: FingerprintKey, facts: SimilarityFacts): string | null {
@@ -50,7 +106,7 @@ function valueOf(key: FingerprintKey, facts: SimilarityFacts): string | null {
     case 'bundesland':
       return facts.bundesland ? factLabel(key, facts.bundesland) : null
     case 'gebaeudeklasse':
-      return facts.gebaeudeklasse !== null ? `GK ${facts.gebaeudeklasse}` : null
+      return facts.gebaeudeklasse.length > 0 ? facts.gebaeudeklasse.map((gk) => `GK ${gk}`).join('/') : null
     case 'bauweise':
       return list(facts.bauweise)
     case 'nutzungen':
@@ -60,10 +116,21 @@ function valueOf(key: FingerprintKey, facts: SimilarityFacts): string | null {
   }
 }
 
-/** Every fingerprint fact of a profile, open ones included as null. */
+/** Every fingerprint fact of a profile, open and inapplicable ones included. */
 export function fingerprintOf(profile: ProjectProfile | null | undefined): FingerprintFact[] {
   const facts = similarityFacts(profile ?? null)
-  return FINGERPRINT_KEYS.map((key) => ({ key, value: valueOf(key, facts) }))
+  const { answers, bauwerke } = profile
+    ? answersFromProfile(profile, DEFINITION)
+    : { answers: {} as Record<string, ProjectPrimitiveValue>, bauwerke: defaultBauwerke() }
+  return FINGERPRINT_KEYS.map((key) => {
+    const askers = ASKERS.get(key) ?? []
+    const applies =
+      askers.length === 0 ||
+      askers.some(({ question, perBuilding }) =>
+        perBuilding ? bauwerke.some((building) => asked(question, answers, building.id)) : asked(question, answers)
+      )
+    return { key, value: valueOf(key, facts), applies, editable: askers.some(({ question }) => Boolean(question.writesTo)) }
+  })
 }
 
 /** The fingerprint's known values, labelled, for a one-line summary („Niederösterreich, GK 4, Holzbau"). */

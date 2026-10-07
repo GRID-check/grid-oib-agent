@@ -23,6 +23,7 @@ import type { Project } from '@/lib/db/schema'
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/projects/repository', () => ({ listProjectsInOrg: vi.fn(), findProjectInOrg: vi.fn() }))
 
+import { projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definition'
 import { buildProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { renderReferenceBrief } from './reference-brief'
 import { rankBySimilarity } from './similarity'
@@ -46,10 +47,24 @@ interface FixtureOffice {
   projects: FixtureProject[]
 }
 
+/**
+ * The facts the intake wizard asks per building, read off its definition: the
+ * wizard stores those under the building (`bauweise@bw1`), and the fixture
+ * office must be stored the same way, or the eval measures a profile shape
+ * production never has. `office.json` names facts plainly; this stores them.
+ */
+const PER_BUILDING: ReadonlySet<string> = new Set(
+  projectIntakeDefinitionV1.stages
+    .filter((stage) => stage.scope === 'bauwerk')
+    .flatMap((stage) => stage.questions)
+    .map((question) => /^\/facts\/([a-z_]+)\/value$/.exec(question.writesTo ?? '')?.[1])
+    .filter((key): key is string => Boolean(key))
+)
+
 function asProject(office: FixtureOffice, fixture: FixtureProject): Project {
   const facts = Object.fromEntries(
     Object.entries(fixture.facts).map(([key, value]) => [
-      key,
+      PER_BUILDING.has(key) ? `${key}@bw1` : key,
       { value, confidence: 'confirmed' as const, source: 'onboarding' as const, updatedAt: '2026-01-01T00:00:00.000Z' },
     ])
   )
