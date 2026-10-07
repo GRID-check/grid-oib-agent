@@ -22,6 +22,7 @@ from aiq_agent.knowledge.leader_lock import keyed_lock
 
 @pytest.fixture(autouse=True)
 def _no_database(monkeypatch):
+    monkeypatch.delenv("AIQ_LOCK_DB_URL", raising=False)
     monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
     monkeypatch.delenv("NAT_JOB_STORE_DB_URL", raising=False)
 
@@ -67,7 +68,7 @@ def test_the_lock_is_released_when_the_body_raises():
 
 def test_an_unreachable_database_runs_the_body_unguarded(monkeypatch):
     # Port 9 (discard) is closed: acquisition fails and the upload goes on.
-    monkeypatch.setenv("AIQ_SUMMARY_DB", "postgresql://nobody@127.0.0.1:9/none?connect_timeout=1")
+    monkeypatch.setenv("AIQ_LOCK_DB_URL", "postgresql://nobody@127.0.0.1:9/none?connect_timeout=1")
     ran = []
     with keyed_lock("reingest:proj:y.pdf"):
         ran.append(True)
@@ -76,7 +77,7 @@ def test_an_unreachable_database_runs_the_body_unguarded(monkeypatch):
 
 def test_on_postgres_the_key_is_an_advisory_lock_held_on_its_own_session(monkeypatch):
     """Taken before the body, released and the session closed after it, even on a raise."""
-    monkeypatch.setenv("AIQ_SUMMARY_DB", "postgresql://grid@db/grid")
+    monkeypatch.setenv("AIQ_LOCK_DB_URL", "postgresql://grid@db/grid")
     conn = MagicMock()
     engine = MagicMock()
     engine.connect.return_value = conn

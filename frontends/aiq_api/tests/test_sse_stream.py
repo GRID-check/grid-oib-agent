@@ -21,6 +21,9 @@ import pytest
 from aiq_api.jobs.connection_manager import reset_connection_manager
 from aiq_api.jobs.event_store import EventStore
 
+#: The direct (non-pooled) DSN LISTEN connects to: `AIQ_LISTEN_DB_URL` in a deployment.
+DIRECT_DSN = "postgresql://aiq:pw@grid-pg-rw:5432/aiq_jobs"  # pragma: allowlist secret
+
 
 @pytest.fixture
 def db_url(tmp_path):
@@ -65,6 +68,7 @@ async def test_notification_gap_recovered_by_range_fetch_and_terminal_drain(db_u
     fake_conn = FakeListenConnection()
     fake_asyncpg = types.SimpleNamespace(connect=AsyncMock(return_value=fake_conn))
     monkeypatch.setitem(sys.modules, "asyncpg", fake_asyncpg)
+    monkeypatch.setenv("AIQ_LISTEN_DB_URL", DIRECT_DSN)
 
     job_id = "sse-job"
     store = EventStore(db_url, job_id)
@@ -111,6 +115,40 @@ async def test_notification_gap_recovered_by_range_fetch_and_terminal_drain(db_u
 
     with pytest.raises(StopAsyncIteration):
         await asyncio.wait_for(gen.__anext__(), timeout=5.0)
+
+
+@pytest.mark.asyncio
+async def test_listen_connects_to_the_direct_dsn_never_the_job_store_url(db_url, monkeypatch):
+    """LISTEN registers on one server connection; behind the transaction pooler
+    that is not the client's, and no notification would ever arrive (ADR-0083)."""
+    import aiq_api.routes.jobs as jobs_routes
+
+    connect = AsyncMock(return_value=FakeListenConnection())
+    monkeypatch.setitem(sys.modules, "asyncpg", types.SimpleNamespace(connect=connect))
+    monkeypatch.setenv("AIQ_LISTEN_DB_URL", DIRECT_DSN)
+    job_store = SimpleNamespace(get_job=AsyncMock(return_value=SimpleNamespace(status="running", error=None)))
+
+    # `db_url` stands for the job-store URL, which is the pooled one in a deployment.
+    gen = jobs_routes._sse_generator_postgres(job_store, "sse-job", db_url, 0)
+    await asyncio.wait_for(gen.__anext__(), timeout=5.0)
+    await gen.aclose()
+
+    connect.assert_awaited_once_with("postgres://aiq:pw@grid-pg-rw:5432/aiq_jobs")  # pragma: allowlist secret
+
+
+@pytest.mark.asyncio
+async def test_no_listen_dsn_is_an_error_not_a_listen_on_the_pooled_url(db_url, monkeypatch):
+    import aiq_api.routes.jobs as jobs_routes
+
+    connect = AsyncMock()
+    monkeypatch.setitem(sys.modules, "asyncpg", types.SimpleNamespace(connect=connect))
+    monkeypatch.delenv("AIQ_LISTEN_DB_URL", raising=False)
+
+    gen = jobs_routes._sse_generator_postgres(MagicMock(), "sse-job", db_url, 0)
+    with pytest.raises(RuntimeError, match="AIQ_LISTEN_DB_URL is not set"):
+        await gen.__anext__()
+
+    connect.assert_not_awaited()
 
 
 @pytest.mark.asyncio
