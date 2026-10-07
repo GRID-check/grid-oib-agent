@@ -394,10 +394,6 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
             connection_manager = get_connection_manager()
             await connection_manager.shutdown(timeout=5.0)
 
-            from .routes.jobs import stop_periodic_cleanup
-
-            await stop_periodic_cleanup()
-
             await EventStore.dispose_all_engines_async()
             logger.info("SSE shutdown complete")
 

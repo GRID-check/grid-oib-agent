@@ -1253,11 +1253,13 @@ In `db` mode the `aiq-agent` web tier now runs `backendReplicas` replicas
   refreshes `heartbeat_at` every 30 s; when that replica restarts, its live
   rows are read as `failed` (reason `interrupted`, retryable) once the
   heartbeat is two minutes old, rather than as in progress forever.
-- **The two unlocked background loops are now single-runner**: the ghost-job
-  reaper (`routes/jobs.py`) and the knowledge TTL-cleanup thread
-  (`knowledge/base.py` via `knowledge/leader_lock.py`) elect one runner per
-  cycle with a Postgres advisory lock, so N replicas don't double-reap or race
+- **The knowledge TTL-cleanup thread is single-runner**: it
+  (`knowledge/base.py` via `knowledge/leader_lock.py`) elects one runner per
+  cycle with a Postgres advisory lock, so N replicas don't race
   `delete_collection` against the shared store.
+- **The ghost-job reaper, the job-event cleanup and the chat checkpoint reaper
+  are not in the web replicas at all**: they run only as the `housekeeping-*`
+  CronJobs, each a call to a one-cycle backend route (ADR-0082 step A1).
 
 It stays a StatefulSet (stable identity + a per-replica RWO PVC on Lightbits).
 

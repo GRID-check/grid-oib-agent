@@ -21,13 +21,18 @@ import { baseStackConfig } from "./src/test-support/stack-config";
  * It does NOT prove the stack deploys. Nothing here contacts an API server.
  */
 
-const RESOURCES: Array<{ type: string; name: string }> = [];
+/** The few manifest fields the assertions below read; mock inputs are untyped. */
+type Container = { env?: Array<{ name: string; value?: string }> };
+type PodSpec = { spec: { containers: Container[] } };
+type Manifest = { spec?: { concurrencyPolicy?: string; template?: PodSpec; jobTemplate?: { spec: { template: PodSpec } } } };
+
+const RESOURCES: Array<{ type: string; name: string; inputs: Manifest }> = [];
 let STACK: Record<string, unknown> = {};
 
 pulumi.runtime.setMocks(
   {
     newResource: (args: pulumi.runtime.MockResourceArgs) => {
-      RESOURCES.push({ type: args.type, name: args.name });
+      RESOURCES.push({ type: args.type, name: args.name, inputs: args.inputs });
       return {
         id: `${args.name}-id`,
         state: { ...args.inputs, metadata: args.inputs.metadata ?? { name: args.name } },
@@ -100,6 +105,24 @@ describe("the program constructs in the split topology", () => {
     expect(named("kubernetes:batch/v1:CronJob")).toEqual(
       expect.arrayContaining(["storage-alerts", "vector-reconcile"]),
     );
+  });
+
+  it("schedules the backend's housekeeping as CronJobs, the only thing that runs it", () => {
+    // ADR-0082 step A1. The backend has no loop of its own: a missing CronJob is
+    // housekeeping silently gone, which nothing else alerts on.
+    const cronJobs = RESOURCES.filter((r) => r.type === "kubernetes:batch/v1:CronJob");
+    const housekeeping = cronJobs.filter((r) => r.name.startsWith("housekeeping-"));
+    expect(housekeeping.map((r) => r.name).sort()).toEqual([
+      "housekeeping-chat-checkpoints",
+      "housekeeping-ghost-jobs",
+      "housekeeping-job-events",
+    ]);
+    for (const job of housekeeping) {
+      const container = job.inputs.spec?.jobTemplate?.spec.template.spec.containers[0];
+      const url = container?.env?.find((e) => e.name === "SWEEP_URL")?.value;
+      expect(url).toBe(`http://aiq-agent:8000/v1/maintenance/housekeeping/${job.name.replace("housekeeping-", "")}`);
+      expect(job.inputs.spec?.concurrencyPolicy).toBe("Forbid");
+    }
   });
 
   it("creates the scheduler even with Agent Skills off, because it is the run reconciler's clock", () => {

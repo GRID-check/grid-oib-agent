@@ -180,13 +180,6 @@ async def research_runs_app(db_url, monkeypatch):
     """Build a minimal app with the async job routes, including the new list endpoint."""
     import aiq_api.routes.jobs as jobs_routes
 
-    monkeypatch.setattr(jobs_routes, "_start_periodic_cleanup", MagicMock())
-
-    async def _no_op_reaper(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(jobs_routes, "_reap_ghost_jobs", _no_op_reaper)
-
     worker = SimpleNamespace(
         _dask_available=True,
         _job_store=MagicMock(),

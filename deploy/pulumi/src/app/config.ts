@@ -220,6 +220,9 @@ function srefAs(name: string, key: string): EnvVar {
  * worker/thread knobs and admission caps are the agent's VERTICAL scaling
  * levers (see docs/architecture/scaling-review-2026-07.md §4, §6).
  */
+/** The backend web tier's Service, as the BFF and the internal CronJobs reach it. */
+export const BACKEND_URL = `http://aiq-agent:${PORT.backend}`;
+
 export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): EnvVar[] {
   const { cfg } = w;
   const env: EnvVar[] = [
@@ -380,7 +383,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "APP_ENV", value: "production" },
     { name: "REQUIRE_AUTH", value: String(cfg.auth.requireAuth) },
     { name: "GRID_LANDING_URL", value: `https://${cfg.ingress.webDomain}` },
-    { name: "BACKEND_URL", value: `http://aiq-agent:${PORT.backend}` },
+    { name: "BACKEND_URL", value: BACKEND_URL },
     // Conversation affinity for horizontal aiq-agent scaling (ADR-0028): the
     // WS proxy pins a conversation to `aiq-agent-<hash>.aiq-agent-headless` so
     // its in-process WS/HITL/task state is always on the same replica. With 1
@@ -561,7 +564,7 @@ export function purgerEnv(w: AppWiring): EnvVar[] {
   const { cfg } = w;
   return [
     sref("GRID_APP_DATABASE_URL"),
-    { name: "BACKEND_URL", value: `http://aiq-agent:${PORT.backend}` },
+    { name: "BACKEND_URL", value: BACKEND_URL },
     // A chat erasure the delete request could not finish is retried through the
     // BFF, which owns its steps (`purger/purge-conversation.js`).
     { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
