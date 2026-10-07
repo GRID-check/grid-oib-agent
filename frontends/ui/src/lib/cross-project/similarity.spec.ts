@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { Project } from '@/lib/db/schema'
-import { rankBySimilarity, sharedTraits, similarity, similarityFacts } from './similarity'
+import { SIMILARITY_WEIGHTS, rankBySimilarity, sharedTraits, similarity, similarityFacts } from './similarity'
 
 type Profile = Project['profile']
 
@@ -56,6 +56,13 @@ describe('similarity', () => {
     expect(at(['stahlbeton'])).toBe(0)
     // „noch offen" says nothing about the building, so two undecided projects share nothing.
     expect(similarity(similarityFacts(profile({ bauweise: ['offen'] })), similarityFacts(profile({ bauweise: ['offen'] })))).toBe(0)
+  })
+
+  it('reads the kind of work as the multi-select the intake stores, and an older single token alike', () => {
+    const work = (vorhabensart: unknown) => similarityFacts(profile({ vorhabensart }))
+    expect(similarity(work(['neubau', 'zubau']), work(['zubau']))).toBe(SIMILARITY_WEIGHTS.vorhabensart)
+    expect(similarity(work(['neubau']), work('neubau'))).toBe(SIMILARITY_WEIGHTS.vorhabensart)
+    expect(similarity(work(['umbau']), work(['neubau']))).toBe(0)
   })
 
   it('counts a neighbouring class a little and a distant one not at all', () => {

@@ -178,6 +178,13 @@ When the work on a project is done, close it: **Settings → Project status → 
 
 Before it closes, Piloti offers to **clear out** („Ausmisten") what the finished project no longer needs: working copies, superseded versions, duplicates, temporary and lock files, and drafts Piloti wrote that were never published. It looks only at files you may edit, and only at their names, folders, types, tags, summaries and version state; it does not read the files again. Only files that passed the upload check reach the AI; a file held in quarantine is never proposed. The list is marked as an AI proposal, with a reason for each file, or says that only fixed rules made it when the AI check is unavailable. Every file starts selected; deselect what should stay. Nothing is removed until you confirm. What you confirm goes to the project's Papierkorb for 14 days, in a folder „Ausgemistet ‹date›" inside the folder it came from, and can be restored from there. Either all of it goes or none of it: if moving one fails, everything is put back and the project stays open. **Close without removing anything** skips this step.
 
+Above the clear-out, the same dialog asks what this project should leave the office. Piloti offers a closed project's experience to every similar project later, so the dialog shows
+
+- **How Piloti finds it again**: the Bundesland, Gebäudeklasse, Bauweise, uses and kind of work it compares projects by, and the period. A fact still *open* makes the project harder to find; **Add in the brief** opens the intake wizard.
+- **What the office should keep**: the decisions and constraints the project memory holds. **Confirm** the ones that are right, and other projects cite them as confirmed by a person rather than as Piloti's reading. **Record a lesson** adds one in your words.
+
+Confirming and recording need the right to edit the project memory (`project:memory:write`); without it the dialog shows what stays and you can still close. Nothing here is required: an incomplete profile is named, not enforced. After closing, the project memory is read-only, so this is the last moment to write to it.
+
 A closed project
 
 - is **read-only**: nobody can upload, move, rename or delete files or folders, change the brief or the project memory, start a deep research or a task. Piloti does not offer deep research in a closed project, because a research run files its report into the project; in a chat, **Clarify** on an open finding and **Update report** on a finished run are replaced by a note saying so. Scheduled tasks are skipped, and resume when the project is reopened. A research run that was already running when the project closed finishes, and its report stays in its conversation. Organization admins are bound by this too.

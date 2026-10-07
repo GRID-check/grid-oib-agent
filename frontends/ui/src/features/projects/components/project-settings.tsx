@@ -73,6 +73,8 @@ interface ProjectSettingsProps {
   canManageMembers?: boolean
   /** Whether the user may close or reopen the project (project:manage). */
   canChangeStatus?: boolean
+  /** Whether the user may write project memory (project:memory:write): the closing debrief's confirm and lesson. */
+  canWriteMemory?: boolean
   /** Whether the flagged project knowledge page is linked from here (spec §5). */
   showKnowledgeLink?: boolean
   /**
@@ -96,6 +98,7 @@ export function ProjectSettings({
   canManageProject = false,
   canManageMembers = canManageProject,
   canChangeStatus = canManageProject,
+  canWriteMemory = canManageProject,
   showKnowledgeLink = false,
   currentMembershipId = null,
   currentUserId = null,
@@ -264,7 +267,14 @@ export function ProjectSettings({
       {/* Close or reopen (ADR-0089): the one change a closed project allows. */}
       {canChangeStatus && (
         <StaggerItem>
-          <ProjectLifecycleCard projectId={data.id} status={data.status} closedAt={data.closedAt} />
+          <ProjectLifecycleCard
+            projectId={data.id}
+            status={data.status}
+            closedAt={data.closedAt}
+            profile={data.profile}
+            startedOn={steckbrief?.startedOn ?? null}
+            canWriteMemory={canWriteMemory}
+          />
         </StaggerItem>
       )}
 

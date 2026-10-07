@@ -15,8 +15,8 @@
 import 'server-only'
 import type { Project } from '@/lib/db/schema'
 import { isProjectClosed } from '@/lib/projects/project-status'
-import { flattenIntakeQuestions, projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definition'
 import { findProjectInOrg, listProjectsInOrg } from '@/lib/projects/repository'
+import { factLabel, fingerprintLabels } from './fingerprint'
 import { rankBySimilarity, sharedTraits, similarityFacts, type SharedTrait, type SimilarityFacts } from './similarity'
 
 /** How many reference projects the catalog lists; the rest are found with `project_lookup`. */
@@ -37,42 +37,8 @@ function periodLabel(project: Pick<Project, 'startedOn' | 'endedOn' | 'closedAt'
   return end ?? (start ? `${start}–` : null)
 }
 
-/**
- * The wizard's own label for a fact's token („niederoesterreich" →
- * „Niederösterreich"), read off the question that writes the fact, so the
- * catalog says what the reader saw in the intake. A token no option names is
- * shown as it is.
- */
-const FACT_LABELS: ReadonlyMap<string, ReadonlyMap<string, string>> = (() => {
-  const labels = new Map<string, Map<string, string>>()
-  for (const question of flattenIntakeQuestions(projectIntakeDefinitionV1)) {
-    const key = /^\/facts\/([a-z_]+)\/value$/.exec(question.writesTo ?? '')?.[1]
-    if (!key || !question.options?.length) continue
-    const options = labels.get(key) ?? new Map<string, string>()
-    for (const option of question.options) options.set(String(option.value).toLocaleLowerCase('de'), option.label)
-    labels.set(key, options)
-  }
-  return labels
-})()
-
-function factLabel(key: string, token: string): string {
-  return FACT_LABELS.get(key)?.get(token) ?? token
-}
-
 function traitLabel(trait: SharedTrait): string {
   return trait.key === 'gebaeudeklasse' ? `GK ${trait.value}` : factLabel(trait.key, trait.value)
-}
-
-function factsLabel(facts: SimilarityFacts): string[] {
-  const list = (key: string, values: readonly string[]) =>
-    values.length > 0 ? values.map((value) => factLabel(key, value)).join('/') : null
-  return [
-    facts.bundesland ? factLabel('bundesland', facts.bundesland) : null,
-    facts.gebaeudeklasse !== null ? `GK ${facts.gebaeudeklasse}` : null,
-    list('bauweise', facts.bauweise),
-    list('nutzungen', facts.nutzungen),
-    facts.vorhabensart ? factLabel('vorhabensart', facts.vorhabensart) : null,
-  ].filter((part): part is string => !!part)
 }
 
 function summaryOf(project: Pick<Project, 'profileDisplay'>): string | null {
@@ -84,7 +50,7 @@ function summaryOf(project: Pick<Project, 'profileDisplay'>): string | null {
 /** One catalog line: name, id, period, facts, what it shares with the current project, its summary. */
 function line(project: Project, current: SimilarityFacts | null): string {
   const facts = similarityFacts(project.profile)
-  const head = [periodLabel(project), ...factsLabel(facts)].filter(Boolean).join(', ')
+  const head = [periodLabel(project), ...fingerprintLabels(project.profile)].filter(Boolean).join(', ')
   const shared = current ? sharedTraits(current, facts) : []
   const summary = summaryOf(project)
   return [

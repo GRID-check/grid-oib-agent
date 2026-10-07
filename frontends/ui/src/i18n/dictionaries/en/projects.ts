@@ -142,6 +142,49 @@ export const projects = {
       description:
         'Afterwards nobody can change its files, folders, brief or project memory, and deep research and tasks stop running. Everyone in the office can read it and ask about it. You can reopen it at any time. If the project profile has no completion yet, the current month is entered.',
     },
+    debrief: {
+      intro:
+        'What this project learned can serve every future project in the office: Piloti offers it when a similar question comes up. Take a moment before closing to check what stays.',
+      fingerprint: {
+        heading: 'How Piloti finds it again',
+        description: 'Piloti finds comparable projects by these facts. Add missing ones in the brief.',
+        missing: '{count, plural, one {# fact missing} other {# facts missing}}',
+        complete: 'Complete',
+        open: 'open',
+        edit: 'Add in the brief',
+        period: 'Period',
+        periodOpen: '{start} to now',
+        periodNone: 'open; enter it in the Steckbrief',
+        labels: {
+          bundesland: 'Federal state',
+          gebaeudeklasse: 'Building class',
+          bauweise: 'Construction',
+          nutzungen: 'Uses',
+          vorhabensart: 'Kind of work',
+        },
+      },
+      decisions: {
+        heading: 'What the office should keep',
+        description:
+          'Decisions and constraints from the project memory. Piloti cites confirmed ones in other projects as “confirmed by a person”.',
+        empty: 'Piloti has not recorded any decisions for this project yet.',
+        confirm: 'Confirm',
+        confirmed: 'Confirmed',
+        kind: { decision: 'Decision', constraint: 'Constraint' },
+      },
+      lesson: {
+        label: 'Record a lesson',
+        placeholder: 'e.g. “The authority required the escape-route width dimensioned in every floor plan.”',
+        add: 'Record',
+        added: 'Lesson recorded.',
+      },
+      readOnly:
+        'Only people who may edit the project memory can confirm decisions and record lessons. You can still close the project.',
+      errors: {
+        load: 'The project memory could not be loaded.',
+        save: 'That could not be saved.',
+      },
+    },
     reopenDialog: {
       title: 'Reopen this project?',
       description: 'The project becomes editable again, and only its members will see it.',
