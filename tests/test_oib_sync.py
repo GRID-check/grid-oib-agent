@@ -4,6 +4,8 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from aiq_agent import oib_sync
 from aiq_agent.knowledge.schema import FileStatus
 
@@ -665,3 +667,158 @@ class TestMarkForReingest:
         oib_sync._save_excluded({"a.pdf"})
         assert oib_sync.mark_for_reingest("a.pdf") is None
         assert oib_sync.mark_for_reingest("b.pdf") is not None
+
+
+class TestObjectMode:
+    """``GRID_BASE_CORPUS_STORE=object`` (ADR-0082, step A2): the shared corpus is the record.
+
+    The BFF and SeaweedFS are an in-memory bucket and the tables are a SQLite file
+    (``tests/object_corpus_fakes``); ``oib_sync`` and ``corpus_store`` run for real.
+    """
+
+    @staticmethod
+    def _object(monkeypatch, tmp_path, ingestor: FakeIngestor):
+        from tests.object_corpus_fakes import install
+
+        registry_path = _configure_sync(monkeypatch, tmp_path, ingestor, max_workers="1")
+        bucket = install(monkeypatch, tmp_path)
+        return bucket, registry_path
+
+    @staticmethod
+    def _uploaded_elsewhere(tmp_path: Path, name: str, data: bytes) -> None:
+        from aiq_agent import corpus_store
+
+        corpus_store.put(name, data, tmp_path / "other-replica")
+
+    def test_discover_reflects_the_shared_corpus_not_this_replicas_disk(self, monkeypatch, tmp_path):
+        self._object(monkeypatch, tmp_path, FakeIngestor({}))
+        self._uploaded_elsewhere(tmp_path, "from-other.pdf", b"other")
+        # A file the shared corpus never heard of, left by a replica that has already migrated.
+        corpus_dir = tmp_path / "oib_uploads"
+        _write_pdf(corpus_dir / "stale-local.pdf", b"stale")
+        (corpus_dir / ".object-store-migrated").write_text("done", encoding="utf-8")
+
+        found = oib_sync.discover_pdfs()
+
+        assert [p.name for p in found] == ["from-other.pdf"]
+        assert found[0] == corpus_dir / "from-other.pdf"
+        assert found[0].read_bytes() == b"other"
+        assert not (corpus_dir / "stale-local.pdf").exists()
+
+    def test_sync_ingests_the_shared_files_and_records_the_registry_in_the_table(self, monkeypatch, tmp_path):
+        from aiq_agent import corpus_store
+
+        ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS})
+        _bucket, registry_path = self._object(monkeypatch, tmp_path, ingestor)
+        self._uploaded_elsewhere(tmp_path, "a.pdf", b"alpha")
+
+        assert oib_sync.sync() == (1, 1)
+
+        key = str(tmp_path / "oib_uploads" / "a.pdf")
+        registry = corpus_store.load_registry()
+        assert registry[key] == corpus_store.sha256_file(tmp_path / "oib_uploads" / "a.pdf")
+        assert registry[oib_sync._FORMAT_KEY] == oib_sync.CHUNK_FORMAT_VERSION
+        assert not registry_path.exists(), "the JSON registry is not the record in object mode"
+        # Unchanged on the next run, from this or any other replica.
+        assert oib_sync.sync() == (0, 1)
+        assert ingestor.uploaded == ["a.pdf"]
+
+    def test_sync_runs_under_the_cross_replica_lock(self, monkeypatch, tmp_path):
+        from aiq_agent import corpus_store
+
+        self._object(monkeypatch, tmp_path, FakeIngestor({"a.pdf": FileStatus.SUCCESS}))
+        self._uploaded_elsewhere(tmp_path, "a.pdf", b"alpha")
+        taken: list[str] = []
+        real = corpus_store.shared_lock
+
+        def spy(key):
+            taken.append(key)
+            return real(key)
+
+        monkeypatch.setattr(corpus_store, "shared_lock", spy)
+
+        oib_sync.sync()
+
+        assert "oib-sync" in taken
+        assert "oib-registry" in taken
+
+    def test_a_replicas_existing_volume_moves_up_without_a_re_ingest(self, monkeypatch, tmp_path):
+        from aiq_agent import corpus_store
+
+        ingestor = FakeIngestor({})
+        bucket, registry_path = self._object(monkeypatch, tmp_path, ingestor)
+        pdf = tmp_path / "oib_uploads" / "old.pdf"
+        _write_pdf(pdf, b"old upload")
+        registry_path.write_text(
+            json.dumps({oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION, str(pdf): corpus_store.sha256_file(pdf)}),
+            encoding="utf-8",
+        )
+        (tmp_path / "oib_excluded.json").write_text(json.dumps(["shipped.pdf"]), encoding="utf-8")
+
+        assert oib_sync.sync() == (0, 1)
+
+        assert bucket.objects == {"base-corpus/old.pdf": b"old upload"}
+        assert ingestor.uploaded == [], "the registry came along, so nothing is re-ingested"
+        assert str(pdf) in corpus_store.load_registry()
+        assert corpus_store.load_excluded() == {"shipped.pdf"}
+        assert (tmp_path / "oib_uploads" / corpus_store.MIGRATION_MARKER).exists()
+
+    def test_exclusions_live_in_the_table(self, monkeypatch, tmp_path):
+        from aiq_agent import corpus_store
+
+        self._object(monkeypatch, tmp_path, FakeIngestor({}))
+        _write_pdf(tmp_path / "oib" / "shipped.pdf", b"shipped")
+
+        oib_sync.exclude_document("shipped.pdf")
+
+        assert corpus_store.load_excluded() == {"shipped.pdf"}
+        assert not (tmp_path / "oib_excluded.json").exists()
+        assert oib_sync.discover_pdfs() == []
+        assert oib_sync.unexclude_document("shipped.pdf") is True
+        assert [p.name for p in oib_sync.discover_pdfs()] == ["shipped.pdf"]
+
+    def test_removing_an_upload_made_on_another_replica_removes_it_everywhere(self, monkeypatch, tmp_path):
+        from aiq_agent import corpus_store
+
+        ingestor = FakeIngestor({})
+        bucket, _registry = self._object(monkeypatch, tmp_path, ingestor)
+        self._uploaded_elsewhere(tmp_path, "custom.pdf", b"custom")
+
+        assert oib_sync.remove_document("custom.pdf") == "deleted"
+
+        assert corpus_store.get_file("custom.pdf") is None
+        assert bucket.objects == {}
+        assert not (tmp_path / "oib_uploads" / "custom.pdf").exists()
+        assert ingestor.deleted == ["custom.pdf"]
+        assert oib_sync.remove_document("custom.pdf") is None
+
+    def test_a_failed_object_delete_is_reported_and_leaves_the_local_copy(self, monkeypatch, tmp_path):
+        from aiq_agent import corpus_store
+
+        self._object(monkeypatch, tmp_path, FakeIngestor({}))
+        self._uploaded_elsewhere(tmp_path, "custom.pdf", b"custom")
+
+        def refuse(name):
+            raise corpus_store.CorpusStoreError(f"delete of {name} from the object store was refused (HTTP 503)")
+
+        monkeypatch.setattr(corpus_store, "_delete_object", refuse)
+
+        with pytest.raises(corpus_store.CorpusStoreError):
+            oib_sync.remove_uploaded_document("custom.pdf")
+
+        assert (tmp_path / "oib_uploads" / "custom.pdf").exists()
+
+    def test_disk_mode_is_untouched_by_the_store(self, monkeypatch, tmp_path):
+        from aiq_agent import corpus_store
+
+        monkeypatch.delenv(corpus_store.STORE_ENV, raising=False)
+        monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
+        ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS})
+        registry_path = _configure_sync(monkeypatch, tmp_path, ingestor, max_workers="1")
+        _write_pdf(tmp_path / "oib_uploads" / "a.pdf", b"alpha")
+        monkeypatch.setattr(corpus_store, "pull", lambda *_a, **_k: pytest.fail("disk mode must not pull"))
+
+        assert oib_sync.sync() == (1, 1)
+
+        assert str(tmp_path / "oib_uploads" / "a.pdf") in json.loads(registry_path.read_text(encoding="utf-8"))
+        assert not (tmp_path / "oib_uploads" / corpus_store.MIGRATION_MARKER).exists()

@@ -7,6 +7,7 @@ a fake ``oib_sync.ingest_single`` so ingestion is fast and deterministic.
 """
 
 import io
+import tarfile
 import tempfile
 import time
 import zipfile
@@ -18,6 +19,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport
 from httpx import AsyncClient
 
+from aiq_agent import corpus_store
 from aiq_agent import oib_sync
 from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
 from aiq_agent.knowledge.factory import configure_summary_db
@@ -537,3 +539,159 @@ class TestCorpusExport:
         with pytest.raises(OSError):
             oib_routes._corpus_tarball()
         assert list(scratch.iterdir()) == []
+
+
+# ---------------------------------------------------------------------------
+# GRID_BASE_CORPUS_STORE=object (ADR-0082, step A2)
+#
+# The upload is stored in the object store and listed in the shared table; the
+# uploads dir is this replica's cache of it. The BFF and SeaweedFS are an
+# in-memory bucket, the tables a SQLite file, so `corpus_store` runs for real.
+# ---------------------------------------------------------------------------
+
+
+class _FakeBucket:
+    def __init__(self):
+        self.objects: dict[str, bytes] = {}
+        self.deletes: list[str] = []
+        self.refuse_uploads = False
+
+    def request_upload_url(self, name):
+        if self.refuse_uploads:
+            raise corpus_store.CorpusStoreError(f"upload-url request for {name} was refused (HTTP 503)")
+        return f"https://upload.invalid/{name}", f"base-corpus/{name}"
+
+    def put_object(self, upload_url, data):
+        self.objects[f"base-corpus/{upload_url.rsplit('/', 1)[1]}"] = data
+
+    def delete_object(self, name):
+        self.deletes.append(name)
+        self.objects.pop(f"base-corpus/{name}", None)
+
+    def download_object(self, storage_key, out):
+        out.write(self.objects[storage_key])
+
+
+@pytest.fixture
+def bucket(monkeypatch, tmp_path, delete_dirs):
+    fake = _FakeBucket()
+    monkeypatch.setenv(corpus_store.STORE_ENV, "object")
+    monkeypatch.setenv("AIQ_SUMMARY_DB", f"sqlite:///{tmp_path / 'corpus.db'}")
+    monkeypatch.setattr(corpus_store, "_request_upload_url", fake.request_upload_url)
+    monkeypatch.setattr(corpus_store, "_put_object", fake.put_object)
+    monkeypatch.setattr(corpus_store, "_delete_object", fake.delete_object)
+    monkeypatch.setattr(corpus_store, "_download_object", fake.download_object)
+    return fake
+
+
+@pytest.mark.asyncio
+async def test_object_mode_upload_stores_the_object_and_the_cache_file(app, uploads_dir, bucket):
+    async with _client(app) as client:
+        res = await client.post(
+            "/v1/admin/oib/documents", files={"file": ("plan.pdf", _pdf_bytes(b"%PDF plan"), "application/pdf")}
+        )
+
+    assert res.status_code == 200
+    assert res.json()["status"] == "pending"
+    assert bucket.objects == {"base-corpus/plan.pdf": b"%PDF plan"}
+    assert corpus_store.get_file("plan.pdf") is not None
+    assert (uploads_dir / "plan.pdf").read_bytes() == b"%PDF plan"
+
+
+@pytest.mark.asyncio
+async def test_object_mode_upload_the_store_refuses_is_an_error_and_starts_no_ingestion(
+    app, uploads_dir, bucket, monkeypatch
+):
+    bucket.refuse_uploads = True
+    ingested: list[str] = []
+    monkeypatch.setattr(oib_sync, "ingest_single", lambda pdf: ingested.append(pdf.name))
+
+    async with _client(app) as client:
+        res = await client.post(
+            "/v1/admin/oib/documents", files={"file": ("plan.pdf", _pdf_bytes(), "application/pdf")}
+        )
+
+    assert res.status_code == 500
+    assert "refused" in res.json()["detail"]
+    assert ingested == []
+    assert corpus_store.get_file("plan.pdf") is None
+    assert not (uploads_dir / "plan.pdf").exists()
+
+
+@pytest.mark.asyncio
+async def test_object_mode_zip_members_are_each_stored(app, uploads_dir, bucket):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("a.pdf", b"%PDF a")
+        archive.writestr("b.pdf", b"%PDF b")
+
+    async with _client(app) as client:
+        res = await client.post(
+            "/v1/admin/oib/documents", files={"file": ("bulk.zip", buffer.getvalue(), "application/zip")}
+        )
+
+    assert res.status_code == 200
+    assert bucket.objects == {"base-corpus/a.pdf": b"%PDF a", "base-corpus/b.pdf": b"%PDF b"}
+
+
+@pytest.mark.asyncio
+async def test_object_mode_serves_a_document_this_replica_does_not_hold(app, uploads_dir, bucket, tmp_path):
+    corpus_store.put("elsewhere.pdf", b"%PDF elsewhere", tmp_path / "other-replica")
+    assert not (uploads_dir / "elsewhere.pdf").exists()
+
+    async with _client(app) as client:
+        res = await client.get("/v1/oib/documents/elsewhere.pdf")
+
+    assert res.status_code == 200
+    assert res.content == b"%PDF elsewhere"
+    assert (uploads_dir / "elsewhere.pdf").is_file()
+
+
+@pytest.mark.asyncio
+async def test_object_mode_a_document_removed_elsewhere_is_not_served_from_a_stale_cache(app, uploads_dir, bucket):
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    (uploads_dir / "removed.pdf").write_bytes(b"%PDF stale")
+
+    async with _client(app) as client:
+        res = await client.get("/v1/oib/documents/removed.pdf")
+
+    assert res.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_object_mode_delete_removes_the_object_the_row_and_the_cache_file(app, uploads_dir, bucket, tmp_path):
+    corpus_store.put("custom.pdf", b"%PDF custom", tmp_path / "other-replica")
+
+    async with _client(app) as client:
+        res = await client.delete("/v1/admin/oib/documents/custom.pdf")
+
+    assert res.status_code == 200
+    assert res.json()["mode"] == "deleted"
+    assert bucket.objects == {}
+    assert corpus_store.get_file("custom.pdf") is None
+    assert not (uploads_dir / "custom.pdf").exists()
+
+
+def test_object_mode_the_tarball_carries_files_uploaded_on_other_replicas(uploads_dir, bucket, tmp_path):
+    from aiq_api.routes.oib import _corpus_tarball
+
+    corpus_store.put("elsewhere.pdf", b"%PDF elsewhere", tmp_path / "other-replica")
+
+    path = _corpus_tarball()
+    try:
+        with tarfile.open(path) as archive:
+            assert archive.getnames() == ["elsewhere.pdf"]
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_disk_mode_upload_never_touches_the_store(uploads_dir, monkeypatch):
+    from aiq_api.routes.oib import _persist_upload
+
+    monkeypatch.delenv(corpus_store.STORE_ENV, raising=False)
+    monkeypatch.setattr(corpus_store, "put", lambda *_a, **_k: pytest.fail("disk mode must not use the store"))
+
+    target = _persist_upload("plan.pdf", b"%PDF plan")
+
+    assert target == uploads_dir / "plan.pdf"
+    assert target.read_bytes() == b"%PDF plan"

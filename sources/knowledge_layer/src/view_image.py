@@ -44,6 +44,7 @@ from knowledge_layer.llamaindex.pdfium_lock import detached_pil
 from knowledge_layer.llamaindex.pdfium_lock import pdfium_lock
 from pydantic import Field
 
+from aiq_agent.common import seaweed_s3
 from aiq_agent.common.image_view_budget import MAX_IMAGE_VIEWS_PER_TURN
 from aiq_agent.common.image_view_budget import try_consume_image_view
 from nat.plugin_api import Builder
@@ -78,15 +79,11 @@ _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", "
 # BFF internal lookup + SeaweedFS (S3) fetch. FRONTEND_INTERNAL_URL +
 # GRID_INTERNAL_API_TOKEN are already present on the aiq-agent tier; the
 # SEAWEED_* set is injected by the same tier once the backend fetches bytes
-# directly. All are read lazily so a base-corpus-only deployment (no project
-# uploads) needs none of them.
+# directly (the client itself is `aiq_agent.common.seaweed_s3`, shared with the
+# base-corpus store). All are read lazily so a base-corpus-only deployment (no
+# project uploads) needs none of them.
 _FRONTEND_INTERNAL_URL_ENV = "FRONTEND_INTERNAL_URL"
 _INTERNAL_TOKEN_ENV = "GRID_INTERNAL_API_TOKEN"
-_SEAWEED_ENDPOINT_ENV = "SEAWEED_ENDPOINT"
-_SEAWEED_BUCKET_ENV = "SEAWEED_BUCKET"
-_SEAWEED_ACCESS_KEY_ENV = "SEAWEED_ACCESS_KEY"
-_SEAWEED_SECRET_KEY_ENV = "SEAWEED_SECRET_KEY"  # pragma: allowlist secret (env-var name constant, not a credential)
-_DEFAULT_SEAWEED_BUCKET = "grid-documents"
 
 
 def _default_max_dim() -> int:
@@ -118,8 +115,30 @@ def _is_enabled() -> bool:
     return flag not in {"0", "false", "no", "off"}
 
 
+def _object_store_pdf(file_name: str) -> str | None:
+    """The base-corpus PDF fetched into the local cache from the object store, or ``None``.
+
+    Only in ``GRID_BASE_CORPUS_STORE=object`` mode (ADR-0082), where an upload
+    lives in the object store and this replica's cache may not hold it yet.
+    Fail-open like the rest of the tool: any failure falls back to the directory scan.
+    """
+    try:
+        from aiq_agent import corpus_store
+
+        if not corpus_store.object_mode():
+            return None
+        cached = corpus_store.ensure_local(file_name)
+    except Exception:  # noqa: BLE001 - fail-open contract
+        logger.warning("view_knowledge_image: object-store lookup failed for %s", file_name, exc_info=True)
+        return None
+    return str(cached) if cached is not None else None
+
+
 def _find_pdf(pdf_dirs: list[str], file_name: str) -> str | None:
     """Locate the source PDF by file name (case-insensitive), or ``None``."""
+    from_store = _object_store_pdf(file_name)
+    if from_store is not None:
+        return from_store
     needle = file_name.lower()
     for directory in pdf_dirs:
         root = Path(directory)
@@ -277,26 +296,11 @@ def _fetch_seaweed_bytes(storage_key: str, storage_bucket: str | None = None) ->
     so callers degrade to a text-only block. Imports boto3 lazily so the tool
     imports cleanly in a deployment that never fetches.
     """
-    endpoint = os.environ.get(_SEAWEED_ENDPOINT_ENV, "").strip()
-    access_key = os.environ.get(_SEAWEED_ACCESS_KEY_ENV, "").strip()
-    secret_key = os.environ.get(_SEAWEED_SECRET_KEY_ENV, "").strip()
-    if not endpoint or not access_key or not secret_key:
-        return None
-    bucket = storage_bucket or (
-        os.environ.get(_SEAWEED_BUCKET_ENV, _DEFAULT_SEAWEED_BUCKET).strip() or _DEFAULT_SEAWEED_BUCKET
-    )
+    bucket = storage_bucket or seaweed_s3.default_bucket()
     try:
-        import boto3
-        from botocore.config import Config as _BotoConfig
-
-        client = boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            region_name="us-east-1",
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            config=_BotoConfig(s3={"addressing_style": "path"}),
-        )
+        client = seaweed_s3.s3_client()
+        if client is None:
+            return None
         response = client.get_object(Bucket=bucket, Key=storage_key)
         return response["Body"].read()
     except Exception:  # noqa: BLE001 - fail-open contract
@@ -459,7 +463,7 @@ async def view_knowledge_image(config: ViewKnowledgeImageToolConfig, _builder: B
 
         # PDF page: render the requested page. Base-corpus PDFs come from disk;
         # a project/Archiv PDF falls back to a SeaweedFS fetch rendered from bytes.
-        pdf_path = _find_pdf(config.pdf_dirs, file_name)
+        pdf_path = await asyncio.to_thread(_find_pdf, config.pdf_dirs, file_name)
         if pdf_path is not None:
             try:
                 jpeg_bytes, width, height = await asyncio.wait_for(

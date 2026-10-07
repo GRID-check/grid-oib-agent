@@ -315,6 +315,11 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     // (ADR-0076); their pool still runs the jobs with local files.
     { name: "GRID_INGEST_QUEUE_CLAIM", value: String(!cfg.ingestWorker.enabled) },
     { name: "GRID_INGEST_MAX_PER_ORG", value: String(cfg.ingestWorker.maxPerOrg) },
+    // The base corpus lives in SeaweedFS, with the registry and exclusions in the
+    // knowledge database; /app/data/oib_uploads is only a per-replica cache of it
+    // (ADR-0082 step A2). The PVC stays one more release as the source each
+    // replica copies its existing uploads from on first boot.
+    { name: "GRID_BASE_CORPUS_STORE", value: "object" },
     // LLM / embeddings / VLM (all via OpenRouter).
     sref("OPENROUTER_API_KEY"),
     sref("TAVILY_API_KEY"),

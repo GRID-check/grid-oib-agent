@@ -68,6 +68,15 @@ def _clear_directory_contents(path: Path) -> None:
             child.unlink()
 
 
+def _clear_shared_registry() -> None:
+    """With GRID_BASE_CORPUS_STORE=object the registry is a table, not the file just deleted."""
+    from aiq_agent import corpus_store  # noqa: PLC0415
+
+    if corpus_store.object_mode():
+        corpus_store.save_registry({})
+        print("OIB_FORCE_REINGEST: cleared the shared registry", flush=True)
+
+
 def _run_oib_sync_background() -> None:
     """Run OIB PDF ingestion in the background after the server starts."""
     # The entrypoint process never configures logging, so oib_sync's INFO
@@ -84,6 +93,7 @@ def _run_oib_sync_background() -> None:
         if registry.exists():
             registry.unlink()
             print("OIB_FORCE_REINGEST: deleted registry", flush=True)
+        _clear_shared_registry()
         chroma_dir = Path(os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data"))
         if chroma_dir.exists():
             _clear_directory_contents(chroma_dir)

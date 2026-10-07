@@ -1291,14 +1291,23 @@ In `db` mode the `aiq-agent` web tier now runs `backendReplicas` replicas
 
 It stays a StatefulSet (stable identity + a per-replica RWO PVC on Lightbits).
 
-**One documented caveat — base-corpus admin upload.** The platform-owner
-base-corpus upload writes PDFs to a per-replica `OIB_UPLOADS_DIR`; the uploaded
-file (and a later re-sync of *that file*) lives only on the replica that
-received it. The vectors it produces are ingested into shared Chroma and are
-searchable from every replica, so **chat is unaffected** — only re-ingesting or
-removing that specific source PDF is replica-local. Route `OIB_UPLOADS_DIR`
-through SeaweedFS to make that admin flow fully replica-agnostic (scoped
-follow-up); high-traffic chat/retrieval does not need it.
+**Base-corpus admin upload — resolved by object mode (ADR-0082 step A2).** The
+platform-owner base-corpus upload used to write PDFs to a per-replica
+`OIB_UPLOADS_DIR`, so the file (and a later re-sync, removal or source-PDF view
+of it) lived only on the replica that received it. The stack now sets
+`GRID_BASE_CORPUS_STORE=object`: the PDFs are objects in SeaweedFS
+(`base-corpus/<file name>` in `SEAWEED_BUCKET`), the sync registry and exclusions
+are tables in the knowledge database, and `OIB_UPLOADS_DIR` is only each
+replica's cache of them. Every replica lists, serves, exports and re-ingests the
+same corpus, and the boot-time `sync()` runs under a cross-replica lock. See
+[`oib-sync.md`](../technical-reference/oib-sync.md#object-mode-grid_base_corpus_storeobject).
+
+The PVC stays for one more release as the migration source: on first boot each
+replica copies the PDFs on its own volume that the shared corpus does not yet
+list, imports its registry and exclusions if the shared ones are empty, and
+writes `OIB_UPLOADS_DIR/.object-store-migrated`. Once every replica has booted
+once on this release, the PVC holds nothing the store lacks and can be dropped
+(that is the step that turns the tier into a Deployment).
 
 ### 6.4b Chat scale-out: affinity off, KEDA on running turns (ADR-0080)
 
@@ -1363,10 +1372,10 @@ What lives on a replica, and what that means for scale-in: the in-process socket
 registry, the clarifier future and the running LangGraph task belong to a turn
 that is running, and the drain waits for it. An idle conversation has none of
 them, and its checkpoints are in Postgres, so the next question on any replica
-picks it up. The data PVC holds only the base-corpus admin upload
-(`OIB_UPLOADS_DIR`, above); scale-in keeps the PVC (`whenScaled: Retain`), so
-that source PDF is unreachable while its ordinal is gone and returns with it.
-Chat never reads it.
+picks it up. The data PVC holds only the base-corpus cache and the migration
+source (`OIB_UPLOADS_DIR`, above); the corpus itself is in SeaweedFS, so no
+replica's disappearance makes a document unreachable. Chat reads the cache only
+through `view_knowledge_image`, which fetches a missing PDF on demand.
 
 ### 6.5 Frontend tier — what actually bounds it
 

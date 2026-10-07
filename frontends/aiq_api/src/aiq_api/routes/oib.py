@@ -130,17 +130,27 @@ def _sanitize_pdf_name(raw: str | None) -> str:
 def _persist_upload(name: str, content: bytes) -> Path:
     """Write an uploaded PDF into the writable uploads dir and return its path.
 
-    Write-then-ingest ordering: the file is durably on disk (under the persistent
-    data volume) BEFORE the route responds, so an upload is never lost even if
-    background ingestion is slow to start or the process restarts — the next
-    ``sync()`` picks it up. A same-named upload overwrites the existing file
-    (the admin's way to replace a document).
+    Write-then-ingest ordering: the file is durably stored BEFORE the route
+    responds, so an upload is never lost even if background ingestion is slow to
+    start or the process restarts — the next ``sync()`` picks it up. A same-named
+    upload overwrites the existing file (the admin's way to replace a document).
+
+    "Stored" is the uploads dir on the persistent volume with
+    ``GRID_BASE_CORPUS_STORE=disk``. With ``object`` it is the object store, so
+    every replica serves the file (ADR-0082); the uploads dir is then this
+    replica's cache, which ``corpus_store.put`` fills. A store that refuses the
+    object raises, and the route answers with an error rather than a pending job
+    that would never find its file.
     """
+    from aiq_agent import corpus_store
     from aiq_agent import oib_sync
 
-    oib_sync.OIB_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    target = oib_sync.OIB_UPLOADS_DIR / name
-    target.write_bytes(content)
+    if corpus_store.object_mode():
+        target = corpus_store.put(name, content, oib_sync.OIB_UPLOADS_DIR)
+    else:
+        oib_sync.OIB_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+        target = oib_sync.OIB_UPLOADS_DIR / name
+        target.write_bytes(content)
     # (Re)uploading a document is an explicit "I want this in the corpus", so lift
     # any persistent exclusion left behind by a prior delete of the same basename.
     # Without this, discover_pdfs() and the /v1/oib/status panel keep filtering the
@@ -169,7 +179,7 @@ def _ingest_and_classify(target: Path, doc_class: str) -> None:
     try:
         terminal = oib_sync.ingest_single(target)
     except Exception:
-        target.unlink(missing_ok=True)
+        _discard_source(target)
         logger.exception("Background ingestion crashed for %s; removed the source file", name)
         return
 
@@ -185,6 +195,23 @@ def _ingest_and_classify(target: Path, doc_class: str) -> None:
         logger.error("Background ingestion of %s failed; it will be retried by the next sync", name)
     else:
         logger.error("Background ingestion of %s timed out; it will be retried by the next sync", name)
+
+
+def _discard_source(target: Path) -> None:
+    """Remove the source of an ingestion that crashed, wherever the corpus keeps it.
+
+    In object mode the file is also in the shared corpus; leaving it there would
+    bring it back into every cache at the next pull, so it goes too.
+    """
+    from aiq_agent import corpus_store
+
+    target.unlink(missing_ok=True)
+    if not corpus_store.object_mode():
+        return
+    try:
+        corpus_store.remove(target.name)
+    except corpus_store.CorpusStoreError:
+        logger.exception("Could not remove %s from the shared corpus after a crashed ingestion", target.name)
 
 
 def _seed_display_title(name: str) -> None:
@@ -290,14 +317,22 @@ def _remove_document(name: str) -> str | None:
 def _resolve_corpus_pdf(file_name: str) -> Path | None:
     """Locate a corpus PDF by basename (uploads take precedence over the repo
     corpus, mirroring discovery), refusing any path component in the input."""
+    from aiq_agent import corpus_store
     from aiq_agent import oib_sync
 
     name = Path(file_name).name
     if not name or name != file_name or not name.lower().endswith(".pdf"):
         return None
-    upload = oib_sync.OIB_UPLOADS_DIR / name
-    if upload.is_file():
-        return upload
+    if corpus_store.object_mode():
+        # The shared corpus decides what an upload is; this replica's cache is
+        # filled from it on demand, and a stale cached copy proves nothing.
+        cached = corpus_store.ensure_local(name, oib_sync.OIB_UPLOADS_DIR)
+        if cached is not None:
+            return cached
+    else:
+        upload = oib_sync.OIB_UPLOADS_DIR / name
+        if upload.is_file():
+            return upload
     if oib_sync.OIB_DIR.exists():
         # rglob because the repo corpus may organize PDFs in subdirectories.
         for candidate in oib_sync.OIB_DIR.rglob(name):

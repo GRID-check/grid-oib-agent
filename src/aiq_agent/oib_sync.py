@@ -6,7 +6,7 @@ terminal state. Only files that ingest successfully have their SHA-256 hash reco
 in the registry, so failures (or timeouts) are automatically retried on the next run.
 """
 
-import hashlib
+import contextlib
 import json
 import logging
 import os
@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from aiq_agent import corpus_store
 from aiq_agent.knowledge.factory import get_ingestor
 from aiq_agent.knowledge.schema import FileStatus
 
@@ -59,11 +60,7 @@ class _ActiveIngestion:
 
 
 def _file_hash(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            hasher.update(chunk)
-    return hasher.hexdigest()
+    return corpus_store.sha256_file(path)
 
 
 # Chunk-format version of the ingestion pipeline. Bump whenever chunking,
@@ -95,7 +92,7 @@ def _file_hash(path: Path) -> str:
 #    table rows version 3 accepted as Punkte (OIB-RL 2 13-15, OIB-RL 2.1 6.1-6.3,
 #    and their Änderungen twins): 1645 Punkt ids become 1633, plus 104 table chunks.
 CHUNK_FORMAT_VERSION = 4
-_FORMAT_KEY = "__chunk_format_version__"
+_FORMAT_KEY = corpus_store.FORMAT_KEY
 
 
 # Serialises registry read-modify-write sequences. ZIP admin uploads ingest
@@ -111,6 +108,21 @@ _REGISTRY_LOCK = threading.Lock()
 # Same guarantee for the persisted exclusion set, which has its own file and is
 # read-modify-written by exclude/unexclude/prune.
 _EXCLUDED_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _registry_guard():
+    """The registry's critical section: this process's lock and, in object mode, every replica's."""
+    with _REGISTRY_LOCK, corpus_store.shared_lock("oib-registry"):
+        yield
+
+
+@contextlib.contextmanager
+def _excluded_guard():
+    """The exclusion set's critical section, as :func:`_registry_guard`."""
+    with _EXCLUDED_LOCK, corpus_store.shared_lock("oib-excluded"):
+        yield
+
 
 # Single-flight guard for sync(): two concurrent syncs would build their work
 # lists from the same registry snapshot and ingest every changed file twice.
@@ -140,19 +152,48 @@ def _file_lock(name: str) -> threading.Lock:
         return _FILE_LOCKS.setdefault(key, threading.Lock())
 
 
+# The registry and the exclusion set live in one of two places, chosen once here:
+# the JSON files (GRID_BASE_CORPUS_STORE=disk, the default) or the shared tables
+# (=object, see aiq_agent.corpus_store). Everything else in this module, and
+# oib_status, reads and writes through these four functions.
+
+
 def _load_registry() -> dict[str, str]:
-    if REGISTRY_PATH.exists():
-        return json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
-    return {}
+    if corpus_store.object_mode():
+        return corpus_store.load_registry()
+    return _load_registry_file()
 
 
 def _save_registry(registry: dict[str, str]) -> None:
+    if corpus_store.object_mode():
+        corpus_store.save_registry(registry)
+        return
     REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
     REGISTRY_PATH.write_text(json.dumps(registry, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def _load_excluded() -> set[str]:
     """Basenames removed from the active corpus (persisted exclusion set)."""
+    if corpus_store.object_mode():
+        return corpus_store.load_excluded()
+    return _load_excluded_file()
+
+
+def _save_excluded(names: set[str]) -> None:
+    if corpus_store.object_mode():
+        corpus_store.save_excluded(names)
+        return
+    EXCLUDED_PATH.parent.mkdir(parents=True, exist_ok=True)
+    EXCLUDED_PATH.write_text(json.dumps(sorted(names), indent=2), encoding="utf-8")
+
+
+def _load_registry_file() -> dict[str, str]:
+    if REGISTRY_PATH.exists():
+        return json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
+    return {}
+
+
+def _load_excluded_file() -> set[str]:
     if EXCLUDED_PATH.exists():
         try:
             data = json.loads(EXCLUDED_PATH.read_text(encoding="utf-8"))
@@ -164,9 +205,15 @@ def _load_excluded() -> set[str]:
     return set()
 
 
-def _save_excluded(names: set[str]) -> None:
-    EXCLUDED_PATH.parent.mkdir(parents=True, exist_ok=True)
-    EXCLUDED_PATH.write_text(json.dumps(sorted(names), indent=2), encoding="utf-8")
+def _refresh_cache() -> None:
+    """Object mode: make ``OIB_UPLOADS_DIR`` match the shared corpus. Disk mode: nothing.
+
+    Runs the one-time move of this replica's local files, registry and
+    exclusions into the store first (``corpus_store.migrate_once``), so the
+    cache is never made to match a table that does not yet hold them.
+    """
+    if corpus_store.object_mode():
+        corpus_store.refresh_cache(OIB_UPLOADS_DIR, _load_registry_file, _load_excluded_file)
 
 
 def _ensure_collection(ingestor) -> None:
@@ -256,7 +303,11 @@ def discover_pdfs() -> list[Path]:
     overrides a stale exclusion left over from a prior delete of the same
     basename. (This also self-heals corpora uploaded before the upload path
     learned to lift the exclusion itself — the files simply reappear.)
+
+    In object mode the uploads directory is first refreshed from the shared
+    corpus, so every replica reports the same set (``_refresh_cache``).
     """
+    _refresh_cache()
     excluded = _load_excluded()
     by_name: dict[str, Path] = {}
     for base in (OIB_DIR, OIB_UPLOADS_DIR):
@@ -303,7 +354,7 @@ def ingest_single(pdf: Path) -> "FileStatus | None":
             info = ingestor.get_file_status(file_info.file_id, COLLECTION_NAME)
             status = info.status if info else None
             if status == FileStatus.SUCCESS:
-                with _REGISTRY_LOCK:
+                with _registry_guard():
                     registry = _load_registry()
                     registry[str(pdf)] = current_hash
                     _save_registry(registry)
@@ -328,6 +379,7 @@ def remove_uploaded_document(file_name: str) -> bool:
     sync anyway). Returns False when no such uploaded file exists.
     """
     name = Path(file_name).name  # forbid path traversal
+    _refresh_cache()
     path = OIB_UPLOADS_DIR / name
     if not path.is_file():
         return False
@@ -342,7 +394,7 @@ def remove_uploaded_document(file_name: str) -> bool:
         except Exception as exc:
             logger.warning("Could not delete chunks for %s: %s", name, exc)
 
-        with _REGISTRY_LOCK:
+        with _registry_guard():
             registry = _load_registry()
             if registry.pop(str(path), None) is not None:
                 _save_registry(registry)
@@ -354,6 +406,10 @@ def remove_uploaded_document(file_name: str) -> bool:
         except Exception as exc:
             logger.debug("Could not unregister summary for %s: %s", name, exc)
 
+        # Out of the shared corpus before the local copy goes: if this raises, the
+        # file is still listed and a retry finds it.
+        if corpus_store.object_mode():
+            corpus_store.remove(name)
         path.unlink(missing_ok=True)
     logger.info("Removed uploaded OIB document %s", name)
     return True
@@ -376,7 +432,7 @@ def exclude_document(name: str) -> None:
         except Exception as exc:
             logger.warning("Could not delete chunks for excluded %s: %s", base, exc)
 
-        with _REGISTRY_LOCK:
+        with _registry_guard():
             registry = _load_registry()
             stale_keys = [key for key in registry if key != _FORMAT_KEY and Path(key).name == base]
             if stale_keys:
@@ -394,7 +450,7 @@ def exclude_document(name: str) -> None:
         # Under the exclusion lock too: a concurrent removal of another document
         # would otherwise load the same set and drop this basename on save, and
         # the next sync would re-ingest the document an admin just removed.
-        with _EXCLUDED_LOCK:
+        with _excluded_guard():
             excluded = _load_excluded()
             if base not in excluded:
                 excluded.add(base)
@@ -413,7 +469,7 @@ def _prune_excluded_uploads() -> None:
     if not OIB_UPLOADS_DIR.exists():
         return
     uploaded = {p.name for p in OIB_UPLOADS_DIR.rglob("*.pdf") if p.is_file()}
-    with _EXCLUDED_LOCK:
+    with _excluded_guard():
         excluded = _load_excluded()
         if not excluded:
             return
@@ -427,7 +483,7 @@ def unexclude_document(name: str) -> bool:
     """Reverse an exclusion so the file is re-discovered (and re-ingested by the
     next sync). Returns False when the basename was not excluded."""
     base = Path(name).name
-    with _EXCLUDED_LOCK:
+    with _excluded_guard():
         excluded = _load_excluded()
         if base not in excluded:
             return False
@@ -469,6 +525,7 @@ def remove_document(name: str) -> str | None:
     if not base or base != name or not base.lower().endswith(".pdf"):
         return None
 
+    _refresh_cache()
     if (OIB_UPLOADS_DIR / base).is_file():
         return "deleted" if remove_uploaded_document(base) else None
 
@@ -511,7 +568,7 @@ def mark_for_reingest(name: str) -> Path | None:
     if target is None:
         return None
 
-    with _REGISTRY_LOCK:
+    with _registry_guard():
         registry = _load_registry()
         stale_keys = [key for key in registry if key != _FORMAT_KEY and Path(key).name == base]
         if stale_keys:
@@ -538,12 +595,17 @@ def sync() -> tuple[int, int]:
         logger.info("OIB sync already in progress; waiting for it to finish before syncing again")
         _SYNC_LOCK.acquire()
     try:
-        return _sync_locked()
+        # In object mode every web replica runs sync() at boot, so the same work
+        # list must not be ingested twice across replicas either: a second sync
+        # waits here, then finds nothing new.
+        with corpus_store.shared_lock("oib-sync"):
+            return _sync_locked()
     finally:
         _SYNC_LOCK.release()
 
 
 def _sync_locked() -> tuple[int, int]:
+    _refresh_cache()
     if not OIB_DIR.exists() and not OIB_UPLOADS_DIR.exists():
         raise FileNotFoundError(f"OIB directory not found: {OIB_DIR}")
 
@@ -561,7 +623,7 @@ def _sync_locked() -> tuple[int, int]:
     # It does not, because the ingestor replaces every file by name once the new
     # version is indexed, whatever the registry says (a pre-ingest delete guarded by
     # `str(pdf) in registry` once had to be forced here for exactly that reason).
-    with _REGISTRY_LOCK:
+    with _registry_guard():
         registry = _load_registry()
         if registry and registry.get(_FORMAT_KEY) != CHUNK_FORMAT_VERSION:
             logger.warning(
@@ -589,7 +651,7 @@ def _sync_locked() -> tuple[int, int]:
             "(vector store reset or repointed) — forcing a full re-ingest",
             COLLECTION_NAME,
         )
-        with _REGISTRY_LOCK:
+        with _registry_guard():
             registry = {_FORMAT_KEY: CHUNK_FORMAT_VERSION}
             _save_registry(registry)
 
@@ -716,7 +778,7 @@ def _sync_locked() -> tuple[int, int]:
 
                 elapsed = now - item.submitted_at
                 if status == FileStatus.SUCCESS:
-                    with _REGISTRY_LOCK:
+                    with _registry_guard():
                         # Reload: `registry` was loaded before this (minutes-long)
                         # run started, so saving it as-is would drop hashes another
                         # ingestion recorded in the meantime.

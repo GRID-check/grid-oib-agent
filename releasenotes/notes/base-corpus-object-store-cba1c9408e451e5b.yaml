@@ -1,0 +1,8 @@
+---
+operators:
+  - >
+    On Kubernetes the base corpus an admin uploads now lives in the object store
+    and the shared database instead of on one backend replica's disk, so every
+    replica serves and re-ingests the same documents. Each replica copies its
+    existing uploads over the first time it starts. Set GRID_BASE_CORPUS_STORE
+    to disk to keep the old behavior, which Docker Compose does.

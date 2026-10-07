@@ -125,6 +125,14 @@ describe("the program constructs in the split topology", () => {
     }
   });
 
+  it("keeps the base corpus in the object store, with the uploads directory as a per-replica cache", () => {
+    // ADR-0082 step A2. Without this an admin upload lands on one replica's disk
+    // only and the other replicas never serve or index it.
+    const web = RESOURCES.find((r) => r.type === "kubernetes:apps/v1:StatefulSet" && r.name === "aiq-agent");
+    const webEnv = web?.inputs.spec?.template?.spec.containers[0].env;
+    expect(webEnv?.find((e) => e.name === "GRID_BASE_CORPUS_STORE")?.value).toBe("object");
+  });
+
   it("creates the scheduler even with Agent Skills off, because it is the run reconciler's clock", () => {
     // Runs exist without Agent Skills (an escalated chat question is a run with
     // no definition), and the scheduler is what closes the ones whose ending
