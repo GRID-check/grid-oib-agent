@@ -819,7 +819,8 @@ export interface GridConfig {
      * Ceiling. The real ceiling is the model provider's rate limit on the
      * shared key: replicas × concurrency × `AIQ_VLM_BATCH_WORKERS` is the
      * peak number of VLM calls in flight, and `assertVlmPeakFitsCeiling` fails
-     * the deploy when that is more than twice `vlmFleetConcurrency`.
+     * the deploy when that is more than twice `vlmFleetConcurrency`, which is
+     * itself held to the provider ceilings.
      */
     maxReplicas: number;
     /** Jobs one replica runs at once (`AIQ_INGEST_MAX_WORKERS`); also KEDA's jobs-per-replica target. */
@@ -871,7 +872,8 @@ export interface GridConfig {
    * the backend image's environment. The four numbers are one budget:
    * {@link vlmPeakCalls} is held to `vlmFleetConcurrency` where the ingest tier
    * is sized (`assertVlmPeakFitsCeiling`), and `vlmFleetConcurrency` is held to
-   * the key-wide `limitCeiling`.
+   * both ceilings a vision call passes: the key-wide `limitCeiling` and the
+   * vision model's own `modelLimitCeiling` (a call takes a slot in each pool).
    */
   providerLimits: {
     /** `AIQ_VLM_FLEET_CONCURRENCY`: vision calls in flight across every ingest process at once. */
@@ -2618,9 +2620,9 @@ export function loadConfig(): GridConfig {
         limitsMemory: cfg.get("ingestWorkerLimitsMemory") ?? "6Gi",
       },
       minReplicas: Math.max(0, num(cfg, "ingestWorkerMinReplicas", 1)),
-      // 8 x 3 x `AIQ_VLM_BATCH_WORKERS` (4) = 96 = 2 x the vision pool (48): the most the
-      // default budget can feed (`assertVlmPeakFitsCeiling`).
-      maxReplicas: Math.max(1, num(cfg, "ingestWorkerMaxReplicas", 8)),
+      // 5 x 3 x `AIQ_VLM_BATCH_WORKERS` (4) = 60, within 2 x the vision pool (32): the
+      // most the default budget can feed (`assertVlmPeakFitsCeiling`).
+      maxReplicas: Math.max(1, num(cfg, "ingestWorkerMaxReplicas", 5)),
       concurrency: Math.max(1, num(cfg, "ingestWorkerConcurrency", 3)),
       drainSeconds: Math.max(30, num(cfg, "ingestWorkerDrainSeconds", 600)),
       maxPerOrg: Math.max(0, num(cfg, "ingestMaxPerOrg", 0)),
@@ -2653,7 +2655,7 @@ export function loadConfig(): GridConfig {
     // `provider_limiter.py`), written down here so the stack file, not a Python
     // default, is where the fleet's budget is read and changed.
     providerLimits: {
-      vlmFleetConcurrency: Math.max(0, num(cfg, "vlmFleetConcurrency", 48)),
+      vlmFleetConcurrency: Math.max(0, num(cfg, "vlmFleetConcurrency", 32)),
       vlmBatchWorkers: Math.max(1, num(cfg, "vlmBatchWorkers", 4)),
       limitCeiling: Math.max(1, num(cfg, "providerLimitCeiling", 128)),
       modelLimitCeiling: Math.max(1, num(cfg, "providerModelLimitCeiling", 32)),
@@ -3064,8 +3066,10 @@ export const VLM_OVERSUBSCRIPTION = 2;
 
 /**
  * Refuse an ingest tier whose peak vision calls run past the fleet's ceiling by
- * more than {@link VLM_OVERSUBSCRIPTION}, and a fleet pool larger than the
- * key-wide limiter ceiling it passes through. The numbers are chosen in two
+ * more than {@link VLM_OVERSUBSCRIPTION}, and a fleet pool larger than either
+ * limiter ceiling it passes through: the key-wide one, and the vision model's
+ * own (every vision call holds a slot in both, and the model's pool is the
+ * smaller by default, so a bigger fleet pool could never fill). The numbers are chosen in two
  * places (the tier's replicas, the provider's budget) and neither looks wrong
  * alone, which is how a tier gets raised until its replicas queue on a pool
  * sized for a fraction of them.
@@ -3073,7 +3077,7 @@ export const VLM_OVERSUBSCRIPTION = 2;
  * Skipped when the pool is off (`vlmFleetConcurrency` 0: nothing is held back).
  */
 export function assertVlmPeakFitsCeiling(cfg: Pick<GridConfig, "ingestWorker" | "providerLimits">): void {
-  const { vlmFleetConcurrency, vlmBatchWorkers, limitCeiling } = cfg.providerLimits;
+  const { vlmFleetConcurrency, vlmBatchWorkers, limitCeiling, modelLimitCeiling } = cfg.providerLimits;
   if (vlmFleetConcurrency === 0) return;
   const peak = vlmPeakCalls(cfg);
   const allowed = VLM_OVERSUBSCRIPTION * vlmFleetConcurrency;
@@ -3093,6 +3097,15 @@ export function assertVlmPeakFitsCeiling(cfg: Pick<GridConfig, "ingestWorker" | 
       `Invalid provider budget: vlmFleetConcurrency (${vlmFleetConcurrency}) is above providerLimitCeiling ` +
         `(${limitCeiling}), the key-wide limit every model call passes. The fleet pool could never fill. ` +
         "Raise providerLimitCeiling or lower vlmFleetConcurrency.",
+    );
+  }
+  if (vlmFleetConcurrency > modelLimitCeiling) {
+    throw new Error(
+      `Invalid provider budget: vlmFleetConcurrency (${vlmFleetConcurrency}) is above providerModelLimitCeiling ` +
+        `(${modelLimitCeiling}), the limit on calls in flight to one model, which the vision model's calls also pass. ` +
+        "Its own pool would hold the calls back below the fleet pool, so the extra slots and the replicas sized " +
+        "to them would only wait. Raise providerModelLimitCeiling (and the provider's own limit with it) or lower " +
+        "vlmFleetConcurrency.",
     );
   }
 }

@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
-vi.mock('./repository', () => ({ listRunsWithStaleQueuedFiling: vi.fn(), updateRun: vi.fn() }))
+vi.mock('./repository', () => ({ listRunsWithStaleQueuedFiling: vi.fn(), settleQueuedFiling: vi.fn() }))
 vi.mock('@/lib/documents/research-report', () => ({ findFiledResearchReport: vi.fn() }))
 vi.mock('@/lib/jobs-queue/repository', () => ({ findOpenJobId: vi.fn(), findDeadJob: vi.fn() }))
 
@@ -37,6 +37,7 @@ beforeEach(() => {
   vi.mocked(findOpenJobId).mockResolvedValue(null)
   vi.mocked(findDeadJob).mockResolvedValue(null)
   vi.mocked(findFiledResearchReport).mockResolvedValue(null)
+  vi.mocked(repository.settleQueuedFiling).mockResolvedValue({} as TaskRun)
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
 
@@ -61,7 +62,7 @@ describe('recoverStuckFilings', () => {
       organizationId: 'org_1',
       matching: { runId: 'backend-job-1' },
     })
-    expect(repository.updateRun).not.toHaveBeenCalled()
+    expect(repository.settleQueuedFiling).not.toHaveBeenCalled()
     expect(result).toMatchObject({ checked: 1, waiting: 1, filed: 0, failed: 0 })
   })
 
@@ -76,7 +77,7 @@ describe('recoverStuckFilings', () => {
 
     const result = await recoverStuckFilings(NOW)
 
-    expect(repository.updateRun).toHaveBeenCalledWith('run-1', 'org_1', {
+    expect(repository.settleQueuedFiling).toHaveBeenCalledWith('run-1', 'org_1', {
       filingStatus: 'filed',
       filingDetail: null,
       filedDocumentId: 'doc-9',
@@ -90,9 +91,10 @@ describe('recoverStuckFilings', () => {
 
     const result = await recoverStuckFilings(NOW)
 
-    expect(repository.updateRun).toHaveBeenCalledWith('run-1', 'org_1', {
+    expect(repository.settleQueuedFiling).toHaveBeenCalledWith('run-1', 'org_1', {
       filingStatus: 'failed',
       filingDetail: 'the filing job failed every attempt: object store down',
+      filedDocumentId: null,
     })
     expect(result.failed).toBe(1)
   })
@@ -102,7 +104,7 @@ describe('recoverStuckFilings', () => {
 
     await recoverStuckFilings(NOW)
 
-    expect(repository.updateRun).toHaveBeenCalledWith(
+    expect(repository.settleQueuedFiling).toHaveBeenCalledWith(
       'run-1',
       'org_1',
       expect.objectContaining({ filingStatus: 'failed', filingDetail: 'the filing job is gone and the report was never filed' })
@@ -115,7 +117,16 @@ describe('recoverStuckFilings', () => {
     await recoverStuckFilings(NOW)
 
     expect(findOpenJobId).not.toHaveBeenCalled()
-    expect(repository.updateRun).toHaveBeenCalledWith('run-1', 'org_1', expect.objectContaining({ filingStatus: 'failed' }))
+    expect(repository.settleQueuedFiling).toHaveBeenCalledWith('run-1', 'org_1', expect.objectContaining({ filingStatus: 'failed' }))
+  })
+
+  it('leaves a row alone that the job settled between the read and the write', async () => {
+    vi.mocked(repository.listRunsWithStaleQueuedFiling).mockResolvedValue([run()])
+    vi.mocked(repository.settleQueuedFiling).mockResolvedValue(null) // no longer `queued`: the job said its own
+
+    const result = await recoverStuckFilings(NOW)
+
+    expect(result).toMatchObject({ checked: 1, filed: 0, failed: 0, settled: 1 })
   })
 
   it('judges each run inside its own organization, and one failure does not cost the others', async () => {

@@ -55,13 +55,20 @@ describe("the ingest tier's peak vision calls", () => {
     const { vlmPeakCalls } = await load();
 
     expect(
-      vlmPeakCalls({ ingestWorker: { maxReplicas: 8, concurrency: 3 }, providerLimits: { vlmBatchWorkers: 4 } } as never),
-    ).toBe(96);
+      vlmPeakCalls({ ingestWorker: { maxReplicas: 5, concurrency: 3 }, providerLimits: { vlmBatchWorkers: 4 } } as never),
+    ).toBe(60);
   });
 
   it.each(["dev", "prod"] as const)("fit the %s stack's fleet pool, which fails the deploy when they do not", async (stack) => {
     const knobs = Object.fromEntries(
-      ["ingestWorkerMaxReplicas", "ingestWorkerConcurrency", "vlmFleetConcurrency", "vlmBatchWorkers", "providerLimitCeiling"]
+      [
+        "ingestWorkerMaxReplicas",
+        "ingestWorkerConcurrency",
+        "vlmFleetConcurrency",
+        "vlmBatchWorkers",
+        "providerLimitCeiling",
+        "providerModelLimitCeiling",
+      ]
         .map((key) => [key, stackKnob(stack, key)])
         .filter(([, value]) => value !== undefined)
         .map(([key, value]) => [`grid-oib:${key}`, value as string]),
@@ -82,25 +89,29 @@ describe("the ingest tier's peak vision calls", () => {
     const { cfg, assertVlmPeakFitsCeiling } = await load({ "grid-oib:ingestWorkerMaxReplicas": "12" });
 
     expect(() => assertVlmPeakFitsCeiling(cfg)).toThrow(
-      /ingestWorkerMaxReplicas \(12\) x ingestWorkerConcurrency \(3\) x vlmBatchWorkers \(4\) = 144 vision calls at the peak, more than 2x vlmFleetConcurrency \(48\) = 96/,
+      /ingestWorkerMaxReplicas \(12\) x ingestWorkerConcurrency \(3\) x vlmBatchWorkers \(4\) = 144 vision calls at the peak, more than 2x vlmFleetConcurrency \(32\) = 64/,
     );
-    expect(() => assertVlmPeakFitsCeiling(cfg)).toThrow(/Lower ingestWorkerMaxReplicas to 8 or less, or raise vlmFleetConcurrency/);
+    expect(() => assertVlmPeakFitsCeiling(cfg)).toThrow(/Lower ingestWorkerMaxReplicas to 5 or less, or raise vlmFleetConcurrency/);
   });
 
   it("are allowed twice the pool, no more", async () => {
-    const at = await load({ "grid-oib:ingestWorkerMaxReplicas": "8" });
-    const over = await load({ "grid-oib:ingestWorkerMaxReplicas": "9" });
+    const at = await load({ "grid-oib:ingestWorkerMaxReplicas": "5" });
+    const over = await load({ "grid-oib:ingestWorkerMaxReplicas": "6" });
 
     expect(() => at.assertVlmPeakFitsCeiling(at.cfg)).not.toThrow();
-    expect(() => over.assertVlmPeakFitsCeiling(over.cfg)).toThrow(/= 108 vision calls/);
+    expect(() => over.assertVlmPeakFitsCeiling(over.cfg)).toThrow(/= 72 vision calls/);
   });
 
   it("follow the pool when it is raised, and the files' parallelism when it is", async () => {
-    const raised = await load({ "grid-oib:ingestWorkerMaxReplicas": "12", "grid-oib:vlmFleetConcurrency": "72" });
+    const raised = await load({
+      "grid-oib:ingestWorkerMaxReplicas": "12",
+      "grid-oib:vlmFleetConcurrency": "72",
+      "grid-oib:providerModelLimitCeiling": "72",
+    });
     const deeper = await load({ "grid-oib:vlmBatchWorkers": "8" });
 
     expect(() => raised.assertVlmPeakFitsCeiling(raised.cfg)).not.toThrow();
-    expect(() => deeper.assertVlmPeakFitsCeiling(deeper.cfg)).toThrow(/vlmBatchWorkers \(8\) = 192/);
+    expect(() => deeper.assertVlmPeakFitsCeiling(deeper.cfg)).toThrow(/vlmBatchWorkers \(8\) = 120/);
   });
 
   it("are not held to a pool that is switched off", async () => {
@@ -119,6 +130,17 @@ describe("the ingest tier's peak vision calls", () => {
     });
 
     expect(() => assertVlmPeakFitsCeiling(cfg)).toThrow(/vlmFleetConcurrency \(200\) is above providerLimitCeiling \(128\)/);
+  });
+
+  it("refuse a fleet pool larger than the vision model's own limit, which would hold its calls back", async () => {
+    const { cfg, assertVlmPeakFitsCeiling } = await load({
+      "grid-oib:vlmFleetConcurrency": "48",
+      "grid-oib:providerModelLimitCeiling": "32",
+    });
+
+    expect(() => assertVlmPeakFitsCeiling(cfg)).toThrow(
+      /vlmFleetConcurrency \(48\) is above providerModelLimitCeiling \(32\)/,
+    );
   });
 
   it("is checked where the tier is built, so a plan that over-sizes it never reaches `pulumi up`", async () => {

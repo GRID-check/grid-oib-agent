@@ -1061,7 +1061,7 @@ RENEW_RETRY_SECONDS = 1.0
 
 
 def _renew_wait(guard: TurnFence | None, *, retrying: bool = False) -> float:
-    """How long to sleep before the next renewal: an interval, shorter after a failure, never past the deadline."""
+    """How long to sleep before the next renewal round: an interval (shorter after a failure), up to the deadline."""
     interval = running_renew_interval()
     if retrying:
         interval = min(interval, RENEW_RETRY_SECONDS)

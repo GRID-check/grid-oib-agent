@@ -38,8 +38,9 @@ export const QUEUE_DEPTH_QUERY = queueDepthQuery(QUEUE_TABLE);
  * The ceiling that matters is not this one: replicas × concurrency ×
  * `AIQ_VLM_BATCH_WORKERS` VLM calls are in flight at the peak, all on the shared
  * provider key. `assertVlmPeakFitsCeiling` fails the deploy when that product is
- * more than twice `AIQ_VLM_FLEET_CONCURRENCY`, so `ingestWorkerMaxReplicas`
- * cannot be raised past what the provider budget can feed.
+ * more than twice `AIQ_VLM_FLEET_CONCURRENCY` (itself held to the limiter ceilings,
+ * the vision model's own included), so `ingestWorkerMaxReplicas` cannot be raised
+ * past what the provider budget can feed.
  *
  * Rollout is the research tier's (`agentWorkerRollout`): surge first, then give
  * each draining worker its `drainSeconds` to finish what it claimed, plus time to

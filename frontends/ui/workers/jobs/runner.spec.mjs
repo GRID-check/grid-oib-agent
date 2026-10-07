@@ -16,6 +16,9 @@ const CONFIG = {
   perLaneCap: 0,
   reapEveryMs: 60_000,
   transientBackoffMs: 0,
+  retryBackoffSeconds: 30,
+  deadRetentionSeconds: 14 * 86_400,
+  purgeEveryMs: 600_000,
 }
 
 const CLAIM = { jobId: 'job-1', kind: 'reindex_project', lane: 'org-a', priority: 1, payload: {}, attempts: 1 }
@@ -34,6 +37,7 @@ function fakeQueue(overrides = {}) {
     saveProgress: vi.fn().mockResolvedValue(true),
     fail: vi.fn().mockResolvedValue('queued'),
     reapExhausted: vi.fn().mockResolvedValue([]),
+    purgeDead: vi.fn().mockResolvedValue(0),
     ...overrides,
   }
 }
@@ -75,20 +79,45 @@ describe('a claimed job', () => {
 
     await runner.runClaim({ ...CLAIM, attempts: 3 }, 'w-0')
 
-    expect(queue.fail).toHaveBeenCalledWith(expect.anything(), 'job-1', 'w-0', 'HTTP 500 boom', 3)
+    expect(queue.fail).toHaveBeenCalledWith(expect.anything(), 'job-1', 'w-0', 'HTTP 500 boom', 3, 30)
     expect(queue.complete).not.toHaveBeenCalled()
     expect(log.error.mock.calls.map((c) => c[0]).join('\n')).toMatch(/now dead: job-1/)
   })
 
-  it('does not spend an attempt when the BFF was briefly unavailable', async () => {
+  it('spends the attempt when the BFF did not answer, so a job that always kills it ends dead', async () => {
     const queue = fakeQueue()
-    const { runner, log } = runnerOver(queue, [{ kind: 'transient', failure: { kind: 'HTTP 503' } }])
+    const { runner, log } = runnerOver(queue, [{ kind: 'transient', failure: { kind: 'HTTP 503', detail: 'HTTP 503 unavailable' } }])
+
+    await runner.runClaim(CLAIM, 'w-0')
+
+    expect(queue.fail).toHaveBeenCalledWith(expect.anything(), 'job-1', 'w-0', 'HTTP 503 unavailable', 3, 30)
+    expect(queue.release).not.toHaveBeenCalled()
+    expect(log.warn.mock.calls.map((c) => c[0]).join('\n')).toMatch(/HTTP 503/)
+  })
+
+  it('spends the attempt on a slice that timed out, and says the job is dead when it was the last', async () => {
+    const queue = fakeQueue({ fail: vi.fn().mockResolvedValue('dead') })
+    const failure = { kind: 'transport error (TimeoutError)', detail: 'The operation was aborted due to timeout' }
+    const { runner, log } = runnerOver(queue, [{ kind: 'transient', failure }])
+
+    await runner.runClaim({ ...CLAIM, attempts: 3 }, 'w-0')
+
+    expect(queue.fail).toHaveBeenCalledTimes(1)
+    expect(log.error.mock.calls.map((c) => c[0]).join('\n')).toMatch(/now dead: job-1/)
+  })
+
+  it('gives the claim back free when the BFF went away because the pod is shutting down', async () => {
+    const queue = fakeQueue()
+    const { runner, runSlice } = runnerOver(queue, [])
+    runSlice.mockImplementationOnce(async () => {
+      void runner.drain(1_000)
+      return { kind: 'transient', failure: { kind: 'transport error (ECONNRESET)' } }
+    })
 
     await runner.runClaim(CLAIM, 'w-0')
 
     expect(queue.release).toHaveBeenCalledWith(expect.anything(), 'job-1', 'w-0')
     expect(queue.fail).not.toHaveBeenCalled()
-    expect(log.warn.mock.calls.map((c) => c[0]).join('\n')).toMatch(/HTTP 503/)
   })
 
   it('stops when the progress cannot be saved, because the claim is gone', async () => {
@@ -193,6 +222,24 @@ describe('the claim loop', () => {
     expect(log.error.mock.calls.map((c) => c[0]).join('\n')).toMatch(/1 job\(s\) lost their worker/)
   })
 
+  it('deletes dead rows past their retention, at most once per interval, and never lets that stop a claim', async () => {
+    const queue = fakeQueue({ purgeDead: vi.fn().mockResolvedValue(2) })
+    const { runner, log } = runnerOver(queue, [])
+
+    await runner.step('w-0')
+    await runner.step('w-0')
+
+    expect(queue.purgeDead).toHaveBeenCalledTimes(1)
+    expect(queue.purgeDead).toHaveBeenCalledWith(expect.anything(), { olderThanSeconds: 14 * 86_400 })
+    expect(log.log.mock.calls.map((c) => c[0]).join('\n')).toMatch(/deleted 2 dead job/)
+
+    const broken = fakeQueue({ purgeDead: vi.fn().mockRejectedValue(new Error('deadlock')) })
+    const second = runnerOver(broken, [])
+    await second.runner.step('w-0')
+    expect(broken.claimNext).toHaveBeenCalledTimes(1)
+    expect(second.log.error).not.toHaveBeenCalled()
+  })
+
   it('treats a database outage as a warning to retry, not an error', async () => {
     const down = Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })
     const queue = fakeQueue({ claimNext: vi.fn().mockRejectedValue(down) })
@@ -262,7 +309,14 @@ describe('configuration', () => {
     const config = readConfig({ HOSTNAME: 'pod-1' })
 
     expect(config.url).toBe('http://127.0.0.1:3000')
-    expect(config.runner).toMatchObject({ workerPrefix: 'bff-jobs-pod-1', concurrency: 2, maxAttempts: 3, perLaneCap: 0 })
+    expect(config.runner).toMatchObject({
+      workerPrefix: 'bff-jobs-pod-1',
+      concurrency: 2,
+      maxAttempts: 3,
+      perLaneCap: 0,
+      retryBackoffSeconds: 30,
+      deadRetentionSeconds: 14 * 86_400,
+    })
     expect(config.drainMs).toBe(60_000)
   })
 
@@ -278,6 +332,14 @@ describe('configuration', () => {
     expect(config.runner.concurrency).toBe(5)
     expect(config.runner.perLaneCap).toBe(2)
     expect(config.drainMs).toBe(60_000)
+  })
+
+  it('reads the retry backoff (0 retries at once) and the dead-row retention, and never retains for less than a day', () => {
+    const runner = readConfig({ GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS: '0', GRID_BFF_JOBS_DEAD_RETENTION_DAYS: '0' }).runner
+
+    expect(runner.retryBackoffSeconds).toBe(0)
+    expect(runner.deadRetentionSeconds).toBe(14 * 86_400)
+    expect(readConfig({ GRID_BFF_JOBS_DEAD_RETENTION_DAYS: '3' }).runner.deadRetentionSeconds).toBe(3 * 86_400)
   })
 
   it('never lets the stale window shrink below a few heartbeats', () => {

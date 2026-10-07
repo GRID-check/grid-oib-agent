@@ -19,7 +19,11 @@ export const BFF_JOB_PRIORITY = { interactive: 0, bulk: 1 } as const
 export type BffJobPriorityName = keyof typeof BFF_JOB_PRIORITY
 export type BffJobPriority = (typeof BFF_JOB_PRIORITY)[BffJobPriorityName]
 
-/** `dead` is a job that failed every claim it had; it stays for an operator, and nothing claims it. */
+/**
+ * `dead` is a job that failed every claim it had; it stays for an operator until
+ * its retention (`dead_at` plus `GRID_BFF_JOBS_DEAD_RETENTION_DAYS`), and nothing
+ * claims it. Its payload is reduced to identifiers when it goes dead.
+ */
 export type BffJobStatus = 'queued' | 'claimed' | 'dead'
 
 export const bffJobQueue = pgTable('bff_job_queue', {
@@ -35,6 +39,10 @@ export const bffJobQueue = pgTable('bff_job_queue', {
   heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   lastError: text('last_error'),
+  /** A failed job is not claimed again before this (the retry backoff, migration 0106); null is no wait. */
+  notBefore: timestamp('not_before', { withTimezone: true }),
+  /** When the job went dead, which its retention counts from; set exactly when `status = 'dead'`. */
+  deadAt: timestamp('dead_at', { withTimezone: true }),
 })
 
 /** When each lane was last served: the claim's second ordering key. */

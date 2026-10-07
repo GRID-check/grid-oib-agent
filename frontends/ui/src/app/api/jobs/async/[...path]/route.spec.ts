@@ -39,6 +39,7 @@ vi.mock('@/lib/project-profile/prompt-view', () => ({
 // `lib/documents/generated.spec.ts` owns.
 vi.mock('@/lib/documents/research-report', () => ({
   findFiledResearchReport: vi.fn(),
+  findReportFilingRefusal: vi.fn(),
   queueResearchReportFiling: vi.fn(),
 }))
 vi.mock('@/lib/projects/repository', () => ({
@@ -50,7 +51,11 @@ import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
-import { findFiledResearchReport, queueResearchReportFiling } from '@/lib/documents/research-report'
+import {
+  findFiledResearchReport,
+  findReportFilingRefusal,
+  queueResearchReportFiling,
+} from '@/lib/documents/research-report'
 import { findProjectIdByCollectionName } from '@/lib/projects/repository'
 
 const originalRequireAuth = process.env.REQUIRE_AUTH
@@ -466,10 +471,12 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     })
     vi.mocked(findProjectIdByCollectionName).mockResolvedValue('proj-1')
     vi.mocked(findFiledResearchReport).mockResolvedValue(null)
+    vi.mocked(findReportFilingRefusal).mockResolvedValue(null)
     vi.mocked(queueResearchReportFiling).mockResolvedValue({ jobId: 'bff-job-1' })
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(reportResponse(REPORT_BODY))
     vi.spyOn(console, 'log').mockImplementation(() => undefined)
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   })
 
   afterEach(() => {
@@ -505,6 +512,25 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     expect(body.filingQueued).toBe(true)
     expect(body.filed).toBeUndefined()
     expect(body.filingFailed).toBeUndefined()
+  })
+
+  it('answers a reader who may not file with the broken promise, and queues nothing, however often it is read', async () => {
+    vi.mocked(findReportFilingRefusal).mockResolvedValue('ForbiddenError: Agent-authored documents are disabled')
+    fetchSpy.mockImplementation(async () => reportResponse(REPORT_BODY)) // a fresh body per read
+
+    for (let read = 0; read < 3; read += 1) {
+      const res = await GET(
+        getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
+        streamParams(['job', 'job-1', 'report'])
+      )
+      const body = await res.json()
+      expect(body).toMatchObject(REPORT_BODY)
+      expect(body.filingFailed).toBe(true)
+      expect(body.filingQueued).toBeUndefined()
+    }
+
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
+    expect(console.error).not.toHaveBeenCalled() // a refusal is an answer, not a fault
   })
 
   it('tells the client where a report that is already filed landed, without a job', async () => {

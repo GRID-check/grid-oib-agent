@@ -99,7 +99,7 @@ describe.skipIf(!url)('bff_job_queue reads and writes from the BFF', () => {
   it('does not call a dead job open', async () => {
     const jobId = await enqueueAs(ORG_A, 'p-dead')
     await context.withPlatformAccess('test: kill the job', () =>
-      db.execute(sql`UPDATE bff_job_queue SET status = 'dead', last_error = 'x' WHERE job_id = ${jobId}::uuid`),
+      db.execute(sql`UPDATE bff_job_queue SET status = 'dead', dead_at = now(), last_error = 'x' WHERE job_id = ${jobId}::uuid`),
     )
 
     const open = await context.withTenant({ organizationId: ORG_A }, () =>
@@ -114,7 +114,7 @@ describe.skipIf(!url)('bff_job_queue reads and writes from the BFF', () => {
     await enqueueAs(ORG_A, 'p-gave-up', 'bim_extract') // still queued: not dead
     await enqueueAs(ORG_B, 'p-gave-up', 'bim_extract')
     await context.withPlatformAccess('test: bury the job', () =>
-      db.execute(sql`UPDATE bff_job_queue SET status = 'dead', last_error = 'object store down' WHERE job_id = ${dead}::uuid`),
+      db.execute(sql`UPDATE bff_job_queue SET status = 'dead', dead_at = now(), last_error = 'object store down' WHERE job_id = ${dead}::uuid`),
     )
 
     const found = await context.withTenant({ organizationId: ORG_A }, () =>

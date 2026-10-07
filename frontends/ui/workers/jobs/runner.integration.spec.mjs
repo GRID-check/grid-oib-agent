@@ -35,6 +35,9 @@ const CONFIG = {
   perLaneCap: 0,
   reapEveryMs: 60_000,
   transientBackoffMs: 0,
+  retryBackoffSeconds: 0,
+  deadRetentionSeconds: 14 * 86_400,
+  purgeEveryMs: 600_000,
 }
 
 describe('the suite is not silently skipped in CI', () => {
@@ -145,22 +148,54 @@ describe.skipIf(!url)('the bff-jobs claim loop against live Postgres', () => {
     expect(await runner.step('runner-test-2')).toBe(false)
   })
 
-  it('keeps a job whose BFF was briefly unavailable, with every attempt it had', async () => {
-    const jobId = await queue.enqueue(sql, { kind: 'reindex_project', lane: LANE, priority: 1, payload: {} })
+  it('spends an attempt on every failure but a drain, so a job that never gets an answer ends dead', async () => {
+    const jobId = await queue.enqueue(sql, {
+      kind: 'file_research_report',
+      lane: LANE,
+      priority: 1,
+      payload: { runId: 'run-1', projectId: 'p-1', report: 'the whole report', requester: { email: 'person@example.test' } },
+    })
     const log = quiet()
-    const runSlice = vi.fn().mockResolvedValue({ kind: 'transient', failure: { kind: 'HTTP 503' } })
+    const runSlice = vi.fn().mockResolvedValue({ kind: 'transient', failure: { kind: 'transport error (ECONNRESET)' } })
     const runner = createRunner(CONFIG, {
       sql,
       queue,
       runSlice,
-      streak: createFailureStreak({ label: '[test]', escalateAfter: 5, log }),
+      streak: createFailureStreak({ label: '[test]', escalateAfter: 50, log }),
       log,
       sleep: () => Promise.resolve(),
     })
 
     for (let round = 0; round < 5; round += 1) await runner.step('runner-test-3')
 
-    // Five tries against an unavailable BFF, and the job is still a fresh one.
-    expect(await rowOf(jobId)).toMatchObject({ status: 'queued', attempts: 0 })
+    expect(runSlice).toHaveBeenCalledTimes(3)
+    const dead = await rowOf(jobId)
+    expect(dead).toMatchObject({ status: 'dead', attempts: 3 })
+    expect(dead.dead_at).toBeInstanceOf(Date)
+    // The dead row is a trace: ids only, never the report or the requester.
+    expect(dead.payload).toEqual({ runId: 'run-1', projectId: 'p-1' })
+  })
+
+  it('makes a failed job wait out its backoff before the next attempt', async () => {
+    const jobId = await queue.enqueue(sql, { kind: 'reindex_project', lane: LANE, priority: 1, payload: {} })
+    const log = quiet()
+    const runSlice = vi.fn().mockResolvedValue({ kind: 'error', message: 'HTTP 500 boom' })
+    const runner = createRunner(
+      { ...CONFIG, retryBackoffSeconds: 30 },
+      {
+        sql,
+        queue,
+        runSlice,
+        streak: createFailureStreak({ label: '[test]', escalateAfter: 5, log }),
+        log,
+        sleep: () => Promise.resolve(),
+      },
+    )
+
+    expect(await runner.step('runner-test-4')).toBe(true)
+    expect(await runner.step('runner-test-4')).toBe(false) // waiting
+
+    expect(runSlice).toHaveBeenCalledTimes(1)
+    expect(await rowOf(jobId)).toMatchObject({ status: 'queued', attempts: 1 })
   })
 })

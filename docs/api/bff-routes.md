@@ -355,7 +355,9 @@ report that is not filed yet is handed to a `file_research_report` job on the
 `filingQueued: true`; the document appears under „Berichte" when the job has run
 and is retried by the queue if it fails. A report that is already filed still
 answers `filed`, from one probe and no render. `filingFailed` now means the
-filing could not even be queued. The `task_runs.filing_status` of a run that
+filing could not even be queued, or that this reader may not file here (no
+permission, or the feature is off): the permission is asked before anything is
+queued, so the answer is the same on every read and no job is queued for it. The `task_runs.filing_status` of a run that
 ended outside a reader's request follows the same job: `queued`, then `filed`,
 `refused` or `failed`.
 

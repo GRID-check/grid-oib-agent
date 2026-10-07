@@ -35,13 +35,18 @@ import { QUEUE_TABLE as INGEST_TABLE } from "./ingest-worker";
  *      their schema, and the upgrade path of an older table) before anything is
  *      granted. The bff_job_queue's table is the migrations Job's, which this Job
  *      runs after.
- *   2. THE GRANTS. SELECT on each table, per database. `bff_job_queue` is row
- *      level secured per organisation and the scaler's one read crosses every
- *      lane, so it also gets a policy of its own, for SELECT only and for this
- *      role only. That is the narrowest way across the boundary: `BYPASSRLS`
- *      would be an attribute of the role, to hold for whatever it is ever
- *      granted next, and the tenant policy (`grid_tenant_isolation`) is left as
- *      the migrations wrote it.
+ *   2. THE GRANTS. SELECT on the one column the count reads, `status`, on each
+ *      table, per database. A table-wide SELECT would let a leaked scaler DSN
+ *      read every tenant's `payload` (a research report, a requester's email and
+ *      permissions, storage keys and, on the Python queues, presigned URLs): the
+ *      count never needs them, and `COUNT(*)` needs only one readable column. An
+ *      earlier version of this Job granted the whole table, so each run REVOKEs
+ *      that first. `bff_job_queue` is row level secured per organisation and the
+ *      scaler's one read crosses every lane, so it also gets a policy of its own,
+ *      for SELECT only and for this role only. That is the narrowest way across
+ *      the boundary: `BYPASSRLS` would be an attribute of the role, to hold for
+ *      whatever it is ever granted next, and the tenant policy
+ *      (`grid_tenant_isolation`) is left as the migrations wrote it.
  *
  * Idempotent, so it re-runs whenever its spec changes (every per-SHA image pin)
  * and the Python init container doubles as the upgrade of a queue table.
@@ -60,20 +65,34 @@ export function jobsDatabaseTables(cfg: Pick<GridConfig, "jobExecution" | "inges
   ];
 }
 
+/** What the scaler may read of a queue table: the column its `COUNT(*) ... WHERE status <> 'dead'` filters on. */
+export const SCALER_READABLE_COLUMNS = ["status"] as const;
+
+/**
+ * The rights the scaler holds on `tables`: the table-wide SELECT an earlier
+ * version granted is taken back, then SELECT on `SCALER_READABLE_COLUMNS` only.
+ */
+function scalerTableGrants(tables: string): string {
+  return (
+    `REVOKE SELECT ON ${tables} FROM ${KEDA_SCALER_ROLE};\n` +
+    `GRANT SELECT (${SCALER_READABLE_COLUMNS.join(", ")}) ON ${tables} TO ${KEDA_SCALER_ROLE};\n`
+  );
+}
+
 /** The `GRANT` for the Python queues, as run against `aiq_jobs`. */
 export function jobsGrantsSql(tables: string[]): string {
-  return `GRANT SELECT ON ${tables.join(", ")} TO ${KEDA_SCALER_ROLE};\n`;
+  return scalerTableGrants(tables.join(", "));
 }
 
 /**
- * The grants for the BFF queue, as run against `grid_app`: SELECT, and the one
+ * The grants for the BFF queue, as run against `grid_app`: SELECT on `status`, and the one
  * policy that lets the scaler's read cross the organisation boundary. Dropped
  * first so a re-run replaces it rather than failing on it.
  */
 export function appGrantsSql(): string {
   const policy = "grid_keda_scaler_count";
   return (
-    `GRANT SELECT ON ${BFF_TABLE} TO ${KEDA_SCALER_ROLE};\n` +
+    scalerTableGrants(BFF_TABLE) +
     `DROP POLICY IF EXISTS ${policy} ON ${BFF_TABLE};\n` +
     `CREATE POLICY ${policy} ON ${BFF_TABLE} FOR SELECT TO ${KEDA_SCALER_ROLE} USING (true);\n`
   );

@@ -23,6 +23,11 @@ vi.mock('@/lib/tasks/service', () => ({
   runReportFilingJob: (...args: unknown[]) => runReportFilingJob(...args),
 }))
 
+const resolvePinnedRequesterSession = vi.fn()
+vi.mock('@/lib/auth/pinned-session', () => ({
+  resolvePinnedRequesterSession: (...args: unknown[]) => resolvePinnedRequesterSession(...args),
+}))
+
 import { runJobSlice } from './run'
 
 const requester = {
@@ -48,6 +53,8 @@ const row = (overrides: Partial<BffJobRow> = {}): BffJobRow => ({
   heartbeatAt: new Date(),
   createdAt: new Date(),
   lastError: null,
+  notBefore: null,
+  deadAt: null,
   ...overrides,
 })
 
@@ -58,6 +65,19 @@ beforeEach(() => {
   runBimExtractJob.mockReset()
   runOfficeRenditionJob.mockReset()
   runReportFilingJob.mockReset()
+  // Who the identity provider says the requester is today: the role they hold now, not the one they clicked with.
+  resolvePinnedRequesterSession.mockReset()
+  resolvePinnedRequesterSession.mockImplementation(async ({ userId, email, organizationId }) => ({
+    userId,
+    email,
+    name: null,
+    accessToken: '',
+    organizationId,
+    organizationMembershipId: 'om-now',
+    role: 'admin',
+    permissions: ['org:settings:manage'],
+    featureFlags: null,
+  }))
   vi.unstubAllEnvs()
 })
 
@@ -83,18 +103,56 @@ describe('runJobSlice', () => {
 
     expect(outcome.done).toBe(false)
     expect(outcome.payload).toMatchObject({ cursor: { createdAt: 'x', id: 'y' } })
-    // The session is the requester's identity in the LANE's organization, with
-    // no access token to forward anywhere.
+    // The session is the requester's identity in the LANE's organization, as the
+    // identity provider has it today (the membership of now, not of the click),
+    // with no access token to forward anywhere.
+    expect(resolvePinnedRequesterSession).toHaveBeenCalledWith({
+      userId: 'user-1',
+      email: 'user@example.com',
+      organizationId: 'org-1',
+    })
     expect(runReindexSlice.mock.calls[0][0]).toMatchObject({
       organizationId: 'org-1',
       userId: 'user-1',
-      organizationMembershipId: 'om-1',
+      organizationMembershipId: 'om-now',
       role: 'admin',
       permissions: ['org:settings:manage'],
       accessToken: '',
     })
     expect(seenScope!).toMatchObject({ kind: 'tenant', organizationId: 'org-1' })
     expect(runReingestFailedSlice).not.toHaveBeenCalled()
+  })
+
+  it('does not carry on with the rights a requester had when they clicked', async () => {
+    findClaimedJob.mockResolvedValue(row())
+    resolvePinnedRequesterSession.mockResolvedValue({
+      userId: 'user-1',
+      email: 'user@example.com',
+      name: null,
+      accessToken: '',
+      organizationId: 'org-1',
+      organizationMembershipId: 'om-now',
+      role: 'member', // demoted since: the payload still says admin with the permission
+      permissions: [],
+      featureFlags: null,
+    })
+    runReindexSlice.mockResolvedValue({ done: true, payload })
+
+    await runJobSlice('job-1', 'w-0')
+
+    expect(runReindexSlice.mock.calls[0][0]).toMatchObject({ role: 'member', permissions: [] })
+  })
+
+  it('ends a walk quietly for a requester who is no longer in the organization', async () => {
+    findClaimedJob.mockResolvedValue(row({ kind: 'reingest_failed', payload: { requester, cursor: null, counts: emptyCounts() } }))
+    resolvePinnedRequesterSession.mockResolvedValue(null)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const outcome = await runJobSlice('job-1', 'w-0')
+
+    expect(outcome.done).toBe(true) // finished, not failed: a retry would be refused the same way
+    expect(runReingestFailedSlice).not.toHaveBeenCalled()
+    expect(runReindexSlice).not.toHaveBeenCalled()
   })
 
   it('takes the organization from the lane, never from the payload', async () => {

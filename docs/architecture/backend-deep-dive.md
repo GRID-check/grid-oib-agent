@@ -351,8 +351,8 @@ backend pieces live in `chat_socket.py` and `conversation_bus.py`; the design is
   successful renewal plus the TTL minus a margin (one guarded write, 3 s, plus
   1 s). Every write the turn makes to the conversation asks that deadline first
   and reads `time.monotonic()` itself, so no task has to have run: the checkpoint
-  writes (`FencedCheckpointer`, which also bounds each by 3 s so the margin
-  holds), the turn's frames (a fenced turn sends its terminal and nothing else)
+  writes (`FencedCheckpointer`, which also ends each by 3 s past the deadline, raising
+  `TurnFenced`, so the margin holds), the turn's frames (a fenced turn sends its terminal and nothing else)
   and the persist of its outcome. The renewal task also cancels the turn through
   the Stop path when the deadline passes or a renewal finds the marker gone, so
   it ends with a `cancelled` terminal. A tool's own side effects are stopped by

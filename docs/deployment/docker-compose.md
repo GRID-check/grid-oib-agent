@@ -6,9 +6,10 @@ the core ones; the observability stack (`dragonfly`, `clickhouse`, the three
 `langfuse-*` services) and the three background workers (`purger`,
 `skill-scheduler`, `bff-jobs`) are defined in the compose file with their own
 comments and are not covered here. `bff-jobs` (ADR-0079) is the frontend image
-running `workers/jobs/index.js`: the BFF plus the claim loop that runs project
-reindex and failed-ingestion rescan jobs from `bff_job_queue`, with no
-published port. It shares the frontend's environment by YAML alias, so a
+running `workers/jobs/index.js`: the BFF plus the claim loop that runs the jobs
+in `bff_job_queue` (project reindex, failed-ingestion rescan, IFC extraction,
+Office rendition through `gotenberg`, research-report filing), with no
+published port. Without it none of them runs. It shares the frontend's environment by YAML alias, so a
 variable added to `frontend` reaches it.
 
 ## Quick Start

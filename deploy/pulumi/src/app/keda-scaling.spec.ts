@@ -312,14 +312,28 @@ describe("the program's ScaledObjects", () => {
   describe("the tables the scaler reads", () => {
     const grants = () => find("kubernetes:core/v1:ConfigMap", "keda-scaler-grants-sql").inputs.data as Record<string, string>;
 
-    it("get SELECT for the scaler and no other right", () => {
+    it("get SELECT on the status column for the scaler and no other right", () => {
       const { "jobs.sql": jobs, "app.sql": app } = grants();
 
-      expect(jobs).toBe("GRANT SELECT ON ingest_job_queue, research_job_queue TO grid_keda_scaler;\n");
-      expect(app).toContain("GRANT SELECT ON bff_job_queue TO grid_keda_scaler;");
+      expect(jobs).toBe(
+        "REVOKE SELECT ON ingest_job_queue, research_job_queue FROM grid_keda_scaler;\n" +
+          "GRANT SELECT (status) ON ingest_job_queue, research_job_queue TO grid_keda_scaler;\n",
+      );
+      expect(app).toContain("REVOKE SELECT ON bff_job_queue FROM grid_keda_scaler;");
+      expect(app).toContain("GRANT SELECT (status) ON bff_job_queue TO grid_keda_scaler;");
       for (const sql of [jobs, app]) {
         expect(sql).not.toMatch(/INSERT|UPDATE|DELETE|TRUNCATE|ALL PRIVILEGES|BYPASSRLS/i);
+        // Never table-wide: a payload (reports, requester emails, presigned URLs) must stay unreadable to the scaler.
+        expect(sql).not.toMatch(/GRANT SELECT ON/);
       }
+    });
+
+    it("cover the column every depth query filters on, and no other", async () => {
+      const { SCALER_READABLE_COLUMNS } = await import("./queue-scaler-grants");
+      const { queueDepthQuery } = await import("./keda-scaling");
+
+      expect(SCALER_READABLE_COLUMNS).toEqual(["status"]);
+      expect(queueDepthQuery("any_queue")).toBe("SELECT COUNT(*) FROM any_queue WHERE status <> 'dead'");
     });
 
     it("cross the organisation boundary by a policy of their own, for SELECT and for that role only", () => {

@@ -457,23 +457,68 @@ export async function claimRunsToReconcile(
 }
 
 /**
- * Runs whose report has been `queued` for filing since before `before`, oldest
- * first (`ix_task_runs_filing_queued`, migration 0105).
+ * Runs whose report has been `queued` for filing since before `before`, and
+ * whose filing job is NOT alive, oldest first (`ix_task_runs_filing_queued`,
+ * migration 0105).
  *
- * The filing sweep's read: a job normally ends the state within seconds, so
- * what is left here is a filing whose job died, or is waiting behind a backlog.
- * NOT tenant-filtered: the caller runs this under platform access and judges
- * each run inside its own organization.
+ * The filing sweep's read, and a row is only worth reading when something is
+ * left to do for it: a run whose job is still waiting or running is not listed,
+ * however old, exactly as the document sweep leaves out a document with a live
+ * job (`listStuckProcessingDocuments`). Without that the batch filled with the
+ * oldest filings of a backlog, all of them alive, and a run whose job had died
+ * behind them was never reached. A job that is dead or gone (a run's report is
+ * keyed by its backend job id, which the job's payload carries as `runId`) is
+ * what is listed. NOT tenant-filtered: the caller runs this under platform
+ * access and judges each run inside its own organization.
  */
 export async function listRunsWithStaleQueuedFiling(before: Date, limit: number): Promise<TaskRun[]> {
   const db = getDb()
+  const aliveJob = sql`EXISTS (
+    SELECT 1 FROM bff_job_queue j
+    WHERE j.kind = 'file_research_report'
+      AND j.lane = ${taskRuns.organizationId}
+      AND j.payload ->> 'runId' = ${taskRuns.backendJobId}
+      AND j.status <> 'dead'
+  )`
   return db
     .select()
     .from(taskRuns)
     // An ISO string for the same reason as `claimRunsToReconcile`.
-    .where(and(eq(taskRuns.filingStatus, 'queued'), lt(sql`COALESCE(${taskRuns.finishedAt}, ${taskRuns.updatedAt})`, before.toISOString())))
+    .where(
+      and(
+        eq(taskRuns.filingStatus, 'queued'),
+        lt(sql`COALESCE(${taskRuns.finishedAt}, ${taskRuns.updatedAt})`, before.toISOString()),
+        sql`NOT ${aliveJob}`,
+      ),
+    )
     .orderBy(sql`COALESCE(${taskRuns.finishedAt}, ${taskRuns.updatedAt})`)
     .limit(limit)
+}
+
+/**
+ * Settle a filing that is still `queued`: write its verdict only while the row
+ * says so, and say whether it did.
+ *
+ * What the filing sweep ends a row with. The job that files the report writes
+ * its own verdict (`filed`, `refused`, `failed`) as soon as it has one, and the
+ * sweep judged the row from a read made earlier: an unconditional write would
+ * lay the sweep's older opinion over the job's, turning a `filed` row into a
+ * `failed` one (or the reverse). A row that has left `queued` keeps what it
+ * says.
+ */
+export async function settleQueuedFiling(
+  runId: string,
+  organizationId: string,
+  patch: Pick<NewTaskRun, 'filingStatus' | 'filingDetail' | 'filedDocumentId'>,
+): Promise<TaskRun | null> {
+  const [row] = await getDb()
+    .update(taskRuns)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(
+      and(eq(taskRuns.id, runId), eq(taskRuns.organizationId, organizationId), eq(taskRuns.filingStatus, 'queued')),
+    )
+    .returning()
+  return row ?? null
 }
 
 /**
