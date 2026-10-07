@@ -120,6 +120,7 @@ import { landingDelays, type LandingDelays } from '../lib/choreography'
 import { docProvenance } from '../lib/doc-provenance'
 import { RunStatusGlyph } from './RunStatusGlyph'
 import { isZdrPolicyRefusal } from '@/lib/model-config/zdr-refusal'
+import { useCurrentProject } from '@/features/projects/lib/current-project'
 
 export interface RunBlockReview {
   decision: 'accepted' | 'rejected'
@@ -695,8 +696,14 @@ export function RunBlock({
 
   const receipt = grundlageReceipt(ledger)
 
+  // A closed project commissions nothing (ADR-0082): say so where „Bericht fortschreiben“ would be.
+  const closedProject = useCurrentProject()?.status === 'closed'
   const carryForward: ReactNode =
-    onContinue && (status === 'fertig' || status === 'unterbrochen') ? (
+    closedProject && (status === 'fertig' || status === 'unterbrochen') ? (
+      <span className="text-muted-foreground text-xs" data-testid="run-action-continue-closed">
+        {t('action.continueClosed')}
+      </span>
+    ) : onContinue && (status === 'fertig' || status === 'unterbrochen') ? (
       <Button
         size="sm"
         variant="ghost"

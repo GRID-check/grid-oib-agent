@@ -69,7 +69,13 @@ run was refused only after the reader approved its plan. The per-turn flags
 (`/api/internal/stages`) now take the turn's project, and a closed one answers
 `deepResearch: false` and `tasks: false`, so the turn stays a plain answer
 (product owner, 7 Oct 2026). A direct `POST /api/jobs/async/submit` naming a
-closed project is refused with the same 403.
+closed project is refused with the same 403. The thread's own commissioning
+(„Klären" on an open finding, „Bericht fortschreiben" on a run) is not offered
+either (`useCommissionRun` is null); the matrix and the run block say
+„Abgeschlossenes Projekt: keine neue Recherche" where the button would be. When
+the agent cannot reach `/api/internal/stages`, `stages/flags.py` keeps its
+existing fallback, `deep_research_allowed=True`: research may then be offered
+in a closed project, and the run is refused at submit.
 
 **Runs in flight are not cancelled by closing.** A run commissioned before the
 close finishes; its report lands in its conversation, which chat still allows,
