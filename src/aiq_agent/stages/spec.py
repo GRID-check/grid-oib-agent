@@ -88,6 +88,9 @@ class TurnFacts:
     #: restricted documents its prompt listed. Memory written from the turn is
     #: restricted accordingly (``memory/restriction.py``); empty for an open turn.
     restriction: RestrictionEvidence = RestrictionEvidence()
+    #: The conversation drew on another project through a cross-project lookup
+    #: (ADR-0082): nothing from it is remembered, so reflection does not run.
+    drew_on_other_projects: bool = False
     bundesland: str | None = None
 
     #: Which path the turn took, observed after the answer (``meta`` for a

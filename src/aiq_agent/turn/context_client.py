@@ -29,6 +29,10 @@ class ContextBlocks:
     project_context: str | None
     project_memory: str | None
     org_instructions: str | None
+    #: The conversation drew on another project through a cross-project lookup
+    #: (ADR-0082). Absent from an older BFF's answer, which reads as False: the
+    #: BFF refuses every door such a conversation may not use on its own.
+    drew_on_other_projects: bool = False
 
 
 class TurnContextError(RuntimeError):
@@ -73,6 +77,7 @@ def _parse_blocks(body: object) -> ContextBlocks:
             _nullable_text(data, "projectMemory"), max_chars=MEMORY_HEADER_MAX_CHARS
         ),
         org_instructions=normalize_org_instructions(_nullable_text(data, "orgInstructions")),
+        drew_on_other_projects=data.get("drewOnOtherProjects") is True,
     )
 
 

@@ -163,11 +163,15 @@ def _turn_is_confined() -> bool:
     """
     from aiq_agent.knowledge.restricted_collections import restricted_collections_in
     from aiq_agent.knowledge.restricted_use import current_restricted_use
+    from aiq_agent.knowledge.restricted_use import drew_on_other_projects
     from aiq_agent.knowledge.scoping import get_collection_scope_from_context
 
     try:
         use = current_restricted_use()
         if use is not None and use.confined:
+            return True
+        # A conversation that drew on another project (ADR-0082) is confined the same way.
+        if drew_on_other_projects():
             return True
         return bool(restricted_collections_in(get_collection_scope_from_context()))
     except Exception:  # noqa: BLE001 - an unreadable scope must not let the card through

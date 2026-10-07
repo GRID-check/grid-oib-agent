@@ -239,5 +239,6 @@ was created in Piloti and is open. The follow-up is `projectStatusOf`,
 * ADR-0047 (shelf as data), ADR-0054 §4 (echo the envelope), ADR-0055 (one HTTP
   API), ADR-0060 (rules in tool descriptions), ADR-0080 and ADR-0081 (folder
   access and the record of use).
+* User guide: [`chat.md`](../user-guides/chat.md#searching-other-projects).
 * Routes: [`bff-routes.md`](../api/bff-routes.md); the table:
   [`schema.md`](../database/schema.md#conversation_source_projects-migration-0120-adr-0082).

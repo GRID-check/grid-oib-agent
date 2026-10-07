@@ -20,7 +20,9 @@ from aiq_agent.auth import get_current_principal
 from aiq_agent.common.platform_lessons import get_platform_lessons_digest
 from aiq_agent.knowledge.project_memory import fetch_memory_digest
 from aiq_agent.knowledge.restricted_collections import restricted_collections_in
+from aiq_agent.knowledge.restricted_use import current_cross_project_turn
 from aiq_agent.knowledge.restricted_use import current_restricted_use
+from aiq_agent.knowledge.restricted_use import drew_on_other_projects
 from aiq_agent.project_context import GridRequestContext
 from aiq_agent.project_context import compose_project_context
 from aiq_agent.project_context import get_user_message_id_from_context
@@ -143,7 +145,9 @@ def settle_restriction(context: TurnContext, request: GridRequestContext) -> Tur
     """
     use = current_restricted_use()
     drawable = tuple(signed_restricted_collections(request))
-    recorded = bool(use is not None and use.confined)
+    # A conversation that drew on another project (ADR-0082) is confined the same
+    # way: nothing it holds may reach what a whole project reads.
+    recorded = bool(use is not None and use.confined) or drew_on_other_projects()
     if not drawable and not recorded:
         return context
     return replace(
@@ -272,6 +276,10 @@ async def _load_turn_context(
         _context_blocks(request, query_text),
         _turn_flags(request, resolve_stages),
     )
+    if blocks.drew_on_other_projects and (cross := current_cross_project_turn()) is not None:
+        # An earlier turn drew on another project (ADR-0082): this one starts
+        # with every door a whole project reads shut (`settle_restriction`).
+        cross.drew_on_others = True
     return TurnContext(
         project_context=compose_project_context(blocks.project_context, blocks.project_memory),
         platform_lessons=platform_lessons,

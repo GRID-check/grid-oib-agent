@@ -40,6 +40,7 @@ from aiq_agent.cards.registry import get_card_registry
 from aiq_agent.knowledge import project_memory as memory_client
 from aiq_agent.knowledge import scoping
 from aiq_agent.knowledge.restricted_collections import restricted_collections_in
+from aiq_agent.knowledge.restricted_use import drew_on_other_projects
 from aiq_agent.memory.restriction import Restriction
 from aiq_agent.memory.restriction import RestrictionEvidence
 from aiq_agent.memory.restriction import decide_restriction
@@ -65,6 +66,13 @@ _ORG_DISABLED_RESULT = (
     "Error: organization-wide memory is disabled by the administrator in this "
     "deployment; the finding was NOT saved. Tell the user that firm-wide rules "
     "currently have to be added by hand in the organization memory panel. Do not retry."
+)
+#: A conversation that drew on another project (ADR-0082) remembers nothing:
+#: project and organization memory are read by people who may not open it.
+_CROSS_PROJECT_RESULT = (
+    "Nicht gespeichert: Diese Unterhaltung stützt sich auf andere Projekte, deshalb wird nichts aus ihr "
+    "im Projekt- oder Büro-Gedächtnis gespeichert. Sage das der Nutzerin in einem Satz, wenn sie darum "
+    "gebeten hat, sich etwas zu merken. Nicht erneut versuchen."
 )
 _UNAVAILABLE_RESULT = (
     "Error: the finding was NOT saved — long-term memory is unavailable. Do not tell "
@@ -240,6 +248,10 @@ def _failure_result(
     save it to just this project. Everything else — and every project-scoped
     failure — gets an honest error string instead of a dead end.
     """
+    if isinstance(exc, memory_client.CrossProjectMemoryRefusedError):
+        # No card: accepting one would write the finding through the reader's
+        # own session, the same leak by another door.
+        return _CROSS_PROJECT_RESULT
     org_denied = isinstance(exc, memory_client.OrgMemoryDisabledError)
     if org_denied:
         logger.warning("Org-scoped remember denied by frontend policy (org memory disabled)")
@@ -351,6 +363,9 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
             return "Error: content must not be empty."
         content = content[: tool_config.max_content_chars]
         supersedes = supersedes.strip()
+        if drew_on_other_projects():
+            # ADR-0082; the BFF refuses the write too.
+            return _CROSS_PROJECT_RESULT
 
         project_id = project_context.get_project_id_from_context()
         target = _resolve_target(scope, project_id, project_context.get_organization_id_from_context())

@@ -44,7 +44,9 @@ from aiq_agent.knowledge.inventory import get_turn_documents
 from aiq_agent.knowledge.inventory import set_inventory_drops
 from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import set_turn_documents
+from aiq_agent.knowledge.restricted_use import CrossProjectTurn
 from aiq_agent.knowledge.restricted_use import begin_restricted_use
+from aiq_agent.knowledge.restricted_use import bind_cross_project_turn
 from aiq_agent.knowledge.restricted_use import bind_restricted_use
 from aiq_agent.knowledge.restricted_use import without_restricted
 from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
@@ -489,6 +491,9 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
         # turn, None included, so one turn never runs on the last one's answer;
         # the scope read below and every read path after it keep only these.
         bind_restricted_use(await begin_restricted_use(request, conversation_id))
+        # What the conversation drew on from OTHER projects (ADR-0082): a fresh
+        # object every turn, filled from the turn context and by the lookups.
+        bind_cross_project_turn(CrossProjectTurn())
         header_scope = get_scoped_collections_from_context()
         # Say what is happening in the FIRST hole of the turn — only when one
         # of the reader's OWN shelves is in scope; the base corpus is a constant.
