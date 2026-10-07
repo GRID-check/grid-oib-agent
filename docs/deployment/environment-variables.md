@@ -144,7 +144,7 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 | `GRID_ROLE` | No | `web` | What the backend container runs (`deploy/entrypoint.py`): `web` the API and chat, `worker` the DB-claimed research worker (ADR-0021), `ingest-worker` the ingest queue's worker (ADR-0076). Set by Pulumi per tier. |
 | `GRID_JOB_INFO_DELETE_GRACE_SECONDS` | No | `604800` | How long an expired, terminal research job's `job_info`, `job_access` and `job_events` rows are kept before the event cleanup deletes them. The newest finished job is always kept. |
 | `GRID_CHAT_CHECKPOINT_RETENTION_SECONDS` | No | `1209600` | How long a chat thread's checkpoints in `AIQ_CHECKPOINT_DB` are kept after its last turn before the checkpoint reaper deletes them. |
-| `GRID_INGEST_QUEUE` | No | `on` | Put `/v1/ingest` jobs in the durable, fair Postgres queue (`ingest_job_queue`, ADR-0076) for any worker to claim, instead of the accepting process's memory. Needs `AIQ_SUMMARY_DB`/`NAT_JOB_STORE_DB_URL`; `off` restores in-process only. |
+| `GRID_INGEST_QUEUE` | No | `on` | Put `/v1/ingest` jobs in the durable, fair Postgres queue (`ingest_job_queue`, ADR-0076) for any worker to claim, instead of the accepting process's memory. Needs `AIQ_SUMMARY_DB`/`NAT_JOB_STORE_DB_URL`; `off` restores in-process only for `/v1/ingest`. The base corpus has no in-process path: with the queue off its uploads and sync cycles fail with an error (ADR-0082 step A2). |
 | `GRID_INGEST_QUEUE_CLAIM` | No | `true` | Whether this process claims queued ingestion jobs. Pulumi sets `false` on the web tier while the ingest-worker tier runs, so ingestion stays off the chat pods; the ingest worker always claims. |
 | `GRID_INGEST_MAX_PER_ORG` | No | `0` | Most ingestion jobs one organisation may have running; 0 for no cap. **Across the whole fleet** for jobs in the durable queue (hard: a claim that raced past the cap gives its job back), and per process for jobs in a process's own pool. Pulumi `ingestMaxPerOrg`. |
 | `GRID_INGEST_CLAIM_STALE_SECONDS` | No | `180` | A claimed ingestion job is claimed again by another worker when its worker has sent no heartbeat for this many seconds. |
@@ -218,7 +218,6 @@ The platform-owner base corpus (`oib_knowledge`) is the PDFs admins upload. They
 |----------|----------|---------|-------------|
 | `OIB_COLLECTION_NAME` | No | `COLLECTION_NAME`, then `oib_knowledge` | Chroma collection the base corpus is ingested into. |
 | `GRID_BASE_CORPUS_CACHE_DIR` | No | `/tmp/base-corpus` | This process's cache of base-corpus PDFs (ADR-0082 step A2). The corpus itself is the object `base-corpus/<file name>` in `SEAWEED_BUCKET` plus the `oib_corpus_files` table in `AIQ_SUMMARY_DB`; a cached file is downloaded on demand, checked against the table's sha256, and may be lost at any restart. Nothing needs to persist here, and the backend needs no volume for it. |
-| `OIB_SYNC_MAX_WORKERS` | No | `4` | Concurrent files ingested per sync run. Invalid values warn and fall back to `4`; values below `1` are clamped to `1`. |
 
 ---
 

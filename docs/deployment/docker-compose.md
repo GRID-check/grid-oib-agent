@@ -9,8 +9,9 @@ with their own comments and are not covered here. `housekeeping` is the
 backend's housekeeping clock (ADR-0082 step A1): the backend runs no cleanup
 loop of its own, and this calls its `/v1/maintenance/housekeeping/*` routes on
 the cadences Kubernetes runs as CronJobs. One of them is the base-corpus sync
-(`base-corpus`, every ten minutes), which ingests the uploaded OIB PDFs that are
-not indexed yet; the backend does no sync at boot. `bff-jobs` (ADR-0079) is the frontend image
+(`base-corpus`, every ten minutes), which queues an ingest job for each uploaded OIB PDF that is
+not indexed yet (the `aiq-agent` container claims and runs it; Compose has no separate
+ingest worker); the backend does no sync at boot. `bff-jobs` (ADR-0079) is the frontend image
 running `workers/jobs/index.js`: the BFF plus the claim loop that runs the jobs
 in `bff_job_queue` (project reindex, failed-ingestion rescan, IFC extraction,
 Office rendition through `gotenberg`, research-report filing), with no

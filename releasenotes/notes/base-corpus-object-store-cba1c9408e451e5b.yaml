@@ -14,3 +14,8 @@ operators:
     In Docker Compose the aiq-data volume and the OIB directory mount are gone.
     The corpus is ingested by a housekeeping job every ten minutes instead of at
     boot, and OIB_FORCE_REINGEST no longer exists.
+  - >
+    Ingestion of uploaded corpus files now runs on the ingest workers, as one
+    queued job per file, and no longer in the web pod. OIB_SYNC_MAX_WORKERS is
+    gone. A file whose job fails shows as failed in the knowledge view and is
+    not retried until it changes or you re-index it.

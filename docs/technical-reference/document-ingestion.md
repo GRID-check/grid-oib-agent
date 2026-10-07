@@ -278,8 +278,8 @@ is marked failed (it does not replace its predecessor unguarded across replicas)
 so the failed-ingestion rescan picks it up. An ingest worker on Postgres with no
 `AIQ_LOCK_DB_URL` refuses to start.
 
-The OIB sync (`src/aiq_agent/oib_sync.py`) relies on the same step and calls no
-`delete_file` before it uploads.
+The base corpus (`src/aiq_agent/oib_sync.py`) relies on the same step: its ingest
+jobs run on the queue like any other and nothing deletes a file before it is ingested again.
 
 ### A document deleted while it indexed takes its chunks back out
 

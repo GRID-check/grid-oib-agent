@@ -367,9 +367,10 @@ volume for it (ADR-0082 step A2):
 > name replaces that document's chunks; until then the files show as
 > "Not in corpus" in the admin view and can be deleted there.
 
-A sync cycle ingests what is new or changed: it runs every ten minutes as the
+A sync cycle queues an ingest job for what is new or changed (the ingest workers
+run it): it runs every ten minutes as the
 housekeeping service's `base-corpus` route (an upload also queues its own
-ingestion at once), and an admin can run it by hand with `POST /v1/admin/oib/sync`.
+job at once), and an admin can run it by hand with `POST /v1/admin/oib/sync`.
 A redeploy re-uses the already-embedded corpus and pays nothing. A brand-new
 environment has an empty table and answers nothing from the OIB knowledge base
 until the platform owner uploads it. See

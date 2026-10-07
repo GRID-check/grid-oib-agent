@@ -60,7 +60,7 @@ directly and you own it again.
 **The base-corpus tests run on SQLite by default, and the Postgres paths need
 `GRID_TEST_CORPUS_DB`.** `tests/test_corpus_store.py`, `test_oib_sync.py`,
 `test_oib_status.py` and `frontends/aiq_api/tests/test_oib_documents_routes.py`
-keep the corpus table in a throwaway SQLite file and the object store in memory.
+keep the corpus table, the ingest queue and the ingest status store in a throwaway SQLite file and the object store in memory.
 The Postgres upsert, the conditional update that records an ingested hash and the
 advisory locks behind `keyed_lock` (SQLite has none) are only exercised when you
 point `GRID_TEST_CORPUS_DB` at a scratch database, for example
@@ -346,7 +346,7 @@ the case to `tests/fixtures/herleitung/loop_eval_questions.yaml` with a
 
 It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus
 (uploaded with `scripts/upload_oib_corpus.py`) ingested into `AIQ_CHROMA_DIR`
-(`-- --ingest` runs the sync first). Every run costs model calls: the core set at two runs is twelve
+(`-- --ingest` queues the corpus's ingest jobs and runs them in the suite's own process first). Every run costs model calls: the core set at two runs is twelve
 turns, about four minutes three at a time.
 
 **The CI run is paused.** `.github/workflows/answer-suite.yml` is commented

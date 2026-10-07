@@ -280,7 +280,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Citation persistence and export | `frontends/ui/src/lib/citations/service.ts` | same | ADR-0037 |
 | IFC tools for the agent | `src/aiq_agent/tools/bim/register.py` — `ifc_query` | [`docs/user-guides/bim-models.md`](../user-guides/bim-models.md) | ADR-0045 |
 | IFC models in the BFF | `frontends/ui/src/lib/bim/model-service.ts` | same | ADR-0045 |
-| The base corpus (objects in SeaweedFS, the `oib_corpus_files` table, a cache on disk) and its sync (the base-corpus housekeeping route, the admin upload and sync routes) | `src/aiq_agent/corpus_store.py`, `src/aiq_agent/oib_sync.py`, `src/aiq_agent/oib_status.py`, `frontends/aiq_api/src/aiq_api/routes/oib.py`, `scripts/upload_oib_corpus.py` | [`docs/technical-reference/oib-sync.md`](../technical-reference/oib-sync.md) | — |
+| The base corpus (objects in SeaweedFS, the `oib_corpus_files` table, a cache on disk) and its ingestion (one ingest-queue job per file, queued by the base-corpus housekeeping route and the admin upload and sync routes, run by the ingest workers) | `src/aiq_agent/corpus_store.py`, `src/aiq_agent/oib_sync.py`, `src/aiq_agent/oib_status.py`, `frontends/aiq_api/src/aiq_api/routes/oib.py`, `frontends/aiq_api/src/aiq_api/jobs/ingest_dispatch.py` (`enqueue_only`), `scripts/upload_oib_corpus.py` | [`docs/technical-reference/oib-sync.md`](../technical-reference/oib-sync.md) | — |
 
 ## Frontend plumbing and the database
 

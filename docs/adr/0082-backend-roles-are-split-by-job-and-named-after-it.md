@@ -105,7 +105,7 @@ worker's per-job build under `role="research-job"`, which every job pays.
 | Step | Change | Size |
 |---|---|---|
 | A1 | Housekeeping loops to CronJobs | S |
-| A2 | Base corpus from the PVC to SeaweedFS and one table, no copy of the old files; its sync becomes a fourth housekeeping job | M |
+| A2 | Base corpus from the PVC to SeaweedFS and one table, no copy of the old files; its sync becomes a fourth housekeeping job that queues one ingest-queue job per file (the ingest workers ingest; nothing in the web pod) | M |
 | B | `api` split from `chat`: a role switch picks the routers, a new Deployment and Service, the BFF gets a chat URL and an API URL | S–M |
 | C | The BFF becomes the relay, so `chat` pods hold no sockets | L |
 | D | Rename: drop `aiq` from Kubernetes names and Python packages | L |

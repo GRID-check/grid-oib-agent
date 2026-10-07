@@ -141,15 +141,17 @@ uploaded: in the platform-admin UI, or from a directory of PDFs with
 GRID_ADMIN_TOKEN=... uv run python scripts/upload_oib_corpus.py data/oib --url http://localhost:8000
 ```
 
-Each upload stores the file and queues its ingestion at once. Anything that is not
-indexed yet (a failed ingestion, a chunking change) is picked up by the
+Each upload stores the file and queues its ingest job at once; the ingest workers
+(in Compose, the `aiq-agent` container, which claims by default) run it. Anything
+that has no job yet (a chunking change, a job that could not be queued) is picked up by the
 `base-corpus` housekeeping route, which the `housekeeping` service calls every ten
 minutes (a CronJob on Kubernetes), and an admin can run a cycle by hand with
 `POST /v1/admin/oib/sync`. A cycle compares each row's `sha256` and
 `chunk_format_version` with what its `ingested_sha256` and recorded version say the
-index was built from, uploads the files that differ to the LlamaIndex ingestor,
-polls each until SUCCESS or FAILED (2s interval, 600s timeout), and records the hash
-only on SUCCESS. See [`oib-sync.md`](../technical-reference/oib-sync.md).
+index was built from, queues one job on the durable ingest queue for each file that
+differs and has no job, and records the hash of every job that reached SUCCESS. A job
+that gave up reads `failed` and is not queued again until the file changes or an
+admin re-indexes it. It ingests nothing itself. See [`oib-sync.md`](../technical-reference/oib-sync.md).
 
 ## Row-level security roles and migrations (ADR-0041)
 

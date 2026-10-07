@@ -398,7 +398,7 @@ Seven Compose services on one bridge network: `postgres`, `seaweedfs` (+ `seawee
 `aiq-agent` (+ one-shot `chroma-data-permissions`), `frontend`, and `purger`.
 Frontend on `:3000` (the only public port for the app), backend on `:8000`,
 Postgres `:5432`, SeaweedFS `:8333/:8888`. Migrations run on frontend start; OIB
-the OIB corpus is uploaded after first boot (admin UI or `scripts/upload_oib_corpus.py`) and ingested by the base-corpus housekeeping. → `docs/deployment/`.
+the OIB corpus is uploaded after first boot (admin UI or `scripts/upload_oib_corpus.py`) and ingested by the ingest workers, from jobs the upload and the base-corpus housekeeping queue. → `docs/deployment/`.
 
 ---
 

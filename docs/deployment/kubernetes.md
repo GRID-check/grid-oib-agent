@@ -1301,9 +1301,11 @@ Chroma server, which is required (`chromaEnabled: false` fails the plan: an
 embedded store would be wiped at every restart). What a replica holds on disk is
 a cache of corpus files in `/tmp/base-corpus`, filled on demand and free to
 vanish, so every replica lists, serves, exports and re-ingests the same corpus
-and an upload is no longer lost to the replica that received it. Ingestion of
-what is not yet indexed is the `housekeeping-base-corpus` CronJob, not a thread
-at boot. See [`oib-sync.md`](../technical-reference/oib-sync.md).
+and an upload is no longer lost to the replica that received it. What is
+not yet indexed becomes a job on the durable ingest queue, queued by an upload or
+by the `housekeeping-base-corpus` CronJob and run by the ingest-worker tier (the web
+pods claim where that tier does not run); there is no thread at boot and no
+ingestion in the web process. See [`oib-sync.md`](../technical-reference/oib-sync.md).
 
 **Rolling this out on a cluster that has the PVC.** The StatefulSet loses its
 `volumeClaimTemplates`, an immutable field, so the first `pulumi up` plans a
