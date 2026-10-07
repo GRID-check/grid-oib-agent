@@ -1,13 +1,28 @@
-import json
+"""Ingestion of the base corpus: what needs it, how it runs, what it records (ADR-0082, step A2).
+
+The corpus is a real table (SQLite, or Postgres when ``GRID_TEST_CORPUS_DB`` is set) and a
+fake bucket (``tests/object_corpus_fakes``); the vector store is a fake ingestor.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import hashlib
 import logging
 import threading
 from dataclasses import dataclass
-from pathlib import Path
 
 import pytest
 
+from aiq_agent import corpus_store
 from aiq_agent import oib_sync
 from aiq_agent.knowledge.schema import FileStatus
+from tests.object_corpus_fakes import FakeBucket
+from tests.object_corpus_fakes import install
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 @dataclass
@@ -15,810 +30,513 @@ class FakeFileInfo:
     file_id: str
     file_name: str
     status: FileStatus
-    file_size: int = 0
     chunk_count: int = 0
     error_message: str | None = None
 
 
+@dataclass
+class FakeCollection:
+    chunk_count: int = 1
+    file_count: int = 1
+
+
 class FakeIngestor:
-    def __init__(self, terminal_statuses: dict[str, FileStatus], *, release_after_uploads: int = 1) -> None:
-        self.terminal_statuses = terminal_statuses
+    """Uploads are held INGESTING until ``release_after_uploads`` have been made, then reach their terminal status."""
+
+    def __init__(self, terminal: dict[str, FileStatus] | None = None, *, release_after_uploads: int = 1) -> None:
+        self.terminal = terminal or {}
         self.release_after_uploads = release_after_uploads
         self.uploaded: list[str] = []
         self.deleted: list[str] = []
+        self.indexed: set[str] = set()
+        self.collection: FakeCollection | None = FakeCollection()
         self.max_active = 0
+        self.gate: threading.Event | None = None
+        self.fail_upload_of: set[str] = set()
+        self.on_upload = None
         self._active: set[str] = set()
-        self._ids_by_name: dict[str, str] = {}
+        self._names: dict[str, str] = {}
+        self._lock = threading.Lock()
 
     def get_collection(self, _name: str):
-        return object()
+        return self.collection
 
-    def upload_file(self, file_path: str, _collection_name: str) -> FakeFileInfo:
-        file_name = Path(file_path).name
-        file_id = f"file-{len(self.uploaded)}"
-        self.uploaded.append(file_name)
-        self._active.add(file_id)
-        self._ids_by_name[file_name] = file_id
-        self.max_active = max(self.max_active, len(self._active))
-        return FakeFileInfo(file_id=file_id, file_name=file_name, status=FileStatus.INGESTING)
+    def create_collection(self, name: str, description: str = "") -> None:
+        self.collection = FakeCollection()
 
-    def get_file_status(self, file_id: str, _collection_name: str) -> FakeFileInfo:
-        if len(self.uploaded) < self.release_after_uploads:
-            return FakeFileInfo(file_id=file_id, file_name=file_id, status=FileStatus.INGESTING)
+    def list_files(self, _collection: str):
+        return [FakeFileInfo(file_id=n, file_name=n, status=FileStatus.SUCCESS) for n in sorted(self.indexed)]
 
-        file_name = next(name for name, known_id in self._ids_by_name.items() if known_id == file_id)
-        status = self.terminal_statuses[file_name]
-        if status in (FileStatus.SUCCESS, FileStatus.FAILED):
+    def upload_file(self, file_path: str, _collection: str) -> FakeFileInfo:
+        name = file_path.rsplit("/", 1)[-1]
+        if name in self.fail_upload_of:
+            raise RuntimeError(f"cannot read {name}")
+        with self._lock:
+            file_id = f"file-{len(self.uploaded)}"
+            self.uploaded.append(name)
+            self._active.add(file_id)
+            self._names[file_id] = name
+            self.max_active = max(self.max_active, len(self._active))
+        if self.on_upload is not None:
+            self.on_upload(name)
+        return FakeFileInfo(file_id=file_id, file_name=name, status=FileStatus.INGESTING)
+
+    def get_file_status(self, file_id: str, _collection: str) -> FakeFileInfo:
+        if self.gate is not None:
+            self.gate.wait(timeout=10)
+        name = self._names[file_id]
+        with self._lock:
+            held = len(self.uploaded) < self.release_after_uploads
+        if held:
+            return FakeFileInfo(file_id=file_id, file_name=name, status=FileStatus.INGESTING)
+        status = self.terminal.get(name, FileStatus.SUCCESS)
+        if status == FileStatus.INGESTING:
+            return FakeFileInfo(file_id=file_id, file_name=name, status=status)
+        with self._lock:
             self._active.discard(file_id)
+        if status == FileStatus.SUCCESS:
+            self.indexed.add(name)
         return FakeFileInfo(
             file_id=file_id,
-            file_name=file_name,
+            file_name=name,
             status=status,
             chunk_count=3 if status == FileStatus.SUCCESS else 0,
             error_message="boom" if status == FileStatus.FAILED else None,
         )
 
-    def delete_file(self, file_id: str, _collection_name: str) -> bool:
-        self.deleted.append(file_id)
+    def delete_file(self, name: str, _collection: str) -> bool:
+        self.deleted.append(name)
+        self.indexed.discard(name)
         return True
 
 
-def _write_pdf(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-
-
-def _configure_sync(monkeypatch, tmp_path: Path, fake_ingestor: FakeIngestor, *, max_workers: str = "4") -> Path:
-    oib_dir = tmp_path / "oib"
-    registry_path = tmp_path / "oib_registry.json"
-    monkeypatch.setattr(oib_sync, "OIB_DIR", oib_dir)
-    monkeypatch.setattr(oib_sync, "OIB_UPLOADS_DIR", tmp_path / "oib_uploads")
-    monkeypatch.setattr(oib_sync, "REGISTRY_PATH", registry_path)
-    monkeypatch.setattr(oib_sync, "EXCLUDED_PATH", tmp_path / "oib_excluded.json")
+@pytest.fixture
+def bucket(monkeypatch, tmp_path) -> FakeBucket:
     monkeypatch.setattr(oib_sync, "COLLECTION_NAME", "test_collection")
-    monkeypatch.setattr(oib_sync, "CHROMA_DIR", str(tmp_path / "chroma"))
     monkeypatch.setattr(oib_sync, "_POLL_INTERVAL_SECONDS", 0.0)
     monkeypatch.setattr(oib_sync, "_POLL_TIMEOUT_SECONDS", 30.0)
-    monkeypatch.setattr(oib_sync, "_get_oib_ingestor", lambda: fake_ingestor)
-    monkeypatch.setenv("OIB_SYNC_MAX_WORKERS", max_workers)
-    return registry_path
+    monkeypatch.setenv("OIB_SYNC_MAX_WORKERS", "4")
+    return install(monkeypatch, tmp_path)
 
 
-def test_sync_submits_up_to_configured_worker_limit_and_updates_registry(monkeypatch, tmp_path):
-    fake_ingestor = FakeIngestor(
-        {
-            "a.pdf": FileStatus.SUCCESS,
-            "b.pdf": FileStatus.SUCCESS,
-            "c.pdf": FileStatus.FAILED,
-        },
-        release_after_uploads=2,
-    )
-    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor, max_workers="2")
-    _write_pdf(tmp_path / "oib" / "a.pdf", b"a")
-    _write_pdf(tmp_path / "oib" / "b.pdf", b"b")
-    _write_pdf(tmp_path / "oib" / "c.pdf", b"c")
+@pytest.fixture
+def summaries(monkeypatch) -> list[str]:
+    unregistered: list[str] = []
+    monkeypatch.setattr(oib_sync, "unregister_summary", lambda _collection, name: unregistered.append(name))
+    return unregistered
 
-    succeeded, total = oib_sync.sync()
 
-    registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert succeeded == 2
-    assert total == 3
-    assert fake_ingestor.max_active == 2
-    assert fake_ingestor.uploaded == ["a.pdf", "b.pdf", "c.pdf"]
-    assert str(tmp_path / "oib" / "a.pdf") in registry
-    assert str(tmp_path / "oib" / "b.pdf") in registry
-    assert str(tmp_path / "oib" / "c.pdf") not in registry
+def _ingestor(monkeypatch, **kwargs) -> FakeIngestor:
+    ingestor = FakeIngestor(**kwargs)
+    monkeypatch.setattr(oib_sync, "_get_oib_ingestor", lambda: ingestor)
+    return ingestor
 
 
-def test_sync_max_workers_one_keeps_sequential_submission(monkeypatch, tmp_path):
-    fake_ingestor = FakeIngestor(
-        {
-            "a.pdf": FileStatus.SUCCESS,
-            "b.pdf": FileStatus.SUCCESS,
-        },
-        release_after_uploads=1,
-    )
-    _configure_sync(monkeypatch, tmp_path, fake_ingestor, max_workers="1")
-    _write_pdf(tmp_path / "oib" / "a.pdf", b"a")
-    _write_pdf(tmp_path / "oib" / "b.pdf", b"b")
+def _row(name: str) -> corpus_store.FileRow:
+    row = corpus_store.get_file(name)
+    assert row is not None
+    return row
 
-    succeeded, total = oib_sync.sync()
 
-    assert succeeded == 2
-    assert total == 2
-    assert fake_ingestor.max_active == 1
-
-
-def test_sync_logs_discovery_progress_and_outcomes(monkeypatch, tmp_path, caplog):
-    fake_ingestor = FakeIngestor(
-        {
-            "a.pdf": FileStatus.SUCCESS,
-            "b.pdf": FileStatus.FAILED,
-        },
-        release_after_uploads=2,
-    )
-    _configure_sync(monkeypatch, tmp_path, fake_ingestor, max_workers="2")
-    _write_pdf(tmp_path / "oib" / "a.pdf", b"a")
-    _write_pdf(tmp_path / "oib" / "b.pdf", b"b")
-
-    with caplog.at_level(logging.INFO, logger="aiq_agent.oib_sync"):
-        oib_sync.sync()
-
-    assert "OIB sync discovery:" in caplog.text
-    assert "Submitted OIB PDF" in caplog.text
-    assert "OIB sync progress:" in caplog.text
-    assert "OIB ingestion succeeded" in caplog.text
-    assert "OIB ingestion failed" in caplog.text
-    assert "OIB sync complete:" in caplog.text
-
-
-@dataclass
-class _CollectionInfoStub:
-    """Minimal stand-in for CollectionInfo (only the fields sync() probes)."""
-
-    chunk_count: int
-    file_count: int
-
-
-def test_sync_reingests_when_registry_full_but_collection_empty(monkeypatch, tmp_path):
-    """Registry (data volume) says the PDF is ingested, but the vector store is a
-    fresh/empty collection — e.g. after repointing at a new shared Chroma server.
-    The registry is stale, so sync must re-ingest instead of skipping. Regression
-    for the shared-Chroma migration leaving oib_knowledge empty."""
-    fake_ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS}, release_after_uploads=1)
-    # Collection exists but is EMPTY (0 chunks) — the drifted-store signal.
-    fake_ingestor.get_collection = lambda _name: _CollectionInfoStub(chunk_count=0, file_count=0)
-    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor, max_workers="1")
-    pdf = tmp_path / "oib" / "a.pdf"
-    _write_pdf(pdf, b"a")
-    # Pre-seed the registry with the file's CURRENT hash: without the self-heal,
-    # the incremental diff would treat it as unchanged and skip it.
-    registry_path.write_text(
-        json.dumps({oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION, str(pdf): oib_sync._file_hash(pdf)}),
-        encoding="utf-8",
-    )
-
-    succeeded, total = oib_sync.sync()
-
-    assert (succeeded, total) == (1, 1)
-    assert fake_ingestor.uploaded == ["a.pdf"]  # re-ingested despite the matching hash
-
-
-def test_sync_skips_when_registry_matches_and_collection_populated(monkeypatch, tmp_path):
-    """The self-heal must NOT fire when the store already holds the corpus: a
-    populated collection + matching registry hash still skips (no needless
-    re-ingest, and no risk of wiping a good registry on a transient read)."""
-    fake_ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS}, release_after_uploads=1)
-    fake_ingestor.get_collection = lambda _name: _CollectionInfoStub(chunk_count=42, file_count=1)
-    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor, max_workers="1")
-    pdf = tmp_path / "oib" / "a.pdf"
-    _write_pdf(pdf, b"a")
-    registry_path.write_text(
-        json.dumps({oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION, str(pdf): oib_sync._file_hash(pdf)}),
-        encoding="utf-8",
-    )
-
-    succeeded, total = oib_sync.sync()
-
-    assert (succeeded, total) == (0, 1)
-    assert fake_ingestor.uploaded == []  # registry and store agree → nothing re-ingested
-
-
-def test_discover_pdfs_dedupes_by_name_with_uploads_winning(monkeypatch, tmp_path):
-    fake_ingestor = FakeIngestor({})
-    _configure_sync(monkeypatch, tmp_path, fake_ingestor)
-    _write_pdf(tmp_path / "oib" / "a.pdf", b"repo")
-    _write_pdf(tmp_path / "oib" / "b.pdf", b"repo-only")
-    _write_pdf(tmp_path / "oib_uploads" / "a.pdf", b"uploaded-replacement")
-    _write_pdf(tmp_path / "oib_uploads" / "c.pdf", b"upload-only")
-
-    discovered = oib_sync.discover_pdfs()
-
-    by_name = {p.name: p for p in discovered}
-    assert sorted(by_name) == ["a.pdf", "b.pdf", "c.pdf"]
-    assert by_name["a.pdf"] == tmp_path / "oib_uploads" / "a.pdf"
-
-
-def test_ingest_single_success_updates_registry(monkeypatch, tmp_path):
-    fake_ingestor = FakeIngestor({"new.pdf": FileStatus.SUCCESS})
-    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)
-    pdf = tmp_path / "oib_uploads" / "new.pdf"
-    _write_pdf(pdf, b"fresh")
-
-    result = oib_sync.ingest_single(pdf)
-
-    assert result == FileStatus.SUCCESS
-    registry = json.loads(registry_path.read_text(encoding="utf-8"))
-    assert str(pdf) in registry
-    assert fake_ingestor.uploaded == ["new.pdf"]
-    # No delete first: the ingestor replaces the previous version once this one
-    # is indexed, and keeps it (with its metadata row) when it is not.
-    assert fake_ingestor.deleted == []
-
-
-def test_ingest_single_failure_leaves_registry_untouched(monkeypatch, tmp_path):
-    fake_ingestor = FakeIngestor({"bad.pdf": FileStatus.FAILED})
-    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)
-    pdf = tmp_path / "oib_uploads" / "bad.pdf"
-    _write_pdf(pdf, b"broken")
-
-    result = oib_sync.ingest_single(pdf)
-
-    assert result == FileStatus.FAILED
-    assert not registry_path.exists()
-
-
-def test_remove_uploaded_document_deletes_disk_registry_and_chunks(monkeypatch, tmp_path):
-    fake_ingestor = FakeIngestor({})
-    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)
-    pdf = tmp_path / "oib_uploads" / "custom.pdf"
-    _write_pdf(pdf, b"x")
-    registry_path.write_text(json.dumps({str(pdf): "hash"}), encoding="utf-8")
-
-    assert oib_sync.remove_uploaded_document("custom.pdf") is True
-
-    assert not pdf.exists()
-    assert json.loads(registry_path.read_text(encoding="utf-8")) == {}
-    assert fake_ingestor.deleted == ["custom.pdf"]
-    # Repo-corpus files (or unknown names) are not removable.
-    _write_pdf(tmp_path / "oib" / "shipped.pdf", b"y")
-    assert oib_sync.remove_uploaded_document("shipped.pdf") is False
-    assert oib_sync.remove_uploaded_document("../oib/shipped.pdf") is False
-
-
-def test_exclude_document_skips_file_on_next_discover_and_sync(monkeypatch, tmp_path):
-    fake_ingestor = FakeIngestor({"keep.pdf": FileStatus.SUCCESS})
-    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor, max_workers="1")
-    shipped = tmp_path / "oib" / "shipped.pdf"
-    keep = tmp_path / "oib" / "keep.pdf"
-    _write_pdf(shipped, b"shipped")
-    _write_pdf(keep, b"keep")
-    registry_path.write_text(json.dumps({str(shipped): "hash"}), encoding="utf-8")
-
-    oib_sync.exclude_document("shipped.pdf")
-
-    # Chunks deleted, registry entry dropped, basename recorded as excluded.
-    assert fake_ingestor.deleted == ["shipped.pdf"]
-    assert str(shipped) not in json.loads(registry_path.read_text(encoding="utf-8"))
-    assert oib_sync._load_excluded() == {"shipped.pdf"}
-
-    # Discovery no longer yields the excluded (still-on-disk) file.
-    discovered = {p.name for p in oib_sync.discover_pdfs()}
-    assert discovered == {"keep.pdf"}
-
-    # A sync never re-ingests the excluded file.
-    succeeded, total = oib_sync.sync()
-    assert succeeded == 1
-    assert total == 1
-    assert fake_ingestor.uploaded == ["keep.pdf"]
-
-
-def test_unexclude_document_restores_discovery(monkeypatch, tmp_path):
-    fake_ingestor = FakeIngestor({})
-    _configure_sync(monkeypatch, tmp_path, fake_ingestor)
-    shipped = tmp_path / "oib" / "shipped.pdf"
-    _write_pdf(shipped, b"shipped")
-
-    oib_sync.exclude_document("shipped.pdf")
-    assert "shipped.pdf" not in {p.name for p in oib_sync.discover_pdfs()}
-
-    assert oib_sync.unexclude_document("shipped.pdf") is True
-    assert "shipped.pdf" in {p.name for p in oib_sync.discover_pdfs()}
-    # Second call is a no-op.
-    assert oib_sync.unexclude_document("shipped.pdf") is False
-
-
-def test_uploaded_file_overrides_stale_exclusion(monkeypatch, tmp_path):
-    """A physically present upload reappears even if its basename is excluded —
-    the self-heal for corpora uploaded before the upload path lifted exclusions."""
-    fake_ingestor = FakeIngestor({})
-    _configure_sync(monkeypatch, tmp_path, fake_ingestor)
-    # Same basename exists both as a repo-shipped file and as an admin upload,
-    # and is on the exclusion list from a prior delete.
-    _write_pdf(tmp_path / "oib" / "shipped.pdf", b"repo")
-    _write_pdf(tmp_path / "oib_uploads" / "shipped.pdf", b"upload")
-    oib_sync._save_excluded({"shipped.pdf"})
-
-    discovered = oib_sync.discover_pdfs()
-    names = {p.name for p in discovered}
-    # The upload overrides the exclusion → discovery surfaces it again...
-    assert "shipped.pdf" in names
-    # ...resolving to the upload copy, not the still-excluded repo copy.
-    path = next(p for p in discovered if p.name == "shipped.pdf")
-    assert path == tmp_path / "oib_uploads" / "shipped.pdf"
-
-
-def test_excluded_repo_file_without_upload_stays_hidden(monkeypatch, tmp_path):
-    """The override is upload-only: a repo-shipped file with no upload copy stays
-    excluded, preserving delete semantics for the git-tracked corpus."""
-    fake_ingestor = FakeIngestor({})
-    _configure_sync(monkeypatch, tmp_path, fake_ingestor)
-    _write_pdf(tmp_path / "oib" / "shipped.pdf", b"repo")
-    oib_sync._save_excluded({"shipped.pdf"})
-    assert "shipped.pdf" not in {p.name for p in oib_sync.discover_pdfs()}
-
-
-def test_prune_excluded_uploads_drops_only_present_uploads(monkeypatch, tmp_path):
-    fake_ingestor = FakeIngestor({})
-    _configure_sync(monkeypatch, tmp_path, fake_ingestor)
-    _write_pdf(tmp_path / "oib_uploads" / "a.pdf", b"a")
-    # 'a.pdf' now exists as an upload; 'gone.pdf' does not.
-    oib_sync._save_excluded({"a.pdf", "gone.pdf"})
-
-    oib_sync._prune_excluded_uploads()
-
-    # Only the name backed by a real upload is dropped; the other stays excluded.
-    assert oib_sync._load_excluded() == {"gone.pdf"}
-
-
-def test_remove_document_routes_uploaded_to_delete_and_repo_to_exclude(monkeypatch, tmp_path):
-    fake_ingestor = FakeIngestor({})
-    registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)
-    uploaded = tmp_path / "oib_uploads" / "custom.pdf"
-    shipped = tmp_path / "oib" / "shipped.pdf"
-    _write_pdf(uploaded, b"custom")
-    _write_pdf(shipped, b"shipped")
-    registry_path.write_text(json.dumps({str(uploaded): "h1", str(shipped): "h2"}), encoding="utf-8")
-
-    # Uploaded → physical delete.
-    assert oib_sync.remove_document("custom.pdf") == "deleted"
-    assert not uploaded.exists()
-    assert oib_sync._load_excluded() == set()
-
-    # Repo-shipped → exclusion (file stays on disk but drops out of the corpus).
-    assert oib_sync.remove_document("shipped.pdf") == "excluded"
-    assert shipped.exists()
-    assert oib_sync._load_excluded() == {"shipped.pdf"}
-    assert "shipped.pdf" not in {p.name for p in oib_sync.discover_pdfs()}
-
-    # Unknown name and path traversal → no-op None.
-    assert oib_sync.remove_document("nope.pdf") is None
-    assert oib_sync.remove_document("../oib/shipped.pdf") is None
-
-
-class TestChunkFormatVersionGate:
-    """A chunk-format bump forces exactly one automatic full re-ingest."""
-
-    def _setup(self, tmp_path, monkeypatch, registry: dict):
-        import json
-
-        from aiq_agent import oib_sync
-
-        reg_path = tmp_path / "oib_registry.json"
-        reg_path.write_text(json.dumps(registry), encoding="utf-8")
-        monkeypatch.setattr(oib_sync, "REGISTRY_PATH", reg_path)
-        return oib_sync, reg_path
-
-    def test_missing_version_forces_full_reingest(self, tmp_path, monkeypatch):
-        import json
-
-        oib_sync, reg_path = self._setup(tmp_path, monkeypatch, {"/data/oib/a.pdf": "oldhash"})
-        registry = oib_sync._load_registry()
-        assert registry and registry.get(oib_sync._FORMAT_KEY) != oib_sync.CHUNK_FORMAT_VERSION
-        # replicate the sync() gate
-        registry = {} if registry.get(oib_sync._FORMAT_KEY) != oib_sync.CHUNK_FORMAT_VERSION else registry
-        registry.setdefault(oib_sync._FORMAT_KEY, oib_sync.CHUNK_FORMAT_VERSION)
-        oib_sync._save_registry(registry)
-        stored = json.loads(reg_path.read_text())
-        assert stored == {oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION}  # hashes dropped -> all files re-ingest
-
-    def test_the_forced_reingest_leaves_the_replacement_to_the_ingestor(self, monkeypatch, tmp_path):
-        """The version bump re-uploads every file and deletes none of them first.
-
-        `sync()` triggers the re-ingest by emptying the registry. It once had to force
-        a pre-ingest `delete_file` for every file, because the delete was guarded by
-        `str(pdf) in registry` and the new chunks would otherwise have joined the old
-        ones. That delete ran before the new file was read, so a PDF that then failed
-        to ingest lost its old version too, and the metadata row went with it. The
-        ingestor now replaces by name after the new version is indexed
-        (`tests/knowledge_layer_tests/test_reingest_replaces_versions.py`), so the
-        sync must not delete: a delete here would bring the data loss back.
-        """
-        fake_ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS, "b.pdf": FileStatus.SUCCESS})
-        registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)
-        _write_pdf(oib_sync.OIB_DIR / "a.pdf", b"one")
-        _write_pdf(oib_sync.OIB_DIR / "b.pdf", b"two")
-        # A registry written by the PREVIOUS chunk format, listing both files as ingested.
-        registry_path.write_text(
-            json.dumps(
-                {
-                    oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION - 1,
-                    str(oib_sync.OIB_DIR / "a.pdf"): "stale",
-                    str(oib_sync.OIB_DIR / "b.pdf"): "stale",
-                }
-            ),
-            encoding="utf-8",
+class TestSync:
+    def test_ingests_what_needs_it_and_records_a_hash_only_for_what_succeeded(self, bucket, monkeypatch):
+        ingestor = _ingestor(
+            monkeypatch,
+            terminal={"a.pdf": FileStatus.SUCCESS, "b.pdf": FileStatus.SUCCESS, "c.pdf": FileStatus.FAILED},
+            release_after_uploads=2,
         )
+        for name in ("a.pdf", "b.pdf", "c.pdf"):
+            corpus_store.put(name, name.encode())
+
+        result = oib_sync.sync()
+
+        assert result == oib_sync.SyncResult(ingested=2, failed=1, total=3)
+        assert sorted(ingestor.uploaded) == ["a.pdf", "b.pdf", "c.pdf"]
+        for name in ("a.pdf", "b.pdf"):
+            assert _row(name).ingested_sha256 == _sha(name.encode())
+            assert _row(name).chunk_format_version == oib_sync.CHUNK_FORMAT_VERSION
+        assert _row("c.pdf").ingested_sha256 is None  # retried by the next cycle
+
+    def test_a_file_that_is_current_is_not_ingested_again(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+
+        result = oib_sync.sync()
+
+        assert result == oib_sync.SyncResult(ingested=0, failed=0, total=1)
+        assert ingestor.uploaded == ["a.pdf"]
+
+    def test_a_failed_file_is_retried_by_the_next_cycle(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch, terminal={"a.pdf": FileStatus.FAILED})
+        corpus_store.put("a.pdf", b"a")
+        assert oib_sync.sync().failed == 1
+
+        ingestor.terminal["a.pdf"] = FileStatus.SUCCESS
+        result = oib_sync.sync()
+
+        assert result.ingested == 1
+        assert ingestor.uploaded == ["a.pdf", "a.pdf"]
+
+    def test_a_replaced_file_is_ingested_again(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("a.pdf", b"v1")
+        oib_sync.sync()
+
+        corpus_store.put("a.pdf", b"version two")
+        result = oib_sync.sync()
+
+        assert result.ingested == 1
+        assert ingestor.uploaded == ["a.pdf", "a.pdf"]
+        assert _row("a.pdf").ingested_sha256 == _sha(b"version two")
+
+    def test_a_new_chunk_format_reingests_the_whole_corpus_through_the_same_rule(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("a.pdf", b"a")
+        corpus_store.put("b.pdf", b"b")
+        oib_sync.sync()
+        assert len(ingestor.uploaded) == 2
+
+        monkeypatch.setattr(oib_sync, "CHUNK_FORMAT_VERSION", oib_sync.CHUNK_FORMAT_VERSION + 1)
+        result = oib_sync.sync()
+
+        assert result.ingested == 2
+        assert len(ingestor.uploaded) == 4
+        assert _row("a.pdf").chunk_format_version == oib_sync.CHUNK_FORMAT_VERSION
+
+    def test_a_reset_vector_store_is_filled_again(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+        ingestor.collection = None  # Chroma wiped or repointed; the table still says "ingested"
+
+        result = oib_sync.sync()
+
+        assert result.ingested == 1
+        assert ingestor.uploaded == ["a.pdf", "a.pdf"]
+
+    def test_a_vector_store_that_cannot_be_probed_does_not_discard_what_the_table_knows(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+
+        def unreachable(_name):
+            raise ConnectionError("chroma is down")
+
+        monkeypatch.setattr(ingestor, "get_collection", unreachable)
+
+        assert oib_sync.sync().ingested == 0
+        assert _row("a.pdf").ingested_sha256 == _sha(b"a")
+
+    def test_an_empty_corpus_is_a_cycle_that_does_nothing(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+
+        assert oib_sync.sync() == oib_sync.SyncResult(ingested=0, failed=0, total=0)
+        assert ingestor.uploaded == []
+
+    def test_the_worker_limit_bounds_concurrent_ingestions(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch, release_after_uploads=2)
+        monkeypatch.setenv("OIB_SYNC_MAX_WORKERS", "2")
+        for name in ("a.pdf", "b.pdf", "c.pdf"):
+            corpus_store.put(name, name.encode())
+
+        assert oib_sync.sync().ingested == 3
+
+        assert ingestor.max_active == 2
+
+    def test_one_worker_ingests_one_file_at_a_time(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+        monkeypatch.setenv("OIB_SYNC_MAX_WORKERS", "1")
+        for name in ("a.pdf", "b.pdf"):
+            corpus_store.put(name, name.encode())
+
+        assert oib_sync.sync().ingested == 2
+
+        assert ingestor.max_active == 1
+
+    def test_a_file_that_raises_fails_alone(self, bucket, monkeypatch, caplog):
+        ingestor = _ingestor(monkeypatch)
+        ingestor.fail_upload_of = {"b.pdf"}
+        for name in ("a.pdf", "b.pdf", "c.pdf"):
+            corpus_store.put(name, name.encode())
+
+        with caplog.at_level(logging.ERROR, logger="aiq_agent.oib_sync"):
+            result = oib_sync.sync()
+
+        assert result == oib_sync.SyncResult(ingested=2, failed=1, total=3)
+        assert _row("b.pdf").ingested_sha256 is None
+        assert "b.pdf" in caplog.text
+
+    def test_the_cycle_logs_what_it_found_and_what_it_did(self, bucket, monkeypatch, caplog):
+        _ingestor(monkeypatch)
+        corpus_store.put("a.pdf", b"a")
+
+        with caplog.at_level(logging.INFO, logger="aiq_agent.oib_sync"):
+            oib_sync.sync()
+
+        assert "total=1 needing_ingestion=1" in caplog.text
+        assert "succeeded=1 failed=0 total=1" in caplog.text
+
+    def test_a_file_fetched_from_the_object_store_is_what_gets_ingested(self, bucket, monkeypatch, tmp_path):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("a.pdf", b"alpha")
+        (tmp_path / "cache" / "a.pdf").unlink()  # this replica never held it
+        seen: dict[str, bytes] = {}
+        ingestor.on_upload = lambda name: seen.update({name: (tmp_path / "cache" / name).read_bytes()})
 
         oib_sync.sync()
 
-        assert sorted(fake_ingestor.uploaded) == ["a.pdf", "b.pdf"]
-        assert fake_ingestor.deleted == [], "the ingestor retires the old version once the new one is indexed"
+        assert seen == {"a.pdf": b"alpha"}
+        assert bucket.downloads == ["base-corpus/a.pdf"]
 
-    def test_a_first_ever_sync_still_deletes_nothing(self, monkeypatch, tmp_path):
-        """No stored format means no stored chunks; the delete has nothing to undo."""
-        fake_ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS})
-        _configure_sync(monkeypatch, tmp_path, fake_ingestor)
-        _write_pdf(oib_sync.OIB_DIR / "a.pdf", b"one")
+
+class TestLocks:
+    def test_a_sync_cycle_holds_the_cross_replica_lock(self, bucket, monkeypatch):
+        _ingestor(monkeypatch)
+        held: list[str] = []
+
+        @contextlib.contextmanager
+        def recording(key):
+            held.append(key)
+            yield
+
+        monkeypatch.setattr(oib_sync, "keyed_lock", recording)
+        corpus_store.put("a.pdf", b"a")
 
         oib_sync.sync()
 
-        assert fake_ingestor.uploaded == ["a.pdf"]
-        assert fake_ingestor.deleted == []
+        assert held == ["oib-sync", "oib-file:a.pdf"]
 
-    def test_stamped_registry_is_untouched(self, tmp_path, monkeypatch):
-        from aiq_agent import oib_sync as osync
-
-        registry_content = {"__chunk_format_version__": osync.CHUNK_FORMAT_VERSION, "/data/oib/a.pdf": "hash1"}
-        oib_sync, _ = self._setup(tmp_path, monkeypatch, registry_content)
-        registry = oib_sync._load_registry()
-        assert registry.get(oib_sync._FORMAT_KEY) == oib_sync.CHUNK_FORMAT_VERSION
-        assert registry["/data/oib/a.pdf"] == "hash1"  # hash-gating still skips unchanged files
-
-    def test_status_ignores_reserved_key(self, tmp_path, monkeypatch):
-        from aiq_agent import oib_status
-        from aiq_agent import oib_sync as osync
-
-        oib_sync, _ = self._setup(tmp_path, monkeypatch, {"__chunk_format_version__": osync.CHUNK_FORMAT_VERSION})
-        monkeypatch.setattr(osync, "OIB_DIR", tmp_path / "none")
-        monkeypatch.setattr(osync, "OIB_UPLOADS_DIR", tmp_path / "none2")
-
-        class _NoopIngestor:
-            def get_collection(self, name):
-                return None
-
-            def list_files(self, name):
-                return []
-
-        status = oib_status.get_status(ingestor=_NoopIngestor())
-        assert all(e.file_name != "__chunk_format_version__" for e in status.files)
-
-
-class TestConcurrentCorpusMutations:
-    """The admin executor runs >1 worker, so a sync, an upload and a removal can
-    overlap. These guard the serialization that keeps that safe: a single-flight
-    sync, per-basename locks around every corpus mutation, and read-modify-write
-    of the registry / exclusion set strictly inside their locks.
-    """
-
-    class _BlockingIngestor(FakeIngestor):
-        """Parks every status poll until ``release`` is set."""
-
-        def __init__(self, terminal_statuses, *, polled, release) -> None:
-            super().__init__(terminal_statuses)
-            self.polled = polled
-            self.release = release
-
-        def get_file_status(self, file_id: str, collection_name: str) -> FakeFileInfo:
-            self.polled.set()
-            assert self.release.wait(10)
-            return super().get_file_status(file_id, collection_name)
-
-    def test_ingest_single_holds_the_file_lock_until_the_terminal_state(self, monkeypatch, tmp_path):
-        polled, release = threading.Event(), threading.Event()
-        ingestor = self._BlockingIngestor({"busy.pdf": FileStatus.SUCCESS}, polled=polled, release=release)
-        _configure_sync(monkeypatch, tmp_path, ingestor)
-        pdf = tmp_path / "oib_uploads" / "busy.pdf"
-        _write_pdf(pdf, b"busy")
-
-        worker = threading.Thread(target=oib_sync.ingest_single, args=(pdf,), daemon=True)
-        worker.start()
-        try:
-            assert polled.wait(10)
-            # A concurrent removal/sync of the same basename blocks here instead
-            # of interleaving with the upload → poll cycle.
-            assert oib_sync._file_lock("busy.pdf").acquire(blocking=False) is False
-        finally:
-            release.set()
-        worker.join(10)
-
-        assert not worker.is_alive()
-        lock = oib_sync._file_lock("busy.pdf")
-        assert lock.acquire(blocking=False) is True
-        lock.release()
-
-    def test_sync_is_single_flight(self, monkeypatch, tmp_path):
-        polled, release = threading.Event(), threading.Event()
-        ingestor = self._BlockingIngestor({"a.pdf": FileStatus.SUCCESS}, polled=polled, release=release)
-        _configure_sync(monkeypatch, tmp_path, ingestor, max_workers="1")
-        _write_pdf(tmp_path / "oib" / "a.pdf", b"a")
-
-        results: list[tuple[int, int]] = []
+    def test_a_second_cycle_waits_for_the_running_one_and_finds_nothing_to_do(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+        ingestor.gate = threading.Event()
+        corpus_store.put("a.pdf", b"a")
+        results: list[oib_sync.SyncResult] = []
         first = threading.Thread(target=lambda: results.append(oib_sync.sync()), daemon=True)
         first.start()
-        second = None
-        try:
-            assert polled.wait(10)
-            assert oib_sync._SYNC_LOCK.locked() is True
-            second = threading.Thread(target=lambda: results.append(oib_sync.sync()), daemon=True)
-            second.start()
-            # The second sync waits for the first instead of ingesting the same
-            # work list a second time.
-            second.join(0.2)
-            assert second.is_alive()
-        finally:
-            release.set()
+        while not ingestor.uploaded:
+            first.join(0.01)
+        second = threading.Thread(target=lambda: results.append(oib_sync.sync()), daemon=True)
+        second.start()
+        second.join(0.2)
+        assert second.is_alive()  # parked behind the first cycle
+
+        ingestor.gate.set()
         first.join(10)
         second.join(10)
 
-        assert not first.is_alive() and not second.is_alive()
-        assert ingestor.uploaded == ["a.pdf"]
-        # First run ingested the file; the second found nothing new.
-        assert results == [(1, 1), (0, 1)]
-        assert oib_sync._file_lock("a.pdf").acquire(blocking=False) is True
-        oib_sync._file_lock("a.pdf").release()
-
-    def test_sync_merges_a_registry_hash_written_while_it_ran(self, monkeypatch, tmp_path):
-        other_key = "/elsewhere/other.pdf"
-
-        class _ConcurrentWriterIngestor(FakeIngestor):
-            """Emulates another ingestion recording its hash mid-sync."""
-
-            def get_file_status(self, file_id: str, collection_name: str) -> FakeFileInfo:
-                info = super().get_file_status(file_id, collection_name)
-                if info.status == FileStatus.SUCCESS:
-                    with oib_sync._REGISTRY_LOCK:
-                        registry = oib_sync._load_registry()
-                        registry[other_key] = "other-hash"
-                        oib_sync._save_registry(registry)
-                return info
-
-        ingestor = _ConcurrentWriterIngestor({"a.pdf": FileStatus.SUCCESS})
-        registry_path = _configure_sync(monkeypatch, tmp_path, ingestor, max_workers="1")
-        pdf = tmp_path / "oib" / "a.pdf"
-        _write_pdf(pdf, b"a")
-
-        assert oib_sync.sync() == (1, 1)
-
-        registry = json.loads(registry_path.read_text(encoding="utf-8"))
-        # sync() reloads inside the lock, so its stale snapshot cannot clobber
-        # the hash the concurrent ingestion recorded.
-        assert registry[other_key] == "other-hash"
-        assert str(pdf) in registry
-
-    def test_exclusion_set_is_written_inside_its_lock(self, monkeypatch, tmp_path):
-        _configure_sync(monkeypatch, tmp_path, FakeIngestor({}))
-        _write_pdf(tmp_path / "oib" / "shipped.pdf", b"shipped")
-
-        held: list[bool] = []
-        real_save = oib_sync._save_excluded
-
-        def spy(names: set[str]) -> None:
-            held.append(oib_sync._EXCLUDED_LOCK.locked())
-            real_save(names)
-
-        monkeypatch.setattr(oib_sync, "_save_excluded", spy)
-
-        oib_sync.exclude_document("shipped.pdf")
-        assert oib_sync.unexclude_document("shipped.pdf") is True
-
-        # Both read-modify-writes ran inside the critical section; outside it a
-        # concurrent removal could drop the other's basename.
-        assert held == [True, True]
-
-
-class TestMarkForReingest:
-    """Forcing a rebuild of one document without touching the rest of the corpus."""
-
-    def _corpus(self, monkeypatch, tmp_path, names=("a.pdf", "b.pdf")):
-        oib_dir = tmp_path / "oib"
-        oib_dir.mkdir(parents=True, exist_ok=True)
-        monkeypatch.setattr(oib_sync, "OIB_DIR", oib_dir)
-        monkeypatch.setattr(oib_sync, "OIB_UPLOADS_DIR", tmp_path / "uploads")
-        monkeypatch.setattr(oib_sync, "REGISTRY_PATH", tmp_path / "registry.json")
-        monkeypatch.setattr(oib_sync, "EXCLUDED_PATH", tmp_path / "excluded.json")
-        for name in names:
-            _write_pdf(oib_dir / name, name.encode())
-        return oib_dir
-
-    def test_it_forgets_only_the_named_document(self, monkeypatch, tmp_path):
-        """The registry hash is what `oib_status` reads to say INGESTED.
-
-        Dropping it is not what triggers the rebuild — `ingest_single` re-uploads
-        regardless, and the ingestor replaces the old version. It is what makes the rebuild VISIBLE: without it the
-        document reads INGESTED for the whole job and the admin UI's progress panel
-        shows work that appears to finish before it starts.
-        """
-        oib_dir = self._corpus(monkeypatch, tmp_path)
-        oib_sync._save_registry(
-            {
-                oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION,
-                str(oib_dir / "a.pdf"): "hash-a",
-                str(oib_dir / "b.pdf"): "hash-b",
-            }
-        )
-
-        target = oib_sync.mark_for_reingest("a.pdf")
-
-        assert target == oib_dir / "a.pdf"
-        registry = oib_sync._load_registry()
-        assert str(oib_dir / "a.pdf") not in registry, "the named document must read as not-yet-ingested"
-        assert registry[str(oib_dir / "b.pdf")] == "hash-b", "an unselected document must be untouched"
-        assert registry[oib_sync._FORMAT_KEY] == oib_sync.CHUNK_FORMAT_VERSION
-
-    def test_it_drops_every_entry_for_the_basename(self, monkeypatch, tmp_path):
-        """One document can be registered under both the corpus and the uploads dir.
-
-        A single leftover hash restores the INGESTED reading, so the basename is what
-        is forgotten, not the path.
-        """
-        oib_dir = self._corpus(monkeypatch, tmp_path, names=("a.pdf",))
-        oib_sync._save_registry(
-            {
-                oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION,
-                str(oib_dir / "a.pdf"): "hash-corpus",
-                str(tmp_path / "uploads" / "a.pdf"): "hash-upload",
-            }
-        )
-
-        oib_sync.mark_for_reingest("a.pdf")
-
-        assert [key for key in oib_sync._load_registry() if key != oib_sync._FORMAT_KEY] == []
-
-    def test_an_unknown_or_unsafe_name_resolves_to_nothing(self, monkeypatch, tmp_path):
-        self._corpus(monkeypatch, tmp_path)
-        assert oib_sync.mark_for_reingest("ghost.pdf") is None
-        assert oib_sync.mark_for_reingest("../oib/a.pdf") is None, "path traversal must not resolve"
-        assert oib_sync.mark_for_reingest("a.txt") is None
-
-    def test_an_excluded_document_cannot_be_revived_by_a_reingest(self, monkeypatch, tmp_path):
-        """Exclusion is how a repo-shipped file is removed; re-ingest must not undo it."""
-        self._corpus(monkeypatch, tmp_path)
-        oib_sync._save_excluded({"a.pdf"})
-        assert oib_sync.mark_for_reingest("a.pdf") is None
-        assert oib_sync.mark_for_reingest("b.pdf") is not None
-
-
-class TestObjectMode:
-    """``GRID_BASE_CORPUS_STORE=object`` (ADR-0082, step A2): the shared corpus is the record.
-
-    The BFF and SeaweedFS are an in-memory bucket and the tables are a SQLite file
-    (``tests/object_corpus_fakes``); ``oib_sync`` and ``corpus_store`` run for real.
-    """
-
-    @staticmethod
-    def _object(monkeypatch, tmp_path, ingestor: FakeIngestor):
-        from tests.object_corpus_fakes import install
-
-        registry_path = _configure_sync(monkeypatch, tmp_path, ingestor, max_workers="1")
-        bucket = install(monkeypatch, tmp_path)
-        return bucket, registry_path
-
-    @staticmethod
-    def _uploaded_elsewhere(tmp_path: Path, name: str, data: bytes) -> None:
-        from aiq_agent import corpus_store
-
-        corpus_store.put(name, data, tmp_path / "other-replica")
-
-    def test_discover_reflects_the_shared_corpus_not_this_replicas_disk(self, monkeypatch, tmp_path):
-        self._object(monkeypatch, tmp_path, FakeIngestor({}))
-        self._uploaded_elsewhere(tmp_path, "from-other.pdf", b"other")
-        # A file the shared corpus never heard of, left by a replica that has already migrated.
-        corpus_dir = tmp_path / "oib_uploads"
-        _write_pdf(corpus_dir / "stale-local.pdf", b"stale")
-        (corpus_dir / ".object-store-migrated").write_text("done", encoding="utf-8")
-
-        found = oib_sync.discover_pdfs()
-
-        assert [p.name for p in found] == ["from-other.pdf"]
-        assert found[0] == corpus_dir / "from-other.pdf"
-        assert found[0].read_bytes() == b"other"
-        assert not (corpus_dir / "stale-local.pdf").exists()
-
-    def test_sync_ingests_the_shared_files_and_records_the_registry_in_the_table(self, monkeypatch, tmp_path):
-        from aiq_agent import corpus_store
-
-        ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS})
-        _bucket, registry_path = self._object(monkeypatch, tmp_path, ingestor)
-        self._uploaded_elsewhere(tmp_path, "a.pdf", b"alpha")
-
-        assert oib_sync.sync() == (1, 1)
-
-        key = str(tmp_path / "oib_uploads" / "a.pdf")
-        registry = corpus_store.load_registry()
-        assert registry[key] == corpus_store.sha256_file(tmp_path / "oib_uploads" / "a.pdf")
-        assert registry[oib_sync._FORMAT_KEY] == oib_sync.CHUNK_FORMAT_VERSION
-        assert not registry_path.exists(), "the JSON registry is not the record in object mode"
-        # Unchanged on the next run, from this or any other replica.
-        assert oib_sync.sync() == (0, 1)
+        assert sorted(r.ingested for r in results) == [0, 1]
         assert ingestor.uploaded == ["a.pdf"]
 
-    def test_sync_runs_under_the_cross_replica_lock(self, monkeypatch, tmp_path):
-        from aiq_agent import corpus_store
+    def test_two_ingestions_of_one_file_run_one_after_the_other_and_the_second_finds_it_done(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+        ingestor.gate = threading.Event()
+        corpus_store.put("a.pdf", b"a")
+        statuses: list[FileStatus | None] = []
+        threads = [threading.Thread(target=lambda: statuses.append(oib_sync.ingest_single("a.pdf")), daemon=True)]
+        threads[0].start()
+        while not ingestor.uploaded:
+            threads[0].join(0.01)
+        threads.append(threading.Thread(target=lambda: statuses.append(oib_sync.ingest_single("a.pdf")), daemon=True))
+        threads[1].start()
 
-        self._object(monkeypatch, tmp_path, FakeIngestor({"a.pdf": FileStatus.SUCCESS}))
-        self._uploaded_elsewhere(tmp_path, "a.pdf", b"alpha")
-        taken: list[str] = []
-        real = corpus_store.shared_lock
+        ingestor.gate.set()
+        for thread in threads:
+            thread.join(10)
 
-        def spy(key):
-            taken.append(key)
-            return real(key)
+        assert statuses == [FileStatus.SUCCESS, FileStatus.SUCCESS]
+        assert ingestor.uploaded == ["a.pdf"]
 
-        monkeypatch.setattr(corpus_store, "shared_lock", spy)
+    def test_a_delete_waits_for_a_running_ingestion_of_the_same_file(self, bucket, monkeypatch, summaries):
+        ingestor = _ingestor(monkeypatch)
+        ingestor.gate = threading.Event()
+        corpus_store.put("a.pdf", b"a")
+        ingesting = threading.Thread(target=oib_sync.ingest_single, args=("a.pdf",), daemon=True)
+        ingesting.start()
+        while not ingestor.uploaded:
+            ingesting.join(0.01)
+        removed: list[bool] = []
+        deleting = threading.Thread(target=lambda: removed.append(oib_sync.remove_document("a.pdf")), daemon=True)
+        deleting.start()
+        deleting.join(0.2)
+        assert deleting.is_alive()  # the ingestion still holds the file
 
-        oib_sync.sync()
+        ingestor.gate.set()
+        ingesting.join(10)
+        deleting.join(10)
 
-        assert "oib-sync" in taken
-        assert "oib-registry" in taken
+        assert removed == [True]
+        assert corpus_store.get_file("a.pdf") is None
 
-    def test_a_replicas_existing_volume_moves_up_without_a_re_ingest(self, monkeypatch, tmp_path):
-        from aiq_agent import corpus_store
 
-        ingestor = FakeIngestor({})
-        bucket, registry_path = self._object(monkeypatch, tmp_path, ingestor)
-        pdf = tmp_path / "oib_uploads" / "old.pdf"
-        _write_pdf(pdf, b"old upload")
-        registry_path.write_text(
-            json.dumps({oib_sync._FORMAT_KEY: oib_sync.CHUNK_FORMAT_VERSION, str(pdf): corpus_store.sha256_file(pdf)}),
-            encoding="utf-8",
-        )
-        (tmp_path / "oib_excluded.json").write_text(json.dumps(["shipped.pdf"]), encoding="utf-8")
+class TestIngestSingle:
+    def test_success_records_the_hash_and_the_pipeline_version(self, bucket, monkeypatch):
+        _ingestor(monkeypatch)
+        corpus_store.put("new.pdf", b"new")
 
-        assert oib_sync.sync() == (0, 1)
+        assert oib_sync.ingest_single("new.pdf") == FileStatus.SUCCESS
 
-        assert bucket.objects == {"base-corpus/old.pdf": b"old upload"}
-        assert ingestor.uploaded == [], "the registry came along, so nothing is re-ingested"
-        assert str(pdf) in corpus_store.load_registry()
-        assert corpus_store.load_excluded() == {"shipped.pdf"}
-        assert (tmp_path / "oib_uploads" / corpus_store.MIGRATION_MARKER).exists()
+        assert _row("new.pdf").ingested_sha256 == _sha(b"new")
+        assert _row("new.pdf").chunk_format_version == oib_sync.CHUNK_FORMAT_VERSION
 
-    def test_exclusions_live_in_the_table(self, monkeypatch, tmp_path):
-        from aiq_agent import corpus_store
+    def test_a_file_the_index_was_built_from_is_not_uploaded_again(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("a.pdf", b"a")
+        oib_sync.ingest_single("a.pdf")
 
-        self._object(monkeypatch, tmp_path, FakeIngestor({}))
-        _write_pdf(tmp_path / "oib" / "shipped.pdf", b"shipped")
+        assert oib_sync.ingest_single("a.pdf") == FileStatus.SUCCESS
 
-        oib_sync.exclude_document("shipped.pdf")
+        assert ingestor.uploaded == ["a.pdf"]
 
-        assert corpus_store.load_excluded() == {"shipped.pdf"}
-        assert not (tmp_path / "oib_excluded.json").exists()
-        assert oib_sync.discover_pdfs() == []
-        assert oib_sync.unexclude_document("shipped.pdf") is True
-        assert [p.name for p in oib_sync.discover_pdfs()] == ["shipped.pdf"]
+    def test_a_failure_records_nothing(self, bucket, monkeypatch):
+        _ingestor(monkeypatch, terminal={"bad.pdf": FileStatus.FAILED})
+        corpus_store.put("bad.pdf", b"bad")
 
-    def test_removing_an_upload_made_on_another_replica_removes_it_everywhere(self, monkeypatch, tmp_path):
-        from aiq_agent import corpus_store
+        assert oib_sync.ingest_single("bad.pdf") == FileStatus.FAILED
 
-        ingestor = FakeIngestor({})
-        bucket, _registry = self._object(monkeypatch, tmp_path, ingestor)
-        self._uploaded_elsewhere(tmp_path, "custom.pdf", b"custom")
+        assert _row("bad.pdf").ingested_sha256 is None
 
-        assert oib_sync.remove_document("custom.pdf") == "deleted"
+    def test_a_timeout_is_none_and_records_nothing(self, bucket, monkeypatch):
+        _ingestor(monkeypatch, terminal={"slow.pdf": FileStatus.INGESTING})
+        monkeypatch.setattr(oib_sync, "_POLL_TIMEOUT_SECONDS", 0.05)
+        corpus_store.put("slow.pdf", b"slow")
 
+        assert oib_sync.ingest_single("slow.pdf") is None
+
+        assert _row("slow.pdf").ingested_sha256 is None
+
+    def test_a_file_replaced_while_it_ingested_still_needs_ingestion(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("a.pdf", b"v1")
+        ingestor.on_upload = lambda name: corpus_store.put(name, b"version two")
+
+        assert oib_sync.ingest_single("a.pdf") == FileStatus.SUCCESS
+
+        row = _row("a.pdf")
+        assert row.sha256 == _sha(b"version two")
+        assert row.ingested_sha256 is None
+        assert row.needs_ingestion(oib_sync.CHUNK_FORMAT_VERSION)
+
+    def test_a_file_that_left_the_corpus_is_a_lookup_error(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+
+        with pytest.raises(LookupError, match="ghost.pdf"):
+            oib_sync.ingest_single("ghost.pdf")
+
+        assert ingestor.uploaded == []
+
+    def test_a_listed_file_that_cannot_be_fetched_is_a_store_error(self, bucket, monkeypatch, tmp_path):
+        _ingestor(monkeypatch)
+        corpus_store.put("a.pdf", b"a")
+        (tmp_path / "cache" / "a.pdf").unlink()
+        bucket.objects.clear()
+
+        with pytest.raises(corpus_store.CorpusStoreError):
+            oib_sync.ingest_single("a.pdf")
+
+
+class TestRemoveDocument:
+    def test_deletes_chunks_summary_row_object_and_cached_copy(self, bucket, monkeypatch, summaries, tmp_path):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("custom.pdf", b"custom")
+        oib_sync.ingest_single("custom.pdf")
+
+        assert oib_sync.remove_document("custom.pdf") is True
+
+        assert ingestor.deleted == ["custom.pdf"]
+        assert summaries == ["custom.pdf"]
         assert corpus_store.get_file("custom.pdf") is None
         assert bucket.objects == {}
-        assert not (tmp_path / "oib_uploads" / "custom.pdf").exists()
-        assert ingestor.deleted == ["custom.pdf"]
-        assert oib_sync.remove_document("custom.pdf") is None
+        assert not (tmp_path / "cache" / "custom.pdf").exists()
+        assert "custom.pdf" not in ingestor.indexed
 
-    def test_a_failed_object_delete_is_reported_and_leaves_the_local_copy(self, monkeypatch, tmp_path):
-        from aiq_agent import corpus_store
+    def test_a_deleted_file_is_not_ingested_by_the_next_cycle(self, bucket, monkeypatch, summaries):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("custom.pdf", b"custom")
+        oib_sync.remove_document("custom.pdf")
 
-        self._object(monkeypatch, tmp_path, FakeIngestor({}))
-        self._uploaded_elsewhere(tmp_path, "custom.pdf", b"custom")
+        assert oib_sync.sync().total == 0
+        assert ingestor.uploaded == []
 
-        def refuse(name):
-            raise corpus_store.CorpusStoreError(f"delete of {name} from the object store was refused (HTTP 503)")
+    def test_a_name_only_the_index_knows_is_cleared_too(self, bucket, monkeypatch, summaries):
+        ingestor = _ingestor(monkeypatch)
+        ingestor.indexed.add("leftover.pdf")
+
+        assert oib_sync.remove_document("leftover.pdf") is True
+
+        assert ingestor.deleted == ["leftover.pdf"]
+        assert "leftover.pdf" not in ingestor.indexed
+
+    @pytest.mark.parametrize("name", ["nope.pdf", "../oib/shipped.pdf", "notes.txt", ""])
+    def test_an_unknown_or_unsafe_name_is_false_and_touches_nothing(self, bucket, monkeypatch, summaries, name):
+        ingestor = _ingestor(monkeypatch)
+
+        assert oib_sync.remove_document(name) is False
+
+        assert ingestor.deleted == [] and summaries == [] and bucket.deletes == []
+
+    def test_a_failed_chunk_delete_keeps_the_document_listed_so_a_retry_finds_it(self, bucket, monkeypatch, summaries):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("custom.pdf", b"custom")
+
+        def fail(_name, _collection):
+            raise RuntimeError("chroma is down")
+
+        monkeypatch.setattr(ingestor, "delete_file", fail)
+
+        with pytest.raises(RuntimeError):
+            oib_sync.remove_document("custom.pdf")
+
+        assert corpus_store.get_file("custom.pdf") is not None
+        assert bucket.objects  # the object is still there
+
+    def test_an_object_the_store_cannot_delete_is_an_error_after_the_chunks_are_gone(
+        self, bucket, monkeypatch, summaries
+    ):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("custom.pdf", b"custom")
+
+        def refuse(_name):
+            raise corpus_store.CorpusStoreError("delete of custom.pdf from the object store was refused (HTTP 500)")
 
         monkeypatch.setattr(corpus_store, "_delete_object", refuse)
 
         with pytest.raises(corpus_store.CorpusStoreError):
-            oib_sync.remove_uploaded_document("custom.pdf")
+            oib_sync.remove_document("custom.pdf")
 
-        assert (tmp_path / "oib_uploads" / "custom.pdf").exists()
+        assert ingestor.deleted == ["custom.pdf"]
+        assert corpus_store.get_file("custom.pdf") is None
 
-    def test_disk_mode_is_untouched_by_the_store(self, monkeypatch, tmp_path):
-        from aiq_agent import corpus_store
 
-        monkeypatch.delenv(corpus_store.STORE_ENV, raising=False)
-        monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
-        ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS})
-        registry_path = _configure_sync(monkeypatch, tmp_path, ingestor, max_workers="1")
-        _write_pdf(tmp_path / "oib_uploads" / "a.pdf", b"alpha")
-        monkeypatch.setattr(corpus_store, "pull", lambda *_a, **_k: pytest.fail("disk mode must not pull"))
+class TestMarkForReingest:
+    def test_forgets_what_the_index_was_built_from_so_the_file_reads_as_pending(self, bucket, monkeypatch):
+        _ingestor(monkeypatch)
+        corpus_store.put("a.pdf", b"a")
+        oib_sync.ingest_single("a.pdf")
 
-        assert oib_sync.sync() == (1, 1)
+        assert oib_sync.mark_for_reingest("a.pdf") is True
 
-        assert str(tmp_path / "oib_uploads" / "a.pdf") in json.loads(registry_path.read_text(encoding="utf-8"))
-        assert not (tmp_path / "oib_uploads" / corpus_store.MIGRATION_MARKER).exists()
+        assert _row("a.pdf").ingested_sha256 is None
+
+    def test_the_file_is_then_ingested_again(self, bucket, monkeypatch):
+        ingestor = _ingestor(monkeypatch)
+        corpus_store.put("a.pdf", b"a")
+        oib_sync.ingest_single("a.pdf")
+        oib_sync.mark_for_reingest("a.pdf")
+
+        assert oib_sync.ingest_single("a.pdf") == FileStatus.SUCCESS
+
+        assert ingestor.uploaded == ["a.pdf", "a.pdf"]
+
+    @pytest.mark.parametrize("name", ["ghost.pdf", "../a.pdf", "a.txt"])
+    def test_a_name_that_is_not_in_the_corpus_is_false(self, bucket, monkeypatch, name):
+        _ingestor(monkeypatch)
+
+        assert oib_sync.mark_for_reingest(name) is False
+
+
+class TestWorkerSetting:
+    @pytest.mark.parametrize(("raw", "expected"), [("3", 3), ("0", 1), ("-2", 1), ("many", 4)])
+    def test_the_worker_count_is_clamped_and_falls_back(self, monkeypatch, raw, expected):
+        monkeypatch.setenv("OIB_SYNC_MAX_WORKERS", raw)
+        assert oib_sync._get_max_workers() == expected

@@ -521,17 +521,10 @@ class OibReingestResponse(BaseModel):
 
 
 class OibDocumentDeleteResponse(BaseModel):
-    """Response for removing an OIB base-corpus document.
-
-    ``mode`` distinguishes how the document was removed: ``'deleted'`` for an
-    admin upload (source file + registry + chunks physically removed), or
-    ``'excluded'`` for a repo-shipped file (chunks dropped and the basename
-    recorded in the persistent exclusion set so a sync never re-ingests it).
-    """
+    """Response for deleting an OIB base-corpus document (chunks, row, object and cached copy)."""
 
     success: bool
     file_name: str
-    mode: str = Field("deleted", description="'deleted' for an admin upload, 'excluded' for a repo-shipped file.")
 
 
 #: Ceiling on the live lesson register a distill request may carry. Mirrors the

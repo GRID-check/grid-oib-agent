@@ -1,79 +1,57 @@
-"""Incremental ingestion of OIB Richtlinien PDFs into the oib_knowledge collection.
+"""Ingestion of the base corpus into the oib_knowledge collection (ADR-0082).
 
-Uses the canonical, blocking knowledge-layer ingestion path: each new or changed
-PDF is uploaded via the ingestor and its file status is polled until it reaches a
-terminal state. Only files that ingest successfully have their SHA-256 hash recorded
-in the registry, so failures (or timeouts) are automatically retried on the next run.
+The corpus is the ``oib_corpus_files`` table plus the objects it points at
+(``aiq_agent.corpus_store``). A file needs ingestion when the index was not built
+from its current bytes by the current chunking pipeline
+(``FileRow.needs_ingestion``); this module ingests those files through the
+canonical, blocking knowledge-layer path, polls each file's status until it
+reaches a terminal state, and only on SUCCESS records the hash and pipeline
+version it was built from. A failure or a timeout records nothing, so the next
+cycle retries it.
+
+Two callers drive it: an admin upload queues :func:`ingest_single` for the file it
+just stored, and :func:`sync` (the housekeeping route and the admin's "run it
+now") ingests everything that still needs it. Any replica may run either, and
+the cross-replica locks below keep one file from being ingested twice.
 """
 
-import contextlib
-import json
 import logging
 import os
-import threading
 import time
+from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from pathlib import Path
 
 from aiq_agent import corpus_store
 from aiq_agent.knowledge.factory import get_ingestor
+from aiq_agent.knowledge.factory import unregister_summary
+from aiq_agent.knowledge.leader_lock import keyed_lock
 from aiq_agent.knowledge.schema import FileStatus
 
 logger = logging.getLogger(__name__)
 
-OIB_DIR = Path(os.environ.get("OIB_DOCUMENTS_DIR", "data/oib"))
-# Writable home for PDFs uploaded through the platform-admin UI. Kept separate
-# from OIB_DIR because deployments bind-mount that directory read-only; this one
-# lives on the persistent data volume instead. Since the corpus left the
-# repository this is the path a running deployment actually fills.
-OIB_UPLOADS_DIR = Path(os.environ.get("OIB_UPLOADS_DIR", "data/oib_uploads"))
-REGISTRY_PATH = Path(os.environ.get("OIB_REGISTRY_PATH", "data/oib_registry.json"))
-# Persistent set of corpus basenames removed from the active corpus. A file under
-# OIB_DIR is bind-mounted read-only, so "delete" for it means excluding it here:
-# its chunks are dropped and discover_pdfs()/sync() skip it forever, so a sync
-# never re-ingests a document an admin removed. (This began as a workaround for
-# a corpus committed to git, which could not be deleted at all. That corpus is
-# gone; the mechanism stays, because a read-only mount has the same problem and
-# existing deployments carry exclusion state.)
-EXCLUDED_PATH = Path(os.environ.get("OIB_EXCLUDED_PATH", "data/oib_excluded.json"))
 COLLECTION_NAME = os.environ.get("OIB_COLLECTION_NAME") or os.environ.get("COLLECTION_NAME") or "oib_knowledge"
 CHROMA_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
 
 # Polling configuration for blocking file-status checks.
 _POLL_INTERVAL_SECONDS = 2.0
 _POLL_TIMEOUT_SECONDS = 600.0
-_PROGRESS_LOG_INTERVAL_SECONDS = 30.0
 
-
-@dataclass
-class _ActiveIngestion:
-    pdf: Path
-    current_hash: str
-    file_id: str
-    queue_position: int
-    submitted_at: float
-    last_status: FileStatus | None = None
-    last_progress_logged_at: float = 0.0
-    # The per-basename lock held for this file's whole ingestion, released when
-    # it reaches a terminal state (see ``_file_lock``).
-    lock: "threading.Lock | None" = None
-
-
-def _file_hash(path: Path) -> str:
-    return corpus_store.sha256_file(path)
-
+# One sync cycle at a time across every replica.
+SYNC_LOCK_KEY = "oib-sync"
 
 # Chunk-format version of the ingestion pipeline. Bump whenever chunking,
-# embedding-relevant preprocessing, or chunk metadata changes shape: the next
-# sync() then discards all stored hashes ONCE and re-ingests the full corpus,
-# so stale-format chunks self-heal automatically instead of persisting until
-# a PDF happens to change. Stored under a reserved key in the sync registry.
+# embedding-relevant preprocessing, or chunk metadata changes shape: every file
+# whose recorded version differs then needs ingestion, and the next sync cycle
+# re-ingests the full corpus, so stale-format chunks self-heal instead of
+# persisting until a PDF happens to change. Stored per file in
+# ``oib_corpus_files.chunk_format_version``.
 # 2: chunk metadata is no longer embedded wholesale. `file_size`, the ingest temp
 #    path and render geometry are excluded from the embed rendering, so the literal
 #    text sent to the embedding model changed for every chunk. Without this bump the
-#    corpus would keep its diluted vectors indefinitely — sync() gates on the sha256
-#    of the PDF bytes, and a preprocessing change alters no file hash — while newly
-#    uploaded documents got clean ones, leaving two embedding conventions in one index.
+#    corpus would keep its diluted vectors indefinitely — the change detector gates on
+#    the sha256 of the PDF bytes, and a preprocessing change alters no file hash — while
+#    newly uploaded documents got clean ones, leaving two embedding conventions in one index.
 # 3: Punkt-aware chunking. A document with a usable outline is now cut on its own
 #    numbering rather than per page, so chunk boundaries, chunk count and the
 #    metadata every chunk carries all change. Without this bump the corpus would
@@ -92,128 +70,29 @@ def _file_hash(path: Path) -> str:
 #    table rows version 3 accepted as Punkte (OIB-RL 2 13-15, OIB-RL 2.1 6.1-6.3,
 #    and their Änderungen twins): 1645 Punkt ids become 1633, plus 104 table chunks.
 CHUNK_FORMAT_VERSION = 4
-_FORMAT_KEY = corpus_store.FORMAT_KEY
 
 
-# Serialises registry read-modify-write sequences. ZIP admin uploads ingest
-# members concurrently (the oib route's executor runs >1 thread) and a full
-# sync() can overlap with them — without the lock, two threads can each load
-# the registry, and the later save silently drops the other's new hash entry
-# (lost hashes cause a wasteful re-ingest next sync, never corruption).
-# Every write reloads the file INSIDE the lock and merges: the lock alone only
-# serialises the saves, it does not stop a stale in-memory snapshot (sync()
-# loads once, then runs for minutes) from clobbering a concurrent writer.
-_REGISTRY_LOCK = threading.Lock()
+@dataclass(frozen=True)
+class SyncResult:
+    """What one sync cycle did: files ingested, files that failed or timed out, files in the corpus."""
 
-# Same guarantee for the persisted exclusion set, which has its own file and is
-# read-modify-written by exclude/unexclude/prune.
-_EXCLUDED_LOCK = threading.Lock()
+    ingested: int
+    failed: int
+    total: int
 
 
-@contextlib.contextmanager
-def _registry_guard():
-    """The registry's critical section: this process's lock and, in object mode, every replica's."""
-    with _REGISTRY_LOCK, corpus_store.shared_lock("oib-registry"):
-        yield
+def _file_lock(name: str):
+    """Serialise the corpus mutations of ONE document, in this process and across replicas.
 
-
-@contextlib.contextmanager
-def _excluded_guard():
-    """The exclusion set's critical section, as :func:`_registry_guard`."""
-    with _EXCLUDED_LOCK, corpus_store.shared_lock("oib-excluded"):
-        yield
-
-
-# Single-flight guard for sync(): two concurrent syncs would build their work
-# lists from the same registry snapshot and ingest every changed file twice.
-_SYNC_LOCK = threading.Lock()
-
-# Per-basename locks. The collection keys chunks on the filename, so all corpus
-# mutations for ONE document (an upload and its replacement of the previous
-# version, or delete + unlink) must not interleave: without this a delete can
-# land while a concurrent ingest is still indexing, leaving the file indexed
-# after a "successful" removal, or two ingests of the same name can double-index
-# it. Different documents stay fully concurrent, which is the point of the
-# multi-worker executor.
-#
-# This lock is per PROCESS. The replacement itself is also serialised inside the
-# ingestor, per (collection, name) and across replicas (`keyed_lock` in
-# `_run_ingestion`), so an admin upload on one replica and a sync on another
-# still leave one version. What only this lock covers is the upload → poll →
-# registry cycle and the delete + unlink, which the ingestor never sees.
-_FILE_LOCKS: dict[str, threading.Lock] = {}
-_FILE_LOCKS_GUARD = threading.Lock()
-
-
-def _file_lock(name: str) -> threading.Lock:
-    """The lock serialising corpus mutations for one document basename."""
-    key = Path(name).name
-    with _FILE_LOCKS_GUARD:
-        return _FILE_LOCKS.setdefault(key, threading.Lock())
-
-
-# The registry and the exclusion set live in one of two places, chosen once here:
-# the JSON files (GRID_BASE_CORPUS_STORE=disk, the default) or the shared tables
-# (=object, see aiq_agent.corpus_store). Everything else in this module, and
-# oib_status, reads and writes through these four functions.
-
-
-def _load_registry() -> dict[str, str]:
-    if corpus_store.object_mode():
-        return corpus_store.load_registry()
-    return _load_registry_file()
-
-
-def _save_registry(registry: dict[str, str]) -> None:
-    if corpus_store.object_mode():
-        corpus_store.save_registry(registry)
-        return
-    REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REGISTRY_PATH.write_text(json.dumps(registry, indent=2, sort_keys=True), encoding="utf-8")
-
-
-def _load_excluded() -> set[str]:
-    """Basenames removed from the active corpus (persisted exclusion set)."""
-    if corpus_store.object_mode():
-        return corpus_store.load_excluded()
-    return _load_excluded_file()
-
-
-def _save_excluded(names: set[str]) -> None:
-    if corpus_store.object_mode():
-        corpus_store.save_excluded(names)
-        return
-    EXCLUDED_PATH.parent.mkdir(parents=True, exist_ok=True)
-    EXCLUDED_PATH.write_text(json.dumps(sorted(names), indent=2), encoding="utf-8")
-
-
-def _load_registry_file() -> dict[str, str]:
-    if REGISTRY_PATH.exists():
-        return json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
-    return {}
-
-
-def _load_excluded_file() -> set[str]:
-    if EXCLUDED_PATH.exists():
-        try:
-            data = json.loads(EXCLUDED_PATH.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            logger.warning("Could not read exclusion file %s; treating as empty", EXCLUDED_PATH)
-            return set()
-        if isinstance(data, list):
-            return {str(name) for name in data}
-    return set()
-
-
-def _refresh_cache() -> None:
-    """Object mode: make ``OIB_UPLOADS_DIR`` match the shared corpus. Disk mode: nothing.
-
-    Runs the one-time move of this replica's local files, registry and
-    exclusions into the store first (``corpus_store.migrate_once``), so the
-    cache is never made to match a table that does not yet hold them.
+    The collection keys chunks on the file name, so an ingest and a delete of
+    one document, or two ingests of it, must not interleave: a delete landing
+    while an ingest is still indexing would leave the file indexed after a
+    "successful" removal. Different documents stay fully concurrent. The
+    replacement itself is also serialised inside the ingestor (a different key),
+    which this lock does not replace: what only this one covers is the upload,
+    the poll and the recording of the hash, and a delete.
     """
-    if corpus_store.object_mode():
-        corpus_store.refresh_cache(OIB_UPLOADS_DIR, _load_registry_file, _load_excluded_file)
+    return keyed_lock(f"oib-file:{name}")
 
 
 def _ensure_collection(ingestor) -> None:
@@ -240,16 +119,14 @@ def _ensure_collection(ingestor) -> None:
 def _collection_is_empty(ingestor) -> bool:
     """True when the OIB collection is missing or holds no vectors.
 
-    Detects registry/vector-store drift. The sync registry lives on the data
-    volume, but the vectors live in Chroma — an embedded dir, or (shared mode) a
-    SEPARATE Chroma-server volume. Those can diverge: classically, when the
-    deployment is repointed at a fresh shared Chroma server (``AIQ_CHROMA_URL``)
-    while the registry still lists the whole corpus as ingested. The collection
-    is then empty even though the registry is full, and the incremental diff in
-    ``sync()`` would skip everything and leave it empty forever.
+    Detects table/vector-store drift. The table says what was ingested, but the
+    vectors live in Chroma, which can be reset or repointed (``AIQ_CHROMA_URL``
+    at a fresh server) while the table still lists the whole corpus as ingested;
+    the change detector would then find nothing to do and leave the collection
+    empty forever.
 
     Returns ``False`` (the safe, non-destructive answer) if the store cannot be
-    probed, so a transient Chroma hiccup never wipes a good registry.
+    probed, so a transient Chroma hiccup never discards what the table knows.
     """
     try:
         info = ingestor.get_collection(COLLECTION_NAME)
@@ -275,10 +152,6 @@ def _get_max_workers() -> int:
     return max_workers
 
 
-def _status_label(status: FileStatus | None) -> str:
-    return status.value if status is not None else "unknown"
-
-
 def _get_oib_ingestor():
     # Register the LlamaIndex backend lazily so tests can import this module
     # without importing the full NAT/LlamaIndex stack.
@@ -290,561 +163,157 @@ def _get_oib_ingestor():
     return get_ingestor("llamaindex", {"persist_dir": CHROMA_DIR})
 
 
-def discover_pdfs() -> list[Path]:
-    """All corpus PDFs: the repo corpus plus platform-admin uploads.
-
-    Deduplicated by basename — the collection keys chunks on the filename, so
-    two same-named sources would double-index. Uploads win: uploading a file
-    with an existing corpus name is how an admin replaces that document.
-
-    Basenames in the persistent exclusion set are skipped for the repo corpus,
-    so a repo-shipped file an admin removed is never re-ingested. A physically
-    present admin UPLOAD, however, always wins: it is an explicit re-add, so it
-    overrides a stale exclusion left over from a prior delete of the same
-    basename. (This also self-heals corpora uploaded before the upload path
-    learned to lift the exclusion itself — the files simply reappear.)
-
-    In object mode the uploads directory is first refreshed from the shared
-    corpus, so every replica reports the same set (``_refresh_cache``).
-    """
-    _refresh_cache()
-    excluded = _load_excluded()
-    by_name: dict[str, Path] = {}
-    for base in (OIB_DIR, OIB_UPLOADS_DIR):
-        if not base.exists():
-            continue
-        is_upload = base == OIB_UPLOADS_DIR
-        for pdf in sorted(p for p in base.rglob("*.pdf") if p.is_file()):
-            if pdf.name in excluded and not is_upload:
-                continue
-            by_name[pdf.name] = pdf
-    return sorted(by_name.values(), key=lambda p: p.name)
-
-
-def ingest_single(pdf: Path) -> "FileStatus | None":
-    """Blocking ingest of one PDF into the OIB collection.
-
-    Same contract as sync(): existing chunks for the filename are replaced and
-    the registry hash is recorded only on success. Returns the terminal
-    FileStatus, or None on timeout.
-
-    The replacement is the ingestor's own: it retires the previous version's
-    chunks once the new one is indexed, and keeps them when it is not, taking
-    back out whatever part of the new version a failure had already inserted.
-    Finding the previous version reads only this file's chunks, not the
-    collection. There is deliberately no ``delete_file`` first. That deleted the chunks AND the
-    metadata row before the new file was read, so a re-ingest that then failed
-    left the document with nothing, and one that succeeded lost the Dokumentart
-    the platform owner had set on the row.
-
-    Holds the document's per-basename lock for the whole upload → poll cycle,
-    so a concurrent removal or sync of the same filename cannot interleave with
-    it (see ``_file_lock``).
-    """
-    current_hash = _file_hash(pdf)
-    with _file_lock(pdf.name):
-        ingestor = _get_oib_ingestor()
-        _ensure_collection(ingestor)
-
-        file_info = ingestor.upload_file(str(pdf), COLLECTION_NAME)
-        logger.info("Submitted OIB upload %s size=%d file_id=%s", pdf.name, pdf.stat().st_size, file_info.file_id)
-
-        deadline = time.monotonic() + _POLL_TIMEOUT_SECONDS
-        while time.monotonic() < deadline:
-            info = ingestor.get_file_status(file_info.file_id, COLLECTION_NAME)
-            status = info.status if info else None
-            if status == FileStatus.SUCCESS:
-                with _registry_guard():
-                    registry = _load_registry()
-                    registry[str(pdf)] = current_hash
-                    _save_registry(registry)
-                logger.info("OIB upload ingested: %s chunks=%s", pdf.name, info.chunk_count if info else "unknown")
-                return status
-            if status == FileStatus.FAILED:
-                logger.error(
-                    "OIB upload failed: %s error=%s", pdf.name, info.error_message if info else "missing file status"
-                )
-                return status
-            time.sleep(_POLL_INTERVAL_SECONDS)
-
-        logger.error("OIB upload timed out: %s", pdf.name)
-        return None
-
-
-def remove_uploaded_document(file_name: str) -> bool:
-    """Remove a platform-admin-uploaded PDF from disk, registry, and index.
-
-    Only files under OIB_UPLOADS_DIR are removable — the repo corpus is the
-    deployment's read-only ground truth (and would be re-ingested by the next
-    sync anyway). Returns False when no such uploaded file exists.
-    """
-    name = Path(file_name).name  # forbid path traversal
-    _refresh_cache()
-    path = OIB_UPLOADS_DIR / name
-    if not path.is_file():
-        return False
-
-    # One lock for chunk delete + registry drop + unlink: a pending ingest of the
-    # same basename must not finish inside those gaps and leave the document
-    # indexed (or its hash recorded) after a "successful" removal.
-    with _file_lock(name):
-        ingestor = _get_oib_ingestor()
-        try:
-            ingestor.delete_file(name, COLLECTION_NAME)
-        except Exception as exc:
-            logger.warning("Could not delete chunks for %s: %s", name, exc)
-
-        with _registry_guard():
-            registry = _load_registry()
-            if registry.pop(str(path), None) is not None:
-                _save_registry(registry)
-
-        try:
-            from aiq_agent.knowledge.factory import unregister_summary
-
-            unregister_summary(COLLECTION_NAME, name)
-        except Exception as exc:
-            logger.debug("Could not unregister summary for %s: %s", name, exc)
-
-        # Out of the shared corpus before the local copy goes: if this raises, the
-        # file is still listed and a retry finds it.
-        if corpus_store.object_mode():
-            corpus_store.remove(name)
-        path.unlink(missing_ok=True)
-    logger.info("Removed uploaded OIB document %s", name)
-    return True
-
-
-def exclude_document(name: str) -> None:
-    """Remove a repo-shipped corpus file from the ACTIVE corpus.
-
-    Repo PDFs live in git and cannot be physically deleted, so removal means:
-    drop the file's indexed chunks, drop its registry hash entries, drop its
-    summary row, and record its basename in the persistent exclusion set so
-    discover_pdfs()/sync() never re-ingest it. Idempotent.
-    """
-    base = Path(name).name  # forbid path traversal
-
-    with _file_lock(base):
-        ingestor = _get_oib_ingestor()
-        try:
-            ingestor.delete_file(base, COLLECTION_NAME)
-        except Exception as exc:
-            logger.warning("Could not delete chunks for excluded %s: %s", base, exc)
-
-        with _registry_guard():
-            registry = _load_registry()
-            stale_keys = [key for key in registry if key != _FORMAT_KEY and Path(key).name == base]
-            if stale_keys:
-                for key in stale_keys:
-                    registry.pop(key, None)
-                _save_registry(registry)
-
-        try:
-            from aiq_agent.knowledge.factory import unregister_summary
-
-            unregister_summary(COLLECTION_NAME, base)
-        except Exception as exc:
-            logger.debug("Could not unregister summary for %s: %s", base, exc)
-
-        # Under the exclusion lock too: a concurrent removal of another document
-        # would otherwise load the same set and drop this basename on save, and
-        # the next sync would re-ingest the document an admin just removed.
-        with _excluded_guard():
-            excluded = _load_excluded()
-            if base not in excluded:
-                excluded.add(base)
-                _save_excluded(excluded)
-    logger.info("Excluded OIB corpus document %s from the active corpus", base)
-
-
-def _prune_excluded_uploads() -> None:
-    """Drop exclusion entries whose basename now exists as an admin upload.
-
-    A physically present upload overrides its exclusion (see ``discover_pdfs``),
-    so keeping the name in the persisted set is stale bookkeeping. Pruning it
-    keeps the exclusion file honest and self-heals corpora uploaded before the
-    upload path lifted exclusions itself. Idempotent; no-op when nothing changes.
-    """
-    if not OIB_UPLOADS_DIR.exists():
-        return
-    uploaded = {p.name for p in OIB_UPLOADS_DIR.rglob("*.pdf") if p.is_file()}
-    with _excluded_guard():
-        excluded = _load_excluded()
-        if not excluded:
-            return
-        remaining = excluded - uploaded
-        if remaining != excluded:
-            _save_excluded(remaining)
-            logger.info("Pruned %d stale exclusion(s) now present as uploads", len(excluded) - len(remaining))
-
-
-def unexclude_document(name: str) -> bool:
-    """Reverse an exclusion so the file is re-discovered (and re-ingested by the
-    next sync). Returns False when the basename was not excluded."""
-    base = Path(name).name
-    with _excluded_guard():
-        excluded = _load_excluded()
-        if base not in excluded:
-            return False
-        excluded.discard(base)
-        _save_excluded(excluded)
-    logger.info("Re-included OIB corpus document %s into the active corpus", base)
-    return True
-
-
-def _is_corpus_document(base: str) -> bool:
-    """True when ``base`` is a known corpus document (repo source on disk, a
-    registry entry, or an indexed file) — i.e. something an admin can remove."""
-    if OIB_DIR.exists():
-        for candidate in OIB_DIR.rglob(base):
-            if candidate.is_file():
-                return True
-    registry = _load_registry()
-    if any(key != _FORMAT_KEY and Path(key).name == base for key in registry):
-        return True
-    try:
-        ingestor = _get_oib_ingestor()
-        return any(info.file_name == base for info in ingestor.list_files(COLLECTION_NAME))
-    except Exception as exc:
-        logger.debug("Could not list collection files while checking %s: %s", base, exc)
-        return False
-
-
-def remove_document(name: str) -> str | None:
-    """Unified corpus removal for the admin UI.
-
-    - An admin-uploaded PDF (under OIB_UPLOADS_DIR) is physically deleted from
-      disk, registry and index → returns ``"deleted"``.
-    - A repo-shipped / index-only corpus document is removed from the active
-      corpus via a persistent exclusion (chunks dropped, never re-ingested) →
-      returns ``"excluded"``.
-    - Returns ``None`` when no such corpus document exists (route → 404).
-    """
-    base = Path(name).name
-    if not base or base != name or not base.lower().endswith(".pdf"):
-        return None
-
-    _refresh_cache()
-    if (OIB_UPLOADS_DIR / base).is_file():
-        return "deleted" if remove_uploaded_document(base) else None
-
-    if _is_corpus_document(base):
-        exclude_document(base)
-        return "excluded"
-
+def _await_terminal(ingestor, file_id: str, name: str) -> FileStatus | None:
+    """Poll ``file_id`` until it is SUCCESS or FAILED; ``None`` after the timeout."""
+    deadline = time.monotonic() + _POLL_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        info = ingestor.get_file_status(file_id, COLLECTION_NAME)
+        status = info.status if info else None
+        if status == FileStatus.SUCCESS:
+            logger.info("OIB ingestion succeeded: %s chunks=%s", name, info.chunk_count)
+            return status
+        if status == FileStatus.FAILED:
+            logger.error("OIB ingestion failed: %s error=%s", name, info.error_message)
+            return status
+        time.sleep(_POLL_INTERVAL_SECONDS)
+    logger.error("OIB ingestion timed out: %s", name)
     return None
 
 
-def mark_for_reingest(name: str) -> Path | None:
-    """Resolve a corpus document for a forced re-ingest, and forget its indexed state.
+def ingest_single(name: str) -> FileStatus | None:
+    """Blocking ingest of one corpus file into the OIB collection, unless the index is already current.
 
-    Returns the ``Path`` the caller should hand to :func:`ingest_single`, or ``None`` when
-    no such corpus document exists (route → 404). Basename-only, ``.pdf``-only, and
-    resolved through :func:`discover_pdfs`, so an excluded file cannot be revived this way
-    and a path cannot traverse out of the corpus.
+    Returns the terminal FileStatus, or None on timeout. A file the index was
+    already built from (same bytes, same pipeline version) returns SUCCESS
+    without work: an upload's queued ingestion and a sync cycle can both reach
+    the same file, and whichever takes the lock second finds it done. Raises
+    ``LookupError`` when the table no longer lists the file (deleted since it
+    was queued) and ``CorpusStoreError`` when it is listed but cannot be fetched.
 
-    Dropping the registry hash is NOT what makes the re-ingest happen -- ``ingest_single``
-    re-uploads, and the ingestor replaces the old version, regardless of what the
-    registry says. It is what makes the
-    re-ingest *visible*: ``oib_status`` reports a file with no registry entry as PENDING,
-    which is the state the admin UI already polls on. Without it a re-ingest of an
-    already-ingested document would read as INGESTED for its whole duration and the
-    progress panel would show a job that appeared to finish before it started.
+    The previous version's chunks are replaced by the ingestor itself, once the
+    new one is indexed, and kept when it is not, taking back out whatever part
+    of the new version a failure had already inserted. There is deliberately no
+    ``delete_file`` first: that deleted the chunks AND the metadata row before
+    the new file was read, so a re-ingest that then failed left the document
+    with nothing, and one that succeeded lost the Dokumentart the platform owner
+    had set on the row.
 
-    Every entry for the basename is dropped, not just the exact path, because the same
-    document can be registered under both the repo corpus and the uploads directory and a
-    single leftover hash would restore the INGESTED reading.
-
-    If the ingestion then fails, the entry simply stays dropped: the file reads as PENDING
-    and the next ``sync()`` picks it up, which is the same self-healing path a genuinely
-    new file takes.
+    The hash is recorded for the bytes that were read (the row's), so a file
+    replaced while this ran still needs ingestion afterwards.
     """
-    base = Path(name).name
-    if not base or base != name or not base.lower().endswith(".pdf"):
-        return None
+    with _file_lock(name):
+        row = corpus_store.get_file(name)
+        if row is None:
+            raise LookupError(f"{name} is no longer in the base corpus")
+        if not row.needs_ingestion(CHUNK_FORMAT_VERSION):
+            return FileStatus.SUCCESS
+        pdf = corpus_store.ensure_local(name)
+        if pdf is None:
+            raise LookupError(f"{name} is no longer in the base corpus")
 
-    target = next((pdf for pdf in discover_pdfs() if pdf.name == base), None)
-    if target is None:
-        return None
+        ingestor = _get_oib_ingestor()
+        _ensure_collection(ingestor)
+        file_info = ingestor.upload_file(str(pdf), COLLECTION_NAME)
+        logger.info("Submitted OIB file %s size=%d file_id=%s", name, row.size_bytes, file_info.file_id)
 
-    with _registry_guard():
-        registry = _load_registry()
-        stale_keys = [key for key in registry if key != _FORMAT_KEY and Path(key).name == base]
-        if stale_keys:
-            for key in stale_keys:
-                registry.pop(key, None)
-            _save_registry(registry)
-
-    return target
+        status = _await_terminal(ingestor, file_info.file_id, name)
+        if status == FileStatus.SUCCESS:
+            corpus_store.mark_ingested(name, row.sha256, CHUNK_FORMAT_VERSION)
+        return status
 
 
-def sync() -> tuple[int, int]:
-    """Incrementally ingest new/changed OIB PDFs into the persistent collection.
+def remove_document(name: str) -> bool:
+    """Delete a base-corpus document: its chunks, summary registration, row, object and cached copy.
 
-    Single-flight: a second concurrent sync waits for the running one instead of
-    ingesting the same work list twice (the admin route's executor has >1 worker,
-    so a manual sync can land while one is already running).
-
-    Returns:
-        Tuple of (num_succeeded, num_total_tracked) where num_succeeded is the
-        number of files that ingested successfully this run and num_total_tracked
-        is the total number of OIB PDFs discovered on disk.
+    Returns False when neither the table nor the index knows the name (route
+    -> 404). A name only the index knows, chunks left behind by a half-finished
+    delete or a restored vector store, is removed the same way; the table and
+    object steps are then no-ops.
     """
-    if not _SYNC_LOCK.acquire(blocking=False):
-        logger.info("OIB sync already in progress; waiting for it to finish before syncing again")
-        _SYNC_LOCK.acquire()
-    try:
-        # In object mode every web replica runs sync() at boot, so the same work
-        # list must not be ingested twice across replicas either: a second sync
-        # waits here, then finds nothing new.
-        with corpus_store.shared_lock("oib-sync"):
-            return _sync_locked()
-    finally:
-        _SYNC_LOCK.release()
+    if not corpus_store.is_valid_name(name):
+        return False
+    with _file_lock(name):
+        ingestor = _get_oib_ingestor()
+        if corpus_store.get_file(name) is None and name not in _indexed_names(ingestor):
+            return False
+
+        # Chunks and summary first, the row last: a failure in between leaves the
+        # document listed, so the admin sees it and a retry finds it.
+        ingestor.delete_file(name, COLLECTION_NAME)
+        unregister_summary(COLLECTION_NAME, name)
+        corpus_store.remove(name)
+    logger.info("Removed OIB document %s", name)
+    return True
 
 
-def _sync_locked() -> tuple[int, int]:
-    _refresh_cache()
-    if not OIB_DIR.exists() and not OIB_UPLOADS_DIR.exists():
-        raise FileNotFoundError(f"OIB directory not found: {OIB_DIR}")
+def _indexed_names(ingestor) -> set[str]:
+    if ingestor.get_collection(COLLECTION_NAME) is None:
+        return set()
+    return {info.file_name for info in ingestor.list_files(COLLECTION_NAME)}
 
-    # Self-heal any stale exclusions for files that now exist as uploads before
-    # discovering, so the persisted set matches what discover_pdfs() surfaces.
-    _prune_excluded_uploads()
-    pdf_paths = discover_pdfs()
-    if not pdf_paths:
-        logger.warning("No PDF files found in %s", OIB_DIR)
-        return 0, 0
 
-    # A stale chunk format empties the registry, which is what triggers the re-ingest.
-    # It must not make that re-ingest additive: the collection would hold both formats
-    # of the whole corpus, both retrievable and both rendering as a valid citation.
-    # It does not, because the ingestor replaces every file by name once the new
-    # version is indexed, whatever the registry says (a pre-ingest delete guarded by
-    # `str(pdf) in registry` once had to be forced here for exactly that reason).
-    with _registry_guard():
-        registry = _load_registry()
-        if registry and registry.get(_FORMAT_KEY) != CHUNK_FORMAT_VERSION:
-            logger.warning(
-                "OIB sync: chunk format version changed (stored=%s, current=%s) — "
-                "forcing one full re-ingest of the corpus",
-                registry.get(_FORMAT_KEY),
-                CHUNK_FORMAT_VERSION,
-            )
-            registry = {}
-        registry.setdefault(_FORMAT_KEY, CHUNK_FORMAT_VERSION)
-        _save_registry(registry)
+def mark_for_reingest(name: str) -> bool:
+    """Forget what the index was built from for ``name``, so it needs ingestion again. False if not in the corpus.
 
-    # Reconcile the registry against the ACTUAL vector store. The registry (data
-    # volume) and the vectors (embedded dir, or a shared Chroma-server volume)
-    # live on different volumes and can drift apart — e.g. after repointing the
-    # deployment at a fresh shared Chroma server while the registry still lists
-    # the whole corpus as ingested. Without this, the diff below finds nothing
-    # new and the collection stays empty forever ("No new or changed OIB PDFs").
-    # If the registry claims ingested files but the collection is empty/missing,
-    # the registry is stale: drop it (keeping the format stamp) to force a full
-    # re-ingest. Guarded so a transient Chroma error never discards a good one.
-    if any(key != _FORMAT_KEY for key in registry) and _collection_is_empty(_get_oib_ingestor()):
-        logger.warning(
-            "OIB sync: registry lists ingested files but collection %s is empty/missing "
-            "(vector store reset or repointed) — forcing a full re-ingest",
-            COLLECTION_NAME,
-        )
-        with _registry_guard():
-            registry = {_FORMAT_KEY: CHUNK_FORMAT_VERSION}
-            _save_registry(registry)
+    :func:`ingest_single` re-uploads and the ingestor replaces the old version
+    whatever the table says; what this makes happen is that the re-ingest is
+    *visible*: ``oib_status`` reports a file with no recorded hash as PENDING,
+    which is the state the admin UI already polls on. Without it a re-ingest of
+    an already-ingested document would read as INGESTED for its whole duration
+    and the progress panel would show a job that appeared to finish before it
+    started. It is also what makes ``ingest_single`` do the work at all, since
+    the file would otherwise be current.
 
-    new_or_changed: list[tuple[Path, str]] = []
-    max_workers = _get_max_workers()
+    If the ingestion then fails, the hash simply stays forgotten: the file reads
+    as PENDING and the next sync cycle picks it up, the same self-healing path a
+    genuinely new file takes.
+    """
+    if not corpus_store.is_valid_name(name) or corpus_store.get_file(name) is None:
+        return False
+    corpus_store.forget_ingested(name)
+    return True
 
-    for pdf in pdf_paths:
-        current_hash = _file_hash(pdf)
-        if registry.get(str(pdf)) != current_hash:
-            new_or_changed.append((pdf, current_hash))
 
-    logger.info(
-        "OIB sync discovery: total_pdfs=%d registry_entries=%d new_or_changed=%d skipped=%d "
-        "max_workers=%d collection=%s chroma_dir=%s",
-        len(pdf_paths),
-        len(registry),
-        len(new_or_changed),
-        len(pdf_paths) - len(new_or_changed),
-        max_workers,
+def _forget_ingested_if_the_index_was_reset(rows: dict[str, corpus_store.FileRow]) -> dict[str, corpus_store.FileRow]:
+    """The rows, after forgetting every ingested hash when the table claims files the index no longer holds."""
+    if not any(row.ingested_sha256 for row in rows.values()) or not _collection_is_empty(_get_oib_ingestor()):
+        return rows
+    logger.warning(
+        "OIB sync: the table lists ingested files but collection %s is empty/missing "
+        "(vector store reset or repointed) — forcing a full re-ingest",
         COLLECTION_NAME,
-        CHROMA_DIR,
     )
+    corpus_store.forget_ingested()
+    return corpus_store.list_files()
 
-    if not new_or_changed:
-        logger.info("No new or changed OIB PDFs. Skipping ingestion.")
-        return 0, len(pdf_paths)
 
-    ingestor = _get_oib_ingestor()
-    _ensure_collection(ingestor)
+def _ingest_all(names: Iterable[str]) -> int:
+    """Ingest ``names`` on a small pool; the number that succeeded. A raise is one file's failure, not the cycle's."""
 
-    succeeded = 0
-    failed = 0
-    timed_out = 0
-    next_index = 0
-    active: dict[str, _ActiveIngestion] = {}
-    total_pending = len(new_or_changed)
-    last_summary_logged_at = 0.0
+    def one(name: str) -> bool:
+        try:
+            return ingest_single(name) == FileStatus.SUCCESS
+        except Exception:
+            logger.exception("OIB ingestion of %s crashed; it will be retried by the next cycle", name)
+            return False
 
-    def submit_until_capacity() -> None:
-        nonlocal next_index
+    with ThreadPoolExecutor(max_workers=_get_max_workers(), thread_name_prefix="oib-ingest-") as pool:
+        return sum(pool.map(one, names))
 
-        while next_index < total_pending and len(active) < max_workers:
-            pdf, current_hash = new_or_changed[next_index]
-            queue_position = next_index + 1
 
-            # Held until this file reaches a terminal state, so a concurrent
-            # upload or removal of the same basename cannot interleave with the
-            # upload → poll cycle below (see _file_lock). No delete first: the
-            # ingestor replaces the previous version once this one is indexed
-            # (see ingest_single).
-            lock = _file_lock(pdf.name)
-            lock.acquire()
-            try:
-                file_info = ingestor.upload_file(str(pdf), COLLECTION_NAME)
-            except BaseException:
-                lock.release()
-                raise
-            active[file_info.file_id] = _ActiveIngestion(
-                pdf=pdf,
-                current_hash=current_hash,
-                file_id=file_info.file_id,
-                queue_position=queue_position,
-                submitted_at=time.monotonic(),
-                last_status=file_info.status,
-                lock=lock,
-            )
-            next_index += 1
-            logger.info(
-                "Submitted OIB PDF %d/%d: %s size=%d file_id=%s active=%d queued=%d",
-                queue_position,
-                total_pending,
-                pdf.name,
-                pdf.stat().st_size,
-                file_info.file_id,
-                len(active),
-                total_pending - next_index,
-            )
+def sync() -> SyncResult:
+    """One sync cycle: ingest every corpus file that needs it.
 
-    def complete(file_id: str) -> None:
-        """Drop a finished item and release its per-basename lock."""
-        item = active.pop(file_id, None)
-        if item is not None and item.lock is not None:
-            item.lock.release()
-
-    def log_progress(now: float, *, force: bool = False) -> None:
-        nonlocal last_summary_logged_at
-
-        if not force and now - last_summary_logged_at < _PROGRESS_LOG_INTERVAL_SECONDS:
-            return
-
-        states = ", ".join(
-            f"{item.pdf.name}={_status_label(item.last_status)}:{now - item.submitted_at:.0f}s"
-            for item in active.values()
-        )
-        logger.info(
-            "OIB sync progress: active=%d succeeded=%d failed=%d timed_out=%d queued=%d completed=%d/%d states=[%s]",
-            len(active),
-            succeeded,
-            failed,
-            timed_out,
-            total_pending - next_index,
-            succeeded + failed + timed_out,
-            total_pending,
-            states,
-        )
-        last_summary_logged_at = now
-
-    try:
-        submit_until_capacity()
-        if active:
-            log_progress(time.monotonic(), force=True)
-
-        while active:
-            now = time.monotonic()
-            made_progress = False
-
-            for file_id, item in list(active.items()):
-                file_info = ingestor.get_file_status(file_id, COLLECTION_NAME)
-                status = file_info.status if file_info else None
-
-                if status != item.last_status:
-                    item.last_status = status
-                    made_progress = True
-
-                elapsed = now - item.submitted_at
-                if status == FileStatus.SUCCESS:
-                    with _registry_guard():
-                        # Reload: `registry` was loaded before this (minutes-long)
-                        # run started, so saving it as-is would drop hashes another
-                        # ingestion recorded in the meantime.
-                        registry = _load_registry()
-                        registry[str(item.pdf)] = item.current_hash
-                        _save_registry(registry)
-                    succeeded += 1
-                    complete(file_id)
-                    made_progress = True
-                    logger.info(
-                        "OIB ingestion succeeded: %s file_id=%s chunks=%s elapsed=%.1fs",
-                        item.pdf.name,
-                        file_id,
-                        file_info.chunk_count if file_info else "unknown",
-                        elapsed,
-                    )
-                elif status == FileStatus.FAILED:
-                    failed += 1
-                    complete(file_id)
-                    made_progress = True
-                    logger.error(
-                        "OIB ingestion failed: %s file_id=%s status=%s error=%s elapsed=%.1fs; "
-                        "registry not updated, will retry next run",
-                        item.pdf.name,
-                        file_id,
-                        _status_label(status),
-                        file_info.error_message if file_info else "missing file status",
-                        elapsed,
-                    )
-                elif elapsed >= _POLL_TIMEOUT_SECONDS:
-                    timed_out += 1
-                    complete(file_id)
-                    made_progress = True
-                    logger.error(
-                        "OIB ingestion timed out: %s file_id=%s elapsed=%.1fs last_status=%s; "
-                        "registry not updated, will retry next run",
-                        item.pdf.name,
-                        file_id,
-                        elapsed,
-                        _status_label(status),
-                    )
-
-            if made_progress:
-                submit_until_capacity()
-                if active:
-                    log_progress(time.monotonic(), force=True)
-            elif active:
-                log_progress(now)
-                time.sleep(_POLL_INTERVAL_SECONDS)
-
-    finally:
-        # A raise mid-flight (ingestor error, cancellation) must not leave a
-        # basename locked for the process's lifetime.
-        for item in active.values():
-            if item.lock is not None:
-                item.lock.release()
-        active.clear()
-
-    skipped = len(pdf_paths) - total_pending
-    logger.info(
-        "OIB sync complete: succeeded=%d failed=%d timed_out=%d skipped=%d new_or_changed=%d total_pdfs=%d",
-        succeeded,
-        failed,
-        timed_out,
-        skipped,
-        total_pending,
-        len(pdf_paths),
-    )
-    return succeeded, len(pdf_paths)
+    Runs under the cross-replica ``oib-sync`` lock, so a second caller (the
+    next scheduled cycle, an admin's "run it now") waits for the running cycle
+    and then finds nothing left to do.
+    """
+    with keyed_lock(SYNC_LOCK_KEY):
+        rows = _forget_ingested_if_the_index_was_reset(corpus_store.list_files())
+        pending = sorted(name for name, row in rows.items() if row.needs_ingestion(CHUNK_FORMAT_VERSION))
+        logger.info("OIB sync: total=%d needing_ingestion=%d collection=%s", len(rows), len(pending), COLLECTION_NAME)
+        if not pending:
+            return SyncResult(ingested=0, failed=0, total=len(rows))
+        ingested = _ingest_all(pending)
+        logger.info("OIB sync complete: succeeded=%d failed=%d total=%d", ingested, len(pending) - ingested, len(rows))
+        return SyncResult(ingested=ingested, failed=len(pending) - ingested, total=len(rows))

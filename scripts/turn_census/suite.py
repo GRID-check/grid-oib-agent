@@ -25,7 +25,8 @@ Per run it records what the provider billed and what the reader got:
 
 No backend, no BFF: a question about an office's own files needs a project and
 is skipped, and says so. Needs OPENROUTER_API_KEY and the corpus ingested into
-AIQ_CHROMA_DIR (`--ingest` runs the sync first). Every run costs model calls.
+AIQ_CHROMA_DIR (`--ingest` runs the sync first, from the corpus table in
+AIQ_SUMMARY_DB and the object store). Every run costs model calls.
 
     python scripts/turn_census/suite.py                        # the core set, 2 runs each
     python scripts/turn_census/suite.py --all --runs 3 --out /tmp/suite/after
@@ -457,24 +458,23 @@ def render(
 # --- Running -----------------------------------------------------------------
 
 
-def corpus_families(registry_path: Path | None = None) -> set[str] | None:
-    """The Richtlinien the ingested corpus holds (``{"2", "2.1", …}``), or None.
+def corpus_families() -> set[str] | None:
+    """The Richtlinien the corpus holds (``{"2", "2.1", …}``), or None.
 
-    The corpus is the operator's (`data/oib/README.md`), and a question about a
-    Richtlinie it lacks cannot be answered from it whatever the agent does: the
-    first full sweep ran Schallschutz against a corpus without OIB-RL 5 and
-    reported the agent as wrong. None when the sync registry cannot be read,
-    which skips nothing.
+    The corpus is the operator's (the ``oib_corpus_files`` table), and a question
+    about a Richtlinie it lacks cannot be answered from it whatever the agent
+    does: the first full sweep ran Schallschutz against a corpus without OIB-RL 5
+    and reported the agent as wrong. None when the table cannot be read, which
+    skips nothing.
     """
+    from aiq_agent import corpus_store
     from aiq_agent.common.norm_registry import oib_family_member
 
-    if registry_path is None:
-        from aiq_agent.oib_sync import REGISTRY_PATH as registry_path
     try:
-        names = json.loads(Path(registry_path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        names = corpus_store.list_files()
+    except Exception:  # noqa: BLE001 - no database configured is "unknown", not a failure
         return None
-    return {member for name in names if (member := oib_family_member(Path(name).name))}
+    return {member for name in names if (member := oib_family_member(name))}
 
 
 def lacking_family(question: dict, families: set[str] | None) -> str | None:
@@ -676,7 +676,8 @@ def _preflight(out: Path, ingest: bool) -> int:
         print("ingesting the corpus:", oib_sync.sync())
     if not _corpus_ready():
         print(
-            "The OIB corpus is not ingested into AIQ_CHROMA_DIR. Put the PDFs in data/oib and run with --ingest.",
+            "The OIB corpus is not ingested into AIQ_CHROMA_DIR. Upload the PDFs "
+            "(scripts/upload_oib_corpus.py) and run with --ingest.",
             file=sys.stderr,
         )
         return 2

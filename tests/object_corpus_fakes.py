@@ -1,15 +1,23 @@
-"""An in-memory stand-in for the BFF and SeaweedFS, for object-mode corpus tests.
+"""An in-memory stand-in for the BFF and SeaweedFS, for base-corpus tests.
 
 ``corpus_store`` reaches the outside world through four module-level functions
 (``_request_upload_url``, ``_put_object``, ``_delete_object``,
-``_download_object``). :func:`install` replaces them with a dict-backed bucket
-and points the corpus tables at a throwaway SQLite file, so the store's own
-logic (tables, cache, hash checks, migration) runs for real.
+``_download_object``). :func:`install` replaces them with a dict-backed bucket,
+gives the cache a fresh directory and points the corpus table at a throwaway
+SQLite file, so the store's own logic (table, cache, hash checks) runs for real.
+
+Set ``GRID_TEST_CORPUS_DB`` to a Postgres URL to run the same tests against a
+real server: the Postgres upsert, the conditional update and the advisory
+locks of ``keyed_lock`` (SQLite has none) are then exercised too. The table is
+emptied before each test.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+from sqlalchemy import delete
 
 from aiq_agent import corpus_store
 
@@ -45,12 +53,14 @@ class FakeBucket:
 
 
 def install(monkeypatch, tmp_path: Path) -> FakeBucket:
-    """Switch to object mode on a fresh database and a fake bucket."""
+    """A fresh database, an empty cache directory and a fake bucket."""
     bucket = FakeBucket()
-    monkeypatch.setenv(corpus_store.STORE_ENV, "object")
-    monkeypatch.setenv("AIQ_SUMMARY_DB", f"sqlite:///{tmp_path / 'corpus.db'}")
+    monkeypatch.setenv("AIQ_SUMMARY_DB", os.environ.get("GRID_TEST_CORPUS_DB") or f"sqlite:///{tmp_path / 'corpus.db'}")
+    monkeypatch.setenv(corpus_store.CACHE_DIR_ENV, str(tmp_path / "cache"))
     monkeypatch.setattr(corpus_store, "_request_upload_url", bucket.request_upload_url)
     monkeypatch.setattr(corpus_store, "_put_object", bucket.put_object)
     monkeypatch.setattr(corpus_store, "_delete_object", bucket.delete_object)
     monkeypatch.setattr(corpus_store, "_download_object", bucket.download_object)
+    with corpus_store._transaction() as conn:
+        conn.execute(delete(corpus_store._files))
     return bucket

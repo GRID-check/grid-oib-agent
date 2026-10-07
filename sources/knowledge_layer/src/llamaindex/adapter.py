@@ -5119,7 +5119,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # silently failed to register — e.g. both the LLM summary and tag
             # classification calls failed. Runs at the end of every ingestion
             # job inside the knowledge layer, so every caller (the Knowledge
-            # API, scripts/ingest_oib.py's oib_sync, and any future caller)
+            # API, oib_sync, and any future caller)
             # gets this for free without having to remember to call it. Scoped
             # to THIS job's successful files: the unscoped mode's list_files
             # reads every chunk metadata in the collection — O(collection) per

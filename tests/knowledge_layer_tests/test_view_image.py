@@ -23,8 +23,8 @@ from sources.knowledge_layer.src.view_image import view_knowledge_image
 _JPEG_BYTES = b"\xff\xd8\xff\xe0test-jpeg-payload"
 
 
-def _config(tmp_path) -> ViewKnowledgeImageToolConfig:
-    return ViewKnowledgeImageToolConfig(pdf_dirs=[str(tmp_path)])
+def _config(_tmp_path) -> ViewKnowledgeImageToolConfig:
+    return ViewKnowledgeImageToolConfig()
 
 
 def _patch_env(monkeypatch, *, enabled: bool = True, vlm_key: str = "sk-test") -> None:
@@ -68,7 +68,7 @@ async def _invoke(
 
     monkeypatch.setattr(
         "sources.knowledge_layer.src.view_image._find_pdf",
-        lambda _dirs, _name: pdf_path,
+        lambda _name: pdf_path,
     )
 
     config = _config(tmp_path)
@@ -144,16 +144,6 @@ def test_is_enabled_respects_flag(monkeypatch) -> None:
 
     monkeypatch.setenv("AIQ_VIEW_IMAGES_ENABLED", "true")
     assert _is_enabled() is True
-
-
-def test_find_pdf_case_insensitive_recursive(tmp_path) -> None:
-    nested = tmp_path / "nested"
-    nested.mkdir()
-    (nested / "OIB-3-Brandschutz.PDF").write_bytes(b"pdf")
-
-    assert _find_pdf([str(tmp_path)], "oib-3-brandschutz.pdf") is not None
-    assert _find_pdf([str(tmp_path)], "nonexistent.pdf") is None
-    assert _find_pdf([str(tmp_path / "missing-dir")], "x.pdf") is None
 
 
 def test_render_page_round_trips_jpeg(monkeypatch, tmp_path) -> None:
@@ -640,7 +630,7 @@ async def test_per_turn_cap_stops_the_tool_before_any_work(monkeypatch, tmp_path
 
 
 # =============================================================================
-# GRID_BASE_CORPUS_STORE=object: a base-corpus PDF this replica does not hold
+# _find_pdf: a base-corpus PDF is whatever the corpus table lists
 # =============================================================================
 
 
@@ -649,49 +639,29 @@ def test_find_pdf_fetches_a_base_corpus_file_that_is_not_local(monkeypatch, tmp_
     from tests.object_corpus_fakes import install
 
     install(monkeypatch, tmp_path)
-    uploads = tmp_path / "uploads"
-    monkeypatch.setenv("OIB_UPLOADS_DIR", str(uploads))
-    corpus_store.put("OIB-3.pdf", b"%PDF from the object store", tmp_path / "other-replica")
-    assert not (uploads / "OIB-3.pdf").exists()
+    corpus_store.put("OIB-3.pdf", b"%PDF from the object store")
+    (tmp_path / "cache" / "OIB-3.pdf").unlink()  # another replica uploaded it
 
-    found = _find_pdf([str(uploads)], "OIB-3.pdf")
+    found = _find_pdf("OIB-3.pdf")
 
-    assert found == str(uploads / "OIB-3.pdf")
-    assert (uploads / "OIB-3.pdf").read_bytes() == b"%PDF from the object store"
+    assert found == str(tmp_path / "cache" / "OIB-3.pdf")
+    assert (tmp_path / "cache" / "OIB-3.pdf").read_bytes() == b"%PDF from the object store"
 
 
-def test_find_pdf_in_object_mode_still_scans_the_directories_for_other_files(monkeypatch, tmp_path) -> None:
+def test_find_pdf_for_a_file_the_corpus_does_not_list_is_none(monkeypatch, tmp_path) -> None:
     from tests.object_corpus_fakes import install
 
     install(monkeypatch, tmp_path)
-    monkeypatch.setenv("OIB_UPLOADS_DIR", str(tmp_path / "uploads"))
-    shipped = tmp_path / "data-oib"
-    shipped.mkdir()
-    (shipped / "shipped.pdf").write_bytes(b"pdf")
 
-    assert _find_pdf([str(shipped)], "shipped.pdf") == str(shipped / "shipped.pdf")
-    assert _find_pdf([str(shipped)], "unknown.pdf") is None
+    assert _find_pdf("unknown.pdf") is None
 
 
-def test_find_pdf_is_fail_open_when_the_object_store_lookup_breaks(monkeypatch, tmp_path) -> None:
+def test_find_pdf_is_fail_open_when_the_corpus_lookup_breaks(monkeypatch) -> None:
     from aiq_agent import corpus_store
-
-    (tmp_path / "OIB-3.pdf").write_bytes(b"pdf")
-    monkeypatch.setattr(corpus_store, "object_mode", lambda: True)
 
     def broken(_name):
         raise RuntimeError("database down")
 
     monkeypatch.setattr(corpus_store, "ensure_local", broken)
 
-    assert _find_pdf([str(tmp_path)], "OIB-3.pdf") == str(tmp_path / "OIB-3.pdf")
-
-
-def test_find_pdf_in_disk_mode_never_asks_the_object_store(monkeypatch, tmp_path) -> None:
-    from aiq_agent import corpus_store
-
-    monkeypatch.delenv(corpus_store.STORE_ENV, raising=False)
-    monkeypatch.setattr(corpus_store, "ensure_local", lambda *_a, **_k: pytest.fail("disk mode must not ask"))
-    (tmp_path / "OIB-3.pdf").write_bytes(b"pdf")
-
-    assert _find_pdf([str(tmp_path)], "OIB-3.pdf") == str(tmp_path / "OIB-3.pdf")
+    assert _find_pdf("OIB-3.pdf") is None

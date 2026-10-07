@@ -1508,11 +1508,12 @@ def _job_info_delete_grace_seconds() -> int:
 def _add_housekeeping_routes(
     app: FastAPI, job_store, db_url: str, scheduler_address: str | None, expiry_seconds: int
 ) -> None:
-    """One cycle of each housekeeping loop, behind the internal token.
+    """One cycle of each housekeeping job, behind the internal token.
 
-    Each takes the same Postgres advisory lock as its loop, so a call that
-    overlaps a running cycle (a loop still on during a rollout, a slow previous
-    call) skips and reports nothing done.
+    The first three take the same Postgres advisory lock as their loop did, so a
+    call that overlaps a running cycle (a slow previous call) skips and reports
+    nothing done. The base-corpus cycle instead waits on the cross-replica
+    ``oib-sync`` lock and then finds nothing left to ingest.
     """
 
     @app.post("/v1/maintenance/housekeeping/ghost-jobs", tags=["maintenance"], include_in_schema=False)
@@ -1540,6 +1541,14 @@ def _add_housekeeping_routes(
             return {"threads_reaped": 0, "skipped": "AIQ_CHECKPOINT_DB is not set"}
         retention_seconds = _checkpoint_retention_seconds()
         return {"threads_reaped": await asyncio.to_thread(reap_idle_threads, dsn, retention_seconds)}
+
+    @app.post("/v1/maintenance/housekeeping/base-corpus", tags=["maintenance"], include_in_schema=False)
+    async def housekeeping_base_corpus(request: Request) -> dict:
+        from aiq_agent import oib_sync
+
+        _require_internal_token(request)
+        result = await asyncio.to_thread(oib_sync.sync)
+        return {"ingested": result.ingested, "failed": result.failed, "total": result.total}
 
 
 async def _run_event_cleanup(

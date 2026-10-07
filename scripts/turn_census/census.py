@@ -8,7 +8,8 @@ hand, measured.
 
 Needs what a local turn needs: OPENROUTER_API_KEY, and the corpus ingested
 into AIQ_CHROMA_DIR (`python -c "from aiq_agent import oib_sync; oib_sync.sync()"`
-after putting the OIB PDFs in data/oib). Every run costs real model calls.
+after uploading the OIB PDFs with scripts/upload_oib_corpus.py). Every run costs
+real model calls.
 
     python scripts/turn_census/census.py "Was weißt du über die OIB 2?" --runs 3
     python scripts/turn_census/census.py --report /tmp/census/run1.jsonl

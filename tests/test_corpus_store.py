@@ -1,7 +1,8 @@
-"""The object-mode base corpus: tables, cache, hash checks and the one-time move (ADR-0082, step A2).
+"""The base corpus: table, cache, hash checks and the ingestion state (ADR-0082, step A2).
 
 The BFF and SeaweedFS are replaced by an in-memory bucket (``tests/object_corpus_fakes``);
-the corpus tables are a real SQLite file, so the store's own logic runs for real.
+the corpus table is a real SQLite file (a real Postgres when ``GRID_TEST_CORPUS_DB`` is set),
+so the store's own logic runs for real.
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ from aiq_agent.common import seaweed_s3
 from tests.object_corpus_fakes import FakeBucket
 from tests.object_corpus_fakes import install
 
+FORMAT = 7
+
 
 @pytest.fixture
 def bucket(monkeypatch, tmp_path) -> FakeBucket:
@@ -33,309 +36,268 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _from_another_replica(tmp_path: Path, name: str, data: bytes) -> None:
-    corpus_store.put(name, data, tmp_path / "other-replica")
+def _stored_elsewhere(name: str, data: bytes, cache: Path) -> None:
+    """A file another replica uploaded: object and row exist, this process's cache does not hold it."""
+    corpus_store.put(name, data)
+    (cache / name).unlink()
 
 
-class TestMode:
-    def test_disk_is_the_default(self, monkeypatch):
-        monkeypatch.delenv(corpus_store.STORE_ENV, raising=False)
-        assert corpus_store.object_mode() is False
+class TestCacheDir:
+    def test_defaults_to_a_tmp_directory(self, monkeypatch):
+        monkeypatch.delenv(corpus_store.CACHE_DIR_ENV, raising=False)
+        assert corpus_store.cache_dir() == Path("/tmp/base-corpus")
 
-    def test_only_the_word_object_switches_it_on(self, monkeypatch):
-        monkeypatch.setenv(corpus_store.STORE_ENV, " Object ")
-        assert corpus_store.object_mode() is True
-        monkeypatch.setenv(corpus_store.STORE_ENV, "s3")
-        assert corpus_store.object_mode() is False
+    def test_is_read_when_asked_not_at_import(self, monkeypatch, tmp_path):
+        monkeypatch.setenv(corpus_store.CACHE_DIR_ENV, str(tmp_path / "elsewhere"))
+        assert corpus_store.cache_dir() == tmp_path / "elsewhere"
 
-    def test_disk_mode_takes_no_cross_replica_lock(self, monkeypatch):
-        monkeypatch.delenv(corpus_store.STORE_ENV, raising=False)
-        monkeypatch.setattr(corpus_store, "keyed_lock", lambda _key: pytest.fail("keyed_lock must not be used"))
-        with corpus_store.shared_lock("oib-sync"):
-            pass
+    def test_a_blank_setting_is_the_default(self, monkeypatch):
+        monkeypatch.setenv(corpus_store.CACHE_DIR_ENV, "  ")
+        assert corpus_store.cache_dir() == Path(corpus_store.DEFAULT_CACHE_DIR)
 
-    def test_object_mode_without_a_database_fails_loudly(self, monkeypatch):
-        monkeypatch.setenv(corpus_store.STORE_ENV, "object")
+
+class TestTable:
+    def test_without_a_database_it_fails_loudly(self, monkeypatch):
         monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
         monkeypatch.delenv("NAT_JOB_STORE_DB_URL", raising=False)
         with pytest.raises(corpus_store.CorpusStoreError, match="AIQ_SUMMARY_DB"):
             corpus_store.list_files()
 
+    def test_the_table_is_created_on_first_use(self, bucket):
+        assert corpus_store.list_files() == {}
+        assert corpus_store.get_file("a.pdf") is None
+
 
 class TestPutAndRemove:
     def test_put_stores_the_object_the_row_and_the_cache_file(self, bucket, cache):
-        path = corpus_store.put("a.pdf", b"alpha", cache)
+        row = corpus_store.put("a.pdf", b"alpha")
 
-        assert path == cache / "a.pdf"
-        assert path.read_bytes() == b"alpha"
+        assert (cache / "a.pdf").read_bytes() == b"alpha"
         assert bucket.objects == {"base-corpus/a.pdf": b"alpha"}
-        row = corpus_store.get_file("a.pdf")
         assert row == corpus_store.FileRow("a.pdf", "base-corpus/a.pdf", _sha(b"alpha"), 5)
+        assert corpus_store.get_file("a.pdf") == row
+        assert list(corpus_store.list_files()) == ["a.pdf"]
 
-    def test_put_again_replaces_the_row(self, bucket, cache):
-        corpus_store.put("a.pdf", b"v1", cache)
-        corpus_store.put("a.pdf", b"version two", cache)
+    def test_put_again_replaces_the_bytes_and_keeps_what_the_index_was_built_from(self, bucket, cache):
+        corpus_store.put("a.pdf", b"v1")
+        assert corpus_store.mark_ingested("a.pdf", _sha(b"v1"), FORMAT)
+
+        corpus_store.put("a.pdf", b"version two")
 
         row = corpus_store.get_file("a.pdf")
         assert row is not None and row.sha256 == _sha(b"version two") and row.size_bytes == 11
+        assert row.ingested_sha256 == _sha(b"v1")  # the index still holds version one
+        assert row.needs_ingestion(FORMAT)
         assert (cache / "a.pdf").read_bytes() == b"version two"
+
+    def test_putting_the_same_bytes_again_does_not_ask_for_a_new_ingestion(self, bucket):
+        corpus_store.put("a.pdf", b"v1")
+        corpus_store.mark_ingested("a.pdf", _sha(b"v1"), FORMAT)
+
+        corpus_store.put("a.pdf", b"v1")
+
+        row = corpus_store.get_file("a.pdf")
+        assert row is not None and not row.needs_ingestion(FORMAT)
 
     def test_a_refused_upload_raises_and_leaves_nothing_behind(self, bucket, cache):
         bucket.refuse_uploads = True
 
         with pytest.raises(corpus_store.CorpusStoreError):
-            corpus_store.put("a.pdf", b"alpha", cache)
+            corpus_store.put("a.pdf", b"alpha")
 
         assert corpus_store.get_file("a.pdf") is None
         assert not (cache / "a.pdf").exists()
 
-    def test_a_name_with_a_path_is_refused_before_any_call(self, bucket, cache):
+    @pytest.mark.parametrize("name", ["../a.pdf", "dir/a.pdf", "notes.txt", ""])
+    def test_a_name_that_is_not_a_plain_pdf_is_refused_before_any_call(self, bucket, name):
         with pytest.raises(corpus_store.CorpusStoreError):
-            corpus_store.put("../a.pdf", b"x", cache)
+            corpus_store.put(name, b"x")
         with pytest.raises(corpus_store.CorpusStoreError):
-            corpus_store.put("notes.txt", b"x", cache)
-        assert bucket.uploads == []
+            corpus_store.remove(name)
+        assert bucket.uploads == [] and bucket.deletes == []
 
-    def test_remove_drops_the_row_and_the_object_and_is_idempotent(self, bucket, cache):
-        corpus_store.put("a.pdf", b"alpha", cache)
+    def test_remove_drops_the_row_the_object_and_the_cached_copy_and_is_idempotent(self, bucket, cache):
+        corpus_store.put("a.pdf", b"alpha")
 
         corpus_store.remove("a.pdf")
         corpus_store.remove("a.pdf")
 
         assert corpus_store.get_file("a.pdf") is None
         assert bucket.objects == {}
+        assert not (cache / "a.pdf").exists()
         assert bucket.deletes == ["a.pdf", "a.pdf"]
 
+    def test_a_failed_object_delete_still_leaves_the_file_out_of_the_corpus(self, bucket, monkeypatch):
+        corpus_store.put("a.pdf", b"alpha")
 
-class TestPull:
-    def test_fetches_what_is_missing_and_keeps_what_matches(self, bucket, cache, tmp_path):
-        _from_another_replica(tmp_path, "a.pdf", b"alpha")
-        _from_another_replica(tmp_path, "b.pdf", b"beta")
-        cache.mkdir()
-        (cache / "a.pdf").write_bytes(b"alpha")  # already here, same bytes
+        def refuse(_name):
+            raise corpus_store.CorpusStoreError("delete of a.pdf from the object store was refused (HTTP 500)")
 
-        corpus_store.pull(cache)
+        monkeypatch.setattr(corpus_store, "_delete_object", refuse)
 
-        assert (cache / "a.pdf").read_bytes() == b"alpha"
-        assert (cache / "b.pdf").read_bytes() == b"beta"
-        assert bucket.downloads == ["base-corpus/b.pdf"]
+        with pytest.raises(corpus_store.CorpusStoreError):
+            corpus_store.remove("a.pdf")
 
-    def test_refetches_a_file_whose_content_differs(self, bucket, cache, tmp_path):
-        _from_another_replica(tmp_path, "a.pdf", b"new bytes")
-        cache.mkdir()
+        assert corpus_store.get_file("a.pdf") is None
+
+
+class TestEnsureLocal:
+    def test_fetches_a_file_this_process_lacks(self, bucket, cache):
+        corpus_store.put("a.pdf", b"alpha")
+        (cache / "a.pdf").unlink()
+
+        path = corpus_store.ensure_local("a.pdf")
+
+        assert path == cache / "a.pdf"
+        assert path.read_bytes() == b"alpha"
+        assert bucket.downloads == ["base-corpus/a.pdf"]
+
+    def test_does_not_download_a_file_it_already_has(self, bucket, cache):
+        corpus_store.put("a.pdf", b"alpha")
+
+        assert corpus_store.ensure_local("a.pdf") == cache / "a.pdf"
+        assert bucket.downloads == []
+
+    def test_replaces_a_cached_copy_whose_bytes_are_not_the_recorded_ones(self, bucket, cache):
+        corpus_store.put("a.pdf", b"new bytes")
         (cache / "a.pdf").write_bytes(b"old bytes")
 
-        corpus_store.pull(cache)
+        assert corpus_store.ensure_local("a.pdf") == cache / "a.pdf"
 
         assert (cache / "a.pdf").read_bytes() == b"new bytes"
 
-    def test_drops_local_pdfs_the_table_does_not_list(self, bucket, cache):
+    def test_a_file_the_table_does_not_list_is_none_and_its_stale_copy_is_deleted(self, bucket, cache):
         cache.mkdir()
-        (cache / "gone.pdf").write_bytes(b"x")
-        (cache / "notes.txt").write_bytes(b"not a pdf")
+        (cache / "gone.pdf").write_bytes(b"left behind by a delete on another replica")
 
-        corpus_store.pull(cache)
+        assert corpus_store.ensure_local("gone.pdf") is None
 
         assert not (cache / "gone.pdf").exists()
-        assert (cache / "notes.txt").exists()
 
-    def test_a_download_that_fails_the_hash_check_never_reaches_the_cache(self, bucket, cache, tmp_path):
-        _from_another_replica(tmp_path, "a.pdf", b"alpha")
+    @pytest.mark.parametrize("name", ["../etc/passwd.pdf", "a.txt", "sub/a.pdf", ""])
+    def test_unsafe_names_are_none_and_touch_nothing(self, bucket, name):
+        assert corpus_store.ensure_local(name) is None
+
+    def test_a_download_that_fails_the_hash_check_never_reaches_the_cache(self, bucket, cache):
+        corpus_store.put("a.pdf", b"alpha")
+        (cache / "a.pdf").unlink()
         bucket.objects["base-corpus/a.pdf"] = b"tampered"
 
-        corpus_store.pull(cache)
+        with pytest.raises(corpus_store.CorpusStoreError, match="does not match"):
+            corpus_store.ensure_local("a.pdf")
 
         assert not (cache / "a.pdf").exists()
         assert list(cache.glob(".*.part")) == []
 
-    def test_a_mismatch_does_not_replace_a_cached_copy(self, bucket, cache, tmp_path):
-        _from_another_replica(tmp_path, "a.pdf", b"alpha")
+    def test_a_mismatch_does_not_replace_a_cached_copy(self, bucket, cache):
+        corpus_store.put("a.pdf", b"alpha")
         bucket.objects["base-corpus/a.pdf"] = b"tampered"
-        cache.mkdir()
         (cache / "a.pdf").write_bytes(b"stale local")
 
-        corpus_store.pull(cache)
+        with pytest.raises(corpus_store.CorpusStoreError):
+            corpus_store.ensure_local("a.pdf")
 
         assert (cache / "a.pdf").read_bytes() == b"stale local"
 
-    def test_one_failed_file_does_not_stop_the_others(self, bucket, cache, tmp_path):
-        _from_another_replica(tmp_path, "a.pdf", b"alpha")
-        _from_another_replica(tmp_path, "b.pdf", b"beta")
-        del bucket.objects["base-corpus/a.pdf"]
-
-        corpus_store.pull(cache)
-
-        assert not (cache / "a.pdf").exists()
-        assert (cache / "b.pdf").read_bytes() == b"beta"
-
-    def test_an_unreadable_table_removes_nothing(self, bucket, cache, monkeypatch):
-        cache.mkdir()
-        (cache / "mine.pdf").write_bytes(b"x")
-
-        def broken():
-            raise corpus_store.CorpusStoreError("database down")
-
-        monkeypatch.setattr(corpus_store, "list_files", broken)
-
-        with pytest.raises(corpus_store.CorpusStoreError):
-            corpus_store.pull(cache)
-
-        assert (cache / "mine.pdf").exists()
-
-    def test_a_file_listed_since_the_pull_began_is_not_dropped(self, bucket, cache, monkeypatch):
-        # The pull read the table before an upload landed; the upload's file is on disk.
-        corpus_store.put("late.pdf", b"late", cache)
-        monkeypatch.setattr(corpus_store, "list_files", lambda: {})
-
-        corpus_store.pull(cache)
-
-        assert (cache / "late.pdf").read_bytes() == b"late"
-
-
-class TestEnsureLocal:
-    def test_fetches_a_file_this_replica_lacks(self, bucket, cache, tmp_path):
-        _from_another_replica(tmp_path, "a.pdf", b"alpha")
-
-        path = corpus_store.ensure_local("a.pdf", cache)
-
-        assert path == cache / "a.pdf"
-        assert path.read_bytes() == b"alpha"
-
-    def test_does_not_download_a_file_it_already_has(self, bucket, cache):
-        corpus_store.put("a.pdf", b"alpha", cache)
-
-        assert corpus_store.ensure_local("a.pdf", cache) == cache / "a.pdf"
-        assert bucket.downloads == []
-
-    def test_unknown_files_and_unsafe_names_are_none(self, bucket, cache):
-        assert corpus_store.ensure_local("ghost.pdf", cache) is None
-        assert corpus_store.ensure_local("../etc/passwd.pdf", cache) is None
-        assert corpus_store.ensure_local("a.txt", cache) is None
-
-    def test_a_failed_fetch_is_none(self, bucket, cache, tmp_path):
-        _from_another_replica(tmp_path, "a.pdf", b"alpha")
+    def test_a_listed_file_that_cannot_be_fetched_is_an_error_not_a_missing_file(self, bucket, cache):
+        corpus_store.put("a.pdf", b"alpha")
+        (cache / "a.pdf").unlink()
         bucket.objects.clear()
 
-        assert corpus_store.ensure_local("a.pdf", cache) is None
+        with pytest.raises(corpus_store.CorpusStoreError, match="NoSuchKey"):
+            corpus_store.ensure_local("a.pdf")
 
-    def test_the_default_cache_is_the_uploads_dir(self, bucket, tmp_path, monkeypatch):
-        _from_another_replica(tmp_path, "a.pdf", b"alpha")
-        monkeypatch.setenv("OIB_UPLOADS_DIR", str(tmp_path / "uploads"))
+        assert list(cache.glob(".*.part")) == []
 
-        assert corpus_store.ensure_local("a.pdf") == tmp_path / "uploads" / "a.pdf"
+    def test_a_reader_never_sees_a_partial_file(self, bucket, cache, monkeypatch):
+        corpus_store.put("a.pdf", b"alpha")
+        (cache / "a.pdf").unlink()
+        seen_during_download: list[bool] = []
 
+        def half_then_fail(_key, out):
+            out.write(b"al")
+            seen_during_download.append((cache / "a.pdf").exists())
+            raise corpus_store.CorpusStoreError("connection reset")
 
-class TestRegistryAndExclusions:
-    def test_the_registry_round_trips_with_the_format_stamp_as_an_int(self, bucket):
-        registry = {corpus_store.FORMAT_KEY: 4, "/data/a.pdf": "abc"}
-
-        corpus_store.save_registry(registry)
-
-        assert corpus_store.load_registry() == registry
-
-    def test_saving_the_registry_replaces_it(self, bucket):
-        corpus_store.save_registry({"/data/a.pdf": "1", "/data/b.pdf": "2"})
-        corpus_store.save_registry({"/data/b.pdf": "3", "/data/c.pdf": "4"})
-
-        assert corpus_store.load_registry() == {"/data/b.pdf": "3", "/data/c.pdf": "4"}
-
-    def test_saving_an_empty_registry_clears_it(self, bucket):
-        corpus_store.save_registry({"/data/a.pdf": "1"})
-        corpus_store.save_registry({})
-
-        assert corpus_store.load_registry() == {}
-
-    def test_exclusions_round_trip_and_replace(self, bucket):
-        corpus_store.save_excluded({"a.pdf", "b.pdf"})
-        assert corpus_store.load_excluded() == {"a.pdf", "b.pdf"}
-
-        corpus_store.save_excluded({"b.pdf", "c.pdf"})
-        assert corpus_store.load_excluded() == {"b.pdf", "c.pdf"}
-
-        corpus_store.save_excluded(set())
-        assert corpus_store.load_excluded() == set()
-
-
-def _local(cache: Path, **files: bytes) -> None:
-    cache.mkdir(parents=True, exist_ok=True)
-    for name, data in files.items():
-        (cache / f"{name}.pdf").write_bytes(data)
-
-
-class TestMigration:
-    def test_moves_local_files_registry_and_exclusions_up_once(self, bucket, cache):
-        _local(cache, a=b"alpha", b=b"beta")
-        registry = {corpus_store.FORMAT_KEY: 4, str(cache / "a.pdf"): _sha(b"alpha")}
-
-        corpus_store.migrate_once(cache, lambda: registry, lambda: {"shipped.pdf"})
-
-        assert set(corpus_store.list_files()) == {"a.pdf", "b.pdf"}
-        assert bucket.objects["base-corpus/b.pdf"] == b"beta"
-        assert corpus_store.load_registry() == registry
-        assert corpus_store.load_excluded() == {"shipped.pdf"}
-        assert (cache / corpus_store.MIGRATION_MARKER).exists()
-
-        # A second run reads nothing local and uploads nothing.
-        uploads = list(bucket.uploads)
-        corpus_store.migrate_once(
-            cache, lambda: pytest.fail("registry re-read"), lambda: pytest.fail("exclusions re-read")
-        )
-        assert bucket.uploads == uploads
-
-    def test_a_file_the_table_already_lists_is_not_uploaded_again(self, bucket, cache, tmp_path):
-        _from_another_replica(tmp_path, "a.pdf", b"alpha")
-        _local(cache, a=b"alpha", b=b"beta")
-
-        corpus_store.migrate_once(cache, dict, set)
-
-        assert bucket.uploads == ["a.pdf", "b.pdf"]  # a.pdf once, by the other replica
-
-    def test_a_registry_already_in_the_table_is_not_overwritten(self, bucket, cache):
-        corpus_store.save_registry({"/data/x.pdf": "shared"})
-        _local(cache)
-
-        corpus_store.migrate_once(cache, lambda: {"/data/y.pdf": "stale local"}, set)
-
-        assert corpus_store.load_registry() == {"/data/x.pdf": "shared"}
-
-    def test_local_exclusions_are_added_to_the_shared_set(self, bucket, cache):
-        corpus_store.save_excluded({"shared.pdf"})
-        _local(cache)
-
-        corpus_store.migrate_once(cache, dict, lambda: {"local.pdf"})
-
-        assert corpus_store.load_excluded() == {"shared.pdf", "local.pdf"}
-
-    def test_a_failed_upload_leaves_no_marker_and_the_file_in_place(self, bucket, cache):
-        _local(cache, a=b"alpha")
-        bucket.refuse_uploads = True
+        monkeypatch.setattr(corpus_store, "_download_object", half_then_fail)
 
         with pytest.raises(corpus_store.CorpusStoreError):
-            corpus_store.refresh_cache(cache, dict, set)
+            corpus_store.ensure_local("a.pdf")
 
-        assert not (cache / corpus_store.MIGRATION_MARKER).exists()
-        assert (cache / "a.pdf").read_bytes() == b"alpha"  # never dropped by a pull
+        assert seen_during_download == [False]
+        assert not (cache / "a.pdf").exists()
 
-    def test_the_cache_keeps_the_files_it_just_moved(self, bucket, cache):
-        _local(cache, a=b"alpha")
+    def test_an_unreadable_table_is_an_error_not_a_missing_file(self, bucket, cache, monkeypatch):
+        corpus_store.put("a.pdf", b"alpha")
 
-        corpus_store.refresh_cache(cache, dict, set)
+        def broken(_name):
+            raise corpus_store.CorpusStoreError("database down")
 
-        assert (cache / "a.pdf").read_bytes() == b"alpha"
-        assert bucket.downloads == []
+        monkeypatch.setattr(corpus_store, "get_file", broken)
 
-    def test_a_second_replica_contributes_only_its_own_files(self, bucket, tmp_path):
-        first, second = tmp_path / "pvc-0", tmp_path / "pvc-1"
-        _local(first, a=b"alpha")
-        _local(second, a=b"alpha", b=b"beta")
+        with pytest.raises(corpus_store.CorpusStoreError):
+            corpus_store.ensure_local("a.pdf")
 
-        corpus_store.refresh_cache(first, dict, set)
-        corpus_store.refresh_cache(second, dict, set)
-        corpus_store.refresh_cache(first, dict, set)  # its next refresh
+        assert (cache / "a.pdf").exists()  # nothing was deleted on a guess
 
-        assert set(corpus_store.list_files()) == {"a.pdf", "b.pdf"}
-        assert bucket.uploads == ["a.pdf", "b.pdf"]
-        assert (first / "b.pdf").read_bytes() == b"beta"  # the first replica serves it too now
+
+class TestIngestionState:
+    def test_a_new_file_needs_ingestion(self, bucket):
+        row = corpus_store.put("a.pdf", b"alpha")
+
+        assert row.ingested_sha256 is None and row.chunk_format_version is None
+        assert row.needs_ingestion(FORMAT)
+
+    def test_a_file_the_index_was_built_from_does_not(self, bucket):
+        corpus_store.put("a.pdf", b"alpha")
+
+        assert corpus_store.mark_ingested("a.pdf", _sha(b"alpha"), FORMAT) is True
+
+        row = corpus_store.get_file("a.pdf")
+        assert row == corpus_store.FileRow(
+            "a.pdf", "base-corpus/a.pdf", _sha(b"alpha"), 5, ingested_sha256=_sha(b"alpha"), chunk_format_version=FORMAT
+        )
+        assert not row.needs_ingestion(FORMAT)
+
+    def test_a_new_chunk_format_makes_every_file_need_ingestion_again(self, bucket):
+        corpus_store.put("a.pdf", b"alpha")
+        corpus_store.mark_ingested("a.pdf", _sha(b"alpha"), FORMAT)
+
+        row = corpus_store.get_file("a.pdf")
+
+        assert row is not None and not row.needs_ingestion(FORMAT) and row.needs_ingestion(FORMAT + 1)
+
+    def test_a_hash_is_not_recorded_for_bytes_the_row_no_longer_holds(self, bucket):
+        corpus_store.put("a.pdf", b"v1")
+        corpus_store.put("a.pdf", b"v2")  # replaced while v1 was being ingested
+
+        assert corpus_store.mark_ingested("a.pdf", _sha(b"v1"), FORMAT) is False
+
+        row = corpus_store.get_file("a.pdf")
+        assert row is not None and row.ingested_sha256 is None and row.needs_ingestion(FORMAT)
+
+    def test_nothing_is_recorded_for_a_file_that_is_gone(self, bucket):
+        assert corpus_store.mark_ingested("ghost.pdf", _sha(b"x"), FORMAT) is False
+
+    def test_forget_ingested_for_one_file_leaves_the_others(self, bucket):
+        for name, data in (("a.pdf", b"a"), ("b.pdf", b"b")):
+            corpus_store.put(name, data)
+            corpus_store.mark_ingested(name, _sha(data), FORMAT)
+
+        corpus_store.forget_ingested("a.pdf")
+
+        files = corpus_store.list_files()
+        assert files["a.pdf"].needs_ingestion(FORMAT) and files["a.pdf"].ingested_sha256 is None
+        assert not files["b.pdf"].needs_ingestion(FORMAT)
+
+    def test_forget_ingested_without_a_name_forgets_every_file(self, bucket):
+        for name, data in (("a.pdf", b"a"), ("b.pdf", b"b")):
+            corpus_store.put(name, data)
+            corpus_store.mark_ingested(name, _sha(data), FORMAT)
+
+        corpus_store.forget_ingested()
+
+        assert all(row.needs_ingestion(FORMAT) for row in corpus_store.list_files().values())
 
 
 class TestWireDetails:
