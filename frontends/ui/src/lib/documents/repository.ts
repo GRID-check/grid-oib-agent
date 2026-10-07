@@ -11,14 +11,15 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
+import { withOptionalTenant, withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { ARCHIV_SHELF, projectShelf, shelfDocumentWhere, shelfFolderWhere, type DocumentShelf } from './shelf'
 import { documentAliasKey, documentNameKey, documentNameVariants } from './name-match'
 import { FILENAME_LOOKUP_MAX_NAMES } from './filename-lookup'
 import { CURSOR_TIMESTAMP_FORMAT, type DocumentListCursor } from './list-cursor'
 import {
+  bffJobQueue,
   documents,
   projectFolders,
   type Document,
@@ -1022,6 +1023,7 @@ export async function setDocumentIngestJob(
  * the re-ingest heal) then answered with the OLD job's outcome — a retry of a
  * failed file flipped back to failed while its new conversion was running.
  * Clearing it at the one writer of `processing` fixes both readers at once.
+ * The queue job of the previous round goes with it ({@link setDocumentBackgroundJob}).
  */
 export async function markDocumentProcessing(
   documentId: string,
@@ -1034,11 +1036,95 @@ export async function markDocumentProcessing(
       .set({
         status: 'processing',
         errorMessage: null,
-        metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId'`,
+        metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId' - 'bffJobId'`,
         updatedAt: new Date(),
       })
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
   )
+}
+
+/**
+ * Remember which `bff_job_queue` job is working on a document that sits at
+ * `processing` (IFC extraction, office conversion).
+ *
+ * The sweep that recovers stranded rows ({@link listStuckProcessingDocuments})
+ * joins on this id: a row whose job is queued or running is waiting its turn,
+ * not lost, and without the id telling the two apart a backlog of thousands of
+ * waiting rows would crowd the lost ones out of every sweep's batch. The id
+ * leaves with the status: `setDocumentIngestJob` replaces the metadata when the
+ * dispatch succeeds, and `markDocumentProcessing` drops it for the next round.
+ */
+export async function setDocumentBackgroundJob(
+  documentId: string,
+  organizationId: string,
+  jobId: string,
+): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(documents)
+      .set({ metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) || ${JSON.stringify({ bffJobId: jobId })}::text::jsonb` })
+      .where(
+        and(
+          eq(documents.id, documentId),
+          eq(documents.organizationId, organizationId),
+          eq(documents.status, 'processing'),
+        ),
+      ),
+  )
+}
+
+/** A document left at `processing` with no live job behind it. */
+export interface StuckProcessingDocument {
+  id: string
+  organizationId: string
+  /** `dead` when its job failed every attempt, `null` when it has none (a row from before jobs, or a lost enqueue). */
+  jobStatus: 'dead' | null
+  lastError: string | null
+}
+
+/**
+ * Documents at `processing` since before `before` whose job is gone or dead,
+ * oldest first. Platform scope by nature: the caller is a sweep over every
+ * organization, and acts on each row inside its own.
+ *
+ * A row whose job is still `queued` or `claimed` is left out in the query, so
+ * the batch is always rows that need something done.
+ */
+export async function listStuckProcessingDocuments(
+  before: Date,
+  limit: number,
+): Promise<StuckProcessingDocument[]> {
+  const db = getDb()
+  const rows = await withPlatformAccess('document sweep: finding rows left at processing without a live job', () =>
+    db
+      .select({
+        id: documents.id,
+        organizationId: documents.organizationId,
+        jobStatus: bffJobQueue.status,
+        lastError: bffJobQueue.lastError,
+      })
+      .from(documents)
+      .leftJoin(
+        bffJobQueue,
+        sql`${bffJobQueue.jobId} = nullif(${documents.metadata}->>'bffJobId', '')::uuid`,
+      )
+      .where(
+        and(
+          eq(documents.status, 'processing'),
+          lt(documents.updatedAt, before),
+          or(isNull(bffJobQueue.jobId), eq(bffJobQueue.status, 'dead')),
+        ),
+      )
+      .orderBy(asc(documents.updatedAt))
+      .limit(limit),
+  )
+  return rows.map((row) => ({
+    id: row.id,
+    organizationId: row.organizationId,
+    jobStatus: row.jobStatus === 'dead' ? 'dead' : null,
+    lastError: row.lastError ?? null,
+  }))
 }
 
 /**
@@ -1154,50 +1240,69 @@ export async function setDocumentReconciledStatus(
   )
 }
 /**
- * Ids of documents whose ingestion failed and is worth retrying, org-wide.
+ * Documents whose ingestion failed and is worth retrying, org-wide, a keyset
+ * page at a time.
  *
  * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
  * every row stuck at `failed`/`error` - plus rows stranded at the `uploaded`
  * birth status that never dispatched - is a file that was stored but never
- * read. Bounded like every other list query; the service re-dispatches each id
- * through `reingestDocument`, so access checks and status guards stay in one
+ * read. Bounded like every other list query; the rescan job re-dispatches each
+ * id through `reingestDocument`, so access checks and status guards stay in one
  * place instead of being restated here.
  */
 export const FAILED_INGEST_RESCAN_STATUSES = ['failed', 'error', 'uploaded'] as const
 
-/** Hard cap on one org-wide failed-ingestion rescan. */
-export const FAILED_INGEST_RESCAN_LIMIT = 200
+/** Most ids one page of the failed-ingestion walk returns. */
+export const FAILED_INGEST_PAGE_LIMIT = 100
 
-export interface FailedIngestRescanQuery {
-  limit?: number
-  /**
-   * Ids already attempted by this rescan - the page advances past rows that
-   * stay failed, so the rows behind them are still reached.
-   */
-  excludeIds?: readonly string[]
+/**
+ * The rows AFTER `cursor` in the failed walk's order: oldest first, id as the
+ * tiebreak. Ascending twin of {@link afterDocumentListCursor}, with the same
+ * microsecond text so a row the cursor was built from is never served twice.
+ */
+function afterFailedWalkCursor(cursor: DocumentListCursor): SQL {
+  const at = sql`(${cursor.createdAt}::timestamp AT TIME ZONE 'UTC')`
+  return sql`(${documents.createdAt} > ${at} OR (${documents.createdAt} = ${at} AND ${documents.id} > ${cursor.id}::uuid))`
 }
 
-export async function listFailedDocumentIdsInOrg(
+export interface FailedDocumentPage {
+  ids: string[]
+  /** Where the next page starts, or `null` when the failed set is exhausted. */
+  nextCursor: DocumentListCursor | null
+}
+
+/**
+ * One page of the failed set. A keyset rather than an exclusion list: rows that
+ * stay failed after a retry cannot starve the rows behind them, and the walk's
+ * state stays one position however many rows there are, so a job can keep it
+ * in its payload and resume from it.
+ */
+export async function listFailedDocumentPageInOrg(
   organizationId: string,
-  { limit = FAILED_INGEST_RESCAN_LIMIT, excludeIds = [] }: FailedIngestRescanQuery = {},
-): Promise<string[]> {
-  const bounded = Math.min(Math.max(1, Math.trunc(limit)), FAILED_INGEST_RESCAN_LIMIT)
+  { limit = FAILED_INGEST_PAGE_LIMIT, cursor }: { limit?: number; cursor?: DocumentListCursor | null } = {},
+): Promise<FailedDocumentPage> {
+  const bounded = Math.min(Math.max(1, Math.trunc(limit)), FAILED_INGEST_PAGE_LIMIT)
   const db = getDb()
-  const rows = await withTenant({ organizationId }, () =>
+  const fetched = await withTenant({ organizationId }, () =>
     db
-      .select({ id: documents.id })
+      .select({ id: documents.id, cursorCreatedAt: cursorCreatedAtColumn })
       .from(documents)
       .where(
         and(
           eq(documents.organizationId, organizationId),
           inArray(documents.status, [...FAILED_INGEST_RESCAN_STATUSES]),
-          ...(excludeIds.length > 0 ? [notInArray(documents.id, [...excludeIds])] : []),
+          ...(cursor ? [afterFailedWalkCursor(cursor)] : []),
         ),
       )
-      // Oldest first, id as tiebreak: paging with `excludeIds` walks the
-      // whole failed set instead of re-reading the first page.
       .orderBy(asc(documents.createdAt), asc(documents.id))
-      .limit(bounded),
+      // One more than asked, which is how "is there more" is answered without a COUNT.
+      .limit(bounded + 1),
   )
-  return rows.map((row) => row.id)
+  const hasMore = fetched.length > bounded
+  const page = hasMore ? fetched.slice(0, bounded) : fetched
+  const last = page.at(-1)
+  return {
+    ids: page.map((row) => row.id),
+    nextCursor: hasMore && last ? { createdAt: last.cursorCreatedAt, id: last.id } : null,
+  }
 }

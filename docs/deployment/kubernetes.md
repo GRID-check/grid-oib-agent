@@ -18,13 +18,17 @@ their own namespaces.
 
 | Workload | k8s object | Replicas | Storage | Scales by |
 |---|---|---|---|---|
-| `aiq-agent` (agent web tier) | **StatefulSet** | 1 (dask) / N (db, default 2) | RWO PVC `/app/data` per replica | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4 |
-| `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | 2→6 | — | Horizontally (CPU HPA) |
+| `aiq-agent` (agent web tier) | **StatefulSet** | 1 (dask) / N (db, default 2) | RWO PVC `/app/data` per replica | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4; with `chatAffinity: false` a KEDA ScaledObject on running turns, `backendReplicas`→`backendMaxReplicas` (§6.4b; prod stays at 1) |
+| `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | `frontendMinReplicas`→`frontendMaxReplicas` (default 2→6; prod and dev 1→3) | — | Horizontally (CPU HPA) |
+| `agent-worker` (research, `jobExecution: db`) | Deployment + KEDA ScaledObject | `agentWorkerMinReplicas`→`agentWorkerMaxReplicas` (default 1→8; prod 1→3, dev 0→3) | — | Horizontally, on `research_job_queue` depth (§6.3) |
+| `ingest-worker` (ingestion, `jobExecution: db`) | Deployment + KEDA ScaledObject | `ingestWorkerMinReplicas`→`ingestWorkerMaxReplicas` (default 1→5; prod 1→5, dev 0→3) | — | Horizontally, on `ingest_job_queue` depth; the ceiling is held to the provider budget (§6.3b, §6.3d) |
+| `bff-jobs` (the BFF's background pool: reindex, rescan, IFC, rendition, report filing; no Service, no route) | Deployment + KEDA ScaledObject | `bffJobsMinReplicas`→`bffJobsMaxReplicas` (default 1→4; prod 1→4, dev 0→2) | — | Horizontally, on `bff_job_queue` depth (§6.3c) |
+| KEDA (`keda` namespace) | Helm release, chart pinned to the release the plan's CRDs are validated against | 1 operator | — | n/a; what it may read and reach is §6.3d |
 | `purger` | Deployment | 1 | — | n/a (SKIP LOCKED-safe) |
 | `skill-scheduler` | Deployment (always; fires schedules only when `skillsEnabled`, drives the run reconciler either way) | 1 | — | n/a (DB-claimed ticks) |
 | `postgres` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) | CloudNativePG `Cluster` | 1 (→3 HA) | RWO PVC | Add replicas |
 | `dragonfly` (Redis-proto cache) | Deployment | 1 | — (cache) | — |
-| `gotenberg` (office → PDF, ADR-0070; required to index Word, presentation, `.xls` and `.ods` files, ADR-0071; `gotenbergEnabled`, default on) | Deployment | 1 | — | n/a (stateless. A conversion it drops fails that ingest retryably, so a rollout drains for up to 120s) |
+| `gotenberg` (office → PDF, ADR-0070; required to index Word, presentation, `.xls` and `.ods` files, ADR-0071; `gotenbergEnabled`, default on) | Deployment | `gotenbergReplicas` (sized to the `bff-jobs` pool's conversion ceiling, prod 2; §6.3c) | — | n/a (stateless. A conversion it drops fails that ingest retryably, so a rollout drains for up to 120s) |
 | `seaweedfs` (filer + S3 gateway) | StatefulSet | 1 (`single`) / N (`split`) | RWO PVC `/data` (unused under the Postgres filer store) | See §4 |
 | `seaweedfs-master` (`split` only) | StatefulSet | 1 (3 = HA, untested) | RWO PVC `/data` (raft + volume-id sequence) | Odd replica counts only |
 | `seaweedfs-volume` (`split` only) | StatefulSet | N | RWO PVC `/data` per replica | `seaweedfsVolumeReplicas` — this is the object-capacity knob |
@@ -83,6 +87,12 @@ owner is exempt from every policy. Set it per stack:
 ```bash
 pulumi config set --secret pgRuntimePassword "$(openssl rand -base64 32)"
 ```
+
+A fourth login, `grid_keda_scaler`, is declared the same way and is not an
+application role: it is what KEDA's `postgresql` scaler counts the queue tables
+with, SELECT on the `status` column of three tables and nothing else, with no
+`BYPASSRLS` (§6.3d). Its
+password is `pgScalerPassword`, or derived from `pgAppPassword` when unset.
 
 Migration `0030` therefore only *asserts* the roles, failing with a hint rather
 than half-applying the boundary. `GRID_APP_MIGRATION_DATABASE_URL` carries the
@@ -186,19 +196,23 @@ grid-oib:backendImage grid-oib:frontendImage grid-oib:webImage`, `pulumi
 config set grid-oib:imageTag latest`, then `pulumi up`, which changes the pod
 specs and flips pullPolicy to `Always`) — never a bare `pulumi up --refresh`.
 
-**Size worker groups against the HPA ceilings.** The autoscaler only adds
-nodes within a worker group's min/max. If frontend `maxReplicas` (6) +
-agent-worker `maxReplicas` (8) + ingest-worker `maxReplicas` (12, KEDA) + the
-fixed tiers exceed the group's max
-capacity, the extra pods sit Pending forever. Check the sum of limits at max
-scale against the group product when sizing.
+**Size worker groups against the autoscaler ceilings.** The cluster autoscaler
+only adds nodes within a worker group's min/max. In prod the ceilings are
+frontend 3 (HPA) + agent-worker 3 + ingest-worker 8 + bff-jobs 4 (KEDA), plus
+the chat tier's `backendMaxReplicas` (1 while affinity is on, §6.4b) and the
+fixed tiers; the defaults for a stack that sets none are frontend 6, agent-worker
+8, ingest-worker 8, bff-jobs 4 and web 4. If the sum of limits at those ceilings
+exceeds the group's max capacity, the extra pods sit Pending forever. Check it
+against the group product when sizing, and again whenever a `…MaxReplicas` is
+raised: the ingest tier's is also bounded by the provider budget (§6.3d).
 
 **Cluster-autoscaler scales on *unschedulable pods*, not utilisation.** Its
 documented prerequisites — an HPA as the first scaling tier, `requests`/`limits`
 on every container, and `topologySpreadConstraints` — are all met: HPAs on
-`frontend` + `agent-worker`, requests **and** limits on every workload, and the
-spread constraints above. So a burst first scales pods via HPA, and only if pods
-go Pending does a node get added.
+`frontend` and `web` (CPU), the KEDA-driven queue tiers (`agent-worker`,
+`ingest-worker`, `bff-jobs`, and the chat tier when it autoscales), requests
+**and** limits on every workload, and the spread constraints above. So a burst first scales pods, and only if pods go Pending does
+a node get added.
 
 **Node loss wipes ephemeral storage; only PVCs survive.** On node replacement,
 `emptyDir` / `hostPath` / container-fs are gone. This stack uses **none** of
@@ -986,14 +1000,36 @@ The token-heavy workload (deep research) now scales out. Set
   (`frontends/aiq_api/src/aiq_api/jobs/queue.py`); dedicated **`agent-worker`**
   replicas (same image, `GRID_ROLE=worker`) claim rows with `FOR UPDATE SKIP
   LOCKED`, run the same `run_agent_job` body, and heartbeat the claim so a crash
-  is reclaimed. An HPA scales them on CPU. The web tier runs **no Dask** in this
-  mode.
+  is reclaimed. The claim is fair (below) and KEDA scales the tier on the queue,
+  not on CPU. The web tier runs **no Dask** in this mode.
 - **Cancellation works from any replica** — the cancel route flips `job_info` to
   INTERRUPTED and drops the queue row; the runner's 1 s `CancellationMonitor`
   honors it. No scheduler is involved.
 - **Shared vectors** (Stage A, `chromaEnabled: true`): the shared Chroma server
   means workers and web replicas read/write one store.
 - **Citation registry** already shares cross-replica via Dragonfly (ADR-0020).
+
+- **The claim is fair, and a full cluster waits** (ADR-0079). A free worker
+  takes the next job of the organisation with the fewest research jobs running
+  fleet-wide, then the one served longest ago; inside one office a `bulk` job
+  (a scheduled fire) goes after an `interactive` one. `GRID_MAX_ACTIVE_JOBS` is
+  no longer a 429 in this mode: a job over capacity waits as `queued`, and a
+  scheduled task is not skipped for it. `backendMaxActiveJobsPerOrg` is the
+  claim's per-organisation cap (jobs running at once). The one refusal left is
+  `backendMaxQueuedJobsPerOrg` (default 50), a bound on how many jobs one
+  organisation may have waiting.
+- **KEDA scales `agent-worker` on `research_job_queue`**, replacing the CPU HPA,
+  which an LLM-bound job barely moves: its `postgresql` trigger counts the rows
+  that are not `dead` (a finished job's row is deleted) and asks for
+  ceil(jobs / `agentWorkerConcurrency`) replicas between `agentWorkerMinReplicas`
+  and `agentWorkerMaxReplicas`. Out at once, in a pod a minute; dev's floor is 0
+  and prod's is 1. It reads the queue through `jobs-queue-auth`, the
+  TriggerAuthentication it shares with the ingest tier (one database).
+- **A drain gives work back.** On SIGTERM the worker waits
+  `agentWorkerDrainSeconds` for the jobs it holds, then requeues what still runs
+  without spending an attempt; another worker starts it over. A job that crashes
+  every worker that takes it is kept as a `dead` row for
+  `GRID_RESEARCH_DEAD_RETENTION_DAYS`.
 
 Safe rollout: `jobExecution: dask` (default in code) is byte-for-byte today's
 behaviour; flip to `db` per environment. `agentWorkerMinReplicas` /
@@ -1007,25 +1043,200 @@ lost on restart. Now, with `jobExecution: db`:
 - **`/v1/ingest` jobs go into `ingest_job_queue`** (Postgres, beside the status
   rows). A free worker claims the next job of the organisation with the fewest
   jobs running fleet-wide, then the one served longest ago: one office's
-  reindex no longer queues everyone else. Claims heartbeat and are taken again
-  when a worker dies, up to three times.
+  reindex no longer queues everyone else; inside one office a job's
+  `priority` (`interactive`, the default, or `bulk`) orders the claim. Claims
+  heartbeat and are taken again when a worker dies, up to three times, and then
+  kept as a `dead` row with a reason (ADR-0079). A worker that must exit hands
+  its claims back without spending an attempt; so does a web-tier replica that
+  claims (no ingest-worker tier), which stops claiming before it waits for its
+  chat turns and gives back what it still holds after.
 - **A dedicated `ingest-worker` tier** (same image, `GRID_ROLE=ingest-worker`,
   no port, no PVC) claims them. The web tier stops claiming
   (`GRID_INGEST_QUEUE_CLAIM=false`) while the tier runs, so a PDF's parse no
   longer shares the chat pods' CPU.
 - **KEDA scales it on the queue**, not on CPU (a job mostly waits on the
-  provider): its `postgresql` trigger counts the table and asks for
+  provider): its `postgresql` trigger counts the table's rows that are not
+  `dead` and asks for
   ceil(jobs / `ingestWorkerConcurrency`) replicas between
   `ingestWorkerMinReplicas` and `ingestWorkerMaxReplicas`. Out at once, in a pod
   a minute; dev's floor is 0. Pulumi installs KEDA (`installKeda`, default on)
   and a NetworkPolicy letting it reach Postgres.
-- **The provider sees a fixed ceiling.** `AIQ_VLM_FLEET_CONCURRENCY` (48) vision
-  calls in flight fleet-wide, a Dragonfly lease pool; more workers queue on it
-  instead of multiplying 429s on the shared OpenRouter key.
+- **The provider sees a fixed ceiling.** `AIQ_VLM_FLEET_CONCURRENCY`
+  (`vlmFleetConcurrency`, 32) vision calls in flight fleet-wide, a Dragonfly
+  lease pool; more workers queue on it instead of multiplying 429s on the shared
+  OpenRouter key. A vision call also holds a slot in its model's own limiter pool
+  (`providerModelLimitCeiling`, 32), so the fleet pool is held to that too.
 
 Sizing: at `ingestWorkerMaxReplicas` the tier asks for max × the ingest-worker
 limits; make the worker group's max hold that (below), or the extra replicas
-sit Pending and add nothing.
+sit Pending and add nothing. The ceiling is also bounded from the other side:
+`ingestWorkerMaxReplicas` × `ingestWorkerConcurrency` × `vlmBatchWorkers` is the
+tier's peak of vision calls, and the program fails the deploy when that is more
+than twice `vlmFleetConcurrency` (§6.3d). Prod's 5 × 3 × 4 is 60, within 2 × 32 = 64.
+
+### 6.3c BFF background jobs — a pool of frontend-image pods on `bff_job_queue` (ADR-0079)
+
+A project reindex and "Rescan failed ingestions" used to walk up to ten
+thousand documents inside one HTTP request on a frontend pod: a request that
+died half way left no record of which half. Both are now jobs:
+
+- **The request enqueues and answers 202.** `POST /api/projects/{id}/reindex`
+  and `POST /api/organization/documents/reingest-failed` check access, insert
+  one `bff_job_queue` row (app database, migration 0104) in the organisation's
+  lane, and return `{ jobId }`. A second click returns the open job. The UI
+  says the work started; each document's own status is where it reports.
+- **A job is a sequence of slices.** A slice is one page of 25 documents,
+  re-dispatched to `/v1/ingest` with `priority: "bulk"` (so an upload in the
+  same organisation is claimed first); the job saves its place (a keyset
+  cursor and the counts) after every slice, so whichever worker claims it next
+  resumes there.
+- **The `bff-jobs` Deployment runs them.** The frontend image, command
+  `node workers/jobs/index.js`: one container that supervises the BFF and a
+  claim loop. The loop claims fairly across organisations (fewest running
+  first, fleet-wide; then the lane served longest ago; inside a lane
+  interactive before bulk, then oldest), heartbeats, and POSTs each slice to
+  its own pod's `/api/internal/jobs/run`. **There is no Service and no
+  HTTPRoute**, and the work runs here, never on the pods that proxy chat.
+- **A drain never costs an attempt; a failure always does.** On SIGTERM the loop stops claiming, lets
+  the slice in hand finish (`bffJobsDrainSeconds`, 60), gives every claim back
+  without spending an attempt, and only then stops the BFF; the pod's grace
+  period is the drain plus 30 s. A claim that lost its worker is taken again
+  after `GRID_BFF_JOBS_STALE_SECONDS`. Every other end of an attempt spends
+  it (a handler that threw, a slice past `GRID_BFF_JOBS_SLICE_TIMEOUT_MS`, a BFF
+  that answered 5xx or not at all) and the job waits `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS`,
+  doubling, before the next, so a job that always times out or kills the BFF
+  ends. After `GRID_BFF_JOBS_MAX_ATTEMPTS` the row is marked `dead` with its
+  reason in `last_error` and its payload (a report, the requester, storage keys)
+  reduced to ids; it is deleted `GRID_BFF_JOBS_DEAD_RETENTION_DAYS` later, or at
+  once with its project. The BFF queue has no `grid.queue.*` meters yet (ADR-0079):
+  watch it through the depth KEDA reads and the `[bff-jobs] … now dead` ERROR lines.
+- **KEDA scales it on the queue.** A `postgresql` trigger (its own
+  TriggerAuthentication, on the app database) counts the rows whose status is
+  not `dead` and asks for ceil(jobs / `bffJobsConcurrency`) replicas between
+  `bffJobsMinReplicas` and `bffJobsMaxReplicas` (prod 1 to 4, dev 0 to 2).
+  Out at once, in a pod a minute. The scaler connects as `grid_keda_scaler`, a
+  read-only login that sees every lane of the row-level secured queue through a
+  policy of its own (§6.3d).
+
+**Three more kinds run here, as one step each** (ADR-0079; they run as the
+system, because the person's permission was checked when the work was
+requested):
+
+| Kind | Replaces | Priority | The row it keeps true |
+|---|---|---|---|
+| `bim_extract` | the detached IFC parse in the upload's pod | `interactive` for an upload, `bulk` inside a reindex | `documents.status` (`processing`, then `pending` or `failed`) and the `bim_models` row. A restart no longer strands the model at `extracting` |
+| `office_rendition` | the detached conversion behind a per-process queue | same | `documents.status`, as above |
+| `file_research_report` | rendering the PDF inside the research outcome callback and the report GET | `interactive` | `task_runs.filing_status`: `queued`, then `filed`, `refused` or `failed` |
+
+- **A row names its job.** A document at `processing` remembers
+  `metadata.bffJobId`. A step that throws is retried by the queue; on the last
+  attempt it writes `failed` on the row first, so nothing stays `processing` or
+  `queued` after the queue gave up. A step whose failure a retry would not
+  change (a converter that refuses the file, a requester who may no longer
+  file) says so on the row and finishes.
+- **A sweep recovers what predates the jobs.** The scheduler worker calls
+  `POST /api/internal/maintenance/reconcile-background-work` on every tick: a
+  document at `processing` for 15 minutes with no live job gets a new `bulk`
+  one, a document whose job is dead is failed with its reason, and a report
+  filing `queued` for 15 minutes whose job is gone ends as `filed` (the report
+  is there after all) or `failed`. A row whose job is queued or running is left
+  alone however long it waits.
+- **Gotenberg's capacity is a ceiling on the pool.** Conversions are claimed
+  from the queue, so the fleet-wide bound is arithmetic:
+  `bffJobsMaxReplicas` times `bffJobsRenditionConcurrency` (the pod's
+  `GOTENBERG_MAX_CONCURRENCY`, 1) must not exceed two conversions per Gotenberg
+  replica (`gotenbergReplicas`, which defaults to what the pool needs; prod 2).
+  `gotenberg.spec.ts` asserts it for both stack files, so raising the pool
+  without the converter fails `task infra:test`. The pod's memory limit is 2Gi
+  because an IFC model is parsed here, up to several times its own size.
+  A reader opening a preview still converts from a frontend pod, under that
+  pod's own `GOTENBERG_MAX_CONCURRENCY` and outside this ceiling: the ceiling
+  bounds the jobs, not the readers.
+
+Debugging a stuck job:
+
+```sql
+-- as the schema owner; RLS does not apply to it
+SELECT job_id, kind, lane, status, attempts, claimed_by, heartbeat_at, last_error
+FROM bff_job_queue ORDER BY created_at;
+```
+
+A `dead` row is a job that failed every attempt: `last_error` says why. Fix
+the cause, then delete the row and run the action again from the UI.
+
+### 6.3d KEDA across every ScaledObject (ADR-0079)
+
+Four tiers are scaled by KEDA: `ingest-worker`, `agent-worker` and `bff-jobs` on
+their queues, `aiq-agent` on running turns. What they share is one module
+(`deploy/pulumi/src/app/keda-scaling.ts`), so they cannot drift apart in the
+parts that are not about their own signal, and `keda-scaling.spec.ts` holds it.
+
+- **The chart is pinned.** `KEDA_CHART_VERSION` (`src/platform/keda.ts`, 2.21.0)
+  is the Helm chart's version, which is KEDA's own, and the release whose CRDs
+  `scripts/validate-crs.mjs` checks the plan against; the script reads the same
+  constant. Upgrading KEDA is changing it, after reading the release notes for
+  `fallback` and the `postgresql` scaler.
+- **A trigger KEDA cannot read has a `fallback`.** Three failed polls (45 s) hold
+  the tier at a third of its ceiling, never below its floor or one replica
+  (`currentReplicasIfHigher`: a tier already above that keeps its pods rather than
+  being scaled in under the jobs it runs). Without it a dead scaler leaves a tier
+  at whatever count it had while its queue grows. The one exception is the chat
+  tier: KEDA refuses `fallback` beside a `cpu` trigger, so a trigger it cannot
+  read makes the HPA hold the current count there, which a tier that holds live
+  sockets should do anyway.
+- **`cooldownPeriod` is one step.** It is how long after the last active trigger a
+  tier is held before it goes from 1 replica to 0, so it does nothing where the
+  floor is 1 (prod). Every step from N down to 1 is the HPA's `scaleDown`: a pod a
+  minute after a five-minute stabilisation window, because each pod that leaves
+  drains for up to its tier's budget.
+- **The scaler cannot write.** KEDA reads the queues as `grid_keda_scaler`
+  (declared with the other roles on the Cluster, `data/postgres.ts`), a login with
+  nothing but `LOGIN` whose rights are SELECT on the `status` column (the one its
+  `COUNT(*) … WHERE status <> 'dead'` reads, so a leaked DSN cannot read a
+  payload) of `ingest_job_queue` and `research_job_queue` in `aiq_jobs` and of
+  `bff_job_queue` in `grid_app`. That last table is secured per organisation, so the role reads it through a policy of
+  its own (`FOR SELECT TO grid_keda_scaler`), not through `BYPASSRLS`. Its password
+  is `pgScalerPassword`, or an HMAC of `pgAppPassword` when unset, and its DSNs sit
+  in the `grid-keda-scaler` Secret, which no pod references: rotating it restarts
+  nothing. Before this, the operator held the owner's DSN for both databases.
+- **The tables exist before the scaler reads them.** On a fresh stack the Python
+  queues create their tables the first time a process touches them, which can be
+  after the ScaledObject is created. The `keda-scaler-grants` Job runs after the
+  migrations and every ScaledObject waits for it: an init container calls the
+  queues' own `ensure_table` (the one definition of their schema, which also
+  upgrades an older table), then `psql` waits for the role CloudNativePG reconciles
+  and runs the grants. A missing table fails the Job loudly; it never reaches a
+  scaler that errors on every poll. It re-runs whenever its spec changes (every
+  per-SHA image pin) and is idempotent.
+- **A drain is given time to give back.** The grace period of `ingest-worker`,
+  `agent-worker` and `bff-jobs` is the tier's `…DrainSeconds` plus 30 s
+  (`DRAIN_GIVE_BACK_SECONDS`, `agentWorkerRollout`), so the claims a drain did not
+  finish are released without an attempt before the kubelet's SIGKILL.
+- **The ingest ceiling is held to the provider budget.** `vlmFleetConcurrency`,
+  `vlmBatchWorkers`, `providerLimitCeiling` and `providerModelLimitCeiling` are
+  stack config (and reach the pods as `AIQ_VLM_FLEET_CONCURRENCY`,
+  `AIQ_VLM_BATCH_WORKERS`, `GRID_PROVIDER_LIMIT_CEILING`,
+  `GRID_PROVIDER_MODEL_LIMIT_CEILING`). `assertVlmPeakFitsCeiling` fails the plan
+  when `ingestWorkerMaxReplicas` × `ingestWorkerConcurrency` × `vlmBatchWorkers`
+  is more than twice `vlmFleetConcurrency`, or when the vision pool is larger
+  than the key-wide limit or than the vision model's own limit
+  (`providerModelLimitCeiling`: every vision call holds a slot in both pools, so
+  a pool above either never fills). Replicas beyond that only wait for a slot. Prod went
+  from 12 to 8 replicas for it (144 → 96 against a pool of 48), then to 5 (60
+  against a pool of 32) when the vision model's own pool, which the 48 never
+  cleared, was counted: the replicas it lost could not have run a vision call a
+  slot existed for. Raise the model limit and the pool together, and the
+  provider's own limit with them, before the replicas.
+- **KEDA reaches exactly its triggers' targets.** Two NetworkPolicies admit the
+  KEDA **operator** pod (the metrics server and the webhooks in `keda` poll
+  nothing): Postgres on 5432 when any queue tier runs, and the backend on 8000
+  when the chat tier autoscales. Nothing else in `grid` is open to the `keda`
+  namespace.
+
+Debugging a tier that does not scale: `kubectl describe scaledobject <tier>`
+(its conditions say whether the trigger is readable and whether `fallback` is
+active), `kubectl -n keda logs deploy/keda-operator` (a refused login or a
+missing table is named there), and `kubectl -n grid logs job/keda-scaler-grants`.
 
 ### 6.4 Multi-replica chat/web tier — IMPLEMENTED (`jobExecution: db`)
 
@@ -1059,10 +1270,79 @@ removing that specific source PDF is replica-local. Route `OIB_UPLOADS_DIR`
 through SeaweedFS to make that admin flow fully replica-agnostic (scoped
 follow-up); high-traffic chat/retrieval does not need it.
 
+### 6.4b Chat scale-out: affinity off, KEDA on running turns (ADR-0080)
+
+By default (`chatAffinity: true`) nothing in §6.4 changes: the gateway hashes the
+conversation id onto a replica (`BACKEND_REPLICAS`, `BACKEND_POD_WS_TEMPLATE`),
+so the count is part of the routing and stays at `backendReplicas`. Setting
+`grid-oib:chatAffinity: "false"` (it needs `conversationBus`, which is on) lets
+the tier autoscale:
+
+- **Routing.** The gateway sends every socket to the `aiq-agent` Service
+  (`GRID_CHAT_AFFINITY=0` on the frontend). A socket on any replica is a relay
+  for the conversation's Dragonfly stream; the replica that receives a question
+  runs that turn and publishes its frames. A running turn never moves.
+- **One running turn per conversation.** A newer question stops the stale one,
+  takes `conv:<id>:running`, and only then runs (`GRID_CHAT_RUNNING_TTL_SECONDS`,
+  `GRID_CHAT_SUPERSEDE_WAIT_SECONDS`). If the stale turn has not stopped in time,
+  the question is refused with a retry hint; with Dragonfly down and affinity off
+  it is refused too, because nothing else can say no.
+- **The owner fences itself.** A turn that cannot renew its marker (Dragonfly
+  unreachable from its replica for most of `GRID_CHAT_RUNNING_TTL_SECONDS`, or the
+  marker gone) stops writing the conversation's thread, its frames and its
+  persisted outcome on a local deadline, and ends cancelled, before a newer turn
+  on another replica can take the marker. A failed renewal is retried every
+  second, and the renewal is never refused by the bus's fail-fast window, so one
+  slow command does not cost a turn its window. The cost is that a Dragonfly
+  outage longer than the TTL minus 6 s (6 s at the default 12) ends the answers
+  running at that moment; with affinity on nothing is fenced, because one process holds
+  both turns.
+- **The signal.** `GET /v1/internal/chat-occupancy` on any replica returns the
+  fleet's running turns (`activeTurns`, the global admission pool). KEDA's
+  `metrics-api` trigger holds `backendTurnsPerReplica` of them per replica
+  (AverageValue), and a `cpu` trigger at `backendCpuTargetPercent` sits beside it
+  for work that is not a turn. The route is internal-token only (a
+  `TriggerAuthentication` reads `GRID_INTERNAL_API_TOKEN` from `grid-secrets`),
+  a NetworkPolicy lets the KEDA operator pod reach port 8000 of the backend pods,
+  and an unreadable count is a 503, which makes the HPA hold the current count.
+- **Floor and ceiling.** `backendReplicas` is the floor and `backendMaxReplicas`
+  (default 3) the ceiling. The ScaledObject exists only with `jobExecution: db`,
+  affinity off and a ceiling above the floor, and then owns `spec.replicas`
+  (`ignoreChanges`). Prod keeps affinity on and `backendMaxReplicas: 1` until the
+  cross-replica path (reconnect, clarifier round trip, Stop, supersede, a
+  replica draining mid-turn) has been run on dev with the flag off and two
+  replicas: the unit tests use an in-memory bus and fakeredis, not Dragonfly.
+- **Slow in, a pod at a time.** Scale-out adds one pod a minute (a StatefulSet
+  rolls its pods in order, and each boots for minutes); scale-in waits 15
+  minutes and removes one pod per 5, and Kubernetes removes the **highest
+  ordinal**, not the idlest.
+- **Drain.** On SIGTERM the pod has already left the Service endpoints. It
+  waits up to `GRID_CHAT_DRAIN_SECONDS` (`backendDrainSeconds`) for the turns it
+  runs, cancelling what is left, while relays on other replicas keep streaming
+  them. The grace period is that plus the endpoint wait and slack, so every
+  rolling update also waits for the longest running turn, one pod at a time
+  (about 46 minutes per pod at the default `backendDrainSeconds` of 2730, and
+  only while a turn is running; the Pulumi update timeout allows for it). With
+  affinity on the default is 20 s (the 90 s grace the tier has always had): a
+  StatefulSet starts the replacement only after the old pod is gone, so a
+  singleton serves nobody while it drains. With affinity off, other replicas
+  serve meanwhile, but a floor of one replica still has that gap when a turn is
+  running at a rollout: keep `backendReplicas` at 2 or more if that matters.
+
+What lives on a replica, and what that means for scale-in: the in-process socket
+registry, the clarifier future and the running LangGraph task belong to a turn
+that is running, and the drain waits for it. An idle conversation has none of
+them, and its checkpoints are in Postgres, so the next question on any replica
+picks it up. The data PVC holds only the base-corpus admin upload
+(`OIB_UPLOADS_DIR`, above); scale-in keeps the PVC (`whenScaled: Retain`), so
+that source PDF is unreachable while its ordinal is gone and returns with it.
+Chat never reads it.
+
 ### 6.5 Frontend tier — what actually bounds it
 
 The `frontend` Deployment (Next.js UI + BFF + WS gateway, one Node process per
-pod) is stateless and HPA-scaled on CPU, 2→6 replicas. Two things determine
+pod) is stateless and HPA-scaled on CPU, `frontendMinReplicas`→`frontendMaxReplicas`
+(default 2→6; prod and dev set 1→3). Two things determine
 whether that works, and neither is obvious from reading the Deployment:
 
 **1. `requests.cpu` is the HPA's divisor, not just a scheduling hint.**
@@ -1119,7 +1399,9 @@ emitted somewhere it can read; see §10.
   tightening it is the one item that needs a live-cluster validation pass first.
   The exception is `gotenberg` (`gotenberg-frontend-only`): it parses untrusted
   office files that can link external URLs, needs no network of its own, and so
-  gets ingress from the frontend alone and no egress at all, DNS included.
+  gets ingress from the frontend and the `bff-jobs` pool alone (the pool is the
+  same BFF running the background conversions) and no egress at all, DNS
+  included.
   With `networkPolicies` off that policy is gone; Gotenberg's
   `--libreoffice-deny-private-ips` and `--libreoffice-deny-public-ips` flags
   still refuse every URL LibreOffice would fetch.
@@ -1196,11 +1478,13 @@ reasoning; the tier modules only pick a profile.
 and then *awaits its in-flight jobs* (`aiq_api/jobs/worker.py`). Deep-research
 runs take minutes, so the 30s default killed them — every deploy, every node
 drain, silently. `grid-oib:agentWorkerDrainSeconds` (default 600, staging 180)
-is now that budget. The cost is deploy latency: workers roll one at a time and a
-draining pod holds its slot for up to the full budget, so `pulumi up` on this
-tier can take (drain × replicas) in the worst case. That is the trade being
-made deliberately — lower it only if losing in-flight research is preferable to
-waiting.
+is now that budget, and the pod's grace period is that plus 30 s to give back
+what is still running (it is requeued without costing an attempt, and another
+worker starts it over). The cost is deploy latency: workers roll one at a time
+and a draining pod holds its slot for up to the full budget, so `pulumi up` on
+this tier can take (drain × replicas) in the worst case. That is the trade being
+made deliberately — lower it only if repeating in-flight research is preferable
+to waiting.
 
 **Secret rotation is a rollout, not a no-op.** Values injected with
 `secretKeyRef` are read once, at container start. Before this, rotating a key
@@ -1406,7 +1690,7 @@ Three things are true of this whole table and are easy to miss:
 | Frontend → backend (BFF/HTTP) | **No** | `http://aiq-agent:8000` inside the pod network. |
 | Frontend → backend (WebSocket chat) | **No** | `ws://`, per-replica via the headless service (ADR-0028 conversation affinity). This is the full chat transport, including prompts and answers. |
 | Producers → OTel Collector, Collector → dashboard | **No** | Plain OTLP on `http://otel-collector:4318`. This traffic carries **prompts, retrieved snippets, LLM output and live presigned S3 URLs**, so it is the most sensitive plaintext channel in the namespace; the unauthenticated Aspire UI on `:18888` is likewise kept off-limits only by NetworkPolicy, which is why `observabilityEnabled` refuses to deploy with `networkPolicies=false`. |
-| Frontend → Gotenberg | **No, and unauthenticated** | `http://gotenberg:3000`. It carries the bytes of every office file converted, and anyone who can reach it can have LibreOffice parse a file of their choosing. NetworkPolicy admits the frontend only. |
+| Frontend and `bff-jobs` → Gotenberg | **No, and unauthenticated** | `http://gotenberg:3000`. It carries the bytes of every office file converted, and anyone who can reach it can have LibreOffice parse a file of their choosing. NetworkPolicy admits the frontend and the `bff-jobs` pool only. |
 | App → Chroma | **No, and unauthenticated** | `http://chroma:8000`, no credentials of any kind. Any pod that can reach it can read or delete every tenant's vectors. NetworkPolicy is the only control. |
 | Cluster egress (OpenRouter, Tavily, WorkOS, GitHub) | **Yes** | All HTTPS. |
 

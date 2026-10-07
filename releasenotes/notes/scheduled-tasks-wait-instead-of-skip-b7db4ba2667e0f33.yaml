@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Scheduled tasks are no longer skipped when the research queue is full: a run
+    that has to wait shows as queued in Aufgaben and starts as soon as a worker
+    is free. An office's scheduled runs go after its own questions and never
+    ahead of another office's work.

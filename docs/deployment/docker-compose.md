@@ -1,11 +1,16 @@
 # Docker Compose Service Reference
 
 The Docker Compose file is at `deploy/compose/docker-compose.yaml`. It defines
-16 services, several named volumes, and 2 bridge networks. This page describes
+17 services, several named volumes, and 2 bridge networks. This page describes
 the core ones; the observability stack (`dragonfly`, `clickhouse`, the three
-`langfuse-*` services) and the two background workers (`purger`,
-`skill-scheduler`) are defined in the compose file with their own comments and
-are not covered here.
+`langfuse-*` services) and the three background workers (`purger`,
+`skill-scheduler`, `bff-jobs`) are defined in the compose file with their own
+comments and are not covered here. `bff-jobs` (ADR-0079) is the frontend image
+running `workers/jobs/index.js`: the BFF plus the claim loop that runs the jobs
+in `bff_job_queue` (project reindex, failed-ingestion rescan, IFC extraction,
+Office rendition through `gotenberg`, research-report filing), with no
+published port. Without it none of them runs. It shares the frontend's environment by YAML alias, so a
+variable added to `frontend` reaches it.
 
 ## Quick Start
 

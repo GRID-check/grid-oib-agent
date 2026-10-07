@@ -27,12 +27,16 @@ export interface Gotenberg {
  * failed with a retryable reason; "Erneut lesen" recovers it. .xlsx/.xlsm
  * still index without it, only without preview or thumbnail.
  *
- * One replica. A restart mid-conversion therefore fails that ingest, so the
- * `converter` rollout profile drains: the new pod is ready before the old one
- * stops (surge), a preStop sleep covers endpoint removal, and Gotenberg
- * finishes a conversion in flight for up to 120s after SIGTERM. A crash or an
- * OOM kill is not covered; those ingests fail retryably. The frontend still
- * does not wait on it at boot: uploads of other types work without it.
+ * `gotenbergReplicas` (default one) is the fleet's conversion capacity: one
+ * LibreOffice converts one document at a time per replica, and the `bff-jobs`
+ * pool's ceiling on background conversions is held to it (`renditionCeiling`
+ * against `gotenbergCapacity`, asserted in `gotenberg.spec.ts`). A restart
+ * mid-conversion fails that ingest, so the `converter` rollout profile drains:
+ * the new pod is ready before the old one stops (surge), a preStop sleep
+ * covers endpoint removal, and Gotenberg finishes a conversion in flight for
+ * up to 120s after SIGTERM. A crash or an OOM kill is not covered; those
+ * ingests fail retryably. The frontend still does not wait on it at boot:
+ * uploads of other types work without it.
  *
  * It parses untrusted files, so it is the most exposed process in the
  * namespace after the edge. `platform/network-policies.ts` admits only the
@@ -57,7 +61,7 @@ export function installGotenberg(
     {
       metadata: { name: GOTENBERG.name, namespace, labels },
       spec: {
-        replicas: 1,
+        replicas: cfg.gotenberg.replicas,
         selector: { matchLabels: labels },
         ...surgeRollout(ROLLOUT.converter),
         template: {

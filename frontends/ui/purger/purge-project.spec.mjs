@@ -577,3 +577,20 @@ describe('collaboration rows', () => {
     }
   })
 })
+
+describe('background jobs', () => {
+  it('erases the project’s queued jobs, in its own organization, before the project row goes', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_p1' },
+      conversationRows: [],
+    })
+
+    await purgeProject(tx, entry, makeDeps())
+
+    const deletes = executed.filter((call) => call.text.startsWith('DELETE'))
+    const jobs = deletes.findIndex((call) => call.text.includes('DELETE FROM bff_job_queue'))
+    expect(jobs).toBeGreaterThanOrEqual(0)
+    expect(jobs).toBeLessThan(deletes.findIndex((call) => call.text.startsWith('DELETE FROM projects')))
+    expect(deletes[jobs].values).toEqual([entry.organization_id, 'p1'])
+  })
+})

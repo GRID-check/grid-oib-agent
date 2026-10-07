@@ -1,4 +1,5 @@
 import * as pulumi from "@pulumi/pulumi";
+import { createHmac } from "node:crypto";
 import { hostsOutsideZone, managedHosts } from "./platform/dns";
 
 /**
@@ -307,6 +308,15 @@ export interface GridConfig {
      */
     runtimePassword: pulumi.Output<string>;
     /**
+     * Password for `grid_keda_scaler`, the read-only login KEDA's `postgresql`
+     * scaler counts the queue tables with (ADR-0079). Optional
+     * (`pgScalerPassword`): unset, it is derived from `pgAppPassword` by a
+     * one-way HMAC, so it is never the owner's password and an existing stack
+     * needs no new secret to deploy. Set it to rotate the scaler's credential
+     * on its own.
+     */
+    scalerPassword: pulumi.Output<string>;
+    /**
      * How CNPG rolls the primary during an operator/image update.
      * "unsupervised" = automatic switchover + restart (no human), which is what
      * you want on a provider that drains/replaces nodes automatically.
@@ -443,6 +453,14 @@ export interface GridConfig {
      */
     enabled: boolean;
     image: string;
+    /**
+     * Converter replicas. One LibreOffice converts one document at a time per
+     * replica, so this is the fleet's conversion capacity, and the thing the
+     * `bff-jobs` pool's rendition ceiling is held to (`renditionCeiling`):
+     * every replica added is {@link GOTENBERG_SLOTS_PER_REPLICA} more
+     * conversions the pool may have in flight.
+     */
+    replicas: number;
   };
 
   chroma: {
@@ -666,10 +684,24 @@ export interface GridConfig {
     resources: ResourceSpec;
     daskWorkers: number;
     daskThreads: number;
-    /** Global cap on non-terminal async research jobs (0 disables). */
+    /**
+     * Global cap on non-terminal async research jobs (0 disables). Dask only:
+     * with `jobExecution: db` a full cluster makes a job wait in the queue
+     * (ADR-0079), so nothing reads it.
+     */
     maxActiveJobs: number;
-    /** Per-org cap on non-terminal async research jobs (0 disables). */
+    /**
+     * Research jobs one organization runs at once (0 disables). With
+     * `jobExecution: db` it is the workers' per-organization claim cap and a job
+     * over it waits; with Dask it refuses the submit.
+     */
     maxActiveJobsPerOrg: number;
+    /**
+     * Research jobs one organization may have WAITING (`jobExecution: db`; 0
+     * disables). Abuse protection and the only 429 left: capacity makes a job
+     * wait, never fail.
+     */
+    maxQueuedJobsPerOrg: number;
     /** Max concurrent document-ingestion workers in the backend process. */
     ingestMaxWorkers: number;
     /** Backend web config file (baked into the image under /app/configs). */
@@ -685,6 +717,31 @@ export interface GridConfig {
      * see the base-corpus-upload caveat in docs/deployment/kubernetes.md §6.4.
      */
     replicas: number;
+    /**
+     * Replica ceiling once the chat tier autoscales (ADR-0080): `replicas` is
+     * the floor, KEDA moves the count between the two on the fleet's running
+     * turns. Autoscaling needs `chatAffinity` off; with it on the count is the
+     * hash's modulus and stays `replicas`, whatever this says.
+     */
+    maxReplicas: number;
+    /** Running chat turns, fleet-wide, per replica that KEDA aims for (its metrics-api AverageValue target). */
+    turnsPerReplica: number;
+    /** CPU utilisation (% of requests) at which the KEDA cpu trigger adds replicas. */
+    cpuTargetPercent: number;
+    /**
+     * `GRID_CHAT_DRAIN_SECONDS`: how long a terminating replica waits for its
+     * turns before cancelling them. The pod's grace period is this plus the
+     * endpoint drain and slack (`backendRollout`), so it must cover the longest
+     * chat turn, `GRID_CHAT_TURN_DEADLINE_SECONDS` (2700).
+     */
+    drainSeconds: number;
+    /**
+     * `GRID_CHAT_AFFINITY` (ADR-0080): the BFF pins a conversation to one
+     * replica by hash (on, ADR-0028) or hands the socket to the aiq-agent
+     * Service and lets the conversation bus decide per turn (off). Prod stays
+     * on until the cross-replica path is validated on dev.
+     */
+    chatAffinity: boolean;
   };
 
   frontend: {
@@ -723,24 +780,26 @@ export interface GridConfig {
     resources: ResourceSpec;
     minReplicas: number;
     maxReplicas: number;
-    hpaCpuTargetPercent: number;
-    /** Concurrent research jobs per worker process (GRID_RESEARCH_WORKERS). */
+    /** Concurrent research jobs per worker process (GRID_RESEARCH_WORKERS); also KEDA's jobs-per-replica target. */
     concurrency: number;
     /**
      * Seconds a terminating worker may spend finishing the research jobs it has
-     * already claimed, before the kubelet SIGKILLs it
-     * (`terminationGracePeriodSeconds`).
+     * already claimed (`GRID_RESEARCH_WORKER_DRAIN_SECONDS`). The pod's
+     * `terminationGracePeriodSeconds` is this plus 30 s, so the worker has time
+     * to give back what it did not finish before the kubelet SIGKILLs it.
      *
      * This is the single most consequential rollout knob in the stack. On
      * SIGTERM the worker stops claiming and awaits its in-flight jobs
      * (`aiq_api/jobs/worker.py`); Kubernetes' 30s default kills that drain
-     * part-way, so *every* deploy and *every* node drain destroyed research a
-     * user was waiting on. Set it at or above the p99 job duration.
+     * part-way. A job still running when the budget ends is given back to the
+     * queue without costing an attempt and another worker starts it over, so the
+     * budget now decides how much work is repeated, not whether any is lost. Set
+     * it at or above the p99 job duration to repeat none.
      *
      * The cost is deploy latency: workers roll one at a time and a draining one
      * can hold its slot for this long, so `pulumi up` may take
-     * (drain × replicas) in the worst case. Lower it only if you would rather
-     * lose in-flight research than wait.
+     * (drain x replicas) in the worst case. Lower it only if you would rather
+     * repeat in-flight research than wait.
      */
     drainSeconds: number;
   };
@@ -759,7 +818,9 @@ export interface GridConfig {
     /**
      * Ceiling. The real ceiling is the model provider's rate limit on the
      * shared key: replicas × concurrency × `AIQ_VLM_BATCH_WORKERS` is the
-     * peak number of VLM calls in flight.
+     * peak number of VLM calls in flight, and `assertVlmPeakFitsCeiling` fails
+     * the deploy when that is more than twice `vlmFleetConcurrency`, which is
+     * itself held to the provider ceilings.
      */
     maxReplicas: number;
     /** Jobs one replica runs at once (`AIQ_INGEST_MAX_WORKERS`); also KEDA's jobs-per-replica target. */
@@ -771,10 +832,59 @@ export interface GridConfig {
   };
 
   /**
-   * KEDA, the event-driven autoscaler the ingest tier scales with. Installed by
-   * this program unless the cluster already runs one (`installKeda=false`).
+   * The BFF's background pool (ADR-0079): internal-only replicas of the frontend
+   * image that claim jobs from `bff_job_queue` fairly across organizations and
+   * run them in their own BFF, so a reindex, a rescan (and later IFC parsing and
+   * rendition) never shares a pod with the chat gateway. Scaled by KEDA on the
+   * queue's depth, like the ingest tier.
+   */
+  bffJobs: {
+    enabled: boolean;
+    resources: ResourceSpec;
+    /** Floor; 0 lets the pool scale to nothing while no job waits. */
+    minReplicas: number;
+    maxReplicas: number;
+    /** Jobs one replica runs at once (`GRID_BFF_JOBS_CONCURRENCY`); also KEDA's jobs-per-replica target. */
+    concurrency: number;
+    /** SIGTERM budget to finish the slice in hand; the claim is then given back without costing an attempt. */
+    drainSeconds: number;
+    /** Most jobs one organisation may run fleet-wide at once; 0 = no cap (the claim is fair regardless). */
+    maxPerOrg: number;
+    /**
+     * Office conversions ONE pod runs at Gotenberg at once (`GOTENBERG_MAX_
+     * CONCURRENCY` in the pod). The fleet's ceiling is this times `maxReplicas`
+     * ({@link renditionCeiling}), and a spec holds that to the converter's
+     * capacity: more than Gotenberg can convert queues inside it, and what
+     * queues there counts against its own API timeout.
+     */
+    renditionConcurrency: number;
+  };
+
+  /**
+   * KEDA, the event-driven autoscaler the ingest and bff-jobs tiers scale with.
+   * Installed by this program unless the cluster already runs one
+   * (`installKeda=false`).
    */
   keda: { install: boolean };
+
+  /**
+   * What the shared OpenRouter key is asked to carry (ADR-0076, ADR-0081), as
+   * the backend image's environment. The four numbers are one budget:
+   * {@link vlmPeakCalls} is held to `vlmFleetConcurrency` where the ingest tier
+   * is sized (`assertVlmPeakFitsCeiling`), and `vlmFleetConcurrency` is held to
+   * both ceilings a vision call passes: the key-wide `limitCeiling` and the
+   * vision model's own `modelLimitCeiling` (a call takes a slot in each pool).
+   */
+  providerLimits: {
+    /** `AIQ_VLM_FLEET_CONCURRENCY`: vision calls in flight across every ingest process at once. */
+    vlmFleetConcurrency: number;
+    /** `AIQ_VLM_BATCH_WORKERS`: vision calls one file runs at once. */
+    vlmBatchWorkers: number;
+    /** `GRID_PROVIDER_LIMIT_CEILING`: model calls in flight fleet-wide, all models together. */
+    limitCeiling: number;
+    /** `GRID_PROVIDER_MODEL_LIMIT_CEILING`: model calls in flight fleet-wide to one model. */
+    modelLimitCeiling: number;
+  };
 
   /** LLM / model-provider settings shared by backend + frontend. */
   llm: {
@@ -1251,6 +1361,20 @@ function num(cfg: pulumi.Config, key: string, fallback: number): number {
   return v === undefined ? fallback : v;
 }
 
+/**
+ * The scaler login's password when `pgScalerPassword` is not set: an HMAC of a
+ * fixed label under the owner's password. One-way, so holding the scaler DSN
+ * says nothing about `pgAppPassword` (Postgres authenticates by role AND
+ * password, which is the whole reason `grid_app_rw` has a password of its own),
+ * and URL-safe, so it needs no care in a DSN. It follows `pgAppPassword` when
+ * that rotates.
+ */
+function derivedScalerPassword(appPassword: pulumi.Output<string>): pulumi.Output<string> {
+  return pulumi.secret(
+    appPassword.apply((password) => createHmac("sha256", password).update("grid-keda-scaler").digest("base64url")),
+  );
+}
+
 /** `langfuseV4WriteMode`, refused at load time when it is not one Langfuse knows. */
 function langfuseV4WriteMode(value: string | undefined): "legacy" | "dual" | "events_only" {
   if (value === undefined) return "dual";
@@ -1356,6 +1480,26 @@ export function loadConfig(): GridConfig {
 
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
+
+  // ── Chat tier scale-out (ADR-0080) ────────────────────────────────────────
+  const backendReplicas = Math.max(1, num(cfg, "backendReplicas", 2));
+  const backendMaxReplicas = Math.max(1, num(cfg, "backendMaxReplicas", 3));
+  const chatAffinity = bool(cfg, "chatAffinity", true);
+  if (backendMaxReplicas < backendReplicas) {
+    throw new Error(
+      `grid-oib:backendMaxReplicas (${backendMaxReplicas}) must be >= backendReplicas ` +
+        `(${backendReplicas}), the floor the chat tier scales between.`,
+    );
+  }
+  // Affinity off hands every socket to the Service and leans on the bus to keep
+  // one turn running per conversation. Without the bus nothing does: two
+  // replicas would each run the question they were handed.
+  if (!chatAffinity && !conversationBus) {
+    throw new Error(
+      "grid-oib:chatAffinity=false needs grid-oib:conversationBus=true: without the Dragonfly " +
+        "conversation bus no replica can relay a turn it does not run, or stop a stale one (ADR-0080).",
+    );
+  }
   const imageTag = cfg.get("imageTag") ?? "latest";
 
   // Fail fast: the web PDB allows maxUnavailable 1, so a webMinReplicas of 1
@@ -2232,6 +2376,7 @@ export function loadConfig(): GridConfig {
       appUser: cfg.get("pgAppUser") ?? "aiq",
       appPassword: cfg.requireSecret("pgAppPassword"),
       runtimePassword: cfg.requireSecret("pgRuntimePassword"),
+      scalerPassword: cfg.getSecret("pgScalerPassword") ?? derivedScalerPassword(cfg.requireSecret("pgAppPassword")),
       primaryUpdateStrategy:
         cfg.get("pgPrimaryUpdateStrategy") === "supervised" ? "supervised" : "unsupervised",
       backups: {
@@ -2286,6 +2431,19 @@ export function loadConfig(): GridConfig {
       // this binary does not know (any --chromium-*) stops it at boot. Keep it equal to the
       // Compose pin (deploy/compose/docker-compose.yaml).
       image: cfg.get("gotenbergImage") ?? "gotenberg/gotenberg:8.37.0-libreoffice",
+      // Unset, it is what the bff-jobs pool needs at its ceiling, so the defaults hold
+      // `renditionCeiling <= gotenbergCapacity` (asserted in gotenberg.spec.ts).
+      replicas: Math.max(
+        1,
+        num(
+          cfg,
+          "gotenbergReplicas",
+          Math.ceil(
+            (Math.max(1, num(cfg, "bffJobsMaxReplicas", 4)) * Math.max(1, num(cfg, "bffJobsRenditionConcurrency", 1))) /
+              GOTENBERG_SLOTS_PER_REPLICA,
+          ),
+        ),
+      ),
     },
 
     chroma: {
@@ -2358,6 +2516,7 @@ export function loadConfig(): GridConfig {
       daskThreads: num(cfg, "backendDaskThreads", 4),
       maxActiveJobs: num(cfg, "backendMaxActiveJobs", 8),
       maxActiveJobsPerOrg: num(cfg, "backendMaxActiveJobsPerOrg", 3),
+      maxQueuedJobsPerOrg: num(cfg, "backendMaxQueuedJobsPerOrg", 50),
       ingestMaxWorkers: num(cfg, "backendIngestMaxWorkers", 2),
       configFile: cfg.get("backendConfigFile") ?? "/app/configs/config_oib_openrouter.yml",
       chromaDir: cfg.get("backendChromaDir") ?? "/app/data/chroma_data",
@@ -2366,7 +2525,16 @@ export function loadConfig(): GridConfig {
       // conversation to its owning replica by hash (conversation affinity,
       // ADR-0028), so the in-process WS/HITL/task state is always reachable. The
       // headless service (backend.ts) provides the per-pod DNS this needs.
-      replicas: num(cfg, "backendReplicas", 2),
+      replicas: backendReplicas,
+      maxReplicas: backendMaxReplicas,
+      turnsPerReplica: Math.max(1, num(cfg, "backendTurnsPerReplica", 8)),
+      cpuTargetPercent: num(cfg, "backendCpuTargetPercent", 70),
+      // The longest chat turn (+ its 30 s cancel grace) once the tier scales: scale-in
+      // picks a pod whatever it is running. With affinity on the count is static
+      // and a singleton serves nobody while it drains, so the short drain that
+      // fits the 90 s grace period the tier has always had stays the default.
+      drainSeconds: Math.max(10, num(cfg, "backendDrainSeconds", chatAffinity ? 20 : 2730)),
+      chatAffinity,
     },
 
     frontend: {
@@ -2428,10 +2596,12 @@ export function loadConfig(): GridConfig {
         limitsCpu: cfg.get("agentWorkerLimitsCpu") ?? "4",
         limitsMemory: cfg.get("agentWorkerLimitsMemory") ?? "8Gi",
       },
-      minReplicas: num(cfg, "agentWorkerMinReplicas", 2),
-      maxReplicas: num(cfg, "agentWorkerMaxReplicas", 8),
-      hpaCpuTargetPercent: num(cfg, "agentWorkerHpaCpuTargetPercent", 70),
-      concurrency: num(cfg, "agentWorkerConcurrency", 1),
+      // KEDA scales the tier on the research queue's depth (ADR-0079), not on
+      // CPU, which an LLM-bound job barely moves. A floor of zero lets it idle
+      // while nothing waits.
+      minReplicas: Math.max(0, num(cfg, "agentWorkerMinReplicas", 1)),
+      maxReplicas: Math.max(1, num(cfg, "agentWorkerMaxReplicas", 8)),
+      concurrency: Math.max(1, num(cfg, "agentWorkerConcurrency", 1)),
       // 10 minutes: long enough for a typical deep-research run to land, short
       // enough that a rolling deploy of the tier stays inside the CD timeout.
       // Clamped to a sane floor — a value below the default 30s would be a
@@ -2450,12 +2620,46 @@ export function loadConfig(): GridConfig {
         limitsMemory: cfg.get("ingestWorkerLimitsMemory") ?? "6Gi",
       },
       minReplicas: Math.max(0, num(cfg, "ingestWorkerMinReplicas", 1)),
-      maxReplicas: Math.max(1, num(cfg, "ingestWorkerMaxReplicas", 20)),
+      // 5 x 3 x `AIQ_VLM_BATCH_WORKERS` (4) = 60, within 2 x the vision pool (32): the
+      // most the default budget can feed (`assertVlmPeakFitsCeiling`).
+      maxReplicas: Math.max(1, num(cfg, "ingestWorkerMaxReplicas", 5)),
       concurrency: Math.max(1, num(cfg, "ingestWorkerConcurrency", 3)),
       drainSeconds: Math.max(30, num(cfg, "ingestWorkerDrainSeconds", 600)),
       maxPerOrg: Math.max(0, num(cfg, "ingestMaxPerOrg", 0)),
     },
+    bffJobs: {
+      enabled: cfg.getBoolean("bffJobsEnabled") !== false,
+      // A reindex or a rescan only pages and POSTs, but an IFC model is parsed
+      // here too (`bim_extract`): several times its own size in memory, up to
+      // `maxIfcBytes`, with `bffJobsConcurrency` of them at once. So the limit
+      // is double a frontend pod's; the request stays where the walk needs it.
+      resources: {
+        requestsCpu: cfg.get("bffJobsRequestsCpu") ?? "250m",
+        requestsMemory: cfg.get("bffJobsRequestsMemory") ?? "512Mi",
+        limitsCpu: cfg.get("bffJobsLimitsCpu") ?? "1",
+        limitsMemory: cfg.get("bffJobsLimitsMemory") ?? "2Gi",
+      },
+      minReplicas: Math.max(0, num(cfg, "bffJobsMinReplicas", 1)),
+      maxReplicas: Math.max(1, num(cfg, "bffJobsMaxReplicas", 4)),
+      concurrency: Math.max(1, num(cfg, "bffJobsConcurrency", 2)),
+      drainSeconds: Math.max(15, num(cfg, "bffJobsDrainSeconds", 60)),
+      maxPerOrg: Math.max(0, num(cfg, "bffJobsMaxPerOrg", 0)),
+      // One: LibreOffice converts one document at a time, and the second slot
+      // Gotenberg is sized for is the next job waiting behind it. A pod running
+      // two jobs at once still converts one file at a time.
+      renditionConcurrency: Math.max(1, num(cfg, "bffJobsRenditionConcurrency", 1)),
+    },
     keda: { install: cfg.getBoolean("installKeda") ?? true },
+
+    // Defaults are the backend image's own (`adapter.py`, `processing.py`,
+    // `provider_limiter.py`), written down here so the stack file, not a Python
+    // default, is where the fleet's budget is read and changed.
+    providerLimits: {
+      vlmFleetConcurrency: Math.max(0, num(cfg, "vlmFleetConcurrency", 32)),
+      vlmBatchWorkers: Math.max(1, num(cfg, "vlmBatchWorkers", 4)),
+      limitCeiling: Math.max(1, num(cfg, "providerLimitCeiling", 128)),
+      modelLimitCeiling: Math.max(1, num(cfg, "providerModelLimitCeiling", 32)),
+    },
 
     llm: {
       openrouterApiKey: cfg.requireSecret("openrouterApiKey"),
@@ -2636,6 +2840,19 @@ export function loadConfig(): GridConfig {
   };
 }
 
+/**
+ * Whether the chat tier autoscales (ADR-0080).
+ *
+ * Only with affinity off. With it on, the BFF routes by
+ * `hash(conversationId) % BACKEND_REPLICAS`, so the replica count is part of the
+ * routing: changing it remaps live conversations, and a replica the hash names
+ * that does not exist yet is a dead socket. The count is then whatever
+ * `backendReplicas` says, and the stack's own `replicas` field owns it.
+ */
+export function backendAutoscaled(c: GridConfig): boolean {
+  return c.jobExecution === "db" && !c.backend.chatAffinity && c.backend.maxReplicas > c.backend.replicas;
+}
+
 /** Resolve the concrete backend image reference. */
 export function backendImage(c: GridConfig): string {
   return c.images.backend ?? `${c.images.registry}/grid-oib-backend:${c.images.tag}`;
@@ -2802,4 +3019,102 @@ export function assertHpaTargetIsProportional(
       `${tier}: CPU limit (${r.limitsCpu}) is below the request (${r.requestsCpu}).`,
     );
   }
+}
+
+/**
+ * Conversions one Gotenberg replica is sized to take at once: one running and
+ * one ready behind it. The second is deliberate (`rendition.ts` in the BFF):
+ * it keeps the converter busy between files without queueing anything inside
+ * it that could run out of its own API timeout.
+ */
+export const GOTENBERG_SLOTS_PER_REPLICA = 2;
+
+/**
+ * The most office conversions the `bff-jobs` pool can have in flight at
+ * Gotenberg at once: its replicas at the ceiling times what one pod runs.
+ * Background conversions are claimed from `bff_job_queue` (ADR-0079), so this
+ * is the fleet-wide bound that replaced a per-process queue in every frontend
+ * pod; readers opening a preview are the frontend pods' own, bounded apart.
+ */
+export function renditionCeiling(cfg: Pick<GridConfig, "bffJobs">): number {
+  return cfg.bffJobs.maxReplicas * cfg.bffJobs.renditionConcurrency;
+}
+
+/** What the converter can take: its replicas times {@link GOTENBERG_SLOTS_PER_REPLICA}. */
+export function gotenbergCapacity(cfg: Pick<GridConfig, "gotenberg">): number {
+  return cfg.gotenberg.replicas * GOTENBERG_SLOTS_PER_REPLICA;
+}
+
+/**
+ * Vision calls the ingest tier can have in flight at its ceiling: replicas, times
+ * the jobs one replica runs at once, times the files' own parallelism
+ * (`AIQ_VLM_BATCH_WORKERS`). Every one of them asks the shared provider key for a
+ * slot of the fleet pool (`AIQ_VLM_FLEET_CONCURRENCY`).
+ */
+export function vlmPeakCalls(cfg: Pick<GridConfig, "ingestWorker" | "providerLimits">): number {
+  return cfg.ingestWorker.maxReplicas * cfg.ingestWorker.concurrency * cfg.providerLimits.vlmBatchWorkers;
+}
+
+/**
+ * How far past the fleet pool the ingest tier may be sized. Callers over the pool
+ * wait for a slot, which is what the pool is for, so some overshoot is a queue
+ * that keeps the pool busy between files; a lot of it is replicas that only hold
+ * memory while they wait, and a wait long enough to meet the vision client's
+ * timeout (`AIQ_VLM_TIMEOUT_SECONDS`) is a retry for nothing.
+ */
+export const VLM_OVERSUBSCRIPTION = 2;
+
+/**
+ * Refuse an ingest tier whose peak vision calls run past the fleet's ceiling by
+ * more than {@link VLM_OVERSUBSCRIPTION}, and a fleet pool larger than either
+ * limiter ceiling it passes through: the key-wide one, and the vision model's
+ * own (every vision call holds a slot in both, and the model's pool is the
+ * smaller by default, so a bigger fleet pool could never fill). The numbers are chosen in two
+ * places (the tier's replicas, the provider's budget) and neither looks wrong
+ * alone, which is how a tier gets raised until its replicas queue on a pool
+ * sized for a fraction of them.
+ *
+ * Skipped when the pool is off (`vlmFleetConcurrency` 0: nothing is held back).
+ */
+export function assertVlmPeakFitsCeiling(cfg: Pick<GridConfig, "ingestWorker" | "providerLimits">): void {
+  const { vlmFleetConcurrency, vlmBatchWorkers, limitCeiling, modelLimitCeiling } = cfg.providerLimits;
+  if (vlmFleetConcurrency === 0) return;
+  const peak = vlmPeakCalls(cfg);
+  const allowed = VLM_OVERSUBSCRIPTION * vlmFleetConcurrency;
+  if (peak > allowed) {
+    const { maxReplicas, concurrency } = cfg.ingestWorker;
+    throw new Error(
+      `Invalid ingest sizing: ingestWorkerMaxReplicas (${maxReplicas}) x ingestWorkerConcurrency (${concurrency}) ` +
+        `x vlmBatchWorkers (${vlmBatchWorkers}) = ${peak} vision calls at the peak, more than ` +
+        `${VLM_OVERSUBSCRIPTION}x vlmFleetConcurrency (${vlmFleetConcurrency}) = ${allowed}. The extra replicas ` +
+        "would only queue on the fleet pool and add cost without throughput. Lower ingestWorkerMaxReplicas " +
+        `to ${Math.max(1, Math.floor(allowed / (concurrency * vlmBatchWorkers)))} or less, or raise vlmFleetConcurrency ` +
+        "(and the provider's own limit with it).",
+    );
+  }
+  if (vlmFleetConcurrency > limitCeiling) {
+    throw new Error(
+      `Invalid provider budget: vlmFleetConcurrency (${vlmFleetConcurrency}) is above providerLimitCeiling ` +
+        `(${limitCeiling}), the key-wide limit every model call passes. The fleet pool could never fill. ` +
+        "Raise providerLimitCeiling or lower vlmFleetConcurrency.",
+    );
+  }
+  if (vlmFleetConcurrency > modelLimitCeiling) {
+    throw new Error(
+      `Invalid provider budget: vlmFleetConcurrency (${vlmFleetConcurrency}) is above providerModelLimitCeiling ` +
+        `(${modelLimitCeiling}), the limit on calls in flight to one model, which the vision model's calls also pass. ` +
+        "Its own pool would hold the calls back below the fleet pool, so the extra slots and the replicas sized " +
+        "to them would only wait. Raise providerModelLimitCeiling (and the provider's own limit with it) or lower " +
+        "vlmFleetConcurrency.",
+    );
+  }
+}
+
+/**
+ * Whether anything in the stack counts a queue table through KEDA's `postgresql`
+ * scaler, i.e. whether the read-only scaler login and its grants are needed:
+ * the research and ingest tiers (`jobExecution: db`) and the bff-jobs pool.
+ */
+export function queueScalerEnabled(c: Pick<GridConfig, "jobExecution" | "bffJobs">): boolean {
+  return c.jobExecution === "db" || c.bffJobs.enabled;
 }

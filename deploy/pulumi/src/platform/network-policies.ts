@@ -1,8 +1,8 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig } from "../config";
+import { GridConfig, backendAutoscaled, queueScalerEnabled } from "../config";
 import { EDGE_RATE_LIMIT, GOTENBERG, LANGFUSE, PORT } from "../constants";
-import { KEDA_NAMESPACE } from "./keda";
+import { KEDA_NAMESPACE, KEDA_OPERATOR_LABEL } from "./keda";
 import { CLUSTER_NAME as POSTGRES_CLUSTER } from "../data/postgres";
 
 /**
@@ -321,7 +321,7 @@ export function installNetworkPolicies(
       })
     : undefined;
 
-  // 13. Gotenberg (ADR-0070): the frontend in, nothing out.
+  // 13. Gotenberg (ADR-0070): the frontend and the bff-jobs pool in, nothing out.
   //
   //     It parses untrusted office files, and an office file can reference
   //     external URLs (linked images, OLE links) that LibreOffice resolves
@@ -331,15 +331,23 @@ export function installNetworkPolicies(
   //     nothing to resolve.
   //
   //     Withheld from rule 2 on the same grounds as the dashboard, so the
-  //     frontend BFF is its one caller. The agent never calls it (the BFF hands
-  //     the backend the finished PDF), and nothing else has a reason to.
+  //     frontend BFF is its caller, and the bff-jobs pool is the same BFF
+  //     running the background conversions (ADR-0079), so it is named too: a
+  //     pool left out here would fail every office file with a green plan. The
+  //     agent never calls it (the BFF hands the backend the finished PDF), and
+  //     nothing else has a reason to.
   const gotenberg = cfg.gotenberg.enabled
     ? mk("gotenberg-frontend-only", {
         podSelector: { matchLabels: { "app.kubernetes.io/name": GOTENBERG.name } },
         policyTypes: ["Ingress", "Egress"],
         ingress: [
           {
-            from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } }],
+            from: [
+              { podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } },
+              ...(cfg.bffJobs.enabled
+                ? [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "bff-jobs" } } }]
+                : []),
+            ],
             ports: [{ protocol: "TCP", port: PORT.gotenberg }],
           },
         ],
@@ -348,14 +356,34 @@ export function installNetworkPolicies(
       })
     : undefined;
 
-  // 14. KEDA (its own namespace) reads the ingest queue's depth to scale the
-  //     ingest-worker tier (ADR-0076). Postgres only, and only when that tier
-  //     runs: the operator runs one COUNT(*) there and needs nothing else.
-  const kedaToPostgres = cfg.ingestWorker.enabled
+  // 14-15. KEDA (its own namespace) reaches exactly the two kinds of target its
+  //     triggers name, and nothing else in `grid`. The caller is the OPERATOR pod,
+  //     not the namespace: the operator runs every scaler (the metrics server and
+  //     the admission webhooks in `keda` ask it, they poll nothing), so those two
+  //     have no reason to open a connection into the app or data tier.
+  const kedaOperator = [{ ...nsLabel(KEDA_NAMESPACE), podSelector: { matchLabels: { ...KEDA_OPERATOR_LABEL } } }];
+
+  // 14. The queues' depth, to scale the ingest-worker and agent-worker tiers
+  //     (ADR-0076, ADR-0079) and the bff_job_queue's, to scale the bff-jobs pool:
+  //     Postgres only, port 5432 only, and only when one of those tiers runs. The
+  //     operator runs one COUNT(*) there as the read-only scaler login.
+  const kedaToPostgres = queueScalerEnabled(cfg)
     ? mk("allow-keda-to-postgres", {
         podSelector: { matchLabels: { "cnpg.io/cluster": POSTGRES_CLUSTER } },
         policyTypes: ["Ingress"],
-        ingress: [{ from: [nsLabel(KEDA_NAMESPACE)], ports: [{ protocol: "TCP", port: 5432 }] }],
+        ingress: [{ from: kedaOperator, ports: [{ protocol: "TCP", port: 5432 }] }],
+      })
+    : undefined;
+
+  // 15. The fleet's running turns, from the backend's internal occupancy route,
+  //     to scale the chat tier (ADR-0080). The backend port only, on the backend
+  //     pods only, and only when that tier autoscales. (Its cpu trigger reads
+  //     `metrics.k8s.io`, which is no connection into `grid`.)
+  const kedaToBackend = backendAutoscaled(cfg)
+    ? mk("allow-keda-to-aiq-agent", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": "aiq-agent" } },
+        policyTypes: ["Ingress"],
+        ingress: [{ from: kedaOperator, ports: [{ protocol: "TCP", port: PORT.backend }] }],
       })
     : undefined;
 
@@ -364,6 +392,7 @@ export function installNetworkPolicies(
     intra,
     cnpg,
     ...(kedaToPostgres ? [kedaToPostgres] : []),
+    ...(kedaToBackend ? [kedaToBackend] : []),
     edgeFrontend,
     edgeS3,
     edgeWeb,

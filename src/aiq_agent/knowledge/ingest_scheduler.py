@@ -20,10 +20,16 @@ A job with no organisation (the base-corpus sync, a RIS fetch) is its own lane,
 
 A SOURCE is the other way work arrives: a callable a worker asks when it is
 free, which claims one job from somewhere else (the durable queue,
-``aiq_api.jobs.ingest_queue``) and returns it as a zero-argument callable, or
-None when there is nothing. Local lanes and the source take turns, so neither
+``aiq_agent.knowledge.ingest_queue``) and returns it as a zero-argument callable,
+or None when there is nothing. Local lanes and the source take turns, so neither
 starves the other; the source orders its own jobs fairly (the claim query does
 the same fewest-running-first ordering, across every replica).
+
+A worker counts as BUSY from the moment it asks the source, not from the moment
+the claim returns: a drain that waits for ``busy`` must not see zero while a
+claim is committed in the database and not yet running. A job claimed after the
+source was detached is given back (``release``, when the job has one) instead of
+started.
 
 Stdlib only and free of the ingestor, so it is tested on its own.
 """
@@ -32,6 +38,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+import os
 import threading
 from collections import deque
 from collections.abc import Callable
@@ -43,8 +50,38 @@ logger = logging.getLogger(__name__)
 #: The lane of a job no organisation owns.
 PLATFORM_LANE = "__platform__"
 
-#: What a source hands back: the claimed job, ready to run, or None.
+#: What a source hands back: the claimed job, ready to run, or None. A job may
+#: also have a ``release()``, which gives the claim back without running it.
 JobSource = Callable[[], Callable[[], None] | None]
+
+_CAP_ENV = "GRID_INGEST_MAX_PER_ORG"
+_LEGACY_CAP_ENV = "AIQ_INGEST_MAX_PER_ORG"
+_legacy_cap_warned = False
+
+
+# @environment_variable GRID_INGEST_MAX_PER_ORG
+# @category Knowledge Layer
+# @type int
+# @default 0
+# @required false
+# Most ingestion jobs one organisation may have running; 0 for no cap. Across
+# the whole fleet for jobs in the durable queue, and per process for jobs in a
+# process's own pool. The claim is fair without it (fewest running first); a
+# cap also idles workers when one organisation is alone. `AIQ_INGEST_MAX_PER_ORG`
+# is the deprecated name for the same setting.
+def per_org_cap_from_env() -> int:
+    """The per-organisation cap: ``GRID_INGEST_MAX_PER_ORG``, else its deprecated alias."""
+    global _legacy_cap_warned
+    raw = os.environ.get(_CAP_ENV, "").strip()
+    if not raw:
+        raw = os.environ.get(_LEGACY_CAP_ENV, "").strip()
+        if raw and not _legacy_cap_warned:
+            _legacy_cap_warned = True
+            logger.warning("%s is deprecated; set %s instead", _LEGACY_CAP_ENV, _CAP_ENV)
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 0
 
 
 @dataclass
@@ -131,7 +168,7 @@ class FairIngestScheduler:
 
     @property
     def busy(self) -> int:
-        """Workers running a job right now, local or claimed."""
+        """Workers running a job right now, local or claimed, or claiming one (see the module docstring)."""
         with self._cond:
             return self._busy
 
@@ -239,24 +276,46 @@ class FairIngestScheduler:
                 self._cond.notify()
 
     def _run_claimed(self, source: JobSource | None) -> bool:
-        """Ask the source for a job and run it; whether there was one."""
+        """Ask the source for a job and run it; whether there was one.
+
+        Busy for the whole ask, so a claim that commits is never invisible to a
+        drain between the database and the run.
+        """
         if source is None:
-            return False
-        try:
-            job = source()
-        except Exception:  # noqa: BLE001 - a failed claim is an empty one; the next poll retries
-            logger.warning("Claiming an ingest job failed; retrying on the next poll", exc_info=True)
-            return False
-        if job is None:
             return False
         with self._cond:
             self._busy += 1
         try:
-            job()
-        except Exception:  # noqa: BLE001
-            logger.exception("Claimed ingest job raised")
+            job = self._claim(source)
+            if job is None:
+                return False
+            try:
+                job()
+            except Exception:  # noqa: BLE001
+                logger.exception("Claimed ingest job raised")
+            return True
         finally:
             with self._cond:
                 self._busy -= 1
                 self._cond.notify()
-        return True
+
+    def _claim(self, source: JobSource) -> Callable[[], None] | None:
+        """The job the source claimed, or None: nothing waits, the claim failed, or it was given back."""
+        try:
+            job = source()
+        except Exception:  # noqa: BLE001 - a failed claim is an empty one; the next poll retries
+            logger.warning("Claiming an ingest job failed; retrying on the next poll", exc_info=True)
+            return None
+        if job is None:
+            return None
+        with self._cond:
+            leaving = self._stopping or self._source is None
+        release = getattr(job, "release", None)
+        if leaving and callable(release):
+            # Claimed in the instant the worker stopped asking: another worker takes it now.
+            try:
+                release()
+            except Exception:  # noqa: BLE001 - the stale window returns it, as for any lost claim
+                logger.warning("Giving back an ingest claim failed; it will be claimed again when stale", exc_info=True)
+            return None
+        return job

@@ -177,12 +177,8 @@ export const organization: typeof en.organization = {
         'Liest jede Datei erneut, die nicht gelesen werden konnte. Was bereits funktioniert, bleibt unangetastet.',
       action: 'Fehlgeschlagene Erfassungen erneut lesen',
       busy: 'Wird erneut gelesen.',
-      done: '{count, plural, one {# Dokument erneut zum Lesen eingereiht} other {# Dokumente erneut zum Lesen eingereiht}}',
-      nothing: 'Nichts erneut zu lesen - jedes Dokument wurde gelesen.',
-      partial: '{count, plural, one {# Dokument konnte nicht eingereiht werden} other {# Dokumente konnten nicht eingereiht werden}}',
+      started: 'Die erneute Lesung läuft im Hintergrund und setzt sich nach einem Neustart fort.',
       failed: 'Die erneute Lesung konnte nicht gestartet werden. Bitte versuchen Sie es erneut.',
-      skipped: 'Nichts war geeignet - jedes fehlgeschlagene Dokument wird noch gelesen, ist bereits fertig oder nicht erreichbar.',
-      truncated: 'Die erneute Lesung hat ihr Limit erreicht - starten Sie sie erneut für den Rest.',
     },
   },
   notAdmin: {

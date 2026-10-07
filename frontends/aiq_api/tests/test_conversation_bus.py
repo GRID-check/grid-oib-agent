@@ -20,6 +20,7 @@ from aiq_api.conversation_bus import BusUnavailable
 from aiq_api.conversation_bus import ConversationBus
 from aiq_api.conversation_bus import Envelope
 from aiq_api.conversation_bus import InMemoryTransport
+from aiq_api.conversation_bus import RunningMarker
 from aiq_api.conversation_bus import get_bus
 from aiq_api.conversation_bus import is_multi_replica_bus
 from aiq_api.conversation_bus import reset_bus_for_tests
@@ -252,3 +253,62 @@ async def test_the_subscription_says_when_no_publish_can_be_missed():
     await _await_collector(task)
 
     assert received[0].payload == {"turn_id": "t1", "seq": 1}
+
+
+# ---- one running turn per conversation (ADR-0080) -------------------------
+
+
+@pytest.mark.asyncio
+async def test_one_turn_holds_the_conversation_and_the_other_replica_sees_who():
+    first, second = _two_replicas()
+
+    assert await first.acquire_running(CONV, "t1")
+    assert not await second.acquire_running(CONV, "t2")
+    assert await second.running_holder(CONV) == RunningMarker(replica="R1", turn_id="t1")
+    assert await second.acquire_running("conv-other", "t2")  # another conversation is its own
+
+
+@pytest.mark.asyncio
+async def test_only_the_holder_renews_or_releases_the_marker():
+    first, second = _two_replicas()
+    await first.acquire_running(CONV, "t1")
+
+    assert not await second.renew_running(CONV, "t1")
+    assert not await second.release_running(CONV, "t1")
+    assert not await first.release_running(CONV, "t0")  # right replica, another turn
+    assert await first.renew_running(CONV, "t1")
+    assert await first.release_running(CONV, "t1")
+    assert await second.running_holder(CONV) is None
+    assert await second.acquire_running(CONV, "t2")
+
+
+@pytest.mark.asyncio
+async def test_a_marker_nobody_renews_expires_and_the_next_turn_takes_it(monkeypatch):
+    """A replica killed mid-turn stops renewing; its marker ends with its TTL."""
+    monkeypatch.setattr(conversation_bus, "RUNNING_TTL_SECONDS", 0.05)
+    first, second = _two_replicas()
+    await first.acquire_running(CONV, "t1")
+
+    await asyncio.sleep(0.1)
+
+    assert await second.running_holder(CONV) is None
+    assert not await first.renew_running(CONV, "t1")  # too late: not renewed back to life
+    assert await second.acquire_running(CONV, "t2")
+
+
+@pytest.mark.asyncio
+async def test_a_renewed_marker_outlives_its_ttl(monkeypatch):
+    monkeypatch.setattr(conversation_bus, "RUNNING_TTL_SECONDS", 0.2)
+    first, second = _two_replicas()
+    await first.acquire_running(CONV, "t1")
+
+    for _ in range(4):
+        await asyncio.sleep(0.1)
+        assert await first.renew_running(CONV, "t1")
+
+    assert await second.running_holder(CONV) == RunningMarker(replica="R1", turn_id="t1")
+
+
+def test_an_unreadable_marker_names_nobody():
+    assert RunningMarker.decode("not json") is None
+    assert RunningMarker.decode('{"replica": "R1"}') is None

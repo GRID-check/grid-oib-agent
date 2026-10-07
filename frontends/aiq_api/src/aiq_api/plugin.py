@@ -45,10 +45,12 @@ from nat.runtime.session import SessionManager
 
 from .chat_socket import chat_socket_endpoint
 from .chat_socket import configure_websocket_auth
+from .chat_socket import drain_chat_turns
 from .chat_socket import send_stage
 from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
 from .routes.cards import add_card_catalog_routes
+from .routes.chat_occupancy import add_chat_occupancy_routes
 from .routes.collections import add_collection_routes
 from .routes.config_info import add_config_info_routes
 from .routes.consistency_check import add_consistency_check_routes
@@ -185,6 +187,24 @@ class AIQAPIConfig(FastApiFrontEndConfig, name="aiq_api"):
 _shutdown_signal_received = False
 
 
+async def drain_owned_work() -> None:
+    """The web tier's drain, in order: stop claiming ingestion, wait for the chat turns, give back what is held.
+
+    With no ingest-worker tier this process claims ingestion jobs too
+    (``GRID_INGEST_QUEUE_CLAIM``). It must stop taking new ones before the chat
+    drain, which may run for most of the grace period, and hand back the ones
+    still running after it, at no cost in attempts: a claim left to the kubelet's
+    kill goes stale and is charged an attempt, three kills and the job is dead.
+    """
+    from .jobs import ingest_dispatch
+
+    ingest_dispatch.stop_claiming()
+    await drain_chat_turns()
+    released = ingest_dispatch.release_held()
+    if released:
+        logger.warning("Gave %d ingestion claim(s) back to the queue at shutdown", released)
+
+
 def _create_shutdown_signal_handler(
     original_handler: Callable | signal.Handlers | None,
     sig: signal.Signals,
@@ -287,6 +307,9 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_config_info_routes(knowledge_router, self.config.llms)
         # The card catalog for the platform surface: what the agent can render.
         add_card_catalog_routes(knowledge_router)
+        # The chat tier's scaling signal, read by KEDA (ADR-0080). Internal-token
+        # only, so it stays off the external allowlist like the maintenance routes.
+        add_chat_occupancy_routes(knowledge_router)
         app.include_router(knowledge_router)
         logger.info("Knowledge API routes registered")
 
@@ -362,7 +385,11 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
 
         @app.on_event("shutdown")
         async def shutdown_sse_connections():
-            """Gracefully close all active SSE connections and background tasks on shutdown."""
+            """Let running chat turns finish, then close all active SSE connections and background tasks."""
+            # First: the turns keep publishing to the conversation stream while
+            # the pod's grace period runs, which is what lets a reader on
+            # another replica stream them to the end (ADR-0080).
+            await drain_owned_work()
             logger.info("Shutting down SSE connections...")
             connection_manager = get_connection_manager()
             await connection_manager.shutdown(timeout=5.0)

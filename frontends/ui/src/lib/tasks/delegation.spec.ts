@@ -80,6 +80,7 @@ beforeEach(() => {
     backendJobId: 'backend-1',
     conversationId: spec.conversationId,
     runMessageId: spec.conversationId ? `msg-${spec.runId}` : null,
+    queued: false,
   }))
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
@@ -107,6 +108,20 @@ describe('delegateTask', () => {
       kind: 'compliance_check',
     })
     expect(run?.status).toBe('running')
+  })
+
+  it('records a delegated run the backend queued as queued, not running, and unstarted', async () => {
+    vi.mocked(submitAgentRun).mockImplementation(async (spec) => ({
+      backendJobId: 'backend-1',
+      conversationId: spec.conversationId,
+      runMessageId: `msg-${spec.runId}`,
+      queued: true,
+    }))
+
+    const { run } = await delegateTask(session, { projectId: PROJECT, kind: 'compliance_check', goal: 'Prüf das Haus A' })
+
+    expect(run?.status).toBe('queued')
+    expect(vi.mocked(repository.updateRun).mock.calls[0][2]).toMatchObject({ status: 'queued', startedAt: null })
   })
 
   it('runs every kind as a chat output, so the work lands in a real thread', async () => {
@@ -392,6 +407,7 @@ describe('what a delegated run is told to produce', () => {
         backendJobId: 'b',
         conversationId: null,
         runMessageId: null,
+        queued: false,
       })
       await delegateTask(session, {
         projectId: PROJECT,

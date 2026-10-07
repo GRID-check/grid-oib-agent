@@ -61,6 +61,7 @@ from aiq_agent.knowledge.factory import register_ingestor
 from aiq_agent.knowledge.factory import register_retriever
 from aiq_agent.knowledge.ingest_scheduler import FairIngestScheduler
 from aiq_agent.knowledge.ingest_scheduler import JobSource
+from aiq_agent.knowledge.ingest_scheduler import per_org_cap_from_env
 from aiq_agent.knowledge.schema import Chunk
 from aiq_agent.knowledge.schema import CollectionInfo
 from aiq_agent.knowledge.schema import ContentType
@@ -409,13 +410,16 @@ VLM_REQUEST_TIMEOUT_SECONDS = max(1, _env_int("AIQ_VLM_TIMEOUT_SECONDS", 180))
 # @environment_variable AIQ_VLM_FLEET_CONCURRENCY
 # @category Knowledge Layer
 # @type int
-# @default 48
+# @default 32
 # @required false
 # Vision-model calls in flight across EVERY ingest process at once (a lease pool
 # on the shared cache, `common.lease_slots`); a call waits for a slot. This, not
 # the number of ingest workers, is what the provider sees, so scaling the ingest
 # tier out queues calls here instead of turning into upstream 429s. 0 disables.
-VLM_FLEET_CONCURRENCY = _env_int("AIQ_VLM_FLEET_CONCURRENCY", 48)
+# Every vision call also holds a slot in its model's own provider-limiter pool
+# (`GRID_PROVIDER_MODEL_LIMIT_CEILING`, 32), so a pool above that never fills:
+# keep the two together.
+VLM_FLEET_CONCURRENCY = _env_int("AIQ_VLM_FLEET_CONCURRENCY", 32)
 
 # @environment_variable AIQ_VLM_RATE_LIMIT_RETRIES
 # @category Knowledge Layer
@@ -2540,17 +2544,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # (job status stays PENDING) instead of each spawning a thread.
     INGEST_MAX_WORKERS = max(1, _env_int("AIQ_INGEST_MAX_WORKERS", 2))
 
-    # @environment_variable AIQ_INGEST_MAX_PER_ORG
-    # @category Knowledge Layer
-    # @type int
-    # @default 0
-    # @required false
-    # Most ingestion jobs one organisation may run at once in this process; 0
-    # for no cap. Workers are shared fairly without it (the organisation with
-    # the fewest running jobs goes next, `ingest_scheduler`); a cap also keeps
-    # workers free for newcomers, at the price of idling them when one
-    # organisation is alone.
-    INGEST_MAX_PER_ORG = max(0, _env_int("AIQ_INGEST_MAX_PER_ORG", 0))
+    # Most ingestion jobs one organisation may run at once in this process's
+    # own pool; 0 for no cap. `GRID_INGEST_MAX_PER_ORG`, the one name of the
+    # setting the durable queue also reads (`per_org_cap_from_env`, which
+    # accepts the deprecated `AIQ_INGEST_MAX_PER_ORG`).
+    INGEST_MAX_PER_ORG = per_org_cap_from_env()
 
     # @environment_variable AIQ_EXTRACT_IMAGES
     # @category Knowledge Layer
@@ -4205,14 +4203,23 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         No budget is enforced here: a document half-read because a limit ran out
         mid-job is worse than the overrun, and the spend still lands in the
         budgets it counts toward.
+
+        The job's ``priority`` (``interactive`` or ``bulk``) is its class at the
+        provider limiter (ADR-0081): a reindex yields to an office's own upload,
+        and both yield to a person waiting on an answer.
         """
         from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
         from aiq_agent.common.openrouter import data_policy_for
         from aiq_agent.common.openrouter import data_policy_scope
+        from aiq_agent.common.provider_limiter import priority_scope
 
         organization_id = config.get("organization_id")
         policy = data_policy_for(organization_id) if organization_id else ZERO_DATA_RETENTION
-        with data_policy_scope(policy), _ingest_cost_scope(job_id, config):
+        with (
+            data_policy_scope(policy),
+            _ingest_cost_scope(job_id, config),
+            priority_scope(config.get("priority")),
+        ):
             self._ingest_job(job_id, file_paths, collection_name, config)
 
     def _ingest_job(

@@ -289,20 +289,57 @@ export const ROLLOUT = {
 assertFrontendBudgetFits();
 
 /**
- * The research worker's profile is derived, not fixed: its grace period IS the
- * operator's `agentWorkerDrainSeconds` budget. On SIGTERM the worker stops
- * claiming and awaits its in-flight jobs (`jobs/worker.py`), so the grace period
- * is the difference between "a deploy finishes the research a user is waiting
- * on" and "a deploy kills it at the 30s default".
+ * Seconds a queue worker gets, after its drain budget ends, to give back the
+ * claims it did not finish and exit (`release_claims`, ADR-0079). The kubelet
+ * SIGKILLs at the end of the grace period, so a worker whose drain used its whole
+ * budget and had no time left would lose its claims to the stale window and
+ * spend an attempt on each, which is the defect the release exists to remove.
+ */
+export const DRAIN_GIVE_BACK_SECONDS = 30;
+
+/**
+ * The profile of a queue worker (research, ingestion, the BFF job pool): its
+ * grace period is derived from the operator's drain budget, not chosen beside it.
+ * On SIGTERM the worker stops claiming and awaits its in-flight jobs
+ * (`jobs/worker.py`), so the grace period is the difference between "a deploy
+ * finishes the work a user is waiting on" and "a deploy kills it at the 30s
+ * default". It is the drain plus {@link DRAIN_GIVE_BACK_SECONDS}.
  */
 export function agentWorkerRollout(drainSeconds: number): RolloutProfile {
+  const grace = drainSeconds + DRAIN_GIVE_BACK_SECONDS;
   return {
     minReadySeconds: 30,
     // Worst case the whole tier rolls one pod at a time, each waiting out a full
     // drain, plus a cold-start startupProbe budget (10 min) on the replacement.
-    progressDeadlineSeconds: drainSeconds * 2 + 900,
-    terminationGracePeriodSeconds: drainSeconds,
+    progressDeadlineSeconds: grace * 2 + 900,
+    terminationGracePeriodSeconds: grace,
     endpointDrainSeconds: 0,
+  };
+}
+
+/** Slack on top of the chat drain: the cancel-and-publish of what is still running, and process exit. */
+export const BACKEND_DRAIN_SLACK_SECONDS = 60;
+
+/**
+ * The chat tier's profile, with the grace period derived from its drain.
+ *
+ * On SIGTERM the replica is already out of the Service's endpoints, so no new
+ * socket arrives, and it waits for the turns it claimed
+ * (`GRID_CHAT_DRAIN_SECONDS`, `chat_socket.ChatRegistry.drain`) while relays on
+ * other replicas keep streaming them from Dragonfly (ADR-0080). The pod must
+ * live that long, so the grace period IS the drain plus the endpoint drain and
+ * slack, not a number chosen beside it: at the old fixed 90 s every rollout and
+ * every scale-in killed a long answer after a minute and a half.
+ *
+ * `drainSeconds` has to cover the longest chat turn, which is the turn's own
+ * deadline (`GRID_CHAT_TURN_DEADLINE_SECONDS`, 2700). The admission lease is
+ * renewed for as long as a turn runs, so it bounds nothing here.
+ */
+export function backendRollout(drainSeconds: number): RolloutProfile {
+  return {
+    ...ROLLOUT.backend,
+    terminationGracePeriodSeconds:
+      ROLLOUT.backend.endpointDrainSeconds + drainSeconds + BACKEND_DRAIN_SLACK_SECONDS,
   };
 }
 

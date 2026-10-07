@@ -179,12 +179,8 @@ export const organization = {
         'Reads again every file that could not be read. Nothing that already works is touched.',
       action: 'Rescan failed ingestions',
       busy: 'Rescanning.',
-      done: '{count, plural, one {# document sent back for reading} other {# documents sent back for reading}}',
-      nothing: 'Nothing to rescan - every document was read.',
-      partial: '{count, plural, one {# document could not be queued} other {# documents could not be queued}}',
+      started: 'The rescan has started. It runs in the background and carries on after a restart.',
       failed: 'The rescan could not be started. Please try again.',
-      skipped: 'Nothing was eligible - every failed document is still being read, already done, or out of reach.',
-      truncated: 'The rescan hit its limit - run it again for the rest.',
     },
   },
   notAdmin: {

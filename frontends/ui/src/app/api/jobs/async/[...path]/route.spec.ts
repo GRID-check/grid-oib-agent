@@ -38,7 +38,9 @@ vi.mock('@/lib/project-profile/prompt-view', () => ({
 // the user's answer — and not the filing's own behaviour, which
 // `lib/documents/generated.spec.ts` owns.
 vi.mock('@/lib/documents/research-report', () => ({
-  fileResearchReport: vi.fn(),
+  findFiledResearchReport: vi.fn(),
+  findReportFilingRefusal: vi.fn(),
+  queueResearchReportFiling: vi.fn(),
 }))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectIdByCollectionName: vi.fn(),
@@ -49,7 +51,11 @@ import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
-import { fileResearchReport } from '@/lib/documents/research-report'
+import {
+  findFiledResearchReport,
+  findReportFilingRefusal,
+  queueResearchReportFiling,
+} from '@/lib/documents/research-report'
 import { findProjectIdByCollectionName } from '@/lib/projects/repository'
 
 const originalRequireAuth = process.env.REQUIRE_AUTH
@@ -464,15 +470,13 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       conversationId: undefined,
     })
     vi.mocked(findProjectIdByCollectionName).mockResolvedValue('proj-1')
-    vi.mocked(fileResearchReport).mockResolvedValue({
-      documentId: 'doc-1',
-      filename: 'bericht-2026-08-20.pdf',
-      folderId: 'folder-1',
-      alreadyFiled: false,
-    })
+    vi.mocked(findFiledResearchReport).mockResolvedValue(null)
+    vi.mocked(findReportFilingRefusal).mockResolvedValue(null)
+    vi.mocked(queueResearchReportFiling).mockResolvedValue({ jobId: 'bff-job-1' })
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(reportResponse(REPORT_BODY))
     vi.spyOn(console, 'log').mockImplementation(() => undefined)
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   })
 
   afterEach(() => {
@@ -484,24 +488,73 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     }
   })
 
-  it('files the finished report and tells the client where it landed', async () => {
+  it('queues the filing of the finished report and tells the client it is on its way', async () => {
     const res = await GET(
       getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
       streamParams(['job', 'job-1', 'report'])
     )
 
     expect(res.status).toBe(200)
-    expect(fileResearchReport).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'proj-1', runId: 'job-1', report: REPORT_BODY.report })
-    )
+    // The PDF is rendered by a `bff-jobs` pod (ADR-0079), as the reader.
+    expect(queueResearchReportFiling).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      payload: expect.objectContaining({
+        projectId: 'proj-1',
+        runId: 'job-1',
+        report: REPORT_BODY.report,
+        taskRunId: null,
+        requester: expect.objectContaining({ userId: session.userId, organizationMembershipId: session.organizationMembershipId }),
+      }),
+    })
     const body = await res.json()
     // Additive: everything the report response already carried is untouched.
+    expect(body).toMatchObject(REPORT_BODY)
+    expect(body.filingQueued).toBe(true)
+    expect(body.filed).toBeUndefined()
+    expect(body.filingFailed).toBeUndefined()
+  })
+
+  it('answers a reader who may not file with the broken promise, and queues nothing, however often it is read', async () => {
+    vi.mocked(findReportFilingRefusal).mockResolvedValue('ForbiddenError: Agent-authored documents are disabled')
+    fetchSpy.mockImplementation(async () => reportResponse(REPORT_BODY)) // a fresh body per read
+
+    for (let read = 0; read < 3; read += 1) {
+      const res = await GET(
+        getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
+        streamParams(['job', 'job-1', 'report'])
+      )
+      const body = await res.json()
+      expect(body).toMatchObject(REPORT_BODY)
+      expect(body.filingFailed).toBe(true)
+      expect(body.filingQueued).toBeUndefined()
+    }
+
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
+    expect(console.error).not.toHaveBeenCalled() // a refusal is an answer, not a fault
+  })
+
+  it('tells the client where a report that is already filed landed, without a job', async () => {
+    vi.mocked(findFiledResearchReport).mockResolvedValue({
+      documentId: 'doc-1',
+      filename: 'bericht-2026-08-20.pdf',
+      folderId: 'folder-1',
+      alreadyFiled: true,
+    })
+
+    const res = await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
+    const body = await res.json()
     expect(body).toMatchObject(REPORT_BODY)
     expect(body.filed).toEqual({
       documentId: 'doc-1',
       filename: 'bericht-2026-08-20.pdf',
-      alreadyFiled: false,
+      alreadyFiled: true,
     })
+    expect(body.filingQueued).toBeUndefined()
   })
 
   // ---------------------------------------------------------------------
@@ -530,8 +583,8 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     )
 
     expect(findProjectIdByCollectionName).toHaveBeenCalledWith('proj_abc', 'org-1')
-    expect(fileResearchReport).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'proj-the-run-belongs-to' })
+    expect(queueResearchReportFiling).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ projectId: 'proj-the-run-belongs-to' }) })
     )
   })
 
@@ -549,11 +602,12 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
     const body = await res.json()
     expect(body.filed).toBeUndefined()
-    // Not a broken promise either: none was made.
+    // Not a broken promise either: none was made, and nothing is on its way.
     expect(body.filingFailed).toBeUndefined()
+    expect(body.filingQueued).toBeUndefined()
   })
 
   it('files nothing when the run\u2019s collection belongs to no project in this organization', async () => {
@@ -566,7 +620,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
     expect((await res.json()).filed).toBeUndefined()
   })
 
@@ -579,7 +633,9 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).toHaveBeenCalledWith(expect.objectContaining({ cards }))
+    expect(queueResearchReportFiling).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ cards }) })
+    )
   })
 
   it('passes no cards rather than an empty list when the run produced none', async () => {
@@ -592,7 +648,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(vi.mocked(fileResearchReport).mock.calls[0][0].cards).toBeUndefined()
+    expect(vi.mocked(queueResearchReportFiling).mock.calls[0][0].payload.cards).toBeUndefined()
   })
 
   it('files the report anyway when `cards` is malformed', async () => {
@@ -606,14 +662,16 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     )
 
     expect(res.status).toBe(200)
-    expect(fileResearchReport).toHaveBeenCalledWith(expect.objectContaining({ cards: undefined }))
+    expect(queueResearchReportFiling).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ cards: undefined }) })
+    )
   })
 
   it('says so when a promise to file was made and broken', async () => {
     // The starting banner told the reader the report would be filed under
     // „Berichte". A plain success after a failed filing sends them to look for
     // a document that is not there, with the only record in a server log.
-    vi.mocked(fileResearchReport).mockRejectedValue(new Error('quota exceeded'))
+    vi.mocked(queueResearchReportFiling).mockRejectedValue(new Error('quota exceeded'))
 
     const res = await GET(
       getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
@@ -647,7 +705,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
   })
 
   it('still returns the report when filing fails — the answer is not the filing’s to lose', async () => {
-    vi.mocked(fileResearchReport).mockRejectedValue(new Error('quota exceeded'))
+    vi.mocked(queueResearchReportFiling).mockRejectedValue(new Error('quota exceeded'))
 
     const res = await GET(
       getRequest('https://grid.example/api/jobs/async/job/job-1/report'),
@@ -670,7 +728,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
   })
 
   it('files nothing on the status endpoint — only a report is a document', async () => {
@@ -681,7 +739,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1'])
     )
 
-    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
   })
 
   it('files the run\u2019s report even when the reader\u2019s own context resolves no project', async () => {
@@ -706,8 +764,8 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'proj-1', runId: 'job-1' })
+    expect(queueResearchReportFiling).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ projectId: 'proj-1', runId: 'job-1' }) })
     )
   })
 
@@ -726,7 +784,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
   })
 })
 

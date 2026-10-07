@@ -102,13 +102,16 @@ Before `pulumi up` touches the cluster, `deploy.yml` plans once and checks that
 plan twice:
 - **`scripts/validate-crs.mjs`** — schema-validates every CustomResource against
   the real upstream CRD schemas (tsc cannot type `apiextensions.CustomResource`).
-  KEDA's `keda.sh/v1alpha1` resources use the CRDs from its pinned v2.21.0
-  release, including the ingest worker's `TriggerAuthentication` and
-  `ScaledObject`. Like CNPG, these schemas are fetched once and cached under
-  `deploy/pulumi/.schemas-cache/`, keyed by release URL and kind set. A schema
-  download or validation failure blocks deployment; `ALLOW_SKIP` does not
-  bypass a registered validator. When upgrading KEDA, review the schema pin
-  alongside the chart version.
+  KEDA's `keda.sh/v1alpha1` resources use the CRDs of the release the program
+  installs, including every tier's `TriggerAuthentication` and `ScaledObject`.
+  That release is one constant, `KEDA_CHART_VERSION` in
+  `deploy/pulumi/src/platform/keda.ts` (the chart is pinned to it, and the
+  script reads it from there), so the plan is always checked against the
+  operator it will meet. Like CNPG, these schemas are fetched once and cached
+  under `deploy/pulumi/.schemas-cache/`, keyed by release URL and kind set. A
+  schema download or validation failure blocks deployment; `ALLOW_SKIP` does not
+  bypass a registered validator. Upgrading KEDA is changing that constant: read
+  the release notes for `fallback` and the `postgresql` scaler first.
 - **CrossGuard policy pack** (`deploy/pulumi/policy`, `--policy-pack ./policy`) —
   rollout safety (surge-only updates, readiness soaks, progress deadlines,
   shutdown budgets), CPU/memory bounds on every container, and pull-policy

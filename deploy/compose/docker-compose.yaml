@@ -359,7 +359,7 @@ services:
     # The image CMD migrates then serves; migration has moved to grid-migrate,
     # so this container only serves.
     command: ["node", "server.js"]
-    environment:
+    environment: &frontend-environment
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
       # The commit this deployment is running. Stamped into the image as a
       # build arg by publish-images.yml, so it is normally already set inside
@@ -522,6 +522,56 @@ services:
         reservations:
           cpus: '0.1'
           memory: 256M
+    restart: unless-stopped
+
+  bff-jobs:
+    # The BFF's background pool (ADR-0079): the frontend image, internal only.
+    # `workers/jobs/index.js` supervises the BFF (`node server.js`) and a claim
+    # loop that takes jobs from bff_job_queue fairly across organizations and
+    # has that BFF run them a bounded slice at a time, so a job survives a
+    # restart and never runs inside the frontend that proxies chat. The kinds:
+    # project reindex, failed-ingestion rescan, IFC extraction, Office-to-PDF
+    # rendition (through gotenberg) and the filing of a finished research
+    # report. Without this service none of them runs. On Kubernetes this is a
+    # Deployment scaled by KEDA on the queue; here it is one replica.
+    #
+    # The frontend's own environment, by alias: the jobs call the same services
+    # the routes do, and two lists that agree today are two lists that drift.
+    # (`extends` would also inherit the frontend's published port, which cannot
+    # be removed without Compose's `!reset` tag, and no other reader of this
+    # file understands it.) The runner's knobs (GRID_BFF_JOBS_*) keep their code
+    # defaults here; set them on this service to change them.
+    image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
+    build:
+      context: ../../frontends/ui
+      dockerfile: deploy/Dockerfile
+    container_name: grid-bff-jobs
+    command: ["node", "workers/jobs/index.js"]
+    environment: *frontend-environment
+    networks:
+      - aiq-network
+      # Office rendition runs here (the `office_rendition` job, ADR-0079).
+      - gotenberg-internal
+    # The runner gives claims back for up to its drain budget (60 s by default)
+    # before it stops the BFF; docker's default 10 s would kill it first.
+    stop_grace_period: 90s
+    depends_on:
+      grid-migrate:
+        condition: service_completed_successfully
+      aiq-agent:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      seaweedfs-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
 
   purger:

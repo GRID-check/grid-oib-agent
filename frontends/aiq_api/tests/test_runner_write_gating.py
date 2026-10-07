@@ -42,7 +42,7 @@ def db_url(tmp_path):
     queue.ensure_research_queue_table(url)
     _ensure_job_info_table(url)
     yield url
-    queue._queue_schema_initialized.discard(url)
+    queue._queues.pop(url, None)
     EventStore._tables_initialized.discard(url)
 
 
@@ -408,4 +408,4 @@ class TestWorkerPassesClaimOwnership:
 
             assert seen.get("claim_owner") == "worker-A"
         finally:
-            queue._queue_schema_initialized.discard(qdb)
+            queue._queues.pop(qdb, None)

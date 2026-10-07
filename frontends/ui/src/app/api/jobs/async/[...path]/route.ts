@@ -55,7 +55,12 @@ import {
 import { parseBodyContext, parseQueryContext } from '@/lib/proxy/collection-authz'
 import { buildProxyUrl, resolveSessionAndBearer } from '@/lib/proxy/proxy-request'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
-import { fileResearchReport } from '@/lib/documents/research-report'
+import {
+  findFiledResearchReport,
+  findReportFilingRefusal,
+  queueResearchReportFiling,
+} from '@/lib/documents/research-report'
+import { requesterOf } from '@/lib/jobs-queue/types'
 import { findProjectIdByCollectionName } from '@/lib/projects/repository'
 
 /**
@@ -184,8 +189,32 @@ interface ReportFilingResult {
  * report, and the messages that carry them name buckets, permissions and
  * limits. Those belong in the log, which already has them. A boolean is the
  * whole of what the surface can honestly act on.
+ *
+ * ## Why `queued` exists (ADR-0079)
+ *
+ * The PDF is no longer rendered inside this request. A report that is not filed
+ * yet is handed to a `file_research_report` job on the `bff-jobs` pool and the
+ * answer says so (`filingQueued`): the promise is being kept, not broken, and
+ * the document appears in Berichte when the job has run, retried by the queue
+ * if it fails. A report that IS filed already answers `filed`, as it always
+ * did, from one probe and no render.
+ *
+ * ## Why `refused` is its own end, and an answer of this request
+ *
+ * A reader who may not file here (no permission, the feature switched off) used
+ * to get a job queued on every read: the job was refused, had no row to say so
+ * on and ended cleanly, and the next read queued it again and answered
+ * `filingQueued`, for ever. The permission is asked BEFORE queueing now
+ * (`findReportFilingRefusal`), so a refusal is what the reader is told
+ * (`filingFailed`, the promise broken) and nothing is queued; the reason is in
+ * the log. It leaves the same body as `failed`: the reader cannot act on the
+ * difference.
  */
-type ReportFilingOutcome = { status: 'filed'; filed: ReportFilingResult } | { status: 'failed' }
+type ReportFilingOutcome =
+  | { status: 'filed'; filed: ReportFilingResult }
+  | { status: 'queued' }
+  | { status: 'refused' }
+  | { status: 'failed' }
 
 /** The report endpoint's body, as `JobReportResponse` on the backend defines it. */
 function readReportMarkdown(data: unknown): string | null {
@@ -297,26 +326,46 @@ async function fileReportIfCommissioned(
   if (!commissionedProjectId) return null
 
   try {
-    // Narrowed the way every other proxy-layer call to a session-taking service
-    // narrows it (`collection-scope-request.ts`): the organization is what makes
-    // a session authorized, and it has just been checked.
-    const filed = await fileResearchReport({
-      session: session as AuthorizedSession,
+    const filed = await findFiledResearchReport({
+      organizationId: session.organizationId,
       projectId: commissionedProjectId,
       runId,
-      report,
-      cards: readReportCards(data),
-      request: req,
     })
-    return {
-      status: 'filed',
-      filed: { documentId: filed.documentId, filename: filed.filename, alreadyFiled: filed.alreadyFiled },
+    if (filed) {
+      return {
+        status: 'filed',
+        filed: { documentId: filed.documentId, filename: filed.filename, alreadyFiled: true },
+      }
     }
+
+    const refusal = await findReportFilingRefusal(session as AuthorizedSession, commissionedProjectId)
+    if (refusal) {
+      console.warn(`[${LOG_LABEL}] the reader may not file the report of run ${runId}: ${refusal}`)
+      return { status: 'refused' }
+    }
+
+    // Narrowed the way every other proxy-layer call to a session-taking service
+    // narrows it (`collection-scope-request.ts`): the organization is what makes
+    // a session authorized, and it has just been checked. The reader is the
+    // requester the job files as (identity and permissions, no access token),
+    // exactly as this route used to file in the reader's own session.
+    await queueResearchReportFiling({
+      organizationId: session.organizationId,
+      payload: {
+        runId,
+        projectId: commissionedProjectId,
+        report,
+        cards: readReportCards(data),
+        taskRunId: null,
+        requester: requesterOf(session as AuthorizedSession),
+      },
+    })
+    return { status: 'queued' }
   } catch (error) {
     // Logged with the reason, reported without it. The log is where an operator
     // finds the bucket, the permission or the limit; the response carries only
     // what the reader can act on.
-    console.error(`[${LOG_LABEL}] failed to file the report as a document:`, error)
+    console.error(`[${LOG_LABEL}] failed to queue the report's filing:`, error)
     return { status: 'failed' }
   }
 }
@@ -434,12 +483,15 @@ export const GET = tenantSlotRoute(async function GET(
     // into a chat message and thrown away with the run's file system.
     const filing = await fileReportIfCommissioned(req, path, session, data)
 
-    // Three shapes, and the third is the point: `filed` when it landed,
-    // `filingFailed` when a promise was made and broken, and the untouched body
-    // when no promise was made at all (no project, no report, not a report
-    // request). A client that has never heard of either key keeps working.
+    // Four shapes: `filed` when it landed, `filingQueued` when a job is
+    // rendering it, `filingFailed` when a promise was made and broken, and the
+    // untouched body when no promise was made at all (no project, no report, not
+    // a report request). A client that has never heard of these keys keeps working.
     if (filing?.status === 'filed') return NextResponse.json({ ...data, filed: filing.filed })
-    if (filing?.status === 'failed') return NextResponse.json({ ...data, filingFailed: true })
+    if (filing?.status === 'queued') return NextResponse.json({ ...data, filingQueued: true })
+    if (filing?.status === 'failed' || filing?.status === 'refused') {
+      return NextResponse.json({ ...data, filingFailed: true })
+    }
     return NextResponse.json(data)
   } catch (error) {
     if (isAuthzError(error)) {

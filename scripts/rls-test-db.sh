@@ -111,11 +111,21 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/documents/document-versions.integration.spec.ts \
     src/lib/documents/list-page.integration.spec.ts \
     src/lib/documents/shelf-folders.integration.spec.ts \
+    src/lib/documents/stuck-processing.integration.spec.ts \
     src/lib/project-profile/profile-bindings.integration.spec.ts \
     src/lib/compliance/legal-hold.integration.spec.ts \
     src/lib/conversations/erasure-queue.integration.spec.ts \
     src/lib/runs/reconcile.integration.spec.ts \
     src/lib/budgets/service.integration.spec.ts
+
+# The job-queue suites claim from ONE table, whichever lane a job is in, so run
+# in parallel they claim each other's seeded jobs. One file at a time.
+echo "==> running the job-queue suites one file at a time as grid_app_rw"
+GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
+  npx vitest run --no-file-parallelism \
+    src/lib/jobs-queue/queue.integration.spec.ts \
+    src/lib/jobs-queue/repository.integration.spec.ts \
+    workers/jobs/runner.integration.spec.mjs
 
 # ---------------------------------------------------------------------------
 # Migration 0086: the backfill, asserted per row shape, and its DOWN migration.

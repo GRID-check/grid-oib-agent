@@ -196,6 +196,8 @@ COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/ws-frames.js ./src
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/proxy/ws-upgrade-headers.js ./src/lib/proxy/ws-upgrade-headers.js
 # And this one to classify and log WebSocket teardown after the upgrade.
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/proxy/ws-teardown.js ./src/lib/proxy/ws-teardown.js
+# And this one to pick which aiq-agent address a chat socket dials (ADR-0080).
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/proxy/backend-target.js ./src/lib/proxy/backend-target.js
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 

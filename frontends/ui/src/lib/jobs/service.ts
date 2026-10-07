@@ -53,11 +53,13 @@ import {
   submitJob,
   JobSubmitError,
   JobSubmitSkippedError,
+  type JobPriority,
   type JobSubmitPayload,
 } from './backend-client'
 import * as repository from '@/lib/tasks/repository'
 import { previousDecisionsBlock } from '@/lib/tasks/service'
 import { taskThreadConversationId } from '@/lib/tasks/task-thread'
+import { isActiveTaskRunStatus, submittedRunStatus } from '@/lib/tasks/task-vocabulary'
 import { createRunMessage } from '@/lib/runs/service'
 import {
   emptySkillSnapshot,
@@ -541,6 +543,12 @@ export interface AgentRunSpec {
   clarifierResult?: string | null
   /** The Unterlagen the reader named on the plan card. */
   documents?: PlanDocuments | null
+  /**
+   * Where the run goes inside its organization's queue (ADR-0079). Absent is
+   * `interactive`: somebody asked for this run and is waiting on it. A
+   * scheduled fire is `bulk`, so a sweep of twenty never makes a question wait.
+   */
+  priority?: JobPriority
 }
 
 /**
@@ -552,6 +560,8 @@ export interface SubmittedAgentRun {
   conversationId: string | null
   /** Null when the thread is unknown or the message could not be minted. */
   runMessageId: string | null
+  /** The backend queued the job for a free worker instead of starting it at once. */
+  queued: boolean
 }
 
 /**
@@ -615,6 +625,7 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
     owner_email: spec.ownerEmail,
     budget_header: budgetHeader,
     model_overrides: modelOverrides,
+    priority: spec.priority ?? 'interactive',
   }
 
   const contextHeaders = buildGridRequestContextWireHeaders(
@@ -634,11 +645,11 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
     process.env.GRID_INTERNAL_API_TOKEN,
   )
 
-  const { jobId } = await submitJob(payload, contextHeaders)
+  const { jobId, queued } = await submitJob(payload, contextHeaders)
   const runMessageId = conversationId
     ? await mintRunMessage(conversationId, spec.runId, spec.title)
     : null
-  return { backendJobId: jobId, conversationId, runMessageId }
+  return { backendJobId: jobId, conversationId, runMessageId, queued }
 }
 
 /**
@@ -696,7 +707,7 @@ export async function fireJob(
     // schedule, or a „Jetzt ausführen" somebody can press again — and its runs
     // belong together in one place rather than in a new conversation per fire.
     const thread = await createTaskThread(definition)
-    const { backendJobId, conversationId, runMessageId } = await submitAgentRun({
+    const submitted = await submitAgentRun({
       organizationId,
       projectId,
       userId: definition.requesterUserId,
@@ -712,9 +723,13 @@ export async function fireJob(
       dataSources: definition.plan.dataSources ?? null,
       runId,
       conversationId: thread,
+      // Nobody is waiting on a schedule: it queues behind the office's own
+      // questions. A person pressing „Jetzt ausführen" is waiting.
+      priority: trigger === 'schedule' ? 'bulk' : 'interactive',
     })
+    const { backendJobId, conversationId, runMessageId } = submitted
     return recordRun(definition, trigger, actor, runId, {
-      status: 'running',
+      status: submittedRunStatus(submitted),
       backendJobId,
       error: null,
       conversationId,
@@ -751,7 +766,7 @@ export async function fireJob(
 
 /** What one fire produced, as the row-writer below needs it. */
 interface FireOutcome {
-  status: 'running' | 'skipped' | 'error'
+  status: 'queued' | 'running' | 'skipped' | 'error'
   backendJobId: string | null
   error: string | null
   conversationId: string | null
@@ -899,7 +914,7 @@ export async function fireScheduledJob(
     }
   }
   const run = await fireJob(definition, 'schedule', 'scheduler')
-  if (run.status === 'running') return { fired: true, jobId: run.backendJobId ?? undefined }
+  if (isActiveTaskRunStatus(run.status)) return { fired: true, jobId: run.backendJobId ?? undefined }
   return { fired: false, reason: run.status === 'skipped' ? 'skipped' : 'error' }
 }
 

@@ -129,7 +129,8 @@ config:
   grid-oib:backendDataStorageSize: 10Gi
   # ── Research execution ──
   grid-oib:jobExecution: db
-  grid-oib:agentWorkerMinReplicas: "1"
+  # KEDA scales the tier on research_job_queue (ADR-0079): zero while no job waits.
+  grid-oib:agentWorkerMinReplicas: "0"
   grid-oib:agentWorkerMaxReplicas: "3"
   grid-oib:agentWorkerConcurrency: "1"
   # Drain budget for in-flight research jobs on shutdown (see Pulumi.prod.yaml).
@@ -263,3 +264,8 @@ config:
   # Bug reports from the in-app feedback form are filed as issues by the BFF,
   # with the err2issue PAT and repo above (feedbackIssuesEnabled defaults on).
   # To send them elsewhere: grid-oib:feedbackIssuesRepo owner/repo.
+  # ── BFF background pool (ADR-0079) ── scales to zero while nothing is queued.
+  grid-oib:bffJobsMinReplicas: "0"
+  grid-oib:bffJobsMaxReplicas: "2"
+  grid-oib:bffJobsConcurrency: "2"
+  grid-oib:bffJobsDrainSeconds: "60"

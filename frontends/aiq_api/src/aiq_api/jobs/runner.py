@@ -32,6 +32,8 @@ from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common.plan_documents import PlanDocument
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.plan_documents import sanitize_plan_documents
+from aiq_agent.common.provider_limiter import RESEARCH
+from aiq_agent.common.provider_limiter import with_provider_class
 from aiq_agent.common.turn_status import DEGRADED_CARDS_GENERATION_FAILED
 from aiq_agent.project_context import ORGANIZATION_ID_HEADER
 from aiq_agent.project_context import PROJECT_ID_HEADER
@@ -299,7 +301,12 @@ async def _current_job_status(job_store: Any, job_id: str) -> str | None:
 
 
 async def _lost_claim(db_url: str, job_id: str, claim_owner: str | None) -> bool:
-    """True only on POSITIVE ownership loss: someone else holds this job's claim.
+    """True only on POSITIVE ownership loss: this run no longer holds its job's claim.
+
+    Two things are a loss, and both are visible in the queue row: another worker
+    holds the claim (a reclaim after this one stalled), or the row is QUEUED
+    again while this run is alive (a draining worker gave the claim back,
+    ``queue.release_claims``, so another worker runs the job from the start).
 
     ``claim_owner`` is the DB worker's own id (``None`` on the Dask path, which
     has no claim table — the check is skipped and only the terminal verdict
@@ -312,7 +319,7 @@ async def _lost_claim(db_url: str, job_id: str, claim_owner: str | None) -> bool
         return False
     from . import queue
 
-    owner = await asyncio.to_thread(queue.claim_owner, db_url, job_id)
+    status, owner = await asyncio.to_thread(queue.claim_state, db_url, job_id)
     if owner is not None and owner != claim_owner:
         logger.warning(
             "Job %s claim now held by %s (not %s); this run lost the race",
@@ -320,6 +327,9 @@ async def _lost_claim(db_url: str, job_id: str, claim_owner: str | None) -> bool
             owner,
             claim_owner,
         )
+        return True
+    if status == queue.QUEUED:
+        logger.warning("Job %s is queued again (its claim was given back); this run stops", job_id)
         return True
     return False
 
@@ -929,6 +939,7 @@ def _workflow_reflection_llm_ref(config: Any) -> str | None:
     return str(ref) if ref else None
 
 
+@with_provider_class(RESEARCH)
 async def run_agent_job(
     configure_logging: bool,
     log_level: int,

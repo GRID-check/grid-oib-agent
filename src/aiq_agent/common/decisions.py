@@ -57,6 +57,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from aiq_agent.common.openrouter import PLATFORM_FIXED
+from aiq_agent.common.openrouter import limited_async_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -365,14 +366,17 @@ def _client(timeout: float, transport: Any) -> tuple[Any, bool]:
     """
     import httpx
 
+    # Every client queues for a provider slot (ADR-0081) in the class of the
+    # caller's task: a decision inside a chat turn is chat, one inside an ingest
+    # job is that job's class.
     if transport is not None:
-        return httpx.AsyncClient(timeout=timeout, transport=transport), True
+        return limited_async_http_client(timeout=timeout, inner=transport), True
     global _shared_client
     loop = asyncio.get_running_loop()
     if _shared_client is None or _shared_client[0] is not loop or _shared_client[1].is_closed:
         _shared_client = (
             loop,
-            httpx.AsyncClient(
+            limited_async_http_client(
                 timeout=timeout,
                 limits=httpx.Limits(max_keepalive_connections=8, keepalive_expiry=60.0),
             ),

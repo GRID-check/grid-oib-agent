@@ -145,6 +145,9 @@ def _job_config(request: IngestRequest, organization_id: str | None, dispatch_ke
         # 300-character name is cut), so the derived form can be a string no
         # purge ever asks for.
         "original_filenames": [request.file_name or _extract_filename(request.file_ref)],
+        # Who is waiting on it: the durable queue claims by it inside an
+        # organisation, and the provider limiter ranks the job's model calls by it.
+        "priority": request.priority,
     }
     if request.thumbnail_upload_url:
         # Gated in _assert_request_urls before anything was requested.

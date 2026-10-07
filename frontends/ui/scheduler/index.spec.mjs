@@ -8,6 +8,7 @@ import {
   createStreaks,
   fireOne,
   reconcileRuns,
+  reconcileBackgroundWork,
   tick,
   INTERNAL_TOKEN_HEADER,
 } from './index.js'
@@ -206,6 +207,53 @@ describe('reconcileRuns (the run reconciler’s clock)', () => {
   })
 })
 
+describe('reconcileBackgroundWork (the background-work sweep’s clock)', () => {
+  const config = { frontendUrl: 'http://frontend:3000', internalToken: 'tok', pollMs: 30000 }
+  const streak = () => createStreaks(config).background
+  const documents = (over = {}) => ({ checked: 0, requeued: 0, failed: 0, gone: 0, errors: 0, ...over })
+  const filings = (over = {}) => ({ checked: 0, filed: 0, failed: 0, waiting: 0, errors: 0, ...over })
+  const reply = (counts) => vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(counts) })
+
+  it('posts to the sweep with the internal token and returns its counts', async () => {
+    const counts = { documents: documents(), filings: filings() }
+    const fetchImpl = reply(counts)
+
+    expect(await reconcileBackgroundWork(config, fetchImpl, streak())).toEqual(counts)
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://frontend:3000/api/internal/maintenance/reconcile-background-work')
+    expect(init.method).toBe('POST')
+    expect(init.headers[INTERNAL_TOKEN_HEADER]).toBe('tok')
+  })
+
+  it('logs only when it recovered or failed something, one line per half', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await reconcileBackgroundWork(config, reply({ documents: documents({ checked: 3, gone: 3 }), filings: filings({ waiting: 2 }) }), streak())
+    expect(log).not.toHaveBeenCalled()
+
+    await reconcileBackgroundWork(
+      config,
+      reply({ documents: documents({ checked: 4, requeued: 2, failed: 1, gone: 1 }), filings: filings({ checked: 1, failed: 1 }) }),
+      streak(),
+    )
+    expect(log).toHaveBeenCalledWith(
+      '[job-scheduler] background work sweep, documents: checked 4, requeued 2, failed 1, gone 1, errors 0',
+    )
+    expect(log).toHaveBeenCalledWith(
+      '[job-scheduler] background work sweep, report filings: checked 1, filed 0, failed 1, waiting 0, errors 0',
+    )
+  })
+
+  it('never throws: a refusal or a transport error is null', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const refused = vi.fn().mockResolvedValue({ ok: false, status: 500, headers: { get: () => null }, text: () => Promise.resolve('') })
+
+    expect(await reconcileBackgroundWork(config, refused, streak())).toBeNull()
+    expect(await reconcileBackgroundWork(config, vi.fn().mockRejectedValue(new Error('aborted')), streak())).toBeNull()
+  })
+})
+
 describe('reconcileRuns during a rollout or an outage (#785, #793, #799, #800)', () => {
   const config = { frontendUrl: 'http://frontend:3000', internalToken: 't', pollMs: 30000 }
 
@@ -298,7 +346,7 @@ describe('tick', () => {
   const base = { frontendUrl: 'http://frontend:3000', internalToken: 't', batch: 20, retentionDays: 90, pollMs: 30000 }
   const reconciled = () => vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ closed: 0, failed: 0 }) })
 
-  it('with the schedules gate off, fires nothing but still reconciles runs', async () => {
+  it('with the schedules gate off, fires nothing but still runs both sweeps', async () => {
     // A run exists without Agent Skills (an escalated chat question), so its
     // reconciliation cannot wait on the skills feature.
     const sql = { begin: vi.fn() }
@@ -308,8 +356,11 @@ describe('tick', () => {
 
     expect(fired).toBe(0)
     expect(sql.begin).not.toHaveBeenCalled()
-    expect(fetchImpl).toHaveBeenCalledTimes(1)
-    expect(fetchImpl.mock.calls[0][0]).toBe('http://frontend:3000/api/internal/runs/reconcile')
+    // The runs, then the documents stranded at `processing` (ADR-0079).
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      'http://frontend:3000/api/internal/runs/reconcile',
+      'http://frontend:3000/api/internal/maintenance/reconcile-background-work',
+    ])
   })
 
   it('with the gate on, a failed claim still leaves the reconciler its turn', async () => {
@@ -320,7 +371,10 @@ describe('tick', () => {
     await tick(sql, { ...base, schedulesEnabled: true }, fetchImpl, createStreaks(base))
 
     expect(sql.begin).toHaveBeenCalled()
-    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual(['http://frontend:3000/api/internal/runs/reconcile'])
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      'http://frontend:3000/api/internal/runs/reconcile',
+      'http://frontend:3000/api/internal/maintenance/reconcile-background-work',
+    ])
   })
 
   it('logs a claim the database outage refused at WARN, escalating once after ten ticks (#804)', async () => {

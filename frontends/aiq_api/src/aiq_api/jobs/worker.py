@@ -1,20 +1,32 @@
-"""DB-claimed research worker (ADR-0021).
+"""DB-claimed research worker (ADR-0021, ADR-0079).
 
 Run as a dedicated container: ``python -m aiq_api.jobs.worker``. It claims
-``research_job_queue`` rows (``FOR UPDATE SKIP LOCKED``), executes the same
-``run_agent_job`` body the Dask path runs, heartbeats the claim so a crash is
-reclaimed, and marks the row done. Worker replicas scale research execution
-horizontally, independently of the web tier. Cancellation needs nothing special
-here: the cancel route flips ``job_info`` to INTERRUPTED and ``run_agent_job``'s
-own 1 s ``CancellationMonitor`` honors it from any replica.
+``research_job_queue`` rows on the claim substrate (``aiq_agent.common.claim_queue``:
+fairly across organizations, interactive before bulk inside one, at most
+``GRID_MAX_ACTIVE_JOBS_PER_ORG`` of an organization's jobs running at once),
+executes the same ``run_agent_job`` body the Dask path runs, heartbeats the claim
+so a crash is reclaimed, and marks the row done. Worker replicas scale research
+execution horizontally, independently of the web tier, and KEDA scales them on the
+queue's depth. Cancellation needs nothing special here: the cancel route flips
+``job_info`` to INTERRUPTED and ``run_agent_job``'s own 1 s ``CancellationMonitor``
+honors it from any replica.
+
+On SIGTERM the worker stops claiming and waits up to
+``GRID_RESEARCH_WORKER_DRAIN_SECONDS`` for the jobs it holds. A job still running
+when that budget ends is given back to the queue at no cost in attempts, and
+another worker claims it from the start at once; a pod that is killed instead
+(OOM, node loss) leaves its claims to go stale and be claimed again.
 
 Config (env):
   NAT_JOB_STORE_DB_URL            jobs DB (Postgres in prod; required)
   GRID_RESEARCH_WORKERS           concurrent jobs per process (default 1)
   GRID_RESEARCH_WORKER_POLL_SECONDS    idle poll interval (default 5)
   GRID_RESEARCH_WORKER_STALE_SECONDS   claim considered dead after (default 90)
-  GRID_RESEARCH_WORKER_MAX_ATTEMPTS    reclaim attempts before FAILURE (default 3)
+  GRID_RESEARCH_WORKER_MAX_ATTEMPTS    claims before the job is dead (default 3)
   GRID_RESEARCH_WORKER_HEARTBEAT_SECONDS  heartbeat cadence (default 30)
+  GRID_RESEARCH_WORKER_DRAIN_SECONDS   drain budget on SIGTERM (default 600)
+  GRID_RESEARCH_DEAD_RETENTION_DAYS    how long a dead row is kept (default 14)
+  GRID_MAX_ACTIVE_JOBS_PER_ORG    one organization's concurrent jobs (default 3)
 """
 
 from __future__ import annotations
@@ -24,6 +36,7 @@ import logging
 import os
 import signal
 import socket
+import time
 
 from . import queue
 from .outcome_notify import notify_job_outcome_from_access
@@ -41,6 +54,9 @@ logger = logging.getLogger(__name__)
 POISON_PAYLOAD_ERROR = "The job payload could not be decrypted or parsed and was quarantined."
 RETRIES_EXHAUSTED_ERROR = "research worker retries exhausted"
 
+#: How often the worker deletes dead rows past their retention.
+_PURGE_EVERY_SECONDS = 3600
+
 
 def _int_env(name: str, default: int) -> int:
     try:
@@ -48,6 +64,17 @@ def _int_env(name: str, default: int) -> int:
         return val if val > 0 else default
     except (TypeError, ValueError):
         return default
+
+
+# @environment_variable GRID_RESEARCH_DEAD_RETENTION_DAYS
+# @category Server
+# @type int
+# @default 14
+# @required false
+# How long a dead research queue row (a job that failed every claim, or whose
+# payload could not be read) is kept as a trace before it is deleted.
+def _dead_retention_seconds() -> int:
+    return _int_env("GRID_RESEARCH_DEAD_RETENTION_DAYS", 14) * 86400
 
 
 class ResearchWorker:
@@ -59,11 +86,18 @@ class ResearchWorker:
         self.stale_seconds = _int_env("GRID_RESEARCH_WORKER_STALE_SECONDS", 90)
         self.max_attempts = _int_env("GRID_RESEARCH_WORKER_MAX_ATTEMPTS", 3)
         self.heartbeat_seconds = _int_env("GRID_RESEARCH_WORKER_HEARTBEAT_SECONDS", 30)
+        # How long a stopping worker waits for the jobs it holds before it gives them back.
+        self.drain_seconds = _int_env("GRID_RESEARCH_WORKER_DRAIN_SECONDS", 600)
+        # One organization's concurrent jobs, fleet-wide: the claim's per-lane cap (0 = none).
+        self.per_org_cap = max(0, queue.max_active_per_org())
         # Liveness marker file the k8s probe checks (the backend image has no
         # pgrep/procps). Touched every loop tick; a stale mtime => the loop hung.
         self.liveness_file = os.environ.get("GRID_WORKER_LIVENESS_FILE", "/tmp/research-worker.alive")
         self._stop = asyncio.Event()
         self._running: set[asyncio.Task] = set()
+        #: The claims this process holds, by job id, so a drain can give them back.
+        self._held: dict[str, asyncio.Task] = {}
+        self._next_purge = 0.0
 
     def _touch_liveness(self) -> None:
         try:
@@ -120,40 +154,57 @@ class ResearchWorker:
             return
         job_id = claim["job_id"]
         payload = claim["payload"]
-        logger.info("Worker %s running job %s (attempt %s)", self.worker_id, job_id, claim["attempts"])
+        logger.info(
+            "Worker %s running job %s (attempt %s, lane %s, %s)",
+            self.worker_id,
+            job_id,
+            claim["attempts"],
+            claim.get("lane"),
+            "bulk" if claim.get("priority") else "interactive",
+        )
+        started = time.monotonic()
         # run_agent_job owns its own job_info status transitions + telemetry.
         # Still-owner publish gate (hardening item 10): hand our claim id to
         # the run so a reclaimed loser publishes nothing user-visible
         # (status/turn/notice) — the spread keeps old payloads without the key
         # working, with our id winning over the submit-time None.
         run_task = asyncio.create_task(run_agent_job(**{**payload, "claim_owner": self.worker_id}))
+        self._held[job_id] = run_task
         heartbeat = asyncio.create_task(self._heartbeat_loop(job_id, run_task))
         claim_lost = False
         try:
             await run_task
         except asyncio.CancelledError:
-            # Heartbeat cancelled us because we lost the claim — another worker
-            # owns the job now; yield quietly.
+            # Heartbeat cancelled us because we lost the claim, or a drain gave
+            # it back: another worker owns the job now; yield quietly.
             claim_lost = True
             logger.warning("Run for job %s aborted after claim loss", job_id)
         except Exception:
             logger.exception("Job %s failed in worker %s", job_id, self.worker_id)
         finally:
             heartbeat.cancel()
+            self._held.pop(job_id, None)
             # Ownership-guarded: if we lost the claim, this deletes nothing and
             # leaves the new owner's row intact.
             await asyncio.to_thread(queue.mark_done, self.db_url, job_id, self.worker_id)
+            if not claim_lost:
+                queue.queue_for(self.db_url).record_duration(time.monotonic() - started, self._kind(payload))
             # Terminal on THIS worker (success or error — not a claim loss, where
             # the new owner may still resume) -> drop the durable deep checkpoint
             # so those tables don't grow forever.
             if not claim_lost:
                 await asyncio.to_thread(_purge_deep_checkpoint, job_id)
 
+    @staticmethod
+    def _kind(payload: dict) -> str:
+        """The job's kind for ``grid.queue.job_duration_seconds``: its agent, a small closed set."""
+        return str(payload.get("agent_config_name") or "research")
+
     async def _fail_poison(self, claim: dict) -> None:
         """Record the FAILURE verdict for a quarantined queue payload.
 
-        The queue row is already deleted by ``claim_next`` — this only flips
-        the durable record (``job_info``, via the sticky-terminal conditional
+        The queue row is already retired (dead, its payload blanked) by
+        ``claim_next`` — this only flips the durable record (``job_info``, via the sticky-terminal conditional
         so a concurrent cancel/reaper verdict wins) and emits the ``job.error``
         event both surfaces stream. Best-effort throughout: a poison verdict
         must never itself kill the poll loop. There is no conversation notice
@@ -232,10 +283,13 @@ class ResearchWorker:
 
     async def run(self) -> None:
         await asyncio.to_thread(queue.ensure_research_queue_table, self.db_url)
+        # Depth, oldest age and dead rows are gauges this process reports for the fleet.
+        queue.queue_for(self.db_url).observe()
         logger.info(
-            "Research worker %s started (concurrency=%s, poll=%ss, db=%s)",
+            "Research worker %s started (concurrency=%s, per-org cap=%s, poll=%ss, db=%s)",
             self.worker_id,
             self.concurrency,
+            self.per_org_cap or "none",
             self.poll_seconds,
             self.db_url.split("@")[-1],
         )
@@ -247,7 +301,12 @@ class ResearchWorker:
             while len(self._running) < self.concurrency:
                 try:
                     claim = await asyncio.to_thread(
-                        queue.claim_next, self.db_url, self.worker_id, self.stale_seconds, self.max_attempts
+                        queue.claim_next,
+                        self.db_url,
+                        self.worker_id,
+                        self.stale_seconds,
+                        self.max_attempts,
+                        self.per_org_cap,
                     )
                 except Exception:
                     # Transient DB error: nothing was claimed (poison rows no
@@ -266,14 +325,113 @@ class ResearchWorker:
                 claimed_any = True
                 self._running.add(asyncio.create_task(self._run_claimed(claim)))
             await self._fail_exhausted()
+            await self._purge_dead()
             if not claimed_any:
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=self.poll_seconds)
                 except TimeoutError:
                     pass
-        logger.info("Research worker %s draining %s in-flight job(s)", self.worker_id, len(self._running))
-        if self._running:
-            await asyncio.gather(*self._running, return_exceptions=True)
+        await self._drain()
+
+    async def _purge_dead(self) -> None:
+        """Delete dead rows past their retention, at most once an hour per process."""
+        now = time.monotonic()
+        if now < self._next_purge:
+            return
+        self._next_purge = now + _PURGE_EVERY_SECONDS
+        try:
+            await asyncio.to_thread(queue.purge_dead, self.db_url, _dead_retention_seconds())
+        except Exception:
+            logger.warning("Purging dead research queue rows failed (non-fatal)", exc_info=True)
+
+    async def _drain(self) -> None:
+        """Wait for the jobs this worker holds; give back, at no cost, the ones that outlast the budget."""
+        logger.info(
+            "Research worker %s draining %s in-flight job(s) for up to %ss",
+            self.worker_id,
+            len(self._running),
+            self.drain_seconds,
+        )
+        if not self._running:
+            return
+        _, unfinished = await asyncio.wait(self._running, timeout=self.drain_seconds)
+        if unfinished:
+            await self._give_back(unfinished)
+
+    async def _give_back(self, unfinished: set[asyncio.Task]) -> None:
+        """Requeue the claims of jobs that did not finish in the drain, stop their runs, then mark them waiting.
+
+        The claims go back first: a run that stops while its row is still its own
+        would delete the row on its way out, and a job that is neither running nor
+        queued is lost. The runs are cancelled straight after, with nothing
+        awaited in between, because a released row is any idle worker's to claim:
+        every round trip before the cancel is time two runs of one job spend
+        provider budget. Each aborted run sees its row QUEUED again, or claimed
+        by another worker, which is a positive loss of the claim
+        (``runner._lost_claim``), so it publishes nothing and the next worker's
+        run is the one the reader sees. Only then is the job marked ``submitted``
+        (so the ghost-job reaper leaves it alone), and only while nobody has
+        claimed it since: a new owner's ``running`` is not set back.
+        """
+        held = dict(self._held)
+        job_ids = list(held)
+        released = await asyncio.to_thread(queue.release_claims, self.db_url, job_ids, self.worker_id)
+        for task in held.values():
+            task.cancel()
+        logger.warning(
+            "Research worker %s stopping with %d job(s) running; %d claim(s) given back to the queue",
+            self.worker_id,
+            len(job_ids),
+            released,
+        )
+        await asyncio.gather(*unfinished, return_exceptions=True)
+        await self._mark_waiting(job_ids)
+
+    async def _mark_waiting(self, job_ids: list[str]) -> None:
+        """Put requeued jobs back to ``submitted``: they wait in the queue like any other."""
+        if not job_ids:
+            return
+        from nat.front_ends.fastapi.async_jobs.job_store import JobStore
+
+        store = JobStore(scheduler_address="", db_url=self.db_url)
+        for job_id in job_ids:
+            try:
+                await _mark_waiting_while_unclaimed(store, job_id)
+            except Exception:
+                logger.warning("Could not mark requeued job %s as waiting (non-fatal)", job_id, exc_info=True)
+
+
+async def _mark_waiting_while_unclaimed(store, job_id: str) -> bool:
+    """``running`` -> ``submitted`` in one statement, only while the job's queue row is still unclaimed.
+
+    The row was released a moment ago. A worker that has claimed it since may
+    already have written ``running`` for its own run, and that must stand: the
+    reaper ignores ``submitted``, and the reader would see the job waiting.
+    """
+    from datetime import UTC as _UTC
+    from datetime import datetime as _datetime
+
+    from sqlalchemy import column
+    from sqlalchemy import exists
+    from sqlalchemy import table
+    from sqlalchemy import update
+
+    from nat.front_ends.fastapi.async_jobs.job_store import JobInfo
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+    row = table(queue.TABLE, column("job_id"), column("status"))
+    stmt = (
+        update(JobInfo)
+        .where(
+            JobInfo.job_id == job_id,
+            JobInfo.status == JobStatus.RUNNING.value,
+            exists().where(row.c.job_id == job_id, row.c.status == queue.QUEUED),
+        )
+        .values(status=JobStatus.SUBMITTED.value, updated_at=_datetime.now(_UTC))
+    )
+    async with store.session() as session:
+        result = await session.execute(stmt)
+    return (result.rowcount or 0) > 0
 
 
 def main() -> None:

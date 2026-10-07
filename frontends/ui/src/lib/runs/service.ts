@@ -230,9 +230,26 @@ async function foldRunLedgerOp(
       return { [RUN_LEDGER_METADATA_KEY]: ledger }
     })
     if (!stored) throw new NotFoundError('This run has no message to write a ledger into')
+    if (!onlyIfLive) await markStartedIfQueued(run, at)
     await notifyWaiting(run, current, ledger)
     return { ledger, applied }
   })
+}
+
+/**
+ * The worker's first flush is the proof a queued run has started: the research
+ * queue (ADR-0079) takes a job at once and starts it when an organization's turn
+ * comes, and until then the run's row says `queued`. Best-effort: the ledger is
+ * already written, and a row that stays `queued` is closed by the run's outcome
+ * exactly as a `running` one is.
+ */
+async function markStartedIfQueued(run: TaskRun, at: Date): Promise<void> {
+  if (run.status !== 'queued') return
+  try {
+    await taskRepository.markRunStarted(run.id, run.organizationId, at)
+  } catch (error) {
+    console.warn('[runs] could not move run', run.id, 'from queued to running', error)
+  }
 }
 
 /** How a run ended, as far as its ledger needs to know. */

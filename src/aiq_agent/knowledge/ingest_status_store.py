@@ -135,6 +135,7 @@ def _ensure_table(url: str) -> None:
         # `_stale_predicate` reads the queue table, so it must exist too.
         ingest_queue.ensure_table(url, conn)
         conn.commit()
+    ingest_queue.mark_ensured(url)
     _initialized.add(url)
 
 
@@ -166,7 +167,9 @@ def _stale_predicate(url: str) -> str:
     return (
         f"(((heartbeat_at IS NOT NULL AND heartbeat_at < {_ago(url, STALE_AFTER_SECONDS)}) "
         f"OR (heartbeat_at IS NULL AND updated_at < {_ago(url, _LEGACY_STALE_AFTER_SECONDS)})) "
-        f"AND NOT EXISTS (SELECT 1 FROM {ingest_queue.TABLE} q WHERE q.job_id = ingest_jobs.job_id))"
+        # A dead row is the trace of a job the queue gave up on: it holds nothing.
+        f"AND NOT EXISTS (SELECT 1 FROM {ingest_queue.TABLE} q "
+        f"WHERE q.job_id = ingest_jobs.job_id AND q.status <> '{ingest_queue.DEAD}'))"
     )
 
 

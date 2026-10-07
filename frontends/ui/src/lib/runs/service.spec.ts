@@ -17,6 +17,7 @@ vi.mock('@/lib/tasks/repository', () => ({
   findRunById: vi.fn(),
   findRunInProject: vi.fn(),
   findRunByBackendJobId: vi.fn(),
+  markRunStarted: vi.fn(),
 }))
 vi.mock('@/lib/conversations/repository', () => ({
   findMessageInConversation: vi.fn(),
@@ -201,6 +202,27 @@ describe('the ledger stays under the lock', () => {
     const landed = openPhase(emptyRunLedger(RUN, T0), 'planen', T0)
     const written = (patch as (m: Record<string, unknown>) => Record<string, unknown>)({ run_ledger: landed })
     expect((written.run_ledger as { phases: unknown[] }).phases).toHaveLength(1)
+  })
+})
+
+describe('a run that waited in the queue', () => {
+  const queuedRun = { ...run, status: 'queued' } as unknown as TaskRun
+
+  it('moves from queued to running on the worker’s first flush', async () => {
+    vi.mocked(taskRepository.findRunById).mockResolvedValue(queuedRun)
+    await applyRunLedgerOp(RUN, { op: 'append', steps: [step] }, T1)
+    expect(taskRepository.markRunStarted).toHaveBeenCalledWith(RUN, 'org_1', T1)
+  })
+
+  it('leaves a run that is already running alone', async () => {
+    await applyRunLedgerOp(RUN, { op: 'append', steps: [step] }, T1)
+    expect(taskRepository.markRunStarted).not.toHaveBeenCalled()
+  })
+
+  it('still writes the ledger when the status move fails', async () => {
+    vi.mocked(taskRepository.findRunById).mockResolvedValue(queuedRun)
+    vi.mocked(taskRepository.markRunStarted).mockRejectedValue(new Error('connection reset'))
+    await expect(applyRunLedgerOp(RUN, { op: 'append', steps: [step] }, T1)).resolves.toMatchObject({ runId: RUN })
   })
 })
 

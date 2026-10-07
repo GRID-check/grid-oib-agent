@@ -337,7 +337,26 @@ backend pieces live in `chat_socket.py` and `conversation_bus.py`; the design is
   lives); a resent question that lands on another replica, or arrives after its
   turn finished, is `rejected{duplicate_turn}` and the client attaches. A newer
   question supersedes a stale turn on whichever replica runs it (`SUPERSEDE` on
-  the input channel). With the bus down both fail open to the local registry.
+  the input channel), and runs only once the stale turn's `conv:<id>:running`
+  marker is gone (ADR-0080): the owner renews it while the turn runs and deletes
+  it when the turn ends, a dead owner's expires on its TTL, and a turn that
+  cannot get it in time is refused, never run beside the stale one. With the
+  bus down the claim fails open to the local registry, and so does the marker
+  while `GRID_CHAT_AFFINITY` is on; with it off the question is refused.
+- **The owner fences itself** (`aiq_api/turn_fence.py`, `aiq_agent/common/write_fence.py`;
+  only with `GRID_CHAT_AFFINITY` off). The marker's TTL can run out under a
+  turn that is still running (a renewal task starved or late, Dragonfly
+  unreachable from this replica), and a newer turn on another replica may then
+  take it. So the turn keeps a deadline of its own: the start of its last
+  successful renewal plus the TTL minus a margin (one guarded write, 3 s, plus
+  1 s). Every write the turn makes to the conversation asks that deadline first
+  and reads `time.monotonic()` itself, so no task has to have run: the checkpoint
+  writes (`FencedCheckpointer`, which also ends each by 3 s past the deadline, raising
+  `TurnFenced`, so the margin holds), the turn's frames (a fenced turn sends its terminal and nothing else)
+  and the persist of its outcome. The renewal task also cancels the turn through
+  the Stop path when the deadline passes or a renewal finds the marker gone, so
+  it ends with a `cancelled` terminal. A tool's own side effects are stopped by
+  that cancel, not by the fence.
 - **Every turn ends.** `run_turn`'s `finally` guarantees one terminal whatever
   escaped; the turn has a deadline (`GRID_CHAT_TURN_DEADLINE_SECONDS`) on its
   own clock, which stops while it waits on a person; a Stop waits at most
@@ -1466,9 +1485,9 @@ the way in (`lib/bim/ifc-archive.ts`), and everything downstream sees STEP.
 That module also enforces the extraction ceiling on the archive's DECLARED
 uncompressed size, read from the zip directory before a byte is inflated: the
 limit exists to keep a 1 GiB pod alive, and measuring it on the compressed
-object let a 40 MB upload become a 300 MB allocation. Extraction is detached from
-the request (a 60 MB model takes tens of seconds) and every terminal outcome
-writes the document row: success → the digest dispatch sets `pending` + a job
+object let a 40 MB upload become a 300 MB allocation. Extraction is a `bim_extract` job on the
+`bff-jobs` pool, not part of the request (a 60 MB model takes tens of seconds;
+ADR-0079) and every terminal outcome writes the document row: success → the digest dispatch sets `pending` + a job
 id, failure → `failed` with the reason, plus a `bim_models` row recording the
 same thing.
 

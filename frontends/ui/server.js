@@ -150,19 +150,28 @@ const BACKEND_WS_URL = getBackendWsUrl()
 const NEXT_INTERNAL_URL = process.env.NEXT_INTERNAL_URL || 'http://localhost:3001'
 
 // ── Conversation affinity (horizontal aiq-agent scaling) ──
-// The backend keeps per-conversation WebSocket delivery, human-in-the-loop
-// futures, and the running LangGraph task IN PROCESS, so a given conversation
-// must always reach the SAME backend replica for reconnect + HITL to work. When
-// aiq-agent runs >1 replica (a StatefulSet), pin each conversation to a specific
-// pod via a stable hash of conversationId -> that pod's stable DNS name. Falls
-// back to the load-balanced Service when there's 1 replica, no pod template, or
-// no conversationId — so single-replica behavior is unchanged.
+// With GRID_CHAT_AFFINITY on (the default, ADR-0028) each conversation is pinned
+// to one aiq-agent pod by a stable hash of conversationId -> that pod's stable
+// DNS name, so the in-process socket, HITL future and running task are always
+// reachable. With it off (ADR-0080) every socket goes to the load-balanced
+// Service and the conversation bus decides, per turn, which replica runs it, so
+// the backend can autoscale. Either way a single replica, no pod template or no
+// conversationId reaches the load-balanced Service. The rule lives in
+// src/lib/proxy/backend-target.js.
+const { affinityEnabled, createBackendTargetPicker } = require('./src/lib/proxy/backend-target.js')
 const BACKEND_REPLICAS = Math.max(1, parseInt(process.env.BACKEND_REPLICAS || '1', 10) || 1)
 // Per-pod WS DNS template with a literal `{i}`, e.g.
 // an in-cluster headless-service pod address like
 // aiq-agent-{i}.aiq-agent-headless:8000 (ws, in-cluster only) supplied via env.
 // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
 const BACKEND_POD_WS_TEMPLATE = process.env.BACKEND_POD_WS_TEMPLATE || ''
+const CHAT_AFFINITY = affinityEnabled(process.env.GRID_CHAT_AFFINITY)
+const pickBackendWsTarget = createBackendTargetPicker({
+  replicas: BACKEND_REPLICAS,
+  podTemplate: BACKEND_POD_WS_TEMPLATE,
+  affinity: CHAT_AFFINITY,
+  serviceUrl: BACKEND_WS_URL,
+})
 
 // How many frontend replicas this deployment runs (Pulumi passes the min count).
 // Used only to loudly flag a multi-replica deploy that is missing the shared
@@ -183,23 +192,6 @@ const SHUTDOWN_DRAIN_MS = Math.max(
 // Set once SIGTERM/SIGINT arrives: readiness starts failing and new WebSocket
 // upgrades are refused, while everything already in flight runs to completion.
 let draining = false
-
-// FNV-1a: stable, dependency-free, well-distributed for short ids.
-function hashToIndex(str, mod) {
-  let h = 0x811c9dc5
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i)
-    h = Math.imul(h, 0x01000193)
-  }
-  return (h >>> 0) % mod
-}
-
-function pickBackendWsTarget(conversationId) {
-  if (BACKEND_REPLICAS <= 1 || !BACKEND_POD_WS_TEMPLATE || !conversationId) {
-    return BACKEND_WS_URL
-  }
-  return BACKEND_POD_WS_TEMPLATE.replace('{i}', String(hashToIndex(String(conversationId), BACKEND_REPLICAS)))
-}
 
 // ── Upstream reachability and teardown ──
 // A backend that is not there for an upgrade (rollout, restart: issues #270,
@@ -852,8 +844,8 @@ const startServer = async () => {
           req,
           socket,
           head,
-          // Conversation affinity: pin this conversation to its owning backend
-          // replica so in-process WS/HITL/task state is always reachable.
+          // Conversation affinity (GRID_CHAT_AFFINITY): pin this conversation to
+          // its owning backend replica, or hand it to the Service when off.
           { target: pickBackendWsTarget(conversationId), changeOrigin: true },
           // http-proxy also calls this AFTER the upgrade, for an upstream socket
           // error; the handler never writes a 502 into a live WebSocket.

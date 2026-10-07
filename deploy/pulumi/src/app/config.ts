@@ -1,7 +1,7 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
-import { APP_DEFAULTS, PORT } from "../constants";
+import { APP_DEFAULTS, KEDA_SCALER_ROLE, PORT } from "../constants";
 import { FRONTEND_DRAIN_SECONDS, secretChecksum } from "../platform/rollout";
 
 type EnvVar = k8s.types.input.core.v1.EnvVar;
@@ -86,6 +86,48 @@ export interface AppSecrets {
   checksum: pulumi.Output<string>;
 }
 
+/** The Secret KEDA's TriggerAuthentications read the queue DSNs from; no pod references it. */
+export const SCALER_SECRET_NAME = "grid-keda-scaler"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
+
+/**
+ * The Secret key of the DSN KEDA reads the Python claim queues (`aiq_jobs`)
+ * through, and the one for the BFF queue (`grid_app`).
+ */
+export const JOBS_QUEUE_DSN_KEY = "KEDA_JOBS_QUEUE_DB_URL";
+export const BFF_QUEUE_DSN_KEY = "KEDA_BFF_QUEUE_DB_URL";
+
+/**
+ * What KEDA's `postgresql` scaler connects with, in a Secret of its own
+ * (ADR-0079): the read-only scaler login (`KEDA_SCALER_ROLE`, SELECT on the queue
+ * tables and nothing else, `queue-scaler-grants.ts`), never the owner.
+ *
+ * Its own Secret, not keys of `grid-secrets`, for two reasons. No pod reads these
+ * values, and a Secret that every pod's checksum covers would roll the frontend,
+ * the backend and every worker on a rotation of a credential none of them holds.
+ * And the operator in `keda` reads only what a TriggerAuthentication names, so
+ * the scaler's credential sits apart from the keys of the application's own.
+ *
+ * Each DSN's host is the FQDN, because the operator resolves names in its own
+ * namespace and a bare service name resolves there to nothing: the scaler would
+ * error on every poll and the tier would never scale out. Both Python queues
+ * live in one database, so the ingest and research tiers read one key.
+ */
+export function buildScalerSecret(w: AppWiring): k8s.core.v1.Secret {
+  const dsn = (db: string) =>
+    w.dsn({ db, as: { user: KEDA_SCALER_ROLE, password: w.cfg.postgres.scalerPassword }, clusterWide: true });
+  return new k8s.core.v1.Secret(
+    "grid-keda-scaler",
+    {
+      metadata: { name: SCALER_SECRET_NAME, namespace: w.namespace },
+      stringData: {
+        ...(w.cfg.jobExecution === "db" ? { [JOBS_QUEUE_DSN_KEY]: dsn("aiq_jobs") } : {}),
+        ...(w.cfg.bffJobs.enabled ? { [BFF_QUEUE_DSN_KEY]: dsn("grid_app") } : {}),
+      },
+    },
+    { provider: w.provider },
+  );
+}
+
 /**
  * One Kubernetes Secret holding every sensitive value (API keys, tokens, the
  * BYOK KEK, S3 secret key, and the fully-formed DB DSNs — which embed the PG
@@ -129,9 +171,6 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
     AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
     AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
-    // The same database for KEDA's postgresql scaler, which runs in the `keda`
-    // namespace and cannot resolve the bare service name. Read by no pod.
-    KEDA_INGEST_QUEUE_DB_URL: w.dsn({ db: "aiq_jobs", clusterWide: true }),
     AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
     // The app tier connects as the least-privilege role, so row-level security
     // applies to it (ADR-0041). Migrations get the owner credential below —
@@ -211,6 +250,13 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     // ON by default — the intended architecture; uses REDIS_URL, fails open to
     // local delivery. Set conversationBus=false to fall back to affinity.
     { name: "GRID_CONVERSATION_BUS", value: cfg.conversationBus ? "1" : "0" },
+    // The flag the BFF routes by (ADR-0080). The backend reads it for one
+    // decision: with the bus down, affinity on fails the one-running-turn fence
+    // open (every turn of a conversation reaches one process), off refuses.
+    { name: "GRID_CHAT_AFFINITY", value: cfg.backend.chatAffinity ? "1" : "0" },
+    // How long a terminating replica waits for its turns; the pod's grace period
+    // is this plus the endpoint drain and slack (`backendRollout`).
+    { name: "GRID_CHAT_DRAIN_SECONDS", value: String(cfg.backend.drainSeconds) },
     // Project-memory write path (backend → frontend BFF).
     { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
@@ -244,6 +290,7 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     // Admission control (bounds concurrent heavy work — §4.2).
     { name: "GRID_MAX_ACTIVE_JOBS", value: String(cfg.backend.maxActiveJobs) },
     { name: "GRID_MAX_ACTIVE_JOBS_PER_ORG", value: String(cfg.backend.maxActiveJobsPerOrg) },
+    { name: "GRID_MAX_QUEUED_JOBS_PER_ORG", value: String(cfg.backend.maxQueuedJobsPerOrg) },
     { name: "AIQ_INGEST_MAX_WORKERS", value: String(cfg.backend.ingestMaxWorkers) },
     // With the ingest tier running, the chat pods take no queued ingestion
     // (ADR-0076); their pool still runs the jobs with local files.
@@ -258,6 +305,13 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "AIQ_VLM_MODEL", value: cfg.llm.vlmModel },
     { name: "AIQ_VLM_BASE_URL", value: cfg.llm.vlmBaseUrl },
     srefAs("AIQ_VLM_API_KEY", "OPENROUTER_API_KEY"),
+    // What the one OpenRouter key is asked to carry (ADR-0076, ADR-0081). Set
+    // from the stack so the budget is read where `ingestWorkerMaxReplicas` is:
+    // `assertVlmPeakFitsCeiling` holds the two together.
+    { name: "AIQ_VLM_FLEET_CONCURRENCY", value: String(cfg.providerLimits.vlmFleetConcurrency) },
+    { name: "AIQ_VLM_BATCH_WORKERS", value: String(cfg.providerLimits.vlmBatchWorkers) },
+    { name: "GRID_PROVIDER_LIMIT_CEILING", value: String(cfg.providerLimits.limitCeiling) },
+    { name: "GRID_PROVIDER_MODEL_LIMIT_CEILING", value: String(cfg.providerLimits.modelLimitCeiling) },
     // No AIQ_EXTRACT_* here: tables, images and charts are on in code and a
     // flag only switches one off. Setting them per deployment is how production
     // ran without tables and dropped every chart it had paid to analyse.
@@ -296,6 +350,9 @@ export function workerEnv(w: AppWiring): EnvVar[] {
     ...backendEnv(w, "grid-agent-worker"),
     { name: "GRID_ROLE", value: "worker" },
     { name: "GRID_RESEARCH_WORKERS", value: String(w.cfg.agentWorker.concurrency) },
+    // The drain budget the pod's grace period is derived from (`agent-worker.ts`):
+    // a job still running when it ends is given back to the queue, not killed.
+    { name: "GRID_RESEARCH_WORKER_DRAIN_SECONDS", value: String(w.cfg.agentWorker.drainSeconds) },
   ];
 }
 
@@ -329,6 +386,10 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // its in-process WS/HITL/task state is always on the same replica. With 1
     // replica the proxy falls back to the load-balanced BACKEND_URL.
     { name: "BACKEND_REPLICAS", value: String(cfg.jobExecution === "db" ? cfg.backend.replicas : 1) },
+    // ADR-0080: "0" hands every socket to the load-balanced Service and lets the
+    // conversation bus decide per turn which replica runs it, so the backend can
+    // autoscale (backend-scaling.ts). "1" is the hash above, byte for byte.
+    { name: "GRID_CHAT_AFFINITY", value: cfg.backend.chatAffinity ? "1" : "0" },
     // In-cluster headless-service pod address; traffic never leaves the pod
     // network, so the non-TLS ws scheme below is intentional.
     // nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket
@@ -457,6 +518,41 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
           { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318" },
         ]
       : []),
+  ];
+}
+
+/**
+ * Names the bff-jobs pod sets differently from the frontend it is built from.
+ * The BFF in that pod is not the gateway: it logs as its own service, and the
+ * runner stops it only after the jobs in hand are given back, so it needs no
+ * long WebSocket drain of its own.
+ */
+const BFF_JOBS_OVERRIDES = new Set(["OTEL_SERVICE_NAME", "GRID_SHUTDOWN_DRAIN_MS"]);
+
+/**
+ * bff-jobs pool environment (ADR-0079): the whole frontend environment, because
+ * the jobs call the same services the routes do (the database, object storage,
+ * the backend, WorkOS), plus what the runner reads. Every `GRID_BFF_JOBS_` name
+ * here must be one `frontends/ui/workers/jobs/index.js` reads; `bff-jobs.spec.ts`
+ * holds the two together.
+ */
+export function bffJobsEnv(w: AppWiring): EnvVar[] {
+  const { cfg } = w;
+  return [
+    ...frontendEnv(w).filter((env) => typeof env.name !== "string" || !BFF_JOBS_OVERRIDES.has(env.name)),
+    { name: "GRID_BFF_JOBS_CONCURRENCY", value: String(cfg.bffJobs.concurrency) },
+    { name: "GRID_BFF_JOBS_DRAIN_SECONDS", value: String(cfg.bffJobs.drainSeconds) },
+    { name: "GRID_BFF_JOBS_MAX_PER_ORG", value: String(cfg.bffJobs.maxPerOrg) },
+    // Office conversions this pod runs at Gotenberg at once. The BFF in the pod
+    // reads it as it does in the frontend (`rendition.ts`); here it is the
+    // per-pod factor of the pool's ceiling (`renditionCeiling`), which
+    // `gotenberg.spec.ts` holds to the converter's capacity.
+    { name: "GOTENBERG_MAX_CONCURRENCY", value: String(cfg.bffJobs.renditionConcurrency) },
+    // The BFF is stopped AFTER the runner has drained, so it only has to close
+    // its own idle connections.
+    { name: "GRID_SHUTDOWN_DRAIN_MS", value: "5000" },
+    // The collector endpoint came with the frontend's; only the name differs.
+    ...(cfg.observability.enabled ? [{ name: "OTEL_SERVICE_NAME", value: "grid-bff-jobs" }] : []),
   ];
 }
 

@@ -65,25 +65,24 @@ def _serve(monkeypatch, handler) -> list[httpx.Request]:
     return seen
 
 
-_REAL_ASYNC_CLIENT_INIT = httpx.AsyncClient.__init__
-
-
 def _route_async_clients(monkeypatch, transport: httpx.MockTransport) -> None:
-    """Give every ``httpx.AsyncClient`` built during the test this transport.
+    """Serve every request an ``httpx.AsyncClient`` sends during the test from this transport.
 
-    Patches the constructor, never the name: ``httpx.AsyncClient`` must stay a
-    class. The reranker's first call imports ``cost_tracking``, which imports
-    ``langchain_openai`` and so ``openai``, whose ``_base_client`` subclasses
-    ``httpx.AsyncClient`` at import time. With a ``functools.partial`` in its
-    place that ``class`` statement raises ``TypeError: the first argument must
-    be callable``, and only when ``openai`` was not already imported.
+    Patches the socket transport underneath the clients, never ``httpx.AsyncClient``:
+    the reranker's client is built on the provider limiter's transport (ADR-0081),
+    which must stay in the path so the slot is taken the way it is in production,
+    and ``httpx.AsyncClient`` must stay a class. The reranker's first call imports
+    ``cost_tracking``, which imports ``langchain_openai`` and so ``openai``, whose
+    ``_base_client`` subclasses ``httpx.AsyncClient`` at import time; with a
+    ``functools.partial`` in its place that ``class`` statement raises
+    ``TypeError: the first argument must be callable``, and only when ``openai``
+    was not already imported.
     """
 
-    def _init(self, *args, **kwargs) -> None:
-        kwargs.setdefault("transport", transport)
-        _REAL_ASYNC_CLIENT_INIT(self, *args, **kwargs)
+    async def _serve(self, request: httpx.Request) -> httpx.Response:
+        return await transport.handle_async_request(request)
 
-    monkeypatch.setattr(httpx.AsyncClient, "__init__", _init)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _serve)
 
 
 def _ok(payload: dict) -> httpx.Response:

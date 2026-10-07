@@ -308,6 +308,28 @@ async def test_ingest_books_its_spend_to_the_documents_project_and_uploader(app,
     assert "project_id" not in config and "user_id" not in config
 
 
+@pytest.mark.asyncio
+async def test_ingest_priority_defaults_to_interactive_and_accepts_bulk(app, mock_ingestor, no_network):
+    """A person's upload is interactive; a reindex or rescan states `bulk`. The job config carries it."""
+    base = {"file_ref": "http://seaweedfs.test/bucket/plan.pdf", "collection": "proj_1"}
+
+    assert (await _post_json(app, base)).status_code == 202
+    assert mock_ingestor.submit_job.call_args[1]["config"]["priority"] == "interactive"
+
+    assert (await _post_json(app, {**base, "priority": "bulk"})).status_code == 202
+    assert mock_ingestor.submit_job.call_args[1]["config"]["priority"] == "bulk"
+
+
+@pytest.mark.asyncio
+async def test_ingest_refuses_a_priority_it_does_not_know(app, mock_ingestor, no_network):
+    refused = await _post_json(
+        app, {"file_ref": "http://seaweedfs.test/bucket/plan.pdf", "collection": "proj_1", "priority": "urgent"}
+    )
+
+    assert refused.status_code == 422
+    mock_ingestor.submit_job.assert_not_called()
+
+
 # --- DeferredObjectDownload: what the job runs ---
 
 
