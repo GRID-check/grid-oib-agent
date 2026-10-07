@@ -142,6 +142,9 @@ class ResearchAgentState(BaseModel):
     # ``ConversationState`` (see the note there). Bounded at the header
     # boundary; rendered below the KV-cache boundary as its own section.
     org_instructions: str | None = None
+    # The office's reference projects, threaded through from
+    # ``ConversationState`` (see the note there).
+    reference_projects: str | None = None
     # The composer's "Asking about <file>" subject for this turn (filename +
     # shelf). Rendered into the system prompt so "summarize this document"
     # has an antecedent.

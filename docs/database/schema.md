@@ -809,17 +809,19 @@ it is judged in the tree of the project it belongs to (`treeForRecord`, through
 
 ## conversation_source_projects (migration 0116, ADR-0085)
 
-Another project whose content a solo chat drew on through a cross-project
-lookup: written by the BFF BEFORE a lookup answers
-(`recordCrossProjectHandOut`, called by `POST /api/internal/cross-project/*`),
-under the same per-conversation lock as `conversation_restricted_folders` and
-every widening of the audience, with the check that the chat is still its
-asker's alone. A restricted folder of that project is recorded beside it, in
+Another project whose content a chat drew on through a cross-project lookup:
+written by the BFF BEFORE a lookup answers (`recordCrossProjectHandOut`, called
+by `POST /api/internal/cross-project/*`), under the same per-conversation lock
+as `conversation_restricted_folders` and every widening of the audience, with
+the check that the audience is the one the lookup searched as. A restricted
+folder of that project is recorded beside it, in
 `conversation_restricted_folders`; this row covers what every member of the
-project reads, the root included. Read at read time: only a person who may open
-every recorded project now may read the conversation, it cannot be made visible
-to the project, nothing leaves it into what a whole project reads, and nothing
-is remembered from it.
+project reads, the root included. Judged at read time through
+`listRestrictingSourceProjects`, which leaves out a project that is CLOSED now
+(every office member reads it, ADR-0082): for the rest, only a person who may
+open every such project may read the conversation, it cannot be made visible to
+the project, nothing leaves it into what a whole project reads, and nothing is
+remembered from it. A reopened project restricts again.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
@@ -829,8 +831,8 @@ is remembered from it.
 | `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | |
 
 `deleteConversationInOrg` deletes the rows with the conversation, and
-`listRecentMessagesWithCardDecisions` leaves such a conversation's card
-decisions out of `PROPOSAL_DECISIONS`. The down migration turns each
+`listRecentMessagesWithCardDecisions` leaves a conversation with a restricting
+row out of `PROPOSAL_DECISIONS`. The down migration turns each
 conversation's rows into one nil-folder row in `conversation_restricted_folders`,
 which the older build reads as a folder nobody may read.
 Repository: `lib/conversations/restricted-use-repository.ts`; proven in

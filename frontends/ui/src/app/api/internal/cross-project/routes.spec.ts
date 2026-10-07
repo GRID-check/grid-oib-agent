@@ -82,7 +82,7 @@ describe('the lookups act as the envelope’s person, in the envelope’s conver
     expect(response.status).toBe(200)
     expect(vi.mocked(searchAcrossProjects)).toHaveBeenCalledWith(
       { session, conversationId: CONV, currentProjectId: PROJECT },
-      expect.objectContaining({ query: 'Dachdetail', scope: 'all' })
+      expect.objectContaining({ query: 'Dachdetail', scope: 'similar' })
     )
     expect(vi.mocked(withTenant)).toHaveBeenCalledWith({ organizationId: 'org_1' }, expect.any(Function))
   })

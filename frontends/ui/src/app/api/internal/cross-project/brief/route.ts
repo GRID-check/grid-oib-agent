@@ -1,12 +1,13 @@
 /**
- * INTERNAL — one project's brief (confirmed facts and summary), from a solo
- * chat (ADR-0085). The agent's `read_project_brief` tool is the caller; the
- * acting person is the envelope's, as a pinned session, and must be able to
- * open the project (404 otherwise, like every project the caller cannot see).
+ * INTERNAL — one project's brief (confirmed facts and summary), from any chat
+ * (ADR-0085). The agent's `project_lookup` tool (`action: brief`) is the
+ * caller; the acting person is the envelope's, as a pinned session, and the
+ * project must be in reach of the conversation's audience (404 otherwise, like
+ * every project the caller cannot see).
  *
  * `POST` `CrossProjectBriefRequest` → `CrossProjectBriefResponse`
- * (`lib/cross-project/types.ts`). A conversation that is not the asker's alone
- * is refused (409 `CROSS_PROJECT_SHARED_CHAT`).
+ * (`lib/cross-project/types.ts`). An audience changed mid-lookup is refused (409
+ * `CROSS_PROJECT_AUDIENCE_CHANGED`).
  */
 
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'

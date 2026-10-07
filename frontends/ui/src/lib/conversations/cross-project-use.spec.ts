@@ -3,10 +3,10 @@
  */
 /**
  * The record a cross-project lookup writes before it answers (ADR-0085), with
- * the store mocked: the solo rule, read under the lock; the projects and
- * restricted folders recorded in one transaction; nothing recorded and a typed
- * refusal once the chat is not the asker's alone. And the memory writer's
- * refusal for such a conversation. Against Postgres:
+ * the store mocked: the audience the reach was computed for, compared under
+ * the lock; the projects and restricted folders recorded in one transaction;
+ * nothing recorded and a typed refusal once the audience changed. And the
+ * memory writer's refusal for a conversation that drew on a running project. Against Postgres:
  * `cross-project-use.integration.spec.ts`.
  */
 
@@ -44,11 +44,11 @@ vi.mock('./restricted-use-repository', () => ({
   recordSourceFolders: vi.fn(async (_tx: unknown, _org: string, _id: string, ids: string[]) => {
     state.steps.push(`folders:${ids.join(',')}`)
   }),
-  listRecordedSourceProjects: vi.fn(async () => [...state.recordedProjects]),
+  listRestrictingSourceProjects: vi.fn(async () => [...state.recordedProjects]),
 }))
 
-import { CrossProjectMemoryError, CrossProjectSharedChatError } from '@/lib/api/errors'
-import { isSoloAudience, recordCrossProjectHandOut, requireMayRememberFrom } from './cross-project-use'
+import { CrossProjectAudienceChangedError, CrossProjectMemoryError } from '@/lib/api/errors'
+import { audienceKey, isSoloAudience, recordCrossProjectHandOut, requireMayRememberFrom } from './cross-project-use'
 
 const solo: ConversationAudienceRow = { exists: true, projectId: null, createdBy: OWNER, visibility: 'private', grantees: [] }
 const party = { organizationId: ORG, userId: OWNER, conversationId: CONV }
@@ -73,36 +73,65 @@ describe('isSoloAudience', () => {
   })
 })
 
+describe('audienceKey', () => {
+  it('is the same for the same readers, whatever the grant order, and differs for any other', () => {
+    const shared = { ...solo, grantees: ['user_b', 'user_a'] }
+    expect(audienceKey(shared)).toBe(audienceKey({ ...solo, grantees: ['user_a', 'user_b'] }))
+    expect(audienceKey(shared)).not.toBe(audienceKey(solo))
+    expect(audienceKey({ ...solo, visibility: 'project' })).not.toBe(audienceKey(solo))
+    expect(audienceKey({ ...solo, exists: false, createdBy: null })).toBe('new')
+  })
+})
+
 describe('recordCrossProjectHandOut', () => {
-  it('records the projects and the restricted folders, deduplicated, after the solo check under the lock', async () => {
-    await recordCrossProjectHandOut(party, { projectIds: [OTHER, OTHER], folderIds: [HONORARE_ID, HONORARE_ID] })
+  it('records the projects and the restricted folders, deduplicated, after the audience check under the lock', async () => {
+    await recordCrossProjectHandOut(
+      party,
+      { projectIds: [OTHER, OTHER], folderIds: [HONORARE_ID, HONORARE_ID] },
+      audienceKey(solo)
+    )
 
     expect(state.steps).toEqual(['lock', 'audience', `projects:${OTHER}`, `folders:${HONORARE_ID}`])
   })
 
-  it('refuses with the typed 409 and records nothing once the chat is shared, as read under the lock', async () => {
+  it('records into a shared chat whose readers are the ones the reach was computed for', async () => {
+    const shared = { ...solo, grantees: ['user_ina'] }
+    state.audiences = [shared]
+
+    await recordCrossProjectHandOut(party, { projectIds: [OTHER], folderIds: [] }, audienceKey(shared))
+
+    expect(state.steps).toEqual(['lock', 'audience', `projects:${OTHER}`, 'folders:'])
+  })
+
+  it('records into a chat its first turn created mid-lookup, still the asker’s alone', async () => {
+    await recordCrossProjectHandOut(party, { projectIds: [OTHER], folderIds: [] }, 'new')
+
+    expect(state.steps).toContain(`projects:${OTHER}`)
+  })
+
+  it('refuses with the typed 409 and records nothing once the audience changed, as read under the lock', async () => {
     state.audiences = [{ ...solo, grantees: ['user_ina'] }]
 
-    const error = await recordCrossProjectHandOut(party, { projectIds: [OTHER], folderIds: [] }).catch(
+    const error = await recordCrossProjectHandOut(party, { projectIds: [OTHER], folderIds: [] }, audienceKey(solo)).catch(
       (caught: unknown) => caught
     )
 
-    expect(error).toBeInstanceOf(CrossProjectSharedChatError)
-    expect((error as CrossProjectSharedChatError).status).toBe(409)
-    expect((error as CrossProjectSharedChatError).message).toContain('neuen Chat')
+    expect(error).toBeInstanceOf(CrossProjectAudienceChangedError)
+    expect((error as CrossProjectAudienceChangedError).status).toBe(409)
+    expect((error as CrossProjectAudienceChangedError).message).toContain('noch einmal')
     expect(state.steps).toEqual(['lock', 'audience'])
   })
 })
 
 describe('requireMayRememberFrom', () => {
-  it('refuses a memory from a conversation that drew on another project, in German', async () => {
+  it('refuses a memory from a conversation that drew on a running project, in German', async () => {
     state.recordedProjects = [OTHER]
 
     const error = await requireMayRememberFrom(CONV, ORG).catch((caught: unknown) => caught)
 
     expect(error).toBeInstanceOf(CrossProjectMemoryError)
     expect((error as CrossProjectMemoryError).status).toBe(409)
-    expect((error as CrossProjectMemoryError).message).toContain('andere Projekte')
+    expect((error as CrossProjectMemoryError).message).toContain('laufende andere Projekte')
   })
 
   it('lets every other write through', async () => {

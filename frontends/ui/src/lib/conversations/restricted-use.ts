@@ -65,8 +65,8 @@ import { SHARING_ERROR_REASONS } from '@/lib/sharing/types'
 import {
   listRecordedSourceFolders,
   listRecordedSourceFoldersFor,
-  listRecordedSourceProjects,
-  listRecordedSourceProjectsFor,
+  listRestrictingSourceProjects,
+  listRestrictingSourceProjectsFor,
   lockConversationAudience,
   projectsOfFolders,
   readConversationAudience,
@@ -306,7 +306,7 @@ export async function recordedRestrictedFolders(conversationId: string, organiza
  * so none of them may carry another project's content.
  */
 export async function recordedSourceProjects(conversationId: string, organizationId: string): Promise<string[]> {
-  return listRecordedSourceProjects(getDb(), organizationId, conversationId)
+  return listRestrictingSourceProjects(getDb(), organizationId, conversationId)
 }
 
 /**
@@ -340,7 +340,7 @@ export async function peopleWhoMayRead(
 ): Promise<Set<string>> {
   const [recorded, projects] = await Promise.all([
     listRecordedSourceFolders(getDb(), organizationId, conversationId),
-    listRecordedSourceProjects(getDb(), organizationId, conversationId),
+    listRestrictingSourceProjects(getDb(), organizationId, conversationId),
   ])
   if (recorded.length === 0 && projects.length === 0) return new Set(userIds)
   const audience = await readConversationAudience(getDb(), organizationId, conversationId)
@@ -387,7 +387,7 @@ export async function lockedConversationIds(
   const ids = conversations.map((conversation) => conversation.id)
   const [recorded, projects] = await Promise.all([
     listRecordedSourceFoldersFor(getDb(), session.organizationId, ids),
-    listRecordedSourceProjectsFor(getDb(), session.organizationId, ids),
+    listRestrictingSourceProjectsFor(getDb(), session.organizationId, ids),
   ])
   const locked = new Set<string>()
   if (recorded.size === 0 && projects.size === 0) return locked
@@ -703,7 +703,7 @@ async function wideningContext(
   const [audience, recorded, projects] = await Promise.all([
     readConversationAudience(getDb(), organizationId, conversationId),
     listRecordedSourceFolders(getDb(), organizationId, conversationId),
-    listRecordedSourceProjects(getDb(), organizationId, conversationId),
+    listRestrictingSourceProjects(getDb(), organizationId, conversationId),
   ])
   const project = await projectOf(organizationId, audience, null)
   const view = await recordView(organizationId, audience.projectId, recorded)
@@ -753,7 +753,7 @@ export async function assertMayWidenConversation(
   const context = await wideningContext(session, conversationId, widening)
   const [recorded, projects] = await Promise.all([
     listRecordedSourceFolders(getDb(), organizationId, conversationId),
-    listRecordedSourceProjects(getDb(), organizationId, conversationId),
+    listRestrictingSourceProjects(getDb(), organizationId, conversationId),
   ])
   const missing = uncovered(widening, restrictedRecord(context, recorded), projects, context)
   if (!isCovered(missing)) throw await wideningRefusal(session, widening, missing, context)
@@ -779,7 +779,7 @@ export async function widenConversationAudience<T>(
   const result = await getDb().transaction(async (tx) => {
     await lockConversationAudience(tx, organizationId, conversationId)
     const recorded = restrictedRecord(context, await listRecordedSourceFolders(tx, organizationId, conversationId))
-    const projects = await listRecordedSourceProjects(tx, organizationId, conversationId)
+    const projects = await listRestrictingSourceProjects(tx, organizationId, conversationId)
     refusal.missing = uncovered(widening, recorded, projects, context)
     if (!isCovered(refusal.missing)) return null
     return { value: await write(tx) }

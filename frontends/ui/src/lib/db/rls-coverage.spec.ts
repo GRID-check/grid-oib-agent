@@ -113,7 +113,7 @@ const BOUNDARY_MIGRATIONS = [
   // account (ADR-0083). Keyed directly by its organization, tied to its project
   // by a composite foreign key.
   '0115_project_steckbrief.sql',
-  // Adds conversation_source_projects — another project a solo chat drew on
+  // Adds conversation_source_projects — another project a chat drew on
   // through a cross-project lookup (ADR-0085). Keyed directly by its
   // organization: the conversation row may not exist yet.
   '0116_conversation_source_projects.sql',

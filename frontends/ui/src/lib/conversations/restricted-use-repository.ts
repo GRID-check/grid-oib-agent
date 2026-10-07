@@ -16,6 +16,7 @@ import {
   conversationSourceProjects,
   conversations,
   projectFolders,
+  projects,
   resourceShares,
   type ResourceVisibility,
 } from '@/lib/db/schema'
@@ -150,8 +151,29 @@ export async function deleteRecordedSourceFolders(
  */
 export const RECORDED_PROJECTS_LIMIT = 200
 
-/** The other projects this conversation drew on (ADR-0085, migration 0116), sorted. */
-export async function listRecordedSourceProjects(
+/**
+ * Whether a recorded project still restricts who may read what came from it:
+ * every one except a project closed now, whose open folders every office member
+ * reads (ADR-0082). A deleted project, or one that is gone, still restricts.
+ * Judged at read time, so a reopened project restricts again. Its restricted
+ * folders are recorded by id and judged on their own, closed or not.
+ */
+function stillRestricts() {
+  return sql<boolean>`NOT EXISTS (
+    SELECT 1 FROM ${projects}
+    WHERE ${projects.id} = ${conversationSourceProjects.projectId}
+      AND ${projects.organizationId} = ${conversationSourceProjects.organizationId}
+      AND ${projects.status} = 'closed'
+      AND ${projects.deletedAt} IS NULL
+  )`
+}
+
+/**
+ * The other projects this conversation drew on (ADR-0085, migration 0116) that
+ * still restrict its readers ({@link stillRestricts}), sorted. Every judge of
+ * the record reads this, never the raw rows.
+ */
+export async function listRestrictingSourceProjects(
   executor: DbExecutor,
   organizationId: string,
   conversationId: string,
@@ -163,6 +185,7 @@ export async function listRecordedSourceProjects(
       and(
         eq(conversationSourceProjects.organizationId, organizationId),
         eq(conversationSourceProjects.conversationId, conversationId),
+        stillRestricts(),
       ),
     )
     .orderBy(conversationSourceProjects.projectId)
@@ -170,8 +193,8 @@ export async function listRecordedSourceProjects(
   return rows.map((row) => String(row.projectId))
 }
 
-/** The other projects each of these conversations drew on; absent from the map means none. */
-export async function listRecordedSourceProjectsFor(
+/** {@link listRestrictingSourceProjects} for many conversations; absent from the map means none. */
+export async function listRestrictingSourceProjectsFor(
   executor: DbExecutor,
   organizationId: string,
   conversationIds: readonly string[],
@@ -188,13 +211,14 @@ export async function listRecordedSourceProjectsFor(
       and(
         eq(conversationSourceProjects.organizationId, organizationId),
         inArray(conversationSourceProjects.conversationId, [...conversationIds]),
+        stillRestricts(),
       ),
     )
     .limit(RECORDED_FOLDERS_BATCH_LIMIT)
   for (const row of rows) {
-    const projects = recorded.get(String(row.conversationId)) ?? []
-    projects.push(String(row.projectId))
-    recorded.set(String(row.conversationId), projects)
+    const found = recorded.get(String(row.conversationId)) ?? []
+    found.push(String(row.projectId))
+    recorded.set(String(row.conversationId), found)
   }
   return recorded
 }

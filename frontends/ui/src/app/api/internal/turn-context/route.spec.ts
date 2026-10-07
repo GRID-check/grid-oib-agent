@@ -16,6 +16,7 @@ vi.mock('@/lib/projects/proposal-decisions', async (original) => ({
 }))
 vi.mock('@/lib/documents/review-decisions', () => ({ buildReviewDecisionsBlock: vi.fn() }))
 vi.mock('@/lib/conversations/cross-project-use', () => ({ drewOnOtherProjects: vi.fn(async () => false) }))
+vi.mock('@/lib/cross-project/reference-brief', () => ({ loadReferenceBrief: vi.fn(async () => null) }))
 vi.mock('@/lib/db/tenant-context', async (original) => ({
   ...(await original<typeof import('@/lib/db/tenant-context')>()),
   withTenant: vi.fn(async (_scope: unknown, run: () => Promise<unknown>) => run()),
@@ -34,6 +35,7 @@ import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { buildProposalDecisionsBlock } from '@/lib/projects/proposal-decisions'
 import { buildReviewDecisionsBlock } from '@/lib/documents/review-decisions'
 import { drewOnOtherProjects } from '@/lib/conversations/cross-project-use'
+import { loadReferenceBrief } from '@/lib/cross-project/reference-brief'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import {
   buildGridRequestContextEnvelopeHeaders, GRID_REQUEST_CONTEXT_MAX_AGE_MS,
@@ -93,6 +95,17 @@ describe('POST /api/internal/turn-context', () => {
     expect(drewOnOtherProjects).toHaveBeenCalledWith('s_text-conversation', 'org_1')
   })
 
+  it('hands the office’s reference projects to the turn, and answers without them when they fail to load', async () => {
+    vi.mocked(loadReferenceBrief).mockResolvedValueOnce('- Wohnbau Graz (id p1): 2019, GK 4')
+    expect((await (await call()).json()).data.referenceProjects).toBe('- Wohnbau Graz (id p1): 2019, GK 4')
+    expect(loadReferenceBrief).toHaveBeenCalledWith('org_1', 'proj_1')
+
+    vi.mocked(loadReferenceBrief).mockRejectedValueOnce(new Error('db down'))
+    const response = await call()
+    expect(response.status).toBe(200)
+    expect((await response.json()).data.referenceProjects).toBeNull()
+  })
+
   it('returns the complete >6200-byte profile through a body, with current memory and instructions', async () => {
     const response = await call({ query: '  fire safety  ' })
     expect(response.status).toBe(200)
@@ -102,6 +115,7 @@ describe('POST /api/internal/turn-context', () => {
       projectMemory: 'Digest\n\nProposal decisions\n\nReview decisions',
       orgInstructions: 'Standing instructions',
       drewOnOtherProjects: false,
+      referenceProjects: null,
     })
     expect(Buffer.byteLength(data.projectContext)).toBeGreaterThan(6200)
     expect(resolvePinnedRequesterSession).toHaveBeenCalledWith({

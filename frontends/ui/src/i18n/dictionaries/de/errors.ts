@@ -50,9 +50,9 @@ export const errors: typeof en.errors = {
       'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff oder auf ein anderes Projekt, deshalb lässt sich aus ihr nichts dorthin ablegen: Der Ablageort ist auch für Personen sichtbar, die den eingeschränkten Ordner oder das andere Projekt nicht lesen dürfen. Ablegen geht nur in einen Ordner, der mindestens so eng eingeschränkt ist, und nie für Inhalte aus anderen Projekten.',
   },
   crossProject: {
-    sharedChat:
-      'Die Suche über Projekte hinweg geht nur in einem Chat, der Ihnen allein gehört. Dieser Chat ist geteilt oder für das Projekt sichtbar, und was ein anderes Projekt enthält, könnte so Personen erreichen, die es nicht öffnen dürfen. Starten Sie für die projektübergreifende Suche einen neuen Chat.',
+    audienceChanged:
+      'Wer diese Unterhaltung lesen darf, hat sich gerade geändert, deshalb wurde in anderen Projekten nichts übernommen. Fragen Sie bitte noch einmal.',
     memory:
-      'Diese Unterhaltung stützt sich auf andere Projekte, deshalb wird nichts aus ihr im Projekt- oder Büro-Gedächtnis gespeichert: Dieses Gedächtnis lesen alle im Projekt, auch Personen, die die anderen Projekte nicht öffnen dürfen.',
+      'Diese Unterhaltung stützt sich auf laufende andere Projekte, deshalb wird nichts aus ihr im Projekt- oder Büro-Gedächtnis gespeichert: Dieses Gedächtnis lesen alle im Projekt, auch Personen, die jene Projekte nicht öffnen dürfen. Was aus abgeschlossenen Projekten stammt, darf gespeichert werden.',
   },
 }

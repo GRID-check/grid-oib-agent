@@ -1,11 +1,12 @@
 /**
- * INTERNAL — list and find the projects the asker may open, from a solo chat
- * (ADR-0085): name, status, address, created. The agent's `find_projects` tool
- * is the caller; the acting person is the envelope's, as a pinned session.
+ * INTERNAL — list and find the projects in reach of the conversation's audience
+ * (ADR-0085): name, status, address, period. The agent's `project_lookup` tool
+ * (`action: find`) is the caller; the acting person is the envelope's, as a
+ * pinned session.
  *
  * `POST` `CrossProjectListRequest` → `CrossProjectListResponse`
- * (`lib/cross-project/types.ts`). A conversation that is not the asker's alone
- * is refused (409 `CROSS_PROJECT_SHARED_CHAT`).
+ * (`lib/cross-project/types.ts`). An audience changed mid-lookup is refused (409
+ * `CROSS_PROJECT_AUDIENCE_CHANGED`).
  */
 
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'

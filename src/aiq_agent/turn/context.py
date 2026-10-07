@@ -57,6 +57,10 @@ class TurnContext:
     #: approval the job queue would refuse. True on every failure path: see
     #: :class:`aiq_agent.stages.flags.TurnFlags`.
     deep_research_allowed: bool = True
+    #: The office's reference projects (closed, most like this one), one line
+    #: each: rendered as ``<referenzprojekte>`` so the agent looks there unasked
+    #: (docs/design/cross-project-escalation.md). None: none, or not loaded.
+    reference_projects: str | None = None
     #: Whether this turn may hand work over (`create_task`). Its own flag, see
     #: :class:`aiq_agent.stages.flags.TurnFlags`.
     tasks_allowed: bool = True
@@ -284,6 +288,7 @@ async def _load_turn_context(
         project_context=compose_project_context(blocks.project_context, blocks.project_memory),
         platform_lessons=platform_lessons,
         org_instructions=blocks.org_instructions,
+        reference_projects=blocks.reference_projects,
         # The restriction is settled after the whole setup gather
         # (`settle_restriction`): the digest and the subject can each confine.
         deep_research_allowed=turn_flags.deep_research_allowed,

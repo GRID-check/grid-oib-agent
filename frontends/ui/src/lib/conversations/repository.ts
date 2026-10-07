@@ -23,6 +23,7 @@ import {
   conversations,
   deletionQueue,
   messages,
+  projects,
   resourceShares,
   type Conversation,
   type ConversationRead,
@@ -575,9 +576,10 @@ export async function listRecentMessagesWithCardDecisions(
         // proposals to itself: the block is read into every member's digest,
         // and a card's words can carry what a restricted folder said.
         sql`not exists (select 1 from ${conversationRestrictedFolders} r where r.organization_id = ${conversations.organizationId} and r.conversation_id = ${conversations.id})`,
-        // Nor does one that drew on another project (ADR-0085): its cards can
-        // restate what that project's documents said.
-        sql`not exists (select 1 from ${conversationSourceProjects} p where p.organization_id = ${conversations.organizationId} and p.conversation_id = ${conversations.id})`,
+        // Nor does one that drew on another project still restricting its
+        // readers (ADR-0085): its cards can restate what that project's
+        // documents said. A project closed now is read by the whole office.
+        sql`not exists (select 1 from ${conversationSourceProjects} p where p.organization_id = ${conversations.organizationId} and p.conversation_id = ${conversations.id} and not exists (select 1 from ${projects} c where c.id = p.project_id and c.organization_id = p.organization_id and c.status = 'closed' and c.deleted_at is null))`,
       ),
     )
     .orderBy(desc(messages.createdAt), desc(messages.id))

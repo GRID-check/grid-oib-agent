@@ -67,7 +67,7 @@ SEARCH_BODY = {
     "projectsInScope": 12,
     "projectsSearched": 8,
     "nextOffset": 8,
-    "statusKnown": False,
+    "statusKnown": True,
 }
 
 
@@ -188,17 +188,36 @@ class TestTheSearchAnswer:
             (OTHER, "Wohnbau Graz", "closed"),
         ]
 
-    async def test_the_closed_scope_says_status_is_not_recorded_yet(self, monkeypatch, calls, turn) -> None:
-        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "nextOffset": None})
+    async def test_a_closed_projects_open_folder_is_admitted_and_shuts_no_door(self, monkeypatch, calls, turn) -> None:
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [_hit("Detail Traufe.pdf")], "nextOffset": None})
 
         result = await lookup.run_project_lookup("search", query="Traufe", scope="closed")
 
-        assert "noch nicht erfasst" in result
+        assert turn.admitted == {OTHER_COLLECTION}
         assert not turn.drew_on_others
+        assert "laufende andere Projekte" not in result
 
-    async def test_a_shared_chat_is_refused_in_the_bffs_own_words(self, monkeypatch, calls, turn) -> None:
-        sentence = "Die Suche über Projekte hinweg geht nur in einem Chat, der Ihnen allein gehört."
-        _answering(monkeypatch, calls, CrossProjectLookupError(sentence, status=409, code="CROSS_PROJECT_SHARED_CHAT"))
+    async def test_a_running_projects_passage_shuts_the_doors(self, monkeypatch, calls, turn) -> None:
+        running = _hit("Detail Attika.pdf", project={"id": OTHER, "name": "Schule Linz", "status": "active"})
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [running], "nextOffset": None})
+
+        result = await lookup.run_project_lookup("search", query="Attika")
+
+        assert turn.drew_on_others
+        assert "laufende andere Projekte" in result
+
+    async def test_the_default_scope_is_the_most_similar_projects(self, monkeypatch, calls, turn) -> None:
+        _answering(monkeypatch, calls, SEARCH_BODY)
+
+        await lookup.run_project_lookup("search", query="Traufe")
+
+        assert calls[0][1]["scope"] == "similar"
+
+    async def test_a_changed_audience_is_refused_in_the_bffs_own_words(self, monkeypatch, calls, turn) -> None:
+        sentence = "Wer diese Unterhaltung lesen darf, hat sich gerade geändert. Fragen Sie bitte noch einmal."
+        _answering(
+            monkeypatch, calls, CrossProjectLookupError(sentence, status=409, code="CROSS_PROJECT_AUDIENCE_CHANGED")
+        )
 
         result = await lookup.run_project_lookup("search", query="Traufe")
 
@@ -208,10 +227,12 @@ class TestTheSearchAnswer:
     async def test_a_project_out_of_reach_reads_as_not_found(self, monkeypatch, calls, turn) -> None:
         _answering(monkeypatch, calls, CrossProjectLookupError("Not found", status=404))
 
-        assert "project_id aus `find`" in await lookup.run_project_lookup("brief", project_id=OTHER)
+        assert "`find`" in await lookup.run_project_lookup("brief", project_id=OTHER)
 
 
-# Module-level: the collection-read inventory names it as the tool's proof.
+# Module-level: the collection-read inventory names it as the tool's proof. The
+# answer holds a restricted folder of the (closed) project: that narrows the
+# chat's readers, closed or not, so the doors shut.
 async def test_project_lookup_admits_what_the_bff_handed_out_and_shuts_the_turns_doors(
     monkeypatch, calls, turn
 ) -> None:
@@ -236,7 +257,7 @@ class TestTheAdmission:
         assert not may_name(HONORARE)
 
     async def test_without_a_bound_turn_nothing_is_admitted(self) -> None:
-        restricted_use.note_cross_project_hand_out([HONORARE])
+        restricted_use.note_cross_project_hand_out([HONORARE], restricting=True)
         stray = ToolMessage(content=f"Aus {HONORARE}", tool_call_id="c3")
 
         [withheld] = await admit_tool_results([stray])
@@ -273,7 +294,25 @@ class TestFindAndBrief:
         assert "- Wohnbau Graz — abgeschlossen · 2019-03-01 bis 2021-06-30 · Hauptstraße 3, Graz (project_id" in result
         assert "das Projekt dieses Chats" in result
         assert turn.admitted == {OTHER_COLLECTION}
+        # A closed project: every office member reads it, so naming it shuts nothing.
+        assert not turn.drew_on_others
+
+    async def test_find_naming_a_running_project_shuts_the_doors(self, monkeypatch, calls, turn) -> None:
+        running = {
+            "id": OTHER,
+            "name": "Schule Linz",
+            "status": "active",
+            "collection": OTHER_COLLECTION,
+            "address": None,
+            "period": {"start": "2026-01-01", "end": None},
+            "current": False,
+        }
+        _answering(monkeypatch, calls, {"projects": [running], "total": 1, "statusKnown": True})
+
+        result = await lookup.run_project_lookup("find", query="Linz")
+
         assert turn.drew_on_others
+        assert "laufende andere Projekte" in result
 
     async def test_the_chats_own_project_alone_shuts_no_door(self, monkeypatch, calls, turn) -> None:
         own = {

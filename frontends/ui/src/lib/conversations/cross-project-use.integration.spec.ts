@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * A solo chat's use of OTHER projects (ADR-0085, migration 0116) against a REAL
+ * A chat's use of OTHER projects (ADR-0085, migration 0116) against a REAL
  * Postgres, through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -19,8 +19,11 @@
  *     read the folder does not;
  *   - a share reaches only a person who may open the project and read the
  *     folder; the project-wide visibility is refused;
- *   - a chat shared before the hand-out is refused and records nothing;
+ *   - a chat whose audience changed after the reach was computed is refused
+ *     and records nothing;
  *   - no memory may be written from such a chat;
+ *   - a CLOSED project restricts nobody: anyone may read and be shared the
+ *     chat, memory may be written; reopened, it restricts again;
  *   - the erasure takes both records, and another organization sees neither.
  */
 
@@ -49,7 +52,7 @@ const roles = new Map<string, FolderClearance>([
 ])
 /** Who may open the OTHER project: everyone named here (and nobody else). */
 const opensOther = new Set([OWNER, MEMBER, CLEARED])
-const ids = { own: '', other: '' }
+const ids = { own: '', other: '', closed: '' }
 
 vi.mock('@/lib/authz/folder-access', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/authz/folder-access')>()),
@@ -124,11 +127,32 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0116)', () 
       { organizationId: ORG, resourceType: 'conversation', resourceId: conversationId, subjectUserId, role: 'collaborator', grantedBy: OWNER },
       executor
     )
-  const admit = (conversationId: string, folders: readonly string[] = [folderId]) =>
-    inOrg(ORG, () =>
+  /** The audience key of the conversation now: the reach a lookup would have computed. */
+  const keyOf = async (conversationId: string) => {
+    const { readConversationAudience } = await import('./restricted-use-repository')
+    return crossUse.audienceKey(await inOrg(ORG, () => readConversationAudience(db, ORG, conversationId)))
+  }
+  const admit = async (
+    conversationId: string,
+    folders: readonly string[] = [folderId],
+    project = ids.other,
+    searchedFor?: string
+  ) => {
+    const key = searchedFor ?? (await keyOf(conversationId))
+    return inOrg(ORG, () =>
       crossUse.recordCrossProjectHandOut(
         { organizationId: ORG, userId: OWNER, conversationId },
-        { projectIds: [ids.other], folderIds: folders }
+        { projectIds: [project], folderIds: folders },
+        key
+      )
+    )
+  }
+  const setStatus = (projectId: string, status: 'active' | 'closed') =>
+    inOrg(ORG, () =>
+      db.execute(
+        status === 'closed'
+          ? sql`update projects set status = 'closed', closed_at = now(), closed_by = ${OWNER} where id = ${projectId}::uuid`
+          : sql`update projects set status = 'active', closed_at = null, closed_by = null where id = ${projectId}::uuid`
       )
     )
   const shareWith = (conversationId: string, userId: string) =>
@@ -170,7 +194,9 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0116)', () 
       return String(row.id)
     }
     ids.own = await insertProject('Eigenes Projekt', `proj_xp_own_${STAMP}`)
-    ids.other = await insertProject('Abgeschlossenes Projekt', otherCollection)
+    ids.other = await insertProject('Anderes Projekt', otherCollection)
+    ids.closed = await insertProject('Referenzprojekt', `proj_xp_closed_${STAMP}`)
+    await setStatus(ids.closed, 'closed')
     const [folder] = Array.from(
       await inOrg(ORG, () =>
         db.execute<{ id: string }>(sql`
@@ -193,6 +219,7 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0116)', () 
     await withPlatformAccess('test teardown', async () => {
       await db.execute(sql`delete from conversation_source_projects where organization_id = ${ORG}`)
       await db.execute(sql`delete from conversation_restricted_folders where organization_id = ${ORG}`)
+      await db.execute(sql`delete from messages where conversation_id like ${`s_xp_${STAMP}_%`}`)
       await db.execute(sql`delete from resource_shares where organization_id = ${ORG}`)
       await db.execute(sql`delete from conversations where organization_id = ${ORG}`)
       await db.execute(sql`delete from project_folders where organization_id = ${ORG}`)
@@ -226,10 +253,12 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0116)', () 
     ).toBe('cross-project-content-project')
   })
 
-  it('refuses, and records nothing, in a chat that was shared before the lookup came back', async () => {
-    const id = await chat([CLEARED])
+  it('refuses, and records nothing, in a chat that was shared after its reach was computed', async () => {
+    const id = await chat()
+    const searchedFor = await keyOf(id)
+    await inOrg(ORG, () => grant(id, CLEARED))
 
-    expect(await reasonOf(admit(id))).toBe('CROSS_PROJECT_SHARED_CHAT')
+    expect(await reasonOf(admit(id, [folderId], ids.other, searchedFor))).toBe('CROSS_PROJECT_AUDIENCE_CHANGED')
     expect(await count(ORG, 'conversation_source_projects', id)).toBe(0)
     expect(await count(ORG, 'conversation_restricted_folders', id)).toBe(0)
   })
@@ -239,6 +268,52 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0116)', () 
     await admit(id, [])
 
     expect(await reasonOf(inOrg(ORG, () => crossUse.requireMayRememberFrom(id, ORG)))).toBe('CROSS_PROJECT_MEMORY')
+  })
+
+  it('lets a closed project restrict nobody, and restricts again once it is reopened', async () => {
+    const id = await chat()
+    await admit(id, [], ids.closed)
+    expect(await count(ORG, 'conversation_source_projects', id)).toBe(1)
+
+    expect(await inOrg(ORG, () => use.recordedSourceProjects(id, ORG))).toEqual([])
+    expect(await inOrg(ORG, () => crossUse.drewOnOtherProjects(id, ORG))).toBe(false)
+    await expect(inOrg(ORG, () => crossUse.requireMayRememberFrom(id, ORG))).resolves.toBeUndefined()
+    const readers = await inOrg(ORG, () => use.peopleWhoMayRead(ORG, id, [OWNER, OUTSIDER]))
+    expect([...readers].sort()).toEqual([OUTSIDER, OWNER].sort())
+    expect(
+      await reasonOf(inOrg(ORG, () => use.assertMayWidenConversation(session(), id, { kind: 'visibility' })))
+    ).toBe('went through')
+
+    await setStatus(ids.closed, 'active')
+    try {
+      expect(await inOrg(ORG, () => use.recordedSourceProjects(id, ORG))).toEqual([ids.closed])
+      expect(await inOrg(ORG, () => crossUse.drewOnOtherProjects(id, ORG))).toBe(true)
+    } finally {
+      await setStatus(ids.closed, 'closed')
+    }
+  })
+
+  it('keeps the card decisions of a chat that drew on a running project out of the project digest, not of a closed one', async () => {
+    const decided = (content: string) => JSON.stringify({ cardInteractions: { c1: { decision: 'accepted', content } } })
+    const running = await chat()
+    const reference = await chat()
+    for (const [id, content] of [
+      [running, 'Aus dem laufenden Projekt'],
+      [reference, 'Aus dem Referenzprojekt'],
+    ] as const) {
+      await inOrg(ORG, () =>
+        db.execute(sql`
+          insert into messages (conversation_id, role, content, metadata)
+          values (${id}, 'assistant', 'x', ${decided(content)}::jsonb)`)
+      )
+    }
+    await admit(running, [])
+    await admit(reference, [], ids.closed)
+
+    const rows = await inOrg(ORG, () => repo.listRecentMessagesWithCardDecisions(ids.own, ORG, 40))
+    const text = JSON.stringify(rows.map((row) => row.metadata))
+    expect(text).toContain('Aus dem Referenzprojekt')
+    expect(text).not.toContain('Aus dem laufenden Projekt')
   })
 
   it('takes both records with the conversation when the chat is erased', async () => {

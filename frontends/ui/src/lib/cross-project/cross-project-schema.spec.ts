@@ -31,7 +31,7 @@ describe('cross-project JSON Schema', () => {
 
   it('fills the defaults a tool may leave out, and refuses a day that is not one', () => {
     expect(crossProjectSearchRequestSchema.parse({ query: 'Dachdetail' })).toMatchObject({
-      scope: 'all',
+      scope: 'similar',
       projectIds: [],
       documentTypes: [],
       disciplines: [],
