@@ -11,7 +11,8 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { render, screen, within } from '@/test-utils'
 import { makeMemoryItem } from '@/test-utils/db-fixtures'
-import type { ProjectProfile } from '@/lib/project-profile/types'
+import { buildIntakeProfile, projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definition'
+import type { ProjectPrimitiveValue, ProjectProfile } from '@/lib/project-profile/types'
 import { ClosingDebrief } from './closing-debrief'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
@@ -23,15 +24,17 @@ const wire = (overrides: Parameters<typeof makeMemoryItem>[0]) => ({
   lastReferencedAt: null,
 })
 
-const profile: ProjectProfile = {
-  facts: {
-    bundesland: { value: 'niederoesterreich', confidence: 'confirmed', source: 'onboarding', updatedAt: '' },
-    bauweise: { value: ['holzbau'], confidence: 'confirmed', source: 'onboarding', updatedAt: '' },
-  },
-  goals: {},
-  unknowns: [],
-  assumptions: {},
-}
+// Built by the intake's own producer, so the debrief is tested on the shape
+// production stores (a building's answers under `@bw1`).
+const built = (answers: Record<string, ProjectPrimitiveValue>) =>
+  buildIntakeProfile(answers, projectIntakeDefinitionV1, { bauwerke: [{ id: 'bw1', name: 'Bauwerk 1' }] })
+
+const profile: ProjectProfile = built({
+  A2_country: 'at',
+  A2_land: 'niederoesterreich',
+  'C1@bw1': 'gebaeude',
+  'C10@bw1': ['holzbau'],
+})
 
 const memory = [
   wire({ id: 'd1', kind: 'decision', content: 'Kapselung K₂60 mit Gipsfaserplatten, Prüfbericht liegt vor.' }),
@@ -67,10 +70,23 @@ describe('ClosingDebrief', () => {
     const debrief = screen.getByTestId('closing-debrief')
     expect(within(debrief).getByText('Niederösterreich')).toBeInTheDocument()
     expect(within(debrief).getByText('Holzbau')).toBeInTheDocument()
-    // Gebäudeklasse, uses, kind of work, and the period: four open.
-    expect(within(debrief).getAllByText('open')).toHaveLength(3)
-    expect(within(debrief).getByText('4 facts missing')).toBeInTheDocument()
+    // Uses and kind of work are open in the briefing; the class is derived, not
+    // the briefing's to fill; the period is open too: three missing.
+    expect(within(debrief).getAllByText('open')).toHaveLength(2)
+    expect(within(debrief).getByText('open (not set in the brief)')).toBeInTheDocument()
+    expect(within(debrief).getByText('3 facts missing')).toBeInTheDocument()
     expect(within(debrief).getByRole('link', { name: 'Add in the brief' })).toHaveAttribute('href', '/app/projects/p1/intake')
+    await screen.findByText('Kapselung K₂60 mit Gipsfaserplatten, Prüfbericht liegt vor.')
+  })
+
+  test('a structure that is no building is not asked for its construction, and no link promises otherwise', async () => {
+    stubFetch()
+    const wall = built({ A2_country: 'at', A2_land: 'tirol', A5: ['neubau'], 'C1@bw1': 'sonstig' })
+    render(<ClosingDebrief projectId="p1" profile={wall} startedOn="2024-03" canWriteMemory />)
+
+    const debrief = screen.getByTestId('closing-debrief')
+    expect(within(debrief).getAllByText('does not apply')).toHaveLength(2)
+    expect(within(debrief).queryByText('open (not set in the brief)')).not.toBeInTheDocument()
     await screen.findByText('Kapselung K₂60 mit Gipsfaserplatten, Prüfbericht liegt vor.')
   })
 

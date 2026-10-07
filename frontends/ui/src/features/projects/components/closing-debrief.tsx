@@ -9,8 +9,9 @@
  * Two parts, each composing what already exists rather than a second editor:
  *
  *   - the fingerprint the reference ranking reads (`lib/cross-project/fingerprint.ts`),
- *     each fact or „offen", with one link to the intake wizard, the profile's
- *     one editor, and the Steckbrief's period;
+ *     each fact, „offen", or „trifft nicht zu" where the intake does not ask it
+ *     of this project, with one link to the intake wizard, the profile's one
+ *     editor, when a fact it writes is open; and the Steckbrief's period;
  *   - the decisions and constraints the project memory recorded. Confirming one
  *     (`PATCH …/memory/{id}`, verification `user_confirmed`) makes other
  *     projects cite it as „von einer Person bestätigt"; a lesson in the
@@ -122,7 +123,10 @@ export function ClosingDebrief({ projectId, profile, startedOn, canWriteMemory }
   }, [lesson, memoryUrl, t])
 
   const facts = fingerprintOf(profile)
-  const missing = facts.filter((fact) => fact.value === null).length + (startedOn ? 0 : 1)
+  // Missing is what a person can add in the briefing: a fact the intake does not
+  // ask of this project, or one it derives, is shown but never counted.
+  const fillable = facts.filter((fact) => fact.applies && fact.editable && fact.value === null)
+  const missing = fillable.length + (startedOn ? 0 : 1)
   const startLabel = startedOn
     ? new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(new Date(monthToDate(startedOn)))
     : null
@@ -148,7 +152,12 @@ export function ClosingDebrief({ projectId, profile, startedOn, canWriteMemory }
             <Item as="li" key={fact.key} className="py-2">
               <ItemContent className="text-sm">{t(`lifecycle.debrief.fingerprint.labels.${fact.key satisfies FingerprintKey}`)}</ItemContent>
               <ItemActions className={fact.value ? 'text-foreground text-sm' : 'text-muted-foreground text-sm italic'}>
-                {fact.value ?? t('lifecycle.debrief.fingerprint.open')}
+                {fact.value ??
+                  (!fact.applies
+                    ? t('lifecycle.debrief.fingerprint.notApplicable')
+                    : fact.editable
+                      ? t('lifecycle.debrief.fingerprint.open')
+                      : t('lifecycle.debrief.fingerprint.derivedOpen'))}
               </ItemActions>
             </Item>
           ))}
@@ -161,7 +170,7 @@ export function ClosingDebrief({ projectId, profile, startedOn, canWriteMemory }
             </ItemActions>
           </Item>
         </ItemList>
-        {facts.some((fact) => fact.value === null) && (
+        {fillable.length > 0 && (
           <Button asChild variant="link" size="sm" className="h-auto px-0">
             <Link href={`/app/projects/${projectId}/intake`}>{t('lifecycle.debrief.fingerprint.edit')}</Link>
           </Button>

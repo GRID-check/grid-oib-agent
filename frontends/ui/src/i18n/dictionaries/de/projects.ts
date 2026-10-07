@@ -116,6 +116,8 @@ export const projects: typeof en.projects = {
         missing: '{count, plural, one {# Angabe fehlt} other {# Angaben fehlen}}',
         complete: 'Vollständig',
         open: 'offen',
+        notApplicable: 'trifft nicht zu',
+        derivedOpen: 'offen (wird nicht im Briefing erfasst)',
         edit: 'Im Briefing ergänzen',
         period: 'Zeitraum',
         periodOpen: '{start} bis heute',

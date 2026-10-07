@@ -1,60 +1,100 @@
 /**
  * The fingerprint the closing debrief asks for is the one the reference ranking
- * reads: every fact in the similarity's order, labelled as the intake wizard
- * labels it, and an open fact stays visibly open rather than disappearing.
+ * reads, in the shape the intake wizard really stores: a building's answers
+ * under its instance (`bauweise@bw1`), several buildings read as all of them.
+ * Each case builds its profile with `buildIntakeProfile`, the producer, so a
+ * hand-written profile in a shape production never stores cannot pass here.
+ * Whether a fact applies, and whether the wizard can write it, is read off the
+ * intake definition.
  */
 
 import { describe, expect, it } from 'vitest'
-import type { ProjectProfile } from '@/lib/project-profile/types'
-import { FINGERPRINT_KEYS, factLabel, fingerprintLabels, fingerprintOf } from './fingerprint'
+import { buildIntakeProfile, projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definition'
+import type { ProjectPrimitiveValue } from '@/lib/project-profile/types'
+import { FINGERPRINT_KEYS, factLabel, fingerprintLabels, fingerprintOf, type FingerprintFact } from './fingerprint'
 
-function profile(facts: Record<string, unknown>): ProjectProfile {
-  return {
-    facts: Object.fromEntries(
-      Object.entries(facts).map(([key, value]) => [
-        key,
-        { value: value as string, confidence: 'confirmed' as const, source: 'onboarding' as const, updatedAt: '' },
-      ])
-    ),
-    goals: {},
-    unknowns: [],
-    assumptions: {},
-  }
-}
+type Answers = Record<string, ProjectPrimitiveValue>
+
+const built = (answers: Answers, bauwerke = [{ id: 'bw1', name: 'Bauwerk 1' }]) =>
+  buildIntakeProfile(answers, projectIntakeDefinitionV1, { bauwerke })
+
+const byKey = (facts: FingerprintFact[]) => Object.fromEntries(facts.map((fact) => [fact.key, fact]))
 
 describe('fingerprintOf', () => {
-  it('names every fact the ranking weighs, in its order, with the wizard’s labels', () => {
-    const facts = fingerprintOf(
-      profile({
-        bundesland: 'niederoesterreich',
-        gebaeudeklasse: 'GK 4',
-        bauweise: ['holzbau', 'stahlbeton'],
-        nutzungen: ['wohnen'],
-        vorhabensart: ['neubau', 'zubau'],
-      })
+  it('reads what the wizard wrote, per building, with the wizard’s labels', () => {
+    const facts = byKey(
+      fingerprintOf(
+        built({
+          A2_country: 'at',
+          A2_land: 'niederoesterreich',
+          A5: ['neubau', 'zubau'],
+          'C1@bw1': 'gebaeude',
+          'C10@bw1': ['holzbau', 'stahlbeton'],
+          'D0@bw1': ['wohnen'],
+        })
+      )
     )
 
-    expect(facts.map((fact) => fact.key)).toEqual([...FINGERPRINT_KEYS])
-    expect(facts.find((fact) => fact.key === 'bundesland')?.value).toBe('Niederösterreich')
-    expect(facts.find((fact) => fact.key === 'gebaeudeklasse')?.value).toBe('GK 4')
-    expect(facts.find((fact) => fact.key === 'bauweise')?.value).toBe('Holzbau/Stahlbeton')
-    expect(facts.find((fact) => fact.key === 'vorhabensart')?.value).toBe('Neubau/Zubau')
+    expect(Object.keys(facts)).toEqual([...FINGERPRINT_KEYS])
+    expect(facts.bundesland.value).toBe('Niederösterreich')
+    expect(facts.bauweise.value).toBe('Holzbau/Stahlbeton')
+    expect(facts.nutzungen.value).not.toBeNull()
+    expect(facts.vorhabensart.value).toBe('Neubau/Zubau')
   })
 
-  it('keeps an open fact as null, „noch offen" included, so the debrief can ask for it', () => {
-    const facts = fingerprintOf(profile({ bundesland: 'wien', bauweise: ['offen'] }))
+  it('reads a project of two buildings as both', () => {
+    const facts = byKey(
+      fingerprintOf(
+        built(
+          {
+            A2_land: 'wien',
+            'C1@bw1': 'gebaeude',
+            'C10@bw1': ['holzbau'],
+            'C1@bw2': 'gebaeude',
+            'C10@bw2': ['mauerwerk_massivbau'],
+          },
+          [
+            { id: 'bw1', name: 'Haupthaus' },
+            { id: 'bw2', name: 'Nebengebäude' },
+          ]
+        )
+      )
+    )
 
-    expect(facts).toHaveLength(FINGERPRINT_KEYS.length)
-    expect(facts.filter((fact) => fact.value === null).map((fact) => fact.key)).toEqual([
-      'gebaeudeklasse',
-      'bauweise',
-      'nutzungen',
-      'vorhabensart',
-    ])
+    expect(facts.bauweise.value).toBe('Holzbau/Mauerwerk / Massivbau')
   })
 
-  it('reads a project without a profile as entirely open', () => {
-    expect(fingerprintOf(null).every((fact) => fact.value === null)).toBe(true)
+  it('says the Bauweise does not apply to a structure that is no building, rather than calling it missing', () => {
+    const facts = byKey(fingerprintOf(built({ A2_land: 'tirol', 'C1@bw1': 'sonstig' })))
+
+    expect(facts.bauweise).toMatchObject({ value: null, applies: false })
+    expect(facts.gebaeudeklasse.applies).toBe(false)
+    expect(facts.vorhabensart.applies).toBe(true)
+  })
+
+  it('keeps a fact open, not inapplicable, while the answer it hangs on is still missing', () => {
+    const facts = byKey(fingerprintOf(built({ A2_land: 'wien' })))
+
+    expect(facts.bauweise).toMatchObject({ value: null, applies: true, editable: true })
+  })
+
+  it('knows the wizard derives the Gebäudeklasse, so the briefing cannot fill it', () => {
+    const facts = byKey(fingerprintOf(built({ A2_land: 'wien', 'C1@bw1': 'gebaeude' })))
+
+    expect(facts.gebaeudeklasse).toMatchObject({ value: null, applies: true, editable: false })
+    expect(facts.bauweise.editable).toBe(true)
+  })
+
+  it('reads a class set on the project, as an accepted proposal writes it', () => {
+    const profile = built({ A2_land: 'wien', 'C1@bw1': 'gebaeude' })
+    profile.facts.gebaeudeklasse = { value: 'GK4', confidence: 'confirmed', source: 'user_confirmed', updatedAt: '' }
+
+    expect(byKey(fingerprintOf(profile)).gebaeudeklasse.value).toBe('GK 4')
+  })
+
+  it('reads „noch offen" as open, and a project without a profile as entirely open', () => {
+    expect(byKey(fingerprintOf(built({ 'C1@bw1': 'gebaeude', 'C10@bw1': ['offen'] }))).bauweise.value).toBeNull()
+    expect(fingerprintOf(null).every((fact) => fact.value === null && fact.applies)).toBe(true)
     expect(fingerprintLabels(null)).toEqual([])
   })
 })

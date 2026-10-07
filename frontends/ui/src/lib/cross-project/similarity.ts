@@ -3,7 +3,10 @@
  * (docs/design/cross-project-escalation.md): which past projects the agent is
  * told about at the start of a turn, and the order a `similar` search walks.
  *
- * Read off the confirmed profile facts, weighted by what decides whether a past
+ * Read off the confirmed profile facts in the shape the intake wizard stores
+ * them: a building's answers carry its instance (`bauweise@bw1`), and a project
+ * of several buildings is read as all of them, so a GK 4 timber house with a
+ * masonry annex resembles both a timber and a masonry project. Weighted by what decides whether a past
  * solution carries over: the Bundesland outweighs any single trait (it decides
  * which OIB edition and which Bauordnung apply), then the Gebäudeklasse, the
  * Bauweise, the uses and the kind of work; a building that matches in class,
@@ -16,7 +19,8 @@ import type { Project } from '@/lib/db/schema'
 /** The facts the ranking reads, by profile key. */
 export interface SimilarityFacts {
   bundesland: string | null
-  gebaeudeklasse: number | null
+  /** Every building's class, ascending; one per building that has one. */
+  gebaeudeklasse: readonly number[]
   /** A multi-select in the intake (a hybrid is „holzbau" and „stahlbeton"). */
   bauweise: readonly string[]
   nutzungen: readonly string[]
@@ -26,8 +30,24 @@ export interface SimilarityFacts {
 
 type Profile = Pick<Project, 'profile'>['profile']
 
-function factValue(profile: Profile | null, key: string): unknown {
-  return profile?.facts?.[key]?.value ?? null
+/**
+ * Every stored value of a fact: the project-wide key and each building's copy
+ * (`bauweise@bw1`), multi-selects flattened, in key order. A use zone's copy
+ * (`x@bw1@wohnen`) is that zone's detail, not the building's, and is not read.
+ */
+function factValues(profile: Profile | null, key: string): unknown[] {
+  const facts = profile?.facts ?? {}
+  return Object.keys(facts)
+    .filter((name) => {
+      const [base, , zone] = name.split('@')
+      return base === key && zone === undefined
+    })
+    .sort()
+    .flatMap((name) => {
+      const value: unknown = facts[name]?.value
+      if (value === null || value === undefined) return []
+      return Array.isArray(value) ? (value as unknown[]) : [value]
+    })
 }
 
 function token(value: unknown): string | null {
@@ -44,10 +64,10 @@ function gebaeudeklasse(value: unknown): number | null {
 /** The intake's „noch offen": an answer that says nothing about the building. */
 const UNDECIDED = 'offen'
 
-/** A single value or a multi-select's list, as tokens, „offen" left out. */
-function tokens(value: unknown): string[] {
-  const list = Array.isArray(value) ? value : [value]
-  return list.map(token).filter((entry): entry is string => entry !== null && entry !== UNDECIDED)
+/** Values as distinct tokens, „offen" left out. */
+function tokens(values: readonly unknown[]): string[] {
+  const found = values.map(token).filter((entry): entry is string => entry !== null && entry !== UNDECIDED)
+  return [...new Set(found)]
 }
 
 function overlap(a: readonly string[], b: readonly string[]): string[] {
@@ -57,11 +77,17 @@ function overlap(a: readonly string[], b: readonly string[]): string[] {
 /** The facts of one profile the ranking reads; missing or malformed facts read as unknown. */
 export function similarityFacts(profile: Profile | null): SimilarityFacts {
   return {
-    bundesland: token(factValue(profile, 'bundesland')),
-    gebaeudeklasse: gebaeudeklasse(factValue(profile, 'gebaeudeklasse')),
-    bauweise: tokens(factValue(profile, 'bauweise')),
-    nutzungen: tokens(factValue(profile, 'nutzungen')),
-    vorhabensart: tokens(factValue(profile, 'vorhabensart')),
+    bundesland: tokens(factValues(profile, 'bundesland'))[0] ?? null,
+    gebaeudeklasse: [
+      ...new Set(
+        factValues(profile, 'gebaeudeklasse')
+          .map(gebaeudeklasse)
+          .filter((value): value is number => value !== null)
+      ),
+    ].sort((a, b) => a - b),
+    bauweise: tokens(factValues(profile, 'bauweise')),
+    nutzungen: tokens(factValues(profile, 'nutzungen')),
+    vorhabensart: tokens(factValues(profile, 'vorhabensart')),
   }
 }
 
@@ -76,16 +102,20 @@ export const SIMILARITY_WEIGHTS = {
   vorhabensart: 1,
 } as const
 
+/** The smallest class distance between any building of one and any of the other; null when either knows none. */
+function closestClass(a: readonly number[], b: readonly number[]): number | null {
+  const distances = a.flatMap((x) => b.map((y) => Math.abs(x - y)))
+  return distances.length > 0 ? Math.min(...distances) : null
+}
+
 /** How alike `candidate` is to `current`; 0 when either side knows nothing. */
 export function similarity(current: SimilarityFacts, candidate: SimilarityFacts): number {
   const w = SIMILARITY_WEIGHTS
   let score = 0
   if (current.bundesland && current.bundesland === candidate.bundesland) score += w.bundesland
-  if (current.gebaeudeklasse !== null && candidate.gebaeudeklasse !== null) {
-    const distance = Math.abs(current.gebaeudeklasse - candidate.gebaeudeklasse)
-    if (distance === 0) score += w.gebaeudeklasse
-    else if (distance === 1) score += w.gebaeudeklasseAdjacent
-  }
+  const distance = closestClass(current.gebaeudeklasse, candidate.gebaeudeklasse)
+  if (distance === 0) score += w.gebaeudeklasse
+  else if (distance === 1) score += w.gebaeudeklasseAdjacent
   if (overlap(current.bauweise, candidate.bauweise).length > 0) score += w.bauweise
   const shared = overlap(current.nutzungen, candidate.nutzungen).length
   score += Math.min(shared * w.nutzung, w.nutzungMax)
@@ -105,8 +135,8 @@ export function sharedTraits(current: SimilarityFacts, candidate: SimilarityFact
   if (current.bundesland && current.bundesland === candidate.bundesland) {
     traits.push({ key: 'bundesland', value: candidate.bundesland })
   }
-  if (current.gebaeudeklasse !== null && current.gebaeudeklasse === candidate.gebaeudeklasse) {
-    traits.push({ key: 'gebaeudeklasse', value: String(candidate.gebaeudeklasse) })
+  for (const value of current.gebaeudeklasse.filter((gk) => candidate.gebaeudeklasse.includes(gk))) {
+    traits.push({ key: 'gebaeudeklasse', value: String(value) })
   }
   for (const value of overlap(current.bauweise, candidate.bauweise)) traits.push({ key: 'bauweise', value })
   for (const value of overlap(current.nutzungen, candidate.nutzungen)) traits.push({ key: 'nutzungen', value })

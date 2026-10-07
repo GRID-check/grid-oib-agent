@@ -119,6 +119,8 @@ export const projects = {
         missing: '{count, plural, one {# fact missing} other {# facts missing}}',
         complete: 'Complete',
         open: 'open',
+        notApplicable: 'does not apply',
+        derivedOpen: 'open (not set in the brief)',
         edit: 'Add in the brief',
         period: 'Period',
         periodOpen: '{start} to now',
