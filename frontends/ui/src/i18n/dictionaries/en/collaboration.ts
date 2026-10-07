@@ -119,6 +119,14 @@ export const collaboration = {
         'You may not read every folder with restricted access this conversation draws on, so you cannot take it over.',
       restrictedContentProject:
         'This conversation draws on a folder with restricted access, so it cannot be made visible to the whole project. Share it with individual people who may read that folder instead.',
+      crossProjectContent:
+        '{name} may not open every other project this conversation draws on, so it cannot be shared with them.',
+      crossProjectContentSomeone:
+        'This person may not open every other project this conversation draws on, so it cannot be shared with them.',
+      crossProjectContentSelf:
+        'You may not open every other project this conversation draws on, so you cannot take it over.',
+      crossProjectContentProject:
+        'This conversation draws on content from other projects, so it cannot be made visible to the whole project. Share it with individual people who may open those projects instead.',
       loadFailed: 'Sharing settings could not be loaded.',
       saveFailed: 'That change could not be saved.',
       tryAgain: 'Try again',

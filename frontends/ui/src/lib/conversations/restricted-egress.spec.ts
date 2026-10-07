@@ -15,13 +15,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
-vi.mock('./restricted-use', () => ({ recordedRestrictedFolders: vi.fn() }))
+vi.mock('./restricted-use', () => ({ recordedRestrictedFolders: vi.fn(), recordedSourceProjects: vi.fn() }))
 vi.mock('@/lib/authz/folder-access-repository', () => ({ listProjectFolderTree: vi.fn() }))
 
 import { ConversationConfinedError } from '@/lib/api/errors'
 import type { AccessFolder } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
-import { recordedRestrictedFolders } from './restricted-use'
+import { recordedRestrictedFolders, recordedSourceProjects } from './restricted-use'
 import { requireMayFileFrom, requireMayLeaveConversation } from './restricted-egress'
 
 const ORG = 'org_1'
@@ -50,6 +50,7 @@ const destination = (folderId: string | null) => ({
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(recordedRestrictedFolders).mockResolvedValue([])
+  vi.mocked(recordedSourceProjects).mockResolvedValue([])
   vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
 })
 
@@ -144,5 +145,33 @@ describe('requireMayFileFrom — only where every reader is cleared for what the
       requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination('open'))
     ).resolves.toBeUndefined()
     expect(listProjectFolderTree).not.toHaveBeenCalled()
+  })
+})
+
+describe('a conversation that drew on another project (ADR-0082)', () => {
+  const origin = { conversationId: CONV, locale: 'de' as const }
+
+  beforeEach(() => {
+    vi.mocked(recordedSourceProjects).mockResolvedValue(['project_other'])
+  })
+
+  it('refuses every door a whole project reads, with no restricted folder recorded at all', async () => {
+    for (const action of ['deepResearch', 'task', 'profilePatch'] as const) {
+      const error = await refusal(requireMayLeaveConversation(origin, ORG, action))
+      expect(error.action).toBe(action)
+      expect(error.message).toContain('anderes Projekt')
+    }
+  })
+
+  it('refuses filing anywhere, even into the narrowest folder of this project', async () => {
+    expect((await refusal(requireMayFileFrom(origin, destination(HONORARE)))).action).toBe('filing')
+    expect(vi.mocked(listProjectFolderTree)).not.toHaveBeenCalled()
+  })
+
+  it('lets a conversation without one through as before', async () => {
+    vi.mocked(recordedSourceProjects).mockResolvedValue([])
+
+    await expect(requireMayLeaveConversation(origin, ORG, 'task')).resolves.toBeUndefined()
+    await expect(requireMayFileFrom(origin, destination('open'))).resolves.toBeUndefined()
   })
 })

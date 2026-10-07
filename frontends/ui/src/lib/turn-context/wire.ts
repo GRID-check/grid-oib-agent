@@ -8,6 +8,12 @@ export const turnContextResponseSchema = z.object({
   projectContext: z.string().nullable(),
   projectMemory: z.string().nullable(),
   orgInstructions: z.string().nullable(),
+  /**
+   * The conversation drew on another project through a cross-project lookup
+   * (ADR-0082): the turn starts with every door a whole project reads shut,
+   * memory included, instead of learning it from a refusal.
+   */
+  drewOnOtherProjects: z.boolean(),
 }).strict()
 
 export const turnContextApiResponseSchema = z.object({ data: turnContextResponseSchema }).strict()

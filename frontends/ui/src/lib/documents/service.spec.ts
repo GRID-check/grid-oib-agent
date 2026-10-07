@@ -2958,6 +2958,17 @@ describe('restricted folders (ADR-0080)', () => {
     ])
   })
 
+  it('asks for the longer snippet only when a caller wants it as evidence (ADR-0082)', async () => {
+    await searchProjectDocuments(session, 'proj-1', 'Honorar', 10, { snippetMaxChars: 900 })
+    await searchProjectDocuments(session, 'proj-1', 'Honorar', 10)
+
+    const bodies = mockFetch.mock.calls
+      .filter(([url]) => String(url).endsWith('/search'))
+      .map(([, init]) => JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>)
+    expect(bodies.filter((body) => body.snippet_max_chars === 900)).toHaveLength(2)
+    expect(bodies.filter((body) => !('snippet_max_chars' in body))).toHaveLength(2)
+  })
+
   it('files an upload into the collection its folder puts it in', async () => {
     vi.mocked(findFolderPathInProject).mockResolvedValue('Verwaltung/Verträge')
 

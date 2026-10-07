@@ -645,7 +645,9 @@ export function deriveSearchTopK(topKFiles: number): number {
 export async function fetchSemanticHits(
   collectionName: string,
   query: string,
-  topKFiles: number
+  topKFiles: number,
+  /** Longer than the backend's 300 only where the snippet is the evidence (the cross-project lookups, ADR-0082). */
+  snippetMaxChars?: number
 ): Promise<BackendSearchHit[]> {
   const scopeHeaders = buildGridRequestContextWireHeaders(
     { collectionScope: [collectionName] },
@@ -657,7 +659,12 @@ export async function fetchSemanticHits(
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...scopeHeaders },
-        body: JSON.stringify({ query, top_k: deriveSearchTopK(topKFiles), top_k_files: topKFiles }),
+        body: JSON.stringify({
+          query,
+          top_k: deriveSearchTopK(topKFiles),
+          top_k_files: topKFiles,
+          ...(snippetMaxChars ? { snippet_max_chars: snippetMaxChars } : {}),
+        }),
         signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
       }
     )
@@ -748,7 +755,8 @@ export async function searchProjectDocuments(
   session: AuthorizedSession,
   projectId: string,
   query: string,
-  topK = 20
+  topK = 20,
+  options: { snippetMaxChars?: number } = {}
 ): Promise<{ hits: Array<SearchedDocument<ListedDocument>> }> {
   await requireProjectAccess(session, projectId, 'project:view')
 
@@ -759,7 +767,11 @@ export async function searchProjectDocuments(
   // cleared for (ADR-0080); one ranking across them, cut to `topK`.
   const access = await getProjectFolderAccess(session, projectId, project.collectionName)
   const collections = [project.collectionName, ...access.clearedRestrictedCollections]
-  const hits = (await Promise.all(collections.map((collection) => fetchSemanticHits(collection, query, topK))))
+  const hits = (
+    await Promise.all(
+      collections.map((collection) => fetchSemanticHits(collection, query, topK, options.snippetMaxChars))
+    )
+  )
     .flat()
     .sort((a, b) => b.score - a.score)
     .slice(0, topK)

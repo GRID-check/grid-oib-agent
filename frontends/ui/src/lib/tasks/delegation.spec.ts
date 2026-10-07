@@ -20,6 +20,7 @@ vi.mock('@/lib/skills/service', () => ({ resolveSkillSnapshot: vi.fn() }))
 // What the conversation recorded it drew on (ADR-0080): the real refusal runs against it.
 vi.mock('@/lib/conversations/restricted-use', () => ({
   recordedRestrictedFolders: vi.fn(async () => []),
+  recordedSourceProjects: vi.fn(async () => []),
 }))
 
 import { ConversationConfinedError, NotFoundError, UnprocessableError } from '@/lib/api/errors'

@@ -217,7 +217,10 @@ describe('deleteConversationInOrg', () => {
   it('carries tenancy in the WHERE clause, not only in the service above it', async () => {
     await deleteConversationInOrg('conv_1', 'org_1')
 
-    expect(captured).toHaveLength(2)
+    // The conversation, then its record of restricted folders and of other projects (ADR-0082).
+    expect(captured).toHaveLength(3)
+    expect(captured[2].sql).toContain('"conversation_source_projects"')
+    expect(captured[2].params).toEqual(['org_1', 'conv_1'])
     const { sql, params } = captured[0]
     // Regression: deleting by id alone let any signed-in user delete another
     // org's conversation by guessing ids.

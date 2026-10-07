@@ -15,6 +15,7 @@ vi.mock('@/lib/projects/proposal-decisions', async (original) => ({
   buildProposalDecisionsBlock: vi.fn(),
 }))
 vi.mock('@/lib/documents/review-decisions', () => ({ buildReviewDecisionsBlock: vi.fn() }))
+vi.mock('@/lib/conversations/cross-project-use', () => ({ drewOnOtherProjects: vi.fn(async () => false) }))
 vi.mock('@/lib/db/tenant-context', async (original) => ({
   ...(await original<typeof import('@/lib/db/tenant-context')>()),
   withTenant: vi.fn(async (_scope: unknown, run: () => Promise<unknown>) => run()),
@@ -32,6 +33,7 @@ import { resolveOrgInstructions } from '@/lib/org-instructions/service'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { buildProposalDecisionsBlock } from '@/lib/projects/proposal-decisions'
 import { buildReviewDecisionsBlock } from '@/lib/documents/review-decisions'
+import { drewOnOtherProjects } from '@/lib/conversations/cross-project-use'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import {
   buildGridRequestContextEnvelopeHeaders, GRID_REQUEST_CONTEXT_MAX_AGE_MS,
@@ -82,6 +84,15 @@ beforeEach(() => {
 })
 
 describe('POST /api/internal/turn-context', () => {
+  it('says when the conversation drew on another project (ADR-0082), so the turn starts with its doors shut', async () => {
+    vi.mocked(drewOnOtherProjects).mockResolvedValueOnce(true)
+
+    const { data } = await (await call()).json()
+
+    expect(data.drewOnOtherProjects).toBe(true)
+    expect(drewOnOtherProjects).toHaveBeenCalledWith('s_text-conversation', 'org_1')
+  })
+
   it('returns the complete >6200-byte profile through a body, with current memory and instructions', async () => {
     const response = await call({ query: '  fire safety  ' })
     expect(response.status).toBe(200)
@@ -90,6 +101,7 @@ describe('POST /api/internal/turn-context', () => {
       projectContext: LARGE_PROFILE,
       projectMemory: 'Digest\n\nProposal decisions\n\nReview decisions',
       orgInstructions: 'Standing instructions',
+      drewOnOtherProjects: false,
     })
     expect(Buffer.byteLength(data.projectContext)).toBeGreaterThan(6200)
     expect(resolvePinnedRequesterSession).toHaveBeenCalledWith({

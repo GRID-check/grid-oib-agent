@@ -109,6 +109,10 @@ const BOUNDARY_MIGRATIONS = [
   // and who opened one under a folder with its own list. Keyed directly by its
   // organization; no foreign keys, so the row outlives what it names.
   '0112_document_access_log.sql',
+  // Adds conversation_source_projects — another project a solo chat drew on
+  // through a cross-project lookup (ADR-0082). Keyed directly by its
+  // organization: the conversation row may not exist yet.
+  '0120_conversation_source_projects.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

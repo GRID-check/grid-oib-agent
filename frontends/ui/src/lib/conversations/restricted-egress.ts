@@ -39,7 +39,7 @@ import { getDictionary } from '@/i18n/dictionaries'
 import type { Locale } from '@/i18n/config'
 import { folderTree } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
-import { recordedRestrictedFolders } from './restricted-use'
+import { recordedRestrictedFolders, recordedSourceProjects } from './restricted-use'
 
 export type ConfinedAction = ConversationConfinedError['action']
 
@@ -70,16 +70,32 @@ async function originFolders(origin: ConversationOrigin, organizationId: string)
 }
 
 /**
+ * The other projects the origin's conversation drew on through a cross-project
+ * lookup (ADR-0082); none without a conversation. Every one counts: a door a
+ * whole project reads cannot enumerate whether each of its readers may open
+ * them, so content from another project leaves by none of these doors.
+ */
+async function originProjects(origin: ConversationOrigin, organizationId: string): Promise<string[]> {
+  if (!origin.conversationId) return []
+  return recordedSourceProjects(origin.conversationId, organizationId)
+}
+
+/**
  * Refuse a door that writes something every project member reads: a
  * deep-research run, a task, the project profile. No folder is narrow enough
- * for these, so a confined origin is refused outright.
+ * for these, so a confined origin is refused outright, and so is one that drew
+ * on another project.
  */
 export async function requireMayLeaveConversation(
   origin: ConversationOrigin,
   organizationId: string,
   action: Exclude<ConfinedAction, 'filing'>
 ): Promise<void> {
-  if ((await originFolders(origin, organizationId)).length > 0) throw confinementRefusal(action, origin.locale)
+  const [folders, projects] = await Promise.all([
+    originFolders(origin, organizationId),
+    originProjects(origin, organizationId),
+  ])
+  if (folders.length > 0 || projects.length > 0) throw confinementRefusal(action, origin.locale)
 }
 
 /** Where a document is about to be filed. */
@@ -108,6 +124,8 @@ export interface FilingDestination {
  */
 export async function requireMayFileFrom(origin: ConversationOrigin, destination: FilingDestination): Promise<void> {
   const { organizationId, projectId, folderId } = destination
+  // No folder of this project is narrow enough for another project's content (ADR-0082).
+  if ((await originProjects(origin, organizationId)).length > 0) throw confinementRefusal('filing', origin.locale)
   const required = await originFolders(origin, organizationId)
   if (required.length === 0) return
   if (projectId === null || folderId === null) throw confinementRefusal('filing', origin.locale)

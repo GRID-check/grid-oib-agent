@@ -13,7 +13,9 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { DbExecutor } from '@/lib/db/executor'
 import {
   conversationRestrictedFolders,
+  conversationSourceProjects,
   conversations,
+  projectFolders,
   resourceShares,
   type ResourceVisibility,
 } from '@/lib/db/schema'
@@ -140,6 +142,104 @@ export async function deleteRecordedSourceFolders(
         eq(conversationRestrictedFolders.conversationId, conversationId),
       ),
     )
+}
+
+/**
+ * How many other projects one conversation records at most, read back. The
+ * lookups search at most a page of projects per call; the bound is for the query.
+ */
+export const RECORDED_PROJECTS_LIMIT = 200
+
+/** The other projects this conversation drew on (ADR-0082, migration 0120), sorted. */
+export async function listRecordedSourceProjects(
+  executor: DbExecutor,
+  organizationId: string,
+  conversationId: string,
+): Promise<string[]> {
+  const rows = await executor
+    .select({ projectId: conversationSourceProjects.projectId })
+    .from(conversationSourceProjects)
+    .where(
+      and(
+        eq(conversationSourceProjects.organizationId, organizationId),
+        eq(conversationSourceProjects.conversationId, conversationId),
+      ),
+    )
+    .orderBy(conversationSourceProjects.projectId)
+    .limit(RECORDED_PROJECTS_LIMIT)
+  return rows.map((row) => String(row.projectId))
+}
+
+/** The other projects each of these conversations drew on; absent from the map means none. */
+export async function listRecordedSourceProjectsFor(
+  executor: DbExecutor,
+  organizationId: string,
+  conversationIds: readonly string[],
+): Promise<Map<string, string[]>> {
+  const recorded = new Map<string, string[]>()
+  if (conversationIds.length === 0) return recorded
+  const rows = await executor
+    .select({
+      conversationId: conversationSourceProjects.conversationId,
+      projectId: conversationSourceProjects.projectId,
+    })
+    .from(conversationSourceProjects)
+    .where(
+      and(
+        eq(conversationSourceProjects.organizationId, organizationId),
+        inArray(conversationSourceProjects.conversationId, [...conversationIds]),
+      ),
+    )
+    .limit(RECORDED_FOLDERS_BATCH_LIMIT)
+  for (const row of rows) {
+    const projects = recorded.get(String(row.conversationId)) ?? []
+    projects.push(String(row.projectId))
+    recorded.set(String(row.conversationId), projects)
+  }
+  return recorded
+}
+
+/** Record that the conversation drew on these other projects; a repeat bumps `last_at`. */
+export async function recordSourceProjects(
+  executor: DbExecutor,
+  organizationId: string,
+  conversationId: string,
+  projectIds: readonly string[],
+): Promise<void> {
+  if (projectIds.length === 0) return
+  await executor
+    .insert(conversationSourceProjects)
+    .values(projectIds.map((projectId) => ({ organizationId, conversationId, projectId })))
+    .onConflictDoUpdate({
+      target: [
+        conversationSourceProjects.organizationId,
+        conversationSourceProjects.conversationId,
+        conversationSourceProjects.projectId,
+      ],
+      set: { lastAt: sql`now()` },
+    })
+}
+
+/**
+ * The project each of these folders belongs to, for the folders of this
+ * organization that belong to one (an Archiv folder has none). How a record
+ * that names a folder of ANOTHER project (ADR-0082) finds the tree that judges
+ * it; a folder id not found stays unknown, which is a folder nobody may read.
+ */
+export async function projectsOfFolders(
+  executor: DbExecutor,
+  organizationId: string,
+  folderIds: readonly string[],
+): Promise<Map<string, string>> {
+  const found = new Map<string, string>()
+  if (folderIds.length === 0) return found
+  const rows = await executor
+    .select({ id: projectFolders.id, projectId: projectFolders.projectId })
+    .from(projectFolders)
+    .where(and(eq(projectFolders.organizationId, organizationId), inArray(projectFolders.id, [...folderIds])))
+    .limit(RECORDED_FOLDERS_BATCH_LIMIT)
+  for (const row of rows) if (row.projectId) found.set(String(row.id), String(row.projectId))
+  return found
 }
 
 /** Who can read a conversation: its row (absent before the first message) and its grants. */

@@ -121,6 +121,7 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/compliance/legal-hold.integration.spec.ts \
     src/lib/conversations/erasure-queue.integration.spec.ts \
     src/lib/conversations/restricted-use.integration.spec.ts \
+    src/lib/conversations/cross-project-use.integration.spec.ts \
     src/lib/download-log/download-log.integration.spec.ts \
     src/lib/runs/reconcile.integration.spec.ts \
     src/lib/budgets/service.integration.spec.ts
@@ -702,6 +703,35 @@ $MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0113_folder_bin.sql" >/dev/null || 
 checkr "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000112', 'org_0107')::text || ',' || (SELECT (purged_at IS NOT NULL)::text FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000112')" "true,true" "0113 re-applies"
 
 echo "==> 0113 backfill, triggers and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0120: the cross-project record, and its DOWN.
+#
+# On grid_restricted, after 0113: a
+# conversation that drew on another project. The down must not make it
+# shareable: it leaves a nil-folder row in conversation_restricted_folders,
+# which the older build reads as a folder nobody may read. 0120 re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0120 cross-project record and its down migration on grid_restricted"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0120_conversation_source_projects.sql" >/dev/null || {
+  echo "MIGRATION 0120 FAILED on the seeded database — re-run without -q to see the error" >&2
+  exit 1
+}
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -c "INSERT INTO conversation_source_projects (organization_id, conversation_id, project_id) VALUES ('org_0107', 's_xp_0120', 'aaaaaaaa-0000-4000-8000-000000000107');" >/dev/null
+refusedr "UPDATE conversation_source_projects SET last_at = first_at - interval '1 day' WHERE conversation_id = 's_xp_0120';" "conversation_source_projects_order" "a record cannot end before it began"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0120_conversation_source_projects.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0120 FAILED — re-run without -q to see the error" >&2
+  exit 1
+}
+checkr "SELECT count(*) FROM information_schema.tables WHERE table_name = 'conversation_source_projects'" "0" "down dropped the table"
+checkr "SELECT folder_id::text FROM conversation_restricted_folders WHERE conversation_id = 's_xp_0120'" "00000000-0000-0000-0000-000000000000" "down leaves the chat recorded on a folder nobody may read"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0120_conversation_source_projects.sql" >/dev/null || {
+  echo "MIGRATION 0120 FAILED on re-apply — re-run without -q to see the error" >&2
+  exit 1
+}
+checkr "SELECT count(*) FROM conversation_source_projects" "0" "0120 re-applies, empty"
+checkr "SELECT relrowsecurity::text FROM pg_class WHERE relname = 'conversation_source_projects'" "true" "0120 re-applies under row-level security"
+echo "==> 0120 cross-project record and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

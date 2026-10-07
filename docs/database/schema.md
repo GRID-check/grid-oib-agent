@@ -34,6 +34,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
 | `conversation-restricted-folders.ts` | `conversation_restricted_folders` |
+| `conversation-source-projects.ts` | `conversation_source_projects` |
 | `document-access-log.ts` | `document_access_log` (the download log) |
 | `project-memory.ts` | `project_memory` (documented in [`project-memory-design.md`](../architecture/project-memory-design.md); the restricted-memory column below) |
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
@@ -762,6 +763,42 @@ Postgres in `restricted-use.integration.spec.ts`; backfill and down in
 `scripts/rls-test-db.sh`. `listRecentMessagesWithCardDecisions` also reads it:
 a conversation with a row here keeps its card decisions out of the
 project-wide `PROPOSAL_DECISIONS` block.
+
+A cross-project lookup (ADR-0082) may record a folder of ANOTHER project here;
+it is judged in the tree of the project it belongs to (`treeForRecord`, through
+`projectsOfFolders`), so the conversation's creator keeps reading it.
+
+---
+
+## conversation_source_projects (migration 0120, ADR-0082)
+
+Another project whose content a solo chat drew on through a cross-project
+lookup: written by the BFF BEFORE a lookup answers
+(`recordCrossProjectHandOut`, called by `POST /api/internal/cross-project/*`),
+under the same per-conversation lock as `conversation_restricted_folders` and
+every widening of the audience, with the check that the chat is still its
+asker's alone. A restricted folder of that project is recorded beside it, in
+`conversation_restricted_folders`; this row covers what every member of the
+project reads, the root included. Read at read time: only a person who may open
+every recorded project now may read the conversation, it cannot be made visible
+to the project, nothing leaves it into what a whole project reads, and nothing
+is remembered from it.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `organization_id` | `text` | NOT NULL, PK | RLS: `organization_id = grid_current_org()` |
+| `conversation_id` | `text` | NOT NULL, PK | No FK: the first turn of a new chat runs before its row exists |
+| `project_id` | `uuid` | NOT NULL, PK | No FK: a deleted project must not open what was drawn from it; a project nobody opens any more locks the chat |
+| `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | |
+
+`deleteConversationInOrg` deletes the rows with the conversation, and
+`listRecentMessagesWithCardDecisions` leaves such a conversation's card
+decisions out of `PROPOSAL_DECISIONS`. The down migration turns each
+conversation's rows into one nil-folder row in `conversation_restricted_folders`,
+which the older build reads as a folder nobody may read. Numbered 0120 because
+ticket 1 takes 0114 onwards on a parallel branch; renumbered at integration.
+Repository: `lib/conversations/restricted-use-repository.ts`; proven in
+`cross-project-use.integration.spec.ts` and `scripts/rls-test-db.sh`.
 
 ---
 

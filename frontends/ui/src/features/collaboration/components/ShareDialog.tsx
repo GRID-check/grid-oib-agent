@@ -188,6 +188,15 @@ export function ShareDialog({
     if (value.reason === SHARING_ERROR_REASONS.restrictedContentProject) {
       return t('sharing.errors.restrictedContentProject')
     }
+    if (value.reason === SHARING_ERROR_REASONS.crossProjectContent) {
+      return value.person
+        ? t('sharing.errors.crossProjectContent', { name: value.person })
+        : t('sharing.errors.crossProjectContentSomeone')
+    }
+    if (value.reason === SHARING_ERROR_REASONS.crossProjectContentSelf) return t('sharing.errors.crossProjectContentSelf')
+    if (value.reason === SHARING_ERROR_REASONS.crossProjectContentProject) {
+      return t('sharing.errors.crossProjectContentProject')
+    }
     if (value.reason === SHARING_ERROR_REASONS.containerAccessRequired) {
       return t('sharing.errors.containerAccessRequired')
     }

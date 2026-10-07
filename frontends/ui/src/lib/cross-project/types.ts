@@ -1,0 +1,166 @@
+/**
+ * The cross-project lookups' wire contract (ADR-0082): what the agent's tools
+ * send and what the BFF answers. The one description, in zod, shared by the
+ * routes and the specs and exported as JSON Schema for the Python tier
+ * (`cross-project-schema.ts`, `tests/fixtures/cross-project.schema.json`), as
+ * ADR-0055 asks of a primitive with more than one consumer.
+ *
+ * No `server-only` and no drizzle: the browser may import the types.
+ */
+
+import { z } from 'zod'
+import { DISCIPLINE_TAGS, DOCUMENT_TYPE_TAGS } from '@/lib/documents/tag-vocabulary'
+
+/**
+ * How many projects one search call searches at most: one collection search
+ * per project (plus the restricted collections the reader may read), so this is
+ * the bound on fan-out. A wider scope pages with `offset`.
+ */
+export const CROSS_PROJECT_PAGE_PROJECTS = 8
+/** How many named projects one call may name. */
+export const CROSS_PROJECT_MAX_NAMED = 20
+/** How many hits one search returns at most, across every project it searched. */
+export const CROSS_PROJECT_MAX_HITS = 20
+/** How many projects one listing returns at most. */
+export const CROSS_PROJECT_MAX_LISTED = 30
+
+/** A project's life stage. `closed` arrives with ticket 1's `projects.status`; until then every project is `active`. */
+export const PROJECT_STATUSES = ['active', 'closed'] as const
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number]
+
+/**
+ * Which projects a search covers: the closed ones, every one the reader may
+ * open, or the ones it names. The conversation's own project is never part of
+ * it: that one is searched by the chat's own tools, under its own scope.
+ */
+export const CROSS_PROJECT_SCOPES = ['closed', 'all', 'named'] as const
+export type CrossProjectScope = (typeof CROSS_PROJECT_SCOPES)[number]
+
+/** A calendar day, `YYYY-MM-DD`, that is a real date. */
+const isoDay = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value), {
+    message: 'Not a calendar day',
+  })
+
+export const crossProjectSearchRequestSchema = z.object({
+  query: z.string().trim().min(2).max(500),
+  scope: z.enum(CROSS_PROJECT_SCOPES).default('all'),
+  /** The projects a `named` scope searches; ignored for the others. Ids the reader may not open are skipped without a word. */
+  projectIds: z.array(z.string().uuid()).max(CROSS_PROJECT_MAX_NAMED).default([]),
+  /** Only documents tagged with one of these types (ingestion's closed vocabulary). */
+  documentTypes: z.array(z.enum(DOCUMENT_TYPE_TAGS)).max(DOCUMENT_TYPE_TAGS.length).default([]),
+  /** Only documents tagged with one of these OIB disciplines. */
+  disciplines: z.array(z.enum(DISCIPLINE_TAGS)).max(DISCIPLINE_TAGS.length).default([]),
+  /**
+   * Only projects whose period overlaps `[from, to]`. A project's period, not a
+   * document's upload day: archived projects are uploaded in bulk, so the day a
+   * file arrived says nothing about when the work was done.
+   */
+  from: isoDay.optional(),
+  to: isoDay.optional(),
+  /** Where in the scope's project list this page starts; the previous answer's `nextOffset`. */
+  offset: z.number().int().min(0).max(10_000).default(0),
+  limit: z.number().int().min(1).max(CROSS_PROJECT_MAX_HITS).default(10),
+})
+export type CrossProjectSearchRequest = z.infer<typeof crossProjectSearchRequestSchema>
+
+export const crossProjectRefSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.enum(PROJECT_STATUSES),
+})
+export type CrossProjectRef = z.infer<typeof crossProjectRefSchema>
+
+export const crossProjectHitSchema = z.object({
+  project: crossProjectRefSchema,
+  documentId: z.string(),
+  filename: z.string(),
+  /** The name a person gave the document, when one differs from the file name. */
+  title: z.string().nullable(),
+  /**
+   * The retrieval collection the passage came from. The BFF recorded its
+   * project (and, for a restricted folder's collection, the folder) on the
+   * conversation before answering; the agent admits exactly these into the turn.
+   */
+  collection: z.string(),
+  page: z.number().int().nullable(),
+  snippet: z.string(),
+  score: z.number(),
+  tags: z.array(z.string()),
+  uploadedAt: z.string(),
+})
+export type CrossProjectHit = z.infer<typeof crossProjectHitSchema>
+
+export const crossProjectSearchResponseSchema = z.object({
+  hits: z.array(crossProjectHitSchema),
+  /** The projects in the scope the reader may open, the conversation's own left out. */
+  projectsInScope: z.number().int(),
+  /** How many of them this page searched. */
+  projectsSearched: z.number().int(),
+  /** The offset of the next page of projects, or null when this page reached the end. */
+  nextOffset: z.number().int().nullable(),
+  /** Whether project status is recorded yet. False until ticket 1's status column exists: `closed` then finds nothing. */
+  statusKnown: z.boolean(),
+})
+export type CrossProjectSearchResponse = z.infer<typeof crossProjectSearchResponseSchema>
+
+export const crossProjectListRequestSchema = z.object({
+  /** A part of the name or the address, case-insensitive. */
+  query: z.string().trim().max(200).optional(),
+  status: z.enum(PROJECT_STATUSES).optional(),
+  /** Only projects whose period overlaps `[from, to]`, as the search reads it. */
+  from: isoDay.optional(),
+  to: isoDay.optional(),
+  /** Every project listed is recorded on the conversation, so the default stays small. */
+  limit: z.number().int().min(1).max(CROSS_PROJECT_MAX_LISTED).default(10),
+})
+export type CrossProjectListRequest = z.infer<typeof crossProjectListRequestSchema>
+
+export const crossProjectListedSchema = crossProjectRefSchema.extend({
+  /**
+   * The project's retrieval collection. Anything a lookup says about a project
+   * is use of it, a name and an address included, so the BFF recorded the
+   * project on the conversation before answering.
+   */
+  collection: z.string(),
+  address: z.string().nullable(),
+  /** The project's period, as days: its start, and its end once it has one (open until then). */
+  period: z.object({ start: z.string(), end: z.string().nullable() }),
+  /** Whether this is the project the conversation runs in. */
+  current: z.boolean(),
+})
+export type CrossProjectListed = z.infer<typeof crossProjectListedSchema>
+
+export const crossProjectListResponseSchema = z.object({
+  projects: z.array(crossProjectListedSchema),
+  /** How many projects matched before `limit` cut the list. */
+  total: z.number().int(),
+  statusKnown: z.boolean(),
+})
+export type CrossProjectListResponse = z.infer<typeof crossProjectListResponseSchema>
+
+export const crossProjectBriefRequestSchema = z.object({
+  projectId: z.string().uuid(),
+})
+export type CrossProjectBriefRequest = z.infer<typeof crossProjectBriefRequestSchema>
+
+export const crossProjectBriefResponseSchema = z.object({
+  project: crossProjectListedSchema,
+  /** The brief's summary prose, when one was generated. */
+  summary: z.string().nullable(),
+  /** The confirmed facts, goals, open points and assumptions, in the agent's PROJECT_CONTEXT grammar. */
+  facts: z.string(),
+})
+export type CrossProjectBriefResponse = z.infer<typeof crossProjectBriefResponseSchema>
+
+/** Every schema the Python tier reads, by the name it looks it up under. */
+export const CROSS_PROJECT_WIRE_SCHEMAS = {
+  CrossProjectSearchRequest: crossProjectSearchRequestSchema,
+  CrossProjectSearchResponse: crossProjectSearchResponseSchema,
+  CrossProjectListRequest: crossProjectListRequestSchema,
+  CrossProjectListResponse: crossProjectListResponseSchema,
+  CrossProjectBriefRequest: crossProjectBriefRequestSchema,
+  CrossProjectBriefResponse: crossProjectBriefResponseSchema,
+} as const

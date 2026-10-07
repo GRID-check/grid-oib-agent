@@ -9,7 +9,8 @@
 
 import 'server-only'
 import { getWorkOS } from '@/lib/workos/client'
-import { requireProjectAccess } from '@/lib/authz/projects'
+import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projects'
+import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { checkResourcePermission } from '@/lib/authz/resource-check'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -72,24 +73,50 @@ export async function listProjects(
   session: AuthorizedSession,
   order: 'newest' | 'oldest' = 'newest'
 ): Promise<Project[]> {
+  return listProjectsHolding(session, ['project:view'], order)
+}
+
+/**
+ * The projects the caller may CHAT in: the reach of the cross-project lookups
+ * (ADR-0082). Pointing the agent at a project's corpus is chatting in it, which
+ * the turn scope gates on `project:chat` (or the legacy `project:edit`) and not
+ * on `project:view` (`collection-scope-request.ts`): a reader gets a project's
+ * documents through the documents API, not the agent. Same bypass, same
+ * fail-closed checks as {@link listProjects}.
+ */
+export async function listChatProjects(
+  session: AuthorizedSession,
+  order: 'newest' | 'oldest' = 'newest'
+): Promise<Project[]> {
+  return listProjectsHolding(session, CHAT_PERMISSIONS, order)
+}
+
+/** The organization's projects on which the caller holds ANY of `permissions`; see {@link listProjects}. */
+async function listProjectsHolding(
+  session: AuthorizedSession,
+  permissions: readonly ProjectPermission[],
+  order: 'newest' | 'oldest'
+): Promise<Project[]> {
   const projects = await listProjectsInOrg(session.organizationId, { order })
   // The same permission-gated bypass `requireProjectAccess` applies, checked the
   // same way — if these two ever disagreed the grid would list projects the
   // detail view then refuses, or hide ones it would have opened.
   if (hasPermission(session, ORG_PERMISSIONS.projectsAdminister)) return projects
 
-  const visible = await Promise.all(
-    projects.map(async (project) => {
+  const holds = async (projectId: string): Promise<boolean> => {
+    for (const permissionSlug of permissions) {
       const allowed = await checkResourcePermission({
         organizationMembershipId: session.organizationMembershipId,
         organizationId: session.organizationId,
-        permissionSlug: 'project:view',
-        resourceExternalId: project.id,
+        permissionSlug,
+        resourceExternalId: projectId,
         resourceTypeSlug: 'project',
       })
-      return allowed ? project : null
-    })
-  )
+      if (allowed) return true
+    }
+    return false
+  }
+  const visible = await Promise.all(projects.map(async (project) => ((await holds(project.id)) ? project : null)))
   return visible.filter((project): project is Project => project !== null)
 }
 
