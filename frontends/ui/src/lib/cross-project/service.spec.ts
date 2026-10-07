@@ -240,6 +240,24 @@ describe('searchAcrossProjects', () => {
     expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[1].id, state.reachable[0].id])
   })
 
+  it('says each hit’s Bundesland, so the agent can tell a precedent decided under another Bauordnung', async () => {
+    state.reachable = [
+      project(1, {
+        profile: {
+          facts: { bundesland: { value: 'steiermark', confidence: 'confirmed', source: 'onboarding', updatedAt: '' } },
+          goals: {},
+          unknowns: [],
+          assumptions: {},
+        },
+      }),
+    ]
+    state.hits.set(state.reachable[0].id, [hit('a', 0.5)])
+
+    const result = await searchAcrossProjects(caller(), search({}))
+
+    expect(result.hits[0].project.bundesland).toBe('steiermark')
+  })
+
   it('makes a project out of chat reach invisible, even when named', async () => {
     const stranger = project(9)
 
@@ -348,7 +366,7 @@ describe('the decisions other projects recorded', () => {
 
     expect(result.decisions).toEqual([
       {
-        project: { id: one.id, name: 'Projekt 1', status: 'active' },
+        project: { id: one.id, name: 'Projekt 1', status: 'active', bundesland: null },
         collection: 'proj_1',
         kind: 'decision',
         content: 'Stiegenhaus in Stahlbeton, weil das Gutachten nur so die Abweichung zuließ.',

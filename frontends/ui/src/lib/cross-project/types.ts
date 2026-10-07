@@ -80,6 +80,12 @@ export const crossProjectRefSchema = z.object({
   id: z.string(),
   name: z.string(),
   status: z.enum(PROJECT_STATUSES),
+  /**
+   * The project's Bundesland token (`wien`), null when its brief has none. A
+   * precedent from another Land was decided under another Bauordnung, and the
+   * agent says so: it cannot tell without the Land.
+   */
+  bundesland: z.string().nullable(),
 })
 export type CrossProjectRef = z.infer<typeof crossProjectRefSchema>
 

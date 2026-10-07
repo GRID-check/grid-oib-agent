@@ -49,7 +49,7 @@ HONORARE = f"{OTHER_COLLECTION}_rabcdef012345"
 
 def _hit(filename: str, collection: str = OTHER_COLLECTION, **extra: Any) -> dict[str, Any]:
     return {
-        "project": {"id": OTHER, "name": "Wohnbau Graz", "status": "closed"},
+        "project": {"id": OTHER, "name": "Wohnbau Graz", "status": "closed", "bundesland": "steiermark"},
         "documentId": "doc-1",
         "filename": filename,
         "title": None,
@@ -186,6 +186,35 @@ class TestWhatItSends:
 
 
 class TestTheSearchAnswer:
+    @pytest.mark.parametrize(
+        ("ours", "line"),
+        [
+            ("wien", "Bundesland: Steiermark — nicht das Bundesland dieses Projekts: dort gilt eine andere Bauordnung"),
+            ("steiermark", "Bundesland: Steiermark\n"),
+            (None, "Bundesland: Steiermark\n"),
+        ],
+    )
+    async def test_a_hit_says_its_land_and_warns_when_it_is_not_this_projects(
+        self, monkeypatch, calls, turn, ours, line
+    ) -> None:
+        """A precedent from another Land was decided under another Bauordnung: the tool says so, not the model."""
+        context = None if ours is None else type("Context", (), {"bundesland": ours})()
+        monkeypatch.setattr(project_context, "get_signed_request_context", lambda: context)
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [_hit("Detail Traufe.pdf")]})
+
+        result = await lookup.run_project_lookup("search", query="Traufe")
+
+        assert line in result
+        if ours != "wien":
+            assert "andere Bauordnung" not in result
+
+    async def test_a_project_without_a_land_gets_no_land_line(self, monkeypatch, calls, turn) -> None:
+        hit = _hit("Detail Traufe.pdf")
+        hit["project"] = {**hit["project"], "bundesland": None}
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [hit]})
+
+        assert "Bundesland:" not in await lookup.run_project_lookup("search", query="Traufe")
+
     async def test_a_hit_cites_like_any_source_and_names_its_project(self, monkeypatch, calls, turn) -> None:
         _answering(monkeypatch, calls, SEARCH_BODY)
 
@@ -225,7 +254,10 @@ class TestTheSearchAnswer:
         assert "laufende andere Projekte" not in result
 
     async def test_a_running_projects_passage_shuts_the_doors(self, monkeypatch, calls, turn) -> None:
-        running = _hit("Detail Attika.pdf", project={"id": OTHER, "name": "Schule Linz", "status": "active"})
+        running = _hit(
+            "Detail Attika.pdf",
+            project={"id": OTHER, "name": "Schule Linz", "status": "active", "bundesland": "oberoesterreich"},
+        )
         _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [running], "nextOffset": None})
 
         result = await lookup.run_project_lookup("search", query="Attika")
@@ -276,7 +308,7 @@ async def test_project_lookup_admits_what_the_bff_handed_out_and_shuts_the_turns
 
 def _decision(content: str, *, status: str = "closed", restricted: bool = False, **extra: Any) -> dict[str, Any]:
     return {
-        "project": {"id": OTHER, "name": "Wohnbau Graz", "status": status},
+        "project": {"id": OTHER, "name": "Wohnbau Graz", "status": status, "bundesland": "steiermark"},
         "collection": OTHER_COLLECTION,
         "kind": "decision",
         "content": content,
@@ -363,6 +395,7 @@ class TestFindAndBrief:
             "id": "own",
             "name": "Dieses",
             "status": "active",
+            "bundesland": "niederoesterreich",
             "collection": "proj_own",
             "address": None,
             "period": {"start": "2026-01-01", "end": None},
@@ -372,6 +405,7 @@ class TestFindAndBrief:
             "id": OTHER,
             "name": "Wohnbau Graz",
             "status": "closed",
+            "bundesland": "steiermark",
             "collection": OTHER_COLLECTION,
             "address": "Hauptstraße 3, Graz",
             "period": {"start": "2019-03-01", "end": "2021-06-30"},
@@ -392,6 +426,7 @@ class TestFindAndBrief:
             "id": OTHER,
             "name": "Schule Linz",
             "status": "active",
+            "bundesland": "oberoesterreich",
             "collection": OTHER_COLLECTION,
             "address": None,
             "period": {"start": "2026-01-01", "end": None},
@@ -409,6 +444,7 @@ class TestFindAndBrief:
             "id": "own",
             "name": "Dieses",
             "status": "active",
+            "bundesland": "niederoesterreich",
             "collection": "proj_own",
             "address": None,
             "period": {"start": "2026-01-01", "end": None},
