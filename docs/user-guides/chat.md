@@ -392,7 +392,9 @@ Tiefgarage?". It can search their documents (by topic, optionally by document
 type such as Detail or Gutachten, by OIB discipline, and by the project's
 period), find a project by name or address, and read a project's brief (its
 confirmed facts and summary). Every source it cites from another project names
-that project.
+that project on its chip („Detail Traufe · Wohnbau Graz"), and opening the chip
+opens the document in that project. While Piloti searches, the status line says
+„in anderen Projekten".
 
 What it may look at is decided by your access, never by Piloti:
 
@@ -416,6 +418,9 @@ From the moment Piloti shows you something from another project, the chat:
   whole project;
 - starts no deep research and no task, changes no project brief, files nothing
   into the project, and adds nothing to project or office memory.
+
+Once an answer cites another project, a notice above the message box names the
+projects (a closed one as „abgeschlossen") and says what that closes.
 
 This is why the lookups work only in a chat that is yours alone: in a shared
 chat Piloti says it cannot search other projects there, and you can start a new

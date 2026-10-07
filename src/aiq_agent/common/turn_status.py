@@ -568,6 +568,9 @@ _SEARCH_CORPORA: tuple[tuple[str, str], ...] = (
     # Unterlagen“, not the knowledge corpus.
     ("list_files", "documents"),
     ("ifc_", "ifc"),
+    # The office's OTHER projects, read for a solo chat (ADR-0093): the line
+    # says „in anderen Projekten“, so the reader sees the chat leave its project.
+    ("project_lookup", "otherProjects"),
 )
 
 #: Non-retrieval tools that still deserve a line, because the user asked for

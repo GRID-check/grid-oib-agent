@@ -121,6 +121,14 @@ stay out of the project's digest. The turn learns all this at its start:
 `POST /api/internal/turn-context` answers `drewOnOtherProjects`, so the agent
 does not offer what would be refused.
 
+**What the reader sees.** A source from another project carries its project
+on the citation wire (`project: {id, name, status}`, kept through the stored
+message), so its chip names it and its preview resolves the document in that
+project, by the reader's own access. The composer shows a notice once the chat's
+answers cite another project, naming the projects and what that closes. The
+notice reads the cited sources, not the record: a project a listing only named
+is said by the share refusal instead.
+
 **Sharing later**, the product owner's open question: the safe default. Sharing
 stays possible, per person, to someone who may open every project the chat drew
 on and read every recorded folder.
@@ -203,6 +211,9 @@ was created in Piloti and is open. The follow-up is `projectStatusOf`,
   agent's tool is tested against in step with zod.
 * `scripts/rls-test-db.sh`: 0125's constraint, its down (a nil-folder record
   that keeps the chat locked) and its re-apply.
+* `features/chat/lib/other-projects.spec.ts`: the project from the wire through
+  the stored message and the document model to the chip and its preview;
+  `OtherProjectsNotice.spec.tsx` and the `/dev/other-projects` preview: the notice.
 * Agent side: the tool's and the admission's tests under
   `tests/aiq_agent/tools/cross_project/`, and the tool's row in
   `tests/aiq_agent/knowledge/test_collection_read_inventory.py`.

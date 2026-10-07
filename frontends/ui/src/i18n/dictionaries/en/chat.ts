@@ -786,6 +786,7 @@ export const chat = {
         web: 'the web',
         documents: 'your documents',
         ifc: 'the building model',
+        otherProjects: 'other projects',
       },
       // Joins two corpora in one line. Grammar, so it lives here too.
       corpusJoin: ' and ',
@@ -1230,6 +1231,12 @@ export const chat = {
    * Sensitive data in chat (ADR-0086): what the composer reports before sending.
    * The placeholders themselves are domain data and come from `content-screen.ts`.
    */
+  /** The notice once a chat's answers drew on another project (ADR-0093). */
+  otherProjects: {
+    title: 'This chat draws on other projects: {projects}.',
+    closed: '{name} (closed)',
+    body: 'It can be shared only with people who may open those projects. Nothing from it goes into project memory, tasks, deep research or the project’s files.',
+  },
   screening: {
     title: 'Contains {items} (Sensitive data).',
     body: 'Piloti does not send this to the answering model.',

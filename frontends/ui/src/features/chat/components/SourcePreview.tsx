@@ -1553,6 +1553,18 @@ export interface SourcePreviewChipProps {
 }
 
 /**
+ * The project a cited document is resolved in: the other project a
+ * cross-project lookup found it in (ADR-0093), else the chat's own. The by-name
+ * route still asks the reader's own access to that project.
+ */
+export const documentProjectId = (doc: CitedDocument, chatProjectId: string | null): string | null =>
+  doc.project?.id ?? chatProjectId
+
+/** A chip's label: the document, and the other project it is from when it is from one (ADR-0093). */
+export const citationLabel = (doc: CitedDocument): string =>
+  doc.project?.name ? `${doc.title} · ${doc.project.name}` : doc.title
+
+/**
  * One citation with its preview affordance. Web/RIS chips link out; document
  * chips open the viewer at the locus's page when the document resolves to a
  * project upload, an Archiv document or a base-corpus PDF; anything
@@ -1573,7 +1585,12 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   // stored file, so the index fetch is skipped entirely for link sources AND
   // for card-derived documents, which name a law but no document at all.
   const needsIndex = !doc.url && !!doc.fileName
-  const previewIndex = useSourcePreviewIndex(projectId, conversationId, needsIndex, citedFileName(doc))
+  const previewIndex = useSourcePreviewIndex(
+    documentProjectId(doc, projectId),
+    conversationId,
+    needsIndex,
+    citedFileName(doc)
+  )
   // The stored document whose office rendition the BFF refused (415/502). Only
   // the preview route can say so, so it is learned on the first open, and from
   // then on this chip is the download it would have been before ADR-0070.
@@ -1591,7 +1608,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
       ? (asDownloadTarget(resolved) ?? resolved)
       : resolved
 
-  const label = doc.title
+  const label = citationLabel(doc)
   // A chip stands for a DOCUMENT, so it names every marker that document
   // carries — "2, 7", not an arbitrary one of them. A chip narrowed to a locus
   // names only that locus's marker.
@@ -1761,7 +1778,7 @@ export const SourceDocumentDialog: FC<{
   const projectId = useChatStore((s) => s.projectId)
   const conversationId = useConversationId()
   const previewIndex = useSourcePreviewIndex(
-    projectId,
+    documentProjectId(citation.document, projectId),
     conversationId,
     !citation.document.url,
     citedFileName(citation.document)
