@@ -30,6 +30,17 @@ from aiq_agent.knowledge.restricted_use import current_restricted_use
 logger = logging.getLogger(__name__)
 
 
+class CrossProjectMemoryRefusedError(RuntimeError):
+    """The frontend refused a write from a conversation that drew on another project (ADR-0093).
+
+    Raised when ``POST /api/internal/memory`` answers 409 ``CROSS_PROJECT_MEMORY``.
+    Nothing is remembered from such a conversation, at any scope and by any
+    path: a caller must not offer the reader a way around it (a
+    ``memory_proposal`` card would write the same finding through the reader's
+    own session).
+    """
+
+
 class OrgMemoryDisabledError(RuntimeError):
     """The frontend refused an agent organization-scoped write on purpose.
 
@@ -437,6 +448,9 @@ def insert_memory_item(
                 "Internal memory endpoint rejected the service token (403) — GRID_INTERNAL_API_TOKEN "
                 "mismatch between the aiq-agent and frontend services (the same value must be set on both)."
             )
+        elif exc.code == 409 and _error_code(exc) == "CROSS_PROJECT_MEMORY":
+            logger.info("Internal memory endpoint declined a write from a conversation that drew on another project")
+            raise CrossProjectMemoryRefusedError("the conversation drew on another project") from exc
         elif exc.code == 503:
             logger.error(
                 "Internal memory endpoint disabled (503) — GRID_INTERNAL_API_TOKEN "

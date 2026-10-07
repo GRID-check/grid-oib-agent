@@ -383,6 +383,45 @@ Open the **Data Sources** panel (right sidebar) to enable or disable knowledge c
 
 Enabled data source IDs are tracked per conversation in `enabledDataSourceIds` and sent with every chat message as `enabledDataSources` metadata.
 
+## Searching other projects
+
+In a chat that only you can see, Piloti can look across the office's other
+projects when your question is about them: „Wie haben wir die Traufe beim
+Holzbau in Graz gelöst?", „Welche abgeschlossenen Projekte hatten eine
+Tiefgarage?". It can search their documents (by topic, optionally by document
+type such as Detail or Gutachten, by OIB discipline, and by the project's
+period), find a project by name or address, and read a project's brief (its
+confirmed facts and summary). Every source it cites from another project names
+that project.
+
+What it may look at is decided by your access, never by Piloti:
+
+- only projects you may chat in, never the one this chat belongs to (Piloti
+  searches that one anyway);
+- inside each project, exactly what that project's own search would show you:
+  folders you may not read stay out, and a folder with its own access list is
+  searched only if you may read it;
+- one search covers up to eight projects; Piloti continues with the next ones
+  when it needs to.
+
+Project status („abgeschlossen") arrives with project closing. Until then
+every project counts as running, and a search limited to closed projects finds
+nothing; Piloti says so and searches all projects instead.
+
+**A chat that used another project stays with the people who may open it.**
+From the moment Piloti shows you something from another project, the chat:
+
+- can be shared only with colleagues who may open every project it drew on,
+  and read every restricted folder it drew on; it cannot be made visible to the
+  whole project;
+- starts no deep research and no task, changes no project brief, files nothing
+  into the project, and adds nothing to project or office memory.
+
+This is why the lookups work only in a chat that is yours alone: in a shared
+chat Piloti says it cannot search other projects there, and you can start a new
+chat for it. Keep cross-project questions in their own chat when you want the
+project chat to stay shareable.
+
 ## Project-scoped chat
 
 Set a `projectId` on the store to scope the conversation context to a specific project's documents. The `buildCollectionScopeFromRequest()` function builds an ordered scope header from the session's organization, project, and conversation IDs. Project access is enforced by `requireProjectAccess()` before requests reach the backend.

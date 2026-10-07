@@ -26,6 +26,7 @@ from aiq_agent.common.wire_v2 import RunFinishedBody
 from aiq_agent.common.wire_v2 import RunHandoff
 from aiq_agent.common.wire_v2 import TurnResult
 from aiq_agent.common.wire_v2 import card_key
+from aiq_agent.knowledge.restricted_use import drew_on_other_projects
 from aiq_agent.memory.restriction import RestrictionEvidence
 from aiq_agent.memory.restriction import restricted_digest_notes
 from aiq_agent.memory.restriction import restriction_evidence
@@ -194,6 +195,8 @@ def post_answer_turn_facts(
         emitted_card_types=emitted_card_types(cards),
         answer_confidence=state.answer_confidence,
         remembered_this_turn=remembered_this_turn,
+        # Read here, while the turn is bound: the stages run after it is gone.
+        drew_on_other_projects=drew_on_other_projects(),
         restriction=turn_restriction_evidence(
             state,
             registry_collections=registry_collections,
