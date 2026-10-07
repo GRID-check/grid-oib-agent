@@ -17,6 +17,7 @@ import importlib
 import json
 import logging
 import os
+import time
 import uuid
 from collections.abc import Callable
 from collections.abc import Iterator
@@ -35,6 +36,8 @@ from aiq_agent.common.plan_documents import sanitize_plan_documents
 from aiq_agent.common.provider_limiter import RESEARCH
 from aiq_agent.common.provider_limiter import with_provider_class
 from aiq_agent.common.turn_status import DEGRADED_CARDS_GENERATION_FAILED
+from aiq_agent.observability import boot_timing
+from aiq_agent.observability.boot_timing import BootClock
 from aiq_agent.project_context import ORGANIZATION_ID_HEADER
 from aiq_agent.project_context import PROJECT_ID_HEADER
 from aiq_agent.project_context import PROJECT_MEMORY_HEADER
@@ -694,8 +697,6 @@ async def run_with_cancellation(
     and the ghost job reaper can detect dead workers.
     Raises asyncio.CancelledError if the monitor detects cancellation.
     """
-    import time
-
     task = asyncio.create_task(coro)
     monitor.start()
     start_time = time.monotonic()
@@ -1138,12 +1139,18 @@ async def run_agent_job(
         # import and are not in NAT's stock registry. A worker that reaches
         # load_config without that import fails the same way the web pod did.
         register_grid_telemetry()
-        config = load_config(config_file_path)
+        # Paid by every job, not once per process (boot_timing).
+        clock = BootClock("research-job")
+        with clock.phase("load_config"):
+            config = load_config(config_file_path)
 
         # Dynamically load the agent class
         agent_cls = _load_agent_class(agent_class_path)
 
+        building = time.monotonic()
         async with WorkflowBuilder.from_config(config=config) as builder:
+            clock.record("workflow_build", time.monotonic() - building)
+            boot_timing.flush()
             fn_config = builder.get_function_config(agent_config_name)
             if getattr(fn_config, "type", None) == "deep_research_agent":
                 from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig

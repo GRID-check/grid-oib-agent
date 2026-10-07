@@ -39,6 +39,7 @@ import socket
 import time
 
 from aiq_agent.knowledge.leader_lock import require_direct_dsns
+from aiq_agent.observability.boot_timing import BootClock
 
 from . import queue
 from .outcome_notify import notify_job_outcome_from_access
@@ -295,6 +296,8 @@ class ResearchWorker:
             self.poll_seconds,
             self.db_url.split("@")[-1],
         )
+        # Its first job's workflow build flushes this reading (boot_timing).
+        BootClock("research-worker").ready()
         self._touch_liveness()
         while not self._stop.is_set():
             self._touch_liveness()

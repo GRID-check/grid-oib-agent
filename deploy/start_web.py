@@ -159,10 +159,12 @@ def load_nat_config(config_file: str):
     pytest's plugins. `load_config` alone is not enough.
     """
     from aiq_agent.observability import ensure_registered as register_grid_telemetry
+    from aiq_agent.observability.boot_timing import BootClock
     from nat.runtime.loader import load_config
 
     register_grid_telemetry()
-    return load_config(config_file)
+    with BootClock("web").phase("load_config"):
+        return load_config(config_file)
 
 
 def main():
