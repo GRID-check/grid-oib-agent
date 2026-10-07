@@ -74,5 +74,12 @@ export function isProjectClosedError(error: unknown): boolean {
   return details?.reason === PROJECT_CLOSED_REASON
 }
 
+/** Whether a response body is the refusal of a write into a closed project (`details.reason`). */
+export function isProjectClosedBody(body: unknown): boolean {
+  if (!body || typeof body !== 'object') return false
+  const details = (body as { details?: unknown }).details
+  return !!details && typeof details === 'object' && (details as { reason?: unknown }).reason === PROJECT_CLOSED_REASON
+}
+
 /** The SQLSTATE the database's backstop raises for an insert into a closed project (migration 0114). */
 export const PROJECT_CLOSED_SQLSTATE = 'GPC01'

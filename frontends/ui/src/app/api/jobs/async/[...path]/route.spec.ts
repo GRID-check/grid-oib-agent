@@ -42,6 +42,8 @@ vi.mock('@/lib/documents/research-report', () => ({
 }))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectIdByCollectionName: vi.fn(),
+  // An active project: a closed one refuses the submit (ADR-0082).
+  findProjectTenancy: vi.fn(async () => ({ organizationId: 'org_1', deletedAt: null, status: 'active' })),
 }))
 
 import { GET, POST } from './route'

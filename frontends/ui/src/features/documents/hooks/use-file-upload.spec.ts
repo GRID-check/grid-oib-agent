@@ -766,6 +766,28 @@ describe('useFileUpload — durable document uploads', () => {
     expect(mockOrchestratorFns.enqueueJobs).toHaveBeenCalled()
   })
 
+  test('a project closed while the tab was open is named in the reader’s language (ADR-0082)', async () => {
+    const { result } = renderUpload()
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles(makeFiles(1))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.requests[0].respond(
+        403,
+        JSON.stringify({ error: 'This project is closed and can only be read.', code: 'FORBIDDEN', details: { reason: 'project-closed' } })
+      )
+      await pending
+    })
+
+    expect(mockDocumentsStoreState.updateTrackedFile).toHaveBeenCalledWith(
+      'mock-uuid',
+      expect.objectContaining({ status: 'failed', errorMessage: en.files.errors.projectClosed })
+    )
+  })
+
   test('a rate-limited file waits out Retry-After and goes again instead of failing', async () => {
     vi.useFakeTimers()
     const { result } = renderUpload()
