@@ -269,11 +269,12 @@ the find until the file is retired or discarded. Without it two jobs uploading
 one name at once both collected the same predecessor, both retired it, and both
 new versions stayed. With it the second job waits, finds the first job's new
 version as its predecessor, and replaces it: the version that finishes last is
-the one left. On Postgres (`AIQ_SUMMARY_DB`, else `NAT_JOB_STORE_DB_URL`) it
-is a session advisory lock on a connection of its own, so it holds across
-replicas and is released when a replica dies; with SQLite or no database only
-the in-process lock holds, and an unreachable database lets the file ingest
-unguarded, logged.
+the one left. On Postgres it is a session advisory lock on a connection of its
+own, taken on `AIQ_LOCK_DB_URL`, the direct DSN and never the pooled one
+(ADR-0083), so it holds across replicas and is released when a replica dies;
+with SQLite or no database only the in-process lock holds, and an unreachable
+database lets the file ingest unguarded, logged. A Postgres process with no
+`AIQ_LOCK_DB_URL` raises instead of guessing a connection.
 
 The OIB sync (`src/aiq_agent/oib_sync.py`) relies on the same step and calls no
 `delete_file` before it uploads.

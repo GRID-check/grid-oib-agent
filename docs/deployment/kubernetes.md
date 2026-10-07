@@ -744,8 +744,31 @@ schema.
   streaming replicas with automatic failover; `primaryUpdateStrategy:
   unsupervised` lets CNPG switch over + roll on its own when the provider drains
   a node. Replicas use `preferred` pod anti-affinity on `kubernetes.io/hostname`
-  so they spread across worker nodes. Apps always talk to the `grid-pg-rw`
-  service (the current primary).
+  so they spread across worker nodes. Both routes below follow the current
+  primary through a failover.
+- **Two routes to the primary (ADR-0083).** `grid-pg-pooler-rw` is a CloudNativePG
+  `Pooler` running PgBouncer in **transaction** mode, and `grid-pg-rw` is the
+  primary itself. Every DSN picks one (`via: "pooler" | "direct"`, no default in
+  `data/postgres.ts`). Pooled: `NAT_JOB_STORE_DB_URL`, `AIQ_CHECKPOINT_DB`,
+  `AIQ_DEEP_CHECKPOINT_DB`, `AIQ_SUMMARY_DB` and `GRID_APP_DATABASE_URL`. Direct:
+  `AIQ_LISTEN_DB_URL` (LISTEN/NOTIFY), `AIQ_LOCK_DB_URL` (session advisory
+  locks), `GRID_APP_MIGRATION_DATABASE_URL`, the KEDA scaler DSNs, the init and
+  grants Jobs, Langfuse and the SeaweedFS filer. Anything that needs the same
+  server connection across statements must be direct: through the pooler a
+  session lock leaks and a LISTEN hears nothing, with no error. Transaction
+  locks (`pg_advisory_xact_lock`) and `FOR UPDATE SKIP LOCKED` are fine pooled.
+- **Pooler sizing.** `pgPoolerInstances` (default 2; dev 1) PgBouncers, spread
+  across nodes with a PodDisruptionBudget when there is more than one, each
+  opening at most `pgPoolerPoolSize` (default 12) server connections per
+  (database, role) pair. The plan refuses a stack whose pooler worst case plus
+  the direct reserve passes `max_connections` (200): `assertPgConnectionBudget`
+  prints every part. Prod is 74 pooled + 82 direct = 156; a fresh stack with
+  everything on is 196. Clients past the pool wait in PgBouncer instead of
+  failing, so saturation shows as waiting clients rather than errors:
+  PgBouncer's `SHOW POOLS` reports them as `cl_waiting`, and a value above 0 for
+  long means raise `pgPoolerPoolSize` (and the budget with it). The image is
+  CloudNativePG's PgBouncer, pinned by tag and digest and scanned by the
+  `image-scan` job.
 - **Backups (PITR) — IMPLEMENTED, with an honest scope.** With
   `grid-oib:pgBackupsEnabled: true` (prod default) CNPG archives WAL
   continuously and takes a nightly base backup (plus one immediately on
@@ -1232,6 +1255,11 @@ parts that are not about their own signal, and `keda-scaling.spec.ts` holds it.
   nothing): Postgres on 5432 when any queue tier runs, and the backend on 8000
   when the chat tier autoscales. Nothing else in `grid` is open to the `keda`
   namespace.
+
+- **The scaler login is a direct connection.** KEDA's DSNs name
+  `grid-pg-rw.<namespace>.svc.cluster.local`, not the pooler (§5, ADR-0083), and
+  the role's `connectionLimit` (8, `KEDA_SCALER_CONNECTION_LIMIT`) is counted in
+  the budget's direct reserve.
 
 Debugging a tier that does not scale: `kubectl describe scaledobject <tier>`
 (its conditions say whether the trigger is readable and whether `fallback` is
@@ -2296,6 +2324,12 @@ developing against the Langfuse UI and API, not for reproducing ingestion.
 
 ## 10. Out of scope (deliberate follow-ups)
 
+- **Capping the job SSE streams.** Each open stream holds one direct `LISTEN`
+  connection for as long as its job runs (§5). The budget reserves 20 for them,
+  an allowance: nothing in the code caps the streams, and running jobs are
+  bounded only by the research tier (3 in prod) times the viewers each has. If
+  the allowance is ever the thing that fails, cap streams per replica rather than
+  raising the reserve.
 - **A rehearsed SeaweedFS split-topology cutover.** The `split` layout exists
   and is the default for new stacks (§4, ADR-0043), but no `pulumi up` has
   applied it and both existing stacks pin `single`. Multi-master Raft
