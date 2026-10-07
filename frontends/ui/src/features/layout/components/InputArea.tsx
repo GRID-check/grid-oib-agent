@@ -51,6 +51,9 @@ import { cn } from '@/lib/utils'
 import { AnimatePresence, motion, motionQuick, motionEntrance, springPress } from '@/components/motion'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { ChatScreeningNotice } from '@/features/chat/components/ChatScreeningNotice'
+import { useShallow } from 'zustand/react/shallow'
+import { OtherProjectsNotice } from '@/features/chat/components/OtherProjectsNotice'
+import { otherProjectsOf } from '@/features/chat/lib/other-projects'
 import { useChatScreening } from '@/features/chat/hooks/use-chat-screening'
 import type { MaskedText } from '@/lib/upload-screening/content-screen'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
@@ -468,6 +471,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // File upload hook - provides session files and handles validation internally.
   // Attachments go through `/api/session/documents` (type gate, quota, a row).
   const chatProjectId = useChatStore((state) => state.projectId)
+  // The other projects this chat's answers drew on (ADR-0082), for the notice.
+  const otherProjects = useChatStore(useShallow((state) => otherProjectsOf(state.currentConversation?.messages ?? [])))
   const {
     uploadFiles,
     sessionFiles,
@@ -1770,6 +1775,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             {/* „Sensible Daten" (ADR-0079): what the screen found in the message
             that was not sent, and the only two ways on. Under the textarea, which
             still holds the text as typed. */}
+            {/* A chat that drew on another project (ADR-0082): which, and what that
+            closes, where the reader is about to share or ask for more. */}
+            {otherProjects.length > 0 && !screeningHold && <OtherProjectsNotice projects={otherProjects} />}
+
             {screeningHold && (
               <ChatScreeningNotice
                 findings={screeningHold.masked.findings}

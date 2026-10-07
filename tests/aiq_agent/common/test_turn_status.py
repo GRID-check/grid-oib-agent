@@ -105,6 +105,14 @@ class TestRetrieval:
         )
         assert _live(steps)[0].values["corpus"] == "ris"
 
+    def test_a_lookup_in_other_projects_says_where_it_went(self, steps) -> None:
+        """The reader sees the chat leave its own project (ADR-0082)."""
+        turn_status.emit_retrieval(
+            [{"name": "project_lookup", "args": {"action": "search", "query": "Traufe Holzbau"}}],
+            round_index=0,
+        )
+        assert _live(steps)[0].values == {"corpus": "otherProjects", "query": "Traufe Holzbau"}
+
     def test_a_search_with_no_query_uses_the_other_template(self, steps) -> None:
         turn_status.emit_retrieval([{"name": "web_search_tool", "args": {}}], round_index=0)
         payload = _live(steps)[0]

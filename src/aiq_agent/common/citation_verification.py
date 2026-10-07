@@ -2479,6 +2479,11 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
     page: int | None = None
     if entry.citation_key:
         parsed_name, page = _parse_citation_key(entry.citation_key)
+        # A cross-project key names its project after the file (ADR-0082):
+        # „Plan.pdf (Wohnbau Graz), p.3". The file is called Plan.pdf.
+        project_qualifier = f" ({entry.project_name})" if entry.project_name else None
+        if project_qualifier and parsed_name.endswith(project_qualifier):
+            parsed_name = parsed_name[: -len(project_qualifier)].rstrip()
         # Only surface filenames that look like documents (extension present).
         if parsed_name and "." in parsed_name.rsplit("/", 1)[-1]:
             file_name = parsed_name
@@ -2575,8 +2580,19 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
         # viewer draws over the page (issue #433). Absent for running text,
         # which the viewer finds by matching ``snippet`` instead.
         "regions": [region.to_wire() for region in entry.regions] or None,
+        # The OTHER project a cross-project lookup found this passage in
+        # (ADR-0082): the chip names it, and the preview opens the document in
+        # that project. Absent for every source of the chat's own scope.
+        "project": _wire_project(entry),
     }
     return {key: value for key, value in payload.items() if value is not None}
+
+
+def _wire_project(entry: SourceEntry) -> dict[str, str] | None:
+    """``{id, name, status}`` of the other project an entry came from, or None."""
+    if not entry.project_id:
+        return None
+    return {"id": entry.project_id, "name": entry.project_name or "", "status": entry.project_status or "active"}
 
 
 #: The wire keys a READ-BUT-UNCITED source keeps: identity (which document,
@@ -2600,6 +2616,9 @@ _READ_SOURCE_WIRE_KEYS = frozenset(
         "lane_label",
         "title",
         "url",
+        # Which project a read-but-uncited passage of another project came
+        # from: identity, like the collection (ADR-0082).
+        "project",
     }
 )
 

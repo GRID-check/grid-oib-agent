@@ -291,3 +291,45 @@ class TestFindAndBrief:
 
         assert "Zusammenfassung: Ein Schulbau." in result
         assert not turn.drew_on_others
+
+
+class TestTheWire:
+    """What the browser is told about a source from another project (ADR-0082)."""
+
+    def _entry(self):
+        from aiq_agent.common.citation_verification import SourceEntry
+
+        return SourceEntry(
+            citation_key="Detail Traufe.pdf (Wohnbau Graz), p.3",
+            title="Detail Traufe",
+            source_type="knowledge_layer",
+            tool_name="project_lookup",
+            collection=OTHER_COLLECTION,
+            shelf="project",
+            chunk_text="Die Traufe ist hinterlüftet ausgeführt.",
+            project_id=OTHER,
+            project_name="Wohnbau Graz",
+            project_status="closed",
+        )
+
+    def test_the_cited_wire_names_the_project_and_the_real_file(self) -> None:
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        wire = source_entry_to_wire(self._entry(), number=1)
+
+        assert wire["project"] == {"id": OTHER, "name": "Wohnbau Graz", "status": "closed"}
+        # The key names the project after the file; the file is called Detail Traufe.pdf.
+        assert wire["file_name"] == "Detail Traufe.pdf"
+        assert wire["page"] == 3
+
+    def test_the_read_wire_keeps_the_project_and_a_source_of_the_chat_names_none(self) -> None:
+        from dataclasses import replace
+
+        from aiq_agent.common.citation_verification import read_source_to_wire
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        assert read_source_to_wire(self._entry())["project"]["id"] == OTHER
+        own = replace(
+            self._entry(), citation_key="Plan.pdf, p.1", project_id=None, project_name=None, project_status=None
+        )
+        assert "project" not in source_entry_to_wire(own)
