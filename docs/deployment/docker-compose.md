@@ -1,11 +1,14 @@
 # Docker Compose Service Reference
 
 The Docker Compose file is at `deploy/compose/docker-compose.yaml`. It defines
-17 services, several named volumes, and 2 bridge networks. This page describes
+18 services, several named volumes, and 2 bridge networks. This page describes
 the core ones; the observability stack (`dragonfly`, `clickhouse`, the three
-`langfuse-*` services) and the three background workers (`purger`,
-`skill-scheduler`, `bff-jobs`) are defined in the compose file with their own
-comments and are not covered here. `bff-jobs` (ADR-0079) is the frontend image
+`langfuse-*` services) and the four background workers (`purger`,
+`skill-scheduler`, `bff-jobs`, `housekeeping`) are defined in the compose file
+with their own comments and are not covered here. `housekeeping` is the
+backend's housekeeping clock (ADR-0082 step A1): the backend runs no cleanup
+loop of its own, and this calls its `/v1/maintenance/housekeeping/*` routes on
+the cadences Kubernetes runs as CronJobs. `bff-jobs` (ADR-0079) is the frontend image
 running `workers/jobs/index.js`: the BFF plus the claim loop that runs the jobs
 in `bff_job_queue` (project reindex, failed-ingestion rescan, IFC extraction,
 Office rendition through `gotenberg`, research-report filing), with no

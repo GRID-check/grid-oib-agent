@@ -299,9 +299,6 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     // (ADR-0076); their pool still runs the jobs with local files.
     { name: "GRID_INGEST_QUEUE_CLAIM", value: String(!cfg.ingestWorker.enabled) },
     { name: "GRID_INGEST_MAX_PER_ORG", value: String(cfg.ingestWorker.maxPerOrg) },
-    // Housekeeping runs on the backend-housekeeping CronJobs (workers.ts), not as
-    // a loop in every web replica (ADR-0082 step A1). Only the web role reads it.
-    { name: "GRID_HOUSEKEEPING", value: cfg.backendHousekeeping.cronJobs ? "external" : "in-process" },
     // LLM / embeddings / VLM (all via OpenRouter).
     sref("OPENROUTER_API_KEY"),
     sref("TAVILY_API_KEY"),

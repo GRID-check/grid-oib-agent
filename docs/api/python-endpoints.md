@@ -158,7 +158,7 @@ These routes are **not registered by custom code** — they are provided by the 
 - **Ghost job reaper**: marks stale RUNNING jobs as FAILURE after 5 minutes without events.
 - **Event cleanup**: Time-based (expiry config) + coordinated (events for expired jobs in `job_info`). PostgreSQL uses advisory locks for multi-pod safety.
 - **Chat checkpoint reaper**: deletes the checkpoints of chat threads idle past `GRID_CHAT_CHECKPOINT_RETENTION_SECONDS`.
-- **Who runs them** (ADR-0082 step A1): with `GRID_HOUSEKEEPING=in-process` (the default, and Compose) each runs as a loop in every web replica. With `external` (Pulumi) none does. Instead a CronJob calls the internal-token route that runs one cycle: `POST /v1/maintenance/housekeeping/ghost-jobs` (`{"reaped": [job ids]}`), `.../job-events` (counts of what was removed) and `.../chat-checkpoints` (`{"threads_reaped": n}`). Each takes the same advisory lock as its loop, so a call that overlaps a running cycle does nothing and reports nothing removed.
+- **Who runs them** (ADR-0082 step A1): nothing in the backend process. Each is an internal-token route that runs one cycle: `POST /v1/maintenance/housekeeping/ghost-jobs` (`{"reaped": [job ids]}`), `.../job-events` (counts of what was removed, including `job_info` expiry in both execution modes) and `.../chat-checkpoints` (`{"threads_reaped": n}`). Kubernetes calls them from the `housekeeping-*` CronJobs, Compose from the `housekeeping` service (`frontends/ui/workers/housekeeping-clock.js`). Each takes a Postgres advisory lock, so a call that overlaps a running cycle does nothing.
 
 **Config**: `AIQAPIConfig` in `frontends/aiq_api/src/aiq_api/plugin.py`:
 - `db_url`: Job store database URL (default `sqlite+aiosqlite:///./jobs.db`)

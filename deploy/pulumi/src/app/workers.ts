@@ -286,29 +286,25 @@ export function installWorkers(
     : undefined;
 
   /**
-   * The backend's housekeeping, one CronJob per loop it replaces (ADR-0082 step
-   * A1): the web role runs no loop of its own while these exist
-   * (`GRID_HOUSEKEEPING=external`, app/config.ts). Each route takes the same
-   * advisory lock as its loop did, so a tick that lands on a pod still running
-   * the old loop mid-rollout skips instead of doing the work twice.
+   * The backend's housekeeping (ADR-0082 step A1). The backend runs none of it
+   * on its own: each route does one cycle when called, and these CronJobs are
+   * what calls them. Each cycle takes a Postgres advisory lock, so a tick that
+   * overlaps a slow previous one skips.
    *
-   * The ghost reaper ran every minute against a 300-second silence window; every
-   * two minutes moves the worst case from 360 to 420 seconds and halves the pods
-   * the schedule starts. The other two ran hourly and stay hourly, on minutes
-   * apart from each other and from the hourly storage sweep.
+   * The ghost reaper fails a job after 300 seconds without an event; every two
+   * minutes puts the worst case at 420 seconds. The other two are hourly, on
+   * minutes apart from each other and from the hourly storage sweep.
    */
-  const housekeeping = cfg.backendHousekeeping.cronJobs
-    ? [
-        { name: "housekeeping-ghost-jobs", schedule: "*/2 * * * *", route: "ghost-jobs", timeoutMs: 90_000 },
-        { name: "housekeeping-job-events", schedule: "7 * * * *", route: "job-events", timeoutMs: 900_000 },
-        { name: "housekeeping-chat-checkpoints", schedule: "37 * * * *", route: "chat-checkpoints", timeoutMs: 900_000 },
-      ].map(({ route, ...sweep }) =>
-        internalSweepCronJob(w, cfg, secrets, dependsOn, {
-          ...sweep,
-          url: `${BACKEND_URL}/v1/maintenance/housekeeping/${route}`,
-        }),
-      )
-    : [];
+  const housekeeping = [
+    { name: "housekeeping-ghost-jobs", schedule: "*/2 * * * *", route: "ghost-jobs", timeoutMs: 90_000 },
+    { name: "housekeeping-job-events", schedule: "7 * * * *", route: "job-events", timeoutMs: 900_000 },
+    { name: "housekeeping-chat-checkpoints", schedule: "37 * * * *", route: "chat-checkpoints", timeoutMs: 900_000 },
+  ].map(({ route, ...sweep }) =>
+    internalSweepCronJob(w, cfg, secrets, dependsOn, {
+      ...sweep,
+      url: `${BACKEND_URL}/v1/maintenance/housekeeping/${route}`,
+    }),
+  );
 
   return { purger, scheduler, storageAlerts, vectorReconcile, housekeeping };
 }

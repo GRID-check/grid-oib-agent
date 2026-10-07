@@ -49,8 +49,6 @@ async def submit_app(monkeypatch):
     import aiq_api.routes.jobs as jobs_routes
 
     submitted_job = AsyncMock(return_value="job-1")
-    monkeypatch.setattr(jobs_routes, "_start_periodic_cleanup", MagicMock())
-
     agent_config = AgentConfig(
         class_path="aiq_agent.agents.deep_researcher.agent.DeepResearcherAgent",
         config_name="deep_research_agent",
@@ -58,10 +56,6 @@ async def submit_app(monkeypatch):
     )
     monkeypatch.setattr(jobs_routes, "get_agent_config", lambda _agent_type: agent_config)
 
-    async def _no_op_reaper(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(jobs_routes, "_reap_ghost_jobs", _no_op_reaper)
     monkeypatch.setattr(aiq_agent.auth, "get_auth_token", lambda: "token-1")
 
     from aiq_api.jobs import access

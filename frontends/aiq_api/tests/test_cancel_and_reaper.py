@@ -216,12 +216,6 @@ async def cancel_app(db_url, monkeypatch):
     """Minimal app with the async job routes and a controllable job store."""
     import aiq_api.routes.jobs as jobs_routes
 
-    monkeypatch.setattr(jobs_routes, "_start_periodic_cleanup", MagicMock())
-
-    async def _no_op_reaper(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(jobs_routes, "_reap_ghost_jobs", _no_op_reaper)
     monkeypatch.setattr(jobs_routes, "_cancel_dask_task", AsyncMock(return_value=True))
     monkeypatch.setattr(
         jobs_routes,
@@ -366,12 +360,6 @@ class TestKillActiveRoute:
         import aiq_api.routes.jobs as jobs_routes
         from nat.front_ends.fastapi.async_jobs.job_store import JobStore
 
-        monkeypatch.setattr(jobs_routes, "_start_periodic_cleanup", MagicMock())
-
-        async def _no_op_reaper(*_args, **_kwargs):
-            return None
-
-        monkeypatch.setattr(jobs_routes, "_reap_ghost_jobs", _no_op_reaper)
         cancel_dask = AsyncMock(return_value=True)
         monkeypatch.setattr(jobs_routes, "_cancel_dask_task", cancel_dask)
         notify = AsyncMock(return_value=True)

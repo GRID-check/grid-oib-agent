@@ -107,10 +107,9 @@ describe("the program constructs in the split topology", () => {
     );
   });
 
-  it("moves the backend's housekeeping loops to CronJobs and turns the loops off together", () => {
-    // ADR-0082 step A1. One switch drives both halves: CronJobs with the loops
-    // still on is only double work (the advisory locks absorb it), but loops
-    // off with no CronJobs is housekeeping silently gone, which nothing alerts on.
+  it("schedules the backend's housekeeping as CronJobs, the only thing that runs it", () => {
+    // ADR-0082 step A1. The backend has no loop of its own: a missing CronJob is
+    // housekeeping silently gone, which nothing else alerts on.
     const cronJobs = RESOURCES.filter((r) => r.type === "kubernetes:batch/v1:CronJob");
     const housekeeping = cronJobs.filter((r) => r.name.startsWith("housekeeping-"));
     expect(housekeeping.map((r) => r.name).sort()).toEqual([
@@ -124,9 +123,6 @@ describe("the program constructs in the split topology", () => {
       expect(url).toBe(`http://aiq-agent:8000/v1/maintenance/housekeeping/${job.name.replace("housekeeping-", "")}`);
       expect(job.inputs.spec?.concurrencyPolicy).toBe("Forbid");
     }
-    const web = RESOURCES.find((r) => r.type === "kubernetes:apps/v1:StatefulSet" && r.name === "aiq-agent");
-    const webEnv = web?.inputs.spec?.template?.spec.containers[0].env;
-    expect(webEnv?.find((e) => e.name === "GRID_HOUSEKEEPING")?.value).toBe("external");
   });
 
   it("creates the scheduler even with Agent Skills off, because it is the run reconciler's clock", () => {

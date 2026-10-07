@@ -676,6 +676,32 @@ services:
           memory: 128M
     restart: unless-stopped
 
+  housekeeping:
+    # The backend's housekeeping clock (ADR-0082 step A1). The backend runs no
+    # loop of its own; this calls its housekeeping routes (ghost-job reaper,
+    # job-event cleanup, chat checkpoint reaper) on the cadences Kubernetes runs
+    # as CronJobs. Off the frontend image, like the purger: workers/housekeeping-clock.js.
+    image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
+    build:
+      context: ../../frontends/ui
+      dockerfile: deploy/Dockerfile
+    container_name: grid-housekeeping
+    command: ["node", "workers/housekeeping-clock.js"]
+    environment:
+      - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
+      - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+    networks:
+      - aiq-network
+    depends_on:
+      aiq-agent:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+    restart: unless-stopped
+
   gotenberg:
     # Office → PDF converter (ADR-0070). Only the LibreOffice route is used,
     # and only by the frontend BFF. Required for indexing Word, presentation,

@@ -972,17 +972,6 @@ export interface GridConfig {
     minIntervalMinutes: number;
   };
 
-  backendHousekeeping: {
-    /**
-     * Run the backend's housekeeping (ghost-job reaper, job-event cleanup, chat
-     * checkpoint reaper) as CronJobs that call one internal route per cycle,
-     * instead of as a loop in every web replica (ADR-0082 step A1). Turning it
-     * off puts the loops back in the web role: the same switch sets
-     * `GRID_HOUSEKEEPING`, so the two can never both be off.
-     */
-    cronJobs: boolean;
-  };
-
   storageAlerts: {
     /**
      * The storage-quota warning sweep (ADR-0042).
@@ -2711,10 +2700,6 @@ export function loadConfig(): GridConfig {
     skills: {
       enabled: bool(cfg, "skillsEnabled", false),
       minIntervalMinutes: num(cfg, "skillMinIntervalMinutes", 15),
-    },
-
-    backendHousekeeping: {
-      cronJobs: bool(cfg, "backendHousekeepingCronJobs", true),
     },
 
     storageAlerts: {

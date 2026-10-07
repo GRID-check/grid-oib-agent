@@ -1,8 +1,7 @@
 ---
 operators:
   - >
-    The backend's housekeeping now runs as three Kubernetes CronJobs instead of
-    a loop in every backend replica: one reaps stalled research runs every two
-    minutes, and two clean up old job events and idle chat history hourly.
-    Set backendHousekeepingCronJobs to false to put the loops back in the
-    backend. Docker Compose deployments are unchanged.
+    The backend no longer cleans up after itself in every replica. Three
+    Kubernetes CronJobs do it instead: one reaps stalled research runs every
+    two minutes, and two clean up old job events and idle chat history hourly.
+    Docker Compose runs the same schedule in a new housekeeping service.

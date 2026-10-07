@@ -692,6 +692,22 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  housekeeping:
+    # The backend's housekeeping clock (ADR-0082 step A1): calls the backend's
+    # housekeeping routes on the cadences Kubernetes runs as CronJobs. The
+    # backend runs no loop of its own.
+    build:
+      context: ./frontends/ui
+      dockerfile: deploy/Dockerfile
+    command: ["node", "workers/housekeeping-clock.js"]
+    environment:
+      - BACKEND_URL=http://aiq-agent:8000
+      - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
+    depends_on:
+      aiq-agent:
+        condition: service_healthy
+    restart: unless-stopped
+
   # WARNING: do NOT add a `ports:` mapping to this internal service. Coolify
   # binds the published host port on the server regardless of Traefik routing,
   # which would expose the converter (3000) publicly. In-cluster access only.

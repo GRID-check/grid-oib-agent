@@ -1259,8 +1259,8 @@ In `db` mode the `aiq-agent` web tier now runs `backendReplicas` replicas
   cycle with a Postgres advisory lock, so N replicas don't double-reap or race
   `delete_collection` against the shared store. The ghost-job reaper, the
   job-event cleanup and the chat checkpoint reaper have since left the web
-  replicas altogether: they run as the `housekeeping-*` CronJobs
-  (`backendHousekeepingCronJobs`, ADR-0082 step A1).
+  replicas altogether: they run only as the `housekeeping-*` CronJobs
+  (ADR-0082 step A1).
 
 It stays a StatefulSet (stable identity + a per-replica RWO PVC on Lightbits).
 

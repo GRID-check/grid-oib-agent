@@ -47,25 +47,21 @@ def test_ghost_jobs_runs_one_reap_cycle_and_names_what_it_reaped(client: TestCli
     assert calls == [(DB_URL, "")]
 
 
-def test_job_events_runs_the_loops_cycle_with_the_loops_settings(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+def test_job_events_runs_one_cleanup_cycle_with_the_expiry_settings(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
     seen = {}
 
-    async def cleanup(db_url, retention_seconds, is_postgres, expire_job_info=False, delete_grace_seconds=604800):
-        seen.update(
-            db_url=db_url,
-            retention=retention_seconds,
-            is_postgres=is_postgres,
-            expire_job_info=expire_job_info,
-            grace=delete_grace_seconds,
-        )
+    async def cleanup(db_url, retention_seconds, is_postgres, delete_grace_seconds=604800):
+        seen.update(db_url=db_url, retention=retention_seconds, is_postgres=is_postgres, grace=delete_grace_seconds)
         return {"old_events": 3}
 
     monkeypatch.setattr(jobs_routes, "_run_event_cleanup", cleanup)
-    monkeypatch.setattr(jobs_routes, "_job_info_expiry", lambda: (True, 3600))
+    monkeypatch.setenv("GRID_JOB_INFO_DELETE_GRACE_SECONDS", "3600")
     response = client.post("/v1/maintenance/housekeeping/job-events", headers=AUTH)
     assert response.status_code == 200
     assert response.json() == {"old_events": 3}
-    assert seen == {"db_url": DB_URL, "retention": 86400, "is_postgres": True, "expire_job_info": True, "grace": 3600}
+    assert seen == {"db_url": DB_URL, "retention": 86400, "is_postgres": True, "grace": 3600}
 
 
 def test_chat_checkpoints_reports_threads_reaped(client: TestClient, monkeypatch: pytest.MonkeyPatch):
@@ -86,25 +82,3 @@ def test_chat_checkpoints_without_a_checkpoint_db_says_why_it_did_nothing(
     assert response.status_code == 200
     assert response.json()["threads_reaped"] == 0
     assert "AIQ_CHECKPOINT_DB" in response.json()["skipped"]
-
-
-@pytest.mark.parametrize(
-    ("value", "in_process"),
-    [(None, True), ("in-process", True), ("external", False), (" External ", False), ("anything-else", True)],
-)
-def test_only_an_explicit_external_turns_the_loops_off(monkeypatch: pytest.MonkeyPatch, value, in_process):
-    if value is None:
-        monkeypatch.delenv("GRID_HOUSEKEEPING", raising=False)
-    else:
-        monkeypatch.setenv("GRID_HOUSEKEEPING", value)
-    assert jobs_routes.housekeeping_in_process() is in_process
-
-
-def test_periodic_cleanup_without_the_local_loop_starts_no_task(monkeypatch: pytest.MonkeyPatch):
-    from aiq_api.jobs import submit
-
-    monkeypatch.setattr(submit, "job_execution_mode", lambda: "db")
-    started = []
-    monkeypatch.setattr(jobs_routes.asyncio, "create_task", lambda coro: started.append(coro.close()))
-    jobs_routes._start_periodic_cleanup(None, "", DB_URL, 86400, 20, True, local_loop=False)
-    assert started == []
