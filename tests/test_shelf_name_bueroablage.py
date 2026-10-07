@@ -19,6 +19,7 @@ frontend renders the same kind and shelf with.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -93,6 +94,29 @@ class TestTheOldNamesStayOut:
     def test_no_builtin_skill_says_buroarchiv(self):
         assert BUILTIN_SKILLS
         assert _hits(BUILTIN_SKILLS, _BUEROARCHIV, copy_only=False) == []
+
+    def test_no_knowledge_tool_tells_the_model_the_old_name(self):
+        """The knowledge layer's tool descriptions and refusals are read by the model.
+
+        Every string literal that is not a docstring: what a tool says, not
+        what its code says about itself.
+        """
+        offenders: list[str] = []
+        for path in sorted((REPO_ROOT / "sources" / "knowledge_layer" / "src").rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            docstrings = {
+                id(node.body[0].value)
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                and node.body
+                and isinstance(node.body[0], ast.Expr)
+                and isinstance(node.body[0].value, ast.Constant)
+            }
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+                    if _BUEROARCHIV.search(node.value) or re.search(r"(?<![\w-])project/Archiv\b", node.value):
+                        offenders.append(f"{path.relative_to(REPO_ROOT)}: {node.value[:80]!r}")
+        assert offenders == []
 
     def test_the_document_action_is_not_caught(self):
         # „Archivieren" (purge a document's index entries) is another concept

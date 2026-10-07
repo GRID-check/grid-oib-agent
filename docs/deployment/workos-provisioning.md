@@ -24,6 +24,16 @@ because the two ⚠️ rows this runbook used to carry (`org:audit:view`,
 `org:archiv:manage`, both "create this in Staging", both still absent three
 weeks later) were invisible to everything except a human re-reading the file.
 
+**The catalog's wording follows the „Büroablage" rename on the next provisioning.**
+The product renamed the org-wide shelf from „Archiv" to „Büroablage" („Office
+filing" in English) on 6 Oct 2026. `org:archiv:manage` keeps its slug, and the
+app's own screens take the permission's label from the dictionary, which already
+says „Büroablage verwalten". The catalog entry still reads „Manage document
+Archiv" because changing it rewrites the permission's name and description in
+WorkOS, a provisioning step that waits for the product owner's go. Change the
+`name` and `description` in `catalog.ts` and run `--apply` together, never one
+without the other: the drift check would fail in between.
+
 **Resource types are the one manual step**: the Node SDK exposes no CRUD for
 them, so create them in the dashboard. The script still catches a missing one —
 a permission cannot be created against a resource type that does not exist, and
