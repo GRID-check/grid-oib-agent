@@ -79,13 +79,14 @@ import { formatBytes } from '@/lib/format'
 const STATE_VARIANT: Record<KnowledgeFileState, 'success' | 'info' | 'warning' | 'destructive' | 'secondary'> = {
   ingested: 'success',
   pending: 'info',
+  failed: 'destructive',
   stale: 'warning',
   removed: 'secondary',
   inconsistent: 'destructive',
 }
 
 /** Sorting a status column alphabetically is useless; sort it by urgency. */
-const STATE_ORDER: KnowledgeFileState[] = ['inconsistent', 'stale', 'pending', 'ingested', 'removed']
+const STATE_ORDER: KnowledgeFileState[] = ['failed', 'inconsistent', 'stale', 'pending', 'ingested', 'removed']
 
 // Poll cadence + ceiling while a freshly-uploaded document ingests in the
 // background. 3.5s × 60 ≈ 3.5 minutes, then we stop and let the owner refresh.

@@ -70,6 +70,7 @@ const STATUS = {
     ingested: FILES.length,
     stale: 0,
     pending: 0,
+    failed: 0,
     removed: 0,
     inconsistent: 0,
     totalChunks: FILES.reduce((sum, file) => sum + file.chunkCount, 0),

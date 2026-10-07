@@ -13,6 +13,7 @@ const corpusStatus = {
     ingested: 1,
     stale: 1,
     pending: 1,
+    failed: 0,
     removed: 0,
     inconsistent: 0,
     totalChunks: 128,

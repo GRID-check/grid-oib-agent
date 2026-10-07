@@ -3,7 +3,7 @@
 /**
  * Knowledge-base transparency panel — shows the user exactly what the RAG
  * knows: every document of the shared OIB Richtlinien corpus with its live
- * index state (indexed / outdated / pending / removed / inconsistent), plus
+ * index state (indexed / outdated / pending / failed / removed / inconsistent), plus
  * the project's own uploaded documents that join the retrieval scope.
  *
  * Data sources: `GET /api/knowledge-base` (base corpus, served by the
@@ -54,6 +54,7 @@ interface KnowledgeBasePanelProps {
 const STATE_VARIANT: Record<KnowledgeFileState, 'success' | 'info' | 'warning' | 'destructive' | 'secondary'> = {
   ingested: 'success',
   pending: 'info',
+  failed: 'destructive',
   stale: 'warning',
   removed: 'secondary',
   inconsistent: 'destructive',
@@ -225,7 +226,11 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
   }, [load])
 
   const attention = status
-    ? status.summary.pending + status.summary.stale + status.summary.removed + status.summary.inconsistent
+    ? status.summary.pending +
+        status.summary.failed +
+        status.summary.stale +
+        status.summary.removed +
+        status.summary.inconsistent
     : 0
   // "Indexed" = everything the assistant can actually search: verified corpus
   // files and successfully ingested project docs.

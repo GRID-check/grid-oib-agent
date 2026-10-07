@@ -58,6 +58,7 @@ _DEFERRED_CONFIG_LISTS = ("extraction_paths",)
 _URL_CONFIG_KEYS = ("thumbnail_upload_url",)
 
 _DOWNLOAD = "__object_download__"
+_CORPUS_OBJECT = "__corpus_object__"
 
 
 def _flag(name: str, default: bool) -> bool:
@@ -167,21 +168,29 @@ def _dead_retention_seconds() -> int:
 
 
 def _encode_entry(entry: Any) -> Any:
+    from aiq_agent.corpus_store import CorpusObjectDownload
+
     from ..routes.ingest import DeferredObjectDownload
 
     if isinstance(entry, DeferredObjectDownload):
         return {_DOWNLOAD: entry.to_payload()}
+    if isinstance(entry, CorpusObjectDownload):
+        return {_CORPUS_OBJECT: entry.to_payload()}
     return entry
 
 
 def durable(prepared: PreparedIngestJob) -> bool:
     """Whether the job can run in another process: every file a deferred download."""
+    from aiq_agent.corpus_store import CorpusObjectDownload
+
     from ..routes.ingest import DeferredObjectDownload
 
     entries = list(prepared.file_paths)
     for key in _DEFERRED_CONFIG_LISTS:
         entries.extend(prepared.config.get(key) or [])
-    return bool(prepared.file_paths) and all(isinstance(e, DeferredObjectDownload) for e in entries)
+    return bool(prepared.file_paths) and all(
+        isinstance(e, (DeferredObjectDownload, CorpusObjectDownload)) for e in entries
+    )
 
 
 def encode(prepared: PreparedIngestJob) -> str:
@@ -202,10 +211,14 @@ def encode(prepared: PreparedIngestJob) -> str:
 
 
 def _decode_entry(entry: Any) -> Any:
+    from aiq_agent.corpus_store import CorpusObjectDownload
+
     from ..routes.ingest import DeferredObjectDownload
 
     if isinstance(entry, dict) and _DOWNLOAD in entry:
         return DeferredObjectDownload.from_payload(entry[_DOWNLOAD])
+    if isinstance(entry, dict) and _CORPUS_OBJECT in entry:
+        return CorpusObjectDownload.from_payload(entry[_CORPUS_OBJECT])
     raise ValueError("a queued ingestion job may only carry object-store downloads")
 
 
@@ -246,6 +259,31 @@ def dispatch(ingestor: BaseIngestor, prepared: PreparedIngestJob) -> None:
             # Class name only: the payload and its error carry presigned URLs.
             logger.warning("Could not queue ingestion job %s durably; running it here", prepared.job_id)
     ingestor.submit_prepared(prepared)
+
+
+class QueueUnavailable(RuntimeError):
+    """The job cannot be queued, and its caller has no other place to run it."""
+
+
+def enqueue_only(prepared: PreparedIngestJob) -> bool:
+    """Store a PENDING job in the durable queue, and never run it here; whether this call stored it.
+
+    For work that must run on a claiming worker or not at all (the base corpus): unlike
+    :func:`dispatch` there is no fallback to this process's own pool when the queue is off,
+    the ingestor cannot run a job elsewhere, or the write fails. Each raises
+    :class:`QueueUnavailable`, with a message that carries no payload (it holds URLs). A job
+    whose id the queue already holds is not stored again (False).
+    """
+    if prepared.status.status != JobState.PENDING:
+        raise QueueUnavailable(f"ingestion job {prepared.job_id} was not accepted: {prepared.status.error_message}")
+    if not queue_enabled():
+        raise QueueUnavailable("the ingest queue is off or has no database (GRID_INGEST_QUEUE, AIQ_SUMMARY_DB)")
+    if not durable(prepared):
+        raise QueueUnavailable(f"ingestion job {prepared.job_id} cannot run in another process")
+    try:
+        return ingest_queue.enqueue(prepared.job_id, prepared.organization_id, encode(prepared), prepared.priority)
+    except Exception as error:
+        raise QueueUnavailable(f"could not queue ingestion job {prepared.job_id}: {type(error).__name__}") from error
 
 
 # ------------------------------------------------------------------ claims

@@ -3,49 +3,65 @@
 The corpus is the ``oib_corpus_files`` table plus the objects it points at
 (``aiq_agent.corpus_store``). A file needs ingestion when the index was not built
 from its current bytes by the current chunking pipeline
-(``FileRow.needs_ingestion``); this module ingests those files through the
-canonical, blocking knowledge-layer path, polls each file's status until it
-reaches a terminal state, and only on SUCCESS records the hash and pipeline
-version it was built from. A failure or a timeout records nothing, so the next
-cycle retries it.
+(``FileRow.needs_ingestion``).
 
-Two callers drive it: an admin upload queues :func:`ingest_single` for the file it
-just stored, and :func:`sync` (the housekeeping route and the admin's "run it
-now") ingests everything that still needs it. Any replica may run either, and
-the cross-replica locks below keep one file from being ingested twice.
+Ingestion is never run here. A file that needs it becomes ONE job on the durable
+ingest queue (ADR-0076): the same queue ``POST /v1/ingest`` uses, in the platform
+lane at ``bulk`` priority, claimed and run by the ingest workers (or, where no
+such tier runs, by the claiming web tier), with the queue's attempts, dead rows,
+fairness and drain behaviour. There is no in-process fallback: when the queue
+cannot take the job, the call that wanted it raises.
+
+The job's id is a function of the file's name, hash and chunk-format version, so
+asking twice is asking once: a second cycle, or an upload racing a cycle, finds
+the job there and queues nothing. The job downloads the object itself
+(``corpus_store.CorpusObjectDownload``) and ingests it like any file: summary,
+Dokumentart, display title and the replacement of the previous version are the
+ingestor's own. What the worker does not do is write to the corpus table. A sync
+cycle (and the status view) reads each file's job from the ingest status store and
+records the outcome: ``mark_ingested`` for a job that finished, ``mark_failed``
+for one that ran and gave up, which is how a file that cannot be ingested stops
+being queued until its bytes change or an admin asks again.
+
+Two callers drive it: an admin upload stores the file and queues its job at once
+(:func:`store_and_request`), and :func:`sync` (the housekeeping route, and the
+admin's "run it now") records what finished, then queues every file that still
+needs a job.
 """
 
+from __future__ import annotations
+
+import hashlib
 import logging
 import os
-import time
-from collections.abc import Iterable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from dataclasses import replace
+from enum import StrEnum
 
 from aiq_agent import corpus_store
+from aiq_agent.knowledge import ingest_queue
+from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.factory import get_ingestor
 from aiq_agent.knowledge.factory import unregister_summary
 from aiq_agent.knowledge.leader_lock import keyed_lock
 from aiq_agent.knowledge.schema import FileStatus
+from aiq_agent.knowledge.schema import JobState
+from aiq_agent.turn import api_seam
 
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = os.environ.get("OIB_COLLECTION_NAME") or os.environ.get("COLLECTION_NAME") or "oib_knowledge"
 CHROMA_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
 
-# Polling configuration for blocking file-status checks.
-_POLL_INTERVAL_SECONDS = 2.0
-_POLL_TIMEOUT_SECONDS = 600.0
-
-# One sync cycle at a time across every replica.
+# One sync cycle at a time across replicas.
 SYNC_LOCK_KEY = "oib-sync"
 
 # Chunk-format version of the ingestion pipeline. Bump whenever chunking,
 # embedding-relevant preprocessing, or chunk metadata changes shape: every file
-# whose recorded version differs then needs ingestion, and the next sync cycle
-# re-ingests the full corpus, so stale-format chunks self-heal instead of
-# persisting until a PDF happens to change. Stored per file in
-# ``oib_corpus_files.chunk_format_version``.
+# whose recorded version differs then needs ingestion (and, the version being part
+# of its job id, a new job), and the next sync cycle re-ingests the full corpus, so
+# stale-format chunks self-heal instead of persisting until a PDF happens to
+# change. Stored per file in ``oib_corpus_files.chunk_format_version``.
 # 2: chunk metadata is no longer embedded wholesale. `file_size`, the ingest temp
 #    path and render geometry are excluded from the embed rendering, so the literal
 #    text sent to the embedding model changed for every chunk. Without this bump the
@@ -74,23 +90,64 @@ CHUNK_FORMAT_VERSION = 4
 
 @dataclass(frozen=True)
 class SyncResult:
-    """What one sync cycle did: files ingested, files that failed or timed out, files in the corpus."""
+    """What one sync cycle did.
 
-    ingested: int
+    ``enqueued``: jobs it put on the ingest queue. ``ingested_recorded``: files whose
+    finished job it recorded in the corpus table. ``failed``: files whose job gave up
+    (they are not queued again until their bytes change or an admin re-indexes them).
+    ``total``: files in the corpus.
+    """
+
+    enqueued: int
+    ingested_recorded: int
     failed: int
     total: int
+
+
+class JobProgress(StrEnum):
+    """Where the ingest job for a file's current bytes is."""
+
+    NONE = "none"
+    """No job for these bytes and this pipeline version: one may be queued."""
+
+    WAITING = "waiting"
+    """Queued, or running its first moments: a worker has it or will."""
+
+    RUNNING = "running"
+    DONE = "done"
+    """Finished and indexed; the cycle has yet to record it."""
+
+    FAILED = "failed"
+    """Ran and gave up (or lost every claim): not queued again until the bytes change or an admin asks."""
+
+
+@dataclass(frozen=True)
+class Settled:
+    """The corpus rows after finished jobs were recorded, and where each unfinished file's job is."""
+
+    rows: dict[str, corpus_store.FileRow]
+    progress: dict[str, JobProgress]
+    recorded: int
+
+
+def job_id_for(row: corpus_store.FileRow) -> str:
+    """The ingest job id of this file's current bytes under the current pipeline version.
+
+    Deterministic, so the queue's own primary key is what keeps one job per
+    (name, hash, version): the bytes changing or ``CHUNK_FORMAT_VERSION`` moving makes a
+    new id, and nothing else does.
+    """
+    digest = hashlib.sha256(f"{row.file_name}\0{row.sha256}\0{CHUNK_FORMAT_VERSION}".encode()).hexdigest()
+    return f"oib-{digest[:32]}"
 
 
 def _file_lock(name: str):
     """Serialise the corpus mutations of ONE document, in this process and across replicas.
 
-    The collection keys chunks on the file name, so an ingest and a delete of
-    one document, or two ingests of it, must not interleave: a delete landing
-    while an ingest is still indexing would leave the file indexed after a
-    "successful" removal. Different documents stay fully concurrent. The
-    replacement itself is also serialised inside the ingestor (a different key),
-    which this lock does not replace: what only this one covers is the upload,
-    the poll and the recording of the hash, and a delete.
+    Held to decide whether a job exists and to queue it (milliseconds, and across an
+    upload's own store, which is the point: a cycle cannot queue the file between the
+    upload's row and the upload's job), and for the whole of a delete. A running
+    ingestion does not hold it: that is the worker's, and a delete cancels it.
     """
     return keyed_lock(f"oib-file:{name}")
 
@@ -138,105 +195,163 @@ def _collection_is_empty(ingestor) -> bool:
     return getattr(info, "chunk_count", None) == 0 or getattr(info, "file_count", None) == 0
 
 
-def _get_max_workers() -> int:
-    raw_value = os.environ.get("OIB_SYNC_MAX_WORKERS", "4")
-    try:
-        max_workers = int(raw_value)
-    except ValueError:
-        logger.warning("Invalid OIB_SYNC_MAX_WORKERS=%r; using default 4", raw_value)
-        return 4
-
-    if max_workers < 1:
-        logger.warning("OIB_SYNC_MAX_WORKERS must be at least 1; using 1 instead of %d", max_workers)
-        return 1
-    return max_workers
-
-
 def _get_oib_ingestor():
+    """The ingestor this module prepares jobs with and reads the collection through. It runs nothing."""
     # Register the LlamaIndex backend lazily so tests can import this module
     # without importing the full NAT/LlamaIndex stack.
     import knowledge_layer.llamaindex.adapter  # noqa: F401
 
-    # The extraction switches are the adapter's own (AIQ_EXTRACT_*, on unless
-    # set to false): restating them here gave the corpus a second, off-by-default
-    # reading of the same flags.
     return get_ingestor("llamaindex", {"persist_dir": CHROMA_DIR})
 
 
-def _await_terminal(ingestor, file_id: str, name: str) -> FileStatus | None:
-    """Poll ``file_id`` until it is SUCCESS or FAILED; ``None`` after the timeout."""
-    deadline = time.monotonic() + _POLL_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        info = ingestor.get_file_status(file_id, COLLECTION_NAME)
-        status = info.status if info else None
-        if status == FileStatus.SUCCESS:
-            logger.info("OIB ingestion succeeded: %s chunks=%s", name, info.chunk_count)
-            return status
-        if status == FileStatus.FAILED:
-            logger.error("OIB ingestion failed: %s error=%s", name, info.error_message)
-            return status
-        time.sleep(_POLL_INTERVAL_SECONDS)
-    logger.error("OIB ingestion timed out: %s", name)
-    return None
+def _indexed_names(ingestor) -> set[str]:
+    if ingestor.get_collection(COLLECTION_NAME) is None:
+        return set()
+    return {info.file_name for info in ingestor.list_files(COLLECTION_NAME)}
 
 
-def ingest_single(name: str) -> FileStatus | None:
-    """Blocking ingest of one corpus file into the OIB collection, unless the index is already current.
+# ----------------------------------------------------------------------------
+# Jobs: where they are, and what they leave in the corpus table
+# ----------------------------------------------------------------------------
 
-    Returns the terminal FileStatus, or None on timeout. A file the index was
-    already built from (same bytes, same pipeline version) returns SUCCESS
-    without work: an upload's queued ingestion and a sync cycle can both reach
-    the same file, and whichever takes the lock second finds it done. Raises
-    ``LookupError`` when the table no longer lists the file (deleted since it
-    was queued) and ``CorpusStoreError`` when it is listed but cannot be fetched.
 
-    The previous version's chunks are replaced by the ingestor itself, once the
-    new one is indexed, and kept when it is not, taking back out whatever part
-    of the new version a failure had already inserted. There is deliberately no
-    ``delete_file`` first: that deleted the chunks AND the metadata row before
-    the new file was read, so a re-ingest that then failed left the document
-    with nothing, and one that succeeded lost the Dokumentart the platform owner
-    had set on the row.
+def progress_of(row: corpus_store.FileRow) -> JobProgress:
+    """Where the job for ``row``'s current bytes is, read from the ingest status store.
 
-    The hash is recorded for the bytes that were read (the row's), so a file
-    replaced while this ran still needs ingestion afterwards.
+    A job that finished is DONE only if its file reached SUCCESS. The status store settles a
+    job whose queue row is dead (every claim lost) as failed, so a file that kills its workers
+    ends up FAILED here without anything else knowing.
+    """
+    job_id = job_id_for(row)
+    if row.failed_job_id == job_id:
+        return JobProgress.FAILED
+    status = ingest_status_store.get(job_id)
+    if status is None:
+        return JobProgress.NONE
+    if status.status == JobState.PENDING:
+        return JobProgress.WAITING
+    if status.status == JobState.PROCESSING:
+        return JobProgress.RUNNING
+    done = status.status == JobState.COMPLETED and any(f.status == FileStatus.SUCCESS for f in status.file_details)
+    return JobProgress.DONE if done else JobProgress.FAILED
+
+
+def settle(rows: dict[str, corpus_store.FileRow]) -> Settled:
+    """Record what finished: ``mark_ingested`` for a done job, ``mark_failed`` for one that gave up.
+
+    The one place the corpus table learns the outcome of an ingestion, for a sync cycle and for
+    the status view alike (both call it), so an upload's file reads as ingested as soon as its job
+    is done instead of at the next cycle. Idempotent: a recorded file is current and not looked at.
+    """
+    settled: dict[str, corpus_store.FileRow] = {}
+    progress: dict[str, JobProgress] = {}
+    recorded = 0
+    for name, row in rows.items():
+        settled[name] = row
+        if not row.needs_ingestion(CHUNK_FORMAT_VERSION):
+            continue
+        state = progress_of(row)
+        if state == JobProgress.DONE:
+            if corpus_store.mark_ingested(name, row.sha256, CHUNK_FORMAT_VERSION):
+                settled[name] = replace(
+                    row, ingested_sha256=row.sha256, chunk_format_version=CHUNK_FORMAT_VERSION, failed_job_id=None
+                )
+                recorded += 1
+                continue
+            state = JobProgress.WAITING  # the bytes changed under it; the next cycle looks again
+        elif state == JobProgress.FAILED and row.failed_job_id != job_id_for(row):
+            corpus_store.mark_failed(name, row.sha256, job_id_for(row))
+            settled[name] = replace(row, failed_job_id=job_id_for(row))
+        progress[name] = state
+    return Settled(settled, progress, recorded)
+
+
+def _drop_job(row: corpus_store.FileRow) -> None:
+    """Forget the job for ``row``'s bytes (its status and its queue row), so its id can be used again."""
+    job_id = job_id_for(row)
+    ingest_status_store.delete(job_id)
+    ingest_queue.mark_done(job_id)
+
+
+def _request_locked(name: str, doc_class: str | None) -> bool:
+    row = corpus_store.get_file(name)
+    if row is None:
+        raise LookupError(f"{name} is no longer in the base corpus")
+    if not row.needs_ingestion(CHUNK_FORMAT_VERSION) or progress_of(row) != JobProgress.NONE:
+        return False
+
+    ingestor = _get_oib_ingestor()
+    _ensure_collection(ingestor)
+    # Bulk and in the platform lane (no organisation): a file nobody is waiting on this second
+    # (an upload's admin polls the status, and waits behind no one's chat uploads either).
+    config: dict = {"cleanup_files": True, "original_filenames": [name], "priority": "bulk"}
+    if doc_class:
+        config["doc_class"] = doc_class
+    prepared = ingestor.prepare_job(
+        [corpus_store.CorpusObjectDownload(row.storage_key, row.sha256)],
+        COLLECTION_NAME,
+        config,
+        job_id=job_id_for(row),
+    )
+    try:
+        queued = api_seam.enqueue_ingest_job(prepared)
+    except Exception:
+        # Not queued, so it must not read as a pending job nobody holds.
+        ingest_status_store.delete(prepared.job_id)
+        raise
+    if queued:
+        logger.info("Queued the ingestion of %s as job %s", name, prepared.job_id)
+    return queued
+
+
+def request_ingestion(name: str, doc_class: str | None = None) -> bool:
+    """Queue the ingest job for ``name`` unless the index is current or a job for these bytes exists.
+
+    Whether this call queued one. Raises ``LookupError`` when the corpus does not list the file,
+    and ``QueueUnavailable`` when the queue cannot take it; it never ingests here.
+    ``doc_class`` is a Dokumentart an admin chose, carried on the job; without one the ingestor
+    guesses it from the file name.
     """
     with _file_lock(name):
-        row = corpus_store.get_file(name)
-        if row is None:
-            raise LookupError(f"{name} is no longer in the base corpus")
-        if not row.needs_ingestion(CHUNK_FORMAT_VERSION):
-            return FileStatus.SUCCESS
-        pdf = corpus_store.ensure_local(name)
-        if pdf is None:
-            raise LookupError(f"{name} is no longer in the base corpus")
+        return _request_locked(name, doc_class)
 
-        ingestor = _get_oib_ingestor()
-        _ensure_collection(ingestor)
-        file_info = ingestor.upload_file(str(pdf), COLLECTION_NAME)
-        logger.info("Submitted OIB file %s size=%d file_id=%s", name, row.size_bytes, file_info.file_id)
 
-        status = _await_terminal(ingestor, file_info.file_id, name)
-        if status == FileStatus.SUCCESS:
-            corpus_store.mark_ingested(name, row.sha256, CHUNK_FORMAT_VERSION)
-        return status
+def store_and_request(name: str, data: bytes, doc_class: str | None = None) -> bool:
+    """An admin upload: store the file, then queue its job, with no cycle able to come between.
+
+    Raises ``CorpusStoreError`` if the object store refuses the file (nothing is listed then), and
+    ``QueueUnavailable`` if the file is stored but its job could not be queued (the next cycle
+    queues it).
+    """
+    with _file_lock(name):
+        corpus_store.put(name, data)
+        return _request_locked(name, doc_class)
+
+
+# ----------------------------------------------------------------------------
+# Delete, re-index
+# ----------------------------------------------------------------------------
 
 
 def remove_document(name: str) -> bool:
-    """Delete a base-corpus document: its chunks, summary registration, row, object and cached copy.
+    """Delete a base-corpus document: its job, chunks, summary registration, row, object and cached copy.
 
     Returns False when neither the table nor the index knows the name (route
     -> 404). A name only the index knows, chunks left behind by a half-finished
     delete or a restored vector store, is removed the same way; the table and
-    object steps are then no-ops.
+    object steps are then no-ops. A job queued or running for the file is cancelled first:
+    a worker that lost its claim stops before it writes.
     """
     if not corpus_store.is_valid_name(name):
         return False
     with _file_lock(name):
         ingestor = _get_oib_ingestor()
-        if corpus_store.get_file(name) is None and name not in _indexed_names(ingestor):
+        row = corpus_store.get_file(name)
+        if row is None and name not in _indexed_names(ingestor):
             return False
 
+        if row is not None:
+            _drop_job(row)
         # Chunks and summary first, the row last: a failure in between leaves the
         # document listed, so the admin sees it and a retry finds it.
         ingestor.delete_file(name, COLLECTION_NAME)
@@ -246,35 +361,31 @@ def remove_document(name: str) -> bool:
     return True
 
 
-def _indexed_names(ingestor) -> set[str]:
-    if ingestor.get_collection(COLLECTION_NAME) is None:
-        return set()
-    return {info.file_name for info in ingestor.list_files(COLLECTION_NAME)}
-
-
 def mark_for_reingest(name: str) -> bool:
-    """Forget what the index was built from for ``name``, so it needs ingestion again. False if not in the corpus.
+    """Make ``name`` need a new job: forget what the index was built from and what failed. False if not in the corpus.
 
-    :func:`ingest_single` re-uploads and the ingestor replaces the old version
-    whatever the table says; what this makes happen is that the re-ingest is
-    *visible*: ``oib_status`` reports a file with no recorded hash as PENDING,
-    which is the state the admin UI already polls on. Without it a re-ingest of
-    an already-ingested document would read as INGESTED for its whole duration
-    and the progress panel would show a job that appeared to finish before it
-    started. It is also what makes ``ingest_single`` do the work at all, since
-    the file would otherwise be current.
-
-    If the ingestion then fails, the hash simply stays forgotten: the file reads
-    as PENDING and the next sync cycle picks it up, the same self-healing path a
-    genuinely new file takes.
+    The file then reads as PENDING in ``oib_status``, which is the state the admin UI already
+    polls on, and :func:`request_ingestion` queues a fresh job. The job for these bytes has the
+    same id as before, so a finished or failed one is dropped first (its status and queue row);
+    one still waiting or running is left alone, since it will do the work this asks for.
     """
-    if not corpus_store.is_valid_name(name) or corpus_store.get_file(name) is None:
+    if not corpus_store.is_valid_name(name):
         return False
+    row = corpus_store.get_file(name)
+    if row is None:
+        return False
+    if progress_of(row) not in (JobProgress.WAITING, JobProgress.RUNNING):
+        _drop_job(row)
     corpus_store.forget_ingested(name)
     return True
 
 
-def _forget_ingested_if_the_index_was_reset(rows: dict[str, corpus_store.FileRow]) -> dict[str, corpus_store.FileRow]:
+# ----------------------------------------------------------------------------
+# The cycle
+# ----------------------------------------------------------------------------
+
+
+def _forget_everything_if_the_index_was_reset(rows: dict[str, corpus_store.FileRow]) -> dict[str, corpus_store.FileRow]:
     """The rows, after forgetting every ingested hash when the table claims files the index no longer holds."""
     if not any(row.ingested_sha256 for row in rows.values()) or not _collection_is_empty(_get_oib_ingestor()):
         return rows
@@ -283,37 +394,33 @@ def _forget_ingested_if_the_index_was_reset(rows: dict[str, corpus_store.FileRow
         "(vector store reset or repointed) — forcing a full re-ingest",
         COLLECTION_NAME,
     )
+    for row in rows.values():
+        if progress_of(row) not in (JobProgress.WAITING, JobProgress.RUNNING):
+            _drop_job(row)
     corpus_store.forget_ingested()
     return corpus_store.list_files()
 
 
-def _ingest_all(names: Iterable[str]) -> int:
-    """Ingest ``names`` on a small pool; the number that succeeded. A raise is one file's failure, not the cycle's."""
-
-    def one(name: str) -> bool:
-        try:
-            return ingest_single(name) == FileStatus.SUCCESS
-        except Exception:
-            logger.exception("OIB ingestion of %s crashed; it will be retried by the next cycle", name)
-            return False
-
-    with ThreadPoolExecutor(max_workers=_get_max_workers(), thread_name_prefix="oib-ingest-") as pool:
-        return sum(pool.map(one, names))
-
-
 def sync() -> SyncResult:
-    """One sync cycle: ingest every corpus file that needs it.
+    """One sync cycle: record the jobs that finished, then queue a job for every file that needs one.
 
-    Runs under the cross-replica ``oib-sync`` lock, so a second caller (the
-    next scheduled cycle, an admin's "run it now") waits for the running cycle
-    and then finds nothing left to do.
+    Cheap: it reads the table and the status store and writes queue rows, and runs no ingestion.
+    Runs under the cross-replica ``oib-sync`` lock, so a second caller (the next scheduled cycle,
+    an admin's "run it now") waits for the running one and then finds nothing to do. Raises when the
+    queue cannot take a job, instead of ingesting here.
     """
     with keyed_lock(SYNC_LOCK_KEY):
-        rows = _forget_ingested_if_the_index_was_reset(corpus_store.list_files())
-        pending = sorted(name for name, row in rows.items() if row.needs_ingestion(CHUNK_FORMAT_VERSION))
-        logger.info("OIB sync: total=%d needing_ingestion=%d collection=%s", len(rows), len(pending), COLLECTION_NAME)
-        if not pending:
-            return SyncResult(ingested=0, failed=0, total=len(rows))
-        ingested = _ingest_all(pending)
-        logger.info("OIB sync complete: succeeded=%d failed=%d total=%d", ingested, len(pending) - ingested, len(rows))
-        return SyncResult(ingested=ingested, failed=len(pending) - ingested, total=len(rows))
+        rows = _forget_everything_if_the_index_was_reset(corpus_store.list_files())
+        settled = settle(rows)
+        failed = sum(1 for state in settled.progress.values() if state == JobProgress.FAILED)
+        enqueued = 0
+        for name in sorted(n for n, state in settled.progress.items() if state == JobProgress.NONE):
+            try:
+                enqueued += request_ingestion(name)
+            except LookupError:
+                logger.info("%s left the corpus before its job was queued", name)
+        result = SyncResult(
+            enqueued=enqueued, ingested_recorded=settled.recorded, failed=failed, total=len(settled.rows)
+        )
+        logger.info("OIB sync: %s", result)
+        return result

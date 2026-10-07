@@ -13,7 +13,7 @@ import { getBackendUrl } from '@/lib/backend-proxy'
 import { BadRequestError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 
 /** Lifecycle of a corpus file relative to what the RAG has indexed. */
-export type KnowledgeFileState = 'ingested' | 'stale' | 'pending' | 'removed' | 'inconsistent'
+export type KnowledgeFileState = 'ingested' | 'stale' | 'pending' | 'failed' | 'removed' | 'inconsistent'
 
 export interface KnowledgeFile {
   fileName: string
@@ -39,6 +39,7 @@ export interface KnowledgeBaseSummary {
   ingested: number
   stale: number
   pending: number
+  failed: number
   removed: number
   inconsistent: number
   totalChunks: number
@@ -68,7 +69,7 @@ interface BackendFileEntry {
   display_title?: unknown
 }
 
-const FILE_STATES: KnowledgeFileState[] = ['ingested', 'stale', 'pending', 'removed', 'inconsistent']
+const FILE_STATES: KnowledgeFileState[] = ['ingested', 'stale', 'pending', 'failed', 'removed', 'inconsistent']
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
@@ -131,6 +132,7 @@ export async function getKnowledgeBaseStatus(): Promise<KnowledgeBaseStatus> {
       ingested: asCount(summary.ingested),
       stale: asCount(summary.stale),
       pending: asCount(summary.pending),
+      failed: asCount(summary.failed),
       removed: asCount(summary.removed),
       inconsistent: asCount(summary.inconsistent),
       totalChunks: asCount(summary.total_chunks),

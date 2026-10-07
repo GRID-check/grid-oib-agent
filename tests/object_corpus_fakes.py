@@ -8,8 +8,9 @@ SQLite file, so the store's own logic (table, cache, hash checks) runs for real.
 
 Set ``GRID_TEST_CORPUS_DB`` to a Postgres URL to run the same tests against a
 real server: the Postgres upsert, the conditional update and the advisory
-locks of ``keyed_lock`` (SQLite has none) are then exercised too. The table is
-emptied before each test.
+locks of ``keyed_lock`` (SQLite has none) are then exercised too. The corpus table, the
+ingest status store and the ingest queue (one database, as in deployment) are emptied
+before each test.
 """
 
 from __future__ import annotations
@@ -18,8 +19,12 @@ import os
 from pathlib import Path
 
 from sqlalchemy import delete
+from sqlalchemy import text
 
 from aiq_agent import corpus_store
+from aiq_agent.knowledge import ingest_queue
+from aiq_agent.knowledge import ingest_status_store
+from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
 
 
 class FakeBucket:
@@ -63,4 +68,9 @@ def install(monkeypatch, tmp_path: Path) -> FakeBucket:
     monkeypatch.setattr(corpus_store, "_download_object", bucket.download_object)
     with corpus_store._transaction() as conn:
         conn.execute(delete(corpus_store._files))
+    # `get` creates the status table and the queue table beside it.
+    ingest_status_store.get("never-existed")
+    with DocumentMetadataStore._get_or_create_sync_engine(ingest_queue.db_url()).begin() as conn:
+        for table in ("ingest_jobs", ingest_queue.TABLE):
+            conn.execute(text(f"DELETE FROM {table}"))
     return bucket

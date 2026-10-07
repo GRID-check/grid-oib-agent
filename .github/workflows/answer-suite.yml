@@ -15,7 +15,7 @@
 # Before restoring it: the ingest below reads the PDFs from data/oib and keeps a
 # registry file, and the base corpus no longer works that way. It is objects in
 # object storage plus the `oib_corpus_files` table (ADR-0082 step A2), and
-# `--ingest` runs `oib_sync.sync()` over that table. The job then needs a corpus
+# `--ingest` queues the table's ingest jobs with `oib_sync.sync()` and runs them in its own process. The job then needs a corpus
 # store of its own (SeaweedFS, the BFF's upload route and a database), or an
 # ingest that takes a directory of PDFs. Neither is built; this is the gap.
 

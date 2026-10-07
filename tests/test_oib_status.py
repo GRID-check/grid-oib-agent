@@ -9,10 +9,14 @@ import pytest
 from aiq_agent import corpus_store
 from aiq_agent import oib_status
 from aiq_agent import oib_sync
+from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.schema import CollectionInfo
 from aiq_agent.knowledge.schema import FileInfo
 from aiq_agent.knowledge.schema import FileStatus
 from aiq_agent.oib_status import OibFileState
+from tests.corpus_job_fakes import FakeIngestor as JobIngestor
+from tests.corpus_job_fakes import lose_the_workers_for
+from tests.corpus_job_fakes import run_worker
 from tests.object_corpus_fakes import install
 
 
@@ -206,4 +210,91 @@ def test_the_response_carries_no_trace_of_the_removed_concepts():
     assert "documents_dir" not in payload
     assert "snapshot" not in payload["summary"]
     assert "origin" not in payload["files"][0]
-    assert {state.value for state in OibFileState} == {"ingested", "stale", "pending", "removed", "inconsistent"}
+    assert {state.value for state in OibFileState} == {
+        "ingested",
+        "stale",
+        "pending",
+        "failed",
+        "removed",
+        "inconsistent",
+    }
+
+
+# ---------------------------------------------------------------------------
+# What the ingest jobs say
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def jobs(monkeypatch):
+    """The corpus's ingest jobs: a fake ingestor that only prepares them, and a worker to finish them."""
+    monkeypatch.setattr(oib_sync, "_get_oib_ingestor", lambda: JobIngestor())
+
+
+def test_a_file_whose_job_waits_is_pending(jobs):
+    _stored("a.pdf", b"a")
+    oib_sync.sync()
+
+    status = oib_status.get_status(ingestor=FakeIngestor(_collection()))
+
+    assert status.files[0].state == OibFileState.PENDING
+    assert status.summary.failed == 0
+
+
+def test_a_file_whose_job_ran_and_failed_is_failed_and_counted(jobs):
+    _stored("a.pdf", b"a")
+    _stored("b.pdf", b"b")
+    oib_sync.sync()
+    run_worker(succeed=False)
+
+    status = oib_status.get_status(ingestor=FakeIngestor(_collection()))
+
+    assert {f.file_name: f.state for f in status.files} == {"a.pdf": OibFileState.FAILED, "b.pdf": OibFileState.FAILED}
+    assert status.summary.failed == 2
+    assert status.summary.pending == 0
+
+
+def test_a_file_whose_job_died_with_its_workers_is_failed(jobs):
+    row = corpus_store.put("a.pdf", b"a")
+    oib_sync.sync()
+    lose_the_workers_for(oib_sync.job_id_for(row))
+
+    status = oib_status.get_status(ingestor=FakeIngestor(_collection()))
+
+    assert status.files[0].state == OibFileState.FAILED
+
+
+def test_a_failure_stays_failed_after_the_job_row_is_gone(jobs):
+    row = corpus_store.put("a.pdf", b"a")
+    oib_sync.sync()
+    run_worker(succeed=False)
+    oib_status.get_status(ingestor=FakeIngestor(_collection()))
+    ingest_status_store.delete(oib_sync.job_id_for(row))
+
+    status = oib_status.get_status(ingestor=FakeIngestor(_collection()))
+
+    assert status.files[0].state == OibFileState.FAILED
+
+
+def test_new_bytes_take_a_failed_file_out_of_failed(jobs):
+    _stored("a.pdf", b"a")
+    oib_sync.sync()
+    run_worker(succeed=False)
+    oib_status.get_status(ingestor=FakeIngestor(_collection()))
+
+    corpus_store.put("a.pdf", b"a, corrected")
+    status = oib_status.get_status(ingestor=FakeIngestor(_collection()))
+
+    assert status.files[0].state == OibFileState.PENDING
+
+
+def test_a_finished_job_reads_ingested_at_once_without_waiting_for_the_next_cycle(jobs):
+    _stored("a.pdf", b"a")
+    oib_sync.sync()
+    run_worker()
+
+    status = oib_status.get_status(ingestor=FakeIngestor(_collection(), files=[_file_info("a.pdf", 4)]))
+
+    assert status.files[0].state == OibFileState.INGESTED
+    assert status.files[0].ingested_sha256 == _sha256(b"a")
+    assert corpus_store.get_file("a.pdf").ingested_sha256 == _sha256(b"a")  # and it was recorded

@@ -1,22 +1,34 @@
-"""Ingestion of the base corpus: what needs it, how it runs, what it records (ADR-0082, step A2).
+"""Ingestion of the base corpus: what needs it, which job carries it, what is recorded (ADR-0082, step A2).
 
-The corpus is a real table (SQLite, or Postgres when ``GRID_TEST_CORPUS_DB`` is set) and a
-fake bucket (``tests/object_corpus_fakes``); the vector store is a fake ingestor.
+The corpus is a real table and a fake bucket (``tests/object_corpus_fakes``); the ingest queue and the
+ingest status store are the real ones, in the same database (SQLite, or Postgres when
+``GRID_TEST_CORPUS_DB`` is set). The vector store is a fake ingestor that can only PREPARE a job: it
+raises on anything that would ingest in this process. The ingest worker is played by
+:func:`run_worker`, which claims what is queued, runs its download for real, and writes the outcome the
+way the ingestor does.
 """
 
 from __future__ import annotations
 
 import contextlib
 import hashlib
+import inspect
 import logging
 import threading
-from dataclasses import dataclass
 
 import pytest
 
 from aiq_agent import corpus_store
 from aiq_agent import oib_sync
-from aiq_agent.knowledge.schema import FileStatus
+from aiq_agent.common import claim_queue
+from aiq_agent.knowledge import ingest_queue
+from aiq_agent.knowledge import ingest_status_store
+from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
+from aiq_agent.knowledge.ingest_scheduler import PLATFORM_LANE
+from aiq_api.jobs import ingest_dispatch
+from tests.corpus_job_fakes import FakeIngestor
+from tests.corpus_job_fakes import lose_the_workers_for as _lose_the_workers_for
+from tests.corpus_job_fakes import run_worker
 from tests.object_corpus_fakes import FakeBucket
 from tests.object_corpus_fakes import install
 
@@ -25,98 +37,19 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-@dataclass
-class FakeFileInfo:
-    file_id: str
-    file_name: str
-    status: FileStatus
-    chunk_count: int = 0
-    error_message: str | None = None
-
-
-@dataclass
-class FakeCollection:
-    chunk_count: int = 1
-    file_count: int = 1
-
-
-class FakeIngestor:
-    """Uploads are held INGESTING until ``release_after_uploads`` have been made, then reach their terminal status."""
-
-    def __init__(self, terminal: dict[str, FileStatus] | None = None, *, release_after_uploads: int = 1) -> None:
-        self.terminal = terminal or {}
-        self.release_after_uploads = release_after_uploads
-        self.uploaded: list[str] = []
-        self.deleted: list[str] = []
-        self.indexed: set[str] = set()
-        self.collection: FakeCollection | None = FakeCollection()
-        self.max_active = 0
-        self.gate: threading.Event | None = None
-        self.fail_upload_of: set[str] = set()
-        self.on_upload = None
-        self._active: set[str] = set()
-        self._names: dict[str, str] = {}
-        self._lock = threading.Lock()
-
-    def get_collection(self, _name: str):
-        return self.collection
-
-    def create_collection(self, name: str, description: str = "") -> None:
-        self.collection = FakeCollection()
-
-    def list_files(self, _collection: str):
-        return [FakeFileInfo(file_id=n, file_name=n, status=FileStatus.SUCCESS) for n in sorted(self.indexed)]
-
-    def upload_file(self, file_path: str, _collection: str) -> FakeFileInfo:
-        name = file_path.rsplit("/", 1)[-1]
-        if name in self.fail_upload_of:
-            raise RuntimeError(f"cannot read {name}")
-        with self._lock:
-            file_id = f"file-{len(self.uploaded)}"
-            self.uploaded.append(name)
-            self._active.add(file_id)
-            self._names[file_id] = name
-            self.max_active = max(self.max_active, len(self._active))
-        if self.on_upload is not None:
-            self.on_upload(name)
-        return FakeFileInfo(file_id=file_id, file_name=name, status=FileStatus.INGESTING)
-
-    def get_file_status(self, file_id: str, _collection: str) -> FakeFileInfo:
-        if self.gate is not None:
-            self.gate.wait(timeout=10)
-        name = self._names[file_id]
-        with self._lock:
-            held = len(self.uploaded) < self.release_after_uploads
-        if held:
-            return FakeFileInfo(file_id=file_id, file_name=name, status=FileStatus.INGESTING)
-        status = self.terminal.get(name, FileStatus.SUCCESS)
-        if status == FileStatus.INGESTING:
-            return FakeFileInfo(file_id=file_id, file_name=name, status=status)
-        with self._lock:
-            self._active.discard(file_id)
-        if status == FileStatus.SUCCESS:
-            self.indexed.add(name)
-        return FakeFileInfo(
-            file_id=file_id,
-            file_name=name,
-            status=status,
-            chunk_count=3 if status == FileStatus.SUCCESS else 0,
-            error_message="boom" if status == FileStatus.FAILED else None,
-        )
-
-    def delete_file(self, name: str, _collection: str) -> bool:
-        self.deleted.append(name)
-        self.indexed.discard(name)
-        return True
-
-
 @pytest.fixture
 def bucket(monkeypatch, tmp_path) -> FakeBucket:
     monkeypatch.setattr(oib_sync, "COLLECTION_NAME", "test_collection")
-    monkeypatch.setattr(oib_sync, "_POLL_INTERVAL_SECONDS", 0.0)
-    monkeypatch.setattr(oib_sync, "_POLL_TIMEOUT_SECONDS", 30.0)
-    monkeypatch.setenv("OIB_SYNC_MAX_WORKERS", "4")
+    monkeypatch.delenv("GRID_INGEST_QUEUE", raising=False)
+    monkeypatch.delenv("GRID_JOB_PAYLOAD_KEK", raising=False)
     return install(monkeypatch, tmp_path)
+
+
+@pytest.fixture
+def ingestor(monkeypatch, bucket) -> FakeIngestor:
+    fake = FakeIngestor()
+    monkeypatch.setattr(oib_sync, "_get_oib_ingestor", lambda: fake)
+    return fake
 
 
 @pytest.fixture
@@ -126,98 +59,200 @@ def summaries(monkeypatch) -> list[str]:
     return unregistered
 
 
-def _ingestor(monkeypatch, **kwargs) -> FakeIngestor:
-    ingestor = FakeIngestor(**kwargs)
-    monkeypatch.setattr(oib_sync, "_get_oib_ingestor", lambda: ingestor)
-    return ingestor
-
-
 def _row(name: str) -> corpus_store.FileRow:
     row = corpus_store.get_file(name)
     assert row is not None
     return row
 
 
+def _queued() -> int:
+    return ingest_queue.counts().get(ingest_queue.QUEUED, 0)
+
+
+def _engine():
+    return DocumentMetadataStore._get_or_create_sync_engine(ingest_queue.db_url())
+
+
 class TestSync:
-    def test_ingests_what_needs_it_and_records_a_hash_only_for_what_succeeded(self, bucket, monkeypatch):
-        ingestor = _ingestor(
-            monkeypatch,
-            terminal={"a.pdf": FileStatus.SUCCESS, "b.pdf": FileStatus.SUCCESS, "c.pdf": FileStatus.FAILED},
-            release_after_uploads=2,
-        )
-        for name in ("a.pdf", "b.pdf", "c.pdf"):
-            corpus_store.put(name, name.encode())
+    def test_a_pending_file_becomes_one_queued_job_and_two_cycles_queue_one(self, ingestor):
+        corpus_store.put("a.pdf", b"a")
+
+        first = oib_sync.sync()
+        second = oib_sync.sync()
+
+        assert first == oib_sync.SyncResult(enqueued=1, ingested_recorded=0, failed=0, total=1)
+        assert second == oib_sync.SyncResult(enqueued=0, ingested_recorded=0, failed=0, total=1)
+        assert _queued() == 1
+        assert len(ingestor.prepared) == 1
+
+    def test_the_job_is_a_bulk_platform_lane_job_that_downloads_the_corpus_object(self, ingestor):
+        row = corpus_store.put("a.pdf", b"alpha")
+        oib_sync.sync()
+
+        claim = ingest_queue.claim_next("worker-1", stale_seconds=180, max_attempts=3)
+
+        assert claim is not None
+        assert claim.job_id == oib_sync.job_id_for(row)
+        assert claim.lane == PLATFORM_LANE
+        assert claim.priority == claim_queue.priority_rank("bulk")
+        job = ingest_dispatch.decode(claim.payload)
+        assert job.collection_name == "test_collection"
+        assert job.config["original_filenames"] == ["a.pdf"]
+        assert job.config["priority"] == "bulk"
+        assert job.config["cleanup_files"] is True
+        assert "doc_class" not in job.config  # the ingestor guesses it
+        (download,) = job.file_paths
+        assert isinstance(download, corpus_store.CorpusObjectDownload)
+        assert (download.storage_key, download.sha256) == ("base-corpus/a.pdf", _sha(b"alpha"))
+
+    def test_the_worker_reads_the_object_itself_and_checks_its_hash(self, ingestor, bucket):
+        corpus_store.put("a.pdf", b"alpha")
+        oib_sync.sync()
+        bucket.objects["base-corpus/a.pdf"] = b"replaced while the job waited"
+
+        claim = ingest_queue.claim_next("worker-1", stale_seconds=180, max_attempts=3)
+        download = ingest_dispatch.decode(claim.payload).file_paths[0]
+
+        with pytest.raises(corpus_store.CorpusStoreError, match="does not match"):
+            download()
+
+    def test_nothing_is_ingested_in_this_process(self, ingestor):
+        corpus_store.put("a.pdf", b"a")
+        corpus_store.put("b.pdf", b"b")
+
+        oib_sync.sync()  # the fake raises on upload_file, submit_job, submit_prepared and run_prepared
+
+        assert len(ingestor.prepared) == 2
+
+    def test_the_module_has_no_in_process_ingestion_in_it(self):
+        source = inspect.getsource(oib_sync)
+        for forbidden in ("upload_file(", ".submit_job(", ".submit_prepared(", ".run_prepared(", "ThreadPoolExecutor"):
+            assert forbidden not in source, f"oib_sync must not ingest in-process, but it uses {forbidden}"
+
+    def test_a_job_that_succeeded_is_recorded_and_the_file_is_current(self, ingestor):
+        corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+        run_worker()
 
         result = oib_sync.sync()
 
-        assert result == oib_sync.SyncResult(ingested=2, failed=1, total=3)
-        assert sorted(ingestor.uploaded) == ["a.pdf", "b.pdf", "c.pdf"]
-        for name in ("a.pdf", "b.pdf"):
-            assert _row(name).ingested_sha256 == _sha(name.encode())
-            assert _row(name).chunk_format_version == oib_sync.CHUNK_FORMAT_VERSION
-        assert _row("c.pdf").ingested_sha256 is None  # retried by the next cycle
+        assert result == oib_sync.SyncResult(enqueued=0, ingested_recorded=1, failed=0, total=1)
+        row = _row("a.pdf")
+        assert row.ingested_sha256 == _sha(b"a")
+        assert row.chunk_format_version == oib_sync.CHUNK_FORMAT_VERSION
+        assert not row.needs_ingestion(oib_sync.CHUNK_FORMAT_VERSION)
+        assert oib_sync.sync().ingested_recorded == 0
+        assert _queued() == 0
 
-    def test_a_file_that_is_current_is_not_ingested_again(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
+    def test_a_job_still_waiting_is_not_queued_again_nor_recorded(self, ingestor):
         corpus_store.put("a.pdf", b"a")
         oib_sync.sync()
 
         result = oib_sync.sync()
 
-        assert result == oib_sync.SyncResult(ingested=0, failed=0, total=1)
-        assert ingestor.uploaded == ["a.pdf"]
+        assert result.enqueued == 0 and result.ingested_recorded == 0
+        assert _row("a.pdf").ingested_sha256 is None
 
-    def test_a_failed_file_is_retried_by_the_next_cycle(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch, terminal={"a.pdf": FileStatus.FAILED})
+    def test_a_job_that_ran_and_failed_is_failed_and_not_queued_again(self, ingestor):
+        row = corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+        run_worker(succeed=False)
+
+        first = oib_sync.sync()
+        second = oib_sync.sync()
+
+        assert first == oib_sync.SyncResult(enqueued=0, ingested_recorded=0, failed=1, total=1)
+        assert second.failed == 1 and second.enqueued == 0
+        assert _row("a.pdf").failed_job_id == oib_sync.job_id_for(row)
+        assert _queued() == 0
+
+    def test_the_failure_outlives_the_status_row_that_reported_it(self, ingestor):
         corpus_store.put("a.pdf", b"a")
-        assert oib_sync.sync().failed == 1
+        oib_sync.sync()
+        run_worker(succeed=False)
+        oib_sync.sync()
+        ingest_status_store.delete(
+            oib_sync.job_id_for(_row("a.pdf"))
+        )  # the ingestor prunes finished jobs after an hour
 
-        ingestor.terminal["a.pdf"] = FileStatus.SUCCESS
         result = oib_sync.sync()
 
-        assert result.ingested == 1
-        assert ingestor.uploaded == ["a.pdf", "a.pdf"]
+        assert result.failed == 1 and result.enqueued == 0
 
-    def test_a_replaced_file_is_ingested_again(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
+    def test_a_dead_job_is_failed_and_not_queued_again(self, ingestor):
+        row = corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+        _lose_the_workers_for(oib_sync.job_id_for(row))
+
+        first = oib_sync.sync()
+        second = oib_sync.sync()
+
+        assert first.failed == 1 and first.enqueued == 0
+        assert second.failed == 1 and second.enqueued == 0
+        assert _queued() == 0
+        assert _row("a.pdf").failed_job_id == oib_sync.job_id_for(row)
+
+    def test_new_bytes_after_a_failure_are_queued_again(self, ingestor):
+        corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+        run_worker(succeed=False)
+        assert oib_sync.sync().failed == 1
+
+        row = corpus_store.put("a.pdf", b"a, corrected")
+        result = oib_sync.sync()
+
+        assert result == oib_sync.SyncResult(enqueued=1, ingested_recorded=0, failed=0, total=1)
+        assert oib_sync.job_id_for(row) in {p.job_id for p in ingestor.prepared}
+        assert len({p.job_id for p in ingestor.prepared}) == 2
+
+    def test_replaced_bytes_get_a_new_job(self, ingestor):
         corpus_store.put("a.pdf", b"v1")
+        oib_sync.sync()
+        run_worker()
         oib_sync.sync()
 
         corpus_store.put("a.pdf", b"version two")
         result = oib_sync.sync()
 
-        assert result.ingested == 1
-        assert ingestor.uploaded == ["a.pdf", "a.pdf"]
+        assert result.enqueued == 1
+        run_worker()
+        assert oib_sync.sync().ingested_recorded == 1
         assert _row("a.pdf").ingested_sha256 == _sha(b"version two")
 
-    def test_a_new_chunk_format_reingests_the_whole_corpus_through_the_same_rule(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
+    def test_a_new_chunk_format_queues_a_new_job_for_every_file(self, ingestor, monkeypatch):
         corpus_store.put("a.pdf", b"a")
         corpus_store.put("b.pdf", b"b")
         oib_sync.sync()
-        assert len(ingestor.uploaded) == 2
+        run_worker()
+        oib_sync.sync()
+        assert _queued() == 0
 
         monkeypatch.setattr(oib_sync, "CHUNK_FORMAT_VERSION", oib_sync.CHUNK_FORMAT_VERSION + 1)
         result = oib_sync.sync()
 
-        assert result.ingested == 2
-        assert len(ingestor.uploaded) == 4
+        assert result.enqueued == 2
+        run_worker()
+        oib_sync.sync()
         assert _row("a.pdf").chunk_format_version == oib_sync.CHUNK_FORMAT_VERSION
 
-    def test_a_reset_vector_store_is_filled_again(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
+    def test_a_reset_vector_store_is_filled_again(self, ingestor):
         corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+        run_worker()
         oib_sync.sync()
         ingestor.collection = None  # Chroma wiped or repointed; the table still says "ingested"
 
         result = oib_sync.sync()
 
-        assert result.ingested == 1
-        assert ingestor.uploaded == ["a.pdf", "a.pdf"]
+        assert result.enqueued == 1
+        assert _row("a.pdf").ingested_sha256 is None
+        run_worker()
+        assert oib_sync.sync().ingested_recorded == 1
 
-    def test_a_vector_store_that_cannot_be_probed_does_not_discard_what_the_table_knows(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
+    def test_a_vector_store_that_cannot_be_probed_does_not_discard_what_the_table_knows(self, ingestor, monkeypatch):
         corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+        run_worker()
         oib_sync.sync()
 
         def unreachable(_name):
@@ -225,221 +260,204 @@ class TestSync:
 
         monkeypatch.setattr(ingestor, "get_collection", unreachable)
 
-        assert oib_sync.sync().ingested == 0
+        assert oib_sync.sync().enqueued == 0
         assert _row("a.pdf").ingested_sha256 == _sha(b"a")
 
-    def test_an_empty_corpus_is_a_cycle_that_does_nothing(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
+    def test_an_empty_corpus_is_a_cycle_that_does_nothing(self, ingestor):
+        assert oib_sync.sync() == oib_sync.SyncResult(enqueued=0, ingested_recorded=0, failed=0, total=0)
+        assert ingestor.prepared == []
 
-        assert oib_sync.sync() == oib_sync.SyncResult(ingested=0, failed=0, total=0)
-        assert ingestor.uploaded == []
+    def test_a_cycle_is_cheap_it_runs_no_download(self, ingestor, bucket):
+        corpus_store.put("a.pdf", b"a")
 
-    def test_the_worker_limit_bounds_concurrent_ingestions(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch, release_after_uploads=2)
-        monkeypatch.setenv("OIB_SYNC_MAX_WORKERS", "2")
-        for name in ("a.pdf", "b.pdf", "c.pdf"):
-            corpus_store.put(name, name.encode())
+        oib_sync.sync()
 
-        assert oib_sync.sync().ingested == 3
+        assert bucket.downloads == []
 
-        assert ingestor.max_active == 2
-
-    def test_one_worker_ingests_one_file_at_a_time(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
-        monkeypatch.setenv("OIB_SYNC_MAX_WORKERS", "1")
-        for name in ("a.pdf", "b.pdf"):
-            corpus_store.put(name, name.encode())
-
-        assert oib_sync.sync().ingested == 2
-
-        assert ingestor.max_active == 1
-
-    def test_a_file_that_raises_fails_alone(self, bucket, monkeypatch, caplog):
-        ingestor = _ingestor(monkeypatch)
-        ingestor.fail_upload_of = {"b.pdf"}
-        for name in ("a.pdf", "b.pdf", "c.pdf"):
-            corpus_store.put(name, name.encode())
-
-        with caplog.at_level(logging.ERROR, logger="aiq_agent.oib_sync"):
-            result = oib_sync.sync()
-
-        assert result == oib_sync.SyncResult(ingested=2, failed=1, total=3)
-        assert _row("b.pdf").ingested_sha256 is None
-        assert "b.pdf" in caplog.text
-
-    def test_the_cycle_logs_what_it_found_and_what_it_did(self, bucket, monkeypatch, caplog):
-        _ingestor(monkeypatch)
+    def test_the_cycle_logs_what_it_did(self, ingestor, caplog):
         corpus_store.put("a.pdf", b"a")
 
         with caplog.at_level(logging.INFO, logger="aiq_agent.oib_sync"):
             oib_sync.sync()
 
-        assert "total=1 needing_ingestion=1" in caplog.text
-        assert "succeeded=1 failed=0 total=1" in caplog.text
+        assert "enqueued=1" in caplog.text
 
-    def test_a_file_fetched_from_the_object_store_is_what_gets_ingested(self, bucket, monkeypatch, tmp_path):
-        ingestor = _ingestor(monkeypatch)
-        corpus_store.put("a.pdf", b"alpha")
-        (tmp_path / "cache" / "a.pdf").unlink()  # this replica never held it
-        seen: dict[str, bytes] = {}
-        ingestor.on_upload = lambda name: seen.update({name: (tmp_path / "cache" / name).read_bytes()})
 
+class TestNoInProcessFallback:
+    def test_with_the_queue_switched_off_the_cycle_errors_and_leaves_nothing_pending(self, ingestor, monkeypatch):
+        monkeypatch.setenv("GRID_INGEST_QUEUE", "off")
+        row = corpus_store.put("a.pdf", b"a")
+
+        with pytest.raises(ingest_dispatch.QueueUnavailable, match="ingest queue is off"):
+            oib_sync.sync()
+
+        assert ingest_status_store.get(oib_sync.job_id_for(row)) is None  # no pending job nobody holds
+        assert _queued() == 0
+
+    def test_an_ingestor_that_cannot_run_a_job_elsewhere_errors(self, ingestor):
+        corpus_store.put("a.pdf", b"a")
+        original = ingestor.prepare_job
+
+        def prepare_a_job_with_a_local_file(file_paths, collection_name, config=None, job_id=None):
+            return original(["/tmp/a-local-path.pdf"], collection_name, config, job_id)
+
+        ingestor.prepare_job = prepare_a_job_with_a_local_file
+
+        with pytest.raises(ingest_dispatch.QueueUnavailable, match="cannot run in another process"):
+            oib_sync.sync()
+
+    def test_a_queue_that_cannot_be_written_errors(self, ingestor, monkeypatch):
+        corpus_store.put("a.pdf", b"a")
+
+        def refuse(*_args, **_kwargs):
+            raise ConnectionError("database down")
+
+        monkeypatch.setattr(ingest_queue, "enqueue", refuse)
+
+        with pytest.raises(ingest_dispatch.QueueUnavailable, match="ConnectionError"):
+            oib_sync.sync()
+
+    def test_the_cycle_comes_back_after_the_queue_does(self, ingestor, monkeypatch):
+        corpus_store.put("a.pdf", b"a")
+        monkeypatch.setenv("GRID_INGEST_QUEUE", "off")
+        with pytest.raises(ingest_dispatch.QueueUnavailable):
+            oib_sync.sync()
+        monkeypatch.delenv("GRID_INGEST_QUEUE")
+
+        assert oib_sync.sync().enqueued == 1
+
+
+class TestUpload:
+    def test_an_upload_queues_its_job_at_once_with_the_admins_dokumentart(self, ingestor):
+        queued = oib_sync.store_and_request("plan.pdf", b"%PDF plan", "oib_leitfaden")
+
+        assert queued is True
+        assert _row("plan.pdf").sha256 == _sha(b"%PDF plan")
+        claim = ingest_queue.claim_next("worker-1", stale_seconds=180, max_attempts=3)
+        assert ingest_dispatch.decode(claim.payload).config["doc_class"] == "oib_leitfaden"
+
+    def test_a_cycle_after_an_upload_queues_nothing_more(self, ingestor):
+        oib_sync.store_and_request("plan.pdf", b"%PDF plan")
+
+        result = oib_sync.sync()
+
+        assert result.enqueued == 0
+        assert _queued() == 1
+
+    def test_an_upload_after_a_cycle_queues_nothing_more(self, ingestor):
+        corpus_store.put("plan.pdf", b"%PDF plan")
         oib_sync.sync()
 
-        assert seen == {"a.pdf": b"alpha"}
-        assert bucket.downloads == ["base-corpus/a.pdf"]
+        assert oib_sync.store_and_request("plan.pdf", b"%PDF plan") is False
+        assert _queued() == 1
 
-
-class TestLocks:
-    def test_a_sync_cycle_holds_the_cross_replica_lock(self, bucket, monkeypatch):
-        _ingestor(monkeypatch)
+    def test_the_file_is_stored_and_its_job_queued_under_one_hold_of_the_lock(self, ingestor, monkeypatch):
         held: list[str] = []
+        events: list[str] = []
 
         @contextlib.contextmanager
         def recording(key):
             held.append(key)
+            events.append("lock")
             yield
+            events.append("unlock")
 
         monkeypatch.setattr(oib_sync, "keyed_lock", recording)
-        corpus_store.put("a.pdf", b"a")
+        real_put = corpus_store.put
+        monkeypatch.setattr(corpus_store, "put", lambda *a, **k: events.append("put") or real_put(*a, **k))
 
-        oib_sync.sync()
+        oib_sync.store_and_request("plan.pdf", b"%PDF plan")
 
-        assert held == ["oib-sync", "oib-file:a.pdf"]
+        assert held == ["oib-file:plan.pdf"]
+        assert events == ["lock", "put", "unlock"]
 
-    def test_a_second_cycle_waits_for_the_running_one_and_finds_nothing_to_do(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
-        ingestor.gate = threading.Event()
-        corpus_store.put("a.pdf", b"a")
-        results: list[oib_sync.SyncResult] = []
-        first = threading.Thread(target=lambda: results.append(oib_sync.sync()), daemon=True)
-        first.start()
-        while not ingestor.uploaded:
-            first.join(0.01)
-        second = threading.Thread(target=lambda: results.append(oib_sync.sync()), daemon=True)
-        second.start()
-        second.join(0.2)
-        assert second.is_alive()  # parked behind the first cycle
-
-        ingestor.gate.set()
-        first.join(10)
-        second.join(10)
-
-        assert sorted(r.ingested for r in results) == [0, 1]
-        assert ingestor.uploaded == ["a.pdf"]
-
-    def test_two_ingestions_of_one_file_run_one_after_the_other_and_the_second_finds_it_done(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
-        ingestor.gate = threading.Event()
-        corpus_store.put("a.pdf", b"a")
-        statuses: list[FileStatus | None] = []
-        threads = [threading.Thread(target=lambda: statuses.append(oib_sync.ingest_single("a.pdf")), daemon=True)]
-        threads[0].start()
-        while not ingestor.uploaded:
-            threads[0].join(0.01)
-        threads.append(threading.Thread(target=lambda: statuses.append(oib_sync.ingest_single("a.pdf")), daemon=True))
-        threads[1].start()
-
-        ingestor.gate.set()
-        for thread in threads:
-            thread.join(10)
-
-        assert statuses == [FileStatus.SUCCESS, FileStatus.SUCCESS]
-        assert ingestor.uploaded == ["a.pdf"]
-
-    def test_a_delete_waits_for_a_running_ingestion_of_the_same_file(self, bucket, monkeypatch, summaries):
-        ingestor = _ingestor(monkeypatch)
-        ingestor.gate = threading.Event()
-        corpus_store.put("a.pdf", b"a")
-        ingesting = threading.Thread(target=oib_sync.ingest_single, args=("a.pdf",), daemon=True)
-        ingesting.start()
-        while not ingestor.uploaded:
-            ingesting.join(0.01)
-        removed: list[bool] = []
-        deleting = threading.Thread(target=lambda: removed.append(oib_sync.remove_document("a.pdf")), daemon=True)
-        deleting.start()
-        deleting.join(0.2)
-        assert deleting.is_alive()  # the ingestion still holds the file
-
-        ingestor.gate.set()
-        ingesting.join(10)
-        deleting.join(10)
-
-        assert removed == [True]
-        assert corpus_store.get_file("a.pdf") is None
-
-
-class TestIngestSingle:
-    def test_success_records_the_hash_and_the_pipeline_version(self, bucket, monkeypatch):
-        _ingestor(monkeypatch)
-        corpus_store.put("new.pdf", b"new")
-
-        assert oib_sync.ingest_single("new.pdf") == FileStatus.SUCCESS
-
-        assert _row("new.pdf").ingested_sha256 == _sha(b"new")
-        assert _row("new.pdf").chunk_format_version == oib_sync.CHUNK_FORMAT_VERSION
-
-    def test_a_file_the_index_was_built_from_is_not_uploaded_again(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
-        corpus_store.put("a.pdf", b"a")
-        oib_sync.ingest_single("a.pdf")
-
-        assert oib_sync.ingest_single("a.pdf") == FileStatus.SUCCESS
-
-        assert ingestor.uploaded == ["a.pdf"]
-
-    def test_a_failure_records_nothing(self, bucket, monkeypatch):
-        _ingestor(monkeypatch, terminal={"bad.pdf": FileStatus.FAILED})
-        corpus_store.put("bad.pdf", b"bad")
-
-        assert oib_sync.ingest_single("bad.pdf") == FileStatus.FAILED
-
-        assert _row("bad.pdf").ingested_sha256 is None
-
-    def test_a_timeout_is_none_and_records_nothing(self, bucket, monkeypatch):
-        _ingestor(monkeypatch, terminal={"slow.pdf": FileStatus.INGESTING})
-        monkeypatch.setattr(oib_sync, "_POLL_TIMEOUT_SECONDS", 0.05)
-        corpus_store.put("slow.pdf", b"slow")
-
-        assert oib_sync.ingest_single("slow.pdf") is None
-
-        assert _row("slow.pdf").ingested_sha256 is None
-
-    def test_a_file_replaced_while_it_ingested_still_needs_ingestion(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
-        corpus_store.put("a.pdf", b"v1")
-        ingestor.on_upload = lambda name: corpus_store.put(name, b"version two")
-
-        assert oib_sync.ingest_single("a.pdf") == FileStatus.SUCCESS
-
-        row = _row("a.pdf")
-        assert row.sha256 == _sha(b"version two")
-        assert row.ingested_sha256 is None
-        assert row.needs_ingestion(oib_sync.CHUNK_FORMAT_VERSION)
-
-    def test_a_file_that_left_the_corpus_is_a_lookup_error(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
-
-        with pytest.raises(LookupError, match="ghost.pdf"):
-            oib_sync.ingest_single("ghost.pdf")
-
-        assert ingestor.uploaded == []
-
-    def test_a_listed_file_that_cannot_be_fetched_is_a_store_error(self, bucket, monkeypatch, tmp_path):
-        _ingestor(monkeypatch)
-        corpus_store.put("a.pdf", b"a")
-        (tmp_path / "cache" / "a.pdf").unlink()
-        bucket.objects.clear()
+    def test_a_store_that_refuses_the_file_lists_nothing_and_queues_nothing(self, ingestor, bucket):
+        bucket.refuse_uploads = True
 
         with pytest.raises(corpus_store.CorpusStoreError):
-            oib_sync.ingest_single("a.pdf")
+            oib_sync.store_and_request("plan.pdf", b"%PDF plan")
+
+        assert corpus_store.get_file("plan.pdf") is None
+        assert ingestor.prepared == []
+
+    def test_a_queue_that_is_down_leaves_the_file_stored_for_the_next_cycle(self, ingestor, monkeypatch):
+        monkeypatch.setenv("GRID_INGEST_QUEUE", "off")
+        with pytest.raises(ingest_dispatch.QueueUnavailable):
+            oib_sync.store_and_request("plan.pdf", b"%PDF plan")
+        monkeypatch.delenv("GRID_INGEST_QUEUE")
+
+        assert corpus_store.get_file("plan.pdf") is not None
+        assert oib_sync.sync().enqueued == 1
+
+    def test_a_cycle_cannot_queue_the_file_between_its_row_and_its_job(self, ingestor, monkeypatch):
+        """The cycle waits on the same per-file lock, so the upload's Dokumentart is never lost to it."""
+        in_put = threading.Event()
+        release = threading.Event()
+        real_put = corpus_store.put
+
+        def slow_put(name, data):
+            row = real_put(name, data)
+            in_put.set()
+            release.wait(10)
+            return row
+
+        monkeypatch.setattr(corpus_store, "put", slow_put)
+        upload = threading.Thread(
+            target=oib_sync.store_and_request, args=("plan.pdf", b"%PDF plan", "gesetz"), daemon=True
+        )
+        upload.start()
+        assert in_put.wait(10)
+        cycle = threading.Thread(target=oib_sync.sync, daemon=True)
+        cycle.start()
+        cycle.join(0.3)
+        assert cycle.is_alive()  # parked behind the upload's hold of the file
+        release.set()
+        upload.join(10)
+        cycle.join(10)
+
+        claim = ingest_queue.claim_next("worker-1", stale_seconds=180, max_attempts=3)
+        assert ingest_dispatch.decode(claim.payload).config["doc_class"] == "gesetz"
+        assert _queued() == 0
+
+
+class TestRequestIngestion:
+    def test_a_file_that_left_the_corpus_is_a_lookup_error(self, ingestor):
+        with pytest.raises(LookupError, match="ghost.pdf"):
+            oib_sync.request_ingestion("ghost.pdf")
+
+    def test_a_file_the_index_was_built_from_is_not_queued(self, ingestor):
+        corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+        run_worker()
+        oib_sync.sync()
+
+        assert oib_sync.request_ingestion("a.pdf") is False
+
+
+class TestStatusFromJobs:
+    def test_a_finished_job_is_recorded_by_asking_not_only_by_the_cycle(self, ingestor):
+        corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+        run_worker()
+
+        settled = oib_sync.settle(corpus_store.list_files())
+
+        assert settled.recorded == 1
+        assert not settled.rows["a.pdf"].needs_ingestion(oib_sync.CHUNK_FORMAT_VERSION)
+
+    def test_progress_follows_the_job(self, ingestor):
+        row = corpus_store.put("a.pdf", b"a")
+        assert oib_sync.progress_of(row) == oib_sync.JobProgress.NONE
+        oib_sync.sync()
+        assert oib_sync.progress_of(row) == oib_sync.JobProgress.WAITING
+        run_worker()
+        assert oib_sync.progress_of(row) == oib_sync.JobProgress.DONE
 
 
 class TestRemoveDocument:
-    def test_deletes_chunks_summary_row_object_and_cached_copy(self, bucket, monkeypatch, summaries, tmp_path):
-        ingestor = _ingestor(monkeypatch)
+    def test_deletes_chunks_summary_row_object_and_cached_copy(self, ingestor, bucket, summaries, tmp_path):
         corpus_store.put("custom.pdf", b"custom")
-        oib_sync.ingest_single("custom.pdf")
+        ingestor.indexed.add("custom.pdf")
 
         assert oib_sync.remove_document("custom.pdf") is True
 
@@ -448,35 +466,41 @@ class TestRemoveDocument:
         assert corpus_store.get_file("custom.pdf") is None
         assert bucket.objects == {}
         assert not (tmp_path / "cache" / "custom.pdf").exists()
-        assert "custom.pdf" not in ingestor.indexed
 
-    def test_a_deleted_file_is_not_ingested_by_the_next_cycle(self, bucket, monkeypatch, summaries):
-        ingestor = _ingestor(monkeypatch)
+    def test_cancels_the_job_queued_for_the_file(self, ingestor, summaries):
+        row = corpus_store.put("custom.pdf", b"custom")
+        oib_sync.sync()
+        assert _queued() == 1
+
+        oib_sync.remove_document("custom.pdf")
+
+        assert _queued() == 0
+        assert ingest_status_store.get(oib_sync.job_id_for(row)) is None
+        assert oib_sync.sync().enqueued == 0
+
+    def test_a_deleted_file_is_not_queued_by_the_next_cycle(self, ingestor, summaries):
         corpus_store.put("custom.pdf", b"custom")
         oib_sync.remove_document("custom.pdf")
 
         assert oib_sync.sync().total == 0
-        assert ingestor.uploaded == []
+        assert ingestor.prepared == []
 
-    def test_a_name_only_the_index_knows_is_cleared_too(self, bucket, monkeypatch, summaries):
-        ingestor = _ingestor(monkeypatch)
+    def test_a_name_only_the_index_knows_is_cleared_too(self, ingestor, summaries):
         ingestor.indexed.add("leftover.pdf")
 
         assert oib_sync.remove_document("leftover.pdf") is True
 
         assert ingestor.deleted == ["leftover.pdf"]
-        assert "leftover.pdf" not in ingestor.indexed
 
     @pytest.mark.parametrize("name", ["nope.pdf", "../oib/shipped.pdf", "notes.txt", ""])
-    def test_an_unknown_or_unsafe_name_is_false_and_touches_nothing(self, bucket, monkeypatch, summaries, name):
-        ingestor = _ingestor(monkeypatch)
-
+    def test_an_unknown_or_unsafe_name_is_false_and_touches_nothing(self, ingestor, bucket, summaries, name):
         assert oib_sync.remove_document(name) is False
 
         assert ingestor.deleted == [] and summaries == [] and bucket.deletes == []
 
-    def test_a_failed_chunk_delete_keeps_the_document_listed_so_a_retry_finds_it(self, bucket, monkeypatch, summaries):
-        ingestor = _ingestor(monkeypatch)
+    def test_a_failed_chunk_delete_keeps_the_document_listed_so_a_retry_finds_it(
+        self, ingestor, bucket, summaries, monkeypatch
+    ):
         corpus_store.put("custom.pdf", b"custom")
 
         def fail(_name, _collection):
@@ -488,12 +512,11 @@ class TestRemoveDocument:
             oib_sync.remove_document("custom.pdf")
 
         assert corpus_store.get_file("custom.pdf") is not None
-        assert bucket.objects  # the object is still there
+        assert bucket.objects
 
     def test_an_object_the_store_cannot_delete_is_an_error_after_the_chunks_are_gone(
-        self, bucket, monkeypatch, summaries
+        self, ingestor, summaries, monkeypatch
     ):
-        ingestor = _ingestor(monkeypatch)
         corpus_store.put("custom.pdf", b"custom")
 
         def refuse(_name):
@@ -509,34 +532,62 @@ class TestRemoveDocument:
 
 
 class TestMarkForReingest:
-    def test_forgets_what_the_index_was_built_from_so_the_file_reads_as_pending(self, bucket, monkeypatch):
-        _ingestor(monkeypatch)
-        corpus_store.put("a.pdf", b"a")
-        oib_sync.ingest_single("a.pdf")
+    def test_a_finished_file_needs_a_new_job_with_the_same_id_after_it(self, ingestor):
+        row = corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+        run_worker()
+        oib_sync.sync()
 
         assert oib_sync.mark_for_reingest("a.pdf") is True
-
         assert _row("a.pdf").ingested_sha256 is None
+        assert oib_sync.request_ingestion("a.pdf") is True
 
-    def test_the_file_is_then_ingested_again(self, bucket, monkeypatch):
-        ingestor = _ingestor(monkeypatch)
+        claim = ingest_queue.claim_next("worker-1", stale_seconds=180, max_attempts=3)
+        assert claim.job_id == oib_sync.job_id_for(row)
+
+    def test_a_failed_file_is_tried_again_when_an_admin_asks(self, ingestor):
         corpus_store.put("a.pdf", b"a")
-        oib_sync.ingest_single("a.pdf")
+        oib_sync.sync()
+        run_worker(succeed=False)
+        assert oib_sync.sync().failed == 1
+
+        assert oib_sync.mark_for_reingest("a.pdf") is True
+        result = oib_sync.sync()
+
+        assert result.enqueued == 1 and result.failed == 0
+
+    def test_a_dead_file_is_tried_again_when_an_admin_asks(self, ingestor):
+        row = corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+        _lose_the_workers_for(oib_sync.job_id_for(row))
+        assert oib_sync.sync().failed == 1
+
         oib_sync.mark_for_reingest("a.pdf")
 
-        assert oib_sync.ingest_single("a.pdf") == FileStatus.SUCCESS
+        assert oib_sync.sync().enqueued == 1
 
-        assert ingestor.uploaded == ["a.pdf", "a.pdf"]
+    def test_a_job_that_is_still_waiting_is_left_alone(self, ingestor):
+        corpus_store.put("a.pdf", b"a")
+        oib_sync.sync()
+
+        oib_sync.mark_for_reingest("a.pdf")
+
+        assert oib_sync.request_ingestion("a.pdf") is False
+        assert _queued() == 1
 
     @pytest.mark.parametrize("name", ["ghost.pdf", "../a.pdf", "a.txt"])
-    def test_a_name_that_is_not_in_the_corpus_is_false(self, bucket, monkeypatch, name):
-        _ingestor(monkeypatch)
-
+    def test_a_name_that_is_not_in_the_corpus_is_false(self, ingestor, name):
         assert oib_sync.mark_for_reingest(name) is False
 
 
-class TestWorkerSetting:
-    @pytest.mark.parametrize(("raw", "expected"), [("3", 3), ("0", 1), ("-2", 1), ("many", 4)])
-    def test_the_worker_count_is_clamped_and_falls_back(self, monkeypatch, raw, expected):
-        monkeypatch.setenv("OIB_SYNC_MAX_WORKERS", raw)
-        assert oib_sync._get_max_workers() == expected
+def test_the_job_id_is_a_function_of_name_hash_and_version(monkeypatch):
+    row = corpus_store.FileRow("a.pdf", "base-corpus/a.pdf", _sha(b"a"), 1)
+    same = corpus_store.FileRow("a.pdf", "base-corpus/a.pdf", _sha(b"a"), 1, ingested_sha256="x", failed_job_id="y")
+    other_bytes = corpus_store.FileRow("a.pdf", "base-corpus/a.pdf", _sha(b"b"), 1)
+    other_name = corpus_store.FileRow("b.pdf", "base-corpus/b.pdf", _sha(b"a"), 1)
+
+    assert oib_sync.job_id_for(row) == oib_sync.job_id_for(same)
+    assert len({oib_sync.job_id_for(r) for r in (row, other_bytes, other_name)}) == 3
+    before = oib_sync.job_id_for(row)
+    monkeypatch.setattr(oib_sync, "CHUNK_FORMAT_VERSION", oib_sync.CHUNK_FORMAT_VERSION + 1)
+    assert oib_sync.job_id_for(row) != before

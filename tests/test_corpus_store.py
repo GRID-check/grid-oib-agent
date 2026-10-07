@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -398,3 +399,105 @@ class TestWireDetails:
 
         with pytest.raises(corpus_store.CorpusStoreError, match="SEAWEED"):
             corpus_store._download_object("base-corpus/a.pdf", io.BytesIO())
+
+
+class TestFailure:
+    def test_a_job_that_gave_up_is_remembered_against_the_bytes_it_gave_up_on(self, bucket):
+        corpus_store.put("a.pdf", b"alpha")
+
+        assert corpus_store.mark_failed("a.pdf", _sha(b"alpha"), "oib-1") is True
+
+        assert corpus_store.get_file("a.pdf").failed_job_id == "oib-1"
+
+    def test_it_is_not_recorded_against_bytes_the_row_no_longer_holds(self, bucket):
+        corpus_store.put("a.pdf", b"v1")
+        corpus_store.put("a.pdf", b"v2")
+
+        assert corpus_store.mark_failed("a.pdf", _sha(b"v1"), "oib-1") is False
+        assert corpus_store.get_file("a.pdf").failed_job_id is None
+
+    def test_a_recorded_success_clears_it(self, bucket):
+        corpus_store.put("a.pdf", b"alpha")
+        corpus_store.mark_failed("a.pdf", _sha(b"alpha"), "oib-1")
+
+        corpus_store.mark_ingested("a.pdf", _sha(b"alpha"), FORMAT)
+
+        assert corpus_store.get_file("a.pdf").failed_job_id is None
+
+    def test_forgetting_clears_it(self, bucket):
+        for name in ("a.pdf", "b.pdf"):
+            corpus_store.put(name, name.encode())
+            corpus_store.mark_failed(name, _sha(name.encode()), "oib-1")
+
+        corpus_store.forget_ingested("a.pdf")
+        assert corpus_store.get_file("a.pdf").failed_job_id is None
+        assert corpus_store.get_file("b.pdf").failed_job_id == "oib-1"
+
+        corpus_store.forget_ingested()
+        assert corpus_store.get_file("b.pdf").failed_job_id is None
+
+    def test_replacing_the_bytes_keeps_the_old_failure_which_names_a_job_for_other_bytes(self, bucket):
+        corpus_store.put("a.pdf", b"v1")
+        corpus_store.mark_failed("a.pdf", _sha(b"v1"), "oib-for-v1")
+
+        row = corpus_store.put("a.pdf", b"version two")
+
+        assert row.sha256 == _sha(b"version two")
+        assert corpus_store.get_file("a.pdf").failed_job_id == "oib-for-v1"
+
+
+class TestCorpusObjectDownload:
+    def test_it_downloads_the_object_to_a_temp_pdf_the_caller_owns(self, bucket):
+        row = corpus_store.put("a.pdf", b"alpha")
+
+        path = corpus_store.CorpusObjectDownload(row.storage_key, row.sha256)()
+
+        try:
+            assert path.endswith(".pdf")
+            assert Path(path).read_bytes() == b"alpha"
+        finally:
+            Path(path).unlink(missing_ok=True)
+        assert bucket.downloads == ["base-corpus/a.pdf"]
+
+    def test_bytes_other_than_the_ones_the_job_was_made_for_fail_and_leave_no_file(self, bucket, tmp_path, monkeypatch):
+        scratch = tmp_path / "scratch"
+        scratch.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+        row = corpus_store.put("a.pdf", b"alpha")
+        bucket.objects["base-corpus/a.pdf"] = b"replaced"
+
+        with pytest.raises(corpus_store.CorpusStoreError, match="does not match"):
+            corpus_store.CorpusObjectDownload(row.storage_key, row.sha256)()
+
+        assert list(scratch.iterdir()) == []
+
+    def test_a_missing_object_fails_and_leaves_no_file(self, bucket, tmp_path, monkeypatch):
+        scratch = tmp_path / "scratch"
+        scratch.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+        row = corpus_store.put("a.pdf", b"alpha")
+        bucket.objects.clear()
+
+        with pytest.raises(corpus_store.CorpusStoreError, match="NoSuchKey"):
+            corpus_store.CorpusObjectDownload(row.storage_key, row.sha256)()
+
+        assert list(scratch.iterdir()) == []
+
+    @pytest.mark.parametrize("key", ["other-prefix/a.pdf", "base-corpus/../secret.pdf", "a.pdf", ""])
+    def test_only_a_corpus_object_key_is_accepted(self, key):
+        with pytest.raises(corpus_store.CorpusStoreError, match="not a corpus object key"):
+            corpus_store.CorpusObjectDownload(key, "0" * 64)
+
+    def test_it_round_trips_as_queue_data_that_holds_no_credential(self):
+        download = corpus_store.CorpusObjectDownload("base-corpus/a.pdf", "ab" * 32)
+
+        payload = download.to_payload()
+        again = corpus_store.CorpusObjectDownload.from_payload(payload)
+
+        assert payload == {"storage_key": "base-corpus/a.pdf", "sha256": "ab" * 32}
+        assert (again.storage_key, again.sha256) == (download.storage_key, download.sha256)
+        assert "http" not in repr(download)
+
+    def test_a_forged_payload_is_refused_when_a_worker_reads_it_back(self):
+        with pytest.raises(corpus_store.CorpusStoreError):
+            corpus_store.CorpusObjectDownload.from_payload({"storage_key": "elsewhere/x.pdf", "sha256": "0" * 64})

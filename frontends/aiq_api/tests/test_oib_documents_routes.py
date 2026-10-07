@@ -4,17 +4,19 @@ Covers the non-blocking upload (explicit + guessed doc_class, invalid → 400),
 safe ZIP extraction (happy path + zip-slip + non-pdf skip), the reclassify
 PATCH endpoint (updates / validates / 404), delete, re-ingest, the PDF route and
 the corpus export. Uses a tmp-sqlite summary store, an in-memory stand-in for the
-BFF and SeaweedFS with a real corpus table (a real Postgres when
-``GRID_TEST_CORPUS_DB`` is set), and a fake ``oib_sync.ingest_single`` so
-ingestion is fast and deterministic.
+BFF and SeaweedFS with a real corpus table, ingest queue and status store (a real
+Postgres when ``GRID_TEST_CORPUS_DB`` is set), and a fake ingestor that can only
+PREPARE a job: an upload or a re-ingest must leave a job in the queue and ingest
+nothing in the route's own process.
 """
 
 import io
 import os
 import tarfile
 import tempfile
-import time
 import zipfile
+from datetime import UTC
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -23,13 +25,21 @@ from fastapi import FastAPI
 from httpx import ASGITransport
 from httpx import AsyncClient
 from sqlalchemy import delete
+from sqlalchemy import text
 
 from aiq_agent import corpus_store
 from aiq_agent import oib_sync
+from aiq_agent.knowledge import ingest_queue
+from aiq_agent.knowledge import ingest_status_store
+from aiq_agent.knowledge.base import PreparedIngestJob
 from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
 from aiq_agent.knowledge.factory import configure_summary_db
 from aiq_agent.knowledge.factory import register_summary
+from aiq_agent.knowledge.schema import FileProgress
 from aiq_agent.knowledge.schema import FileStatus
+from aiq_agent.knowledge.schema import IngestionJobStatus
+from aiq_agent.knowledge.schema import JobState
+from aiq_api.jobs import ingest_dispatch
 from aiq_api.routes.oib import add_oib_routes
 
 _COLLECTION = "oib_knowledge"
@@ -90,8 +100,14 @@ def bucket(monkeypatch, tmp_path):
     monkeypatch.setattr(corpus_store, "_put_object", fake.put_object)
     monkeypatch.setattr(corpus_store, "_delete_object", fake.delete_object)
     monkeypatch.setattr(corpus_store, "_download_object", fake.download_object)
+    monkeypatch.delenv("GRID_INGEST_QUEUE", raising=False)
+    monkeypatch.delenv("GRID_JOB_PAYLOAD_KEK", raising=False)
     with corpus_store._transaction() as conn:
         conn.execute(delete(corpus_store._files))
+    ingest_status_store.get("never-existed")  # creates the status and queue tables
+    with DocumentMetadataStore._get_or_create_sync_engine(ingest_queue.db_url()).begin() as conn:
+        for table in ("ingest_jobs", ingest_queue.TABLE):
+            conn.execute(text(f"DELETE FROM {table}"))
     return fake
 
 
@@ -101,14 +117,46 @@ def cache_dir(tmp_path):
 
 
 class _FakeIngestor:
-    """Minimal ingestor for delete: records chunk deletions, lists what is "indexed"."""
+    """Can prepare a job (a PENDING status, as the real ingestor does) and delete chunks; it never ingests."""
+
+    supports_durable_jobs = True
+    backend_name = "fake"
 
     def __init__(self):
+        self.prepared: list[PreparedIngestJob] = []
         self.deleted: list[str] = []
         self.indexed: set[str] = set()
 
+    @property
+    def names(self) -> list[str]:
+        return [job.config["original_filenames"][0] for job in self.prepared]
+
     def get_collection(self, _collection):
         return object()
+
+    def prepare_job(self, file_paths, collection_name, config=None, job_id=None):
+        config = dict(config or {})
+        status = IngestionJobStatus(
+            job_id=job_id,
+            status=JobState.PENDING,
+            submitted_at=datetime.now(UTC).replace(tzinfo=None),
+            total_files=len(file_paths),
+            collection_name=collection_name,
+            backend=self.backend_name,
+            file_details=[
+                FileProgress(file_id=f"{job_id}-{i}", file_name=name, status=FileStatus.UPLOADING)
+                for i, name in enumerate(config["original_filenames"])
+            ],
+        )
+        ingest_status_store.put(status)
+        prepared = PreparedIngestJob(job_id, status, list(file_paths), collection_name, config)
+        self.prepared.append(prepared)
+        return prepared
+
+    def upload_file(self, *_args, **_kwargs):
+        raise AssertionError("a route must queue an ingestion, never run one")
+
+    submit_job = submit_prepared = run_prepared = upload_file
 
     def delete_file(self, name, _collection):
         self.deleted.append(name)
@@ -120,30 +168,15 @@ class _FakeIngestor:
 
 
 @pytest.fixture
-def ingestor(monkeypatch):
+def ingestor(monkeypatch, bucket):
+    monkeypatch.setattr(oib_sync, "COLLECTION_NAME", _COLLECTION)
     fake = _FakeIngestor()
     monkeypatch.setattr(oib_sync, "_get_oib_ingestor", lambda: fake)
     return fake
 
 
 @pytest.fixture
-def ingested(monkeypatch, bucket):
-    """Stub ingestion to register a summary row + SUCCESS; the names it was asked for."""
-    monkeypatch.setattr(oib_sync, "COLLECTION_NAME", _COLLECTION)
-    names: list[str] = []
-
-    def fake_ingest_single(name: str):
-        # Mimic the real ingest: it creates the summary row for the file.
-        names.append(name)
-        register_summary(_COLLECTION, name, f"summary of {name}")
-        return FileStatus.SUCCESS
-
-    monkeypatch.setattr(oib_sync, "ingest_single", fake_ingest_single)
-    return names
-
-
-@pytest.fixture
-def app(summary_db, bucket, ingested, ingestor):
+def app(summary_db, bucket, ingestor):
     app = FastAPI()
     router = APIRouter()
     add_oib_routes(router)
@@ -155,28 +188,12 @@ def _client(app):
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
-def _wait_for_doc_class(store, name, timeout=3.0):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        dc = store.get_doc_class(_COLLECTION, name)
-        if dc is not None:
-            return dc
-        time.sleep(0.02)
-    return store.get_doc_class(_COLLECTION, name)
-
-
-def _wait_for(predicate, timeout=3.0):
-    deadline = time.time() + timeout
-    while time.time() < deadline and not predicate():
-        time.sleep(0.02)
-
-
 def _pdf_bytes(marker: bytes = b"%PDF-1.4 fake") -> bytes:
     return marker
 
 
 @pytest.mark.asyncio
-async def test_upload_explicit_doc_class_persists(app, store, bucket, cache_dir):
+async def test_upload_explicit_doc_class_persists(app, ingestor, bucket, cache_dir):
     async with _client(app) as client:
         res = await client.post(
             "/v1/admin/oib/documents",
@@ -194,12 +211,14 @@ async def test_upload_explicit_doc_class_persists(app, store, bucket, cache_dir)
     assert bucket.objects == {"base-corpus/plan.pdf": _pdf_bytes()}
     assert corpus_store.get_file("plan.pdf") is not None
     assert (cache_dir / "plan.pdf").is_file()
-    # Background job stamps the explicit class onto the summary row.
-    assert _wait_for_doc_class(store, "plan.pdf") == "oib_leitfaden"
+    # One job on the ingest queue, carrying the admin's Dokumentart; nothing ingested here.
+    assert ingestor.names == ["plan.pdf"]
+    assert ingestor.prepared[0].config["doc_class"] == "oib_leitfaden"
+    assert ingest_queue.counts()["queued"] == 1
 
 
 @pytest.mark.asyncio
-async def test_upload_without_doc_class_uses_guess(app, store):
+async def test_upload_without_doc_class_uses_guess(app, ingestor):
     from aiq_agent.common.norm_registry import guess_doc_class
 
     name = "oib-rl_2_brandschutz.pdf"
@@ -213,11 +232,11 @@ async def test_upload_without_doc_class_uses_guess(app, store):
 
     assert res.status_code == 200
     assert res.json()["doc_class"] == expected
-    assert _wait_for_doc_class(store, name) == expected
+    assert ingestor.prepared[0].config["doc_class"] == expected
 
 
 @pytest.mark.asyncio
-async def test_upload_invalid_doc_class_400(app, bucket):
+async def test_upload_invalid_doc_class_400(app, bucket, ingestor):
     async with _client(app) as client:
         res = await client.post(
             "/v1/admin/oib/documents",
@@ -229,6 +248,7 @@ async def test_upload_invalid_doc_class_400(app, bucket):
     # Nothing was stored for the rejected upload.
     assert bucket.objects == {}
     assert corpus_store.get_file("plan.pdf") is None
+    assert ingestor.prepared == []
 
 
 def _build_zip(members: dict[str, bytes]) -> bytes:
@@ -240,7 +260,7 @@ def _build_zip(members: dict[str, bytes]) -> bytes:
 
 
 @pytest.mark.asyncio
-async def test_zip_happy_path_and_skips(app, store, bucket):
+async def test_zip_happy_path_and_skips(app, ingestor, bucket):
     content = _build_zip(
         {
             "a.pdf": _pdf_bytes(),
@@ -268,7 +288,8 @@ async def test_zip_happy_path_and_skips(app, store, bucket):
     # Both PDFs are stored by basename.
     assert set(bucket.objects) == {"base-corpus/a.pdf", "base-corpus/b.pdf"}
     assert set(corpus_store.list_files()) == {"a.pdf", "b.pdf"}
-    assert _wait_for_doc_class(store, "a.pdf") is not None
+    assert sorted(ingestor.names) == ["a.pdf", "b.pdf"]
+    assert ingest_queue.counts()["queued"] == 2
 
 
 @pytest.mark.asyncio
@@ -293,7 +314,7 @@ async def test_zip_slip_member_rejected(app, bucket):
 
 
 @pytest.mark.asyncio
-async def test_upload_the_store_refuses_is_an_error_and_starts_no_ingestion(app, bucket, ingested, cache_dir):
+async def test_upload_the_store_refuses_is_an_error_and_queues_no_ingestion(app, bucket, ingestor, cache_dir):
     bucket.refuse_uploads = True
 
     async with _client(app) as client:
@@ -303,13 +324,14 @@ async def test_upload_the_store_refuses_is_an_error_and_starts_no_ingestion(app,
 
     assert res.status_code == 500
     assert "refused" in res.json()["detail"]
-    assert ingested == []
+    assert ingestor.prepared == []
+    assert ingest_queue.counts()["queued"] == 0
     assert corpus_store.get_file("plan.pdf") is None
     assert not (cache_dir / "plan.pdf").exists()
 
 
 @pytest.mark.asyncio
-async def test_a_zip_member_the_store_refuses_is_rejected_and_the_others_go_on(app, bucket, ingested):
+async def test_a_zip_member_the_store_refuses_is_rejected_and_the_others_go_on(app, bucket, ingestor):
     bucket.refuse_names = {"bad.pdf"}
     content = _build_zip({"good.pdf": _pdf_bytes(), "bad.pdf": _pdf_bytes()})
 
@@ -320,39 +342,70 @@ async def test_a_zip_member_the_store_refuses_is_rejected_and_the_others_go_on(a
     body = res.json()
     assert body["accepted"] == 1 and body["rejected"] == 1
     assert {m["file_name"]: m["status"] for m in body["members"]} == {"good.pdf": "pending", "bad.pdf": "rejected"}
-    _wait_for(lambda: ingested)
-    assert ingested == ["good.pdf"]
+    assert ingestor.names == ["good.pdf"]
 
 
 @pytest.mark.asyncio
-async def test_an_upload_queues_the_ingestion_of_the_file_it_stored(app, ingested):
+async def test_a_zip_member_the_queue_refuses_is_rejected_and_the_others_go_on(app, bucket, ingestor, monkeypatch):
+    real = ingest_dispatch.enqueue_only
+
+    def enqueue(prepared):
+        if prepared.config["original_filenames"] == ["bad.pdf"]:
+            raise ingest_dispatch.QueueUnavailable("could not queue it")
+        return real(prepared)
+
+    monkeypatch.setattr(ingest_dispatch, "enqueue_only", enqueue)
+    content = _build_zip({"good.pdf": _pdf_bytes(), "bad.pdf": _pdf_bytes()})
+
+    async with _client(app) as client:
+        res = await client.post("/v1/admin/oib/documents", files={"file": ("bulk.zip", content, "application/zip")})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert {m["file_name"]: m["status"] for m in body["members"]} == {"good.pdf": "pending", "bad.pdf": "rejected"}
+    assert ingest_queue.counts()["queued"] == 1
+
+
+@pytest.mark.asyncio
+async def test_an_upload_queues_the_ingestion_of_the_file_it_stored(app, ingestor):
     async with _client(app) as client:
         await client.post("/v1/admin/oib/documents", files={"file": ("plan.pdf", _pdf_bytes(), "application/pdf")})
 
-    _wait_for(lambda: ingested)
-    assert ingested == ["plan.pdf"]
+    assert ingestor.names == ["plan.pdf"]
+    claim = ingest_queue.claim_next("w1", stale_seconds=180, max_attempts=3)
+    assert claim is not None and claim.job_id == ingestor.prepared[0].job_id
 
 
 @pytest.mark.asyncio
-async def test_a_crashing_ingestion_is_left_for_the_next_sync_not_deleted(app, monkeypatch, bucket):
-    crashed: list[str] = []
-
-    def crash(name):
-        crashed.append(name)
-        raise RuntimeError("extractor died")
-
-    monkeypatch.setattr(oib_sync, "ingest_single", crash)
+async def test_an_upload_when_the_queue_is_off_is_an_error_not_an_in_process_ingestion(
+    app, bucket, ingestor, monkeypatch
+):
+    monkeypatch.setenv("GRID_INGEST_QUEUE", "off")
 
     async with _client(app) as client:
         res = await client.post(
             "/v1/admin/oib/documents", files={"file": ("plan.pdf", _pdf_bytes(), "application/pdf")}
         )
-    _wait_for(lambda: crashed)
 
-    assert res.status_code == 200
-    assert crashed == ["plan.pdf"]
+    assert res.status_code == 500
+    assert "ingest queue is off" in res.json()["detail"]
+    # The file is kept: the next sync cycle queues it as soon as the queue is back.
     assert corpus_store.get_file("plan.pdf") is not None
     assert bucket.objects == {"base-corpus/plan.pdf": _pdf_bytes()}
+    assert ingest_queue.counts()["queued"] == 0
+
+
+@pytest.mark.asyncio
+async def test_the_same_bytes_uploaded_twice_are_one_job(app, ingestor):
+    async with _client(app) as client:
+        for _ in range(2):
+            res = await client.post(
+                "/v1/admin/oib/documents", files={"file": ("plan.pdf", _pdf_bytes(), "application/pdf")}
+            )
+            assert res.status_code == 200
+
+    assert ingest_queue.counts()["queued"] == 1
+    assert len(ingestor.prepared) == 1
 
 
 @pytest.mark.asyncio
@@ -473,6 +526,19 @@ async def test_delete_removes_chunks_row_object_and_cached_copy(app, bucket, ing
 
 
 @pytest.mark.asyncio
+async def test_delete_cancels_the_ingestion_that_is_still_queued(app, ingestor):
+    async with _client(app) as client:
+        await client.post("/v1/admin/oib/documents", files={"file": ("plan.pdf", _pdf_bytes(), "application/pdf")})
+        assert ingest_queue.counts()["queued"] == 1
+
+        res = await client.delete("/v1/admin/oib/documents/plan.pdf")
+
+    assert res.status_code == 200
+    assert ingest_queue.counts()["queued"] == 0
+    assert ingest_status_store.get(ingestor.prepared[0].job_id) is None
+
+
+@pytest.mark.asyncio
 async def test_delete_reaches_a_document_another_replica_uploaded(app, bucket, ingestor, cache_dir):
     corpus_store.put("elsewhere.pdf", _pdf_bytes())
     (cache_dir / "elsewhere.pdf").unlink()  # this replica never held it
@@ -542,7 +608,9 @@ async def test_a_store_that_cannot_delete_the_object_is_a_500_and_the_document_i
 
 @pytest.mark.asyncio
 async def test_the_manual_sync_runs_one_cycle_and_reports_its_counts(app, monkeypatch):
-    monkeypatch.setattr(oib_sync, "sync", lambda: oib_sync.SyncResult(ingested=2, failed=1, total=5))
+    monkeypatch.setattr(
+        oib_sync, "sync", lambda: oib_sync.SyncResult(enqueued=2, ingested_recorded=3, failed=1, total=5)
+    )
 
     async with _client(app) as client:
         res = await client.post("/v1/admin/oib/sync")
@@ -550,7 +618,9 @@ async def test_the_manual_sync_runs_one_cycle_and_reports_its_counts(app, monkey
     assert res.status_code == 200
     body = res.json()
     assert body["files_added"] == 2 and body["files_total"] == 5
-    assert "1 failed" in body["message"]
+    assert body["message"] == (
+        "OIB sync finished: 2 file(s) queued for ingestion, 3 finished, 1 failed, 5 total tracked"
+    )
 
 
 @pytest.mark.asyncio
@@ -577,7 +647,7 @@ async def test_a_manual_sync_that_breaks_is_a_500(app, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_reingest_queues_only_the_named_documents(app, ingested):
+async def test_reingest_queues_only_the_named_documents(app, ingestor):
     for name in ("a.pdf", "b.pdf", "c.pdf"):
         corpus_store.put(name, _pdf_bytes())
         corpus_store.mark_ingested(name, corpus_store.get_file(name).sha256, oib_sync.CHUNK_FORMAT_VERSION)
@@ -590,15 +660,29 @@ async def test_reingest_queues_only_the_named_documents(app, ingested):
     assert body["status"] == "pending"
     assert sorted(body["queued"]) == ["a.pdf", "c.pdf"]
     assert body["unknown"] == []
-    _wait_for(lambda: len(ingested) >= 2)
-    assert sorted(ingested) == ["a.pdf", "c.pdf"], "b.pdf was not selected and must not be touched"
+    assert sorted(ingestor.names) == ["a.pdf", "c.pdf"], "b.pdf was not selected and must not be touched"
+    assert ingest_queue.counts()["queued"] == 2
     # Queued documents read as not ingested (PENDING in the status panel) until their chunks are rebuilt.
     assert corpus_store.get_file("a.pdf").ingested_sha256 is None
     assert corpus_store.get_file("b.pdf").ingested_sha256 is not None
 
 
 @pytest.mark.asyncio
-async def test_reingest_reports_unknown_names_instead_of_failing_the_request(app, ingested):
+async def test_reingesting_twice_while_the_first_job_waits_is_still_one_job(app, ingestor):
+    corpus_store.put("a.pdf", _pdf_bytes())
+    corpus_store.mark_ingested("a.pdf", corpus_store.get_file("a.pdf").sha256, oib_sync.CHUNK_FORMAT_VERSION)
+
+    async with _client(app) as client:
+        for _ in range(2):
+            response = await client.post("/v1/admin/oib/reingest", json={"file_names": ["a.pdf"]})
+            assert response.status_code == 200
+
+    assert ingest_queue.counts()["queued"] == 1
+    assert ingestor.names == ["a.pdf"]
+
+
+@pytest.mark.asyncio
+async def test_reingest_reports_unknown_names_instead_of_failing_the_request(app, ingestor):
     """One stale name must not discard a selection of twenty."""
     corpus_store.put("a.pdf", _pdf_bytes())
 
@@ -612,13 +696,13 @@ async def test_reingest_reports_unknown_names_instead_of_failing_the_request(app
 
 
 @pytest.mark.asyncio
-async def test_reingest_of_nothing_known_is_a_noop_not_a_pending_job(app, ingested):
+async def test_reingest_of_nothing_known_is_a_noop_not_a_pending_job(app, ingestor):
     async with _client(app) as client:
         response = await client.post("/v1/admin/oib/reingest", json={"file_names": ["ghost.pdf"]})
 
     assert response.status_code == 200
     assert response.json()["status"] == "noop"
-    assert ingested == []
+    assert ingestor.prepared == []
 
 
 @pytest.mark.asyncio

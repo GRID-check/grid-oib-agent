@@ -294,9 +294,12 @@ export function installWorkers(
    * The ghost reaper fails a job after 300 seconds without an event; every two
    * minutes puts the worst case at 420 seconds. Two are hourly, on minutes apart
    * from each other and from the hourly storage sweep. The base corpus is the
-   * fourth: one sync cycle ingests every file that still needs it (a failed or
-   * timed-out upload, a chunking change), so a document never waits longer than
-   * ten minutes, and a cycle that runs past its tick blocks the next (`Forbid`).
+   * fourth: one sync cycle records the ingest jobs that finished and queues a job
+   * on the ingest queue for every file that still has none (an upload whose job
+   * could not be queued, a chunking change), so a document never waits longer than
+   * ten minutes for its job, and a cycle that runs past its tick blocks the next
+   * (`Forbid`). The cycle ingests nothing: the ingest workers (or the claiming web
+   * pods) run the jobs.
    */
   const housekeeping = [
     { name: "housekeeping-ghost-jobs", schedule: "*/2 * * * *", route: "ghost-jobs", timeoutMs: 90_000 },

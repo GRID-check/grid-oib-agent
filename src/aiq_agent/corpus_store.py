@@ -11,13 +11,17 @@ and keeps what ingestion needs to know about each file:
 ``sha256`` / ``size``  of the stored bytes; a download is verified against them
 ``ingested_sha256``    the hash the index was last built from, ``NULL`` before
 ``chunk_format_version`` the chunking pipeline's version at that ingestion
+``failed_job_id``      the ingest job that gave up on the current bytes, ``NULL`` if none
 ====================== ======================================================
 
 A file needs ingestion when its ``ingested_sha256`` differs from its
 ``sha256`` or its ``chunk_format_version`` differs from the pipeline's current
 one (:meth:`FileRow.needs_ingestion`). That one rule is the whole change
 detector: a changed PDF, a new PDF, a chunking change and a wiped vector store
-all reach ingestion through it, and nothing else keeps a registry.
+all reach ingestion through it, and nothing else keeps a registry. The ingestion
+itself is a job on the ingest queue (``aiq_agent.oib_sync``); ``failed_job_id``
+is the one thing remembered about a job that ran and failed, so the file is not
+tried again until its bytes change or an admin asks.
 
 Local files are a CACHE and nothing more. They live in
 ``GRID_BASE_CORPUS_CACHE_DIR`` (default ``/tmp/base-corpus``), are filled one
@@ -99,6 +103,7 @@ _files = Table(
     Column("uploaded_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("ingested_sha256", Text, nullable=True),
     Column("chunk_format_version", Integer, nullable=True),
+    Column("failed_job_id", Text, nullable=True),
 )
 
 _initialized: set[str] = set()
@@ -126,6 +131,7 @@ class FileRow:
     size_bytes: int
     ingested_sha256: str | None = None
     chunk_format_version: int | None = None
+    failed_job_id: str | None = None
 
     def needs_ingestion(self, chunk_format_version: int) -> bool:
         """True when the index was not built from these bytes with this pipeline version."""
@@ -218,6 +224,7 @@ def _row_from(record) -> FileRow:
         size_bytes=int(record.size_bytes),
         ingested_sha256=record.ingested_sha256,
         chunk_format_version=None if record.chunk_format_version is None else int(record.chunk_format_version),
+        failed_job_id=record.failed_job_id,
     )
 
 
@@ -256,20 +263,29 @@ def mark_ingested(name: str, sha256: str, chunk_format_version: int) -> bool:
 
     Only if the row still holds those bytes: a file replaced while it was being
     ingested keeps its old ingested hash and so still needs ingestion. False
-    when the row is gone or changed.
+    when the row is gone or changed. A recorded success clears a recorded failure.
     """
     with _transaction() as conn:
         result = conn.execute(
             update(_files)
             .where(_files.c.file_name == name, _files.c.sha256 == sha256)
-            .values(ingested_sha256=sha256, chunk_format_version=chunk_format_version)
+            .values(ingested_sha256=sha256, chunk_format_version=chunk_format_version, failed_job_id=None)
+        )
+    return result.rowcount == 1
+
+
+def mark_failed(name: str, sha256: str, job_id: str) -> bool:
+    """Record that ingest job ``job_id`` gave up on ``sha256``; False when the row is gone or has other bytes."""
+    with _transaction() as conn:
+        result = conn.execute(
+            update(_files).where(_files.c.file_name == name, _files.c.sha256 == sha256).values(failed_job_id=job_id)
         )
     return result.rowcount == 1
 
 
 def forget_ingested(name: str | None = None) -> None:
-    """Mark ``name`` (or every file) as not ingested, so the next sync cycle ingests it again."""
-    statement = update(_files).values(ingested_sha256=None, chunk_format_version=None)
+    """Mark ``name`` (or every file) as neither ingested nor failed, so a sync cycle ingests it again."""
+    statement = update(_files).values(ingested_sha256=None, chunk_format_version=None, failed_job_id=None)
     if name is not None:
         statement = statement.where(_files.c.file_name == name)
     with _transaction() as conn:
@@ -444,3 +460,59 @@ def remove(name: str) -> None:
     _delete_file_row(name)
     _delete_object(name)
     (cache_dir() / name).unlink(missing_ok=True)
+
+
+# ----------------------------------------------------------------------------
+# The download an ingest job runs
+# ----------------------------------------------------------------------------
+
+#: Every corpus object's key starts here (the BFF's ``buildBaseCorpusStorageKey``).
+_KEY_PREFIX = "base-corpus/"
+
+
+class CorpusObjectDownload:
+    """The original of a queued ingest job: a corpus object the worker reads itself.
+
+    The ingest queue carries a job as data, and a job that waits for a worker for
+    a long time cannot carry a presigned URL that expires in an hour. This
+    carries the object's key and hash instead, and the worker, which holds the same
+    read credential as every backend process (``aiq_agent.common.seaweed_s3``),
+    downloads it when it reaches the file, to a temp file the job then owns and
+    deletes (``knowledge_layer.deferred_files``: any zero-argument callable that
+    returns a path). The bytes are checked against the hash the job was made for, so a
+    file replaced while the job waited fails here, as a failed download, instead of
+    being indexed under the wrong hash.
+    """
+
+    __slots__ = ("sha256", "storage_key")
+
+    def __init__(self, storage_key: str, sha256: str) -> None:
+        if not storage_key.startswith(_KEY_PREFIX) or ".." in storage_key:
+            raise CorpusStoreError("not a corpus object key")
+        self.storage_key = storage_key
+        self.sha256 = sha256
+
+    def __repr__(self) -> str:
+        return f"<corpus object download {self.storage_key}>"
+
+    def to_payload(self) -> dict[str, str]:
+        return {"storage_key": self.storage_key, "sha256": self.sha256}
+
+    @classmethod
+    def from_payload(cls, data: dict) -> CorpusObjectDownload:
+        """Rebuild one from a queue payload; the key is checked again, a row is not a request that was."""
+        return cls(str(data["storage_key"]), str(data["sha256"]))
+
+    def __call__(self) -> str:
+        fd, name = tempfile.mkstemp(suffix=".pdf")
+        os.close(fd)
+        path = Path(name)
+        try:
+            with path.open("wb") as out:
+                _download_object(self.storage_key, out)
+            if sha256_file(path) != self.sha256:
+                raise CorpusStoreError(f"{self.storage_key} does not match the hash the job was made for")
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
+        return name

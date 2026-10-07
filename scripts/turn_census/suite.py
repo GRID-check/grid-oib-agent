@@ -25,8 +25,8 @@ Per run it records what the provider billed and what the reader got:
 
 No backend, no BFF: a question about an office's own files needs a project and
 is skipped, and says so. Needs OPENROUTER_API_KEY and the corpus ingested into
-AIQ_CHROMA_DIR (`--ingest` runs the sync first, from the corpus table in
-AIQ_SUMMARY_DB and the object store). Every run costs model calls.
+AIQ_CHROMA_DIR (`--ingest` queues the corpus's ingest jobs from the table in
+AIQ_SUMMARY_DB and the object store, and claims and runs them in this process). Every run costs model calls.
 
     python scripts/turn_census/suite.py                        # the core set, 2 runs each
     python scripts/turn_census/suite.py --all --runs 3 --out /tmp/suite/after
@@ -496,6 +496,43 @@ def source_commit() -> str:
     return f"{sha}-dirty" if git("status", "--porcelain", "--untracked-files=no").stdout.strip() else sha
 
 
+def _ingest_corpus(poll_seconds: float = 5.0, timeout_seconds: float = 3600.0) -> str | None:
+    """Queue the corpus's ingest jobs and run them here; None when done, else why not.
+
+    The base corpus is ingested by jobs on the durable ingest queue (ADR-0082), and
+    ``oib_sync.sync()`` only queues them. Nothing else claims them on a developer machine,
+    so for this run this process is the ingest worker: it attaches a claiming source to the
+    ingestor, then syncs until no file waits on a job. A file whose job failed is reported,
+    not retried: the sync does not queue it again.
+    """
+    from aiq_agent import corpus_store
+    from aiq_agent import oib_sync
+    from aiq_api.jobs import ingest_dispatch
+
+    print("queueing the corpus:", oib_sync.sync())
+    if not ingest_dispatch.attach(oib_sync._get_oib_ingestor(), claim=True):
+        return (
+            "the ingest queue is off or has no database (GRID_INGEST_QUEUE, AIQ_SUMMARY_DB): "
+            "nothing can ingest the corpus"
+        )
+    unfinished = (oib_sync.JobProgress.WAITING, oib_sync.JobProgress.RUNNING)
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        result = oib_sync.sync()
+        rows = corpus_store.list_files()
+        waiting = [
+            name
+            for name, row in rows.items()
+            if row.needs_ingestion(oib_sync.CHUNK_FORMAT_VERSION) and oib_sync.progress_of(row) in unfinished
+        ]
+        if not waiting:
+            print("ingested the corpus:", result)
+            return f"{result.failed} file(s) could not be ingested" if result.failed else None
+        print(f"ingesting: {len(waiting)} file(s) left")
+        time.sleep(poll_seconds)
+    return f"the corpus was not ingested within {timeout_seconds:.0f} s"
+
+
 def _corpus_ready() -> bool:
     """Whether the OIB collection holds chunks, asked through the client the ingest itself opens.
 
@@ -671,9 +708,9 @@ def _preflight(out: Path, ingest: bool) -> int:
         )
         return 2
     if ingest:
-        from aiq_agent import oib_sync
-
-        print("ingesting the corpus:", oib_sync.sync())
+        problem = _ingest_corpus()
+        if problem:
+            print(problem, file=sys.stderr)
     if not _corpus_ready():
         print(
             "The OIB corpus is not ingested into AIQ_CHROMA_DIR. Upload the PDFs "

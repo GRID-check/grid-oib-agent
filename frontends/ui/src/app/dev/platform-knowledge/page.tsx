@@ -64,6 +64,7 @@ const STATUS = {
     ingested: FILES.filter((f) => f.state === 'ingested').length,
     stale: FILES.filter((f) => f.state === 'stale').length,
     pending: FILES.filter((f) => f.state === 'pending').length,
+    failed: FILES.filter((f) => f.state === 'failed').length,
     removed: 0,
     inconsistent: 0,
     totalChunks: FILES.reduce((sum, f) => sum + f.chunkCount, 0),

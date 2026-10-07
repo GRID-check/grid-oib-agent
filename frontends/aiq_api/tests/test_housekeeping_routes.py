@@ -91,12 +91,12 @@ def test_base_corpus_runs_one_sync_cycle_and_reports_its_counts(client: TestClie
 
     def sync():
         calls.append("sync")
-        return oib_sync.SyncResult(ingested=3, failed=1, total=12)
+        return oib_sync.SyncResult(enqueued=3, ingested_recorded=2, failed=1, total=12)
 
     monkeypatch.setattr(oib_sync, "sync", sync)
     response = client.post("/v1/maintenance/housekeeping/base-corpus", headers=AUTH)
     assert response.status_code == 200
-    assert response.json() == {"ingested": 3, "failed": 1, "total": 12}
+    assert response.json() == {"enqueued": 3, "ingested_recorded": 2, "failed": 1, "total": 12}
     assert calls == ["sync"]
 
 

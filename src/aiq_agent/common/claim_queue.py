@@ -284,24 +284,30 @@ class ClaimQueue:
 
     # ----------------------------------------------------------------- intake
 
-    def enqueue(self, job_id: str, lane: str, payload: str, priority: str | None = None) -> None:
-        """Store a claimable job. Raises: the caller runs the job locally when this fails."""
+    def enqueue(self, job_id: str, lane: str, payload: str, priority: str | None = None) -> bool:
+        """Store a claimable job; whether this call stored it. Raises when the queue cannot be written.
+
+        Idempotent on ``job_id``: a second call for an id the table already holds (queued, claimed
+        or dead) stores nothing and answers False, so a caller whose ids name their work (the base
+        corpus's do) can ask twice and get one job.
+        """
         url = self._db_url()
         if not url:
             raise RuntimeError(f"no database for the {self.name} queue")
         rank = priority_rank(priority)
         self.ensure_table(url)
         with self._engine_for(url).connect() as conn:
-            conn.execute(
+            result = conn.execute(
                 # Only module constants are interpolated; every value is bound.
                 # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 text(
                     f"INSERT INTO {self.table} (job_id, lane, payload, status, attempts, priority) "
-                    "VALUES (:id, :lane, :payload, :q, 0, :priority)"
+                    "VALUES (:id, :lane, :payload, :q, 0, :priority) ON CONFLICT (job_id) DO NOTHING"
                 ),
                 {"id": job_id, "lane": lane, "payload": payload, "q": QUEUED, "priority": rank},
             )
             conn.commit()
+        return (result.rowcount or 0) > 0
 
     # ------------------------------------------------------------------ claim
 

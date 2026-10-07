@@ -7,7 +7,7 @@ input tokens, cached tokens, output, seconds. The number the turns audit
 hand, measured.
 
 Needs what a local turn needs: OPENROUTER_API_KEY, and the corpus ingested
-into AIQ_CHROMA_DIR (`python -c "from aiq_agent import oib_sync; oib_sync.sync()"`
+into AIQ_CHROMA_DIR (`suite.py --ingest`, which queues the ingest jobs and runs them in its own process,
 after uploading the OIB PDFs with scripts/upload_oib_corpus.py). Every run costs
 real model calls.
 

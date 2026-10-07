@@ -346,8 +346,13 @@ class BaseIngestor(ABC):
         file_paths: list[str | Callable[[], str]],
         collection_name: str,
         config: dict[str, Any] | None = None,
+        job_id: str | None = None,
     ) -> "PreparedIngestJob":
-        """Validate a job and record it PENDING without running it (see ``PreparedIngestJob``)."""
+        """Validate a job and record it PENDING without running it (see ``PreparedIngestJob``).
+
+        ``job_id`` names the job when its caller needs the same id for the same work
+        (the base corpus does); without it a fresh one is made.
+        """
         raise NotImplementedError
 
     def submit_prepared(self, prepared: "PreparedIngestJob") -> None:

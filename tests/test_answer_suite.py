@@ -661,3 +661,42 @@ def test_a_corpus_ingested_in_this_process_reads_as_ready(monkeypatch, tmp_path)
     collection = _make_chroma_client(path).get_or_create_collection(oib_sync.COLLECTION_NAME)
     collection.add(ids=["1"], documents=["Punkt 12"], embeddings=[[0.1, 0.2]])
     assert suite._corpus_ready()
+
+
+def _ingest_in_this_process(monkeypatch, tmp_path, *, succeed: bool):
+    """A corpus of one file, the real queue, and a "claiming source" that runs what is queued."""
+    from aiq_agent import corpus_store
+    from aiq_agent import oib_sync
+    from aiq_api.jobs import ingest_dispatch
+    from tests.corpus_job_fakes import FakeIngestor
+    from tests.corpus_job_fakes import run_worker
+    from tests.object_corpus_fakes import install
+
+    install(monkeypatch, tmp_path)
+    monkeypatch.setattr(oib_sync, "_get_oib_ingestor", lambda: FakeIngestor())
+    attached: list[object] = []
+
+    def attach(_ingestor, claim=None):
+        attached.append(claim)
+        run_worker(succeed=succeed)
+        return True
+
+    monkeypatch.setattr(ingest_dispatch, "attach", attach)
+    corpus_store.put("a.pdf", b"%PDF-1.4 a")
+    return attached, lambda: corpus_store.get_file("a.pdf").needs_ingestion(oib_sync.CHUNK_FORMAT_VERSION)
+
+
+def test_ingest_queues_the_corpus_jobs_and_claims_them_in_this_process(monkeypatch, tmp_path):
+    # `oib_sync.sync()` only queues; on a developer machine nothing else would run the jobs.
+    attached, needs_ingestion = _ingest_in_this_process(monkeypatch, tmp_path, succeed=True)
+
+    assert suite._ingest_corpus(poll_seconds=0) is None
+    assert attached == [True]
+    assert not needs_ingestion()
+
+
+def test_ingest_reports_a_file_whose_job_failed_instead_of_waiting_for_it(monkeypatch, tmp_path):
+    _attached, needs_ingestion = _ingest_in_this_process(monkeypatch, tmp_path, succeed=False)
+
+    assert suite._ingest_corpus(poll_seconds=0) == "1 file(s) could not be ingested"
+    assert needs_ingestion()

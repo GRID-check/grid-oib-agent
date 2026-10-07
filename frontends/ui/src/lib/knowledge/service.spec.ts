@@ -28,6 +28,7 @@ const backendPayload = {
     ingested: 1,
     stale: 0,
     pending: 1,
+    failed: 0,
     removed: 0,
     inconsistent: 0,
     total_chunks: 42,
@@ -82,6 +83,7 @@ describe('getKnowledgeBaseStatus', () => {
       ingested: 1,
       stale: 0,
       pending: 1,
+      failed: 0,
       removed: 0,
       inconsistent: 0,
       totalChunks: 42,
@@ -154,6 +156,24 @@ describe('getKnowledgeBaseStatus', () => {
     expect(status.summary.removed).toBe(1)
     expect(status.files[0]).toMatchObject({ state: 'removed', chunkCount: 5 })
     expect(status.files[0]).not.toHaveProperty('origin')
+  })
+
+  it('maps the failed state of a file whose ingest job did not finish', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          collection_exists: true,
+          summary: { failed: 1 },
+          files: [{ file_name: 'a.pdf', state: 'failed', chunk_count: 0 }],
+        }),
+        { status: 200 },
+      ),
+    )
+
+    const status = await getKnowledgeBaseStatus()
+
+    expect(status.summary.failed).toBe(1)
+    expect(status.files[0]).toMatchObject({ state: 'failed' })
   })
 
   it('reads a state it does not know as pending', async () => {

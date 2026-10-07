@@ -127,89 +127,21 @@ def _sanitize_pdf_name(raw: str | None) -> str:
     return name
 
 
-def _persist_upload(name: str, content: bytes) -> None:
-    """Store an uploaded PDF in the shared corpus (object store plus table row).
+def _store_upload(name: str, content: bytes, doc_class: str | None) -> None:
+    """Store an uploaded PDF in the shared corpus and queue its ingestion (``oib_sync.store_and_request``).
 
     Write-then-ingest ordering: the file is durably stored BEFORE the route
-    responds, so an upload is never lost even if background ingestion is slow to
-    start or the process restarts — the next sync cycle picks it up. A
+    responds, so an upload is never lost even if ingestion is slow to start or the
+    process restarts — the next sync cycle queues it if this call could not. A
     same-named upload replaces the existing file (the admin's way to replace a
-    document). A store that refuses the object raises, and the route answers
-    with an error rather than a pending job that would never find its file.
-    """
-    from aiq_agent import corpus_store
-
-    corpus_store.put(name, content)
-
-
-def _ingest_and_classify(name: str, doc_class: str) -> None:
-    """Background job: ingest an already-stored PDF, then persist its doc_class.
-
-    Runs on the shared executor, where it can overlap with another member or a
-    sync cycle; oib_sync's per-file lock keeps same-file work serialized.
-    Ingestion creates the summary row, so the ``doc_class`` UPDATE is
-    applied only after a SUCCESS terminal state. Whatever ends short of that
-    (FAILED, a timeout, a crash) leaves the file listed without an ingested
-    hash, so the next sync cycle retries it.
+    document). The ingestion is a job on the ingest queue, run by whoever claims
+    it; nothing is ingested here. A store that refuses the object raises, and
+    the route answers with an error rather than a pending job that would never
+    find its file; so does a queue that cannot take the job.
     """
     from aiq_agent import oib_sync
-    from aiq_agent.knowledge.factory import set_document_doc_class
-    from aiq_agent.knowledge.schema import FileStatus
 
-    terminal = _ingest_logged(name)
-    if terminal == FileStatus.SUCCESS:
-        try:
-            updated = set_document_doc_class(oib_sync.COLLECTION_NAME, name, doc_class)
-            if not updated:
-                logger.warning("No summary row to stamp doc_class for %s after ingest", name)
-        except Exception:
-            logger.exception("Failed to persist doc_class=%s for %s after ingest", doc_class, name)
-        _seed_display_title(name)
-
-
-def _ingest_logged(name: str):
-    """``oib_sync.ingest_single`` for a task nobody awaits: every way it can end short of success is logged.
-
-    Returns the terminal FileStatus, or None when it did not finish.
-    """
-    from aiq_agent import oib_sync
-    from aiq_agent.knowledge.schema import FileStatus
-
-    try:
-        terminal = oib_sync.ingest_single(name)
-    except LookupError:
-        logger.info("%s left the corpus before its ingestion started", name)
-        return None
-    except Exception:
-        logger.exception("Background ingestion crashed for %s; it will be retried by the next sync", name)
-        return None
-    if terminal == FileStatus.FAILED:
-        logger.error("Background ingestion of %s failed; it will be retried by the next sync", name)
-    elif terminal is None:
-        logger.error("Background ingestion of %s timed out; it will be retried by the next sync", name)
-    return terminal
-
-
-def _seed_display_title(name: str) -> None:
-    """Stamp the DEFAULT user-facing display title for a freshly ingested doc.
-
-    Derives the name from the OIB filename convention and stores it as the
-    starting value an admin can later override. A filename that yields no
-    confident default (a non-OIB upload) is left without a title, so its own
-    filename remains its name. Never raises — a seed failure is cosmetic.
-    """
-    from aiq_agent import oib_sync
-    from aiq_agent.common.norm_registry import guess_display_title
-    from aiq_agent.knowledge.factory import set_document_display_title
-
-    default_title = guess_display_title(name)
-    if not default_title:
-        return
-    try:
-        if not set_document_display_title(oib_sync.COLLECTION_NAME, name, default_title):
-            logger.warning("No metadata row to seed display_title for %s after ingest", name)
-    except Exception:
-        logger.exception("Failed to seed display_title for %s after ingest", name)
+    oib_sync.store_and_request(name, content, doc_class)
 
 
 def _is_safe_zip_member(member_name: str, base_dir: Path) -> bool:
@@ -284,6 +216,21 @@ def _extract_zip_pdfs(content: bytes) -> tuple[list[tuple[str, bytes]], list[tup
     return accepted, rejected
 
 
+def _queue_reingest(names: list[str]) -> tuple[list[str], list[str]]:
+    """``(queued, unknown)``: each known name made to need ingestion again, with a job queued for it."""
+    from aiq_agent import oib_sync
+
+    queued: list[str] = []
+    unknown: list[str] = []
+    for name in names:
+        if not oib_sync.mark_for_reingest(name):
+            unknown.append(name)
+            continue
+        oib_sync.request_ingestion(name)
+        queued.append(name)
+    return queued, unknown
+
+
 def _remove_document(name: str) -> bool:
     from aiq_agent import oib_sync
 
@@ -302,13 +249,10 @@ def _resolve_corpus_pdf(file_name: str) -> Path | None:
 
 
 def add_oib_routes(router: APIRouter) -> None:
-    # 2 workers so a ZIP upload's blocking per-member polls (ingest_single
-    # waits for the adapter's ingest pool) don't fully serialize: members
-    # overlap by one. The adapter's AIQ_INGEST_MAX_WORKERS pool remains the
-    # real concurrency gate. Overlapping tasks are safe because oib_sync
-    # serializes what must not interleave: a per-file lock, across replicas,
-    # around every corpus mutation (ingest and delete), and one sync cycle at
-    # a time.
+    # 2 workers for the admin's blocking calls (a sync cycle, a delete). Ingestion is not
+    # here: it is a job on the ingest queue, claimed by the ingest workers. Overlapping calls
+    # are safe because oib_sync serializes what must not interleave: a per-file lock, across
+    # replicas, around queueing a job and deleting a file, and one sync cycle at a time.
     executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="oib-sync-")
 
     @router.post(
@@ -325,10 +269,10 @@ def add_oib_routes(router: APIRouter) -> None:
             return OibSyncResponse(
                 status="ok",
                 message=(
-                    f"OIB sync finished: {result.ingested} file(s) ingested, {result.failed} failed, "
-                    f"{result.total} total tracked"
+                    f"OIB sync finished: {result.enqueued} file(s) queued for ingestion, "
+                    f"{result.ingested_recorded} finished, {result.failed} failed, {result.total} total tracked"
                 ),
-                files_added=result.ingested,
+                files_added=result.enqueued,
                 files_total=result.total,
             )
         except Exception as e:
@@ -414,8 +358,8 @@ def add_oib_routes(router: APIRouter) -> None:
         _: None = Depends(_require_admin_token),
     ) -> OibDocumentUploadResponse:
         """Platform-admin upload. Stores the file(s) in the shared corpus (object
-        store plus table row) and kicks ingestion on the shared background executor
-        WITHOUT blocking on the terminal state — the route returns promptly (status
+        store plus table row) and queues each file's ingestion on the durable ingest
+        queue, where the ingest workers claim it — the route returns promptly (status
         ``pending``) and the UI tracks progress via ``/v1/oib/status``.
         Write-then-ingest ordering guarantees a file is durably stored before the
         response, so an upload is never lost.
@@ -452,20 +396,17 @@ def add_oib_routes(router: APIRouter) -> None:
         resolved_class = doc_class if doc_class is not None else guess_doc_class(name)
 
         try:
-            await asyncio.to_thread(_persist_upload, name, content)
+            await asyncio.to_thread(_store_upload, name, content, resolved_class)
         except Exception as e:
-            logger.exception("Failed to persist OIB upload %s", name)
+            logger.exception("Failed to store or queue OIB upload %s", name)
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
-
-        # Kick ingestion on the shared executor WITHOUT awaiting the terminal state.
-        executor.submit(_ingest_and_classify, name, resolved_class)
 
         return OibDocumentUploadResponse(
             status="pending",
             kind="file",
             file_name=name,
             doc_class=resolved_class,
-            message=f"{name} accepted; ingestion started (poll /v1/oib/status)",
+            message=f"{name} accepted; ingestion queued (poll /v1/oib/status)",
         )
 
     async def _handle_zip_upload(content: bytes) -> OibDocumentUploadResponse:
@@ -482,12 +423,13 @@ def add_oib_routes(router: APIRouter) -> None:
         for base_name, data in accepted:
             member_class = guess_doc_class(base_name)
             try:
-                await asyncio.to_thread(_persist_upload, base_name, data)
+                await asyncio.to_thread(_store_upload, base_name, data, member_class)
             except Exception:
-                logger.exception("Failed to persist ZIP member %s", base_name)
-                members.append(OibUploadedMember(file_name=base_name, status="rejected", reason="could not persist"))
+                logger.exception("Failed to store or queue ZIP member %s", base_name)
+                members.append(
+                    OibUploadedMember(file_name=base_name, status="rejected", reason="could not store or queue it")
+                )
                 continue
-            executor.submit(_ingest_and_classify, base_name, member_class)
             members.append(OibUploadedMember(file_name=base_name, status="pending", doc_class=member_class))
 
         for name, reason in rejected:
@@ -501,7 +443,7 @@ def add_oib_routes(router: APIRouter) -> None:
             accepted=accepted_count,
             rejected=rejected_count,
             members=members,
-            message=f"{accepted_count} PDF(s) accepted; ingestion started. {rejected_count} rejected/skipped.",
+            message=f"{accepted_count} PDF(s) accepted; ingestion queued. {rejected_count} rejected/skipped.",
         )
 
     @router.delete(
@@ -551,28 +493,20 @@ def add_oib_routes(router: APIRouter) -> None:
         ingest. Until now the only remedy was a corpus-wide re-ingest of all 39 PDFs
         including VLM captioning.
 
-        Queued, not awaited, exactly like an upload: each document takes up to ten minutes
-        and the executor runs two at a time. The caller polls `/v1/oib/status`, where a
-        queued document reads PENDING until its chunks are rebuilt.
+        Queued, not awaited, exactly like an upload: each document is a job on the ingest
+        queue, which takes up to ten minutes once a worker claims it. The caller polls
+        `/v1/oib/status`, where a queued document reads PENDING until its chunks are rebuilt.
 
         Unknown names are REPORTED rather than failing the request — a selection of twenty
         documents should not be lost because one was deleted in another tab.
         """
-        from aiq_agent import oib_sync
 
         names = list(dict.fromkeys(request.file_names))
         try:
-            known = await asyncio.get_event_loop().run_in_executor(
-                executor, lambda: [(name, oib_sync.mark_for_reingest(name)) for name in names]
-            )
+            queued, unknown = await asyncio.get_event_loop().run_in_executor(executor, _queue_reingest, names)
         except Exception as e:
             logger.exception("OIB re-ingest could not be queued")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
-
-        queued = [name for name, in_corpus in known if in_corpus]
-        unknown = [name for name, in_corpus in known if not in_corpus]
-        for name in queued:
-            executor.submit(_ingest_logged, name)
 
         if not queued:
             return OibReingestResponse(

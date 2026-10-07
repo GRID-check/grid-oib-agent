@@ -1513,7 +1513,8 @@ def _add_housekeeping_routes(
     The first three take the same Postgres advisory lock as their loop did, so a
     call that overlaps a running cycle (a slow previous call) skips and reports
     nothing done. The base-corpus cycle instead waits on the cross-replica
-    ``oib-sync`` lock and then finds nothing left to ingest.
+    ``oib-sync`` lock and then finds nothing left to queue. It ingests nothing itself: it
+    records the ingest jobs that finished and queues one for each file that needs it.
     """
 
     @app.post("/v1/maintenance/housekeeping/ghost-jobs", tags=["maintenance"], include_in_schema=False)
@@ -1548,7 +1549,12 @@ def _add_housekeeping_routes(
 
         _require_internal_token(request)
         result = await asyncio.to_thread(oib_sync.sync)
-        return {"ingested": result.ingested, "failed": result.failed, "total": result.total}
+        return {
+            "enqueued": result.enqueued,
+            "ingested_recorded": result.ingested_recorded,
+            "failed": result.failed,
+            "total": result.total,
+        }
 
 
 async def _run_event_cleanup(

@@ -5,7 +5,8 @@ that the ingestion pipeline maintains:
 
 1. the ``oib_corpus_files`` table (the corpus: every file with the hash of its
    current bytes, the hash and chunk-format version the index was last built
-   from, written by ``oib_sync`` only on ``FileStatus.SUCCESS``),
+   from, and the ingest job that gave up on it, if one did), brought up to date
+   with the outcome of each file's ingest job (``oib_sync.settle``),
 2. the vector-store collection itself (chunk counts per file).
 
 The merge yields one entry per known file with an explicit lifecycle status,
@@ -39,7 +40,12 @@ class OibFileState(StrEnum):
     next sync cycle."""
 
     PENDING = "pending"
-    """In the corpus but never successfully ingested; the RAG does not know it yet."""
+    """In the corpus but never successfully ingested; the RAG does not know it yet. Its job is
+    queued or running, or about to be queued by the next sync cycle."""
+
+    FAILED = "failed"
+    """Its ingest job ran and gave up (or lost every claim). It is not queued again until its
+    bytes change (upload it again) or an admin re-indexes it."""
 
     REMOVED = "removed"
     """Indexed, but the corpus does not list it (chunks left by a half-finished
@@ -89,6 +95,7 @@ class OibStatusSummary(BaseModel):
     ingested: int = 0
     stale: int = 0
     pending: int = 0
+    failed: int = 0
     removed: int = 0
     inconsistent: int = 0
     total_chunks: int = Field(0, description="Total chunks in the collection (all files).")
@@ -144,7 +151,11 @@ def _list_collection_files(ingestor, collection_name: str) -> dict[str, FileInfo
         return {}
 
 
-def _state_of(row: corpus_store.FileRow, chunk_count: int) -> OibFileState:
+def _state_of(
+    row: corpus_store.FileRow, chunk_count: int, progress: oib_sync.JobProgress | None = None
+) -> OibFileState:
+    if progress == oib_sync.JobProgress.FAILED:
+        return OibFileState.FAILED
     if row.ingested_sha256 is None:
         return OibFileState.PENDING
     if row.needs_ingestion(oib_sync.CHUNK_FORMAT_VERSION):
@@ -152,11 +163,13 @@ def _state_of(row: corpus_store.FileRow, chunk_count: int) -> OibFileState:
     return OibFileState.INGESTED if chunk_count > 0 else OibFileState.INCONSISTENT
 
 
-def _entry_for_row(row: corpus_store.FileRow, info: FileInfo | None) -> OibFileEntry:
+def _entry_for_row(
+    row: corpus_store.FileRow, info: FileInfo | None, progress: oib_sync.JobProgress | None
+) -> OibFileEntry:
     chunk_count = info.chunk_count if info else 0
     return OibFileEntry(
         file_name=row.file_name,
-        state=_state_of(row, chunk_count),
+        state=_state_of(row, chunk_count, progress),
         size_bytes=row.size_bytes,
         chunk_count=chunk_count,
         ingested_sha256=row.ingested_sha256,
@@ -201,11 +214,14 @@ def get_status(ingestor=None) -> OibKnowledgeStatus:
     if ingestor is None:
         ingestor = oib_sync._get_oib_ingestor()
 
-    rows = corpus_store.list_files()
+    settled = oib_sync.settle(corpus_store.list_files())
+    rows = settled.rows
     collection_info = ingestor.get_collection(collection_name)
     collection_files = _list_collection_files(ingestor, collection_name) if collection_info else {}
 
-    entries = [_entry_for_row(row, collection_files.get(name)) for name, row in rows.items()]
+    entries = [
+        _entry_for_row(row, collection_files.get(name), settled.progress.get(name)) for name, row in rows.items()
+    ]
     entries.extend(_entry_for_orphan(name, info) for name, info in collection_files.items() if name not in rows)
     _with_metadata(entries, collection_name)
 
@@ -214,6 +230,7 @@ def get_status(ingestor=None) -> OibKnowledgeStatus:
         ingested=sum(1 for e in entries if e.state == OibFileState.INGESTED),
         stale=sum(1 for e in entries if e.state == OibFileState.STALE),
         pending=sum(1 for e in entries if e.state == OibFileState.PENDING),
+        failed=sum(1 for e in entries if e.state == OibFileState.FAILED),
         removed=sum(1 for e in entries if e.state == OibFileState.REMOVED),
         inconsistent=sum(1 for e in entries if e.state == OibFileState.INCONSISTENT),
         total_chunks=collection_info.chunk_count if collection_info else 0,
