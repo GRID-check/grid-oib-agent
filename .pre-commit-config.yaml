@@ -54,13 +54,6 @@ repos:
         # the next recording — and JSON cannot carry the inline
         # `pragma: allowlist secret` comment that would be the other way out.
         #
-        # aspire-dashboard.pin is a public image reference
-        # (`mcr.microsoft.com/dotnet/aspire-dashboard@sha256:…`). The digest is
-        # hex by construction and a secret by none; the file is one line so
-        # detect-secrets sees a high-entropy blob with no surrounding code.
-        # Excluded rather than baselined for the same line-number reason as
-        # the lockfiles above. gitleaks in security.yml still sees it.
-        #
         # frontends/web/art/riso/kit.json pins the riso kit to a public git
         # commit sha: hex by construction, secret by none, and JSON cannot
         # carry the inline pragma.
@@ -71,7 +64,7 @@ repos:
         # recorded, and the golden turn is rewritten by GRID_REGEN_GOLDEN=1, so
         # a baseline entry would pin a hash to a line number that does not
         # survive the next recording; JSONL cannot carry the inline pragma.
-        exclude: (^tests/fixtures/wire_v2/.*\.jsonl$|^shared/wire/v2/.*\.jsonl$|^frontends/web/art/riso/kit\.json$|^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
+        exclude: (^tests/fixtures/wire_v2/.*\.jsonl$|^shared/wire/v2/.*\.jsonl$|^frontends/web/art/riso/kit\.json$|^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #

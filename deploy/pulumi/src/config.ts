@@ -2733,13 +2733,13 @@ export function loadConfig(): GridConfig {
     observability: {
       enabled: observabilityEnabled,
       otelDomain,
-      // Digest-pinned (supply chain): 13.4.2 and 0.161.0 respectively. Bump
+      // Digest-pinned (supply chain): 13.5.2 and 0.161.0 respectively. Bump
       // deliberately via config when upgrading — the pins are scanned by the
       // trivy job in .github/workflows/security.yml, which blocks on fixable
       // HIGH/CRITICAL, so a stale pin surfaces as a failing check.
       dashboardImage:
         cfg.get("dashboardImage") ??
-        "mcr.microsoft.com/dotnet/aspire-dashboard@sha256:d71f709233fdd53092a9a562ca6fb74264aec7c16c9aff03da94091f18ea2394",
+        "mcr.microsoft.com/dotnet/aspire-dashboard@sha256:0ef531119b8073aed12b0db2b4e4ab02866c6c69b7a52264269abd00cfb48a34",
       collectorImage:
         cfg.get("collectorImage") ??
         "otel/opentelemetry-collector-contrib@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1",
@@ -2757,17 +2757,17 @@ export function loadConfig(): GridConfig {
       enabled: langfuseEnabled,
       domain: langfuseDomain,
       // Digest-pinned on the same terms as the ADR-0029 images, and scanned by
-      // the same trivy gate: langfuse 4.48.0 (web + worker, which MUST be the
+      // the same trivy gate: langfuse 4.54.0 (web + worker, which MUST be the
       // same version) and ClickHouse 26.8.15.10 LTS, which v4 needs (>= 25.12).
       // `4` and `26.8` are moving tags upstream; these are the digests they
       // resolved to when pinned. v3 (3.225.11) shipped next 16.2.11, whose
       // next/og RCE (GHSA-vcvr-r3jv-pc5j) no 3.x release fixes.
       webImage:
         cfg.get("langfuseWebImage") ??
-        "ghcr.io/langfuse/langfuse@sha256:8c1b80ed7735be587974d603af0f6e0247b33d3b56c7d5ab9d2337aec313efa0",
+        "ghcr.io/langfuse/langfuse@sha256:ea9f763af1181b444c081353cd2f8174323c84b2447ed7295857d04ae1153f2c",
       workerImage:
         cfg.get("langfuseWorkerImage") ??
-        "ghcr.io/langfuse/langfuse-worker@sha256:9349b003a453326b3d2e2033eb94fe5ca9ee12ee237779c10984b9d3dfe0f8ed",
+        "ghcr.io/langfuse/langfuse-worker@sha256:fe7ea9e288c6586783989920ced1704172624f45da495a68d8ae07ba466641f2",
       clickhouseImage:
         cfg.get("clickhouseImage") ??
         "clickhouse/clickhouse-server@sha256:3043f691ec1a847f38b446ff43708893fcbf9815bd9bd88c0f84bfe064ce852f",
