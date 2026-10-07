@@ -201,14 +201,6 @@ def test_a_worker_claims_runs_and_forgets_the_job(db):
     assert worker.source() is None
 
 
-def test_a_process_told_not_to_claim_does_not(db, monkeypatch):
-    monkeypatch.setenv("GRID_INGEST_QUEUE_CLAIM", "false")
-    worker = FakeIngestor()
-
-    assert ingest_dispatch.attach(worker) is False
-    assert worker.source is None
-
-
 def test_an_unreadable_job_is_dropped_and_reads_failed(db):
     status = _prepared().status
     ingest_status_store.put(status)
@@ -282,7 +274,6 @@ async def test_the_ingest_worker_claims_until_told_to_stop_then_drains(db, monke
         workflow_builder.WorkflowBuilder, "from_config", staticmethod(lambda config: fake_build(config))
     )
     monkeypatch.setattr(factory, "get_active_ingestor", lambda: ingestor)
-    monkeypatch.setenv("GRID_INGEST_QUEUE_CLAIM", "false")  # the web tier's env; the worker claims anyway
     monkeypatch.setenv("GRID_WORKER_LIVENESS_FILE", str(tmp_path / "alive"))
 
     stop = asyncio.Event()
@@ -618,34 +609,6 @@ def test_a_failed_count_leaves_the_statuses_alone(db, monkeypatch):
     ingest_dispatch.stamp_queue_ahead(statuses)
 
     assert statuses == {"job-1": {"status": "pending", "metadata": {}}}
-
-
-async def test_the_web_tier_stops_claiming_before_its_chat_drain_and_gives_back_what_it_holds(db, monkeypatch):
-    from aiq_api import plugin
-
-    ingest_dispatch.dispatch(FakeIngestor(), _prepared("job-1"))
-    ingest_dispatch.dispatch(FakeIngestor(), _prepared("job-2"))
-    order: list[str] = []
-
-    class WebTier(FakeIngestor):
-        def detach_job_source(self) -> None:
-            order.append("detached")
-            self.source = None
-
-    web = WebTier()
-    ingest_dispatch.attach(web)
-    web.source()  # running when SIGTERM lands
-
-    async def chat_drain() -> int:
-        order.append("chat drained")
-        assert web.source is None  # nothing claims while the turns finish
-        return 0
-
-    monkeypatch.setattr(plugin, "drain_chat_turns", chat_drain)
-    await plugin.drain_owned_work()
-
-    assert order == ["detached", "chat drained"]
-    assert _queue_rows(db) == {"job-1": ("queued", 0, 0), "job-2": ("queued", 0, 0)}  # no attempt spent
 
 
 # ---------------------------------------------------------------------------

@@ -8,6 +8,9 @@ import subprocess
 import sys
 import time
 
+#: The values of ``GRID_ROLE``; the two web roles both start ``start_web.py``.
+ROLES = ("chat", "api", "worker", "ingest-worker")
+
 
 def _terminate_process(proc: subprocess.Popen[str] | None) -> None:
     if proc is None or proc.poll() is not None:
@@ -54,9 +57,15 @@ def main() -> int:
     if len(sys.argv) > 1:
         os.execvp(sys.argv[1], sys.argv[1:])
 
-    # Role split for horizontal scaling (ADR-0021). A dedicated worker container
-    # runs the DB-claimed research worker — no web server, no Dask cluster.
-    role = os.getenv("GRID_ROLE", "web").strip().lower()
+    # One image, one process type per job (ADR-0082): `chat` and `api` are the web
+    # roles (the plugin mounts what each serves, `aiq_api.roles`), `worker` and
+    # `ingest-worker` claim jobs from the database. There is no default: a
+    # process that does not say what it is stops here rather than guess.
+    role = os.getenv("GRID_ROLE", "").strip().lower()
+    if role not in ROLES:
+        raise SystemExit(f"GRID_ROLE={role!r} is not a role of this image: set it to one of {', '.join(ROLES)}")
+    # A dedicated worker container runs the DB-claimed research worker — no web
+    # server, no Dask cluster (ADR-0021).
     if role == "worker":
         print("Starting DB-claimed research worker (GRID_ROLE=worker)...", flush=True)
         os.execvp("python", ["python", "-m", "aiq_api.jobs.worker"])

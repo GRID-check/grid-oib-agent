@@ -2,11 +2,11 @@
 
 ``POST /v1/ingest`` prepares a job (validated, recorded PENDING) and puts it in
 the durable, fair queue (``aiq_agent.knowledge.ingest_queue``). Every process
-that claims (the web tier unless ``GRID_INGEST_QUEUE_CLAIM=false``, and the
-dedicated ingest-worker tier, ``ingest_worker``) attaches ``QueueSource`` to its
-ingestor, so its free workers claim the next job fairly across every
-organisation and run it. A job survives the restart of the replica that
-accepted it, and ingestion scales apart from the chat tier.
+that claims (only the dedicated ingest-worker tier, ``ingest_worker``: the
+``chat`` and ``api`` roles accept jobs and never claim them) attaches
+``QueueSource`` to its ingestor, so its free workers claim the next job fairly
+across every organisation and run it. A job survives the restart of the replica
+that accepted it, and ingestion scales apart from the web tiers.
 
 The queue is used when the ingestor can run a job elsewhere, a database is
 configured, every file is a deferred object-store download (a local path exists
@@ -86,18 +86,6 @@ def _int_env(name: str, default: int) -> int:
 # before the queue existed.
 def queue_enabled() -> bool:
     return _flag("GRID_INGEST_QUEUE", True) and ingest_queue.db_url() is not None
-
-
-# @environment_variable GRID_INGEST_QUEUE_CLAIM
-# @category Knowledge Layer
-# @type bool
-# @default true
-# @required false
-# Whether this process's ingest workers claim from the durable queue. Set
-# `false` on the web tier when the ingest-worker tier runs, so ingestion stays
-# off the chat pods.
-def claim_enabled() -> bool:
-    return _flag("GRID_INGEST_QUEUE_CLAIM", True)
 
 
 def _per_org_cap() -> int:
@@ -485,10 +473,6 @@ class QueueSource:
             run.stop.set()
         return ingest_queue.release_claims(job_ids, self._worker)
 
-    def stop_claiming(self) -> None:
-        """Take no new job from here on (a drain); the jobs in hand run on."""
-        self._ingestor.detach_job_source()
-
     def release_held(self) -> int:
         """Give back every claim this process still holds (a drain that ran out of time)."""
         with self._held_lock:
@@ -521,39 +505,26 @@ def worker_id() -> str:
     return ingest_status_store.OWNER
 
 
-def stop_claiming() -> None:
-    """Stop this process claiming ingestion jobs, for a drain; the jobs it holds run on.
-
-    The web tier claims too when no ingest-worker tier runs, so its shutdown
-    calls this before it waits for its chat turns, and :func:`release_held`
-    after: otherwise it keeps claiming through the whole chat drain, and every
-    claim still held when the pod is killed goes stale and costs an attempt.
-    """
-    source = _active
-    if source is not None:
-        source.stop_claiming()
-
-
 def release_held() -> int:
     """Give back the claims this process still holds without spending their attempts; how many.
 
-    For a worker that must exit with jobs unfinished: another worker may take
-    them now instead of after the stale window.
+    For the ingest worker, when it must exit with jobs unfinished: another
+    worker may take them now instead of after the stale window.
     """
     source = _active
     return source.release_held() if source is not None else 0
 
 
-def attach(ingestor: BaseIngestor | None, *, claim: bool | None = None) -> bool:
-    """Start claiming from the durable queue in this process, when it should; whether it does.
+def attach(ingestor: BaseIngestor | None) -> bool:
+    """Start claiming from the durable queue in this process; whether it does.
 
-    ``claim`` overrides ``GRID_INGEST_QUEUE_CLAIM``: the ingest-worker tier
-    exists to claim, whatever the web tier's environment it shares says.
+    Only the ingest worker calls this. It does not claim when the ingestor
+    cannot run a job elsewhere, or when the queue is off or has no database.
     """
     global _active
     if ingestor is None or getattr(ingestor, "supports_durable_jobs", False) is not True:
         return False
-    if not (queue_enabled() and (claim_enabled() if claim is None else claim)):
+    if not queue_enabled():
         logger.info("This process does not claim queued ingestion jobs")
         return False
     _active = QueueSource(ingestor)
