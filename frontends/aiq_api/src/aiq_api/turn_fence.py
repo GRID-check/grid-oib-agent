@@ -13,9 +13,10 @@ renews may be late. So the answer comes from a local clock alone.
   after the command arrived, so the marker outlives the deadline by at least
   the round trip, never the other way round.
 * **The margin covers one write in flight.** A write that began just before the
-  deadline cannot be called back, so each guarded write is bounded by
-  ``GUARDED_WRITE_TIMEOUT_SECONDS`` (``aiq_agent.common.write_fence``) and the
-  margin is that bound plus ``FENCE_SLACK_SECONDS`` for cancellation latency
+  deadline cannot be called back, so each guarded write must end within
+  ``GUARDED_WRITE_TIMEOUT_SECONDS`` (``aiq_agent.common.write_fence``) of the
+  deadline (not of its own start: a slow write with runway left is not cut off)
+  and the margin is that bound plus ``FENCE_SLACK_SECONDS`` for cancellation latency
   and clock skew. It must stay below the TTL, or the turn would be fenced from
   the moment it started: :func:`fence_margin` refuses such a TTL.
 * **Every write compares the clock itself.** :meth:`TurnFence.fenced` reads

@@ -143,8 +143,11 @@ Chosen option 3.
   `persist_turn_result`). The deadline is the start of the last successful
   renewal plus the TTL minus a margin, and each guard compares
   `time.monotonic()` with it directly, so a renewal task that never ran cannot
-  leave a stale answer. The margin is one guarded write (bounded at 3 s) plus
-  1 s for the cancel and clock skew; the TTL must exceed it. The persist of the
+  leave a stale answer. The margin is one guarded write plus 1 s for the cancel and
+  clock skew; a write may run until 3 s past the deadline (measured from the
+  deadline, not from its start, so a slow write that began with runway left is
+  not cut off, and the bound moves out with each renewal), and one still running
+  then is cut off as `TurnFenced`. The TTL must exceed the margin. The persist of the
   outcome is checked but not cut short: it is the turn's own message row, which
   cannot collide with a newer turn's. A marker deleted before its TTL (a
   Dragonfly that lost its data) can be taken at once and no local clock sees
