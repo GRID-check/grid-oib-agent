@@ -1,7 +1,9 @@
 # Cross-Project RAG: The Grid Data Flywheel
 
-> **Status:** Future idea — not an implementation plan.
-> This document captures a strategic direction. No dates, no tasks, no commitments.
+> **Status:** Superseded on 7 Oct 2026 by [`office-experience.md`](office-experience.md),
+> which keeps this goal, adds the access model it lacked (ADR-0085) and puts the
+> data the flywheel needs (archive import, fingerprints, decisions) first.
+> Kept for its reasoning; do not plan from it.
 
 ## The Problem
 
