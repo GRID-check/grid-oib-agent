@@ -195,6 +195,8 @@ export const chat: typeof en.chat = {
     // Ein offener Befund lässt sich als eigener Auftrag klären; der Lauf
     // erscheint als Block in diesem Verlauf.
     clarify: 'Klären',
+    /** Unter der Matrix in einem abgeschlossenen Projekt, wo „Klären“ stünde (ADR-0082). */
+    clarifyClosed: 'Abgeschlossenes Projekt: keine neue Recherche zu offenen Befunden.',
     commissioned: 'Auftrag angelegt',
     // Gegenüber dem vorigen Bericht zum selben Thema.
     change: {

@@ -17,6 +17,7 @@ import { useState, type FC } from 'react'
 import { ChevronDown, CircleCheck, CircleHelp, CircleMinus, CircleX } from 'lucide-react'
 import { Chip } from '@/components/ui/chip'
 import { SectionLabel } from '@/components/ui/section-label'
+import { useCurrentProject } from '@/features/projects/lib/current-project'
 import { useTranslations } from '@/i18n'
 import type { Finding, Findings, FindingStatus } from '@/lib/conversations/message-findings'
 import { findingCounts, hasFindingStatuses } from '@/lib/conversations/message-findings'
@@ -197,6 +198,9 @@ export const FindingsMatrix: FC<{
   onCommission?: (finding: Finding) => Promise<boolean>
 }> = ({ findings, anchorPrefix, previous, onCommission }) => {
   const t = useTranslations('chat')
+  // A closed project commissions nothing (ADR-0082): the thread hides „Klären“, and this says why.
+  const closedProject = useCurrentProject()?.status === 'closed'
+  const openFindings = findings.items.some((finding) => finding.status !== undefined && OPEN_STATUSES.has(finding.status))
   const counts = findingCounts(findings)
   const dropped = droppedFrom(previous, findings)
   // Befunde when the report judged, Ergebnisse when it only stated: the same
@@ -243,6 +247,11 @@ export const FindingsMatrix: FC<{
           </tbody>
         </table>
       </div>
+      {closedProject && openFindings && (
+        <p className="text-muted-foreground text-xs" data-testid="findings-closed-project">
+          {t('findings.clarifyClosed')}
+        </p>
+      )}
       {dropped.length > 0 && (
         <p className="text-muted-foreground text-xs" data-testid="findings-dropped">
           {t('findings.change.dropped', { count: dropped.length })} {dropped.join(' · ')}
