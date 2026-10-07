@@ -94,7 +94,12 @@ class FixtureOffice:
         }
 
     def _ref(self, project: dict[str, Any]) -> dict[str, Any]:
-        return {"id": project["id"], "name": project["name"], "status": project["status"]}
+        return {
+            "id": project["id"],
+            "name": project["name"],
+            "status": project["status"],
+            "bundesland": (project.get("facts") or {}).get("bundesland"),
+        }
 
     def _listed(self, project: dict[str, Any]) -> dict[str, Any]:
         return {

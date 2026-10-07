@@ -54,6 +54,7 @@ from aiq_agent.common.grounding_block import GroundingBlock
 from aiq_agent.common.grounding_block import GroundingHit
 from aiq_agent.common.grounding_block import SourceProject
 from aiq_agent.common.grounding_block import render_grounding_block
+from aiq_agent.common.norm_registry import BUNDESLAND_TOKENS
 from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.knowledge.restricted_collections import is_restricted_collection
 from aiq_agent.knowledge.restricted_use import note_collections_read
@@ -196,6 +197,34 @@ async def _call(path: str, payload: dict[str, Any]) -> dict[str, Any]:
         raise _Refused(_UNREACHABLE) from exc
 
 
+def _land_note(project: dict[str, Any]) -> str | None:
+    """The project's Land, and a warning when it is not this chat's project's.
+
+    Said by the tool, not left to the model: a precedent from another Land
+    was decided under another Bauordnung, and nothing else on the hit shows it.
+    """
+    theirs = project.get("bundesland")
+    if not isinstance(theirs, str) or not theirs:
+        return None
+    label = BUNDESLAND_TOKENS.get(theirs) or (
+        "außerhalb Österreichs" if theirs == "ausserhalb_oesterreichs" else theirs
+    )
+    context = project_context.get_signed_request_context()
+    ours = context.bundesland if context is not None else None
+    if ours and ours != theirs:
+        return f"{label} — nicht das Bundesland dieses Projekts: dort gilt eine andere Bauordnung"
+    return label
+
+
+def _source_project(project: dict[str, Any], name: str) -> SourceProject:
+    return SourceProject(
+        id=str(project.get("id")),
+        name=name,
+        status=str(project.get("status") or "active"),
+        land_note=_land_note(project),
+    )
+
+
 def _status_label(status: object) -> str:
     return PROJECT_STATUS_LABELS.get(str(status), str(status))
 
@@ -269,7 +298,7 @@ def _hit(raw: dict[str, Any]) -> GroundingHit | None:
         status_note=None,
         body=snippet.removesuffix(_SNIPPET_ELLIPSIS).rstrip() if truncated else snippet,
         body_truncated=truncated,
-        project=SourceProject(id=str(project_id), name=name, status=str(project.get("status") or "active")),
+        project=_source_project(project, name),
     )
 
 
@@ -338,9 +367,7 @@ def _decision_hits(decisions: list[dict[str, Any]]) -> list[GroundingHit]:
                 status_note=None,
                 body="\n".join(_decision_line(item) for item in items),
                 body_truncated=False,
-                project=SourceProject(
-                    id=str(project.get("id")), name=name, status=str(project.get("status") or "active")
-                ),
+                project=_source_project(project, name),
             )
         )
     return hits

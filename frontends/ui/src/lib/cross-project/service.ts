@@ -46,7 +46,7 @@ import { buildProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { audienceReach, type AudienceReach } from './audience-reach'
 import { searchProjectDecisions, type DecisionScope, type FoundDecision } from './decisions-repository'
-import { rankBySimilarity } from './similarity'
+import { rankBySimilarity, similarityFacts } from './similarity'
 import type { VerifiedGridRequestContext } from '@/lib/request-context'
 import {
   CROSS_PROJECT_PAGE_PROJECTS,
@@ -55,6 +55,7 @@ import {
   type CrossProjectDecision,
   type CrossProjectHit,
   type CrossProjectListed,
+  type CrossProjectRef,
   type CrossProjectListRequest,
   type CrossProjectListResponse,
   type CrossProjectSearchRequest,
@@ -131,11 +132,19 @@ export function projectAddressOf(project: Pick<Project, 'profile'>): string | nu
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
-function listed(project: Project, currentProjectId: string | null): CrossProjectListed {
+/** What every answer says about a project it drew on: who it is, whether it is closed, and its Land. */
+function projectRefOf(project: Project): CrossProjectRef {
   return {
     id: project.id,
     name: project.name,
     status: projectStatusOf(project),
+    bundesland: similarityFacts(project.profile).bundesland,
+  }
+}
+
+function listed(project: Project, currentProjectId: string | null): CrossProjectListed {
+  return {
+    ...projectRefOf(project),
     collection: project.collectionName,
     address: projectAddressOf(project),
     period: projectPeriodOf(project),
@@ -276,7 +285,7 @@ async function searchOneProject(
     // Access withdrawn between the listing and the search, or the project went: nothing from it.
     return []
   }
-  const ref = { id: project.id, name: project.name, status: projectStatusOf(project) }
+  const ref = projectRefOf(project)
   // A shared chat searches no restricted folder: not every reader was asked about it.
   const matching = found.hits.filter(
     (hit) => matchesTags(hit.tags ?? [], request) && (reach.restrictedFolders || hit.collectionName === project.collectionName)
@@ -332,7 +341,7 @@ function asDecision(found: FoundDecision, byId: ReadonlyMap<string, Project>): C
   const project = byId.get(found.projectId)
   if (!project) return null
   return {
-    project: { id: project.id, name: project.name, status: projectStatusOf(project) },
+    project: projectRefOf(project),
     collection: project.collectionName,
     kind: found.kind === 'constraint' ? 'constraint' : 'decision',
     content: found.content,

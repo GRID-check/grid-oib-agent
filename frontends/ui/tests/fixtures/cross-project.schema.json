@@ -105,12 +105,23 @@
                       "active",
                       "closed"
                     ]
+                  },
+                  "bundesland": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
                   "id",
                   "name",
-                  "status"
+                  "status",
+                  "bundesland"
                 ],
                 "additionalProperties": true
               },
@@ -169,12 +180,23 @@
                       "active",
                       "closed"
                     ]
+                  },
+                  "bundesland": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
                   "id",
                   "name",
-                  "status"
+                  "status",
+                  "bundesland"
                 ],
                 "additionalProperties": true
               },
@@ -315,6 +337,16 @@
                   "closed"
                 ]
               },
+              "bundesland": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "collection": {
                 "type": "string"
               },
@@ -359,6 +391,7 @@
               "id",
               "name",
               "status",
+              "bundesland",
               "collection",
               "address",
               "period",
@@ -413,6 +446,16 @@
                 "closed"
               ]
             },
+            "bundesland": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "collection": {
               "type": "string"
             },
@@ -457,6 +500,7 @@
             "id",
             "name",
             "status",
+            "bundesland",
             "collection",
             "address",
             "period",

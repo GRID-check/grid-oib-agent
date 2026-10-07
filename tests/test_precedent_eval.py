@@ -69,6 +69,7 @@ class TestTheFixtureBff:
             "id": "b0000000-0000-4000-8000-000000000002",
             "name": "Holzwohnbau Baden, Wiener Straße",
             "status": "closed",
+            "bundesland": "niederoesterreich",
         }
 
     def test_a_search_walks_the_projects_in_the_similar_order_production_ranks(self, bff):
