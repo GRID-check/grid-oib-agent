@@ -38,6 +38,8 @@ FIXTURES = ROOT / "frontends" / "ui" / "tests" / "fixtures" / "precedent"
 
 #: As `CROSS_PROJECT_PAGE_PROJECTS` in `lib/cross-project/types.ts`.
 PAGE_PROJECTS = 8
+#: The office as `office.json` describes it; the other scenarios are named under its `scenarios`.
+DEFAULT_SCENARIO = "default"
 _WORD = re.compile(r"[a-z0-9]{4,}")
 
 
@@ -73,14 +75,19 @@ def _score(query: str, document: dict[str, Any]) -> float:
 class FixtureOffice:
     """The fixture office and what the production renderers made of it."""
 
-    def __init__(self, directory: Path = FIXTURES) -> None:
+    def __init__(self, directory: Path = FIXTURES, scenario: str = DEFAULT_SCENARIO) -> None:
         self.office = json.loads((directory / "office.json").read_text(encoding="utf-8"))
-        self.rendered = json.loads((directory / "rendered.json").read_text(encoding="utf-8"))
-        self.projects = {project["id"]: project for project in self.office["projects"]}
-
-    @property
-    def current(self) -> dict[str, Any]:
-        return self.office["current"]
+        self._rendered = json.loads((directory / "rendered.json").read_text(encoding="utf-8"))["scenarios"]
+        self.scenario = scenario
+        if scenario not in self._rendered:
+            raise KeyError(f"No scenario {scenario!r} in rendered.json: {sorted(self._rendered)}")
+        spec = (self.office.get("scenarios") or {}).get(scenario) or {}
+        self.current = spec.get("current") or self.office["current"]
+        kept = spec.get("projects")
+        every = self.office["projects"]
+        office_projects = every if kept is None else [project for project in every if project["id"] in set(kept)]
+        self.projects = {project["id"]: project for project in office_projects}
+        self.rendered = self._rendered[scenario]
 
     def turn_context(self) -> dict[str, Any]:
         return {
@@ -178,7 +185,7 @@ class FixtureOffice:
                 return False
             return not needle or needle in _fold(f"{project['name']} {address}")
 
-        matching = [project for project in [self.current, *self.office["projects"]] if found(project)]
+        matching = [project for project in [self.current, *self.projects.values()] if found(project)]
         listed = matching[: int(body.get("limit") or 10)]
         return {"projects": [self._listed(project) for project in listed], "total": len(matching), "statusKnown": True}
 
@@ -232,6 +239,8 @@ class FixtureBFF:
 
     def __init__(self, token: str, log_path: Path, office: FixtureOffice | None = None) -> None:
         self.office = office or FixtureOffice()
+        self._offices = {self.office.scenario: self.office}
+        self._scenario_of: dict[str, str] = {}
         self.token = token
         self.log_path = log_path
         self._lock = threading.Lock()
@@ -255,15 +264,28 @@ class FixtureBFF:
         with self._lock, self.log_path.open("a", encoding="utf-8") as sink:
             sink.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
-    def _answer(self, path: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]] | None:
+    def assign(self, conversation_id: str, scenario: str) -> FixtureOffice:
+        """Answer this conversation from a scenario's office: which project the chat sits in, which exist."""
+        with self._lock:
+            if scenario not in self._offices:
+                self._offices[scenario] = FixtureOffice(scenario=scenario)
+            self._scenario_of[conversation_id] = scenario
+            return self._offices[scenario]
+
+    def office_for(self, conversation_id: str | None) -> FixtureOffice:
+        with self._lock:
+            scenario = self._scenario_of.get(conversation_id or "")
+            return self._offices.get(scenario or "", self.office)
+
+    def _answer(self, path: str, body: dict[str, Any], office: FixtureOffice) -> tuple[int, dict[str, Any]] | None:
         if path == "/api/internal/turn-context":
-            return 200, self.office.turn_context()
+            return 200, office.turn_context()
         if path == "/api/internal/cross-project/search":
-            return 200, self.office.search(body)
+            return 200, office.search(body)
         if path == "/api/internal/cross-project/projects":
-            return 200, self.office.projects_listing(body)
+            return 200, office.projects_listing(body)
         if path == "/api/internal/cross-project/brief":
-            found = self.office.brief(body)
+            found = office.brief(body)
             return (200, found) if found is not None else (404, {"error": "Not found"})
         return None
 
@@ -282,8 +304,9 @@ class FixtureBFF:
                 except ValueError:
                     body = {}
                 path = self.path.split("?", 1)[0]
-                answer = bff._answer(path, body) if self.headers.get("X-Grid-Internal-Token") == bff.token else None
                 conversation = _conversation_of(self.headers.get("X-Grid-Request-Context"))
+                trusted = self.headers.get("X-Grid-Internal-Token") == bff.token
+                answer = bff._answer(path, body, bff.office_for(conversation)) if trusted else None
                 bff._log({"path": path, "body": body, "served": answer is not None, "conversation": conversation})
                 if answer is None:
                     # As unreachable as today's suite's BFF: no status line at all.

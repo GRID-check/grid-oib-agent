@@ -146,13 +146,66 @@ def test_the_envelope_the_suite_mints_is_one_the_agent_accepts():
     assert GridRequestContext.from_envelope(header, signature, "another-secret") is None
 
 
-def test_every_project_a_question_expects_is_in_the_fixture_office():
-    """An expectation is a fact read off the fixture office, never a name it does not hold."""
-    names = " ".join(project["name"] for project in FixtureOffice().office["projects"])
-    folded = suite._normal(names)
+def test_every_project_a_question_expects_is_in_its_scenarios_office():
+    """An expectation is a fact read off the office the question sits in, never a name it does not hold."""
     for question in suite.load_precedent_questions():
+        office = FixtureOffice(scenario=question.get("scenario") or "default")
+        folded = suite._normal(" ".join(project["name"] for project in office.projects.values()))
         for group in (question.get("expect") or {}).get("cites") or []:
             assert any(suite._normal(option) in folded for option in group), (question["id"], group)
+
+
+def test_the_questions_hold_a_held_out_share_in_every_scenario():
+    """Overfitting shows only beside questions nobody tuned on, in an office nobody tuned on."""
+    questions = suite.load_precedent_questions()
+    assert sum(bool(q.get("holdout")) for q in questions) >= len(questions) // 3
+    for scenario in {q.get("scenario") for q in questions if q.get("scenario")}:
+        assert any(q.get("scenario") == scenario and q.get("holdout") for q in questions), scenario
+
+
+class TestTheScenarios:
+    def test_a_conversation_is_answered_from_its_scenarios_office(self, bff):
+        bff.assign("suite-1-wien-1", "wien-bestand")
+        bff.assign("suite-1-leer-1", "leeres-buero")
+
+        def turn_context(conversation: str) -> dict:
+            office = bff.office_for(conversation)
+            return office.turn_context()["data"]
+
+        assert turn_context("suite-1-wien-1")["referenceProjects"].startswith("- Bürogebäude Wien 22")
+        assert not turn_context("suite-1-leer-1")["referenceProjects"]
+        assert turn_context("suite-1-unassigned-1")["referenceProjects"].startswith("- Holzwohnbau Baden")
+        assert bff.office_for("suite-1-leer-1").search({"query": "Traufe"})["projectsInScope"] == 0
+
+    def test_a_hit_says_its_land_in_another_offices_search(self):
+        hits = FixtureOffice(scenario="wien-bestand").search({"query": "Kapselung Gipsfaserplatten"})["hits"]
+
+        assert {hit["project"]["bundesland"] for hit in hits} == {"niederoesterreich"}
+
+    def test_the_envelope_sits_in_the_scenarios_current_project(self):
+        office = FixtureOffice(scenario="wien-bestand")
+        header, signature = suite.precedent_envelope(office.office, "suite-1-wien-1", TOKEN, office.current)
+
+        context = GridRequestContext.from_envelope(header, signature, TOKEN)
+
+        assert context is not None
+        assert (context.project_id, context.bundesland) == ("a3000000-0000-4000-8000-000000000009", "wien")
+
+    def test_an_unknown_scenario_is_refused_rather_than_answered_from_the_default(self):
+        with pytest.raises(KeyError):
+            FixtureOffice(scenario="nirgendwo")
+
+    def test_the_report_scores_held_out_and_each_scenario_apart(self):
+        runs = [
+            suite.Run(question_id="a", run=1, checks={"cites:Baden": True}),
+            suite.Run(question_id="b", run=1, checks={"cites:Baden": False}, holdout=True, scenario="wien-bestand"),
+        ]
+
+        lines = suite.split_lines(runs)
+
+        assert "**Tuned questions** (1 runs):" in lines and "**Held-out questions** (1 runs):" in lines
+        assert "**Scenario `wien-bestand`** (1 runs):" in lines
+        assert suite.split_lines([suite.Run(question_id="a", run=1)]) == []
 
 
 def test_every_question_says_whether_it_expects_a_lookup():
@@ -179,32 +232,29 @@ class TestTheChecks:
 
         assert suite.precedent_checks({"lookup": "forbidden"}, run, suite._normal(run.answer)) == {"no_lookup": False}
 
-    def test_saying_nothing_comparable_and_naming_an_older_edition_are_read(self):
-        none = suite._normal("In unseren Referenzprojekten gibt es keine vergleichbare Lösung mit Feuerwehraufzug.")
-        drift = suite._normal("Mödling wurde nach OIB-RL 2, Ausgabe 2015, bemessen; prüft die aktuelle Fassung.")
-        silent = suite._normal("Ja, genau so.")
+    def test_meaning_is_the_judges_and_it_gets_the_question_and_the_raw_answer(self):
+        asked = []
 
-        assert suite.precedent_checks({"says_none": True}, self._run([], ""), none) == {"says_none": True}
-        assert suite.precedent_checks({"caveat": True}, self._run([], ""), drift) == {"caveat": True}
-        assert suite.precedent_checks({"says_none": True, "caveat": True}, self._run([], ""), silent) == {
-            "says_none": False,
-            "caveat": False,
-        }
+        def judge(kind: str, question: str, answer: str) -> bool | None:
+            asked.append((kind, question, answer))
+            return kind == "says_none"
 
-    @pytest.mark.parametrize(
-        "answer",
-        [
-            # Captured from the precedent eval's runs on 7 Oct 2026.
-            "In den durchsuchten Büroprojekten finde ich keinen belegten Fall einer Tiefgarage.",
-            "In den abgeschlossenen Referenzprojekten habe ich keinen Nachweis für eine Tiefgarage gefunden.",
-            "Eine konkrete Ausführung unserer Feuerwehraufzüge ist in den auffindbaren Unterlagen **nicht belegt**.",
-            "In den Referenzprojekten ist keine Lösung für Feuerwehraufzüge dokumentiert.",
-        ],
-    )
-    def test_saying_none_is_read_in_the_words_the_agent_uses(self, answer):
-        assert suite.precedent_checks({"says_none": True}, self._run([], ""), suite._normal(answer)) == {
-            "says_none": True
-        }
+        run = self._run(["project_lookup"], "Ein Hallenbad hatten wir **noch nie**.")
+        checks = suite.precedent_checks(
+            {"says_none": True, "caveat": True}, run, suite._normal(run.answer), question="Hallenbad?", judge=judge
+        )
+
+        assert checks == {"says_none": True, "caveat": False}
+        assert asked == [
+            ("says_none", "Hallenbad?", "Ein Hallenbad hatten wir **noch nie**."),
+            ("caveat", "Hallenbad?", "Ein Hallenbad hatten wir **noch nie**."),
+        ]
+
+    def test_a_meaning_no_judge_could_read_is_left_out_never_guessed(self):
+        run = self._run([], "Nichts Vergleichbares.")
+
+        assert suite.precedent_checks({"says_none": True}, run, "", judge=None) == {}
+        assert suite.precedent_checks({"says_none": True}, run, "", judge=lambda *_: None) == {}
 
     def test_the_report_counts_each_kind_of_check_over_every_run(self):
         runs = [

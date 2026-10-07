@@ -53,6 +53,7 @@ import re
 import statistics
 import sys
 import time
+from collections.abc import Callable
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -128,6 +129,10 @@ class Run:
     #: The cross-project lookups the fixture BFF served this run (`--set precedent`):
     #: the model's own calls and the turn decision's round-0 prefetch alike.
     lookups: list[str] = field(default_factory=list)
+    #: `--set precedent`: the fixture office the run sat in, and whether its
+    #: question is held out (written without reading answers, never tuned on).
+    scenario: str = ""
+    holdout: bool = False
     answer: str = ""
     error: str = ""
 
@@ -262,7 +267,12 @@ def _read_calls(run: Run, research: list[dict], answered_at: int | None, t0: flo
 
 def observe(question: dict, index: int, record: Path, log: Path) -> Run:
     """Everything one turn left behind, read into a Run."""
-    run = Run(question_id=str(question["id"]), run=index)
+    run = Run(
+        question_id=str(question["id"]),
+        run=index,
+        scenario=str(question.get("scenario") or ""),
+        holdout=bool(question.get("holdout")),
+    )
     rows = sorted(records(record), key=lambda r: r["t_start"])
     log_text = log.read_text(errors="replace") if log.exists() else ""
     if not rows:
@@ -377,22 +387,15 @@ def check(question: dict, run: Run, envelope: dict | None) -> dict[str, bool]:
         options = shapes if isinstance(shapes, list) else [shapes]
         cards = (envelope or {}).get("cards") or []
         checks[f"shape:{'|'.join(options)}"] = any(_has_shape(option, run.answer, cards) for option in options)
-    checks.update(precedent_checks(expect, run, answer))
+    checks.update(precedent_checks(expect, run, answer, question=str(question.get("question") or ""), judge=_judge()))
     return checks
 
 
-#: The answer says the references hold nothing comparable, rather than inventing one.
-_SAYS_NONE = re.compile(
-    r"kein(e|en)? (vergleichbar|passend|entsprechend|ähnlich)\w*|nichts (vergleichbar|passend|gefunden)\w*"
-    r"|keine referenz|nicht gefunden|(haben|hatten) wir (noch )?(kein|nie)|kein solches projekt|bisher kein"
-    # Said as missing evidence rather than missing projects, as the agent words it.
-    r"|kein(en)? (belegten |dokumentierten )?(fall|nachweis|beleg)\b|nicht belegt|keine [^.]{0,60}dokumentiert"
-)
-#: The answer says the precedent was decided under an earlier edition, or the rules may have changed since.
-_CAVEAT = re.compile(
-    r"ausgabe|fassung|seither|inzwischen|damals|zum damaligen|geändert|geaendert|neuere|aktuell gültig"
-    r"|2015|2019|2023|nicht (einfach|ungeprüft|ohne prüfung) übern"
-)
+def _judge() -> Judge | None:
+    """The model judge when a key is set (`judge.py`); None offline, which leaves the meaning checks out."""
+    import judge
+
+    return judge.ask if judge.available() else None
 
 
 def looked_up(run: Run) -> bool:
@@ -400,8 +403,19 @@ def looked_up(run: Run) -> bool:
     return bool(run.lookups) or any(str(name).endswith("project_lookup") for name in run.tool_calls)
 
 
-def precedent_checks(expect: dict, run: Run, answer: str) -> dict[str, bool]:
-    """The precedent eval's checks (`tests/fixtures/precedent/precedent_questions.yaml` says what each means)."""
+#: A judge of meaning: (check kind, question, answer) → yes, no, or None when it could not answer.
+Judge = Callable[[str, str, str], bool | None]
+
+
+def precedent_checks(
+    expect: dict, run: Run, answer: str, *, question: str = "", judge: Judge | None = None
+) -> dict[str, bool]:
+    """The precedent eval's checks (`tests/fixtures/precedent/precedent_questions.yaml` says what each means).
+
+    `says_none` and `caveat` are meanings and go to the judge (`judge.py`) with
+    the raw answer; without one, or when it cannot answer, they are left out
+    of the run rather than guessed.
+    """
     checks: dict[str, bool] = {}
     lookup = expect.get("lookup")
     if lookup == "required":
@@ -413,10 +427,12 @@ def precedent_checks(expect: dict, run: Run, answer: str) -> dict[str, bool]:
         checks[f"cites:{options[0]}"] = any(_normal(str(option)) in answer for option in options)
     for name in expect.get("not_cites") or []:
         checks[f"not_cites:{name}"] = _normal(str(name)) not in answer
-    if expect.get("says_none"):
-        checks["says_none"] = bool(_SAYS_NONE.search(answer))
-    if expect.get("caveat"):
-        checks["caveat"] = bool(_CAVEAT.search(answer))
+    for kind in ("says_none", "caveat"):
+        if not expect.get(kind) or judge is None:
+            continue
+        verdict = judge(kind, question, run.answer)
+        if verdict is not None:
+            checks[kind] = verdict
     return checks
 
 
@@ -512,6 +528,7 @@ def render(
         "",
         *aggregate_lines(ok),
         "",
+        *split_lines(ok),
         "## Checks that did not always hold",
         "",
         *(failing or ["None."]),
@@ -521,6 +538,25 @@ def render(
     if not_in_corpus:
         lines += ["", f"Skipped, the ingested corpus lacks the Richtlinie: {', '.join(not_in_corpus)}."]
     return "\n".join(lines) + "\n"
+
+
+def split_lines(runs: list[Run]) -> list[str]:
+    """The checks over the tuned and the held-out questions apart, and per scenario: where overfitting shows.
+
+    Nothing when every run is tuned and in the default office (the norm set).
+    """
+    if not any(run.holdout or run.scenario for run in runs):
+        return []
+    lines = ["## Tuned, held out, and per scenario", ""]
+    for label, part in (
+        ("Tuned questions", [run for run in runs if not run.holdout]),
+        ("Held-out questions", [run for run in runs if run.holdout]),
+    ):
+        lines += [f"**{label}** ({len(part)} runs):", "", *aggregate_lines(part), ""]
+    for scenario in sorted({run.scenario or "default" for run in runs}):
+        part = [run for run in runs if (run.scenario or "default") == scenario]
+        lines += [f"**Scenario `{scenario}`** ({len(part)} runs):", "", *aggregate_lines(part), ""]
+    return lines
 
 
 def aggregate_lines(runs: list[Run]) -> list[str]:
@@ -710,8 +746,8 @@ def run_suite(
 ) -> list[Run]:
     """Every question ``runs`` times, ``workers`` at once; each recorded as ``suite-{stamp}-{id}-{run}``.
 
-    ``env_for(conversation_id)``, when given, is each run's extra environment
-    (the precedent eval's envelope and fixture BFF).
+    ``env_for(conversation_id, question)``, when given, is each run's extra
+    environment (the precedent eval's envelope and fixture BFF).
     """
     out.mkdir(parents=True, exist_ok=True)
     stamp = stamp or run_stamp()
@@ -721,7 +757,7 @@ def run_suite(
         question, index = job
         conversation = f"suite-{stamp}-{question['id']}-{index}"
         try:
-            extra = env_for(conversation) if env_for else None
+            extra = env_for(conversation, question) if env_for else None
             record = run_once(str(question["question"]).strip(), out, conversation, overrides, extra)
             result = observe(question, index, record, record.with_suffix(".log"))
         except Exception as exc:  # noqa: BLE001 - one run's failure is that run's, not the suite's
@@ -737,7 +773,7 @@ def run_suite(
         pool.shutdown(wait=True, cancel_futures=True)
 
 
-def precedent_envelope(office: dict, conversation_id: str, secret: str) -> tuple[str, str]:
+def precedent_envelope(office: dict, conversation_id: str, secret: str, current: dict | None = None) -> tuple[str, str]:
     """The signed request-context envelope the BFF would mint for a turn in the fixture office's current project.
 
     Base64url JSON, HMAC-SHA256 over the exact bytes with the run's
@@ -749,7 +785,7 @@ def precedent_envelope(office: dict, conversation_id: str, secret: str) -> tuple
     import hashlib
     import hmac
 
-    current = office["current"]
+    current = current or office["current"]
     raw = json.dumps(
         {
             "organizationId": office["organizationId"],
@@ -776,8 +812,12 @@ def start_fixture_bff(out: Path) -> tuple[Any, Any]:
     token = secrets.token_hex(16)
     bff = FixtureBFF(token, out / "requests.jsonl").start()
 
-    def env_for(conversation_id: str) -> dict[str, str]:
-        header, signature = precedent_envelope(bff.office.office, conversation_id, token)
+    def env_for(conversation_id: str, question: dict) -> dict[str, str]:
+        from fixture_bff import DEFAULT_SCENARIO
+
+        # The run sits in its scenario's current project, and the fixture answers it from that office.
+        office = bff.assign(conversation_id, str(question.get("scenario") or DEFAULT_SCENARIO))
+        header, signature = precedent_envelope(office.office, conversation_id, token, office.current)
         return {
             "FRONTEND_INTERNAL_URL": bff.url,
             "GRID_INTERNAL_API_TOKEN": token,

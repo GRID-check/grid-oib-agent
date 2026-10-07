@@ -17,7 +17,9 @@
       "nutzungen": [
         "wohnen"
       ],
-      "vorhabensart": ["neubau"],
+      "vorhabensart": [
+        "neubau"
+      ],
       "standort_adresse": "Hochstraße 12, 2380 Perchtoldsdorf",
       "geschosse_oberirdisch": 4
     },
@@ -40,7 +42,9 @@
         "nutzungen": [
           "wohnen"
         ],
-        "vorhabensart": ["neubau"],
+        "vorhabensart": [
+          "neubau"
+        ],
         "standort_adresse": "Wiener Straße 40, 2500 Baden"
       },
       "summary": "Viergeschoßiger Holzwohnbau (CLT) mit Stiegenhaus in Stahlbeton; Brandschutz über Gutachten mit Kapselung.",
@@ -104,7 +108,9 @@
         "nutzungen": [
           "wohnen"
         ],
-        "vorhabensart": ["neubau"],
+        "vorhabensart": [
+          "neubau"
+        ],
         "standort_adresse": "Brunner Gasse 7, 2340 Mödling"
       },
       "summary": "Wohnhausanlage in Massivbau mit außenliegender Fluchttreppe; Mängelbehebungsauftrag der Baubehörde zur Fluchtwegbreite.",
@@ -168,7 +174,9 @@
         "nutzungen": [
           "buero"
         ],
-        "vorhabensart": ["neubau"],
+        "vorhabensart": [
+          "neubau"
+        ],
         "standort_adresse": "Wagramer Straße 150, 1220 Wien"
       },
       "summary": "Achtgeschoßiges Bürogebäude, Fluchtniveau 24,5 m, Sicherheitstreppenhaus mit Druckbelüftung.",
@@ -213,7 +221,9 @@
         "nutzungen": [
           "bildung"
         ],
-        "vorhabensart": ["neubau"],
+        "vorhabensart": [
+          "neubau"
+        ],
         "standort_adresse": "Hafenstraße 3, 4020 Linz"
       },
       "summary": "Dreigeschoßige Volksschule als Holz-Hybridbau, in Ausführungsplanung.",
@@ -246,7 +256,9 @@
         "nutzungen": [
           "wohnen"
         ],
-        "vorhabensart": ["neubau"]
+        "vorhabensart": [
+          "neubau"
+        ]
       },
       "summary": "Freistehendes Einfamilienhaus in Holzriegelbauweise.",
       "documents": [
@@ -279,7 +291,9 @@
         "nutzungen": [
           "wohnen"
         ],
-        "vorhabensart": ["zubau"]
+        "vorhabensart": [
+          "zubau"
+        ]
       },
       "summary": "Dachgeschoßausbau mit zwei Geschoßen auf einem Gründerzeithaus.",
       "documents": [
@@ -316,5 +330,37 @@
         }
       ]
     }
-  ]
+  ],
+  "scenarios": {
+    "wien-bestand": {
+      "$comment": "The chat sits in a Vienna office building being converted: another Land, use and kind of work than the default project.",
+      "current": {
+        "id": "a3000000-0000-4000-8000-000000000009",
+        "name": "Bürohaus Wien 3, Landstraßer Hauptstraße",
+        "collection": "proj_eval_wien",
+        "status": "active",
+        "startedOn": "2026-05-01",
+        "facts": {
+          "bundesland": "wien",
+          "gebaeudeklasse": 5,
+          "bauweise": [
+            "mauerwerk_massivbau"
+          ],
+          "nutzungen": [
+            "buero"
+          ],
+          "vorhabensart": [
+            "umbau"
+          ],
+          "standort_adresse": "Landstraßer Hauptstraße 70, 1030 Wien",
+          "geschosse_oberirdisch": 6
+        },
+        "summary": "Umbau eines Gründerzeit-Bürohauses, sechs Geschoße, neues Stiegenhaus im Hof, Bestand Ziegelmauerwerk."
+      }
+    },
+    "leeres-buero": {
+      "$comment": "An office with no other project in Piloti: no catalog, nothing to find, nothing to invent.",
+      "projects": []
+    }
+  }
 }
