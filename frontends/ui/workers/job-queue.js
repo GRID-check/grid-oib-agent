@@ -117,7 +117,7 @@ function scrubbedPayload(tx) {
   return tx`(
     SELECT COALESCE(jsonb_object_agg(kept.key, kept.value), '{}'::jsonb)
     FROM jsonb_each(CASE WHEN jsonb_typeof(payload) = 'object' THEN payload ELSE '{}'::jsonb END) AS kept
-    WHERE kept.key IN ${tx(KEPT_PAYLOAD_KEYS)}
+    WHERE kept.key = ANY(${KEPT_PAYLOAD_KEYS}::text[])
   )`
 }
 
