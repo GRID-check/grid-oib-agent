@@ -137,7 +137,13 @@ async def test_listen_connects_to_the_direct_dsn_never_the_job_store_url(db_url,
 
 
 @pytest.mark.asyncio
-async def test_no_listen_dsn_is_an_error_not_a_listen_on_the_pooled_url(db_url, monkeypatch):
+async def test_the_stream_never_listens_on_the_job_store_url(db_url, monkeypatch):
+    """No `AIQ_LISTEN_DB_URL`, no LISTEN: there is no default to the pooled URL.
+
+    `require_direct_dsns` refuses to boot the web tier without it (see
+    `test_direct_dsn_startup.py`), so this is the assertion behind that check and
+    not a runtime path: the stream does not connect.
+    """
     import aiq_api.routes.jobs as jobs_routes
 
     connect = AsyncMock()
@@ -145,7 +151,7 @@ async def test_no_listen_dsn_is_an_error_not_a_listen_on_the_pooled_url(db_url, 
     monkeypatch.delenv("AIQ_LISTEN_DB_URL", raising=False)
 
     gen = jobs_routes._sse_generator_postgres(MagicMock(), "sse-job", db_url, 0)
-    with pytest.raises(RuntimeError, match="AIQ_LISTEN_DB_URL is not set"):
+    with pytest.raises(KeyError, match="AIQ_LISTEN_DB_URL"):
         await gen.__anext__()
 
     connect.assert_not_awaited()

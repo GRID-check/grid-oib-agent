@@ -87,3 +87,26 @@ async def test_the_lock_is_released_when_the_cycle_raises(monkeypatch):
     (unlock_sql, _), _ = conn.execute.call_args_list[-1]
     assert "pg_advisory_unlock" in str(unlock_sql)
     conn.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_a_lock_that_cannot_be_taken_skips_the_cycle_and_the_next_tick_retries(monkeypatch, caplog):
+    """Fail-closed: with the lock database down nobody reaps this cycle.
+
+    Running unelected would be every web replica reaping at once. The reaper runs on
+    a two-minute schedule, so the cost of skipping is one tick.
+    """
+    conn = MagicMock()
+    conn.execute.side_effect = RuntimeError("connection lost")
+    engine = MagicMock()
+    engine.connect.return_value = conn
+    monkeypatch.setattr(leader_lock, "_lock_engine", lambda url: engine)
+    cycle = AsyncMock(return_value=["job-1"])
+    monkeypatch.setattr(jobs_routes, "_do_reap_cycle", cycle)
+
+    with caplog.at_level("WARNING"):
+        assert await jobs_routes._reap_stale_jobs_once(MagicMock(), POOLED, None) == []
+
+    cycle.assert_not_awaited()
+    assert "skipping this cycle" in caplog.text
+    conn.close.assert_called_once()

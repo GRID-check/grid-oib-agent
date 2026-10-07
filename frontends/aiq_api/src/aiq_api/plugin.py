@@ -29,6 +29,7 @@ from pydantic import model_validator
 from typing_extensions import override
 
 from aiq_agent.common.log_redaction import install_presigned_url_scrubbing
+from aiq_agent.knowledge.leader_lock import require_direct_dsns
 from aiq_agent.stages.delivery import register_stage_frame_sink
 from aiq_api.auth.middleware import AuthMiddleware
 from aiq_api.context_envelope import GridContextEnvelopeMiddleware
@@ -265,6 +266,11 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         # see startup_banner's module docstring, including why the flags this
         # tier reports are its own rather than the frontend's.
         log_boot_line()
+
+        # A web process on Postgres needs both direct DSNs (LISTEN for the job
+        # SSE streams, session advisory locks): fail the boot, not every request
+        # (ADR-0083).
+        require_direct_dsns(listen=True)
 
         app = super().build_app()
 

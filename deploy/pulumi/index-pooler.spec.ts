@@ -162,7 +162,10 @@ describe("Postgres routing", () => {
     expect(pairs).toEqual(budgeted);
   });
 
-  it("gives every pod that runs the Python code the lock DSN", () => {
+  // `require_direct_dsns` refuses to start a Postgres process without them: the web tier
+  // needs both, the workers the lock DSN. A tier left without one does not degrade, it
+  // crash-loops, so the manifest is held to it here.
+  it("gives every pod that runs the Python code the direct DSNs its start-up check requires", () => {
     const env = (name: string) =>
       RESOURCES.filter(
         (r) =>

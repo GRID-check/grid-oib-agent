@@ -88,9 +88,17 @@ The rules:
 * **Session-scoped features use the direct DSN and nowhere else.** Every session
   advisory lock is taken through `aiq_agent.knowledge.leader_lock` on an engine
   built from `AIQ_LOCK_DB_URL` that never pools (`NullPool`, autocommit). The
-  ghost-job reaper uses it instead of its own SQL. A process with a Postgres
-  database and no `AIQ_LOCK_DB_URL` raises, and the SSE stream with no
-  `AIQ_LISTEN_DB_URL` raises instead of defaulting to the pooled job-store URL.
+  ghost-job reaper uses it instead of its own SQL. The locks fail closed: when
+  a leader election cannot be held nobody leads that cycle (logged, and every
+  caller is on a schedule that retries), and `keyed_lock` raises so the file
+  fails instead of replacing a document unguarded across replicas. A process
+  with no Postgres at all keeps its in-process behaviour, which is a
+  configuration and not a fallback.
+* **A missing direct DSN stops the boot, once.** `require_direct_dsns` runs at
+  start in the web tier (both DSNs, it serves the SSE streams and takes locks),
+  the research worker and the ingest worker (the lock DSN only; they never
+  LISTEN). There is no default to the pooled job-store URL, so a deployment that
+  was never given its direct DSN fails to start instead of failing every request.
   Transaction-scoped locks (`pg_advisory_xact_lock`) and `FOR UPDATE SKIP LOCKED`
   work through the pooler and are unchanged.
 * **The BFF's statement timeout is `SET LOCAL`.** `statement_timeout` leaves the
@@ -133,6 +141,10 @@ The rules:
   instead of failing, which hides saturation behind latency.
 * Bad, because the direct reserve is an estimate in several parts, and the SSE
   allowance in particular is not backed by a cap in code.
+* Bad, because failing closed costs availability: with the lock database down no
+  replica runs the TTL cleanup or the reaper for that tick, and every re-ingest
+  fails until it is back. That is the intended trade against two replicas acting
+  at once.
 * Bad, because a session feature that is added later and takes the pooled DSN
   fails silently. Only the specs and review hold that line.
 
@@ -149,7 +161,10 @@ The rules:
   arithmetic, production and the fresh-stack worst case fitting, and the refusal
   naming every number.
 * `tests/aiq_agent/knowledge/test_leader_lock.py` and `test_keyed_lock.py` pin the
-  lock engine's URL, statements and release; `frontends/aiq_api/tests/test_reaper_lock.py`
+  lock engine's URL, statements, release and fail-closed behaviour, and the
+  start-up check; `frontends/aiq_api/tests/test_direct_dsn_startup.py` drives each
+  tier's entry point without the DSNs; `tests/test_compose_pooler_routes.py` holds
+  both Compose files to the same split; `frontends/aiq_api/tests/test_reaper_lock.py`
   and `test_sse_stream.py` pin the reaper and the SSE listener to their direct DSNs.
 * `frontends/ui/src/lib/db/index.spec.ts` pins the BFF: no startup parameters, and
   the timeout in the opening batch of every transaction path.

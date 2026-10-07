@@ -1935,15 +1935,12 @@ async def _sse_generator_postgres(
     # LISTEN/NOTIFY needs a persistent session, which the transaction pooler in
     # front of `db_url` does not give (ADR-0083): the LISTEN lands on a server
     # connection the client does not keep, and no notification ever arrives. So
-    # there is no default to `db_url`; AIQ_LISTEN_DB_URL is the direct DSN.
+    # there is no default to `db_url`; AIQ_LISTEN_DB_URL is the direct DSN, and
+    # `require_direct_dsns` (called when the web process starts) already refused
+    # to boot without it, so this is an assertion and not a runtime path.
     import os
 
-    listen_db_url = os.environ.get("AIQ_LISTEN_DB_URL")
-    if not listen_db_url:
-        raise RuntimeError(
-            "AIQ_LISTEN_DB_URL is not set. SSE LISTEN/NOTIFY needs a direct (non-pooled) Postgres DSN, "
-            "and falling back to the job-store URL would listen on a pooled connection."
-        )
+    listen_db_url = os.environ["AIQ_LISTEN_DB_URL"]
     # Strip +psycopg2 before +psycopg (it's a prefix of the former) — this
     # codebase standardizes on postgresql+psycopg:// URLs, which asyncpg
     # rejects; a leftover driver suffix silently degrades every SSE stream

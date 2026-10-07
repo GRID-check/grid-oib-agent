@@ -18,6 +18,7 @@ from aiq_agent.knowledge import leader_lock as lock_module
 from aiq_agent.knowledge.leader_lock import keyed_lock
 from aiq_agent.knowledge.leader_lock import leader_lock
 from aiq_agent.knowledge.leader_lock import leader_lock_async
+from aiq_agent.knowledge.leader_lock import require_direct_dsns
 
 DIRECT = "postgresql://aiq:pw@grid-pg-rw:5432/aiq_jobs"  # pragma: allowlist secret
 POOLED = "postgresql+psycopg://aiq:pw@grid-pg-pooler-rw:5432/aiq_jobs"  # pragma: allowlist secret
@@ -25,7 +26,7 @@ POOLED = "postgresql+psycopg://aiq:pw@grid-pg-pooler-rw:5432/aiq_jobs"  # pragma
 
 @pytest.fixture(autouse=True)
 def _no_database(monkeypatch):
-    for name in ("AIQ_LOCK_DB_URL", "AIQ_SUMMARY_DB", "NAT_JOB_STORE_DB_URL"):
+    for name in ("AIQ_LOCK_DB_URL", "AIQ_LISTEN_DB_URL", "AIQ_SUMMARY_DB", "NAT_JOB_STORE_DB_URL"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -97,11 +98,36 @@ def test_the_loser_runs_nothing_and_leaves_no_session_behind(monkeypatch):
     conn.close.assert_called_once()
 
 
-def test_an_unreachable_database_grants_leadership_rather_than_stopping_the_work(monkeypatch):
+def test_an_unreachable_database_means_nobody_leads_this_cycle(monkeypatch, caplog):
+    # Fail-closed: running unelected would be every replica running the cycle at
+    # once. The caller's schedule retries on its next tick.
     monkeypatch.setenv("AIQ_LOCK_DB_URL", "postgresql://nobody@127.0.0.1:9/none?connect_timeout=1")
 
-    with leader_lock(42) as leads:
-        assert leads is True
+    with caplog.at_level("WARNING"), leader_lock(42) as leads:
+        assert leads is False
+
+    assert "leader_lock(42) acquisition failed; skipping this cycle" in caplog.text
+
+
+def test_a_failed_try_lock_query_means_nobody_leads_and_ends_the_session(monkeypatch, caplog):
+    monkeypatch.setenv("AIQ_LOCK_DB_URL", DIRECT)
+    _, conn = _engine(monkeypatch)
+    conn.execute.side_effect = RuntimeError("connection lost")
+
+    with caplog.at_level("WARNING"), leader_lock(42) as leads:
+        assert leads is False
+
+    conn.close.assert_called_once()
+    assert "skipping this cycle" in caplog.text
+
+
+async def test_the_async_election_also_fails_closed(monkeypatch):
+    monkeypatch.setenv("AIQ_LOCK_DB_URL", DIRECT)
+    _, conn = _engine(monkeypatch)
+    conn.execute.side_effect = RuntimeError("connection lost")
+
+    async with leader_lock_async(7) as leads:
+        assert leads is False
 
 
 def test_a_failed_unlock_still_ends_the_session(monkeypatch):
@@ -173,3 +199,80 @@ def test_the_lock_engine_never_pools_and_does_not_open_a_transaction():
     assert engine.dialect.name == "postgresql"
     assert engine.dialect.driver == "psycopg"
     lock_module._lock_engines.pop(DIRECT, None)
+
+
+# --- the start-up check ------------------------------------------------------
+
+SQLITE = "sqlite+aiosqlite:///./summaries.db"
+
+
+def test_without_a_postgres_database_nothing_is_required():
+    require_direct_dsns(listen=True)
+    require_direct_dsns(listen=False)
+
+
+def test_a_sqlite_process_needs_no_direct_dsn(monkeypatch):
+    monkeypatch.setenv("AIQ_SUMMARY_DB", SQLITE)
+    monkeypatch.setenv("NAT_JOB_STORE_DB_URL", "sqlite+aiosqlite:///./jobs.db")
+
+    require_direct_dsns(listen=True)
+
+
+@pytest.mark.parametrize("name", ["AIQ_SUMMARY_DB", "NAT_JOB_STORE_DB_URL"])
+def test_a_postgres_web_process_without_the_lock_dsn_cannot_start(monkeypatch, name):
+    monkeypatch.setenv(name, POOLED)
+    monkeypatch.setenv("AIQ_LISTEN_DB_URL", DIRECT)
+
+    with pytest.raises(RuntimeError, match="AIQ_LOCK_DB_URL is not set") as raised:
+        require_direct_dsns(listen=True)
+
+    assert "AIQ_LISTEN_DB_URL" not in str(raised.value)
+
+
+def test_a_postgres_web_process_without_the_listen_dsn_cannot_start(monkeypatch):
+    monkeypatch.setenv("AIQ_SUMMARY_DB", POOLED)
+    monkeypatch.setenv("AIQ_LOCK_DB_URL", DIRECT)
+
+    with pytest.raises(RuntimeError, match="AIQ_LISTEN_DB_URL is not set") as raised:
+        require_direct_dsns(listen=True)
+
+    assert "AIQ_LOCK_DB_URL" not in str(raised.value)
+
+
+def test_the_message_names_every_missing_variable(monkeypatch):
+    monkeypatch.setenv("AIQ_SUMMARY_DB", POOLED)
+
+    with pytest.raises(RuntimeError, match="AIQ_LOCK_DB_URL is not set; AIQ_LISTEN_DB_URL is not set"):
+        require_direct_dsns(listen=True)
+
+
+def test_a_worker_needs_the_lock_dsn_but_not_the_listen_dsn(monkeypatch):
+    monkeypatch.setenv("AIQ_SUMMARY_DB", POOLED)
+
+    with pytest.raises(RuntimeError, match="AIQ_LOCK_DB_URL is not set"):
+        require_direct_dsns(listen=False)
+
+    monkeypatch.setenv("AIQ_LOCK_DB_URL", DIRECT)
+    require_direct_dsns(listen=False)  # no LISTEN here: it never serves a stream
+
+
+def test_the_check_passes_when_both_are_set(monkeypatch):
+    monkeypatch.setenv("AIQ_SUMMARY_DB", POOLED)
+    monkeypatch.setenv("NAT_JOB_STORE_DB_URL", POOLED)
+    monkeypatch.setenv("AIQ_LOCK_DB_URL", DIRECT)
+    monkeypatch.setenv("AIQ_LISTEN_DB_URL", DIRECT)
+
+    require_direct_dsns(listen=True)
+    require_direct_dsns(listen=False)
+
+
+@pytest.mark.parametrize("name", ["AIQ_LOCK_DB_URL", "AIQ_LISTEN_DB_URL"])
+def test_a_direct_dsn_that_is_not_postgres_is_refused_on_a_postgres_process(monkeypatch, name):
+    # Set, but to something `_lock_url` would treat as "no Postgres": unguarded again, silently.
+    monkeypatch.setenv("AIQ_SUMMARY_DB", POOLED)
+    monkeypatch.setenv("AIQ_LOCK_DB_URL", DIRECT)
+    monkeypatch.setenv("AIQ_LISTEN_DB_URL", DIRECT)
+    monkeypatch.setenv(name, SQLITE)
+
+    with pytest.raises(RuntimeError, match=f"{name} is not a PostgreSQL URL"):
+        require_direct_dsns(listen=True)

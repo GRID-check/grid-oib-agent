@@ -4,7 +4,7 @@ The ingestor holds one per (collection, document name) while it replaces a
 document's previous version. Two jobs for one name that ran at once both
 collected the same predecessor and both kept their own new version.
 
-The process lock and the fail-open path run for real; the Postgres half is
+The process lock and the fail-closed path run for real; the Postgres half is
 pinned by what it sends, since the suite has no Postgres server.
 """
 
@@ -66,13 +66,34 @@ def test_the_lock_is_released_when_the_body_raises():
         pass
 
 
-def test_an_unreachable_database_runs_the_body_unguarded(monkeypatch):
-    # Port 9 (discard) is closed: acquisition fails and the upload goes on.
+def test_an_unreachable_database_raises_and_the_body_does_not_run(monkeypatch, caplog):
+    # Port 9 (discard) is closed: the lock cannot be taken, so the document is NOT
+    # replaced unguarded across replicas; the attempt fails and is retried.
     monkeypatch.setenv("AIQ_LOCK_DB_URL", "postgresql://nobody@127.0.0.1:9/none?connect_timeout=1")
     ran = []
-    with keyed_lock("reingest:proj:y.pdf"):
-        ran.append(True)
-    assert ran == [True]
+    with caplog.at_level("WARNING"), pytest.raises(Exception):  # noqa: B017, PT011 - the driver's own error
+        with keyed_lock("reingest:proj:y.pdf"):
+            ran.append(True)
+    assert ran == []
+    assert "keyed_lock acquisition failed" in caplog.text
+
+
+def test_a_failed_acquisition_releases_the_process_lock_and_closes_the_session(monkeypatch):
+    monkeypatch.setenv("AIQ_LOCK_DB_URL", "postgresql://grid@db/grid")
+    conn = MagicMock()
+    conn.execute.side_effect = RuntimeError("connection lost")
+    engine = MagicMock()
+    engine.connect.return_value = conn
+    monkeypatch.setattr(leader_lock, "_lock_engine", lambda url: engine)
+
+    with pytest.raises(RuntimeError, match="connection lost"), keyed_lock("reingest:proj:z.pdf"):
+        pass
+
+    conn.close.assert_called_once()
+    # The same key is takeable again at once, here with no Postgres: nothing is left held.
+    monkeypatch.delenv("AIQ_LOCK_DB_URL")
+    with keyed_lock("reingest:proj:z.pdf"):
+        pass
 
 
 def test_on_postgres_the_key_is_an_advisory_lock_held_on_its_own_session(monkeypatch):

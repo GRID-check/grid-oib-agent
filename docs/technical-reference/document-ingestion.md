@@ -272,9 +272,11 @@ version as its predecessor, and replaces it: the version that finishes last is
 the one left. On Postgres it is a session advisory lock on a connection of its
 own, taken on `AIQ_LOCK_DB_URL`, the direct DSN and never the pooled one
 (ADR-0083), so it holds across replicas and is released when a replica dies;
-with SQLite or no database only the in-process lock holds, and an unreachable
-database lets the file ingest unguarded, logged. A Postgres process with no
-`AIQ_LOCK_DB_URL` raises instead of guessing a connection.
+with SQLite or no database only the in-process lock holds. With Postgres it
+fails closed: an unreachable lock database raises, logged, and the file
+is marked failed (it does not replace its predecessor unguarded across replicas),
+so the failed-ingestion rescan picks it up. An ingest worker on Postgres with no
+`AIQ_LOCK_DB_URL` refuses to start.
 
 The OIB sync (`src/aiq_agent/oib_sync.py`) relies on the same step and calls no
 `delete_file` before it uploads.
