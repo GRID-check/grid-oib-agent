@@ -365,12 +365,20 @@ services:
 
   seaweedfs-init:
     # Pre-create the documents bucket (SeaweedFS does not auto-create buckets).
-    # `|| true` keeps re-runs idempotent.
+    # The same shape as docker-compose.yaml's: wait for the master to list the
+    # filer (the healthcheck passes before it registers on a first boot), create,
+    # then assert the bucket is listed. `s3.bucket.create` fails on an existing
+    # bucket, so the listing, not its exit code, is what says the init worked.
     image: chrislusf/seaweedfs:3.80
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
-        echo 's3.bucket.create -name grid-documents' | weed shell -master=seaweedfs:9333 || true
+        i=0; until echo 'cluster.ps' | weed shell -master=seaweedfs:9333 2>/dev/null | grep -q ':8888';
+        do i=$$((i+1)); [ $$i -ge 60 ] && { echo 'the filer never registered with the master'; exit 1; }; sleep 1; done;
+        echo 's3.bucket.create -name grid-documents' | weed shell -master=seaweedfs:9333 || true;
+        echo 's3.bucket.list' | weed shell -master=seaweedfs:9333 | grep -q grid-documents
+        || { echo 'bucket grid-documents missing after init'; exit 1; };
+        echo 'bucket present: grid-documents'
     depends_on:
       seaweedfs:
         condition: service_healthy

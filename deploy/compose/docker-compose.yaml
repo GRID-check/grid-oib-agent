@@ -267,10 +267,18 @@ services:
     # authoritative check is therefore the STATE, not the command: create both,
     # then assert both are listed. That is idempotent AND fails loudly for a
     # down master, a bad credential, or a renamed flag.
+    #
+    # It first waits, up to 60 s, for the master to list the filer. The
+    # healthcheck above passes as soon as the master answers HTTP, which on a
+    # first boot is before the filer has registered; `weed shell` then has no
+    # filer to talk to, and this one-shot used to fail the whole stack on the
+    # race. Kubernetes never saw it: its bucket-init is a Job, and a Job retries.
     image: chrislusf/seaweedfs:3.80
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
+        i=0; until echo 'cluster.ps' | weed shell -master=seaweedfs:9333 2>/dev/null | grep -q ':8888';
+        do i=$$((i+1)); [ $$i -ge 60 ] && { echo 'the filer never registered with the master'; exit 1; }; sleep 1; done;
         printf 's3.bucket.create -name grid-documents\ns3.bucket.create -name langfuse\n'
         | weed shell -master=seaweedfs:9333 || true;
         buckets=$$(echo 's3.bucket.list' | weed shell -master=seaweedfs:9333) || exit 1;
