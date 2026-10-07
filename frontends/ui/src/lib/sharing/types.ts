@@ -101,4 +101,14 @@ export const SHARING_ERROR_REASONS = {
    * shared with each cleared person.
    */
   restrictedContentProject: 'restricted-content-project',
+  /**
+   * The person being let in may not open every other project the conversation
+   * drew on through a cross-project lookup (ADR-0093). `details.person` names
+   * them; the projects are never named.
+   */
+  crossProjectContent: 'cross-project-content',
+  /** As {@link crossProjectContent}, for a project admin escalating to owner. */
+  crossProjectContentSelf: 'cross-project-content-self',
+  /** The conversation drew on another project, so it cannot be made visible to the whole project. */
+  crossProjectContentProject: 'cross-project-content-project',
 } as const

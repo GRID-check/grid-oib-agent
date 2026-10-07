@@ -77,6 +77,30 @@ export class ConversationConfinedError extends ApiError {
   }
 }
 
+/**
+ * 409 — a cross-project lookup (ADR-0093) asked from a conversation that is
+ * not its asker's alone: shared with someone, visible to the project, or
+ * someone else's. The lookups are for solo chats only, because what they find
+ * in another project would then sit in a conversation others read. The
+ * message is the reader's sentence, relayed by the agent.
+ */
+export class CrossProjectSharedChatError extends ApiError {
+  constructor(message: string) {
+    super(409, 'CROSS_PROJECT_SHARED_CHAT', message)
+  }
+}
+
+/**
+ * 409 — a memory write from a conversation that drew on another project
+ * (ADR-0093). Project and organization memory are read by everyone in the
+ * project, so nothing found in another project may reach them from a chat.
+ */
+export class CrossProjectMemoryError extends ApiError {
+  constructor(message: string) {
+    super(409, 'CROSS_PROJECT_MEMORY', message)
+  }
+}
+
 /** The machine-readable reason a person no longer has the rights to read a resource's content. */
 export const RIGHTS_LOST_REASON = 'rights-lost'
 

@@ -110,7 +110,7 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, answer-feedback, restricted memory, download-log, Papierkorb, closed-project, Steckbrief, Ausmisten, upload batches, quarantine decisions, restricted-feedback, revision-subject and the hold on a document suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, restricted-use, cross-project use, run-reconciler, usage-ledger, answer-feedback, restricted memory, download-log, Papierkorb, closed-project, Steckbrief, Ausmisten, upload batches, quarantine decisions, restricted-feedback, revision-subject and the hold on a document suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
@@ -135,6 +135,7 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/conversations/restricted-use.integration.spec.ts \
     src/lib/feedback/restricted-feedback.integration.spec.ts \
     src/lib/tasks/subject-access.integration.spec.ts \
+    src/lib/conversations/cross-project-use.integration.spec.ts \
     src/lib/download-log/download-log.integration.spec.ts \
     src/lib/runs/reconcile.integration.spec.ts \
     src/lib/budgets/service.integration.spec.ts \
@@ -968,6 +969,30 @@ check_in grid_lessons "SELECT conversation_id = '' FROM message_restricted_use W
 check_in grid_lessons "SELECT (SELECT count(*) FROM message_restricted_use WHERE message_id = 'c3c3c3c3-0000-4000-8000-000000000122')::text || ',' || (SELECT status FROM platform_lessons WHERE id = '55555555-0000-4000-8000-000000000122')" "0,active" "so the open chat a vote claimed does not read as restricted, and its answer and lesson stay as they were"
 
 echo "==> 0124 message mark, withdrawal and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0125: the cross-project record, and its DOWN.
+#
+# On a database of its own, migrated to 0125: a conversation that drew on
+# another project. The down must not make it shareable: it leaves a nil-folder
+# row in conversation_restricted_folders, which the older build reads as a
+# folder nobody may read. 0125 re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0125 cross-project record and its down migration on grid_cross_project"
+migrate_until grid_cross_project 0125_conversation_source_projects
+sql_in grid_cross_project <<'SQL'
+INSERT INTO conversation_source_projects (organization_id, conversation_id, project_id)
+VALUES ('org_0125', 's_xp_0125', 'aaaaaaaa-0000-4000-8000-000000000125');
+SQL
+refused_in grid_cross_project "UPDATE conversation_source_projects SET last_at = first_at - interval '1 day' WHERE conversation_id = 's_xp_0125';" "conversation_source_projects_order" "a record cannot end before it began"
+apply_in grid_cross_project 0125_conversation_source_projects.down.sql
+check_in grid_cross_project "SELECT to_regclass('public.conversation_source_projects') IS NULL" "t" "down dropped the table"
+check_in grid_cross_project "SELECT folder_id::text FROM conversation_restricted_folders WHERE conversation_id = 's_xp_0125'" "00000000-0000-0000-0000-000000000000" "down leaves the chat recorded on a folder nobody may read"
+apply_in grid_cross_project 0125_conversation_source_projects.sql
+check_in grid_cross_project "SELECT count(*) FROM conversation_source_projects" "0" "0125 re-applies, empty"
+check_in grid_cross_project "SELECT relrowsecurity FROM pg_class WHERE relname = 'conversation_source_projects'" "t" "0125 re-applies under row-level security"
+
+echo "==> 0125 cross-project record and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

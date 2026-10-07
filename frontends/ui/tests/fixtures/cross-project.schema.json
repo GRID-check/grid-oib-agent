@@ -1,0 +1,423 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Grid cross-project lookups wire contract",
+  "description": "Generated from frontends/ui/src/lib/cross-project/types.ts. Do not edit by hand: cross-project-schema.spec.ts rewrites this file and fails when it is stale.",
+  "$defs": {
+    "CrossProjectSearchRequest": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 500
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "closed",
+            "all",
+            "named"
+          ]
+        },
+        "projectIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "maxItems": 20
+        },
+        "documentTypes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "Bebauungsplan",
+              "Flächenwidmungsplan",
+              "Grundriss",
+              "Schnitt",
+              "Ansicht",
+              "Detail",
+              "Gutachten",
+              "Bescheid",
+              "Norm/Richtlinie",
+              "Vertrag",
+              "Foto",
+              "Sonstiges"
+            ]
+          },
+          "maxItems": 12
+        },
+        "disciplines": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "Standsicherheit",
+              "Brandschutz",
+              "Hygiene/Gesundheit/Umweltschutz",
+              "Nutzungssicherheit/Barrierefreiheit",
+              "Schallschutz",
+              "Energieeinsparung/Wärmeschutz"
+            ]
+          },
+          "maxItems": 6
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "offset": {
+          "type": "integer"
+        },
+        "limit": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": true
+    },
+    "CrossProjectSearchResponse": {
+      "type": "object",
+      "properties": {
+        "hits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "closed"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "status"
+                ],
+                "additionalProperties": true
+              },
+              "documentId": {
+                "type": "string"
+              },
+              "filename": {
+                "type": "string"
+              },
+              "title": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "collection": {
+                "type": "string"
+              },
+              "page": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "snippet": {
+                "type": "string"
+              },
+              "score": {
+                "type": "number"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "uploadedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "project",
+              "documentId",
+              "filename",
+              "title",
+              "collection",
+              "page",
+              "snippet",
+              "score",
+              "tags",
+              "uploadedAt"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "projectsInScope": {
+          "type": "integer"
+        },
+        "projectsSearched": {
+          "type": "integer"
+        },
+        "nextOffset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "statusKnown": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hits",
+        "projectsInScope",
+        "projectsSearched",
+        "nextOffset",
+        "statusKnown"
+      ],
+      "additionalProperties": true
+    },
+    "CrossProjectListRequest": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "closed"
+          ]
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": true
+    },
+    "CrossProjectListResponse": {
+      "type": "object",
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "closed"
+                ]
+              },
+              "collection": {
+                "type": "string"
+              },
+              "address": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "period": {
+                "type": "object",
+                "properties": {
+                  "start": {
+                    "type": "string"
+                  },
+                  "end": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "start",
+                  "end"
+                ],
+                "additionalProperties": true
+              },
+              "current": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "status",
+              "collection",
+              "address",
+              "period",
+              "current"
+            ],
+            "additionalProperties": true
+          }
+        },
+        "total": {
+          "type": "integer"
+        },
+        "statusKnown": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "projects",
+        "total",
+        "statusKnown"
+      ],
+      "additionalProperties": true
+    },
+    "CrossProjectBriefRequest": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "projectId"
+      ],
+      "additionalProperties": true
+    },
+    "CrossProjectBriefResponse": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "closed"
+              ]
+            },
+            "collection": {
+              "type": "string"
+            },
+            "address": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "period": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "string"
+                },
+                "end": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "additionalProperties": true
+            },
+            "current": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "status",
+            "collection",
+            "address",
+            "period",
+            "current"
+          ],
+          "additionalProperties": true
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "facts": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "project",
+        "summary",
+        "facts"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

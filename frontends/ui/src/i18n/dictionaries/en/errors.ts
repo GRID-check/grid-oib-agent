@@ -45,15 +45,26 @@ export const errors = {
    */
   confinement: {
     deepResearch:
-      'This conversation draws on a folder with restricted access, so it cannot start a deep research run: the run, its title and its report would be visible to everyone in the project, including people not cleared for that folder.',
-    task: 'This conversation draws on a folder with restricted access, so it cannot create a task: tasks are visible to everyone in the project, including people not cleared for that folder.',
+      'This conversation draws on a folder with restricted access or on another project, so it cannot start a deep research run: the run, its title and its report would be visible to everyone in the project, including people who may not read that folder or project.',
+    task: 'This conversation draws on a folder with restricted access or on another project, so it cannot create a task: tasks are visible to everyone in the project, including people who may not read that folder or project.',
     profilePatch:
-      'This conversation draws on a folder with restricted access, so it cannot change the project context: the project context is visible to everyone in the project, including people not cleared for that folder.',
+      'This conversation draws on a folder with restricted access or on another project, so it cannot change the project context: the project context is visible to everyone in the project, including people who may not read that folder or project.',
     filing:
-      'This conversation draws on a folder with restricted access, so nothing from it can be filed there: that place is visible to people not cleared for the restricted folder. Filing works only into a folder restricted at least as narrowly.',
+      'This conversation draws on a folder with restricted access or on another project, so nothing from it can be filed there: that place is visible to people who may not read the restricted folder or the other project. Filing works only into a folder restricted at least as narrowly, and never for content from other projects.',
     revision:
       'This document is in a folder with restricted access, so Piloti cannot revise it: the task for that would be visible to everyone in the project, including people not cleared for that folder. Request the changes without Piloti.',
     planDocument:
       'A document you named sits in a folder with restricted access, so it cannot be handed to a research run: a run’s documents and its report are visible to everyone in the project, including people not cleared for that folder.',
+  },
+  /**
+   * The cross-project lookups (ADR-0093), refusing where their findings could
+   * reach someone who may not open the other project. Relayed as the API error;
+   * the agent quotes the German one to the reader.
+   */
+  crossProject: {
+    sharedChat:
+      'Searching across projects works only in a chat that is yours alone. This chat is shared or visible to the project, so what another project holds could reach people who may not open it. Start a new chat to search across projects.',
+    memory:
+      'This conversation drew on other projects, so nothing from it is saved to project or office memory: everyone in this project reads that memory, including people who may not open the other projects.',
   },
 }

@@ -126,6 +126,10 @@ const BOUNDARY_MIGRATIONS = [
   // project. Keyed by the organization, secured like product_feedback; the
   // stale-upload sweep reads across tenants under the platform role.
   '0108_mail_imports.sql',
+  // Adds conversation_source_projects — another project a solo chat drew on
+  // through a cross-project lookup (ADR-0093). Keyed directly by its
+  // organization: the conversation row may not exist yet.
+  '0125_conversation_source_projects.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

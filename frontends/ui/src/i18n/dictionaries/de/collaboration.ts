@@ -100,6 +100,14 @@ export const collaboration: typeof en.collaboration = {
         'Sie dürfen nicht jeden Ordner mit eingeschränktem Zugriff lesen, auf den sich dieser Chat stützt, und können ihn deshalb nicht übernehmen.',
       restrictedContentProject:
         'Dieser Chat stützt sich auf einen Ordner mit eingeschränktem Zugriff und kann deshalb nicht für das ganze Projekt sichtbar gemacht werden. Teilen Sie ihn mit einzelnen Personen, die den Ordner lesen dürfen.',
+      crossProjectContent:
+        '{name} darf nicht jedes andere Projekt öffnen, auf das sich dieser Chat stützt. Deshalb kann er nicht mit dieser Person geteilt werden.',
+      crossProjectContentSomeone:
+        'Diese Person darf nicht jedes andere Projekt öffnen, auf das sich dieser Chat stützt. Deshalb kann er nicht mit ihr geteilt werden.',
+      crossProjectContentSelf:
+        'Sie dürfen nicht jedes andere Projekt öffnen, auf das sich dieser Chat stützt, und können ihn deshalb nicht übernehmen.',
+      crossProjectContentProject:
+        'Dieser Chat stützt sich auf Inhalte aus anderen Projekten und kann deshalb nicht für das ganze Projekt sichtbar gemacht werden. Teilen Sie ihn mit einzelnen Personen, die diese Projekte öffnen dürfen.',
       loadFailed: 'Die Freigabe-Einstellungen konnten nicht geladen werden.',
       saveFailed: 'Die Änderung konnte nicht gespeichert werden.',
       tryAgain: 'Erneut versuchen',

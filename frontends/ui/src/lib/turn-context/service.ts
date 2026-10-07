@@ -1,4 +1,5 @@
 import 'server-only'
+import { drewOnOtherProjects } from '@/lib/conversations/cross-project-use'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { NotFoundError } from '@/lib/api/errors'
 import { withPlatformAccess } from '@/lib/db/tenant-context'
@@ -44,7 +45,7 @@ export async function loadTurnContext(
     }
   }
 
-  const [projectContext, orgInstructions, digest, decisions, reviewDecisions] = await Promise.all([
+  const [projectContext, orgInstructions, digest, decisions, reviewDecisions, drewOnOthers] = await Promise.all([
     projectId ? loadProjectPromptView(projectId, organizationId) : Promise.resolve(null),
     resolveOrgInstructions(organizationId),
     buildProjectMemoryDigest(projectId ?? undefined, organizationId, { query: input.query || undefined }),
@@ -54,10 +55,15 @@ export async function loadTurnContext(
     conversationId
       ? advisory('load review decisions', () => buildReviewDecisionsBlock(conversationId, organizationId))
       : Promise.resolve(null),
+    // Not advisory: a turn that wrongly believed its doors open would only be
+    // refused at the BFF, but the read is one indexed probe and a failure here
+    // is a failure to load the turn's context like any other.
+    conversationId ? drewOnOtherProjects(conversationId, organizationId) : Promise.resolve(false),
   ])
   return {
     projectContext,
     projectMemory: composeMemoryContext(digest, decisions, reviewDecisions),
     orgInstructions,
+    drewOnOtherProjects: drewOnOthers,
   }
 }

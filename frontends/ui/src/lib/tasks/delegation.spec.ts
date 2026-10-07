@@ -20,6 +20,7 @@ vi.mock('@/lib/skills/service', () => ({ resolveSkillSnapshot: vi.fn() }))
 // What the conversation recorded it drew on (ADR-0087): the real refusal runs against it.
 vi.mock('@/lib/conversations/restricted-use', () => ({
   recordedRestrictedFolders: vi.fn(async () => []),
+  recordedSourceProjects: vi.fn(async () => []),
 }))
 // The project's folders and the documents a plan names: the real Unterlagen refusal runs against them.
 vi.mock('@/lib/authz/folder-access-repository', () => ({ listProjectFolderTree: vi.fn(async () => []) }))

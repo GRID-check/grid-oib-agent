@@ -12,6 +12,8 @@ import { z } from 'zod'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { withOptionalTenant } from '@/lib/db/tenant-context'
 import { BadRequestError, NotFoundError, OrgMemoryDisabledError } from '@/lib/api/errors'
+import { requireMayRememberFrom } from '@/lib/conversations/cross-project-use'
+import { findProjectTenancy } from '@/lib/projects/repository'
 import {
   createProjectMemoryItem,
   createProjectMemoryItemForProject,
@@ -156,6 +158,11 @@ export const POST = internalApiRoute(
             throw new NotFoundError('Unknown organization')
           }
         }
+
+        // Nothing found in another project may be remembered (ADR-0093): the
+        // conversation's cross-project record refuses before anything is written.
+        const tenant = organizationId ?? (projectId ? (await findProjectTenancy(projectId))?.organizationId : null)
+        await requireMayRememberFrom(sourceConversationId, tenant)
 
         // Reported by the service, never derived from the returned row: a duplicate
         // or paraphrase refresh returns an EXISTING item whose `supersedesId` may

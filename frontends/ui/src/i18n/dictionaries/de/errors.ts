@@ -42,15 +42,21 @@ export const errors: typeof en.errors = {
   },
   confinement: {
     deepResearch:
-      'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff, deshalb lässt sich aus ihr keine Tiefenrecherche starten: Recherche, Titel und Bericht wären für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind.',
-    task: 'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff, deshalb lässt sich aus ihr kein Auftrag anlegen: Aufträge sind für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind.',
+      'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff oder auf ein anderes Projekt, deshalb lässt sich aus ihr keine Tiefenrecherche starten: Recherche, Titel und Bericht wären für alle im Projekt sichtbar, auch für Personen, die diesen Ordner oder dieses Projekt nicht lesen dürfen.',
+    task: 'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff oder auf ein anderes Projekt, deshalb lässt sich aus ihr kein Auftrag anlegen: Aufträge sind für alle im Projekt sichtbar, auch für Personen, die diesen Ordner oder dieses Projekt nicht lesen dürfen.',
     profilePatch:
-      'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff, deshalb lässt sich aus ihr der Projektkontext nicht ändern: Er ist für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind.',
+      'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff oder auf ein anderes Projekt, deshalb lässt sich aus ihr der Projektkontext nicht ändern: Er ist für alle im Projekt sichtbar, auch für Personen, die diesen Ordner oder dieses Projekt nicht lesen dürfen.',
     filing:
-      'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff, deshalb lässt sich aus ihr nichts dorthin ablegen: Der Ablageort ist auch für Personen sichtbar, die für den eingeschränkten Ordner nicht freigegeben sind. Ablegen geht nur in einen Ordner, der mindestens so eng eingeschränkt ist.',
+      'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff oder auf ein anderes Projekt, deshalb lässt sich aus ihr nichts dorthin ablegen: Der Ablageort ist auch für Personen sichtbar, die den eingeschränkten Ordner oder das andere Projekt nicht lesen dürfen. Ablegen geht nur in einen Ordner, der mindestens so eng eingeschränkt ist, und nie für Inhalte aus anderen Projekten.',
     revision:
       'Dieses Dokument liegt in einem Ordner mit eingeschränktem Zugriff, deshalb kann Piloti es nicht überarbeiten: Der Auftrag dafür wäre für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind. Fordern Sie die Änderungen ohne Piloti an.',
     planDocument:
       'Eine genannte Unterlage liegt in einem Ordner mit eingeschränktem Zugriff, deshalb lässt sie sich einer Recherche nicht als Unterlage mitgeben: Unterlagen und Bericht einer Recherche sind für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind.',
+  },
+  crossProject: {
+    sharedChat:
+      'Die Suche über Projekte hinweg geht nur in einem Chat, der Ihnen allein gehört. Dieser Chat ist geteilt oder für das Projekt sichtbar, und was ein anderes Projekt enthält, könnte so Personen erreichen, die es nicht öffnen dürfen. Starten Sie für die projektübergreifende Suche einen neuen Chat.',
+    memory:
+      'Diese Unterhaltung stützt sich auf andere Projekte, deshalb wird nichts aus ihr im Projekt- oder Büro-Gedächtnis gespeichert: Dieses Gedächtnis lesen alle im Projekt, auch Personen, die die anderen Projekte nicht öffnen dürfen.',
   },
 }
