@@ -9,7 +9,7 @@
  *
  * Environment:
  *   GRID_APP_DATABASE_URL   - grid_app Postgres DSN
- *   BACKEND_URL             - aiq-agent base URL (Python-side purge endpoint)
+ *   BACKEND_URL             - aiq-api base URL (Python-side purge endpoint)
  *   FRONTEND_INTERNAL_URL   - BFF base URL (chat erasure retries; default http://frontend:3000)
  *   GRID_INTERNAL_API_TOKEN - shared token for the internal endpoint
  *   SEAWEED_ENDPOINT / SEAWEED_ACCESS_KEY / SEAWEED_SECRET_KEY / SEAWEED_BUCKET
@@ -186,7 +186,7 @@ function main() {
 
   /** @type {PurgeDeps} */
   const deps = {
-    backendUrl: (process.env.BACKEND_URL || 'http://aiq-agent:8000').replace(/\/$/, ''),
+    backendUrl: (process.env.BACKEND_URL || 'http://aiq-api:8000').replace(/\/$/, ''),
     // A chat's erasure runs in the BFF; the purger only retries it
     // (`purge-conversation.js`).
     frontendUrl: (process.env.FRONTEND_INTERNAL_URL || 'http://frontend:3000').replace(/\/$/, ''),

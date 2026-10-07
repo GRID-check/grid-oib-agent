@@ -91,4 +91,5 @@ echo ""
 
 cd "$REPO_ROOT"
 source "$VENV_DIR/bin/activate"
-nat serve --config_file "$CONFIG_FILE" --port $PORT
+# The job API and the debug console are the api role's (ADR-0082).
+GRID_ROLE=api nat serve --config_file "$CONFIG_FILE" --port $PORT

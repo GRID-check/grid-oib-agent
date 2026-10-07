@@ -121,4 +121,5 @@ echo ""
 echo "Starting server..."
 echo ""
 
-nat serve --config_file "$CONFIG_FILE" --host "$HOST" --port "$PORT"
+# The research skill and the debug console talk to the job API: the api role (ADR-0082).
+GRID_ROLE=api nat serve --config_file "$CONFIG_FILE" --host "$HOST" --port "$PORT"

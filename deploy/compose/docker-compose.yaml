@@ -3,9 +3,17 @@
 # =============================================================================
 #
 # Services:
-#   aiq-agent - Backend API server
-#   frontend               - Next.js UI (aiq-blueprint-ui)
-#   postgres               - PostgreSQL for jobs and checkpoints
+#   aiq-agent    - Backend, chat role (GRID_ROLE=chat): the chat WebSocket
+#   aiq-api      - Backend, api role (GRID_ROLE=api): every other HTTP route
+#   agent-worker - Backend, research jobs (GRID_ROLE=worker)
+#   ingest-worker - Backend, ingestion (GRID_ROLE=ingest-worker)
+#   chroma       - The shared vector store the four roles above talk to
+#   frontend     - Next.js UI (aiq-blueprint-ui)
+#   postgres     - PostgreSQL for jobs and checkpoints
+#
+# One backend image runs as four processes (ADR-0082). The frontend reaches the
+# api role with BACKEND_URL for every HTTP call, and the chat role with
+# BACKEND_CHAT_URL for the WebSocket alone.
 #
 # Build targets (backend only):
 #   dev     - Development build (includes CLI)
@@ -37,34 +45,39 @@ services:
     container_name: aiq-agent
     env_file:
       - ../.env
-    environment:
-      - APP_ENV=${APP_ENV:-production}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    # The backend's environment, once: the other roles of the image alias it and
+    # change what differs (`<<: *backend-environment`, then GRID_ROLE and so on).
+    environment: &backend-environment
+      # The chat role: the chat WebSocket and the answers running on it
+      # (ADR-0082). Every other role of the image sets its own.
+      GRID_ROLE: chat
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # Database config (with Docker defaults). Same split as Kubernetes
       # (ADR-0083): the first three go through the transaction pooler
       # (`pgbouncer`), and everything that needs ONE server connection across
       # statements goes straight to `postgres`, so a session-feature regression
       # fails here and not first in production.
-      - NAT_JOB_STORE_DB_URL=${NAT_JOB_STORE_DB_URL:-postgresql+asyncpg://aiq:aiq_dev@pgbouncer:5432/aiq_jobs}
-      - AIQ_CHECKPOINT_DB=${AIQ_CHECKPOINT_DB:-postgresql://aiq:aiq_dev@pgbouncer:5432/aiq_checkpoints}
-      - AIQ_SUMMARY_DB=${AIQ_SUMMARY_DB:-postgresql+psycopg://aiq:aiq_dev@pgbouncer:5432/aiq_jobs}
+      NAT_JOB_STORE_DB_URL: ${NAT_JOB_STORE_DB_URL:-postgresql+asyncpg://aiq:aiq_dev@pgbouncer:5432/aiq_jobs}  # pragma: allowlist secret (local compose default, same class as POSTGRES_PASSWORD below)
+      AIQ_CHECKPOINT_DB: ${AIQ_CHECKPOINT_DB:-postgresql://aiq:aiq_dev@pgbouncer:5432/aiq_checkpoints}  # pragma: allowlist secret (local compose default, same class as POSTGRES_PASSWORD below)
+      AIQ_SUMMARY_DB: ${AIQ_SUMMARY_DB:-postgresql+psycopg://aiq:aiq_dev@pgbouncer:5432/aiq_jobs}  # pragma: allowlist secret (local compose default, same class as POSTGRES_PASSWORD below)
       # SSE LISTEN/NOTIFY: a notification reaches the one server session that ran
       # LISTEN, which a transaction pooler does not keep for the client.
-      - AIQ_LISTEN_DB_URL=${AIQ_LISTEN_DB_URL:-postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs}
+      AIQ_LISTEN_DB_URL: ${AIQ_LISTEN_DB_URL:-postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs}  # pragma: allowlist secret (local compose default, same class as POSTGRES_PASSWORD below)
       # Session advisory locks (leader election, the re-ingest lock, the ghost-job
       # reaper). A session owns the lock, so behind the pooler it would be taken
       # on one server connection and "released" on another.
-      - AIQ_LOCK_DB_URL=${AIQ_LOCK_DB_URL:-postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs}
+      AIQ_LOCK_DB_URL: ${AIQ_LOCK_DB_URL:-postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs}  # pragma: allowlist secret (local compose default, same class as POSTGRES_PASSWORD below)
       # Shared cache (Dragonfly, ADR-0020): citation-registry snapshots and
       # cross-replica caches. Unset = per-process in-memory fallback.
-      - REDIS_URL=${REDIS_URL:-redis://dragonfly:6379/0}
+      REDIS_URL: ${REDIS_URL:-redis://dragonfly:6379/0}
       # Stateless chat tier via the Dragonfly pub/sub conversation bus (ADR-0028).
       # On by default; fails open to local delivery. Set to 0 to opt out.
-      - GRID_CONVERSATION_BUS=${GRID_CONVERSATION_BUS:-1}
+      GRID_CONVERSATION_BUS: ${GRID_CONVERSATION_BUS:-1}
       # Project Memory: the `remember` tool writes via the frontend's internal
       # API (single-writer separation — the backend never touches grid_app).
-      - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
-      - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+      FRONTEND_INTERNAL_URL: ${FRONTEND_INTERNAL_URL:-http://frontend:3000}
+      GRID_INTERNAL_API_TOKEN: ${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       # Object storage, for `view_knowledge_image` (ADR-0039): the tool asks the
       # BFF where a document is and then reads the bytes from SeaweedFS itself.
       # These were only ever wired in the Kubernetes deployment, so in compose
@@ -72,52 +85,64 @@ services:
       # project/Archiv image to a text-only block — no error, no log line
       # anyone would look at. The Kubernetes tier holds a dedicated read-only
       # identity here; compose has one identity, so it uses that.
-      - SEAWEED_ENDPOINT=${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
+      SEAWEED_ENDPOINT: ${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
       # Browser-facing host: the BFF signs presigned URLs against this, so the
       # ingest endpoint must accept file_refs pointing at it too (SSRF
       # allowlist in aiq_api.routes.ingest).
-      - SEAWEED_PUBLIC_ENDPOINT=${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}
+      SEAWEED_PUBLIC_ENDPOINT: ${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}
       # READ-ONLY. `view_knowledge_image` (ADR-0039) only ever calls get_object,
       # and this tier used to carry the `grid` credential — which holds
       # Write and Tagging on every document bucket, so a compromise here could
       # overwrite or delete any tenant document. AGENTS.md already described this
       # tier as read-only; now it is.
-      - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
-      - SEAWEED_SECRET_KEY=${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
-      - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
-      # LlamaIndex persistence (the embedded Chroma store config_oib_openrouter.yml
-      # reads). The one thing the backend keeps on disk here: the base corpus is in
-      # SeaweedFS and a table (ADR-0082), its cache is under /tmp.
-      - AIQ_CHROMA_DIR=${AIQ_CHROMA_DIR:-/app/data/chroma_data}
+      SEAWEED_ACCESS_KEY: ${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
+      SEAWEED_SECRET_KEY: ${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
+      SEAWEED_BUCKET: ${SEAWEED_BUCKET:-grid-documents}
+      # Every role talks to ONE Chroma server over HTTP (the `chroma` service
+      # below): the chat and api roles read and write the same collections, and
+      # the ingest worker writes what they read, which an embedded store opened
+      # by each process separately cannot do. The backend keeps no files: the base
+      # corpus is in SeaweedFS and a table (ADR-0082), its cache is under /tmp.
+      AIQ_CHROMA_URL: ${AIQ_CHROMA_URL:-http://chroma:8000}
+      # Research execution (ADR-0021): jobs are claimed from Postgres by the
+      # `agent-worker` service below, so the chat role may submit one and the api
+      # role stream and cancel it. A Dask job would run on the cluster of the
+      # container that submitted it, out of the other role's reach.
+      GRID_JOB_EXECUTION: db
+      # Encrypts DB-claimed job payloads at rest (AES-256-GCM). Empty = plaintext
+      # (a one-time warning is logged); acceptable on a single trusted node. Set a
+      # base64 32-byte key to encrypt: `openssl rand -base64 32`.
+      GRID_JOB_PAYLOAD_KEK: ${GRID_JOB_PAYLOAD_KEK:-}
       # Server config
       # Grid OIB config (default)
-      - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
-      - HOST=0.0.0.0
-      - PORT=8000
-      # Dask worker config
-      - DASK_NWORKERS=${DASK_NWORKERS:-1}
-      - DASK_NTHREADS=${DASK_NTHREADS:-4}
+      CONFIG_FILE: ${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
+      HOST: 0.0.0.0
+      PORT: "8000"
+      # Dask worker config (GRID_JOB_EXECUTION=dask only)
+      DASK_NWORKERS: ${DASK_NWORKERS:-1}
+      DASK_NTHREADS: ${DASK_NTHREADS:-4}
       # Optional: bound per-worker memory (Dask spills/restarts above this)
-      # - DASK_MEMORY_LIMIT=${DASK_MEMORY_LIMIT:-}
+      # DASK_MEMORY_LIMIT: ${DASK_MEMORY_LIMIT:-}
       # Optional: recycle workers after this many seconds to drop accumulated state
-      # - DASK_LIFETIME=${DASK_LIFETIME:-}
+      # DASK_LIFETIME: ${DASK_LIFETIME:-}
       # Optional (default true): set to "false" to let workers exit gracefully without respawning
-      # - DASK_LIFETIME_RESTART=${DASK_LIFETIME_RESTART:-}
+      # DASK_LIFETIME_RESTART: ${DASK_LIFETIME_RESTART:-}
     ports:
-      - "${PORT:-8000}:8000"
+      # Not the API: the chat WebSocket, for a client that talks to it directly
+      # (the evals do). The API is published by `aiq-api` on ${PORT:-8000}.
+      - "${CHAT_PORT:-8001}:8000"
     volumes:
       - ../../configs:/app/configs:ro
-      - chroma_data:/app/data/chroma_data
     networks:
       - aiq-network
     depends_on:
-      chroma-data-permissions:
-        condition: service_completed_successfully
       seaweedfs:
         condition: service_healthy
       postgres:
         condition: service_healthy
       pgbouncer:
+        condition: service_healthy
+      chroma:
         condition: service_healthy
       # service_started, NOT service_healthy: the cache is optional by design
       # (fail-open in both tiers) and must never block the stack.
@@ -131,8 +156,186 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  aiq-api:
+    # The api role of the backend image (ADR-0082): every HTTP route but the chat
+    # socket (knowledge, jobs and their SSE streams, the LLM utilities, admin,
+    # housekeeping). It is what BACKEND_URL names. Same image, same environment
+    # as `aiq-agent` (aliased, so the two cannot drift) and GRID_ROLE=api; the
+    # roles call each other nowhere.
+    image: ${BACKEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-agent:2.0.0}
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile
+      target: ${BUILD_TARGET:-release}
+    container_name: aiq-api
+    env_file:
+      - ../.env
+    environment:
+      <<: *backend-environment
+      GRID_ROLE: api
+    ports:
+      # The API, docs and debug console: what `localhost:8000` has always been.
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ../../configs:/app/configs:ro
+    networks:
+      - aiq-network
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+      dragonfly:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  agent-worker:
+    # Research jobs (ADR-0021), the docker-compose mirror of the Kubernetes
+    # Deployment in deploy/pulumi/src/app/agent-worker.ts: the backend image as
+    # GRID_ROLE=worker claims jobs from Postgres (FOR UPDATE SKIP LOCKED) and
+    # reads and writes the shared Chroma. No web port, no Dask.
+    image: ${BACKEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-agent:2.0.0}
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile
+      target: ${BUILD_TARGET:-release}
+    container_name: aiq-agent-worker
+    env_file:
+      - ../.env
+    environment:
+      <<: *backend-environment
+      GRID_ROLE: worker
+      # Concurrent research jobs claimed per worker process.
+      GRID_RESEARCH_WORKERS: ${GRID_RESEARCH_WORKERS:-1}
+    volumes:
+      - ../../configs:/app/configs:ro
+    networks:
+      - aiq-network
+    # The drain budget (GRID_RESEARCH_WORKER_DRAIN_SECONDS, 600 s) and the time
+    # to give back what is still running; docker's default 10 s would kill it first.
+    stop_grace_period: 660s
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+      dragonfly:
+        condition: service_started
+    # No HTTP server. worker.py touches this marker each claim-loop tick; fail
+    # when it is missing or stale (loop hung). The long start_period covers the
+    # cold import and the first connection to Postgres and Chroma.
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import os,sys,time; f='/tmp/research-worker.alive'; sys.exit(0 if os.path.exists(f) and time.time()-os.path.getmtime(f) < 180 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    restart: unless-stopped
+
+  ingest-worker:
+    # Ingestion (ADR-0076), the mirror of deploy/pulumi/src/app/ingest-worker.ts.
+    # POST /v1/ingest, served by the api role, only puts a job in the durable
+    # queue; this is the one process that claims it, fairly across
+    # organizations, and runs it against the shared Chroma. With it stopped,
+    # uploads sit pending. No web port.
+    image: ${BACKEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-agent:2.0.0}
+    build:
+      context: ../..
+      dockerfile: deploy/Dockerfile
+      target: ${BUILD_TARGET:-release}
+    container_name: aiq-ingest-worker
+    env_file:
+      - ../.env
+    environment:
+      <<: *backend-environment
+      GRID_ROLE: ingest-worker
+      # Ingestion jobs this process runs at once (K8s: ingestWorker.concurrency).
+      AIQ_INGEST_MAX_WORKERS: ${AIQ_INGEST_MAX_WORKERS:-2}
+      GRID_INGEST_WORKER_DRAIN_SECONDS: ${GRID_INGEST_WORKER_DRAIN_SECONDS:-600}
+      GRID_WORKER_LIVENESS_FILE: /tmp/ingest-worker.alive
+    volumes:
+      - ../../configs:/app/configs:ro
+    networks:
+      - aiq-network
+    # Time to give back the claims it still holds after its drain budget.
+    stop_grace_period: 660s
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+      dragonfly:
+        condition: service_started
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import os,sys,time; f='/tmp/ingest-worker.alive'; sys.exit(0 if os.path.exists(f) and time.time()-os.path.getmtime(f) < 120 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    restart: unless-stopped
+
+  chroma:
+    # The shared vector store, the mirror of deploy/pulumi/src/data/chroma.ts.
+    # ONE Chroma process that the chat and api roles and both workers query over
+    # HTTP, so the store is not pinned to one container's disk. MUST track the
+    # `chromadb` client version the app is built against (sources/knowledge_layer):
+    # Chroma 1.x changed the collection-config wire schema, so a 1.x client
+    # against a 0.5.x server fails ingestion with KeyError('_type'). 1.x is a
+    # Rust server configured by a baked /config.yaml (persist_path: /data), so
+    # persistence comes purely from mounting the volume at /data.
+    image: ${CHROMA_IMAGE:-chromadb/chroma:1.5.9}
+    volumes:
+      # The volume the embedded store used: the 1.5.9 server reads the same
+      # on-disk format, so an existing corpus comes back with no re-embedding.
+      - chroma_data:/data
+    networks:
+      - aiq-network
+    depends_on:
+      chroma-data-permissions:
+        condition: service_completed_successfully
+    healthcheck:
+      # The 1.x image is near-distroless (no python/curl), but ships bash: probe
+      # /api/v2/heartbeat over bash's /dev/tcp. $$s keeps compose from
+      # interpolating it away.
+      test:
+        - "CMD"
+        - "bash"
+        - "-c"
+        - 'exec 3<>/dev/tcp/localhost/8000; printf "GET /api/v2/heartbeat HTTP/1.0\r\n\r\n" >&3; read -r s <&3; [[ "$$s" == *200* ]]'
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
   chroma-data-permissions:
-    # The embedded Chroma store is the only thing the backend writes under /app/data.
+    # Only the shared Chroma server writes the volume: it runs as uid 1000.
     image: alpine:3.20
     command: ["sh", "-c", "chown -R 1000:1000 /app/data/chroma_data"]
     volumes:
@@ -387,7 +590,11 @@ services:
       # APP_ENV is development/dev/local (NODE_ENV is always 'production' in
       # the built image, so it cannot be used for this).
       - APP_ENV=${APP_ENV:-production}
-      - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
+      # Every backend HTTP call goes to the api role. Only the WebSocket proxy
+      # (server.js) goes to the chat role, and it has no fallback to BACKEND_URL:
+      # the api role serves no socket (ADR-0082).
+      - BACKEND_URL=${BACKEND_URL:-http://aiq-api:8000}
+      - BACKEND_CHAT_URL=${BACKEND_CHAT_URL:-http://aiq-agent:8000}
       # Runtime connection: the least-privilege role, subject to row-level
       # security (ADR-0041). A repository that forgets its organization
       # predicate returns no rows instead of another tenant's.
@@ -508,6 +715,8 @@ services:
         condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy
+      aiq-api:
+        condition: service_healthy
       seaweedfs:
         condition: service_healthy
       # Wait for the bucket to exist before serving uploads.
@@ -575,7 +784,7 @@ services:
     depends_on:
       grid-migrate:
         condition: service_completed_successfully
-      aiq-agent:
+      aiq-api:
         condition: service_healthy
       seaweedfs:
         condition: service_healthy
@@ -605,7 +814,7 @@ services:
       # organization, so it steps up to grid_app_platform per transaction
       # — see frontends/ui/workers/platform-scope.js.
       - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@pgbouncer:5432/grid_app}
-      - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
+      - BACKEND_URL=${BACKEND_URL:-http://aiq-api:8000}
       # A chat erasure the delete request could not finish is retried through
       # the BFF, which owns its steps.
       - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
@@ -633,7 +842,7 @@ services:
         condition: service_healthy
       seaweedfs-init:
         condition: service_completed_successfully
-      aiq-agent:
+      aiq-api:
         condition: service_healthy
     restart: unless-stopped
 
@@ -711,12 +920,12 @@ services:
     container_name: grid-housekeeping
     command: ["node", "workers/housekeeping-clock.js"]
     environment:
-      - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
+      - BACKEND_URL=${BACKEND_URL:-http://aiq-api:8000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
     networks:
       - aiq-network
     depends_on:
-      aiq-agent:
+      aiq-api:
         condition: service_healthy
     deploy:
       resources:
