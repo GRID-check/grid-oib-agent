@@ -50,8 +50,27 @@ function factValues(profile: Profile | null, key: string): unknown[] {
     })
 }
 
+/**
+ * A value as the intake's token: lower case, umlauts and ß spelled out, so a
+ * label („Niederösterreich") and its token („niederoesterreich") are one value.
+ */
 function token(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim().toLocaleLowerCase('de') : null
+  if (typeof value !== 'string' || !value.trim()) return null
+  return value
+    .trim()
+    .toLocaleLowerCase('de')
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss')
+}
+
+/** The intake's answer for a site abroad: no Land, so two such projects share no jurisdiction. */
+const ABROAD = 'ausserhalb_oesterreichs'
+
+function land(values: readonly unknown[]): string | null {
+  const found = tokens(values)[0] ?? null
+  return found === ABROAD ? null : found
 }
 
 /** `4`, `"4"`, `"GK4"`, `"GK 4"` → 4; anything else → null. */
@@ -77,7 +96,7 @@ function overlap(a: readonly string[], b: readonly string[]): string[] {
 /** The facts of one profile the ranking reads; missing or malformed facts read as unknown. */
 export function similarityFacts(profile: Profile | null): SimilarityFacts {
   return {
-    bundesland: tokens(factValues(profile, 'bundesland'))[0] ?? null,
+    bundesland: land(factValues(profile, 'bundesland')),
     gebaeudeklasse: [
       ...new Set(
         factValues(profile, 'gebaeudeklasse')
