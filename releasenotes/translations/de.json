@@ -1284,6 +1284,10 @@
     "de": "Langfuse wird auf 4.48.0 und ClickHouse auf 26.8 LTS aktualisiert. Langfuse 3.x enthält weiterhin eine Next.js-Version mit einer Schwachstelle zur Remote-Code-Ausführung, die in keinem 3.x-Release behoben wird."
   },
   {
+    "en": "Langfuse moves to 4.54.0 and the telemetry dashboard to 13.5.2, picking up upstream fixes for vulnerabilities in the third-party code they bundle. The dashboard now runs the same version the security scan checks.",
+    "de": "Langfuse wird auf Version 4.54.0 und das Telemetry-Dashboard auf Version 13.5.2 aktualisiert. Damit werden Upstream-Fixes für Sicherheitslücken im gebündelten Drittanbieter-Code übernommen. Das Dashboard läuft nun mit derselben Version, die der Sicherheitsscan prüft."
+  },
+  {
     "en": "Laws in the RIS reader are shown in full. The text limit was shorter than the Bauordnung für Wien, so § 108 fell outside it.",
     "de": "Gesetze im RIS-Leser werden vollständig angezeigt. Die Textgrenze lag unter der Länge der Bauordnung für Wien, sodass ausgerechnet § 108 außerhalb lag."
   },

@@ -125,6 +125,15 @@
               "de": "Wenn Sie eine neue Frage senden, während Piloti noch die vorherige beantwortet, wird die frühere Antwort vollständig beendet, bevor die neue beginnt. So können sich die beiden nicht mehr in einer Unterhaltung vermischen. Falls die frühere Antwort ausnahmsweise nicht innerhalb weniger Sekunden stoppt, teilt Piloti Ihnen mit, dass sie noch abgeschlossen wird, und bittet Sie, die Frage erneut zu senden."
             }
           ]
+        },
+        {
+          "key": "security",
+          "notes": [
+            {
+              "en": "Langfuse moves to 4.54.0 and the telemetry dashboard to 13.5.2, picking up upstream fixes for vulnerabilities in the third-party code they bundle. The dashboard now runs the same version the security scan checks.",
+              "de": "Langfuse wird auf Version 4.54.0 und das Telemetry-Dashboard auf Version 13.5.2 aktualisiert. Damit werden Upstream-Fixes für Sicherheitslücken im gebündelten Drittanbieter-Code übernommen. Das Dashboard läuft nun mit derselben Version, die der Sicherheitsscan prüft."
+            }
+          ]
         }
       ]
     },
