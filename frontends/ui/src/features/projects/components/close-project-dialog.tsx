@@ -43,7 +43,11 @@ export function CloseProjectDialog({ projectId, open, onOpenChange, onClose }: C
     let cancelled = false
     setLoad({ state: 'loading' })
     setError(false)
-    fetch(`/api/projects/${projectId}/cleanup?locale=${locale === 'en' ? 'en' : 'de'}`)
+    fetch(`/api/projects/${projectId}/cleanup/proposal`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ locale: locale === 'en' ? 'en' : 'de' }),
+    })
       .then(async (res) => {
         if (!res.ok) throw new Error(String(res.status))
         return (await res.json()) as CleanupProposal

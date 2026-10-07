@@ -14,6 +14,7 @@ const doc = (filename: string, overrides: Partial<CleanupDocumentFacts> = {}): C
   authoredBy: 'user',
   contentHash: null,
   createdAt: `2026-01-${String(10 + n).padStart(2, '0')}T00:00:00Z`,
+  screeningPassed: true,
   ...overrides,
 })
 

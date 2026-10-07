@@ -1,25 +1,17 @@
 /**
- * „Ausmisten" before a project closes (ADR-0084): Piloti's proposal (GET) and
- * the person's decision (POST), which puts what they chose into the
- * Papierkorb. Thin handlers; the rules live in `cleanup-service`.
+ * „Ausmisten" before a project closes (ADR-0084): the person's decision, which
+ * puts what they chose into the Papierkorb, all or nothing. The proposal is
+ * `./proposal`. Thin handler; the rules live in `cleanup-service`.
  */
 
 import { z } from 'zod'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
-import { CLEANUP_MAX_DOCUMENTS, confirmCleanup, proposeCleanup } from '@/lib/projects/cleanup-service'
+import { CLEANUP_MAX_DOCUMENTS, confirmCleanup } from '@/lib/projects/cleanup-service'
 
 type Params = { id: string }
 
 const ids = z.array(z.string().uuid()).max(CLEANUP_MAX_DOCUMENTS)
 const confirmSchema = z.object({ documentIds: ids, proposedIds: ids, aiUsed: z.boolean() }).strict()
-
-export const GET = apiRoute<Params>(
-  async ({ session, params, request }) => {
-    const locale = new URL(request.url).searchParams.get('locale') === 'en' ? 'en' : 'de'
-    return proposeCleanup(session, params.id, locale)
-  },
-  { authz: { enforcedBy: 'proposeCleanup (requireProjectAccess project:documents:write; read and write per folder)' } }
-)
 
 export const POST = apiRoute<Params>(
   async ({ session, params, request }) => {

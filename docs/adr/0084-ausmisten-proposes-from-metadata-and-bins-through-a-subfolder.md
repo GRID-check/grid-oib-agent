@@ -41,10 +41,13 @@ final, with no bin.
 
 ## Decision Outcome
 
-**The proposal** (`GET /api/projects/{id}/cleanup`, `proposeCleanup`) needs
-document write on the project, so a closed project has none. It considers the
-documents whose folder the session may read and WRITE (`getProjectFolderAccess`,
-`levelOf === 'write'`), at most 2,000. For each it takes what the index already
+**The proposal** (`POST /api/projects/{id}/cleanup/proposal`, `proposeCleanup`)
+needs document write on the project, so a closed project has none. It is a POST
+because it starts a paid model call, which a prefetch or a retried navigation
+must never trigger. It considers the documents whose folder the session may
+read and WRITE (`getProjectFolderAccess`, `levelOf === 'write'`), at most 2,000,
+leaving out every document the content gate holds in quarantine (ADR-0079): it
+waits for a reviewer, not for a clean-out. For each it takes what the index already
 holds: name, folder path, type, the tags and the one-line summary ingestion
 wrote (as every file listing reads them), the editorial state, the author, the
 upload date. Two sources, merged per document:
@@ -54,8 +57,10 @@ upload date. Two sources, merged per document:
   `_alt`/`_old`, the same `content_hash` as an earlier upload, an older numbered
   version beside a newer one in the same folder, and a Piloti draft never
   published. Always computed;
-* the model, through `POST /v1/cleanup-proposal` (`frontends/aiq_api`), which
-  takes exactly those fields (`extra="forbid"`: a document carrying anything
+* the model, through `POST /v1/cleanup-proposal` (`frontends/aiq_api`), for the
+  documents whose screening passed (`clean`, or `released` by a reviewer) and no
+  others: one screened partly, not at all or not yet is proposed by the rules
+  alone. The endpoint takes exactly those fields (`extra="forbid"`: a document carrying anything
   else is refused) and answers ids, categories and one-sentence reasons. Ids it
   invents are dropped there, and ids the session may not write are dropped in
   the BFF. Fail-soft: no credential, an upstream error or unparseable JSON is
@@ -75,8 +80,17 @@ For each folder they are in (the root counts as one), a subfolder „Ausgemistet
 goes to the Papierkorb (`moveFolderToBin`). A subfolder that inherits has exactly
 its parent's readers and retrieval collection, so the move changes nobody's
 access and re-ingests nothing; the bin purges the chunks at once; a restore
-puts the subfolder back in its original folder. Audited as
-`project.cleanup.confirmed`: how many were removed and proposed, how many the
+puts the subfolder back in its original folder.
+
+All or nothing. The folder, move and bin services each own their transaction,
+and the bin's includes the backend's chunk purge, so no single database
+transaction holds them. Everything is checked before anything changes; then
+every subfolder is made and filled, then every one is binned. When a step
+fails, what was done is undone in reverse: binned subfolders restored (and read
+back into the index, audited as the restore it is), documents moved back to
+their folders, the subfolders removed (`deleteEmptyCreatedFolder`, only a
+living, empty one). The person sees that it failed; the project is as it was
+and stays open. Audited, when it succeeded, as `project.cleanup.confirmed`: how many were removed and proposed, how many the
 person removed without a proposal and kept against one, whether the model's
 proposal was shown, and the ids.
 
@@ -92,9 +106,11 @@ proposal was shown, and the ids.
 
 `lib/projects/cleanup.integration.spec.ts` on real Postgres (the subfolder inherits, the restricted
 collection is unchanged, binned and hidden, restored into its original folder, nothing removed when
-one document is not the closer's), `cleanup-service.spec.ts` (only read-and-write documents and only
-metadata reach the model, fallback, audit), `cleanup-rules.spec.ts`, `close-project-dialog.spec.tsx`
-(AI label, override, nothing before confirmation), `frontends/aiq_api/tests/test_cleanup_proposal.py`.
+one document is not the closer's, and a purge refused on the second folder leaving every document,
+folder and bin entry as it was), `cleanup-service.spec.ts` (only read-and-write documents whose
+screening passed, and only their metadata, reach the model; quarantined ones are not proposed;
+fallback; audit; undo after a failed move or bin), `cleanup-rules.spec.ts`, `close-project-dialog.spec.tsx`
+(AI label, override, nothing before confirmation, the proposal asked with a POST), `frontends/aiq_api/tests/test_cleanup_proposal.py`.
 
 ## Pros and Cons of the Options
 

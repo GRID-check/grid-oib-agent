@@ -24,8 +24,8 @@ const proposal = (overrides: Partial<CleanupProposal> = {}): CleanupProposal => 
 })
 
 function stub(answer: CleanupProposal | null) {
-  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    if (url.startsWith('/api/projects/p1/cleanup') && (!init || !init.method || init.method === 'GET')) {
+  const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+    if (url === '/api/projects/p1/cleanup/proposal') {
       return answer ? new Response(JSON.stringify(answer), { status: 200 }) : new Response('{}', { status: 502 })
     }
     return new Response(JSON.stringify({ removed: 1, binEntries: 1 }), { status: 200 })
@@ -34,8 +34,11 @@ function stub(answer: CleanupProposal | null) {
   return fetchMock
 }
 
+/** What was sent to the Papierkorb: the confirmations, not the proposal request. */
 const posted = (fetchMock: ReturnType<typeof stub>) =>
-  fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST').map(([, init]) => JSON.parse(String(init?.body)))
+  fetchMock.mock.calls
+    .filter(([url, init]) => url === '/api/projects/p1/cleanup' && init?.method === 'POST')
+    .map(([, init]) => JSON.parse(String(init?.body)))
 
 describe('CloseProjectDialog', () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -52,6 +55,17 @@ describe('CloseProjectDialog', () => {
     expect(screen.getAllByRole('checkbox')).toHaveLength(2)
     expect(posted(fetchMock)).toEqual([])
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  test('asks for the proposal with a POST, never a GET: it starts a paid model call', async () => {
+    const fetchMock = stub(proposal())
+    render(<CloseProjectDialog projectId="p1" open onOpenChange={() => {}} onClose={vi.fn(async () => true)} />)
+
+    await screen.findByTestId('cleanup-notice')
+    const asked = fetchMock.mock.calls.filter(([url]) => url === '/api/projects/p1/cleanup/proposal')
+    expect(asked).toHaveLength(1)
+    expect(asked[0][1]).toMatchObject({ method: 'POST' })
+    expect(JSON.parse(String(asked[0][1]?.body))).toEqual({ locale: 'en' })
   })
 
   test('the person overrides an item: only what stays selected goes to the Papierkorb, then it closes', async () => {
@@ -84,8 +98,10 @@ describe('CloseProjectDialog', () => {
   })
 
   test('does not close when clearing out failed', async () => {
-    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
-      init?.method === 'POST' ? new Response('{}', { status: 400 }) : new Response(JSON.stringify(proposal()), { status: 200 })
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) =>
+      url === '/api/projects/p1/cleanup' && init?.method === 'POST'
+        ? new Response('{}', { status: 400 })
+        : new Response(JSON.stringify(proposal()), { status: 200 })
     )
     vi.stubGlobal('fetch', fetchMock)
     const onClose = vi.fn(async () => true)

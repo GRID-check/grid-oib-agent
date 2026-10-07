@@ -11,7 +11,11 @@
  * clear out. Built from what the index already holds (name, folder path, type,
  * tags and the summary ingestion wrote, read from the index as every file
  * listing reads them, the editorial state), so nothing reaches a
- * model that ingestion did not already send. Two sources, merged per document:
+ * model that ingestion did not already send. A document the content gate holds
+ * in quarantine (ADR-0079) is left out altogether: it waits for a reviewer, not
+ * for a clean-out. Only a document whose screening passed (`clean`, or
+ * `released` by a reviewer) reaches the model; one screened partly, not at all
+ * or not yet is proposed by the rules alone. Two sources, merged per document:
  * the rules in `./cleanup-rules.ts`, always; and the model behind
  * `POST /v1/cleanup-proposal`, when it answers. When it does not, the rules
  * alone are the proposal and the response says so (`aiError`).
@@ -25,6 +29,16 @@
  * exactly the parent's readers and the parent's retrieval collection, so the
  * move widens nobody's access and re-ingests nothing; the bin then purges the
  * chunks, and a restore puts the subfolder back in its original folder.
+ *
+ * ## All or nothing
+ *
+ * The folder, move and bin services each own their transaction (the bin's
+ * includes the backend's chunk purge), so one database transaction cannot hold
+ * them. Everything is checked before anything changes; then every subfolder is
+ * made and filled, then every one is binned. When a step fails, what was done
+ * is undone in reverse: binned subfolders restored, documents moved back to
+ * the folder they came from, the subfolders removed. The person is told it
+ * failed, and the project is as it was.
  */
 
 import 'server-only'
@@ -39,9 +53,10 @@ import { summarizeDocumentVersions } from '@/lib/documents/lifecycle'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { moveDocumentToFolder } from '@/lib/documents/move-to-folder'
 import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
-import { moveFolderToBin } from './folder-bin'
+import { moveFolderToBin, restoreFolderFromBin } from './folder-bin'
 import { createProjectFolder, listProjectFolders } from './folder-service'
 import { findProjectInOrg } from './repository'
+import { deleteEmptyCreatedFolder, findDocumentScreening } from './cleanup-repository'
 import { CLEANUP_CATEGORIES, ruleCandidates, type CleanupCategory, type CleanupDocumentFacts } from './cleanup-rules'
 import type { CleanupProposal, CleanupProposalItem } from './cleanup-types'
 
@@ -52,6 +67,9 @@ export const CLEANUP_MAX_DOCUMENTS = 2000
 const PROPOSAL_TIMEOUT_MS = 60_000
 /** Longest summary sent to the model; the index already holds it, the model needs the gist. */
 const SUMMARY_CHARS = 300
+
+/** The content gate's outcomes a document may reach the model with: it passed, or a reviewer released it. */
+const SCREENING_PASSED: ReadonlySet<string> = new Set(['clean', 'released'])
 
 interface ModelCandidate {
   id: string
@@ -80,9 +98,17 @@ async function writableFacts(session: AuthorizedSession, projectId: string): Pro
   ])
   const pathOf = new Map(folders.map((folder) => [folder.id, folder.path]))
   const rows = await listAllDocuments(projectId, session.organizationId, [...access.hiddenFolderIds])
-  const writable = await reconcileDocumentStatuses(
+  const reconciled = await reconcileDocumentStatuses(
     rows.filter((row) => access.isVisible(row.folderId) && access.levelOf(row.folderId) === 'write'),
     session.organizationId
+  )
+  const screening = await findDocumentScreening(
+    session.organizationId,
+    projectId,
+    reconciled.map((row) => row.id)
+  )
+  const writable = reconciled.filter(
+    (row) => row.status !== 'quarantined' && screening.get(row.id)?.screeningOutcome !== 'quarantined'
   )
   const versions = await summarizeDocumentVersions(
     session.organizationId,
@@ -100,6 +126,7 @@ async function writableFacts(session: AuthorizedSession, projectId: string): Pro
     authoredBy: row.authoredBy,
     contentHash: row.contentHash ?? null,
     createdAt: new Date(row.createdAt).toISOString(),
+    screeningPassed: SCREENING_PASSED.has(screening.get(row.id)?.screeningOutcome ?? ''),
   }))
 }
 
@@ -156,7 +183,11 @@ export async function proposeCleanup(
   const facts = await writableFacts(session, projectId)
   const byId = new Map(facts.map((fact) => [fact.id, fact]))
   const rules = new Map(ruleCandidates(facts).map((candidate) => [candidate.id, candidate]))
-  const model = await modelCandidates(session, facts, locale)
+  const model = await modelCandidates(
+    session,
+    facts.filter((fact) => fact.screeningPassed),
+    locale
+  )
   // Only ids the reader may write: the backend already drops invented ones, and
   // this is the side that decided who may write what.
   const fromModel = new Map(model.candidates.filter((candidate) => byId.has(candidate.id)).map((candidate) => [candidate.id, candidate]))
@@ -206,12 +237,78 @@ async function makeCleanupFolder(session: AuthorizedSession, projectId: string, 
   throw new ConflictError('Could not name the Ausmisten folder.')
 }
 
+/** What a clean-out has done so far, so a failure can undo exactly that. */
+interface CleanOutDone {
+  holders: Array<{ id: string; sourceFolderId: string | null }>
+  moved: Array<{ documentId: string; sourceFolderId: string | null }>
+  binned: string[]
+}
+
+/**
+ * Make a subfolder in every source folder, file the chosen documents into it,
+ * then bin every subfolder. When any step fails, undo what was done and
+ * rethrow: the project is as it was.
+ */
+async function clearOutAllOrNothing(
+  session: AuthorizedSession,
+  projectId: string,
+  byFolder: ReadonlyMap<string | null, readonly string[]>,
+  request?: Request
+): Promise<void> {
+  const day = new Date().toISOString().slice(0, 10)
+  const done: CleanOutDone = { holders: [], moved: [], binned: [] }
+  try {
+    for (const [sourceFolderId, documentIds] of byFolder) {
+      const holder = await makeCleanupFolder(session, projectId, sourceFolderId, day)
+      done.holders.push({ id: holder.id, sourceFolderId })
+      for (const documentId of documentIds) {
+        const moved = await moveDocumentToFolder({ documentId, folderId: holder.id }, session)
+        if (!moved.ok) throw new BadRequestError(moved.error)
+        done.moved.push({ documentId, sourceFolderId })
+      }
+    }
+    for (const holder of done.holders) {
+      await moveFolderToBin(session, { projectId, folderId: holder.id }, request)
+      done.binned.push(holder.id)
+    }
+  } catch (error) {
+    await undoCleanOut(session, projectId, done, request)
+    throw error
+  }
+}
+
+/**
+ * Undo a clean-out that failed halfway, in reverse. Best effort per step: one
+ * that fails is logged and the rest still run, so as much as possible is back.
+ */
+async function undoCleanOut(session: AuthorizedSession, projectId: string, done: CleanOutDone, request?: Request): Promise<void> {
+  const attempt = async (what: string, step: () => Promise<unknown>): Promise<void> => {
+    try {
+      await step()
+    } catch (error) {
+      console.error(`[cleanup] undoing a failed clean-out: ${what} failed`, error)
+    }
+  }
+  for (const folderId of [...done.binned].reverse()) {
+    await attempt(`restore ${folderId}`, () => restoreFolderFromBin(session, { projectId, folderId }, request))
+  }
+  for (const { documentId, sourceFolderId } of [...done.moved].reverse()) {
+    await attempt(`move ${documentId} back`, async () => {
+      const back = await moveDocumentToFolder({ documentId, folderId: sourceFolderId }, session)
+      if (!back.ok) throw new Error(back.error)
+    })
+  }
+  for (const holder of [...done.holders].reverse()) {
+    await attempt(`remove ${holder.id}`, () => deleteEmptyCreatedFolder(session.organizationId, projectId, holder.id))
+  }
+}
+
 /**
  * Put what the person confirmed into the Papierkorb (see the module header for
  * why through a subfolder of each document's own folder). Every document is
- * checked again: in this project, readable and writable by the session. Audited
- * as `project.cleanup.confirmed`, with how far the decision followed the
- * proposal.
+ * checked again: in this project, readable and writable by the session. All or
+ * nothing (module header). Audited as `project.cleanup.confirmed`, with how
+ * far the decision followed the proposal; a clean-out that was undone is not.
  */
 export async function confirmCleanup(
   session: AuthorizedSession,
@@ -239,15 +336,7 @@ export async function confirmCleanup(
   // Write on every source folder, asked once more right before anything moves.
   await requireFolderWrite(session, projectId, [...byFolder.keys()])
 
-  const day = new Date().toISOString().slice(0, 10)
-  for (const [folderId, documentIds] of byFolder) {
-    const holder = await makeCleanupFolder(session, projectId, folderId, day)
-    for (const documentId of documentIds) {
-      const moved = await moveDocumentToFolder({ documentId, folderId: holder.id }, session)
-      if (!moved.ok) throw new BadRequestError(moved.error)
-    }
-    await moveFolderToBin(session, { projectId, folderId: holder.id }, request)
-  }
+  await clearOutAllOrNothing(session, projectId, byFolder, request)
 
   const proposed = new Set(input.proposedIds)
   await recordAuditEvent({

@@ -21,6 +21,9 @@ const mocks = vi.hoisted(() => ({
   createProjectFolder: vi.fn(),
   moveDocumentToFolder: vi.fn(),
   moveFolderToBin: vi.fn(),
+  restoreFolderFromBin: vi.fn(),
+  findDocumentScreening: vi.fn(),
+  deleteEmptyCreatedFolder: vi.fn(),
   recordAuditEvent: vi.fn(),
 }))
 
@@ -36,7 +39,11 @@ vi.mock('@/lib/documents/lifecycle', () => ({ summarizeDocumentVersions: mocks.s
 vi.mock('@/lib/documents/reconcile-status', () => ({ reconcileDocumentStatuses: mocks.reconcileDocumentStatuses }))
 vi.mock('@/lib/documents/move-to-folder', () => ({ moveDocumentToFolder: mocks.moveDocumentToFolder }))
 vi.mock('@/lib/documents/shelf-folders', () => ({ FOLDER_NAME_TAKEN: 'A folder with this name already exists here.' }))
-vi.mock('./folder-bin', () => ({ moveFolderToBin: mocks.moveFolderToBin }))
+vi.mock('./folder-bin', () => ({ moveFolderToBin: mocks.moveFolderToBin, restoreFolderFromBin: mocks.restoreFolderFromBin }))
+vi.mock('./cleanup-repository', () => ({
+  findDocumentScreening: mocks.findDocumentScreening,
+  deleteEmptyCreatedFolder: mocks.deleteEmptyCreatedFolder,
+}))
 vi.mock('./folder-service', () => ({ createProjectFolder: mocks.createProjectFolder, listProjectFolders: mocks.listProjectFolders }))
 vi.mock('./repository', () => ({ findProjectInOrg: vi.fn(async () => ({ id: 'p1', collectionName: 'proj_1' })) }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: mocks.recordAuditEvent }))
@@ -105,11 +112,22 @@ beforeEach(() => {
   }))
   mocks.moveDocumentToFolder.mockResolvedValue({ ok: true })
   mocks.moveFolderToBin.mockResolvedValue({})
+  mocks.restoreFolderFromBin.mockResolvedValue({})
+  mocks.deleteEmptyCreatedFolder.mockResolvedValue(true)
+  screening({})
   fetchMock = vi.fn()
   vi.stubGlobal('fetch', fetchMock)
 })
 
 afterEach(() => vi.unstubAllGlobals())
+
+/** The content gate's outcome per document number; every other document passed (`clean`). */
+function screening(outcomes: Record<number, { status?: string; screeningOutcome: string | null }>) {
+  mocks.findDocumentScreening.mockImplementation(async (_org: string, _project: string, ids: string[]) => {
+    const byId = new Map(Object.entries(outcomes).map(([n, outcome]) => [UUID(Number(n)), outcome]))
+    return new Map(ids.map((id) => [id, { status: 'stored', ...(byId.get(id) ?? { screeningOutcome: 'clean' }) }]))
+  })
+}
 
 const modelAnswers = (candidates: Array<{ id: string; category: string; reason: string }>) =>
   fetchMock.mockResolvedValue(new Response(JSON.stringify({ candidates, model: 'm', error: null }), { status: 200 }))
@@ -132,6 +150,28 @@ describe('proposeCleanup', () => {
     expect([...keys].sort()).toEqual(
       ['authored_by', 'content_type', 'filename', 'folder_path', 'id', 'summary', 'tags', 'uploaded_at', 'version_state'].sort()
     )
+  })
+
+  it('sends the model nothing the content gate has not passed, and leaves quarantined documents out entirely', async () => {
+    screening({
+      1: { screeningOutcome: 'released' },
+      2: { screeningOutcome: 'partial' },
+      5: { screeningOutcome: null },
+      6: { status: 'quarantined', screeningOutcome: 'quarantined' },
+    })
+    modelAnswers([])
+    const proposal = await proposeCleanup(session, 'p1', 'de')
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as { documents: Array<Record<string, unknown>> }
+    // Released by a reviewer: passed. Partly screened, unscreened, quarantined: never reach the model.
+    expect(body.documents.map((doc) => doc.filename)).toEqual(['Einreichplan_v1.pdf'])
+    expect(JSON.stringify(body)).not.toMatch(/Einreichplan_v2|Baubeschreibung/)
+    // The rules still look at what the gate has not passed; the quarantined one is not proposed at all.
+    expect(proposal.considered).toBe(3)
+    expect(proposal.items.map((item) => item.filename)).toEqual(['~$Baubeschreibung.docx', 'Einreichplan_v1.pdf'])
+    await expect(
+      confirmCleanup(session, 'p1', { documentIds: [UUID(6)], proposedIds: [], aiUsed: true })
+    ).rejects.toMatchObject({ status: 400, details: { reason: 'not-writable' } })
   })
 
   it("merges the model's reasons with the rules, and marks the proposal as the model's", async () => {
@@ -196,6 +236,47 @@ describe('confirmCleanup', () => {
     expect(mocks.createProjectFolder).not.toHaveBeenCalled()
     expect(mocks.moveDocumentToFolder).not.toHaveBeenCalled()
     expect(mocks.moveFolderToBin).not.toHaveBeenCalled()
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('undoes everything when the second folder cannot go to the bin: nothing removed, nothing left behind', async () => {
+    mocks.moveFolderToBin.mockResolvedValueOnce({}).mockRejectedValueOnce(Object.assign(new Error('index'), { status: 502 }))
+
+    await expect(
+      confirmCleanup(session, 'p1', { documentIds: [UUID(1), UUID(5), UUID(6)], proposedIds: [], aiUsed: true })
+    ).rejects.toMatchObject({ status: 502 })
+
+    // The first subfolder, already binned, is restored; every document goes back where it was; both subfolders go.
+    expect(mocks.restoreFolderFromBin.mock.calls.map(([, input]) => input.folderId)).toEqual([`bin-holder-${FOLDER.plaene}`])
+    expect(mocks.moveDocumentToFolder.mock.calls.slice(3).map(([input]) => [input.documentId, input.folderId])).toEqual([
+      [UUID(6), null],
+      [UUID(5), null],
+      [UUID(1), FOLDER.plaene],
+    ])
+    expect(mocks.deleteEmptyCreatedFolder.mock.calls.map(([, , folderId]) => folderId)).toEqual([
+      'bin-holder-root',
+      `bin-holder-${FOLDER.plaene}`,
+    ])
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('undoes the moves when a document cannot be moved, and bins nothing', async () => {
+    mocks.moveDocumentToFolder
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false, error: 'Folder not found in this project.' })
+
+    await expect(
+      confirmCleanup(session, 'p1', { documentIds: [UUID(1), UUID(5), UUID(6)], proposedIds: [], aiUsed: true })
+    ).rejects.toMatchObject({ status: 400 })
+
+    expect(mocks.moveFolderToBin).not.toHaveBeenCalled()
+    expect(mocks.moveDocumentToFolder.mock.calls.slice(2).map(([input]) => [input.documentId, input.folderId])).toEqual([
+      [UUID(1), FOLDER.plaene],
+    ])
+    expect(mocks.deleteEmptyCreatedFolder.mock.calls.map(([, , folderId]) => folderId)).toEqual([
+      'bin-holder-root',
+      `bin-holder-${FOLDER.plaene}`,
+    ])
     expect(mocks.recordAuditEvent).not.toHaveBeenCalled()
   })
 

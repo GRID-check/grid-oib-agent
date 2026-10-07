@@ -10,8 +10,8 @@
  * OWN folder that inherits its access (so its readers and its retrieval
  * collection are unchanged), that subfolder is in the Papierkorb, a restore
  * puts it back where it was, and a document the closer may not write is not
- * removed. WorkOS and the backend are stubbed; the rows, the folder rule and
- * the bin are real.
+ * removed. A clean-out that fails halfway leaves the project as it was. WorkOS
+ * and the backend are stubbed; the rows, the folder rule and the bin are real.
  */
 
 import { sql } from 'drizzle-orm'
@@ -179,6 +179,34 @@ describe.skipIf(!url)('Ausmisten against Postgres', () => {
     expect(await folderRow(contract.folder_id)).toMatchObject({ parent_id: folder.vertraege, deleted_at: null })
     expect((await inOrg(() => access.getProjectFolderAccess(member, projectId, COLLECTION))).isVisible(contract.folder_id)).toBe(false)
     expect((await inOrg(() => access.getProjectFolderAccess(gf, projectId, COLLECTION))).isVisible(contract.folder_id)).toBe(true)
+  })
+
+  it('undoes everything when the second folder cannot go to the bin (the index does not confirm)', async () => {
+    const { purgeIngestedChunks } = await import('@/lib/documents/collection-file-ref')
+    const plan = await insertDocument('Lageplan_alt.pdf', folder.plaene, COLLECTION)
+    const contract = await insertDocument('Nachtrag_Entwurf.pdf', folder.vertraege, restrictedCollectionName(COLLECTION, folder.vertraege))
+    const folderCount = async () =>
+      Number(one(await inOrg(() => db.execute<{ n: string }>(sql`SELECT count(*) AS n FROM project_folders WHERE project_id = ${projectId}::uuid`))).n)
+    const binCount = async () =>
+      Number(one(await inOrg(() => db.execute<{ n: string }>(sql`SELECT count(*) AS n FROM deletion_queue WHERE organization_id = ${ORG} AND status = 'pending'`))).n)
+    const [foldersBefore, binBefore] = [await folderCount(), await binCount()]
+    // Pläne's subfolder goes to the bin; Verträge's purge is not confirmed.
+    vi.mocked(purgeIngestedChunks).mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+
+    await expect(
+      inOrg(() => cleanup.confirmCleanup(gf, projectId, { documentIds: [plan, contract], proposedIds: [], aiUsed: true }))
+    ).rejects.toMatchObject({ status: 502 })
+
+    // Every document where it was, in the collection it was in; no subfolder, no bin entry left.
+    expect(await documentRow(plan)).toMatchObject({ folder_id: folder.plaene, collection_name: COLLECTION })
+    expect(await documentRow(contract)).toMatchObject({
+      folder_id: folder.vertraege,
+      collection_name: restrictedCollectionName(COLLECTION, folder.vertraege),
+    })
+    expect(await folderCount()).toBe(foldersBefore)
+    expect(await binCount()).toBe(binBefore)
+    const visible = await inOrg(() => access.getProjectFolderAccess(gf, projectId, COLLECTION))
+    expect(visible.isVisible(folder.plaene) && visible.isVisible(folder.vertraege)).toBe(true)
   })
 
   it('makes no proposal and removes nothing in a project the session cannot write', async () => {
