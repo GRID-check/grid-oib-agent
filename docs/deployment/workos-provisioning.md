@@ -26,11 +26,13 @@ weeks later) were invisible to everything except a human re-reading the file.
 
 **The catalog's wording follows the „Büroablage" rename on the next provisioning.**
 The product renamed the org-wide shelf from „Archiv" to „Büroablage" („Office
-filing" in English) on 6 Oct 2026. `org:archiv:manage` keeps its slug, and the
-app's own screens take the permission's label from the dictionary, which already
-says „Büroablage verwalten". The catalog entry still reads „Manage document
-Archiv" because changing it rewrites the permission's name and description in
-WorkOS, a provisioning step that waits for the product owner's go. Change the
+filing" in English) on 6 Oct 2026. `org:archiv:manage` keeps its slug. Its
+label is NOT taken from the dictionary: Organisation → Zugriff
+(`frontends/ui/src/features/organization/components/permission-reference.tsx`) shows the `name` and `description` from
+`frontends/ui/src/lib/authz/catalog.ts`, so it still reads „Manage document Archiv" there until
+the next provisioning changes them. Changing them rewrites the permission's
+name and description in WorkOS, a provisioning step that waits for the
+product owner's go. Change the
 `name` and `description` in `catalog.ts` and run `--apply` together, never one
 without the other: the drift check would fail in between.
 
