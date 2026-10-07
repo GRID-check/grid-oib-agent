@@ -71,15 +71,19 @@ Chosen option 3, `aiq_agent.common.provider_limiter`.
 * Unit tests for class order, FIFO inside a class, AIMD per scope (a 429 for
   one model leaves another's limit untouched), and fail-open; an integration
   test that a `bulk` waiter yields to a `chat` waiter.
-* The invariant that every model and embedding call passes the limiter: a
-  call-site test beside `tests/aiq_agent/common/test_openrouter_call_sites.py`
-  that fails when a chat model or an embedding client is built outside the
-  limited seam. Until it lands: Nothing enforces this yet; review is the only
-  gate.
+* The invariant that every model and embedding call passes the limiter:
+  `tests/aiq_agent/common/test_provider_limiter_call_sites.py`, beside
+  `test_openrouter_call_sites.py`. Three scans fail when a chat model, an
+  embedding client or a raw `httpx` client talking to a model is built outside
+  the limited seam (`llm_factory.get_langchain_llm`, `openrouter.openai_client`
+  and the pinned transports, `limited_async_http_client`), and behavioural tests
+  send a call through each seam and watch the pool, so a seam rewired to skip the
+  limiter fails even though every name still matches. It runs with the backend suite (`task be:test`).
 
 ## More Information
 
 * ADR-0040 (layered rate limiting), ADR-0074 (the OpenRouter seam), ADR-0076,
   ADR-0078.
-* Open gap until the call-site test lands: a new model or embedding call site
-  that bypasses the limiter is caught only in review.
+* The call-site test is the gate for a new call site. What it cannot see is a
+  call that reaches a provider through a client it has no pattern for; that is
+  still caught in review, and the pattern list in the test is where to add it.

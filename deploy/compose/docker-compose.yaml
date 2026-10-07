@@ -528,10 +528,12 @@ services:
     # The BFF's background pool (ADR-0078): the frontend image, internal only.
     # `workers/jobs/index.js` supervises the BFF (`node server.js`) and a claim
     # loop that takes jobs from bff_job_queue fairly across organizations and
-    # has that BFF run them a bounded slice at a time, so a project reindex or a
-    # failed-ingestion rescan survives a restart and never runs inside the
-    # frontend that proxies chat. On Kubernetes this is a Deployment scaled by
-    # KEDA on the queue; here it is one replica.
+    # has that BFF run them a bounded slice at a time, so a job survives a
+    # restart and never runs inside the frontend that proxies chat. The kinds:
+    # project reindex, failed-ingestion rescan, IFC extraction, Office-to-PDF
+    # rendition (through gotenberg) and the filing of a finished research
+    # report. Without this service none of them runs. On Kubernetes this is a
+    # Deployment scaled by KEDA on the queue; here it is one replica.
     #
     # The frontend's own environment, by alias: the jobs call the same services
     # the routes do, and two lists that agree today are two lists that drift.
@@ -548,7 +550,7 @@ services:
     environment: *frontend-environment
     networks:
       - aiq-network
-      # Office rendition moves here with the later job kinds (ADR-0078).
+      # Office rendition runs here (the `office_rendition` job, ADR-0078).
       - gotenberg-internal
     # The runner gives claims back for up to its drain budget (60 s by default)
     # before it stops the BFF; docker's default 10 s would kill it first.
