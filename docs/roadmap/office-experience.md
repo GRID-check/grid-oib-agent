@@ -6,6 +6,47 @@
 > gate nobody owned. The first layer is built: ADR-0085 and
 > [`../design/cross-project-escalation.md`](../design/cross-project-escalation.md).
 
+## The pure intent
+
+> **Ein Büro soll nichts zweimal lernen müssen.**
+> An office should never have to learn the same thing twice.
+
+Every capability below is a way of keeping that promise, and every one is
+judged by it. Did the planner get, at the moment of deciding, what the office
+already knew, with where it came from and whether it still holds? If yes, it
+works. If they had to remember, ask a colleague or dig in the NAS, it does not.
+
+## What it gives the user, and how well we give it today
+
+The honest scorecard on 7 Oct 2026. "Built" is not "delivered": a feature
+that never meets data delivers nothing.
+
+| The planner's moment | What they should get | Today | Why |
+|---|---|---|---|
+| „Wie haben wir das gelöst?" | The comparable projects' solutions, cited, as precedent | **Built, barely delivered** | Search, catalog and access work. But the catalog lists only CLOSED projects that live in Piloti, and closing only arrived with ticket 1. Their facts come from the intake wizard; `gebaeudeklasse` has no writer at all. In a real office today the catalog is empty or ranked by recency alone |
+| „Fragt die Behörde das wieder nach?" | The office's past Nachforderungen and Auflagen for this Behörde | **Not built** | No Bescheid extraction, no Gemeinde, no dates |
+| Starting a project | Similar projects, typical Auflagen, Gutachten, durations | **Not built** | Depends on the two rows above |
+| A tender | Reference sheets | **Not built** | No Bausumme or BGF fields |
+| A colleague leaves | Their projects' lessons stay | **Not built** | Nothing runs at closing |
+| Trusting the answer | Every precedent with project, year, edition; never confused with the norm | **Partly** | Project and status are on every source. The prompt says „Präzedenzfall, nicht Norm". The edition the precedent was decided under is not known, so drift is not flagged |
+| Nothing leaks | A colleague never sees what they may not read | **Delivered** | Audience search, record at hand-out, read-time judges; 24 access rules each with a test that fails without it |
+| Knowing it works | A measured answer quality for precedent questions | **Missing** | The answer suite has no projects, so it cannot ask a single cross-project question. On its norm questions `project_lookup` was never called (correct), and the hand-off rate is under check |
+
+**The gap in one sentence.** The pipe is safe and the agent knows to use
+it, but almost nothing flows through it yet, and we have no instrument that
+would tell us if something did.
+
+That reorders the next work. Before any new capability:
+
+1. **An eval for precedent questions.** Build a seeded fixture office: eight
+   projects, closed and running, with Bescheide, a Nachforderung, a restricted
+   folder and two near-duplicate details. Add 15–20 questions with expected
+   projects and expected silences. Run it in the answer suite, before and after
+   every change to this feature. Without it, every claim above is a guess (the
+   repo rule: an unmeasured cause is a guess).
+2. **The data**: archive import, the sieve and fingerprint extraction (step 1
+   below).
+
 ## The thesis
 
 **Piloti's unit of value is the office, not the project.**
@@ -374,6 +415,19 @@ months and euros, and its value is not a promise about the future.
 * **Price on outcomes, not seats.** Price on the hours of searching saved and
   on the Nachforderungen avoided per Einreichung. Glean-style 100-seat minimums
   do not fit offices of 5 to 30 people.
+
+## Horizons
+
+| Horizon | What Piloti is to the office |
+|---|---|
+| **Now (Oct 2026)** | A careful researcher that can look into past projects safely, if they are in Piloti |
+| **Next (3–6 months)** | The office's archive, read and annotated. Precedent and permitting memory in answers and in the Einreichcheck. A closing debrief that captures the why |
+| **Later (6–18 months)** | The colleague who has worked on every project: at project start, in drafting, in plan and model review, in tenders. Office standards emerge from repeated solutions, and contradictions surface |
+| **Future** | Permitting becomes a data exchange. Vienna's BIM-based permit work (BRISE-Vienna) and the Länder's digital Einreichung point to authorities answering in structured form. An office whose Nachforderungen are already structured data learns from every procedure automatically. An opt-in, anonymised Verfahrensdauer benchmark per Behörde across offices becomes possible. It is the only pooled signal, and never content |
+
+The direction holds across all four horizons. Piloti moves from answering
+when asked, to being present when deciding, to closing the loop with the
+authority. The access model and the "only add" rule stay unchanged.
 
 ## Open for the product owner
 
