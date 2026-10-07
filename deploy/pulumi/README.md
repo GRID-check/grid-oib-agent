@@ -229,9 +229,13 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `agentWorkerMinReplicas` / `agentWorkerMaxReplicas` | 1 / 8 | KEDA bounds for the worker tier, which scales on `research_job_queue` depth (not CPU). 0 lets it idle while nothing waits; dev sets 0 |
 | `agentWorkerConcurrency` | `1` | Jobs per worker process; KEDA asks for one replica per this many open jobs |
 | `agentWorkerDrainSeconds` | `600` | Seconds a terminating worker may spend finishing already-claimed research jobs (`GRID_RESEARCH_WORKER_DRAIN_SECONDS`); the grace period is this plus 30 s. A job still running when it ends is requeued without costing an attempt and started over by another worker, so the budget decides how much work a deploy repeats. Costs deploy latency — workers roll one at a time. Floor 30 |
+| **The api tier** (ADR-0082): `aiq-api`, every backend HTTP route but the chat socket, which `BACKEND_URL` names | | |
+| `apiMinReplicas` / `apiMaxReplicas` | 2 / 4 (prod 1 / 3, dev 1 / 2) | Bounds of its CPU HPA. A ceiling below the floor fails the plan |
+| `apiHpaCpuTargetPercent` | `70` | HPA target average CPU, as a percentage of requests (`apiRequestsCpu`) |
+| `apiRequestsCpu/Memory`, `apiLimitsCpu/Memory` | 500m / 1536Mi / 2 / 6Gi | Sizing |
 | **Ingestion tier, BFF pool and KEDA** (ADR-0076, ADR-0079) | | |
 | `ingestWorkerMinReplicas` / `ingestWorkerMaxReplicas` | 1 / 5 | KEDA bounds for the ingest tier, which scales on `ingest_job_queue` depth. The ceiling is held to the provider budget below: the deploy fails when it is more than 2x `vlmFleetConcurrency` |
-| `ingestWorkerEnabled` | `true` | Run the ingestion tier. Needs `jobExecution: db`; with it off the web tier claims ingestion itself again |
+| `ingestWorkerEnabled` | `true` | Run the ingestion tier. Needs `jobExecution: db`. With it off (or with `jobExecution: dask`) the stack sets `GRID_INGEST_QUEUE=off` and the accepting process runs the job itself: the `chat` and `api` roles never claim from the queue |
 | `ingestWorkerRequestsCpu/Memory`, `ingestWorkerLimitsCpu/Memory` | 500m / 1536Mi / 2 / 6Gi | Sizing |
 | `ingestWorkerConcurrency` / `ingestWorkerDrainSeconds` | 3 / 600 | Jobs per worker (also KEDA's jobs-per-replica target) / SIGTERM budget; the grace period is the drain plus 30 s |
 | `ingestMaxPerOrg` | `0` | Most ingest jobs one organisation may run fleet-wide at once; 0 = no cap (the claim is fair regardless) |

@@ -11,15 +11,17 @@ Unified API plugin for the AI-Q blueprint: **Knowledge API** (collections, docum
 # Loads API keys from deploy/.env; NeMo Agent toolkit auto-creates:
 # - Local Dask cluster
 # - SQLite database at .tmp/job_store.db
-dotenv -f deploy/.env run nat serve --config configs/config_oib_openrouter.yml
+GRID_ROLE=api dotenv -f deploy/.env run nat serve --config configs/config_oib_openrouter.yml
 ```
+
+`GRID_ROLE` is required and has no default (ADR-0082): `api` serves the HTTP routes, `chat` the chat socket (run it on another port beside the `api` process when the UI is in use, as `scripts/start_e2e.sh` does). Ingestion is claimed by `GRID_ROLE=ingest-worker python deploy/entrypoint.py`; without one, set `GRID_INGEST_QUEUE=off` and `api` runs ingest jobs itself.
 
 ### Production (PostgreSQL + Dask Cluster)
 
 ```bash
 export NAT_DASK_SCHEDULER_ADDRESS="tcp://scheduler:8786"
 export NAT_JOB_STORE_DB_URL="postgresql://user:pass@host:5432/dbname"
-dotenv -f deploy/.env run nat serve --config configs/config_oib_openrouter.yml
+GRID_ROLE=api dotenv -f deploy/.env run nat serve --config configs/config_oib_openrouter.yml
 ```
 
 ## Architecture

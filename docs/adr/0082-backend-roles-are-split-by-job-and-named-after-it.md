@@ -144,7 +144,23 @@ Each step adds its own gate as it lands:
   Chroma server (`chromaEnabled=false`), since a tier with no volume cannot keep an embedded store.
   `housekeeping.spec.ts` asserts that the CronJobs and the Compose clock call the four routes the backend
   registers, `base-corpus` among them.
-- B: a spec that the `chat` and `api` Deployments mount disjoint route sets.
+- B: `frontends/aiq_api/tests/test_roles.py` builds the real app for each
+  `GRID_ROLE` and asserts that the two route sets overlap only in `/health` and
+  FastAPI's documentation routes, and that their union equals a baseline mounted
+  the way the single process did it: every `add_*_routes` / `register_*_routes`
+  function found under `aiq_api/routes/`, NAT's own routes, the chat socket and the
+  debug console. A router assigned to both roles, or to none, or a route added
+  outside the two lists, fails it. `deploy/pulumi/src/app/api.spec.ts` holds the
+  `aiq-api` Deployment, Service and HPA, `GRID_ROLE` on each workload, the
+  frontend's two URLs and the CronJobs' target; `compose-roles.spec.ts` holds both
+  Compose files to the same four roles and URLs, and to the entrypoint's list.
+  `GRID_ROLE` has no default, so a process with no role stops at start
+  (`tests/test_entrypoint_roles.py`, `test_roles.py`). B assumes
+  `GRID_JOB_EXECUTION=db`: the chat role submits research jobs in process and the
+  api role streams and cancels them, which a per-process Dask cluster cannot do
+  across two processes. B also removes in-process ingestion claiming
+  (`GRID_INGEST_QUEUE_CLAIM`): the `ingest-worker` tier is the only claimer, and a
+  stack that deploys none switches the queue off.
 
 ## More Information
 

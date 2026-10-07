@@ -6,6 +6,19 @@ The Python backend is a FastAPI application registered as a NAT (NeMo Agent Tool
 
 (The old duplicate `src/aiq_agent/fastapi_extensions/` front-end was deleted on 2026-07-03, commit `2570b1b`; its `/v1/ingest` route was ported into `aiq_api`.)
 
+## Which role serves which route (ADR-0082)
+
+The backend image runs the plugin as two web roles, chosen by `GRID_ROLE` (no default; `web` no longer exists; `aiq_api.roles`). Every route below is served by **exactly one** of them, except `/health` and FastAPI's documentation routes (`/docs`, `/redoc`, `/openapi.json`), which both answer. `frontends/aiq_api/tests/test_roles.py` builds the app per role and fails when a route is mounted by both, by neither, or when a router under `routes/` is assigned to no role.
+
+| Role | Served by | Routes | Reached with |
+|------|-----------|--------|--------------|
+| `chat` | `aiq-agent` StatefulSet (Compose: `aiq-agent`) | The chat socket `/websocket` ([WebSocket](#websocket)); `/v1/internal/chat-occupancy` (KEDA's scaling signal); NAT's own routes ([Chat / Generation](#chat--generation): `/generate*`, `/chat*`, `/v1/chat*`, `/v1/workflow*`, `/executions/*`, `/auth/redirect`, `/evaluate/item`, `/mcp/client/tool/list*`) | `BACKEND_CHAT_URL`, by the gateway's WebSocket proxy alone |
+| `api` | `aiq-api` Deployment (Compose: `aiq-api`) | Everything else: every `/v1/*` route on this page (collections, documents, search, ingest enqueue, the LLM utilities, norms, drafts, skills, OIB admin, maintenance, config and card catalog), the Async Job API with its SSE streams and the internal job routes, `/v1/maintenance/housekeeping/*`, and the debug console `/debug` | `BACKEND_URL`, by the BFF, the purger, the housekeeping clock and the workers |
+
+Nothing calls NAT's own routes in the deployed system: the BFF forwards only an allowlist of `/api/v1/*` requests (`lib/proxy/v1-allowlist.ts`) and none is a NAT route, the probes use `/health`, and the answer suite runs in process. They stay mounted, on `chat` only, because they come with the plugin NAT loads; `task be:eval:loop` is the one tool that dials one (`/generate/stream`) and must be pointed at the chat role.
+
+The roles share the auth and context-envelope middleware, the presigned-URL log scrubbing, the signal handlers and the startup handshake against the BFF's internal API. They differ at shutdown: `chat` waits for its running chat turns (`GRID_CHAT_DRAIN_SECONDS`), `api` closes its SSE streams. Neither claims ingestion jobs: the `ingest-worker` does.
+
 ## Knowledge / Collections
 
 These routes manage knowledge collections (logical groupings of documents for retrieval).
@@ -128,7 +141,7 @@ The retriever is a **cached singleton** (`get_active_retriever` in `aiq_agent.kn
 | `POST` | `/generate/stream` | Agent generation SSE stream (thinking, searching, planning, writing, complete, error, prompt, intermediate events) | `{ query, projectId?, conversationId?, ... }` | SSE stream | NAT framework internal |
 | `POST` | `/generate/respond` | HITL prompt response | `{ promptId, response, conversationId?, ... }` | `{}` | NAT framework internal |
 
-These routes are **not registered by custom code** — they are provided by the NAT (NeMo Agent Toolkit) FastAPI front-end plugin internally. The BFF routes (`/api/chat`, `/api/generate`, `/api/generate/respond`) proxy to them.
+These routes are **not registered by custom code** — they are provided by the NAT (NeMo Agent Toolkit) FastAPI front-end plugin internally, and only the `chat` role mounts them (see [Which role serves which route](#which-role-serves-which-route-adr-0082)). The BFF does not proxy to them: its `/api/v1/*` allowlist forwards none of them.
 
 ## Async Jobs
 
@@ -203,8 +216,8 @@ These routes are **not registered by custom code** — they are provided by the 
 
 | Method | Path | Description | Response | Handler |
 |--------|------|-------------|----------|---------|
-| `GET` | `/health` | Health check endpoint registered by async job routes. Validates DB connectivity and Dask availability. Returns `200 OK` or `503 degraded`. | `{ status, dask_available, db }` | `register_job_routes` in `aiq_api.routes.jobs` |
-| `GET` | `/v1/internal/chat-occupancy` | **Internal** (`_require_internal_token`). The chat tier's scaling signal (ADR-0080): the global admission pool in Dragonfly, which every replica keeps, so any replica answers with the fleet's number. KEDA's `metrics-api` trigger reads `activeTurns` and asks for ceil(activeTurns / `backendTurnsPerReplica`) replicas. `503` when the shared store is configured but unreachable, so the scaler falls back instead of reading this replica's share as a quiet fleet. With no `REDIS_URL` it is this process's own count. | `{ activeTurns, maxActiveTurns }` | `add_chat_occupancy_routes` in `aiq_api.routes.chat_occupancy` |
+| `GET` | `/health` | Liveness and readiness probe, answered by **both** roles with NAT's handler (`nat.front_ends.fastapi.routes.health`, mounted by `AIQAPIWorker` on `api` and by NAT's own `add_routes` on `chat`). It checks nothing: `200` while the process serves. (`register_job_routes` also defines a `/health` that checks the database and reports `sha`, but NAT's is registered first and FastAPI answers with the first match, so that handler never runs.) | `{ status: "healthy" }` | `add_health_route` |
+| `GET` | `/v1/internal/chat-occupancy` | **`chat` role only. Internal** (`_require_internal_token`). The chat tier's scaling signal (ADR-0080): the global admission pool in Dragonfly, which every replica keeps, so any replica answers with the fleet's number. KEDA's `metrics-api` trigger reads `activeTurns` and asks for ceil(activeTurns / `backendTurnsPerReplica`) replicas. `503` when the shared store is configured but unreachable, so the scaler falls back instead of reading this replica's share as a quiet fleet. With no `REDIS_URL` it is this process's own count. | `{ activeTurns, maxActiveTurns }` | `add_chat_occupancy_routes` in `aiq_api.routes.chat_occupancy` |
 
 ## Auth middleware
 
@@ -219,7 +232,7 @@ The `AuthMiddleware` (`frontends/aiq_api/src/aiq_api/auth/middleware.py`) wraps 
 
 | Protocol | Path | Description |
 |----------|------|-------------|
-| `ws`/`wss` | `/websocket?v=2` | The chat socket: chat wire v2, with HITL, Stop and `attach` resume (`aiq_api.chat_socket`, mounted by `AIQAPIWorker.add_routes`; NAT's own socket route is off). Protocol: [`websocket-protocol.md`](websocket-protocol.md). |
+| `ws`/`wss` | `/websocket?v=2` | The chat socket (`chat` role only): chat wire v2, with HITL, Stop and `attach` resume (`aiq_api.chat_socket`, mounted by `AIQAPIWorker.add_routes`; NAT's own socket route is off). Protocol: [`websocket-protocol.md`](websocket-protocol.md). |
 
 WebSocket auth mirrors the HTTP middleware: `authenticate_websocket_connection()` validates the handshake token using the same validator chain. Per-message token expiry checks reject work under expired handshake JWTs with `auth_expired` error messages.
 

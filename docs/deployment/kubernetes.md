@@ -18,7 +18,8 @@ their own namespaces.
 
 | Workload | k8s object | Replicas | Storage | Scales by |
 |---|---|---|---|---|
-| `aiq-agent` (agent web tier) | **StatefulSet** | 1 (dask) / N (db, default 2) | none (no PVC; ADR-0082 step A2) | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4; with `chatAffinity: false` a KEDA ScaledObject on running turns, `backendReplicas`→`backendMaxReplicas` (§6.4b; prod stays at 1) |
+| `aiq-agent` (the **`chat` role**, `GRID_ROLE=chat`: the chat socket and NAT's own routes, ADR-0082) | **StatefulSet** | 1 (dask) / N (db, default 2) | none (no PVC; ADR-0082 step A2) | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4; with `chatAffinity: false` a KEDA ScaledObject on running turns, `backendReplicas`→`backendMaxReplicas` (§6.4b; prod stays at 1) |
+| `aiq-api` (the **`api` role**, `GRID_ROLE=api`: every other backend HTTP route; `BACKEND_URL` names its Service, ADR-0082) | Deployment + HPA + PDB | `apiMinReplicas`→`apiMaxReplicas` (default 2→4; prod 1→3, dev 1→2) | — | Horizontally (CPU HPA, `apiHpaCpuTargetPercent`). Stateless: no volume. Drains for 60 s (the SSE close and short requests), not for a chat turn |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | `frontendMinReplicas`→`frontendMaxReplicas` (default 2→6; prod and dev 1→3) | — | Horizontally (CPU HPA) |
 | `agent-worker` (research, `jobExecution: db`) | Deployment + KEDA ScaledObject | `agentWorkerMinReplicas`→`agentWorkerMaxReplicas` (default 1→8; prod 1→3, dev 0→3) | — | Horizontally, on `research_job_queue` depth (§6.3) |
 | `ingest-worker` (ingestion, `jobExecution: db`) | Deployment + KEDA ScaledObject | `ingestWorkerMinReplicas`→`ingestWorkerMaxReplicas` (default 1→5; prod 1→5, dev 0→3) | — | Horizontally, on `ingest_job_queue` depth; the ceiling is held to the provider budget (§6.3b, §6.3d) |
@@ -53,7 +54,8 @@ cluster with no metrics API). See §2b.
 Traffic:
 
 ```
-Internet ──▶ Envoy Gateway ──┬─▶ app.<domain> (HTTPRoute) ──▶ frontend:3000 ──▶ aiq-agent:8000 (WS/REST)
+Internet ──▶ Envoy Gateway ──┬─▶ app.<domain> (HTTPRoute) ──▶ frontend:3000 ──┬─▶ aiq-api:8000   (every HTTP call, BACKEND_URL)
+                             │                                                   └─▶ aiq-agent:8000 (the chat WebSocket, BACKEND_CHAT_URL)
                              └─▶ s3.<domain>  (HTTPRoute) ──▶ seaweedfs:8333 (presigned browser URLs)
 ```
 
@@ -166,7 +168,7 @@ replaces worker nodes on its own schedule, with no operator step — i.e. *routi
 voluntary node drains. Every multi-replica workload therefore carries a
 **PodDisruptionBudget** (`maxUnavailable: 1`) and a soft **topologySpreadConstraint**
 across `kubernetes.io/hostname` (`src/platform/scheduling.ts`, applied to
-`frontend`, `agent-worker`, and the `db`-mode `aiq-agent` web tier; the Envoy
+`frontend`, `aiq-api`, `agent-worker`, and the `db`-mode `aiq-agent` chat tier; the Envoy
 proxy already had both). A drain can then only take one replica at a time, and
 replicas sit on different nodes so a single node loss never empties a tier.
 Single-replica workloads deliberately get **no** PDB — `minAvailable: 1` on one
@@ -1070,13 +1072,13 @@ lost on restart. Now, with `jobExecution: db`:
   `priority` (`interactive`, the default, or `bulk`) orders the claim. Claims
   heartbeat and are taken again when a worker dies, up to three times, and then
   kept as a `dead` row with a reason (ADR-0079). A worker that must exit hands
-  its claims back without spending an attempt; so does a web-tier replica that
-  claims (no ingest-worker tier), which stops claiming before it waits for its
-  chat turns and gives back what it still holds after.
+  its claims back without spending an attempt.
 - **A dedicated `ingest-worker` tier** (same image, `GRID_ROLE=ingest-worker`,
-  no port, no PVC) claims them. The web tier stops claiming
-  (`GRID_INGEST_QUEUE_CLAIM=false`) while the tier runs, so a PDF's parse no
-  longer shares the chat pods' CPU.
+  no port, no PVC) claims them, and it is the only process that does: the `chat`
+  and `api` roles only enqueue (ADR-0082), so a PDF's parse never shares their
+  CPU. A stack with no tier (`jobExecution: dask`, which has no shared Chroma for
+  it, or `ingestWorkerEnabled: false`) sets `GRID_INGEST_QUEUE=off` instead, and
+  the accepting process runs the job itself.
 - **KEDA scales it on the queue**, not on CPU (a job mostly waits on the
   provider): its `postgresql` trigger counts the table's rows that are not
   `dead` and asks for
@@ -1266,9 +1268,13 @@ Debugging a tier that does not scale: `kubectl describe scaledobject <tier>`
 active), `kubectl -n keda logs deploy/keda-operator` (a refused login or a
 missing table is named there), and `kubectl -n grid logs job/keda-scaler-grants`.
 
-### 6.4 Multi-replica chat/web tier — IMPLEMENTED (`jobExecution: db`)
+### 6.4 Multi-replica chat tier — IMPLEMENTED (`jobExecution: db`)
 
-In `db` mode the `aiq-agent` web tier now runs `backendReplicas` replicas
+The backend's HTTP routes are the `aiq-api` Deployment's (ADR-0082): it scales
+on CPU between `apiMinReplicas` and `apiMaxReplicas`, holds no volume, and rolls
+without waiting on a chat turn. What follows is the `aiq-agent` chat tier.
+
+In `db` mode the `aiq-agent` chat tier now runs `backendReplicas` replicas
 (default 2). The chat/retrieval path is replica-safe:
 
 - **Vectors** are shared (Chroma server, §6.3); **job/checkpoint state** is in
@@ -1624,6 +1630,7 @@ find, because a from-scratch plan cannot show them:
 
 ```bash
 kubectl -n grid rollout status deploy/frontend --timeout=15m
+kubectl -n grid rollout status deploy/aiq-api --timeout=25m
 kubectl -n grid rollout status statefulset/aiq-agent --timeout=25m
 # What changed, and why a pod restarted:
 kubectl -n grid get pods -o custom-columns=\
@@ -1732,8 +1739,8 @@ Three things are true of this whole table and are easy to miss:
 | App → SeaweedFS S3 | **No** | `http://seaweedfs:8333` inside the pod network. |
 | App → Dragonfly (cache / conversation bus) | **No — but authenticated** | Plaintext RESP on 6379. Dragonfly is not configured with TLS here. What *did* change: `requirepass` is now **required** (`dragonflyPassword`, or an explicit `allowUnauthenticatedRedis` opt-out), so a pod that can open the socket can no longer read the ADR-0028 conversation bus (every WebSocket frame of every chat, with a replayable 500-event backlog), the cached WorkOS directory (`directory:<orgId>` — email, name, avatar), authorization decisions or budget state. The password reaches consumers inside `REDIS_URL`, which for that reason now lives in the `grid-secrets` Secret rather than inline on each pod spec. |
 | Envoy rate limit service → counter store | **No — but authenticated** | Same plaintext RESP. `rateLimitStorePassword` is a **separate** credential from `dragonflyPassword` and is enforced distinct: every app pod holds the cache password in its `REDIS_URL`, and sharing it would let the app tier authenticate to the counter store and flush its own rate limits. It reaches the rate limit service as `REDIS_AUTH` (Envoy Gateway's `RateLimitRedisSettings` has no password field — only `url`, `urlRef`, `tls` — so it is injected via `provider.kubernetes.rateLimitDeployment.container.env`). An auth failure here is **fail-open**: limits stop enforcing, traffic keeps flowing. |
-| Frontend → backend (BFF/HTTP) | **No** | `http://aiq-agent:8000` inside the pod network. |
-| Frontend → backend (WebSocket chat) | **No** | `ws://`, per-replica via the headless service (ADR-0028 conversation affinity). This is the full chat transport, including prompts and answers. |
+| Frontend → backend (BFF/HTTP) | **No** | `http://aiq-api:8000` (the `api` role) inside the pod network. |
+| Frontend → backend (WebSocket chat) | **No** | `ws://` to the `chat` role (`BACKEND_CHAT_URL`), per-replica via the headless service (ADR-0028 conversation affinity). This is the full chat transport, including prompts and answers. |
 | Producers → OTel Collector, Collector → dashboard | **No** | Plain OTLP on `http://otel-collector:4318`. This traffic carries **prompts, retrieved snippets, LLM output and live presigned S3 URLs**, so it is the most sensitive plaintext channel in the namespace; the unauthenticated Aspire UI on `:18888` is likewise kept off-limits only by NetworkPolicy, which is why `observabilityEnabled` refuses to deploy with `networkPolicies=false`. |
 | Frontend and `bff-jobs` → Gotenberg | **No, and unauthenticated** | `http://gotenberg:3000`. It carries the bytes of every office file converted, and anyone who can reach it can have LibreOffice parse a file of their choosing. NetworkPolicy admits the frontend and the `bff-jobs` pool only. |
 | App → Chroma | **No, and unauthenticated** | `http://chroma:8000`, no credentials of any kind. Any pod that can reach it can read or delete every tenant's vectors. NetworkPolicy is the only control. |
@@ -2359,7 +2366,7 @@ developing against the Langfuse UI and API, not for reproducing ingestion.
   § Alternatives.
 - Egress NetworkPolicies (needs per-endpoint validation on a live cluster).
 - **In-namespace mTLS (a service mesh).** The plaintext channels in §7e —
-  `ws://` chat, `http://aiq-agent`, `http://chroma`, plaintext RESP to
+  `ws://` chat, `http://aiq-agent`, `http://aiq-api`, `http://chroma`, plaintext RESP to
   Dragonfly, OTLP — are bounded by the NetworkPolicy set, which stops traffic
   from outside `grid` but not a compromised pod inside it. Closing them
   properly means mTLS between every pair of services; that is a mesh (Cilium,
