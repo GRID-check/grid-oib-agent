@@ -255,7 +255,6 @@ config:
   grid-oib:backendMaxActiveJobs: "8"
   grid-oib:backendMaxActiveJobsPerOrg: "3"
   grid-oib:backendIngestMaxWorkers: "2"
-  grid-oib:backendDataStorageSize: 20Gi
   # ── Research execution (ADR-0021) ──
 
   # "dask" = per-pod cluster (agent is a singleton). "db" = DB-claimed workers:

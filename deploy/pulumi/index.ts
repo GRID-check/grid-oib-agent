@@ -169,7 +169,7 @@ const langfuseQueue = cfg.langfuse.enabled
 const rateLimitStore = cfg.rateLimit.enabled
   ? installRateLimitStore(cfg, provider, namespace)
   : undefined;
-const chroma = cfg.chroma.enabled ? installChroma(cfg, provider, namespace) : undefined;
+const chroma = installChroma(cfg, provider, namespace);
 // Office → PDF converter for the document viewer (ADR-0070). Stateless and
 // fail-open, so nothing waits on it; its NetworkPolicies admit the frontend
 // alone and deny it every egress.
@@ -187,7 +187,7 @@ const wiring: AppWiring = {
   redisUrl: dragonfly.url,
   seaweedInternalEndpoint: seaweed.internalEndpoint,
   seaweedPublicEndpoint: seaweed.publicEndpoint,
-  chromaUrl: chroma?.url,
+  chromaUrl: chroma.url,
   gotenbergUrl: gotenberg?.url,
   dsn: postgres.dsn,
   imagePullSecrets: pullSecret ? [{ name: PULL_SECRET_NAME }] : [],
@@ -427,7 +427,7 @@ export const schedulerDeployment = workers.scheduler.metadata.name;
 export const appRoute = routes.app.metadata.name;
 export const webRoute = routes.web.metadata.name;
 export const gatewayName = gatewayResources.gateway.metadata.name;
-export const chromaUrl = chroma ? chroma.url : pulumi.output("embedded");
+export const chromaUrl = chroma.url;
 export const jobExecution = cfg.jobExecution;
 export const pgInstances = cfg.postgres.instances;
 export const pgBackupsEnabled = cfg.postgres.backups.enabled;

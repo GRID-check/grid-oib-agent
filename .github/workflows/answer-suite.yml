@@ -11,6 +11,13 @@
 #
 # The suite itself still runs locally: `task be:eval:answer-suite`
 # (docs/contributing/testing-and-verification.md, "The answer suite").
+#
+# Before restoring it: the ingest below reads the PDFs from data/oib and keeps a
+# registry file, and the base corpus no longer works that way. It is objects in
+# object storage plus the `oib_corpus_files` table (ADR-0082 step A2), and
+# `--ingest` runs `oib_sync.sync()` over that table. The job then needs a corpus
+# store of its own (SeaweedFS, the BFF's upload route and a database), or an
+# ingest that takes a directory of PDFs. Neither is built; this is the gap.
 
 name: Answer suite (paused)
 
@@ -171,7 +178,6 @@ jobs:
 #           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 #           AIQ_CHROMA_DIR: ${{ github.workspace }}/.suite-index/chroma
 #           AIQ_SUMMARY_DB: sqlite+aiosqlite:///${{ github.workspace }}/.suite-index/summaries.db
-#           OIB_REGISTRY_PATH: ${{ github.workspace }}/.suite-index/oib_registry.json
 #           SIDE: ${{ matrix.side }}
 #         run: |
 #           mkdir -p .suite-index "$RUNNER_TEMP/suite"

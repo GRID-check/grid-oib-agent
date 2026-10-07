@@ -292,13 +292,17 @@ export function installWorkers(
    * overlaps a slow previous one skips.
    *
    * The ghost reaper fails a job after 300 seconds without an event; every two
-   * minutes puts the worst case at 420 seconds. The other two are hourly, on
-   * minutes apart from each other and from the hourly storage sweep.
+   * minutes puts the worst case at 420 seconds. Two are hourly, on minutes apart
+   * from each other and from the hourly storage sweep. The base corpus is the
+   * fourth: one sync cycle ingests every file that still needs it (a failed or
+   * timed-out upload, a chunking change), so a document never waits longer than
+   * ten minutes, and a cycle that runs past its tick blocks the next (`Forbid`).
    */
   const housekeeping = [
     { name: "housekeeping-ghost-jobs", schedule: "*/2 * * * *", route: "ghost-jobs", timeoutMs: 90_000 },
     { name: "housekeeping-job-events", schedule: "7 * * * *", route: "job-events", timeoutMs: 900_000 },
     { name: "housekeeping-chat-checkpoints", schedule: "37 * * * *", route: "chat-checkpoints", timeoutMs: 900_000 },
+    { name: "housekeeping-base-corpus", schedule: "*/10 * * * *", route: "base-corpus", timeoutMs: 600_000 },
   ].map(({ route, ...sweep }) =>
     internalSweepCronJob(w, cfg, secrets, dependsOn, {
       ...sweep,

@@ -85,7 +85,9 @@ services:
       - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
       - SEAWEED_SECRET_KEY=${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
-      # LlamaIndex persistence (the Chroma store config_oib_openrouter.yml reads)
+      # LlamaIndex persistence (the embedded Chroma store config_oib_openrouter.yml
+      # reads). The one thing the backend keeps on disk here: the base corpus is in
+      # SeaweedFS and a table (ADR-0082), its cache is under /tmp.
       - AIQ_CHROMA_DIR=${AIQ_CHROMA_DIR:-/app/data/chroma_data}
       # Server config
       # Grid OIB config (default)
@@ -105,16 +107,11 @@ services:
       - "${PORT:-8000}:8000"
     volumes:
       - ../../configs:/app/configs:ro
-      # Operator-provided OIB corpus; ships empty (data/oib/README.md). Read-only
-      # on purpose: an admin removes a document through the UI, which records an
-      # exclusion, rather than by deleting a file the mount would restore.
-      - ../../data/oib:/app/data/oib:ro
-      - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data
     networks:
       - aiq-network
     depends_on:
-      aiq-data-permissions:
+      chroma-data-permissions:
         condition: service_completed_successfully
       seaweedfs:
         condition: service_healthy
@@ -134,11 +131,11 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  aiq-data-permissions:
+  chroma-data-permissions:
+    # The embedded Chroma store is the only thing the backend writes under /app/data.
     image: alpine:3.20
-    command: ["sh", "-c", "chown -R 1000:1000 /app/data"]
+    command: ["sh", "-c", "chown -R 1000:1000 /app/data/chroma_data"]
     volumes:
-      - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data
     restart: "no"
 
@@ -1086,8 +1083,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  aiq-data:
-    driver: local
   chroma_data:
     driver: local
   seaweedfs-data:

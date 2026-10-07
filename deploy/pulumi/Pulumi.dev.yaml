@@ -126,7 +126,6 @@ config:
   grid-oib:backendMaxActiveJobs: "4"
   grid-oib:backendMaxActiveJobsPerOrg: "2"
   grid-oib:backendIngestMaxWorkers: "2"
-  grid-oib:backendDataStorageSize: 10Gi
   # ── Research execution ──
   grid-oib:jobExecution: db
   # KEDA scales the tier on research_job_queue (ADR-0079): zero while no job waits.

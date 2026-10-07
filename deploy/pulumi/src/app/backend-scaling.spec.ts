@@ -81,6 +81,7 @@ async function wiringFor(config: Record<string, string>) {
     redisUrl: pulumi.output("redis://dragonfly:6379"),
     seaweedInternalEndpoint: pulumi.output("http://seaweedfs:8333"),
     seaweedPublicEndpoint: pulumi.output("https://s3.example.test"),
+    chromaUrl: pulumi.output("http://chroma:8000"),
     dsn: () => pulumi.output("postgresql://x"),
     imagePullSecrets: [],
   };
@@ -212,7 +213,7 @@ describe("the chat tier's scale-out", () => {
   it("leaves the replica count to KEDA once it exists", () => {
     // `ignoreChanges` is a resource option, which the mocks do not carry.
     expect(read("deploy", "pulumi", "src", "app", "backend.ts")).toMatch(
-      /ignoreChanges: \["spec\.volumeClaimTemplates", \.\.\.\(autoscaled \? \["spec\.replicas"\] : \[\]\)\]/,
+      /ignoreChanges: autoscaled \? \["spec\.replicas"\] : \[\]/,
     );
   });
 });

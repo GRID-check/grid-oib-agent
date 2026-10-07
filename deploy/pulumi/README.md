@@ -14,7 +14,7 @@ SeaweedFS object storage — behind Envoy Gateway (Gateway API) with automatic L
 |-------|-----------|
 | Platform | namespace `grid` (+ default-deny NetworkPolicies), cert-manager (Gateway-API) + Let's Encrypt `ClusterIssuer`, Envoy Gateway, observability (ADR-0029: `otel-collector` Deployment + Service + ConfigMap, `aspire-dashboard` Deployment + Service + HTTPRoute + Secret — only when `observabilityEnabled` **and** its config deps are set), Langfuse (ADR-0044: `langfuse-web` + `langfuse-worker` Deployments, `clickhouse` StatefulSet, a dedicated ingestion queue, HTTPRoute + SecurityPolicy — only when `langfuseEnabled` **and** its config deps are set; flag **on by default**), (metrics-server only on bare clusters) |
 | Data | CloudNativePG operator + `Cluster` (`aiq_jobs`, `aiq_checkpoints`, `grid_app`) with optional PITR backups to SeaweedFS (`ScheduledBackup`), Dragonfly, SeaweedFS (one StatefulSet under `seaweedfsTopology=single`; master + volume + filer StatefulSets, and a `seaweedfs_filer` CNPG database + role, under `split`) + bucket-init Job |
-| App | `aiq-agent` StatefulSet (+ PVC, +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `skill-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`) |
+| App | `aiq-agent` StatefulSet (no PVC; +PDB/spread in db mode), `frontend` Deployment + HPA + PDB, `agent-worker` Deployment + HPA + PDB (db mode), `purger`, `skill-scheduler`, a one-shot `drizzle-kit migrate` Job, a one-shot WorkOS audit-schema reconcile Job (when `requireAuth`) |
 | Edge | Gateway API (Envoy Gateway, HA: 2 replicas + PDB) + HTTPRoutes with cert-manager TLS for `app.<baseDomain>` and `s3.<baseDomain>` |
 | DNS | Cloudflare A records for exactly the Gateway's HTTPS listener hosts, plus optionally the zone-level `www` / `_dmarc` / apex-redirect records — only when `dnsEnabled` (off by default; records are otherwise maintained by hand) |
 
@@ -178,7 +178,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | 🔒 **`rateLimitStorePassword`** | — | REQUIRED while `rateLimitEnabled`. `requirepass` for the counter store; enforced DISTINCT from `dragonflyPassword` |
 | `allowUnauthenticatedRedis` | `false` | Dev-only escape hatch for both passwords above (warns on every deploy) |
 | **Chroma (vectors)** | | |
-| `chromaEnabled` | `true` | Shared vector server; REQUIRED for db mode (fails closed) |
+| `chromaEnabled` | `true` | Shared vector server. REQUIRED: `false` fails the plan, because the backend keeps no volume (ADR-0082) and an embedded store would be wiped at every restart |
 | `chromaImage` | `chromadb/chroma:1.5.9` | Pinned to match the backend's chromadb client |
 | `chromaStorageSize` | `20Gi` | Vector store volume (grow via PVC patch) |
 | **Gotenberg (office → PDF, ADR-0070)** | | |
@@ -214,7 +214,6 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `backendMaxQueuedJobsPerOrg` | `50` | `db` execution: research jobs one organisation may have waiting (`GRID_MAX_QUEUED_JOBS_PER_ORG`), the only 429 left. 0 = off |
 | `backendIngestMaxWorkers` | `2` | Concurrent ingestion bound |
 | `backendConfigFile` | `config_oib_openrouter.yml` | Baked backend config path |
-| `backendDataStorageSize` | `20Gi` | Per-replica /app/data volume (grow via PVC patch) |
 | `backendReplicas` | `2` | Web replicas (db mode only; dask forces 1). The floor once the chat tier autoscales |
 | `chatAffinity` | `true` | `GRID_CHAT_AFFINITY` (ADR-0080): the gateway pins a conversation to a replica by hash (the replica count is then static). `false` sends sockets to the `aiq-agent` Service and lets the conversation bus decide per turn; needs `conversationBus`. Prod keeps `true` until the cross-replica path is validated on dev |
 | `backendMaxReplicas` | `3` | Ceiling KEDA scales the chat tier to. Used only with `chatAffinity: false`, `jobExecution: db` and a ceiling above `backendReplicas`; prod pins `1` |

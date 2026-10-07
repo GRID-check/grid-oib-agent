@@ -22,7 +22,7 @@ describe("the backend housekeeping CronJobs", () => {
   it("schedule exactly the housekeeping routes the backend registers", () => {
     const registered = names(jobsRoutes, /"\/v1\/maintenance\/housekeeping\/([a-z-]+)"/g);
     const scheduled = names(workers, /route: "([a-z-]+)"/g);
-    expect(registered.length).toBe(3);
+    expect(registered.length).toBe(4);
     expect(scheduled).toEqual(registered);
   });
 

@@ -497,11 +497,6 @@ export interface GridConfig {
   };
 
   chroma: {
-    /**
-     * Run a shared Chroma server (horizontal scaling). When true, the backend
-     * points AIQ_CHROMA_URL at it instead of using an embedded per-pod store.
-     */
-    enabled: boolean;
     image: string;
     storageSize: string;
   };
@@ -739,10 +734,6 @@ export interface GridConfig {
     ingestMaxWorkers: number;
     /** Backend web config file (baked into the image under /app/configs). */
     configFile: string;
-    /** Chroma persistence dir on the data PVC. */
-    chromaDir: string;
-    /** Persistent /app/data volume size (Chroma vectors + uploaded corpus). */
-    dataStorageSize: string;
     /**
      * Web/chat replica count. Only applied when jobExecution="db" (in "dask"
      * mode the agent is a hard singleton and this is forced to 1). The
@@ -1958,16 +1949,17 @@ export function loadConfig(): GridConfig {
   // in Postgres (table + WAL + backups + replicas). Refuse to deploy db mode
   // without a KEK to encrypt them at rest, unless plaintext is explicitly opted
   // into for dev. Guards against the silent plaintext-token-at-rest default.
-  // Fail closed: db mode REQUIRES the shared Chroma server. Without it every
-  // web replica and worker opens an embedded per-pod store — workers ingest
-  // into stores no web replica can read (retrieval silently empty), and the
-  // volume-less agent-worker can't even write its store (image FS, root-owned).
-  // The deploy would report success and be functionally broken.
-  const chromaEnabled = bool(cfg, "chromaEnabled", true);
-  if (jobExecution === "db" && !chromaEnabled) {
+  // Fail closed: the shared Chroma server is REQUIRED. The backend keeps no
+  // volume (ADR-0082), so an embedded per-pod store would be wiped at every
+  // restart, and in db mode every web replica and worker would also open a
+  // store of its own — workers ingest into stores no web replica can read
+  // (retrieval silently empty). The deploy would report success and be
+  // functionally broken.
+  if (!bool(cfg, "chromaEnabled", true)) {
     throw new Error(
-      "jobExecution=db requires the shared Chroma server (workers and web replicas must " +
-        "read/write one vector store). Set grid-oib:chromaEnabled=true, or use jobExecution=dask.",
+      "chromaEnabled=false is not supported: the backend keeps no volume, so an embedded vector " +
+        "store would be wiped on every restart, and replicas and workers must share one store. " +
+        "Set grid-oib:chromaEnabled=true.",
     );
   }
 
@@ -2501,7 +2493,6 @@ export function loadConfig(): GridConfig {
     },
 
     chroma: {
-      enabled: chromaEnabled,
       // Deliberately pinned (NOT latest): the server API/wire protocol is
       // coupled to the backend's `chromadb` Python client. It MUST match — a 1.x
       // client against a 0.5.x server fails ingestion with KeyError('_type'),
@@ -2573,8 +2564,6 @@ export function loadConfig(): GridConfig {
       maxQueuedJobsPerOrg: num(cfg, "backendMaxQueuedJobsPerOrg", 50),
       ingestMaxWorkers: num(cfg, "backendIngestMaxWorkers", 2),
       configFile: cfg.get("backendConfigFile") ?? "/app/configs/config_oib_openrouter.yml",
-      chromaDir: cfg.get("backendChromaDir") ?? "/app/data/chroma_data",
-      dataStorageSize: cfg.get("backendDataStorageSize") ?? "20Gi",
       // Multi-replica chat/web tier. Safe because the frontend WS proxy pins each
       // conversation to its owning replica by hash (conversation affinity,
       // ADR-0028), so the in-process WS/HITL/task state is always reachable. The
