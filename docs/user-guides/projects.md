@@ -162,6 +162,16 @@ appear as *skipped* runs in the history.
 Source: `frontends/ui/src/features/jobs/`, service in
 `frontends/ui/src/lib/jobs/`
 
+## The Steckbrief
+
+**Settings → Steckbrief** keeps the key facts that stay once a project is closed:
+
+- **Address**: the project's address from the brief (edit it in the brief).
+- **Period**: Beginn and Abschluss, as months. Closing the project fills in Abschluss with the current month if it is still empty.
+- **People**: everyone who worked on the project, including former staff and external planners who have no Piloti account: name, function, company and from–to, optionally linked to their Piloti account. Piloti stores nothing else about them, no e-mail and no phone number, and does not use these details when it answers.
+
+Whoever may edit the brief may change the period and the people. In a closed project the Steckbrief is read-only, but the project's admins can still remove a person: removing a person deletes every detail about them for good, which is how a request to erase someone's data is met.
+
 ## Closing a project
 
 When the work on a project is done, close it: **Settings → Project status → Close project**. You need the project's admin role (`project:manage`). Nothing is deleted.

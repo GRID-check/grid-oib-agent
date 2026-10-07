@@ -109,6 +109,10 @@ const BOUNDARY_MIGRATIONS = [
   // and who opened one under a folder with its own list. Keyed directly by its
   // organization; no foreign keys, so the row outlives what it names.
   '0112_document_access_log.sql',
+  // Adds project_people — the Steckbrief's people, with or without a Piloti
+  // account (ADR-0083). Keyed directly by its organization, tied to its project
+  // by a composite foreign key.
+  '0115_project_steckbrief.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

@@ -70,6 +70,8 @@ export const projects = pgTable('projects', {
 | `status` | `text` | NOT NULL, default `active`, CHECK `IN ('active','closed')` | ADR-0082, migration 0114. A closed project is read-only for files, folders, versions, the profile and project memory, and every organization member may read it |
 | `closed_at` | `timestamptz` | set exactly when `status = 'closed'` | When it was closed; cleared on reopen |
 | `closed_by` | `text` | set exactly when `status = 'closed'` | WorkOS user id of whoever closed it |
+| `started_on` | `date` | first of a month, CHECK | Steckbrief Beginn (ADR-0083, migration 0115) |
+| `ended_on` | `date` | first of a month, not before `started_on` | Steckbrief Abschluss; closing fills it with the month of the close when unset |
 | `deleted_at` | `timestamptz` | | Soft delete (ADR-0011) |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
@@ -78,6 +80,33 @@ export const projects = pgTable('projects', {
 **Constraints (0114):** `projects_status_check`, and `projects_closed_state_check`: closed exactly when `closed_at` and `closed_by` are both set.
 
 **The closed-project guard (0114).** `grid_refuse_insert_into_closed_project()` runs `BEFORE INSERT` on `documents`, `project_folders`, `document_versions` and `project_memory`, and raises SQLSTATE `GPC01` when the row names a closed project. It reads the project row `FOR SHARE`, so a close and an insert serialize. Updates are not refused. The down migration refuses while any project is closed.
+
+---
+
+## project_people (migration 0115, ADR-0083)
+
+Everyone who worked on a project, with or without a Piloti account: the Steckbrief's people.
+Personal data of people who mostly never gave it, so: name, function, company, months, an
+optional account link, and nothing else. Never read into the agent's prompt
+(`people-stay-out-of-the-prompt.spec.ts`).
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK | |
+| `organization_id` | `text` | NOT NULL | RLS `organization_id = grid_current_org()` |
+| `project_id` | `uuid` | NOT NULL, FK `(project_id, organization_id)` → `projects(id, organization_id)` ON DELETE CASCADE | |
+| `name` | `text` | NOT NULL, 1–200 characters after trimming | |
+| `function` | `text` | ≤ 200 | Funktion: Projektleitung, Statik, Bauherr … |
+| `company` | `text` | ≤ 200 | Firma |
+| `started_on`, `ended_on` | `date` | first of a month; end not before start | von–bis |
+| `user_id` | `text` | | WorkOS user id of their Piloti account, when linked; checked to be an organization member on write |
+| `created_by` | `text` | NOT NULL | |
+| `created_at`, `updated_at` | `timestamptz` | NOT NULL | |
+
+Deleted outright, never soft-deleted: the delete is the erasure. The 0114 trigger
+(`project_people_closed_project_guard`) refuses a new row in a closed project; a delete is
+always possible. Index `project_people_project_idx` on `(organization_id, project_id, name)`.
+The down migration drops the table and its rows.
 
 ---
 
