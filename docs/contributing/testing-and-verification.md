@@ -342,7 +342,9 @@ the eval cannot drift from what production sends. The questions are in
 - **drift:** must name the older edition.
 
 The checks are `looked_up`, `no_lookup`, `cites`, `not_cites`, `says_none`
-and `caveat`. The report adds each kind of check over every run. Run it before
+and `caveat`. `looked_up` counts what the fixture BFF served to the run's
+conversation, so a lookup the turn decision prefetched as round 0 counts,
+although no model call shows it. The report adds each kind of check over every run. Run it before
 and after any change to the lookup, the catalog, the similarity or the prompt
 around them.
 

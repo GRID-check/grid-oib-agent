@@ -143,3 +143,12 @@ questions:
       lookup: optional
       cites: [[Baden], [Mödling, Moedling]]
       not_cites: [Linz]
+
+  # --- decisions: what only a project's memory recorded ---------------------
+  - id: kapselung-warum-gipsfaser
+    group: explicit
+    question: Warum haben wir beim Holzwohnbau in Baden für die Kapselung Gipsfaserplatten genommen?
+    expect:
+      lookup: required
+      cites: [[Baden]]
+      mentions: [[Prüfbericht, Pruefbericht]]

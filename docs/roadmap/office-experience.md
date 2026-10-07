@@ -23,14 +23,14 @@ that never meets data delivers nothing.
 
 | The planner's moment | What they should get | Today | Why |
 |---|---|---|---|
-| „Wie haben wir das gelöst?" | The comparable projects' solutions, cited, as precedent | **Built, barely delivered** | Search, catalog and access work. But the catalog lists only CLOSED projects that live in Piloti, and closing only arrived with ticket 1. Their facts come from the intake wizard; `gebaeudeklasse` has no writer at all. In a real office today the catalog is empty or ranked by recency alone |
+| „Wie haben wir das gelöst?" | The comparable projects' solutions, cited, as precedent | **Built, barely delivered** | Search, catalog and access work, and the turn decision prefetches the reference projects when a precedent is likely. Other projects' recorded decisions come first, with their why. But the catalog lists only CLOSED projects that live in Piloti, and closing only arrived with ticket 1. Their facts come from the intake wizard. The Gebäudeklasse is left open there on purpose (a wrong class is a wrong requirement); only an agent proposal a person accepts writes it. In a real office today the catalog is empty or ranked by recency alone |
 | „Fragt die Behörde das wieder nach?" | The office's past Nachforderungen and Auflagen for this Behörde | **Not built** | No Bescheid extraction, no Gemeinde, no dates |
 | Starting a project | Similar projects, typical Auflagen, Gutachten, durations | **Not built** | Depends on the two rows above |
 | A tender | Reference sheets | **Not built** | No Bausumme or BGF fields |
 | A colleague leaves | Their projects' lessons stay | **Not built** | Nothing runs at closing |
 | Trusting the answer | Every precedent with project, year, edition; never confused with the norm | **Partly** | Project and status are on every source. The prompt says „Präzedenzfall, nicht Norm". The edition the precedent was decided under is not known, so drift is not flagged |
 | Nothing leaks | A colleague never sees what they may not read | **Delivered** | Audience search, record at hand-out, read-time judges; 24 access rules each with a test that fails without it |
-| Knowing it works | A measured answer quality for precedent questions | **Missing** | The answer suite has no projects, so it cannot ask a single cross-project question. On its norm questions `project_lookup` was never called (correct), and the hand-off rate is under check |
+| Knowing it works | A measured answer quality for precedent questions | **Built** | `suite.py --set precedent`: 16 questions in a fixture office, checks for looking when it should, not on a norm question, the right project cited, an honest „nichts Vergleichbares", an older edition named. Its first question found a bug that replaced every precedent-only answer with an error, and the fix is in |
 
 **The gap in one sentence.** The pipe is safe and the agent knows to use
 it, but almost nothing flows through it yet, and we have no instrument that
@@ -38,12 +38,9 @@ would tell us if something did.
 
 That reorders the next work. Before any new capability:
 
-1. **An eval for precedent questions.** Build a seeded fixture office: eight
-   projects, closed and running, with Bescheide, a Nachforderung, a restricted
-   folder and two near-duplicate details. Add 15–20 questions with expected
-   projects and expected silences. Run it in the answer suite, before and after
-   every change to this feature. Without it, every claim above is a guess (the
-   repo rule: an unmeasured cause is a guess).
+1. **An eval for precedent questions** (done, 7 Oct). A fixture office, with
+   16 questions with expected projects and expected silences, run in the
+   answer suite before and after every change to this feature.
 2. **The data**: archive import, the sieve and fingerprint extraction (step 1
    below).
 

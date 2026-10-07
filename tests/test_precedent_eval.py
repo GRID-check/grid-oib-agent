@@ -80,10 +80,17 @@ class TestTheFixtureBff:
             "Wohnhausanlage Mödling, Brunner Gasse",
         }
 
+    def test_a_projects_recorded_decision_answers_beside_its_passages(self, bff):
+        _, body = _post(bff, "/api/internal/cross-project/search", {"query": "Kapselung Gipsfaserplatten"})
+
+        _validator("CrossProjectSearchResponse").validate(body)
+        assert body["decisions"][0]["project"]["name"] == "Holzwohnbau Baden, Wiener Straße"
+        assert "Prüfbericht" in body["decisions"][0]["content"]
+
     def test_a_question_nothing_answers_finds_nothing(self, bff):
         _, body = _post(bff, "/api/internal/cross-project/search", {"query": "Feuerwehraufzug Hochhaus"})
 
-        assert body["hits"] == []
+        assert body["hits"] == [] and body["decisions"] == []
 
     def test_the_listing_and_the_brief_answer_in_their_wire_shapes(self, bff):
         status, listing = _post(bff, "/api/internal/cross-project/projects", {"query": "Mödling"})
@@ -190,3 +197,33 @@ class TestTheChecks:
         ]
 
         assert suite.aggregate_lines(runs) == ["- `cites`: 2/2", "- `looked_up`: 1/2"]
+
+
+def test_a_lookup_counts_for_the_run_it_served_however_it_was_asked_for(tmp_path):
+    """A round-0 prefetch shows in no model call; what the fixture served is what the turn read."""
+    from fixture_bff import lookups_served
+
+    office = FixtureOffice().office
+    server = FixtureBFF(TOKEN, tmp_path / "requests.jsonl").start()
+    try:
+        for conversation in ("suite-1-a-1", "suite-1-b-1"):
+            header, signature = suite.precedent_envelope(office, conversation, TOKEN)
+            request = urllib.request.Request(
+                f"{server.url}/api/internal/cross-project/search",
+                data=json.dumps({"query": "Traufe"}).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Grid-Internal-Token": TOKEN,
+                    "X-Grid-Request-Context": header,
+                    "X-Grid-Request-Context-Sig": signature,
+                },
+                method="POST",
+            )
+            urllib.request.urlopen(request, timeout=5).close()
+    finally:
+        server.stop()
+
+    assert lookups_served(tmp_path / "requests.jsonl", "suite-1-a-1") == ["search"]
+    assert lookups_served(tmp_path / "requests.jsonl", "suite-1-c-1") == []
+    run = suite.Run(question_id="a", run=1, lookups=["search"])
+    assert suite.precedent_checks({"lookup": "required"}, run, "") == {"looked_up": True}

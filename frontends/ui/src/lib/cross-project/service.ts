@@ -38,19 +38,21 @@
 import 'server-only'
 import { BadRequestError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { getProjectFolderAccess } from '@/lib/authz/folder-access'
+import { clearanceOf, getProjectFolderAccess, readableFolderIdsFor } from '@/lib/authz/folder-access'
 import { recordCrossProjectHandOut, type HandOutParty } from '@/lib/conversations/cross-project-use'
 import type { Project } from '@/lib/db/schema'
 import { searchProjectDocuments } from '@/lib/documents/service'
 import { buildProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { audienceReach, type AudienceReach } from './audience-reach'
+import { searchProjectDecisions, type DecisionScope, type FoundDecision } from './decisions-repository'
 import { rankBySimilarity } from './similarity'
 import type { VerifiedGridRequestContext } from '@/lib/request-context'
 import {
   CROSS_PROJECT_PAGE_PROJECTS,
   type CrossProjectBriefRequest,
   type CrossProjectBriefResponse,
+  type CrossProjectDecision,
   type CrossProjectHit,
   type CrossProjectListed,
   type CrossProjectListRequest,
@@ -304,7 +306,43 @@ async function searchOneProject(
   })
 }
 
-/** Search documents across the projects in reach, one bounded page of projects per call (ADR-0085). */
+/**
+ * What of each project's memory the reader may see: in a chat that is the
+ * asker's alone, every restricted item the asker is cleared for in THAT
+ * project (ticket 1's per-project clearance); elsewhere open memory only, as
+ * passages from restricted folders stay out of a shared chat.
+ */
+async function decisionScopes(
+  session: AuthorizedSession,
+  projects: readonly Project[],
+  reach: Pick<AudienceReach, 'restrictedFolders'>
+): Promise<DecisionScope[]> {
+  if (!reach.restrictedFolders) return projects.map((project) => ({ projectId: project.id, readableFolderIds: [] }))
+  return mapBounded(projects, SEARCH_CONCURRENCY, async (project) => ({
+    projectId: project.id,
+    readableFolderIds: await readableFolderIdsFor(
+      session.organizationId,
+      project.id,
+      await clearanceOf(session, project.id)
+    ),
+  }))
+}
+
+function asDecision(found: FoundDecision, byId: ReadonlyMap<string, Project>): CrossProjectDecision | null {
+  const project = byId.get(found.projectId)
+  if (!project) return null
+  return {
+    project: { id: project.id, name: project.name, status: projectStatusOf(project) },
+    collection: project.collectionName,
+    kind: found.kind === 'constraint' ? 'constraint' : 'decision',
+    content: found.content,
+    confirmed: found.confirmed,
+    recordedAt: found.updatedAt.toISOString(),
+    restricted: found.restrictedFolderIds !== null,
+  }
+}
+
+/** Search documents and recorded decisions across the projects in reach, one bounded page of projects per call (ADR-0085). */
 export async function searchAcrossProjects(
   caller: CrossProjectCaller,
   request: CrossProjectSearchRequest
@@ -319,24 +357,40 @@ export async function searchAcrossProjects(
     current ?? (caller.currentProjectId ? { id: caller.currentProjectId, profile: null } : null)
   )
   const page = scope.slice(request.offset, request.offset + CROSS_PROJECT_PAGE_PROJECTS)
-  const perProject = await mapBounded(page, SEARCH_CONCURRENCY, (project) =>
-    searchOneProject(caller.session, project, request, reach)
-  )
+  const [perProject, decided] = await Promise.all([
+    mapBounded(page, SEARCH_CONCURRENCY, (project) => searchOneProject(caller.session, project, request, reach)),
+    decisionScopes(caller.session, page, reach).then((scopes) =>
+      searchProjectDecisions(caller.session.organizationId, scopes, request.query)
+    ),
+  ])
+  const byId = new Map(page.map((project) => [project.id, project]))
+  const decisions = decided.flatMap((found) => {
+    const decision = asDecision(found, byId)
+    return decision ? [{ decision, folderIds: found.restrictedFolderIds ?? [] }] : []
+  })
   const kept = perProject
     .flat()
     .sort((a, b) => b.hit.score - a.hit.score)
     .slice(0, request.limit)
-  // Recorded before anything is returned: the projects and restricted folders of the hits handed out.
+  // Recorded before anything is returned: the projects and restricted folders
+  // of the hits AND of the decisions handed out.
   await recordCrossProjectHandOut(
     party(caller),
     {
-      projectIds: kept.map((found) => found.hit.project.id),
-      folderIds: kept.map((found) => found.folderId).filter((folderId): folderId is string => folderId !== null),
+      projectIds: [
+        ...kept.map((found) => found.hit.project.id),
+        ...decisions.map(({ decision }) => decision.project.id),
+      ],
+      folderIds: [
+        ...kept.map((found) => found.folderId).filter((folderId): folderId is string => folderId !== null),
+        ...decisions.flatMap(({ folderIds }) => folderIds),
+      ],
     },
     reach.key
   )
   const next = request.offset + page.length
   return {
+    decisions: decisions.map(({ decision }) => decision),
     hits: kept.map((found) => found.hit),
     projectsInScope: scope.length,
     projectsSearched: page.length,
