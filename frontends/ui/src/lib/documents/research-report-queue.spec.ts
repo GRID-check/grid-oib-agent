@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * The two doors a finished report goes through before a job renders it
- * (ADR-0078): the probe that says "already filed", and the enqueue that hands
+ * (ADR-0079): the probe that says "already filed", and the enqueue that hands
  * the rest to the `bff-jobs` pool, one job per run. What the job then does is
  * `lib/tasks/service.spec.ts`; what the PDF contains is `research-report.spec.ts`.
  */

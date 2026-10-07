@@ -1,4 +1,4 @@
-"""One durable, fair claim queue, generic over its table (ADR-0078).
+"""One durable, fair claim queue, generic over its table (ADR-0079).
 
 Background work that must outlive the process that accepted it is a row here:
 claimed by whichever worker is free, on any replica or in a dedicated worker

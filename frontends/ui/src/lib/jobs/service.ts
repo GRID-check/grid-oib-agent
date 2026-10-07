@@ -544,7 +544,7 @@ export interface AgentRunSpec {
   /** The Unterlagen the reader named on the plan card. */
   documents?: PlanDocuments | null
   /**
-   * Where the run goes inside its organization's queue (ADR-0078). Absent is
+   * Where the run goes inside its organization's queue (ADR-0079). Absent is
    * `interactive`: somebody asked for this run and is waiting on it. A
    * scheduled fire is `bulk`, so a sweep of twenty never makes a question wait.
    */

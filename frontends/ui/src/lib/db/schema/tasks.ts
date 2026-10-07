@@ -87,10 +87,10 @@ export { TASK_STATUSES, type TaskStatus, TASK_REVIEWS, type TaskReview }
 
 /**
  * Whether the result was filed into the project, as the requester.
- *   - `queued`   — a `file_research_report` job (ADR-0078) has the report and
+ *   - `queued`   — a `file_research_report` job (ADR-0079) has the report and
  *                  has not finished; a deep-research run's PDF is rendered on a
  *                  `bff-jobs` pod and retried there. Task rows (the legacy
- *                  table) never carry it; `task_runs` does (migration 0103).
+ *                  table) never carry it; `task_runs` does (migration 0105).
  *   - `filed`    — a document row exists; `filedDocumentId` names it.
  *   - `refused`  — the requester may not file here (left the organization,
  *                  lacks the permission, or the feature is off for the org).

@@ -332,7 +332,7 @@ export function installNetworkPolicies(
   //
   //     Withheld from rule 2 on the same grounds as the dashboard, so the
   //     frontend BFF is its caller, and the bff-jobs pool is the same BFF
-  //     running the background conversions (ADR-0078), so it is named too: a
+  //     running the background conversions (ADR-0079), so it is named too: a
   //     pool left out here would fail every office file with a green plan. The
   //     agent never calls it (the BFF hands the backend the finished PDF), and
   //     nothing else has a reason to.
@@ -364,7 +364,7 @@ export function installNetworkPolicies(
   const kedaOperator = [{ ...nsLabel(KEDA_NAMESPACE), podSelector: { matchLabels: { ...KEDA_OPERATOR_LABEL } } }];
 
   // 14. The queues' depth, to scale the ingest-worker and agent-worker tiers
-  //     (ADR-0076, ADR-0078) and the bff_job_queue's, to scale the bff-jobs pool:
+  //     (ADR-0076, ADR-0079) and the bff_job_queue's, to scale the bff-jobs pool:
   //     Postgres only, port 5432 only, and only when one of those tiers runs. The
   //     operator runs one COUNT(*) there as the read-only scaler login.
   const kedaToPostgres = queueScalerEnabled(cfg)
@@ -376,7 +376,7 @@ export function installNetworkPolicies(
     : undefined;
 
   // 15. The fleet's running turns, from the backend's internal occupancy route,
-  //     to scale the chat tier (ADR-0079). The backend port only, on the backend
+  //     to scale the chat tier (ADR-0080). The backend port only, on the backend
   //     pods only, and only when that tier autoscales. (Its cpu trigger reads
   //     `metrics.k8s.io`, which is no connection into `grid`.)
   const kedaToBackend = backendAutoscaled(cfg)

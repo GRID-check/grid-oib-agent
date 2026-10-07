@@ -117,7 +117,7 @@ What that means in practice:
 * Neutral, because conversions are bounded per BFF process
   (`GOTENBERG_MAX_CONCURRENCY`, default 2), readers queue ahead of background
   work, and the 120 s conversion budget counts from when a slot is held, not
-  from the request. Since ADR-0078 the background conversions are
+  from the request. Since ADR-0079 the background conversions are
   `office_rendition` jobs on the `bff-jobs` pool, so the per-process queue
   bounds only the readers' own conversions; the fleet-wide ceiling for jobs is
   the pool's replicas times `GOTENBERG_MAX_CONCURRENCY` in a pool pod, held to

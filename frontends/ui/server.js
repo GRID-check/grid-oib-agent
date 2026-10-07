@@ -153,7 +153,7 @@ const NEXT_INTERNAL_URL = process.env.NEXT_INTERNAL_URL || 'http://localhost:300
 // With GRID_CHAT_AFFINITY on (the default, ADR-0028) each conversation is pinned
 // to one aiq-agent pod by a stable hash of conversationId -> that pod's stable
 // DNS name, so the in-process socket, HITL future and running task are always
-// reachable. With it off (ADR-0079) every socket goes to the load-balanced
+// reachable. With it off (ADR-0080) every socket goes to the load-balanced
 // Service and the conversation bus decides, per turn, which replica runs it, so
 // the backend can autoscale. Either way a single replica, no pod template or no
 // conversationId reaches the load-balanced Service. The rule lives in

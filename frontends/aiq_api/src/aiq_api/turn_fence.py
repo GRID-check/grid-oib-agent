@@ -1,4 +1,4 @@
-"""The running turn's own clock on its conversation marker (ADR-0079, "the owner fences itself").
+"""The running turn's own clock on its conversation marker (ADR-0080, "the owner fences itself").
 
 A turn that runs while ``GRID_CHAT_AFFINITY`` is off holds ``conv:<id>:running``
 in Dragonfly, with a TTL it renews. Once that TTL runs out, a newer question on

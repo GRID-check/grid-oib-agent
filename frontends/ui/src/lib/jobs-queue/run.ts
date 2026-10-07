@@ -1,5 +1,5 @@
 /**
- * Run one slice of a claimed job (ADR-0078): what `POST /api/internal/jobs/run`
+ * Run one slice of a claimed job (ADR-0079): what `POST /api/internal/jobs/run`
  * does for the `bff-jobs` runner.
  *
  * The runner names a job and itself, and nothing else. Everything the work

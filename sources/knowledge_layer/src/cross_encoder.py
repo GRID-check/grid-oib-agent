@@ -532,7 +532,7 @@ class CrossEncoderReranker:
             # an ImportError here must degrade to "no opinion" like every other failure.
             from aiq_agent.common.openrouter import limited_async_http_client
 
-            # The body is pinned above; the client only queues for a provider slot (ADR-0080),
+            # The body is pinned above; the client only queues for a provider slot (ADR-0081),
             # in the class of the task that searches (chat for an answer, bulk for ingestion).
             async with limited_async_http_client(timeout=self.timeout_seconds) as client:
                 response = await client.post(

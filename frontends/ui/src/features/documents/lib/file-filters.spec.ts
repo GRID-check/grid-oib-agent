@@ -5,6 +5,7 @@ import {
   activeFilterCount,
   applyFileFilters,
   statusGroupOf,
+  tagOptions,
   toggleIn,
   FILE_KIND_FILTERS,
 } from './file-filters'
@@ -183,5 +184,33 @@ describe('Freigabe ausstehend', () => {
 
   test('counts as one constraint on the Filter button', () => {
     expect(activeFilterCount({ ...NO_FILE_FILTERS, reviewPendingOnly: true }, true)).toBe(1)
+  })
+})
+
+describe('tag filter', () => {
+  const files = [
+    file({ id: 'a', tags: ['Brandschutz', 'Gutachten'] }),
+    file({ id: 'b', tags: ['brandschutz'] }),
+    file({ id: 'c', tags: ['Detail'] }),
+    file({ id: 'd', tags: null }),
+  ]
+  const ctx = { canCollaborate: false }
+
+  test('matches a document carrying ANY chosen tag, whatever the case', () => {
+    const narrowed = applyFileFilters(files, { ...NO_FILE_FILTERS, tags: ['brandschutz', 'detail'] }, ctx)
+    expect(narrowed.map((row) => row.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  test('counts once however many tags are chosen', () => {
+    expect(activeFilterCount({ ...NO_FILE_FILTERS, tags: ['a', 'b'] }, false)).toBe(1)
+  })
+
+  test('offers only the tags that exist, most frequent first, spelled as first seen', () => {
+    expect(tagOptions(files, 'de')).toEqual([
+      { key: 'brandschutz', label: 'Brandschutz', count: 2 },
+      { key: 'detail', label: 'Detail', count: 1 },
+      { key: 'gutachten', label: 'Gutachten', count: 1 },
+    ])
+    expect(tagOptions([file({ id: 'x' })], 'de')).toEqual([])
   })
 })

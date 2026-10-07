@@ -1,5 +1,5 @@
 /**
- * Opt-in integration test: the `bff_job_queue` claim (ADR-0078), against a REAL
+ * Opt-in integration test: the `bff_job_queue` claim (ADR-0079), against a REAL
  * Postgres with every migration applied, connected as `grid_app_rw` — the role
  * the BFF and the runner actually run as.
  *
@@ -41,7 +41,7 @@ describe('the job-queue suite is not silently skipped in CI', () => {
   })
 })
 
-describe.skipIf(!url)('bff_job_queue claim against live Postgres (migration 0102)', () => {
+describe.skipIf(!url)('bff_job_queue claim against live Postgres (migration 0104)', () => {
   let sql: postgres.Sql
 
   /** A job created at a fixed time, so the order a test asserts never depends on the clock. */

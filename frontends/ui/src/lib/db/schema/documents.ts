@@ -452,6 +452,9 @@ export const documents = pgTable('documents', {
    * policy, so same-project implies same-organization — which is what stops one
    * tenant filing a document into another tenant's folder, without a recursive
    * policy and without a subquery.
+   *
+   * It cannot see an Archiv document: `projectId` is NULL and the key is MATCH
+   * SIMPLE. `folderShelfFk` below is the one that does.
    */
   folderProjectFk: foreignKey({
     name: 'documents_folder_id_project_id_fkey',
@@ -459,19 +462,37 @@ export const documents = pgTable('documents', {
     foreignColumns: [projectFolders.id, projectFolders.projectId],
   }).onDelete('cascade'),
   /**
-   * What makes the composite key above actually check anything. `projectId` is
-   * nullable (org-wide `archiv` documents have no project) and a composite
-   * foreign key is MATCH SIMPLE, so it skips the check whenever any column of
-   * the key is NULL — `(someone else's folder, NULL)` passed unexamined. This
-   * leaves the only unchecked case as "no folder to validate".
+   * A document's folder is on the document's own SHELF and in its own TENANT
+   * (migration 0102, ADR-0078). `organizationId` and `scope` are both NOT NULL,
+   * so whenever `folderId` is set the key is all-non-null and MATCH SIMPLE does
+   * check it — including for an Archiv row, which `folderProjectFk` skips.
    *
-   * MATCH FULL would be the reflex fix and is wrong: it demands all-null or
-   * all-non-null, which rejects an ordinary document sitting at the root of a
-   * project.
+   * What it makes impossible: a project document in an Archiv folder (or the
+   * reverse), either one in another tenant's folder, and ANY `session` document
+   * in a folder — no folder row can carry scope `session`, so the key has
+   * nothing to match. `ON DELETE CASCADE` like the key above: the services
+   * re-file documents before they delete a folder, so the cascade is only a
+   * backstop and has to agree with the other one.
    */
-  folderRequiresProject: check(
+  folderShelfFk: foreignKey({
+    name: 'documents_folder_id_organization_id_scope_fkey',
+    columns: [table.folderId, table.organizationId, table.scope],
+    foreignColumns: [projectFolders.id, projectFolders.organizationId, projectFolders.scope],
+  }).onDelete('cascade'),
+  /**
+   * A filed document is a project document or an Archiv one (migrations 0031,
+   * 0102). Its original job was to make `folderProjectFk` checkable — a NULL
+   * `projectId` made the composite key skip, so `(someone else's folder, NULL)`
+   * passed unexamined. `folderShelfFk` now checks every folder reference
+   * whatever the project, so what remains is the shelf rule itself.
+   *
+   * MATCH FULL would be the reflex fix for the old problem and is wrong: it
+   * demands all-null or all-non-null, which rejects an ordinary document
+   * sitting at the root of a project.
+   */
+  folderRequiresShelf: check(
     'documents_folder_requires_project',
-    sql`${table.folderId} IS NULL OR ${table.projectId} IS NOT NULL`
+    sql`${table.folderId} IS NULL OR ${table.projectId} IS NOT NULL OR ${table.scope} = 'archiv'`
   ),
   /**
    * A session document belongs to a conversation in its OWN tenant (migration

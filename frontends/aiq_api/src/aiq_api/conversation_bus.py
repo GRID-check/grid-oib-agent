@@ -13,7 +13,7 @@ may sit on another replica, so the bus decouples two roles (ADR-0028):
 
 Ownership is per turn (``claim_turn``), and a conversation runs ONE turn at a
 time across replicas: the owner holds ``conv:<id>:running`` for as long as its
-turn runs (:meth:`ConversationBus.acquire_running`, ADR-0079). A newer question
+turn runs (:meth:`ConversationBus.acquire_running`, ADR-0080). A newer question
 asks the owner to stop with ``SUPERSEDE`` and starts only once the marker is
 gone, so two turns never write one LangGraph thread from two replicas.
 

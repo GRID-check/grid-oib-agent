@@ -338,7 +338,7 @@ backend pieces live in `chat_socket.py` and `conversation_bus.py`; the design is
   turn finished, is `rejected{duplicate_turn}` and the client attaches. A newer
   question supersedes a stale turn on whichever replica runs it (`SUPERSEDE` on
   the input channel), and runs only once the stale turn's `conv:<id>:running`
-  marker is gone (ADR-0079): the owner renews it while the turn runs and deletes
+  marker is gone (ADR-0080): the owner renews it while the turn runs and deletes
   it when the turn ends, a dead owner's expires on its TTL, and a turn that
   cannot get it in time is refused, never run beside the stale one. With the
   bus down the claim fails open to the local registry, and so does the marker
@@ -555,7 +555,9 @@ internal client (its URL is backend-consumed). Compose sets `SEAWEED_PUBLIC_ENDP
 ### Folders
 
 Nested folders are fully supported (self-referential `project_folders.parent_id`,
-`folder-service.ts` builds the nested path, the API accepts `parentId`, and the
+`folder-service.ts` builds the nested path — since ADR-0078 on both shelves that
+have folders, a project's Dateien and the org-wide Archiv, through one
+shelf-parameterised core in `lib/documents/shelf-folders.ts`, the API accepts `parentId`, and the
 tree renders recursively). The prior "can't nest" symptom was **UX only** — there
 was no per-folder affordance. **Fix**: `folder-tree-pane.tsx` now shows an "add
 subfolder" `+` on each folder row and makes root creation explicit.
@@ -1485,7 +1487,7 @@ uncompressed size, read from the zip directory before a byte is inflated: the
 limit exists to keep a 1 GiB pod alive, and measuring it on the compressed
 object let a 40 MB upload become a 300 MB allocation. Extraction is a `bim_extract` job on the
 `bff-jobs` pool, not part of the request (a 60 MB model takes tens of seconds;
-ADR-0078) and every terminal outcome writes the document row: success → the digest dispatch sets `pending` + a job
+ADR-0079) and every terminal outcome writes the document row: success → the digest dispatch sets `pending` + a job
 id, failure → `failed` with the reason, plus a `bim_models` row recording the
 same thing.
 

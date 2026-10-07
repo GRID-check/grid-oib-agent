@@ -522,7 +522,7 @@ export async function findFiledResearchReport(input: {
 
 /**
  * Hand a finished run's report to the `bff-jobs` pool to be rendered and filed
- * ({@link fileResearchReport} runs there, ADR-0078).
+ * ({@link fileResearchReport} runs there, ADR-0079).
  *
  * Both callers that used to render in their own request arrive here: the
  * worker's outcome callback (a scheduled run, or an interactive one nobody

@@ -15,7 +15,7 @@ process:
 
 1. **Chat runtime**: the WebSocket and the running answers (stateful per
    answer, drains for as long as a turn may run, up to ~45 minutes with
-   affinity off, ADR-0079).
+   affinity off, ADR-0080).
 2. **Knowledge API**: search, collections, document status, ingest enqueue.
 3. **Job API**: research submit, status, SSE.
 4. **LLM utilities for the BFF**: titles, summaries, consistency check,
@@ -45,7 +45,7 @@ config, including the ingest worker, which needs only the ingestor.
 * One image per runtime stays; roles are chosen by `GRID_ROLE`, as the workers
   already are.
 * Names say the job. "Agent" names only the AI agents.
-* Each step is its own reversible change; nothing here blocks ADR-0078/0079.
+* Each step is its own reversible change; nothing here blocks ADR-0079/0080.
 
 ## Considered Options
 
@@ -61,9 +61,9 @@ Chosen option 3. Target roles of the backend image:
 
 | Role | Jobs | Scales on |
 |---|---|---|
-| `chat` | 1 | active turns (KEDA, ADR-0079) |
+| `chat` | 1 | active turns (KEDA, ADR-0080) |
 | `api` | 2, 3, 4 | CPU / requests |
-| `research-worker` (today `agent-worker`) | research jobs | research queue (ADR-0078) |
+| `research-worker` (today `agent-worker`) | research jobs | research queue (ADR-0079) |
 | `ingest-worker` | ingestion | ingest queue (ADR-0076) |
 
 Housekeeping (6) becomes CronJobs on the existing `internalSweepCronJob`
@@ -106,9 +106,9 @@ uses) is the lever for cold start, to be pulled once cold start is measured.
 | C | The BFF becomes the relay, so `chat` pods hold no sockets | L |
 | D | Rename: drop `aiq` from Kubernetes names and Python packages | L |
 
-A1, A2 and B deliver the architecture and follow ADR-0078's PR. C is taken
+A1, A2 and B deliver the architecture and follow ADR-0079's PR. C is taken
 only on evidence (sockets per pod or drain cost measured as a problem) and
-after the multi-replica validation ADR-0079 gates on. D is scheduled by the
+after the multi-replica validation ADR-0080 gates on. D is scheduled by the
 product owner.
 
 ### Consequences
@@ -128,6 +128,6 @@ a Pulumi spec that the web role mounts no PVC (A2), and one that the `chat` and
 
 ## More Information
 
-* ADR-0076, ADR-0078, ADR-0079, ADR-0080.
+* ADR-0076, ADR-0079, ADR-0080, ADR-0081.
 * Open gap: the steps above are not yet scheduled; this record is where they
   are tracked.

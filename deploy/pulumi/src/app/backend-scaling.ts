@@ -27,7 +27,7 @@ export function occupancyUrl(namespace: pulumi.Input<string>): pulumi.Output<str
 
 /**
  * The scale-out of the chat tier: a KEDA ScaledObject on the aiq-agent
- * StatefulSet (ADR-0079).
+ * StatefulSet (ADR-0080).
  *
  * SCALED ON TURNS IN FLIGHT, beside CPU. A chat turn mostly waits on a model, so
  * CPU alone says little about how close the tier is to its admission cap

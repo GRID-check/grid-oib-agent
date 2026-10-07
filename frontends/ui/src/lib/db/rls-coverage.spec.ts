@@ -85,11 +85,16 @@ const BOUNDARY_MIGRATIONS = [
   // platform owners. Keyed directly by the organization it was written from,
   // secured exactly as `organization_instructions`.
   '0100_product_feedback.sql',
+  // Re-secures project_folders on its own `organization_id` column instead of a
+  // join through projects: an Archiv folder has no project to join. No table is
+  // added or removed, and the replaced policy is the single one — the shape the
+  // `messages` re-securing in 0032 has.
+  '0102_archiv_folders.sql',
   // Adds bff_job_queue and bff_job_lane_turns — the BFF's durable background
-  // work (ADR-0078). The lane is the organization id, so both are tenant tables
+  // work (ADR-0081). The lane is the organization id, so both are tenant tables
   // whose predicate compares `lane` (not an `organization_id` column) to the
   // active tenant; the runner reads across lanes under the platform role.
-  '0102_bff_job_queue.sql',
+  '0104_bff_job_queue.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

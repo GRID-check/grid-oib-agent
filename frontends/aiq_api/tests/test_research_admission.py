@@ -1,4 +1,4 @@
-"""Admission waits instead of refusing (ADR-0078, ``jobs/submit.py``).
+"""Admission waits instead of refusing (ADR-0079, ``jobs/submit.py``).
 
 With ``GRID_JOB_EXECUTION=db`` capacity makes a research job WAIT in the queue;
 the only 429 left is an organization's own waiting queue past its bound. Dask has

@@ -98,7 +98,7 @@ export const BFF_QUEUE_DSN_KEY = "KEDA_BFF_QUEUE_DB_URL";
 
 /**
  * What KEDA's `postgresql` scaler connects with, in a Secret of its own
- * (ADR-0078): the read-only scaler login (`KEDA_SCALER_ROLE`, SELECT on the queue
+ * (ADR-0079): the read-only scaler login (`KEDA_SCALER_ROLE`, SELECT on the queue
  * tables and nothing else, `queue-scaler-grants.ts`), never the owner.
  *
  * Its own Secret, not keys of `grid-secrets`, for two reasons. No pod reads these
@@ -250,7 +250,7 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     // ON by default — the intended architecture; uses REDIS_URL, fails open to
     // local delivery. Set conversationBus=false to fall back to affinity.
     { name: "GRID_CONVERSATION_BUS", value: cfg.conversationBus ? "1" : "0" },
-    // The flag the BFF routes by (ADR-0079). The backend reads it for one
+    // The flag the BFF routes by (ADR-0080). The backend reads it for one
     // decision: with the bus down, affinity on fails the one-running-turn fence
     // open (every turn of a conversation reaches one process), off refuses.
     { name: "GRID_CHAT_AFFINITY", value: cfg.backend.chatAffinity ? "1" : "0" },
@@ -305,7 +305,7 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "AIQ_VLM_MODEL", value: cfg.llm.vlmModel },
     { name: "AIQ_VLM_BASE_URL", value: cfg.llm.vlmBaseUrl },
     srefAs("AIQ_VLM_API_KEY", "OPENROUTER_API_KEY"),
-    // What the one OpenRouter key is asked to carry (ADR-0076, ADR-0080). Set
+    // What the one OpenRouter key is asked to carry (ADR-0076, ADR-0081). Set
     // from the stack so the budget is read where `ingestWorkerMaxReplicas` is:
     // `assertVlmPeakFitsCeiling` holds the two together.
     { name: "AIQ_VLM_FLEET_CONCURRENCY", value: String(cfg.providerLimits.vlmFleetConcurrency) },
@@ -386,7 +386,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // its in-process WS/HITL/task state is always on the same replica. With 1
     // replica the proxy falls back to the load-balanced BACKEND_URL.
     { name: "BACKEND_REPLICAS", value: String(cfg.jobExecution === "db" ? cfg.backend.replicas : 1) },
-    // ADR-0079: "0" hands every socket to the load-balanced Service and lets the
+    // ADR-0080: "0" hands every socket to the load-balanced Service and lets the
     // conversation bus decide per turn which replica runs it, so the backend can
     // autoscale (backend-scaling.ts). "1" is the hash above, byte for byte.
     { name: "GRID_CHAT_AFFINITY", value: cfg.backend.chatAffinity ? "1" : "0" },
@@ -530,7 +530,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
 const BFF_JOBS_OVERRIDES = new Set(["OTEL_SERVICE_NAME", "GRID_SHUTDOWN_DRAIN_MS"]);
 
 /**
- * bff-jobs pool environment (ADR-0078): the whole frontend environment, because
+ * bff-jobs pool environment (ADR-0079): the whole frontend environment, because
  * the jobs call the same services the routes do (the database, object storage,
  * the backend, WorkOS), plus what the runner reads. Every `GRID_BFF_JOBS_` name
  * here must be one `frontends/ui/workers/jobs/index.js` reads; `bff-jobs.spec.ts`

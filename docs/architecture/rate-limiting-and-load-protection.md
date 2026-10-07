@@ -466,7 +466,7 @@ turns answered with a friendly message the way a budget refusal already is.
   forever with increment/decrement, shrinking the pool until nobody can chat. A
   lease self-heals.
 
-### L3b — ingestion fair share and the provider ceiling (ADR-0076, ADR-0078)
+### L3b — ingestion fair share and the provider ceiling (ADR-0076, ADR-0079)
 
 Ingestion is not refused, it waits, so its L3 is an order and a ceiling rather
 than an admission.
@@ -476,7 +476,7 @@ than an admission.
   running fleet-wide, then the one served longest ago. A lone office uses every
   worker; a second office's upload takes the next worker that frees up.
   `GRID_INGEST_MAX_PER_ORG` adds a hard cap, off by default. The claim is the
-  generic `aiq_agent.common.claim_queue` (ADR-0078); `ingest_queue` is the
+  generic `aiq_agent.common.claim_queue` (ADR-0079); `ingest_queue` is the
   ingestion table on it.
 - **Priority inside an office.** `POST /v1/ingest` takes
   `priority: "interactive" | "bulk"` (default `interactive`). An office's own
@@ -511,7 +511,7 @@ than an admission.
   slot. Fails open like L3. It is the narrow, ingestion-only ceiling; L3c below
   is the one every model call passes, and the VLM pool sits outside it.
 
-### L3c — the provider limiter (ADR-0080)
+### L3c — the provider limiter (ADR-0081)
 
 L3 and L3b bound how much *work* runs. None of them knows what the provider will
 take, or that a person waiting on an answer should go before a bulk reindex when
@@ -592,7 +592,7 @@ Not built, on purpose: a tokens-per-minute bucket (output tokens are unknown
 until the call ends, and the upstream limit moves by model) and an egress AI
 gateway (the back-pocket option of section 5).
 
-### L3d — research fair share (ADR-0078)
+### L3d — research fair share (ADR-0079)
 
 With `GRID_JOB_EXECUTION=db` research is not refused for capacity either: it
 waits, so its L3 is the same order and ceiling ingestion has.

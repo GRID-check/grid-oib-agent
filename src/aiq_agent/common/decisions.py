@@ -366,7 +366,7 @@ def _client(timeout: float, transport: Any) -> tuple[Any, bool]:
     """
     import httpx
 
-    # Every client queues for a provider slot (ADR-0080) in the class of the
+    # Every client queues for a provider slot (ADR-0081) in the class of the
     # caller's task: a decision inside a chat turn is chat, one inside an ingest
     # job is that job's class.
     if transport is not None:

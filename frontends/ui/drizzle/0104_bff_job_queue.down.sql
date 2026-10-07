@@ -1,4 +1,4 @@
--- Reverse 0102: drop the BFF job queue.
+-- Reverse 0104: drop the BFF job queue.
 --
 -- Lossy, and the loss is every job still waiting: a reindex or a rescan that
 -- had not finished stops where it is. Nothing else refers to these tables, and

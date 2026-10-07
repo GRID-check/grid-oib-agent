@@ -72,7 +72,7 @@ describe('feature gate (answer-feedback)', () => {
   it('passes when enforcement is on and the flag is granted', async () => {
     process.env.GRID_ENFORCE_FEATURE_FLAGS = 'true'
     mockSession.mockResolvedValue({ ...session, featureFlags: ['answer-feedback'] } as never)
-    mockSubmit.mockResolvedValue({ messageId: 'msg_1', verdict: 'up', reason: null, comment: null })
+    mockSubmit.mockResolvedValue({ messageId: 'msg_1', verdict: 'up', reason: null, comment: null, expectedAnswer: null })
 
     const res = await POST(postReq({ messageId: 'msg_1', verdict: 'up' }))
     expect(res.status).toBe(200)
@@ -86,6 +86,7 @@ describe('POST /api/feedback/answers', () => {
       verdict: 'down',
       reason: 'wrong_source',
       comment: 'the cited clause is from the wrong OIB guideline',
+      expectedAnswer: null,
     })
 
     const res = await POST(
@@ -104,6 +105,7 @@ describe('POST /api/feedback/answers', () => {
       verdict: 'down',
       reason: 'wrong_source',
       comment: 'the cited clause is from the wrong OIB guideline',
+      expectedAnswer: null,
     })
     expect(mockSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: 'org_1' }),
@@ -154,13 +156,13 @@ describe('DELETE /api/feedback/answers', () => {
 
 describe('GET /api/feedback/answers', () => {
   it('returns the caller\'s own feedback for a conversation', async () => {
-    mockGetFeedback.mockResolvedValue([{ messageId: 'msg_1', verdict: 'up', reason: null, comment: null }])
+    mockGetFeedback.mockResolvedValue([{ messageId: 'msg_1', verdict: 'up', reason: null, comment: null, expectedAnswer: null }])
 
     const res = await GET(new Request(`${base}?conversationId=conv_1`))
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      feedback: [{ messageId: 'msg_1', verdict: 'up', reason: null, comment: null }],
+      feedback: [{ messageId: 'msg_1', verdict: 'up', reason: null, comment: null, expectedAnswer: null }],
     })
     expect(mockGetFeedback).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user_1' }), 'conv_1')
   })

@@ -307,7 +307,7 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_config_info_routes(knowledge_router, self.config.llms)
         # The card catalog for the platform surface: what the agent can render.
         add_card_catalog_routes(knowledge_router)
-        # The chat tier's scaling signal, read by KEDA (ADR-0079). Internal-token
+        # The chat tier's scaling signal, read by KEDA (ADR-0080). Internal-token
         # only, so it stays off the external allowlist like the maintenance routes.
         add_chat_occupancy_routes(knowledge_router)
         app.include_router(knowledge_router)
@@ -388,7 +388,7 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
             """Let running chat turns finish, then close all active SSE connections and background tasks."""
             # First: the turns keep publishing to the conversation stream while
             # the pod's grace period runs, which is what lets a reader on
-            # another replica stream them to the end (ADR-0079).
+            # another replica stream them to the end (ADR-0080).
             await drain_owned_work()
             logger.info("Shutting down SSE connections...")
             connection_manager = get_connection_manager()

@@ -10,7 +10,7 @@ ingest-worker tier (``aiq_api.jobs.ingest_worker``).
 The claim itself, its fairness across organisations (fewest running first, then
 the lane served longest ago, then priority, then oldest), the heartbeat, the
 reclaim of a dead worker's job, the release of a drained worker's jobs and the
-dead rows are ``aiq_agent.common.claim_queue`` (ADR-0078), shared with the
+dead rows are ``aiq_agent.common.claim_queue`` (ADR-0079), shared with the
 research queue. This module is the ingestion queue on it: its table, its lane
 (an organisation, or ``PLATFORM_LANE``) and the database it lives in, which is
 the status store's.

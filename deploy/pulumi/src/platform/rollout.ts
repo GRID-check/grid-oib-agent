@@ -290,7 +290,7 @@ assertFrontendBudgetFits();
 
 /**
  * Seconds a queue worker gets, after its drain budget ends, to give back the
- * claims it did not finish and exit (`release_claims`, ADR-0078). The kubelet
+ * claims it did not finish and exit (`release_claims`, ADR-0079). The kubelet
  * SIGKILLs at the end of the grace period, so a worker whose drain used its whole
  * budget and had no time left would lose its claims to the stale window and
  * spend an attempt on each, which is the defect the release exists to remove.
@@ -326,7 +326,7 @@ export const BACKEND_DRAIN_SLACK_SECONDS = 60;
  * On SIGTERM the replica is already out of the Service's endpoints, so no new
  * socket arrives, and it waits for the turns it claimed
  * (`GRID_CHAT_DRAIN_SECONDS`, `chat_socket.ChatRegistry.drain`) while relays on
- * other replicas keep streaming them from Dragonfly (ADR-0079). The pod must
+ * other replicas keep streaming them from Dragonfly (ADR-0080). The pod must
  * live that long, so the grace period IS the drain plus the endpoint drain and
  * slack, not a number chosen beside it: at the old fixed 90 s every rollout and
  * every scale-in killed a long answer after a minute and a half.

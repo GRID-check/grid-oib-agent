@@ -488,7 +488,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     )
 
     expect(res.status).toBe(200)
-    // The PDF is rendered by a `bff-jobs` pod (ADR-0078), as the reader.
+    // The PDF is rendered by a `bff-jobs` pod (ADR-0079), as the reader.
     expect(queueResearchReportFiling).toHaveBeenCalledWith({
       organizationId: 'org-1',
       payload: expect.objectContaining({

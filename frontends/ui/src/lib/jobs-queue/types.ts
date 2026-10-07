@@ -1,5 +1,5 @@
 /**
- * The vocabulary of the BFF job queue (ADR-0078): which kinds of job exist, what
+ * The vocabulary of the BFF job queue (ADR-0079): which kinds of job exist, what
  * a job's payload holds, and who asked for it.
  *
  * A payload is the job's whole state. It carries what was asked for AND how far

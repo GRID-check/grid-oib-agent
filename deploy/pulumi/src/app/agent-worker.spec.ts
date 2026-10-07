@@ -11,7 +11,7 @@ const repoRoot = join(__dirname, "..", "..", "..", "..");
 const read = (...parts: string[]) => readFileSync(join(repoRoot, ...parts), "utf8");
 
 /**
- * The research worker tier (ADR-0021, ADR-0078).
+ * The research worker tier (ADR-0021, ADR-0079).
  *
  * It crosses two boundaries this program cannot see into, and each plans and
  * applies clean when it drifts:

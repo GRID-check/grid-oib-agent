@@ -309,7 +309,7 @@ export interface GridConfig {
     runtimePassword: pulumi.Output<string>;
     /**
      * Password for `grid_keda_scaler`, the read-only login KEDA's `postgresql`
-     * scaler counts the queue tables with (ADR-0078). Optional
+     * scaler counts the queue tables with (ADR-0079). Optional
      * (`pgScalerPassword`): unset, it is derived from `pgAppPassword` by a
      * one-way HMAC, so it is never the owner's password and an existing stack
      * needs no new secret to deploy. Set it to rotate the scaler's credential
@@ -687,7 +687,7 @@ export interface GridConfig {
     /**
      * Global cap on non-terminal async research jobs (0 disables). Dask only:
      * with `jobExecution: db` a full cluster makes a job wait in the queue
-     * (ADR-0078), so nothing reads it.
+     * (ADR-0079), so nothing reads it.
      */
     maxActiveJobs: number;
     /**
@@ -718,7 +718,7 @@ export interface GridConfig {
      */
     replicas: number;
     /**
-     * Replica ceiling once the chat tier autoscales (ADR-0079): `replicas` is
+     * Replica ceiling once the chat tier autoscales (ADR-0080): `replicas` is
      * the floor, KEDA moves the count between the two on the fleet's running
      * turns. Autoscaling needs `chatAffinity` off; with it on the count is the
      * hash's modulus and stays `replicas`, whatever this says.
@@ -736,7 +736,7 @@ export interface GridConfig {
      */
     drainSeconds: number;
     /**
-     * `GRID_CHAT_AFFINITY` (ADR-0079): the BFF pins a conversation to one
+     * `GRID_CHAT_AFFINITY` (ADR-0080): the BFF pins a conversation to one
      * replica by hash (on, ADR-0028) or hands the socket to the aiq-agent
      * Service and lets the conversation bus decide per turn (off). Prod stays
      * on until the cross-replica path is validated on dev.
@@ -831,7 +831,7 @@ export interface GridConfig {
   };
 
   /**
-   * The BFF's background pool (ADR-0078): internal-only replicas of the frontend
+   * The BFF's background pool (ADR-0079): internal-only replicas of the frontend
    * image that claim jobs from `bff_job_queue` fairly across organizations and
    * run them in their own BFF, so a reindex, a rescan (and later IFC parsing and
    * rendition) never shares a pod with the chat gateway. Scaled by KEDA on the
@@ -867,7 +867,7 @@ export interface GridConfig {
   keda: { install: boolean };
 
   /**
-   * What the shared OpenRouter key is asked to carry (ADR-0076, ADR-0080), as
+   * What the shared OpenRouter key is asked to carry (ADR-0076, ADR-0081), as
    * the backend image's environment. The four numbers are one budget:
    * {@link vlmPeakCalls} is held to `vlmFleetConcurrency` where the ingest tier
    * is sized (`assertVlmPeakFitsCeiling`), and `vlmFleetConcurrency` is held to
@@ -1479,7 +1479,7 @@ export function loadConfig(): GridConfig {
   const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
 
-  // ── Chat tier scale-out (ADR-0079) ────────────────────────────────────────
+  // ── Chat tier scale-out (ADR-0080) ────────────────────────────────────────
   const backendReplicas = Math.max(1, num(cfg, "backendReplicas", 2));
   const backendMaxReplicas = Math.max(1, num(cfg, "backendMaxReplicas", 3));
   const chatAffinity = bool(cfg, "chatAffinity", true);
@@ -1495,7 +1495,7 @@ export function loadConfig(): GridConfig {
   if (!chatAffinity && !conversationBus) {
     throw new Error(
       "grid-oib:chatAffinity=false needs grid-oib:conversationBus=true: without the Dragonfly " +
-        "conversation bus no replica can relay a turn it does not run, or stop a stale one (ADR-0079).",
+        "conversation bus no replica can relay a turn it does not run, or stop a stale one (ADR-0080).",
     );
   }
   const imageTag = cfg.get("imageTag") ?? "latest";
@@ -2594,7 +2594,7 @@ export function loadConfig(): GridConfig {
         limitsCpu: cfg.get("agentWorkerLimitsCpu") ?? "4",
         limitsMemory: cfg.get("agentWorkerLimitsMemory") ?? "8Gi",
       },
-      // KEDA scales the tier on the research queue's depth (ADR-0078), not on
+      // KEDA scales the tier on the research queue's depth (ADR-0079), not on
       // CPU, which an LLM-bound job barely moves. A floor of zero lets it idle
       // while nothing waits.
       minReplicas: Math.max(0, num(cfg, "agentWorkerMinReplicas", 1)),
@@ -2839,7 +2839,7 @@ export function loadConfig(): GridConfig {
 }
 
 /**
- * Whether the chat tier autoscales (ADR-0079).
+ * Whether the chat tier autoscales (ADR-0080).
  *
  * Only with affinity off. With it on, the BFF routes by
  * `hash(conversationId) % BACKEND_REPLICAS`, so the replica count is part of the
@@ -3030,7 +3030,7 @@ export const GOTENBERG_SLOTS_PER_REPLICA = 2;
 /**
  * The most office conversions the `bff-jobs` pool can have in flight at
  * Gotenberg at once: its replicas at the ceiling times what one pod runs.
- * Background conversions are claimed from `bff_job_queue` (ADR-0078), so this
+ * Background conversions are claimed from `bff_job_queue` (ADR-0079), so this
  * is the fleet-wide bound that replaced a per-process queue in every frontend
  * pod; readers opening a preview are the frontend pods' own, bounded apart.
  */

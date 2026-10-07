@@ -3,7 +3,7 @@ import * as pulumi from "@pulumi/pulumi";
 import { AppWiring } from "./config";
 
 /**
- * What every ScaledObject in the program has in common (ADR-0078), so the four
+ * What every ScaledObject in the program has in common (ADR-0079), so the four
  * tiers KEDA scales (`ingest-worker`, `agent-worker`, `bff-jobs`, `aiq-agent`)
  * cannot drift apart in the parts that are not about their own signal: how often
  * it polls, how it scales in, what it does when its trigger cannot be read, and
@@ -137,7 +137,7 @@ export interface QueueScaledTier {
 
 /**
  * The ScaledObject of a worker pool that claims jobs from a Postgres queue
- * (ADR-0076, ADR-0078): one `postgresql` trigger counting the queue, one replica
+ * (ADR-0076, ADR-0079): one `postgresql` trigger counting the queue, one replica
  * per `concurrency` open jobs between the tier's floor and ceiling.
  *
  * The Deployment keeps `ignoreChanges: ["spec.replicas"]` at its own definition,

@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * Which aiq-agent address a chat socket dials (`server.js`, ADR-0028 / ADR-0079).
+ * Which aiq-agent address a chat socket dials (`server.js`, ADR-0028 / ADR-0080).
  *
  * With `GRID_CHAT_AFFINITY` on the route is the conversation-id hash it has
  * always been, byte for byte; with it off every socket goes to the Service.

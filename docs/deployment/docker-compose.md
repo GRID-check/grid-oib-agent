@@ -5,7 +5,7 @@ The Docker Compose file is at `deploy/compose/docker-compose.yaml`. It defines
 the core ones; the observability stack (`dragonfly`, `clickhouse`, the three
 `langfuse-*` services) and the three background workers (`purger`,
 `skill-scheduler`, `bff-jobs`) are defined in the compose file with their own
-comments and are not covered here. `bff-jobs` (ADR-0078) is the frontend image
+comments and are not covered here. `bff-jobs` (ADR-0079) is the frontend image
 running `workers/jobs/index.js`: the BFF plus the claim loop that runs project
 reindex and failed-ingestion rescan jobs from `bff_job_queue`, with no
 published port. It shares the frontend's environment by YAML alias, so a

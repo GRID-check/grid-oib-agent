@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * The claim for `bff_job_queue` (ADR-0078, migration 0102): the BFF's durable
+ * The claim for `bff_job_queue` (ADR-0079, migration 0104): the BFF's durable
  * background work, in the order ADR-0076 proved for ingestion.
  *
  * THE CLAIM IS FAIR, ACROSS THE WHOLE FLEET. A free worker takes the next job of

@@ -229,7 +229,7 @@ export function installPostgres(
 
   /**
    * Login for `grid_keda_scaler`, the read-only role KEDA's `postgresql` scaler
-   * counts the queue tables with (ADR-0078), where it used to borrow the owner
+   * counts the queue tables with (ADR-0079), where it used to borrow the owner
    * (`aiq_jobs`) and the schema owner (`grid_app`): a credential held by an
    * operator in another namespace that could write every table in both.
    *
@@ -427,7 +427,7 @@ export function installPostgres(
               inRoles: ["grid_app_platform"],
               passwordSecret: { name: runtimeCredentials.metadata.apply((m) => m!.name!) },
             },
-            // KEDA's read-only queue counter (ADR-0078). LOGIN and nothing else:
+            // KEDA's read-only queue counter (ADR-0079). LOGIN and nothing else:
             // no BYPASSRLS (its one read of a tenant table is a policy of its
             // own, written by the grants Job), no DDL, no role membership, and a
             // connection limit, because the operator opens one per poll.

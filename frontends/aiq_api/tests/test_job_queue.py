@@ -1,6 +1,6 @@
 """Tests for the DB-claimed research-job queue (ADR-0021, jobs/queue.py).
 
-Exercises the research queue on the claim substrate (ADR-0078) on SQLite:
+Exercises the research queue on the claim substrate (ADR-0079) on SQLite:
 enqueue → claim → heartbeat → done, plus stale reclaim, retry exhaustion into
 dead rows, cancellation, payload fidelity, and what makes it research's own:
 fairness across organizations, priority inside one, the per-organization cap,

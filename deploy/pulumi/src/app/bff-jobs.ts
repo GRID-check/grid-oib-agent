@@ -9,7 +9,7 @@ import { AppSecrets, AppWiring, BFF_QUEUE_DSN_KEY, SCALER_SECRET_NAME, bffJobsEn
 import { installQueueScaledObject, installTriggerAuth, queueDepthQuery } from "./keda-scaling";
 import { PORT, UID } from "../constants";
 
-/** The durable queue the pool drains (`frontends/ui/drizzle/0102_bff_job_queue.sql`). */
+/** The durable queue the pool drains (`frontends/ui/drizzle/0104_bff_job_queue.sql`). */
 export const QUEUE_TABLE = "bff_job_queue";
 
 /**
@@ -21,7 +21,7 @@ export const QUEUE_TABLE = "bff_job_queue";
 export const BFF_QUEUE_DEPTH_QUERY = queueDepthQuery(QUEUE_TABLE);
 
 /**
- * The BFF's background pool (ADR-0078): replicas of the FRONTEND image that run
+ * The BFF's background pool (ADR-0079): replicas of the FRONTEND image that run
  * `workers/jobs/index.js`. Each is a supervisor around two things: the BFF
  * itself (`node server.js`) and a claim loop that takes jobs from
  * `bff_job_queue`, fairly across organizations (fewest running first,

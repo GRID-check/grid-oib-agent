@@ -1,4 +1,4 @@
-"""What the claim substrate gives the research queue (ADR-0078).
+"""What the claim substrate gives the research queue (ADR-0079).
 
 ``test_job_queue.py`` pins the state machine of one job. These pin what changed
 when research moved off FIFO: fairness across organizations, priority inside one,

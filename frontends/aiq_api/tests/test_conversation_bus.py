@@ -255,7 +255,7 @@ async def test_the_subscription_says_when_no_publish_can_be_missed():
     assert received[0].payload == {"turn_id": "t1", "seq": 1}
 
 
-# ---- one running turn per conversation (ADR-0079) -------------------------
+# ---- one running turn per conversation (ADR-0080) -------------------------
 
 
 @pytest.mark.asyncio

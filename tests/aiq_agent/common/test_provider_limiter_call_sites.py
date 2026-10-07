@@ -1,4 +1,4 @@
-"""Every chat model and embedding client passes the provider limiter (ADR-0080).
+"""Every chat model and embedding client passes the provider limiter (ADR-0081).
 
 ``test_openrouter_call_sites`` is the ratchet on zero data retention; this is the
 same ratchet on the limiter. The limiter is only a ceiling if nothing calls a
@@ -115,7 +115,7 @@ def test_no_chat_model_is_built_outside_the_limited_seam(path: Path):
     assert match is None, (
         f"{_rel(path)} gets a chat model with {match.group(0)!r} instead of through "
         "common/llm_factory.get_langchain_llm. A model taken that way is never wrapped by the request "
-        "contract, so its calls skip the provider limiter (ADR-0080) and nothing queues them behind chat. "
+        "contract, so its calls skip the provider limiter (ADR-0081) and nothing queues them behind chat. "
         "If this one truly cannot reach the provider, add it to CHAT_MODEL_HOMES with the reason."
     )
 
@@ -129,7 +129,7 @@ def test_no_embedding_client_is_built_outside_the_limited_seam(path: Path):
     assert match is None, (
         f"{_rel(path)} builds an embedding client with {match.group(0)!r}. Build it through "
         "knowledge_layer.llamaindex.adapter.make_embed_model (or openrouter.openai_client), whose HTTP "
-        "transport takes a provider slot (ADR-0080). A client built by hand calls the provider ungated."
+        "transport takes a provider slot (ADR-0081). A client built by hand calls the provider ungated."
     )
 
 
@@ -142,7 +142,7 @@ def test_no_raw_httpx_call_reaches_a_model_endpoint(path: Path):
     traffic = MODEL_TRAFFIC.search(code) if raw else None
     assert traffic is None, (
         f"{_rel(path)} builds {raw.group(0)!r} in a file that talks to a model ({traffic.group(0)!r}). "
-        "A raw httpx client posts to OpenRouter without taking a provider slot (ADR-0080), so the limiter "
+        "A raw httpx client posts to OpenRouter without taking a provider slot (ADR-0081), so the limiter "
         "cannot queue it behind chat or cut its rate on a 429. Build the client with "
         "openrouter.limited_async_http_client(cls=...), which leaves the data policy to the request body."
     )

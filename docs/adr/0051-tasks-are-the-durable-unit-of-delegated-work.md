@@ -67,7 +67,7 @@ What the row carries, and why:
   feature flags into a session (`lib/auth/pinned-session.ts`) and calls the
   same `fileResearchReport` the interactive GET calls, keyed on the same
   backend job id, so migration 0064's unique index makes the two paths
-  collapse onto one document. Since ADR-0078 both paths hand the report to one
+  collapse onto one document. Since ADR-0079 both paths hand the report to one
   `file_research_report` job (the open job per run is reused) instead of
   rendering it in their own request, and `filing_status` is `queued` until it
   has run. A requester who has left the organization,

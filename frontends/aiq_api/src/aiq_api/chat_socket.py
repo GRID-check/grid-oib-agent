@@ -395,7 +395,7 @@ async def persist_turn_result(
 ) -> bool:
     """Write a finished turn to the BFF, whether or not a socket took its frame. Fail-soft.
 
-    A turn that has lost its conversation (``guard``, ADR-0079) writes nothing:
+    A turn that has lost its conversation (``guard``, ADR-0080) writes nothing:
     a newer turn owns the conversation now, and a stale partial answer is not
     the history it should find. The check is the last thing before the POST and
     reads the clock itself. The POST is not cut short at the write bound: it is
@@ -452,7 +452,7 @@ class TurnWire:
     before it: a stage that finishes while the answer is still streaming is
     held and goes out right behind the terminal.
 
-    A turn that lost its conversation (``guard``, ADR-0079) publishes nothing
+    A turn that lost its conversation (``guard``, ADR-0080) publishes nothing
     but its terminal: frames are the stream a reader trusts to be the owner's,
     and the terminal is what ends their spinner. It reaches no thread or row.
     """

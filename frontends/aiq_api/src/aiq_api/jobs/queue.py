@@ -1,4 +1,4 @@
-"""The research queue: ``research_job_queue`` on the claim substrate (ADR-0021, ADR-0078).
+"""The research queue: ``research_job_queue`` on the claim substrate (ADR-0021, ADR-0079).
 
 When ``GRID_JOB_EXECUTION=db`` the submit path persists a deep-research job as a
 row here instead of dispatching it to a per-pod Dask cluster. Dedicated worker

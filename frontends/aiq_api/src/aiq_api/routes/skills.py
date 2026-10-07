@@ -184,7 +184,7 @@ class SkillSubmitPayload(BaseModel):
     priority: Literal["interactive", "bulk"] = Field(
         "interactive",
         description=(
-            "Where the run goes inside its organization's queue (ADR-0078): `interactive` for a run a "
+            "Where the run goes inside its organization's queue (ADR-0079): `interactive` for a run a "
             "person is waiting on (an escalated question, a manual 'run now'), `bulk` for a scheduled "
             "fire. Never ahead of another organization either way. Ignored under Dask execution."
         ),

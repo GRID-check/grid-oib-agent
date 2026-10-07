@@ -16,7 +16,7 @@
  *      reconcile-background-work`), which gives a document left at `processing`
  *      without a live `bff_job_queue` job a new one, and ends a report filing
  *      left `queued` whose job is gone (`lib/documents/stuck-processing.ts`,
- *      `lib/tasks/filing-sweep.ts`, ADR-0078).
+ *      `lib/tasks/filing-sweep.ts`, ADR-0079).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:

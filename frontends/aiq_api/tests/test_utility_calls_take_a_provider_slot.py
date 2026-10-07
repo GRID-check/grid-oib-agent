@@ -1,4 +1,4 @@
-"""The utility routes' model calls queue for a provider slot in the right class (ADR-0080).
+"""The utility routes' model calls queue for a provider slot in the right class (ADR-0081).
 
 A title, a summary, a consistency check and the rest post to OpenRouter over their
 own HTTP client. They used to bypass the provider limiter, so a bulk reindex could

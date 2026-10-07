@@ -17,7 +17,7 @@ import { QUEUE_TABLE as INGEST_TABLE } from "./ingest-worker";
 
 /**
  * What the read-only scaler login may read, and the step that makes the tables it
- * reads exist (ADR-0078).
+ * reads exist (ADR-0079).
  *
  * KEDA's `postgresql` scaler runs one `COUNT(*)` per queue. It used to do so as
  * the schema owner of `aiq_jobs` and of `grid_app`, which meant a credential

@@ -1,5 +1,5 @@
 /**
- * The sweep for documents stranded at `processing` (ADR-0078).
+ * The sweep for documents stranded at `processing` (ADR-0079).
  *
  * `processing` is the status of work the BFF itself owns: an IFC model being
  * parsed, an office file being converted. Before those became `bff_job_queue`

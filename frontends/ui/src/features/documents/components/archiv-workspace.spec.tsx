@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@/test-utils'
+import { fireEvent, render, screen, waitFor, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { strToU8, zipSync } from 'fflate'
 import { server } from '@/mocks/server'
 import { ArchivWorkspace } from './archiv-workspace'
 import { useArchivDocuments } from '../hooks/use-archiv-documents'
@@ -11,17 +12,24 @@ import { useArchivDocuments } from '../hooks/use-archiv-documents'
  * moment the Archiv tells a user that the file they uploaded became usable.
  */
 const toastSuccess = vi.fn()
+const toastError = vi.fn()
 vi.mock('sonner', () => ({
   toast: {
     success: (...args: unknown[]) => toastSuccess(...args),
-    error: vi.fn(),
+    error: (...args: unknown[]) => toastError(...args),
+    // The "reading the ZIP…" toast, which stays up while an archive is unpacked.
+    loading: vi.fn(() => 'reading'),
+    dismiss: vi.fn(),
   },
 }))
 
+/** The URL the workspace reads (`?folder=`, `?doc=`); a test sets it before rendering. */
+let currentSearch = ''
+const routerPush = vi.fn()
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: routerPush, replace: vi.fn(), refresh: vi.fn() }),
   usePathname: () => '/app/archiv',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(currentSearch),
 }))
 
 const mockUploadFiles = vi.fn()
@@ -80,7 +88,9 @@ const archivDocuments = [
 
 beforeEach(() => {
   vi.clearAllMocks()
+  currentSearch = ''
   server.use(
+    http.get('/api/archiv/folders', () => HttpResponse.json({ folders: [] })),
     http.get('/api/archiv/documents', () =>
       HttpResponse.json({
         documents: archivDocuments,
@@ -93,16 +103,16 @@ beforeEach(() => {
 })
 
 describe('ArchivWorkspace — library listing', () => {
-  it('loads the Archiv and renders the library card grid with category chips', async () => {
+  it('loads the Archiv and renders the shared card grid with the gold Büroarchiv chip', async () => {
     render(<ArchivWorkspace canManage />)
 
     expect(await screen.findByText('brandschutz-gutachten.pdf')).toBeInTheDocument()
-    expect(screen.getAllByTestId('archiv-document-card')).toHaveLength(2)
-    // Real AI summary is surfaced; the tag-driven category row too.
+    expect(screen.getAllByTestId('file-card')).toHaveLength(2)
+    // Real AI summary is surfaced, and the card says where it came from.
     expect(screen.getByText('Brandschutzkonzept für mehrgeschossigen Holzbau.')).toBeInTheDocument()
-    const group = screen.getByRole('group', { name: /filter by category/i })
-    expect(within(group).getByRole('button', { name: 'Brandschutz' })).toBeInTheDocument()
-    expect(within(group).getByRole('button', { name: 'Detail' })).toBeInTheDocument()
+    expect(screen.getByText('From: Brandschutz · Gutachten')).toBeInTheDocument()
+    // The card's chip is the document KIND, in the Büroarchiv's own wording.
+    expect(screen.getAllByText('Document').length).toBeGreaterThan(0)
   })
 
   it('states how much the Archiv holds beside its title', async () => {
@@ -110,12 +120,15 @@ describe('ArchivWorkspace — library listing', () => {
     expect(await screen.findByTestId('archiv-document-count')).toHaveTextContent('2')
   })
 
-  it('filters the grid via a category chip', async () => {
+  // The category chips are the shared filter menu's „Kategorie" now, over the
+  // tags the loaded documents really carry — on every shelf.
+  it('filters the grid by a tag the documents carry', async () => {
     const user = userEvent.setup()
     render(<ArchivWorkspace canManage />)
     await screen.findByText('brandschutz-gutachten.pdf')
 
-    await user.click(screen.getByRole('button', { name: 'Detail' }))
+    await user.click(screen.getByTestId('file-filter-menu-trigger'))
+    await user.click(await screen.findByRole('checkbox', { name: 'Detail' }))
     expect(screen.getByText('fassadendetail.pdf')).toBeInTheDocument()
     expect(screen.queryByText('brandschutz-gutachten.pdf')).not.toBeInTheDocument()
   })
@@ -124,7 +137,7 @@ describe('ArchivWorkspace — library listing', () => {
     server.use(http.get('/api/archiv/documents', () => HttpResponse.json({}, { status: 500 })))
     render(<ArchivWorkspace canManage />)
 
-    expect(await screen.findByText(/could not be loaded/i)).toBeInTheDocument()
+    expect(await screen.findByText(/documents couldn't be loaded/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument()
   })
   // Paged, not capped: the Archiv used to stop at its newest 500 without a word.
@@ -593,6 +606,49 @@ describe('ArchivWorkspace — a file the Archiv already holds', () => {
     input.dispatchEvent(new Event('change', { bubbles: true }))
   }
 
+  it('unpacks a picked zip and files its members into the folders it names', async () => {
+    const user = userEvent.setup()
+    let ensured: { parentId: string | null; paths: string[] } | null = null
+    server.use(
+      http.post('/api/archiv/folders/ensure', async ({ request }) => {
+        ensured = (await request.json()) as { parentId: string | null; paths: string[] }
+        return HttpResponse.json({ folders: [], folderIdByPath: { Statik: 'f-new' } })
+      })
+    )
+    render(<ArchivWorkspace canManage />)
+    await screen.findByText('brandschutz-gutachten.pdf')
+
+    const zip = new File(
+      [zipSync({ 'Statik/nachweis.pdf': strToU8('%PDF'), 'Statik/.DS_Store': strToU8('x') }) as BlobPart],
+      'Statik.zip',
+      { type: 'application/zip' }
+    )
+    pick(zip)
+
+    await user.click(await screen.findByTestId('folder-upload-confirm'))
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
+    const [files, options] = mockUploadFiles.mock.calls[0] as [
+      File[],
+      { folderIdFor: (file: File) => string | null },
+    ]
+    expect(files.map((file) => file.name)).toEqual(['nachweis.pdf'])
+    expect(files[0].type).toBe('application/pdf')
+    expect(options.folderIdFor(files[0])).toBe('f-new')
+    expect(ensured).toEqual({ parentId: null, paths: ['Statik'] })
+  })
+
+  it('says so, and uploads nothing, for a zip that cannot be read', async () => {
+    render(<ArchivWorkspace canManage />)
+    await screen.findByText('brandschutz-gutachten.pdf')
+
+    pick(new File(['not a zip'], 'kaputt.zip', { type: 'application/zip' }))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(expect.stringContaining('kaputt.zip')))
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
+  })
+
   it('asks „new version of X?" and uploads on yes', async () => {
     const user = userEvent.setup()
     render(<ArchivWorkspace canManage />)
@@ -606,7 +662,9 @@ describe('ArchivWorkspace — a file the Archiv already holds', () => {
     expect(mockUploadFiles).not.toHaveBeenCalled()
 
     await user.click(within(dialog).getByTestId('folder-upload-confirm'))
-    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([revised]))
+    await waitFor(() =>
+      expect(mockUploadFiles).toHaveBeenCalledWith([revised], { folderIdFor: expect.any(Function) })
+    )
     expect(probed).toEqual([['brandschutz-gutachten.pdf']])
   })
 
@@ -634,5 +692,119 @@ describe('ArchivWorkspace — a file the Archiv already holds', () => {
 
     await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([fresh]))
     expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The Archiv is organised the way a project's Dateien is: same folders, same
+ * moves, same URL. These are the Archiv's own routes under the shared workspace;
+ * the behaviour itself is pinned once, in the project workspace's spec.
+ */
+describe('ArchivWorkspace — folders', () => {
+  const FOLDERS = [
+    { id: 'f-1', projectId: null, name: 'Planung', parentId: null, path: 'Planung' },
+    { id: 'f-2', projectId: null, name: 'Statik', parentId: 'f-1', path: 'Planung/Statik' },
+  ]
+  const filed = { ...archivDocuments[0], folderId: 'f-2' }
+  const root = { ...archivDocuments[1], folderId: null }
+
+  beforeEach(() => {
+    server.use(
+      http.get('/api/archiv/folders', () => HttpResponse.json({ folders: FOLDERS })),
+      http.get('/api/archiv/documents', () =>
+        HttpResponse.json({ documents: [filed, root], collectionName: 'archiv_org-1', canManage: true })
+      )
+    )
+  })
+
+  it('shows the folders of the Archiv with the documents at the root', async () => {
+    render(<ArchivWorkspace canManage />)
+
+    expect(await screen.findByTestId('folder-card-f-1')).toBeInTheDocument()
+    expect(screen.getByText('fassadendetail.pdf')).toBeInTheDocument()
+    // Filed two levels down: not at the root.
+    expect(screen.queryByText('brandschutz-gutachten.pdf')).not.toBeInTheDocument()
+  })
+
+  it('opens a folder through the URL, so back means up one level', async () => {
+    render(<ArchivWorkspace canManage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Open folder “Planung”' }))
+
+    const href = String(routerPush.mock.calls.at(-1)?.[0])
+    expect(new URLSearchParams(href.split('?')[1]).get('folder')).toBe('f-1')
+  })
+
+  it('reads the level out of the URL', async () => {
+    currentSearch = 'folder=f-2'
+    render(<ArchivWorkspace canManage />)
+
+    expect(await screen.findByText('brandschutz-gutachten.pdf')).toBeInTheDocument()
+    expect(screen.queryByText('fassadendetail.pdf')).not.toBeInTheDocument()
+  })
+
+  it('creates a folder on the Archiv route', async () => {
+    const user = userEvent.setup()
+    const posted: unknown[] = []
+    server.use(
+      http.post('/api/archiv/folders', async ({ request }) => {
+        posted.push(await request.json())
+        return HttpResponse.json(
+          { folder: { id: 'f-3', projectId: null, name: 'Recht', parentId: null, path: 'Recht' } },
+          { status: 201 }
+        )
+      })
+    )
+    render(<ArchivWorkspace canManage />)
+    await screen.findByTestId('folder-card-f-1')
+
+    await user.click(screen.getByRole('button', { name: /new folder/i }))
+    await user.type(await screen.findByPlaceholderText(/folder name/i), 'Recht{Enter}')
+
+    await waitFor(() => expect(posted).toEqual([{ name: 'Recht' }]))
+  })
+
+  it('moves a document dropped on a folder through the shared move route', async () => {
+    const patched: Array<{ id: string; body: unknown }> = []
+    server.use(
+      http.patch('/api/documents/:id/folder', async ({ request, params }) => {
+        patched.push({ id: String(params.id), body: await request.json() })
+        return HttpResponse.json({ ok: true })
+      })
+    )
+    render(<ArchivWorkspace canManage />)
+    const folder = await screen.findByTestId('folder-card-f-1')
+
+    const store: Record<string, string> = { 'application/x-grid-document-id': 'doc-2' }
+    const dataTransfer = {
+      types: ['application/x-grid-document-id'],
+      items: [{ kind: 'string', type: 'application/x-grid-document-id' }],
+      getData: (key: string) => store[key] ?? '',
+      setData: (key: string, value: string) => {
+        store[key] = value
+      },
+    }
+    fireEvent.dragOver(folder, { dataTransfer })
+    fireEvent.drop(folder, { dataTransfer })
+
+    await waitFor(() => expect(patched).toEqual([{ id: 'doc-2', body: { folderId: 'f-1' } }]))
+  })
+
+  it('files an upload into the folder the reader stands in', async () => {
+    currentSearch = 'folder=f-2'
+    render(<ArchivWorkspace canManage />)
+    await screen.findByText('brandschutz-gutachten.pdf')
+
+    const options = vi.mocked(useArchivDocuments).mock.calls.at(-1)?.[0]
+    expect(options?.folderId).toBe('f-2')
+  })
+
+  it('lets a read-only member walk the folders and change nothing in them', async () => {
+    render(<ArchivWorkspace canManage={false} />)
+    expect(await screen.findByTestId('folder-card-f-1')).toBeInTheDocument()
+
+    expect(screen.queryByRole('button', { name: /new folder/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('folder-actions-f-1')).not.toBeInTheDocument()
+    // Not draggable: a tile that lifts promises a move this viewer cannot make.
+    expect(screen.getByTestId('folder-card-f-1')).not.toHaveAttribute('draggable', 'true')
   })
 })

@@ -295,7 +295,7 @@ describe('dispatchDocument', () => {
     expect(markDocumentProcessing).toHaveBeenCalledWith('doc-1', 'org-1')
     expect(result).toEqual({ jobId: null, status: 'processing' })
 
-    // The parse is a job (ADR-0078): nothing runs in this request, and the job
+    // The parse is a job (ADR-0079): nothing runs in this request, and the job
     // does what the detached promise used to.
     expect(runBimExtraction).not.toHaveBeenCalled()
     expect(queuedJob()).toMatchObject({
@@ -497,7 +497,7 @@ describe('the ingest dispatch sends the document folder path', () => {
 
 /**
  * An office file is converted before it is ingested, by a job (ADR-0070,
- * ADR-0071, ADR-0078). The PDF feeds the thumbnail (`preview_ref`) and, for Word and
+ * ADR-0071, ADR-0079). The PDF feeds the thumbnail (`preview_ref`) and, for Word and
  * presentation formats, the indexed text (`extraction_ref`). The rendition is a
  * convenience beside a durable file, so every way it can fail must leave the
  * ingest exactly as it was before conversion existed.
@@ -802,7 +802,7 @@ describe('the ingest dispatch after a timeout', () => {
 })
 
 /**
- * The sweep's door (ADR-0078): a document left at `processing` with no live job
+ * The sweep's door (ADR-0079): a document left at `processing` with no live job
  * is dispatched again, by the same code a first upload runs, as nobody's upload.
  */
 describe('redispatchStuckDocument', () => {

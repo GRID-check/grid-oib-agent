@@ -10,7 +10,7 @@
  * filed into the project AS THE PERSON WHO ASKED — resolved from the pinned
  * requester, never a service token — so a scheduled report no longer expires
  * unfiled. A deep-research report is rendered and filed by a `file_research_
- * report` job on the `bff-jobs` pool (ADR-0078), which `recordRunOutcome` only
+ * report` job on the `bff-jobs` pool (ADR-0079), which `recordRunOutcome` only
  * queues; the other kinds file inline. `previousDecisionsBlock` carries a reviewer's
  * rejection into the next run of the same definition, which is the difference
  * between a cron line and delegation.

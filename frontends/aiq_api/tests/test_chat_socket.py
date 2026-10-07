@@ -1223,7 +1223,7 @@ async def test_a_newer_question_on_another_replica_stops_the_stale_turn(harness)
 
 
 # ---------------------------------------------------------------------------
-# One running turn per conversation across replicas (ADR-0079)
+# One running turn per conversation across replicas (ADR-0080)
 # ---------------------------------------------------------------------------
 
 
@@ -1546,7 +1546,7 @@ def test_the_answer_id_is_stable_per_turn():
 
 
 # ---------------------------------------------------------------------------
-# The owner fences itself (ADR-0079): no write after a newer turn could own the conversation
+# The owner fences itself (ADR-0080): no write after a newer turn could own the conversation
 # ---------------------------------------------------------------------------
 
 #: A short marker TTL and write bound, so the deadline (TTL - margin = 0.7 s) and the expiry (1.0 s) are reachable.

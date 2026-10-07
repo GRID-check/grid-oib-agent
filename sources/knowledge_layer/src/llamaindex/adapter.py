@@ -4202,7 +4202,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         budgets it counts toward.
 
         The job's ``priority`` (``interactive`` or ``bulk``) is its class at the
-        provider limiter (ADR-0080): a reindex yields to an office's own upload,
+        provider limiter (ADR-0081): a reindex yields to an office's own upload,
         and both yield to a person waiting on an answer.
         """
         from aiq_agent.common.openrouter import ZERO_DATA_RETENTION

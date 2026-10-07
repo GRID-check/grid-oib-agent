@@ -1008,7 +1008,7 @@ The token-heavy workload (deep research) now scales out. Set
   means workers and web replicas read/write one store.
 - **Citation registry** already shares cross-replica via Dragonfly (ADR-0020).
 
-- **The claim is fair, and a full cluster waits** (ADR-0078). A free worker
+- **The claim is fair, and a full cluster waits** (ADR-0079). A free worker
   takes the next job of the organisation with the fewest research jobs running
   fleet-wide, then the one served longest ago; inside one office a `bulk` job
   (a scheduled fire) goes after an `interactive` one. `GRID_MAX_ACTIVE_JOBS` is
@@ -1045,7 +1045,7 @@ lost on restart. Now, with `jobExecution: db`:
   reindex no longer queues everyone else; inside one office a job's
   `priority` (`interactive`, the default, or `bulk`) orders the claim. Claims
   heartbeat and are taken again when a worker dies, up to three times, and then
-  kept as a `dead` row with a reason (ADR-0078). A worker that must exit hands
+  kept as a `dead` row with a reason (ADR-0079). A worker that must exit hands
   its claims back without spending an attempt; so does a web-tier replica that
   claims (no ingest-worker tier), which stops claiming before it waits for its
   chat turns and gives back what it still holds after.
@@ -1072,7 +1072,7 @@ sit Pending and add nothing. The ceiling is also bounded from the other side:
 tier's peak of vision calls, and the program fails the deploy when that is more
 than twice `vlmFleetConcurrency` (§6.3d). Prod's 8 × 3 × 4 is exactly 96 = 2 × 48.
 
-### 6.3c BFF background jobs — a pool of frontend-image pods on `bff_job_queue` (ADR-0078)
+### 6.3c BFF background jobs — a pool of frontend-image pods on `bff_job_queue` (ADR-0079)
 
 A project reindex and "Rescan failed ingestions" used to walk up to ten
 thousand documents inside one HTTP request on a frontend pod: a request that
@@ -1080,7 +1080,7 @@ died half way left no record of which half. Both are now jobs:
 
 - **The request enqueues and answers 202.** `POST /api/projects/{id}/reindex`
   and `POST /api/organization/documents/reingest-failed` check access, insert
-  one `bff_job_queue` row (app database, migration 0102) in the organisation's
+  one `bff_job_queue` row (app database, migration 0104) in the organisation's
   lane, and return `{ jobId }`. A second click returns the open job. The UI
   says the work started; each document's own status is where it reports.
 - **A job is a sequence of slices.** A slice is one page of 25 documents,
@@ -1109,7 +1109,7 @@ died half way left no record of which half. Both are now jobs:
   read-only login that sees every lane of the row-level secured queue through a
   policy of its own (§6.3d).
 
-**Three more kinds run here, as one step each** (ADR-0078; they run as the
+**Three more kinds run here, as one step each** (ADR-0079; they run as the
 system, because the person's permission was checked when the work was
 requested):
 
@@ -1155,7 +1155,7 @@ FROM bff_job_queue ORDER BY created_at;
 A `dead` row is a job that failed every attempt: `last_error` says why. Fix
 the cause, then delete the row and run the action again from the UI.
 
-### 6.3d KEDA across every ScaledObject (ADR-0078)
+### 6.3d KEDA across every ScaledObject (ADR-0079)
 
 Four tiers are scaled by KEDA: `ingest-worker`, `agent-worker` and `bff-jobs` on
 their queues, `aiq-agent` on running turns. What they share is one module
@@ -1256,7 +1256,7 @@ removing that specific source PDF is replica-local. Route `OIB_UPLOADS_DIR`
 through SeaweedFS to make that admin flow fully replica-agnostic (scoped
 follow-up); high-traffic chat/retrieval does not need it.
 
-### 6.4b Chat scale-out: affinity off, KEDA on running turns (ADR-0079)
+### 6.4b Chat scale-out: affinity off, KEDA on running turns (ADR-0080)
 
 By default (`chatAffinity: true`) nothing in §6.4 changes: the gateway hashes the
 conversation id onto a replica (`BACKEND_REPLICAS`, `BACKEND_POD_WS_TEMPLATE`),

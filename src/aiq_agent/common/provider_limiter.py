@@ -1,4 +1,4 @@
-"""One fleet-wide limiter every model call passes: priority classes, an adaptive limit (ADR-0080).
+"""One fleet-wide limiter every model call passes: priority classes, an adaptive limit (ADR-0081).
 
 Chat, research, ingestion and embeddings call models on ONE OpenRouter key, and
 each used to bring its own ceiling or none. When the key saturates, nothing
@@ -152,7 +152,7 @@ _WAIT_WARNING_SECONDS = 30.0
 # @type str
 # @default on
 # @required false
-# The fleet-wide model-call limiter (ADR-0080). `off` lets every call through.
+# The fleet-wide model-call limiter (ADR-0081). `off` lets every call through.
 # It also lets every call through, by design, when the shared cache is down.
 _ENABLED_ENV = "GRID_PROVIDER_LIMITER"
 

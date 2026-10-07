@@ -1,7 +1,7 @@
 import { integer, jsonb, pgTable, smallint, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 
 /**
- * The BFF's durable background-work queue (ADR-0078, migration 0102).
+ * The BFF's durable background-work queue (ADR-0079, migration 0104).
  *
  * One row is one job a `bff-jobs` replica claims and runs. The claim itself
  * (fair across lanes, `FOR UPDATE SKIP LOCKED`, heartbeat, release, dead rows)

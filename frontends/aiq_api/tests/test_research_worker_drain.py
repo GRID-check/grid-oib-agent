@@ -1,4 +1,4 @@
-"""A draining research worker gives its jobs back; it does not lose them or fail them (ADR-0078).
+"""A draining research worker gives its jobs back; it does not lose them or fail them (ADR-0079).
 
 On SIGTERM the worker stops claiming and waits for the jobs it holds. A job still
 running when the drain budget ends goes back to the queue at no cost in attempts,

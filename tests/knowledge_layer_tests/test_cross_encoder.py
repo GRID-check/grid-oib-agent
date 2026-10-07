@@ -69,7 +69,7 @@ def _route_async_clients(monkeypatch, transport: httpx.MockTransport) -> None:
     """Serve every request an ``httpx.AsyncClient`` sends during the test from this transport.
 
     Patches the socket transport underneath the clients, never ``httpx.AsyncClient``:
-    the reranker's client is built on the provider limiter's transport (ADR-0080),
+    the reranker's client is built on the provider limiter's transport (ADR-0081),
     which must stay in the path so the slot is taken the way it is in production,
     and ``httpx.AsyncClient`` must stay a class. The reranker's first call imports
     ``cost_tracking``, which imports ``langchain_openai`` and so ``openai``, whose

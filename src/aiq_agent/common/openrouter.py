@@ -34,7 +34,7 @@ A call site picks the adapter for its shape and never writes its own merge:
   :func:`pinned_http_client` / :func:`pinned_async_http_client`;
 - a utility call that shapes its own body (a title, a summary, the decision
   model, the reranker): :func:`limited_async_http_client`, which queues the
-  call for a provider slot (ADR-0080) and leaves the routing to the body.
+  call for a provider slot (ADR-0081) and leaves the routing to the body.
 
 Detached work with no request (an ingest job) enters its organization's
 policy with :func:`data_policy_scope`; code that reads it with
@@ -506,7 +506,7 @@ def limited_async_http_client(
     decision model, the reranker), most of them through
     ``ResolvedCredential.request_body``, which already carries the organization's
     data policy. Pinning here would force zero data retention onto an organization
-    that chose to switch it off, so this transport only takes the slot (ADR-0080),
+    that chose to switch it off, so this transport only takes the slot (ADR-0081),
     and a call to a host that is not OpenRouter passes through untouched.
 
     ``cls`` is the priority class (``provider_limiter.CLASSES``) of every call

@@ -850,7 +850,7 @@ from the job row itself, and it never throws for a skip:
 
 Admission therefore applies to scheduled runs automatically, and every run —
 however triggered — is visible in history. With `GRID_JOB_EXECUTION=db` capacity
-never skips an occurrence (ADR-0078): the job joins the research queue as `bulk`
+never skips an occurrence (ADR-0079): the job joins the research queue as `bulk`
 priority, the run is recorded `queued`, and the worker's first flush moves it to
 `running`; only an organization's waiting queue past
 `GRID_MAX_QUEUED_JOBS_PER_ORG` still yields a `skipped` run. With Dask, the
@@ -1046,7 +1046,7 @@ requester pinned (`jobs.created_by`, never the scheduler), the plan frozen
 (prompt, skill snapshot, data sources) and the backend job id recorded. The
 worker's outcome callback closes it (`succeeded` / `failed` / `interrupted`)
 and, for a finished deep-research task, **queues the report's filing as the
-requester** (`file_research_report` on the `bff-jobs` pool, ADR-0078; the run's
+requester** (`file_research_report` on the `bff-jobs` pool, ADR-0079; the run's
 `filing_status` is `queued` until it has run):
 `lib/auth/pinned-session.ts` resolves that person's membership, role and the
 organization's flags into a session, and `fileResearchReport` runs there exactly
@@ -1124,7 +1124,7 @@ next interval:
    [`backend-deep-dive.md`](backend-deep-dive.md) and ADR-0062.
 5. Background-work sweep, also every tick and whatever the gate says: `POST
    {FRONTEND_INTERNAL_URL}/api/internal/maintenance/reconcile-background-work`
-   (ADR-0078). The BFF gives a document that has sat at `processing` for 15
+   (ADR-0079). The BFF gives a document that has sat at `processing` for 15
    minutes with no live `bff_job_queue` job (`lib/documents/stuck-processing.ts`)
    a new job, or fails it with the reason when its job is dead, and ends a
    report filing left `queued` whose job is gone (`lib/tasks/filing-sweep.ts`).

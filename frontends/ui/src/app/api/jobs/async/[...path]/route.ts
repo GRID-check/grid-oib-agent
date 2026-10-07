@@ -186,7 +186,7 @@ interface ReportFilingResult {
  * limits. Those belong in the log, which already has them. A boolean is the
  * whole of what the surface can honestly act on.
  *
- * ## Why `queued` exists (ADR-0078)
+ * ## Why `queued` exists (ADR-0079)
  *
  * The PDF is no longer rendered inside this request. A report that is not filed
  * yet is handed to a `file_research_report` job on the `bff-jobs` pool and the

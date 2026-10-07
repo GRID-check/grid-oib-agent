@@ -1,5 +1,5 @@
 /**
- * What each kind of job does when a worker hands it a slice (ADR-0078).
+ * What each kind of job does when a worker hands it a slice (ADR-0079).
  *
  * A handler reads the job's saved state, does one bounded step of the work and
  * returns the state to save. It never claims, heartbeats or finishes: the runner

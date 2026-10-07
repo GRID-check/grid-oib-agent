@@ -1,4 +1,4 @@
--- 0102: bff_job_queue — durable, fair background work for the BFF (ADR-0078).
+-- 0104: bff_job_queue — durable, fair background work for the BFF (ADR-0079).
 --
 -- ## Why
 --

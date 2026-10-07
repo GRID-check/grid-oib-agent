@@ -238,7 +238,7 @@ async function foldRunLedgerOp(
 
 /**
  * The worker's first flush is the proof a queued run has started: the research
- * queue (ADR-0078) takes a job at once and starts it when an organization's turn
+ * queue (ADR-0079) takes a job at once and starts it when an organization's turn
  * comes, and until then the run's row says `queued`. Best-effort: the ledger is
  * already written, and a row that stays `queued` is closed by the run's outcome
  * exactly as a `running` one is.

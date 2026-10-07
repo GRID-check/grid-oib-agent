@@ -2,7 +2,7 @@
  * The ingest priority the BFF sends, pinned to the one the backend accepts.
  *
  * The reindex and rescan jobs send `priority: "bulk"` on `POST /v1/ingest`
- * (ADR-0078); `IngestRequest.priority` in the backend is a `Literal`, so a value
+ * (ADR-0079); `IngestRequest.priority` in the backend is a `Literal`, so a value
  * it does not list is a 422 and the whole reindex fails. The two sides were
  * written in separate changes, so the list is read out of the request model
  * rather than restated: this spec fails when someone edits either side alone.

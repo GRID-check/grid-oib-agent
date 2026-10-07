@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * The claim loop over the REAL queue, against a real Postgres as `grid_app_rw`
- * (ADR-0078): what the unit spec proves with fakes, proved with the SQL.
+ * (ADR-0079): what the unit spec proves with fakes, proved with the SQL.
  *
  * The claim a feature makes is not "the loop calls release", it is "a job whose
  * worker is drained is resumed by the next one, from where it stopped, and

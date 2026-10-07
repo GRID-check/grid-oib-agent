@@ -228,8 +228,8 @@ const web = installWeb(cfg, provider, namespace, wiring.imagePullSecrets, [
 ]);
 
 // KEDA, installed once when any tier it scales runs: the research and ingest
-// workers and the BFF job pool (queue depth, ADR-0078/0076) and the chat tier
-// (running turns, ADR-0079).
+// workers and the BFF job pool (queue depth, ADR-0079/0076) and the chat tier
+// (running turns, ADR-0080).
 const keda =
   (cfg.jobExecution === "db" || cfg.ingestWorker.enabled || cfg.bffJobs.enabled || backendAutoscaled(cfg)) &&
   cfg.keda.install
@@ -267,7 +267,7 @@ const queueScalerDeps = [
 ];
 
 // Research worker tier — only when execution is DB-claimed (ADR-0021). Claims
-// the research queue fairly across organizations (ADR-0078), scaled by KEDA on
+// the research queue fairly across organizations (ADR-0079), scaled by KEDA on
 // the queue's depth.
 const agentWorker =
   cfg.jobExecution === "db"
@@ -292,7 +292,7 @@ const ingestWorker = cfg.ingestWorker.enabled
     ])
   : undefined;
 
-// BFF background pool (ADR-0078) — claims bff_job_queue fairly across
+// BFF background pool (ADR-0079) — claims bff_job_queue fairly across
 // organisations and runs project reindex and rescan jobs in its own BFF,
 // scaled by KEDA on the queue's depth. Internal only: no Service, no route.
 const bffJobs = cfg.bffJobs.enabled
@@ -305,7 +305,7 @@ const bffJobs = cfg.bffJobs.enabled
     ])
   : undefined;
 
-// Chat tier scale-out (ADR-0079) — KEDA moves the aiq-agent StatefulSet between
+// Chat tier scale-out (ADR-0080) — KEDA moves the aiq-agent StatefulSet between
 // its floor and ceiling on the fleet's running turns. Only with affinity off.
 if (backendAutoscaled(cfg)) {
   installBackendScaling(wiring, cfg, backend.statefulSet, keda ? [keda] : []);

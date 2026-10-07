@@ -284,7 +284,7 @@ def _local_count(key: str, now: float) -> int:
 def active_turns() -> int | None:
     """How many chat turns are running fleet-wide right now, or None when that cannot be known.
 
-    The scaling signal for the chat tier (ADR-0079): KEDA reads it, through
+    The scaling signal for the chat tier (ADR-0080): KEDA reads it, through
     ``GET /v1/internal/chat-occupancy``, and sizes the tier to it. It is the
     size of the global admission pool, the one number every replica already
     keeps for the cap, so no replica needs to report its own.

@@ -1,4 +1,4 @@
-"""The process's OpenTelemetry ``MeterProvider`` (ADR-0078, ADR-0080).
+"""The process's OpenTelemetry ``MeterProvider`` (ADR-0079, ADR-0081).
 
 Feature code measures itself through the OpenTelemetry API only
 (``opentelemetry.metrics.get_meter``): ``grid.queue.*`` in

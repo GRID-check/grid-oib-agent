@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The sweep for documents stranded at `processing` (ADR-0078): which rows it
+ * The sweep for documents stranded at `processing` (ADR-0079): which rows it
  * is handed, what it does for a row with no job and for one whose job died, and
  * that one row's failure never costs the others their turn. The SQL that picks
  * the rows is `stuck-processing.integration.spec.ts`.

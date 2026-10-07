@@ -1,7 +1,7 @@
 """A checkpointer that refuses to write for a turn that no longer owns its conversation.
 
 The conversation's LangGraph thread is the one piece of shared state two turns
-of a conversation must never write at once (ADR-0079). This wraps the real
+of a conversation must never write at once (ADR-0080). This wraps the real
 saver and puts every write to it behind :func:`aiq_agent.common.write_fence.guarded_write`:
 checked against the turn's fence first, then bounded in time. Reads, and every
 call made outside a turn that has a fence (a job, a single process, affinity

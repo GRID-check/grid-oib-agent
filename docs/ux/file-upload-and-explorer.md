@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-11
 **Status:** Implemented
-**Surfaces:** project Files workspace, org Büroarchiv, chat-session uploads
+**Surfaces:** project Files workspace, org Büroarchiv (the same workspace, see the last section), chat-session uploads
 **Preview:** `/dev/upload-tray`
 
 ## The complaint
@@ -211,8 +211,7 @@ Two things changed, and the order matters:
   never exactly it, and a two-line summary next to a one-line one has the same
   problem — so the row still needs the block to grow. The same block in
   `DocumentGridCard`'s unresolved tile got the same treatment, for the same
-  reason. This is a property of the shared card, so the Büroarchiv library (a
-  thin wrapper over `FileCard`) is fixed by the same change.
+  reason. This is a property of the shared card, so the Büroarchiv (which draws the same `FileCard`, with its gold kind chip passed in) is fixed by the same change.
 
 **The second half of the same moment:** the thumbnail cache treated "no
 thumbnail" as permanent. If the page rendered a second before the backend
@@ -290,3 +289,72 @@ progress model is exercised without a clock, a DOM or a React tree.
   context is. The dialog's old delete did nothing anyway: it sent a document id
   to the proxy's chunk-only file delete, which expects a filename.
 - Validation, quotas, tenancy and authorization are unchanged.
+
+## One workspace, two shelves
+
+**Date:** 2026-10-06 · **Surfaces:** project Files workspace, org Büroarchiv
+
+The Archiv was a flat card grid (`ArchivLibraryPane`) beside a 1,600-line project
+workspace, and every capability the project got (folders, drag to move, folder
+upload, list view, filters, sort, `?doc=`) had to be built a second time. The
+Archiv now has all of them because it is the same component.
+
+`FileWorkspace` (`features/documents/components/file-workspace.tsx`) takes a
+`FileShelf` descriptor (`lib/file-shelf.ts`). `ProjectFileWorkspace` and
+`ArchivWorkspace` are adapters that build one and supply the header. Shared, and
+therefore no longer able to drift: `useFileListing` (the paged drain with its
+generation guard and settling poll), `useFolderTree` (load, create, rename,
+move, delete, with the `files` strings), `useDocumentMoves`, `useShelfUpload`
+(the plan, the ensure request, moves of unchanged documents, `folderIdFor`),
+`useFolderParam` (`?folder=`), `useViewPreference` (`grid.files.view`),
+`useFileSearch` (takes the shelf's search route), `usePreviewChannel` and
+`useDocParamSync` (`?doc=`), `useModelStage` (`?model=`), and the one row mapper
+`toFileItem`.
+
+What a shelf may differ in is exactly the fields of `FileShelf`:
+
+| Field | Project | Archiv | Why it is inherent |
+|---|---|---|---|
+| `endpoints` | `/api/documents?projectId`, `/api/projects/{id}/folders` | `/api/archiv/documents`, `/api/archiv/folders` | Two stores |
+| `canManage` | always | `org:archiv:manage` | Archiv writes are an org permission; a read-only member sees folders, search, filters, preview and download, nothing that mutates |
+| `canCollaborate`, `currentUserId` | collaboration flag | off | Assignment is project-scoped |
+| `askAbout` | opens the project chat | absent | There is no Archiv chat to open |
+| `preview` | `store` (the project shell hosts it; chat shares it) | `dialog` (the sheet has no host) | Where a preview can be mounted |
+| `cardExtras` | none | gold kind chip + tag provenance | The Büroarchiv provenance signal (spec §4) |
+| `handoverKey` | project id | absent | `ProjectFileDrop` hands a drop to a project only |
+| `messages` | „… in dieses Projekt", „in Piloti’s Wissen" | „… ins Archiv", „im Büroarchiv" | Two sentences naming the shelf |
+| header | `ProjectSectionActions` portal | gold identity row, count pill, sheet close | Each frames the same controls |
+
+The tag chips of the old Archiv grid are „Kategorie" in the shared filter menu
+(`FileFilters.tags`, any-of), so they work under folders and on every shelf. The
+Archiv's semantic search is the pane's own, pointed at `/api/archiv/documents/search`
+(`projectSearchScope` / `ARCHIV_SEARCH_SCOPE`); a search is shelf-wide and
+escapes the open folder exactly as in Dateien.
+
+**Preview:** `/dev/archiv-library` renders the real workspace over fixtures
+(`?state=readonly|loading|empty`, `?folder=f-plan`).
+
+### A ZIP is a folder that has not been unpacked yet
+
+Both shelves accept a `.zip` through the same single entry point as a folder:
+`handleUpload` in `hooks/use-shelf-upload.ts`. `lib/expand-zip.ts` unpacks it
+in the browser (`fflate`, loaded only when a ZIP is present) into `File`s that
+carry a `webkitRelativePath`, the shape `readDroppedTree` already produces, so
+the plan dialog, the one-request folder creation and the new-version prompt
+need no knowledge of archives. Neither shelf's upload route, allow-list or quota
+check changed: the server only ever sees ordinary files.
+
+Three decisions worth keeping:
+
+- **Refuse, never half-take.** The entry count and the unpacked size are read
+  from the central directory before anything is inflated; past either ceiling
+  (`MAX_ZIP_ENTRIES`, `MAX_ZIP_UNPACKED_BYTES`) the whole archive is refused with
+  a sentence. Same argument as the dropped-folder bounds.
+- **Members get the MIME type a picker would have given** (`mimeTypeForFileName`,
+  from the table the accept-list is built from). The preview routes decide
+  whether a document can be previewed from the stored content type, so an
+  untyped file would upload and then never preview.
+- **`.zip` is offered by the durable pickers and the drop overlay only**
+  (`withZipAccepted`, `acceptZip`), not through the accept-list the server
+  enforces and not in the chat, where an archive is not a document. `.ifczip`
+  stays a model: the pattern needs the dot.

@@ -587,7 +587,7 @@ services:
     restart: unless-stopped
 
   bff-jobs:
-    # The BFF's background pool (ADR-0078): the frontend image, internal only.
+    # The BFF's background pool (ADR-0079): the frontend image, internal only.
     # `workers/jobs/index.js` supervises the BFF (`node server.js`) and a claim
     # loop that takes jobs from bff_job_queue fairly across organizations and
     # has that BFF run them a bounded slice at a time. Without it a project

@@ -1,4 +1,4 @@
-"""The chat tier's scaling signal: how many turns run across the fleet (ADR-0079).
+"""The chat tier's scaling signal: how many turns run across the fleet (ADR-0080).
 
 KEDA's ``metrics-api`` scaler polls this and sizes the ``aiq-agent`` StatefulSet
 to it: ``activeTurns`` divided by the per-replica target is the replica count it

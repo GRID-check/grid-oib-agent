@@ -82,7 +82,7 @@ What that means in practice:
 * **Convert, then ingest, in the background.** An office upload no longer races
   the conversion against a 20-second wait. `beginRenditionIngest` in
   `lib/documents/service.ts` marks the row `processing`, queues an
-  `office_rendition` job (ADR-0078; it was a detached promise in the upload's
+  `office_rendition` job (ADR-0079; it was a detached promise in the upload's
   process when this was decided) and returns. The job, on a `bff-jobs` pod,
   runs `ensureRendition` with its full 120-second timeout, then
   `dispatchIngest` with `preview_ref` (thumbnail) and, for the listed formats,
@@ -91,7 +91,7 @@ What that means in practice:
   (`GOTENBERG_MAX_CONCURRENCY`, default 2) behind any reader waiting for a
   preview, and time spent queued for a slot does not count against the 120
   seconds; the background ones are bounded fleet-wide by the `bff-jobs` pool's
-  size (ADR-0078). A folder upload of hundreds of office files used to start them all
+  size (ADR-0079). A folder upload of hundreds of office files used to start them all
   at once and time most of them out in Gotenberg's own queue.
 * **The rendition is the only source; there is no fallback reader.** The
   docx2txt Word reader and the python-pptx slide-text reader are deleted, and
@@ -133,7 +133,7 @@ What that means in practice:
   A Word citation from the old chunks carries `"1"` and opens at page 1, which
   is where it opened before.
 * Bad, because a process restart during a conversion left the row at
-  `processing` with no job. ADR-0078 closed this: the conversion is a queued
+  `processing` with no job. ADR-0079 closed this: the conversion is a queued
   job, a restart gives the claim back, and a sweep
   (`lib/documents/stuck-processing.ts`) recovers rows from before the job.
 * Bad, because Gotenberg is now required, not optional. Without it, or while

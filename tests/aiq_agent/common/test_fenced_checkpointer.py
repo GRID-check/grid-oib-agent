@@ -1,4 +1,4 @@
-"""The write fence: a turn that lost its conversation cannot write the conversation's thread (ADR-0079)."""
+"""The write fence: a turn that lost its conversation cannot write the conversation's thread (ADR-0080)."""
 
 from __future__ import annotations
 

@@ -85,7 +85,7 @@ Body: { projectId: string, file: File }
 Two kinds of file skip steps 6 and 7 and return `processing` with no ingest
 job id: an IFC model (`beginModelExtraction`) and, when `GOTENBERG_URL` is set,
 an office file. Each is queued as a `bim_extract` or `office_rendition` job on
-`bff_job_queue` (ADR-0078, [`kubernetes.md`](../deployment/kubernetes.md) §6.3c)
+`bff_job_queue` (ADR-0079, [`kubernetes.md`](../deployment/kubernetes.md) §6.3c)
 and the row remembers the queue job as `metadata.bffJobId`. Without a converter,
 a Word, presentation, `.xls` or `.ods` file returns `failed` at once.
 

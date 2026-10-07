@@ -1,4 +1,4 @@
-"""The two seams every model call passes take a provider slot (ADR-0080).
+"""The two seams every model call passes take a provider slot (ADR-0081).
 
 ``test_provider_limiter`` proves the limiter; this proves it is wired in: a chat
 call holds a slot for exactly as long as the call or its stream lasts, in the

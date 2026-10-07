@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * GRID BFF job runner — the entry point of the `bff-jobs` pool (ADR-0078).
+ * GRID BFF job runner — the entry point of the `bff-jobs` pool (ADR-0079).
  *
  * Dedicated pod (frontend image, `node workers/jobs/index.js`), internal only:
  * no Service, no HTTPRoute. One process supervises two things:

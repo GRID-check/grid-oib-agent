@@ -6,7 +6,7 @@ import * as pulumi from "@pulumi/pulumi";
 import { baseStackConfig } from "./test-support/stack-config";
 
 /**
- * The one OpenRouter key's budget (ADR-0076, ADR-0080), as the stack files state it.
+ * The one OpenRouter key's budget (ADR-0076, ADR-0081), as the stack files state it.
  *
  * Vision calls are held to `AIQ_VLM_FLEET_CONCURRENCY` fleet-wide whatever the
  * replica count, so an ingest tier sized past that number only queues: replicas

@@ -1,5 +1,5 @@
 /**
- * The claim on `bff_job_queue`, as the BFF sees it (ADR-0078).
+ * The claim on `bff_job_queue`, as the BFF sees it (ADR-0079).
  *
  * The SQL is not here. The runner that claims is a plain Node process with no
  * build step, so the claim lives in `workers/job-queue.js` and this module is

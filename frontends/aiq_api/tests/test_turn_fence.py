@@ -1,4 +1,4 @@
-"""The running turn's clock on its conversation marker (ADR-0079, "the owner fences itself")."""
+"""The running turn's clock on its conversation marker (ADR-0080, "the owner fences itself")."""
 
 from __future__ import annotations
 

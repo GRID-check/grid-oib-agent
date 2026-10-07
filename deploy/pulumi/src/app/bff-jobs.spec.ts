@@ -12,7 +12,7 @@ const repoRoot = join(__dirname, "..", "..", "..", "..");
 const read = (...parts: string[]) => readFileSync(join(repoRoot, ...parts), "utf8");
 
 /**
- * The BFF's background pool (ADR-0078).
+ * The BFF's background pool (ADR-0079).
  *
  * It crosses three boundaries this program cannot see into, and each one plans
  * and applies clean when it drifts:
@@ -166,7 +166,7 @@ describe("the bff-jobs pool", () => {
   });
 
   it("scales on the table the queue is written to, leaving dead rows out", () => {
-    const migration = read("frontends", "ui", "drizzle", "0102_bff_job_queue.sql");
+    const migration = read("frontends", "ui", "drizzle", "0104_bff_job_queue.sql");
     const table = migration.match(/CREATE TABLE IF NOT EXISTS "([a-z_]+)"/)?.[1];
 
     expect(table).toBe("bff_job_queue");

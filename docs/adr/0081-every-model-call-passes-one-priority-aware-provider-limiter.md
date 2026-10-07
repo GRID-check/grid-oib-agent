@@ -14,7 +14,7 @@ Chat, research, ingestion and embeddings call models on one OpenRouter key.
 Each has its own ceiling or none: chat a turn cap, ingestion a VLM lease pool
 (`AIQ_VLM_FLEET_CONCURRENCY`), embeddings nothing and no 429 backoff. When the
 key saturates, nothing decides that a user waiting on chat goes before a bulk
-reindex, and scaling a worker tier out (ADR-0076, ADR-0078) only adds callers.
+reindex, and scaling a worker tier out (ADR-0076, ADR-0079) only adds callers.
 
 ## Decision Drivers
 
@@ -80,6 +80,6 @@ Chosen option 3, `aiq_agent.common.provider_limiter`.
 ## More Information
 
 * ADR-0040 (layered rate limiting), ADR-0074 (the OpenRouter seam), ADR-0076,
-  ADR-0078.
+  ADR-0079.
 * Open gap until the call-site test lands: a new model or embedding call site
   that bypasses the limiter is caught only in review.

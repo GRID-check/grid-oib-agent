@@ -29,7 +29,7 @@ NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma`,
 | `gotenberg` | Office → PDF converter (ADR-0070), called by the frontend BFF only — port 3000. Required: Word, presentation, `.xls` and `.ods` files are indexed from its PDF (ADR-0071) | No (internal) |
 | `purger` | Grace-period hard-delete worker | No |
 | `skill-scheduler` | Agent Skills cron scheduler (ADR-0046) | No |
-| `bff-jobs` | The BFF's background pool (ADR-0078): runs project reindex and failed-ingestion rescan jobs from `bff_job_queue`. `extends` the `frontend` service, so it shares its environment; publishes nothing. Without it those two actions are queued and never run | No (internal) |
+| `bff-jobs` | The BFF's background pool (ADR-0079): runs project reindex and failed-ingestion rescan jobs from `bff_job_queue`. `extends` the `frontend` service, so it shares its environment; publishes nothing. Without it those two actions are queued and never run | No (internal) |
 | `seaweedfs-init` | One-shot: creates the `grid-documents` bucket | No |
 | `aiq-data-permissions` | One-shot: chowns the shared data volume | No |
 

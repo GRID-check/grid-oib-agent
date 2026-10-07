@@ -272,7 +272,7 @@ describe("feedback → GitHub issues", () => {
   });
 });
 
-describe("chat tier scale-out (ADR-0079)", () => {
+describe("chat tier scale-out (ADR-0080)", () => {
   it("keeps affinity on by default, so the tier is the static hash it was", () => {
     expect(loadWith({})).toBeNull();
     pulumi.runtime.setAllConfig({ ...baseStackConfig() });

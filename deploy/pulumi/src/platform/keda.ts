@@ -19,8 +19,8 @@ export const KEDA_OPERATOR_LABEL = { "app.kubernetes.io/name": "keda-operator" }
 
 /**
  * KEDA — the event-driven autoscaler the queue-driven tiers scale with: the
- * ingest-worker (ADR-0076), the agent-worker and the bff-jobs pool (ADR-0078),
- * and the chat tier (ADR-0079).
+ * ingest-worker (ADR-0076), the agent-worker and the bff-jobs pool (ADR-0079),
+ * and the chat tier (ADR-0080).
  *
  * The CPU HPAs this cluster already runs cannot scale ingestion: an ingest
  * worker spends most of a job waiting on the model provider, so its CPU says

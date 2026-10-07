@@ -10,7 +10,10 @@ vi.mock('@/lib/db', () => ({
 import { getDb } from '@/lib/db'
 import {
   CONVERSATION_FEEDBACK_LIST_LIMIT,
+  FEEDBACK_WEEKLY_SUMMARY_LIMIT,
   deleteAnswerFeedbackForUser,
+  getFeedbackWeeklySummary,
+  isoWeekStart,
   listAnswerFeedbackForConversation,
   listFeedbackTurns,
   upsertAnswerFeedback,
@@ -27,6 +30,7 @@ const values = {
   verdict: 'up' as const,
   reason: null,
   comment: null,
+  expectedAnswer: null,
 }
 
 beforeEach(() => {
@@ -155,6 +159,7 @@ describe('listFeedbackTurns', () => {
           message_id: 'msg_1',
           verdict: 'down',
           reason: 'inaccurate',
+          expected_answer: '  ',
           created_at: '2026-07-30T09:00:00.000Z',
           answer: 'A',
           question: 'Q',
@@ -170,5 +175,45 @@ describe('listFeedbackTurns', () => {
 
     expect(row.createdAt).toBeInstanceOf(Date)
     expect(row.topics).toEqual(['brandschutz'])
+    expect(row.expectedAnswer).toBeNull()
+  })
+})
+
+describe('getFeedbackWeeklySummary', () => {
+  const params = (fragment: unknown): unknown[] => {
+    if (fragment === null || typeof fragment !== 'object') return [fragment]
+    const chunks = (fragment as { queryChunks?: unknown[] }).queryChunks
+    return Array.isArray(chunks) ? chunks.flatMap(params) : []
+  }
+
+  it('coerces counts, which the driver returns as strings', async () => {
+    const execute = vi.fn().mockResolvedValue([
+      { organization_id: 'org_1', iso_week: '2026-W41', week_start: '2026-10-05', answers: '40', up: '6', down: null },
+    ])
+    mockGetDb.mockReturnValue({ execute } as never)
+
+    const rows = await getFeedbackWeeklySummary({})
+
+    expect(rows).toEqual([
+      { organizationId: 'org_1', isoWeek: '2026-W41', weekStart: '2026-10-05', answers: 40, up: 6, down: 0 },
+    ])
+  })
+
+  it('is bounded and scopes to one organization only when asked', async () => {
+    const execute = vi.fn().mockResolvedValue([])
+    mockGetDb.mockReturnValue({ execute } as never)
+
+    await getFeedbackWeeklySummary({ organizationId: 'org_9' })
+    await getFeedbackWeeklySummary({})
+
+    expect(params(execute.mock.calls[0][0])).toContain(FEEDBACK_WEEKLY_SUMMARY_LIMIT)
+    expect(params(execute.mock.calls[0][0])).toContain('org_9')
+    expect(params(execute.mock.calls[1][0])).not.toContain('org_9')
+  })
+
+  it('starts the window on the Monday of an ISO week', () => {
+    // Wednesday 2026-10-07 -> Monday 2026-10-05; Sunday 2026-10-11 -> the same Monday.
+    expect(isoWeekStart(new Date('2026-10-07T13:00:00Z'))).toBe('2026-10-05T00:00:00.000Z')
+    expect(isoWeekStart(new Date('2026-10-11T23:59:00Z'))).toBe('2026-10-05T00:00:00.000Z')
   })
 })

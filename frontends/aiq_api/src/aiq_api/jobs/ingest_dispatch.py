@@ -372,7 +372,7 @@ class QueueSource:
         beat = threading.Thread(target=self._beat, args=(job_id, run), daemon=True, name=f"ingest-claim-{job_id[:8]}")
         beat.start()
         try:
-            # Its class at the provider limiter is the job's own priority (ADR-0080).
+            # Its class at the provider limiter is the job's own priority (ADR-0081).
             with priority_scope(prepared.priority):
                 self._ingestor.run_prepared(prepared, still_owner=lambda: self._still_owner(job_id, run))
         finally:

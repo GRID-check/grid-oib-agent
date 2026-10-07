@@ -47,7 +47,7 @@ export function installBackend(
   const autoscaled = backendAutoscaled(cfg);
   const multiReplica = cfg.jobExecution === "db" && (cfg.backend.replicas > 1 || autoscaled);
   // The grace period is the chat drain plus the endpoint drain and slack: a
-  // terminating replica finishes the turns it claimed (ADR-0079).
+  // terminating replica finishes the turns it claimed (ADR-0080).
   const profile = backendRollout(cfg.backend.drainSeconds);
   const shutdown = gracefulShutdown(profile, "python");
 
@@ -61,7 +61,7 @@ export function installBackend(
         // conversation affinity so a chat pins to its owning replica.
         serviceName: "aiq-agent-headless",
         // Singleton in dask mode; multi-replica chat tier in db mode (safe with
-        // conversation affinity, ADR-0028, or the conversation bus, ADR-0079).
+        // conversation affinity, ADR-0028, or the conversation bus, ADR-0080).
         // The floor when KEDA scales it (backend-scaling.ts).
         replicas: cfg.jobExecution === "db" ? cfg.backend.replicas : 1,
         selector: { matchLabels: labels },

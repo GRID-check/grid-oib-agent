@@ -1,14 +1,14 @@
 /**
  * @vitest-environment node
  *
- * The SQL behind the background-work sweeps (ADR-0078), against a REAL Postgres
+ * The SQL behind the background-work sweeps (ADR-0079), against a REAL Postgres
  * through the restricted runtime role:
  *
  *   - which documents at `processing` the sweep is handed: those with no job,
  *     and those whose job is dead, and NOT those whose job is still waiting or
  *     running, however many there are;
  *   - that the job id a row remembers leaves with the status;
- *   - which report filings are still `queued` after the window (migration 0103,
+ *   - which report filings are still `queued` after the window (migration 0105,
  *     its CHECK and its partial index).
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \

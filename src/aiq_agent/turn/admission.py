@@ -153,7 +153,7 @@ async def answer_turn(
     try:
         async with contextlib.AsyncExitStack() as admission:
             # Every model call the turn makes, retrieval embeddings included, queues
-            # for the provider ahead of research and bulk work (ADR-0080).
+            # for the provider ahead of research and bulk work (ADR-0081).
             admission.enter_context(provider_class(CHAT))
             refused = await _enter_admission_slot(admission, organization_id)
             if refused is not None:

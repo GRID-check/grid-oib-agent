@@ -80,7 +80,7 @@ Chosen option 3.
 * **Measured.** OTel meters (`grid.queue.*`) through the existing collector:
   depth by status, oldest-queued age, claim latency, job duration, dead rows.
 * Chat scale-out and the provider ceiling are the two neighbouring decisions
-  the same survey produced: ADR-0079 and ADR-0080. The implementation plan
+  the same survey produced: ADR-0080 and ADR-0081. The implementation plan
   below covers all three, because they ship together.
 
 ### Consequences
@@ -134,7 +134,7 @@ substrates; `task verify` passes on the merged branch.
 ## More Information
 
 * ADR-0021 (DB-claimed research workers), ADR-0040 (layered rate limiting),
-  ADR-0076 (fair ingestion queue), ADR-0079 (chat scale-out), ADR-0080
+  ADR-0076 (fair ingestion queue), ADR-0080 (chat scale-out), ADR-0081
   (provider limiter).
 * `docs/architecture/rate-limiting-and-load-protection.md`, whose L3 and L3b
   this extends.

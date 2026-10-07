@@ -60,12 +60,12 @@ has run in production since ADR-0021.
   ingestor's threads and reports through `ingest_jobs`. The claim, heartbeat,
   reclaim and reap are the research queue's pattern (`FOR UPDATE SKIP LOCKED`,
   stale heartbeat, three attempts), now one implementation both queues share:
-  `aiq_agent.common.claim_queue` (ADR-0078), with a table of its own each.
+  `aiq_agent.common.claim_queue` (ADR-0079), with a table of its own each.
 * **A claim ranks lanes, not jobs.** Ranking every queued job cost ~165 ms per
   claim at 100 000 queued jobs across 2 000 organisations (Postgres 16, local).
   Ranking one row per lane, then taking the best lanes' best jobs through the
   `(lane, priority, created_at)` index, costs ~43 ms p50 and ~62 ms p95 at the
-  same backlog (re-measured with the priority column, ADR-0078: ~36 ms p50,
+  same backlog (re-measured with the priority column, ADR-0079: ~36 ms p50,
   ~42 ms p95 on a quieter machine).
 * **A queued job is waiting, not lost.** The status store never settles a job
   as interrupted while the queue still holds it (`_stale_predicate`).
@@ -120,7 +120,7 @@ already give at this volume: a few claims per second.
   counted among its own jobs only (`ingest_queue.ahead_in_lane`, stamped as
   `metadata.queue_ahead` on the batch status). That is the one order the queue
   promises: inside a lane it claims by priority (`interactive` before `bulk`,
-  ADR-0078), then oldest first, across lanes it interleaves,
+  ADR-0079), then oldest first, across lanes it interleaves,
   so no other office's backlog stands in the count. It cannot say how long the
   wait is, because that depends on how many lanes are busy when each job is
   claimed.
@@ -128,7 +128,7 @@ already give at this volume: a few claims per second.
   `dead` with a reason (kept 14 days), so the status store settles it
   `failed: interrupted` as before and the cause stays inspectable. A worker
   that must exit gives the claims it still holds back at no cost in attempts
-  (ADR-0078), instead of leaving them for the stale window.
+  (ADR-0079), instead of leaving them for the stale window.
 
 ### Confirmation
 

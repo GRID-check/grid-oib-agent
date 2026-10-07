@@ -1,7 +1,7 @@
 /**
  * Which aiq-agent address the chat WebSocket proxy in `server.js` dials.
  *
- * Two modes, picked by `GRID_CHAT_AFFINITY` (ADR-0079), on by default:
+ * Two modes, picked by `GRID_CHAT_AFFINITY` (ADR-0080), on by default:
  *
  * - **Affinity on** (ADR-0028): a stable hash of the conversation id picks one
  *   replica's own DNS name, `aiq-agent-<i>.aiq-agent-headless`, so a

@@ -22,7 +22,7 @@ are. The BFF decided that (ADR-0003, ADR-0007). Anything that needs to *decide*
 access belongs in the BFF, not here.
 
 **Job workers are claimed in the database, not assigned.** Both queues are
-tables on one claim, `aiq_agent.common.claim_queue` (ADR-0078): fewest running in
+tables on one claim, `aiq_agent.common.claim_queue` (ADR-0079): fewest running in
 the lane (the organization) fleet-wide first, then the lane served longest ago,
 then `interactive` before `bulk`, then oldest; a heartbeat, a reclaim of stale
 claims, `release_claims` on a drain (no attempt spent), and `dead` rows kept as a

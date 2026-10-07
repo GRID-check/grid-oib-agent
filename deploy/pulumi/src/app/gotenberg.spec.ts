@@ -153,7 +153,7 @@ describe("gotenberg", () => {
     const pol = await resolve(find(NETPOL, "gotenberg-frontend-only").inputs.spec);
     expect(pol.policyTypes).toEqual(["Ingress", "Egress"]);
     expect(pol.egress).toEqual([]);
-    // The pool converts the background office files (ADR-0078). Left out, every
+    // The pool converts the background office files (ADR-0079). Left out, every
     // Word and presentation upload fails with a green plan.
     expect(pol.ingress).toEqual([
       {
@@ -179,7 +179,7 @@ describe("gotenberg", () => {
   });
 
   /**
-   * The fleet-wide ceiling on background conversions (ADR-0078).
+   * The fleet-wide ceiling on background conversions (ADR-0079).
    *
    * Conversions are claimed from `bff_job_queue`, so the only fleet-wide bound is
    * arithmetic: how many `bff-jobs` pods KEDA may run, times how many files one

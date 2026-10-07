@@ -7,7 +7,7 @@ import { baseStackConfig } from "../test-support/stack-config";
 import { fallbackReplicas, queueDepthQuery } from "./keda-scaling";
 
 /**
- * KEDA across every ScaledObject (ADR-0078, phase 3).
+ * KEDA across every ScaledObject (ADR-0079, phase 3).
  *
  * Four tiers are scaled by it (`ingest-worker`, `agent-worker`, `bff-jobs` on
  * their queues, `aiq-agent` on running turns). What goes wrong here plans clean
@@ -335,7 +335,7 @@ describe("the program's ScaledObjects", () => {
       const table = (path: string[]) => read(...path).match(/^TABLE = "([a-z_]+)"$/m)?.[1];
       expect(table(["src", "aiq_agent", "knowledge", "ingest_queue.py"])).toBe("ingest_job_queue");
       expect(table(["frontends", "aiq_api", "src", "aiq_api", "jobs", "queue.py"])).toBe("research_job_queue");
-      expect(read("frontends", "ui", "drizzle", "0102_bff_job_queue.sql")).toContain('CREATE TABLE IF NOT EXISTS "bff_job_queue"');
+      expect(read("frontends", "ui", "drizzle", "0104_bff_job_queue.sql")).toContain('CREATE TABLE IF NOT EXISTS "bff_job_queue"');
     });
 
     it("exist before anything is granted: the grants Job creates them with the queues' own code, then grants", async () => {

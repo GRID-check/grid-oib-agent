@@ -7,7 +7,7 @@
  * the HTTP call and maps responses to typed errors:
  *   - 429 → SkippedError (with Retry-After) so the run is recorded as a
  *     `skipped` run and NOT retried before its next slot. With the research
- *     queue (ADR-0078) this is no longer capacity: a full cluster makes the job
+ *     queue (ADR-0079) this is no longer capacity: a full cluster makes the job
  *     WAIT (`queued: true` in the response), and the only 429 left is an
  *     organization whose own waiting queue is past its bound;
  *   - any other non-2xx / network failure → SubmitError → `error` run.

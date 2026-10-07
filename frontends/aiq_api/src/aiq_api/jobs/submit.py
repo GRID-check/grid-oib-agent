@@ -149,7 +149,7 @@ logger = logging.getLogger(__name__)
 # between them.
 #
 # What admission DOES differs by execution mode, because only one of them has a
-# queue (ADR-0078):
+# queue (ADR-0079):
 #
 # * `db`: capacity makes a job WAIT, never fail. The worker tier claims fairly
 #   across organizations and holds one organization to `GRID_MAX_ACTIVE_JOBS_PER_ORG`

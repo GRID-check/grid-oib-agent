@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * The claim loop of the `bff-jobs` pool (ADR-0078).
+ * The claim loop of the `bff-jobs` pool (ADR-0079).
  *
  * A replica claims jobs from `bff_job_queue` fairly across organizations
  * (`../job-queue.js`) and hands each to the BFF that runs in the SAME pod, one

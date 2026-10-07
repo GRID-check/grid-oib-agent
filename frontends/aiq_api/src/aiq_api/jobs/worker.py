@@ -1,4 +1,4 @@
-"""DB-claimed research worker (ADR-0021, ADR-0078).
+"""DB-claimed research worker (ADR-0021, ADR-0079).
 
 Run as a dedicated container: ``python -m aiq_api.jobs.worker``. It claims
 ``research_job_queue`` rows on the claim substrate (``aiq_agent.common.claim_queue``:

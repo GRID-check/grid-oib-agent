@@ -16,7 +16,7 @@ The hash makes the replica count part of the routing: changing it remaps live
 conversations, so `BACKEND_REPLICAS` is a static environment value, the tier
 cannot autoscale, and prod runs one replica behind a fleet-wide cap of 24
 active turns (`turn_admission.py`). For thousands of offices this is the
-ceiling, ahead of any worker tier (ADR-0078).
+ceiling, ahead of any worker tier (ADR-0079).
 
 ADR-0028 also built the way out, and it is on by default
 (`GRID_CONVERSATION_BUS=1`): the conversation bus
@@ -126,7 +126,7 @@ Chosen option 3.
 
 * Completes the rollout ADR-0028 describes ("remove affinity from `server.js`").
 * ADR-0020 (Dragonfly is cache-only), ADR-0039 (spectators on the bus),
-  ADR-0078 (claim substrate), ADR-0080 (provider limiter).
+  ADR-0079 (claim substrate), ADR-0081 (provider limiter).
 * Open gap: a check against a real Dragonfly for the multi-replica path, run in
   CI or as a dev-cluster smoke test.
 * Where it lives: the BFF's routing rule is `frontends/ui/src/lib/proxy/backend-target.js`;

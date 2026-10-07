@@ -6,7 +6,7 @@ import * as pulumi from "@pulumi/pulumi";
 import { baseStackConfig } from "../test-support/stack-config";
 
 /**
- * The chat tier's scale-out (ADR-0079).
+ * The chat tier's scale-out (ADR-0080).
  *
  * What goes wrong here plans clean and deploys green:
  *   - A ScaledObject whose URL, field or header drifted from the Python route

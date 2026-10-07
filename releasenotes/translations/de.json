@@ -312,6 +312,10 @@
     "de": "Eine Frage nach einer ganzen Richtlinie wie „Was weißt du über die OIB 2?“ beantwortet Piloti jetzt aus einem Suchlauf über alle vorhandenen Teile: je Teil der Geltungsbereich als zitierfähige Passage, darunter dessen Gliederung."
   },
   {
+    "en": "A question about building regulations no longer comes back empty just because a document was open beside the chat. Only the file you chose with \"Asking about this file\" narrows the search now, and when a search in that file finds nothing on a regulation question, Piloti searches the guidelines again without it.",
+    "de": "Eine Frage zu Bauvorschriften liefert keine leeren Ergebnisse mehr, nur weil neben dem Chat ein Dokument geöffnet war. Nur die Datei, die Sie über „Fragen zu dieser Datei“ ausgewählt haben, schränkt die Suche jetzt ein. Findet die Suche in dieser Datei bei einer Frage zu Vorschriften nichts, durchsucht Piloti die Richtlinien erneut ohne diese Einschränkung."
+  },
+  {
     "en": "A question about several paragraphs, such as „§§ 3 bis 8“, now reads up to six of them in one step instead of only the first.",
     "de": "Bei einer Frage zu mehreren Paragraphen, etwa „§§ 3 bis 8“, werden jetzt bis zu sechs in einem Schritt gelesen statt nur der erste."
   },
@@ -480,12 +484,24 @@
     "de": "Administratorinnen und Administratoren können wieder Kolleginnen und Kollegen in ein Projekt einladen. Bei einigen Administratorrollen schlug die Einladung fehl."
   },
   {
+    "en": "After a thumbs-down you can now say what a good answer should have contained, for example the value and the guideline it comes from. The field is optional and is sent together with your note.",
+    "de": "Nach einer Bewertung mit Daumen nach unten können Sie jetzt angeben, was eine gute Antwort enthalten hätte, zum Beispiel den Wert und die Richtlinie, aus der er stammt. Das Feld ist optional und wird zusammen mit Ihrer Notiz gesendet."
+  },
+  {
+    "en": "After a thumbs-down, the note field now opens straight away, so you can say what went wrong without first picking a reason.",
+    "de": "Wenn Sie auf den Daumen nach unten klicken, öffnet sich das Notizfeld jetzt sofort. So können Sie beschreiben, was schiefgelaufen ist, ohne zuerst einen Grund auszuwählen."
+  },
+  {
     "en": "After creating an organization, a short tour walks through the project overview, and after the first project a second tour shows Frag Piloti, Dateien, the Archiv and how answers show their sources. Both can be skipped and restarted from the account menu.",
     "de": "Nach dem Anlegen einer Organisation führt eine kurze Tour durch die Projektübersicht, nach dem ersten Projekt zeigt eine zweite Tour Frag Piloti, Dateien, das Archiv und wie Antworten ihre Quellen zeigen. Beide lassen sich überspringen und über das Kontomenü neu starten."
   },
   {
     "en": "After you answer a clarifying question, a note at the bottom of the chat now shows that Piloti is still working. The chat used to look finished while the answer was still coming.",
     "de": "Nachdem Sie eine Rückfrage beantwortet haben, zeigt ein Hinweis unten im Chat jetzt, dass Piloti weiterarbeitet. Bisher wirkte der Chat fertig, obwohl die Antwort noch kam."
+  },
+  {
+    "en": "After you mark an answer as not helpful, \"Answer again, more thoroughly\" asks the same question again with more reasoning effort for that one answer. Your chat's effort setting stays as it was.",
+    "de": "Nachdem Sie eine Antwort als nicht hilfreich markiert haben, wird mit „Antwort erneut, ausführlicher“ dieselbe Frage noch einmal gestellt – mit mehr Denkaufwand für diese Antwort. Die Denkaufwandseinstellung Ihres Chats bleibt unverändert."
   },
   {
     "en": "Almost every answer now opens with a one- or two-sentence summary of the result and its decisive limitation, right under the verdict when there is one.",
@@ -594,6 +610,10 @@
   {
     "en": "Answers in chat arrive sooner: Piloti now prepares its project memory, feedback lessons and settings at the same time instead of one after another.",
     "de": "Antworten im Chat kommen früher: Piloti lädt Projektgedächtnis, Hinweise aus dem Feedback und Einstellungen jetzt gleichzeitig statt nacheinander."
+  },
+  {
+    "en": "Answers no longer occasionally end in a block of raw technical data after the list of sources.",
+    "de": "Antworten enden nach der Quellenliste nicht mehr gelegentlich mit einem Block aus Rohdaten."
   },
   {
     "en": "Answers no longer show source references that were removed during safety checks, and interactive answer cards stay in place even when one card cannot be displayed.",
@@ -1644,6 +1664,10 @@
     "de": "Wer die Seite neu lädt, während Piloti noch antwortet, sieht die Antwort jetzt nur einmal, statt den unfertigen Anfang über der vollständigen Antwort."
   },
   {
+    "en": "Renaming or moving a folder that has subfolders no longer fails with an error.",
+    "de": "Beim Umbenennen oder Verschieben eines Ordners mit Unterordnern tritt kein Fehler mehr auf."
+  },
+  {
     "en": "Replaced versions keep their files and count towards your organization's storage quota.",
     "de": "Ersetzte Fassungen behalten ihre Dateien und zählen weiter auf das Speicherkontingent Ihrer Organisation."
   },
@@ -1808,8 +1832,16 @@
     "de": "Der Menüpunkt „Archiv“ ist nicht mehr im Profilmenü. Über die Seitenleiste und den Organisationsheader ist er weiterhin mit einem Klick erreichbar."
   },
   {
+    "en": "The Archiv now has folders, just like a project's files: create, rename, move and delete them, drop in a whole folder structure, and move documents between them. Deleting a folder never deletes what was in it, and Piloti knows which folder a document is in.",
+    "de": "Das Archiv hat jetzt Ordner, wie bei den Dateien eines Projekts: Sie können Ordner erstellen, umbenennen, verschieben und löschen, eine ganze Ordnerstruktur hochladen und Dokumente zwischen Ordnern verschieben. Beim Löschen eines Ordners bleiben die darin enthaltenen Inhalte erhalten, und Piloti weiß, in welchem Ordner sich ein Dokument befindet."
+  },
+  {
     "en": "The Archiv's Schnitt filter now says Schnitt / Ansicht, as in Dateien, because it also finds elevations.",
     "de": "Der Schnitt-Filter im Archiv heißt jetzt wie in Dateien „Schnitt / Ansicht“, da er auch Ansichten findet."
+  },
+  {
+    "en": "The Archiv's file list now offers the same filters as a project's, so archived files can be shown again and files written by Piloti can be told apart from your team's.",
+    "de": "Die Dateiliste im Archiv bietet jetzt dieselben Filter wie die eines Projekts. So können Sie archivierte Dateien wieder anzeigen und von Piloti erstellte Dateien von denen Ihres Teams unterscheiden."
   },
   {
     "en": "The Aufgaben list now stays current while it is visible and refreshes when you return to it, instead of showing the state from when the tab was opened. Early submission states also read as queued work rather than as raw technical labels.",
@@ -2284,6 +2316,10 @@
     "de": "Legt Piloti einen Entwurf ab, erstellt eine Aufgabe, stellt Dokumente zusammen oder schlägt etwas zum Merken vor, erscheinen die Karten jetzt, während die Antwort noch geprüft wird, statt alle erst ganz am Schluss."
   },
   {
+    "en": "When Piloti finds nothing to answer from, it no longer advises you to stop narrowing the question to one file unless you had actually chosen a file or shelf. If a search function is unavailable, it now says that instead.",
+    "de": "Wenn Piloti keine Antwort findet, rät es Ihnen nicht mehr, die Frage auf eine einzelne Datei einzugrenzen, es sei denn, Sie haben tatsächlich eine Datei oder Ablage ausgewählt. Ist eine Suchfunktion nicht verfügbar, weist Piloti jetzt darauf hin."
+  },
+  {
     "en": "When Piloti hands a question to deep research, it now says why in its own words, shown in the Herleitung.",
     "de": "Übergibt Piloti eine Frage an die Tiefenrecherche, sagt es jetzt in eigenen Worten, warum; der Grund steht in der Herleitung."
   },
@@ -2454,6 +2490,10 @@
   {
     "en": "You can now upload Excel workbooks, PowerPoint presentations, CSV files and WebP images. Answers cite the right sheet or slide rather than just the file.",
     "de": "Sie können jetzt Excel-Tabellen, PowerPoint-Präsentationen, CSV-Dateien und WebP-Bilder hochladen. Antworten verweisen auf das richtige Arbeitsblatt oder die richtige Folie statt nur auf die Datei."
+  },
+  {
+    "en": "You can now upload a ZIP file to a project's files or to the Archiv. Piloti unpacks it and files everything into the folders it contains, asking first about files that are already there, just as it does when you drop a folder.",
+    "de": "Sie können jetzt eine ZIP-Datei in die Projektdateien oder ins Archiv hochladen. Piloti entpackt sie und legt die Dateien in den darin enthaltenen Ordnern ab. Bei Dateien, die bereits vorhanden sind, fragt Piloti zuerst nach – genau wie beim Ablegen eines Ordners."
   },
   {
     "en": "You can preview the report as a PDF before you download it, in a panel you can drag as wide as you need. What you see is the document you get.",

@@ -127,7 +127,7 @@ so scheduled runs — which have no live user JWT — still get:
 - **admission control**: org/global active-job caps apply; a 429 is recorded
   as a `skipped` run with the reason, and the occurrence is *not* retried
   until its next scheduled slot (no thundering herd against the caps). Since
-  ADR-0078 the DB-claimed queue waits instead of refusing for capacity, so a
+  ADR-0079 the DB-claimed queue waits instead of refusing for capacity, so a
   scheduled fire is `queued`, not `skipped`; only an organization's waiting
   queue past its bound still refuses;
 - **cost tracking**: the usage ledger attributes scheduled-run spend to the

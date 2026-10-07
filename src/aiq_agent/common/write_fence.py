@@ -1,6 +1,6 @@
 """The write fence: how a chat turn stops writing its conversation once it may no longer own it.
 
-With conversation affinity off (ADR-0079) a conversation's turns can run on
+With conversation affinity off (ADR-0080) a conversation's turns can run on
 different replicas, and one turn at a time is kept by a marker in Dragonfly
 that the running turn renews. A turn that loses the marker without noticing
 (a renewal task that never ran, Dragonfly unreachable from this replica) would

@@ -112,7 +112,7 @@ project and by file name, and the endpoint resolves them.
   is capped at 250 MB (`BIM_MAX_IFC_BYTES`) and 200 000 persisted elements
   (`BIM_ELEMENT_LIMIT`); the counts stay exact past the cap, the element rows
   stop. It was a detached promise in the upload's pod, where a restart mid-parse
-  left the document at `processing` and the model at `extracting`. ADR-0078
+  left the document at `processing` and the model at `extracting`. ADR-0079
   moved it to a `bim_extract` job on the `bff-jobs` pool: a restart gives the
   claim back and another worker parses the model again.
 - **The digest is a summary, not a serialization.** Per-element rows are in

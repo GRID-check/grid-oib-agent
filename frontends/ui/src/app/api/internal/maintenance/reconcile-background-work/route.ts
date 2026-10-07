@@ -1,6 +1,6 @@
 /**
  * INTERNAL sweep — recover the background work a restart or a dead job left
- * half-done (ADR-0078):
+ * half-done (ADR-0079):
  *
  *   - documents stranded at `processing`, whose IFC extraction or office
  *     conversion job is gone or dead (`lib/documents/stuck-processing.ts`);

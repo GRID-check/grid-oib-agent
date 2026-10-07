@@ -356,7 +356,7 @@ describe('tick', () => {
 
     expect(fired).toBe(0)
     expect(sql.begin).not.toHaveBeenCalled()
-    // The runs, then the documents stranded at `processing` (ADR-0078).
+    // The runs, then the documents stranded at `processing` (ADR-0079).
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       'http://frontend:3000/api/internal/runs/reconcile',
       'http://frontend:3000/api/internal/maintenance/reconcile-background-work',

@@ -408,7 +408,7 @@ export const GOTENBERG = {
 
 /**
  * The read-only Postgres login KEDA's `postgresql` scaler counts the queues with
- * (ADR-0078). It is the one name the Cluster's managed roles, the grants Job and
+ * (ADR-0079). It is the one name the Cluster's managed roles, the grants Job and
  * the DSNs in `grid-secrets` must agree on. Its password is
  * `postgres.scalerPassword` (`config.ts`).
  */

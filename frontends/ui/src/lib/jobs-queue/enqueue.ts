@@ -1,5 +1,5 @@
 /**
- * Hand work to the `bff-jobs` pool (ADR-0078).
+ * Hand work to the `bff-jobs` pool (ADR-0079).
  *
  * The door a service uses to turn a long request into a job: it does its own
  * authorization first, then enqueues and answers 202 with the job id. What runs

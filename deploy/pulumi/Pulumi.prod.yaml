@@ -264,7 +264,7 @@ config:
 
   # jobs, scaling the token-heavy workload horizontally. Requires chromaEnabled.
   grid-oib:jobExecution: db
-  # KEDA scales the tier on research_job_queue (ADR-0078); one worker stays warm.
+  # KEDA scales the tier on research_job_queue (ADR-0079); one worker stays warm.
   grid-oib:agentWorkerMinReplicas: "1"
   grid-oib:agentWorkerMaxReplicas: "3"
   grid-oib:agentWorkerConcurrency: "1"
@@ -433,7 +433,7 @@ config:
   grid-oib:langfuseProjectId: grid-oib
   grid-oib:otelOidcIssuer: https://prestigious-energy-03.authkit.app
   grid-oib:otelOidcClientId: client_01M0SKKRX0XAQ99AFZ31WNJ6XT # pragma: allowlist secret (public OAuth client id)
-  # ── BFF background pool (ADR-0078) ──
+  # ── BFF background pool (ADR-0079) ──
   # Internal replicas of the frontend image claim bff_job_queue fairly across
   # organisations and run project reindex and failed-ingestion rescan jobs, IFC
   # extraction, office conversion and report filing in their own BFF, so that
@@ -451,13 +451,13 @@ config:
   # SIGTERM budget to finish the slice in hand; the claim is then given back
   # without costing an attempt. The pod's grace period is this plus 30 s.
   grid-oib:bffJobsDrainSeconds: "60"
-  # Chat tier scale-out (ADR-0079). Affinity stays on and the ceiling at the floor
+  # Chat tier scale-out (ADR-0080). Affinity stays on and the ceiling at the floor
   # until the cross-replica path (reconnect, clarifier answer, cancel, supersede, a
   # replica draining mid-turn) is validated on the dev cluster with affinity off and
   # at least two replicas. Flip these two together, never one.
   grid-oib:chatAffinity: "true"
   grid-oib:backendMaxReplicas: "1"
-  # ── Provider budget (ADR-0076, ADR-0080) ──
+  # ── Provider budget (ADR-0076, ADR-0081) ──
   # What the one OpenRouter key is asked to carry, written down here instead of
   # left to the backend image's defaults (these ARE those defaults). Vision calls
   # are held to vlmFleetConcurrency fleet-wide whatever the replica count, so the

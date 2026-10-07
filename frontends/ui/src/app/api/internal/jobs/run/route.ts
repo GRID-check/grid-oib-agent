@@ -1,6 +1,6 @@
 /**
  * INTERNAL job slice — what the `bff-jobs` runner asks of the BFF in its own
- * pod, once per slice of a claimed job (ADR-0078).
+ * pod, once per slice of a claimed job (ADR-0079).
  *
  * The runner is plain Node with no build step, so it cannot import the
  * services a job calls; it claims from `bff_job_queue`, then POSTs here with

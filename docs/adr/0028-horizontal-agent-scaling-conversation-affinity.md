@@ -90,7 +90,7 @@ is: (1) live-validate cross-replica reconnect + HITL on a real cluster;
 election (`SET NX EX` on `conv:<id>:owner`) then prevents two replicas running
 one conversation.
 
-**Update (ADR-0079).** Step (2) is built behind `GRID_CHAT_AFFINITY` (on by
+**Update (ADR-0080).** Step (2) is built behind `GRID_CHAT_AFFINITY` (on by
 default, so routing is unchanged until it is switched off): the gateway routes
 to the Service, and one running turn per conversation is held by
 `conv:<id>:running` (the running-turn marker) instead of `conv:<id>:owner`.
