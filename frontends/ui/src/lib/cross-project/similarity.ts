@@ -17,7 +17,8 @@ import type { Project } from '@/lib/db/schema'
 export interface SimilarityFacts {
   bundesland: string | null
   gebaeudeklasse: number | null
-  bauweise: string | null
+  /** A multi-select in the intake (a hybrid is „holzbau" and „stahlbeton"). */
+  bauweise: readonly string[]
   nutzungen: readonly string[]
   vorhabensart: string | null
 }
@@ -39,9 +40,17 @@ function gebaeudeklasse(value: unknown): number | null {
   return match ? Number(match[1]) : null
 }
 
+/** The intake's „noch offen": an answer that says nothing about the building. */
+const UNDECIDED = 'offen'
+
+/** A single value or a multi-select's list, as tokens, „offen" left out. */
 function tokens(value: unknown): string[] {
   const list = Array.isArray(value) ? value : [value]
-  return list.map(token).filter((entry): entry is string => entry !== null)
+  return list.map(token).filter((entry): entry is string => entry !== null && entry !== UNDECIDED)
+}
+
+function overlap(a: readonly string[], b: readonly string[]): string[] {
+  return a.filter((entry) => b.includes(entry))
 }
 
 /** The facts of one profile the ranking reads; missing or malformed facts read as unknown. */
@@ -49,7 +58,7 @@ export function similarityFacts(profile: Profile): SimilarityFacts {
   return {
     bundesland: token(factValue(profile, 'bundesland')),
     gebaeudeklasse: gebaeudeklasse(factValue(profile, 'gebaeudeklasse')),
-    bauweise: token(factValue(profile, 'bauweise')),
+    bauweise: tokens(factValue(profile, 'bauweise')),
     nutzungen: tokens(factValue(profile, 'nutzungen')),
     vorhabensart: token(factValue(profile, 'vorhabensart')),
   }
@@ -76,22 +85,30 @@ export function similarity(current: SimilarityFacts, candidate: SimilarityFacts)
     if (distance === 0) score += w.gebaeudeklasse
     else if (distance === 1) score += w.gebaeudeklasseAdjacent
   }
-  if (current.bauweise && current.bauweise === candidate.bauweise) score += w.bauweise
-  const shared = current.nutzungen.filter((use) => candidate.nutzungen.includes(use)).length
+  if (overlap(current.bauweise, candidate.bauweise).length > 0) score += w.bauweise
+  const shared = overlap(current.nutzungen, candidate.nutzungen).length
   score += Math.min(shared * w.nutzung, w.nutzungMax)
   if (current.vorhabensart && current.vorhabensart === candidate.vorhabensart) score += w.vorhabensart
   return score
 }
 
-/** What the facts have in common, as short German labels for the brief („NÖ, GK 4, Holzbau"). */
-export function sharedTraits(current: SimilarityFacts, candidate: SimilarityFacts): string[] {
-  const traits: string[] = []
-  if (current.bundesland && current.bundesland === candidate.bundesland) traits.push(candidate.bundesland)
-  if (current.gebaeudeklasse !== null && current.gebaeudeklasse === candidate.gebaeudeklasse) {
-    traits.push(`GK ${candidate.gebaeudeklasse}`)
+/** A fact two projects share, by profile key and token (the Gebäudeklasse as its number). */
+export interface SharedTrait {
+  key: 'bundesland' | 'gebaeudeklasse' | 'bauweise' | 'nutzungen'
+  value: string
+}
+
+/** What the facts have in common, in the order the ranking weighs them. */
+export function sharedTraits(current: SimilarityFacts, candidate: SimilarityFacts): SharedTrait[] {
+  const traits: SharedTrait[] = []
+  if (current.bundesland && current.bundesland === candidate.bundesland) {
+    traits.push({ key: 'bundesland', value: candidate.bundesland })
   }
-  if (current.bauweise && current.bauweise === candidate.bauweise) traits.push(candidate.bauweise)
-  for (const use of current.nutzungen) if (candidate.nutzungen.includes(use)) traits.push(use)
+  if (current.gebaeudeklasse !== null && current.gebaeudeklasse === candidate.gebaeudeklasse) {
+    traits.push({ key: 'gebaeudeklasse', value: String(candidate.gebaeudeklasse) })
+  }
+  for (const value of overlap(current.bauweise, candidate.bauweise)) traits.push({ key: 'bauweise', value })
+  for (const value of overlap(current.nutzungen, candidate.nutzungen)) traits.push({ key: 'nutzungen', value })
   return traits
 }
 

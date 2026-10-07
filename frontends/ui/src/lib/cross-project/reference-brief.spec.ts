@@ -56,22 +56,23 @@ const closed = (index: number, extra: Partial<Project> = {}, facts: Record<strin
 
 describe('renderReferenceBrief', () => {
   it('lists only closed projects, never the current one, most alike first, with what they share', () => {
-    const current = closed(1, {}, { bundesland: 'Niederösterreich', gebaeudeklasse: 4 })
+    const current = closed(1, {}, { bundesland: 'niederoesterreich', gebaeudeklasse: 4 })
     const brief = renderReferenceBrief(current, [
       current,
-      project(2, {}, { bundesland: 'Niederösterreich', gebaeudeklasse: 4 }),
-      closed(3, { startedOn: '2018-03-01', endedOn: '2020-11-01' }, { bundesland: 'Wien', gebaeudeklasse: 4 }),
+      project(2, {}, { bundesland: 'niederoesterreich', gebaeudeklasse: 4 }),
+      closed(3, { startedOn: '2018-03-01', endedOn: '2020-11-01' }, { bundesland: 'wien', gebaeudeklasse: 4 }),
       closed(
         4,
         { profileDisplay: { title: 'P4', summary: 'Holzbau mit   Sicherheitstreppenhaus.', keyFacts: [], missingInfo: [] } },
-        { bundesland: 'Niederösterreich', gebaeudeklasse: 4, bauweise: 'Holzbau' }
+        { bundesland: 'niederoesterreich', gebaeudeklasse: 4, bauweise: ['holzbau', 'stahlbeton'], vorhabensart: 'neubau' }
       ),
     ])!
 
     const lines = brief.split('\n')
     expect(lines).toHaveLength(2)
     expect(lines[0]).toBe(
-      `- Projekt 4 (id ${project(4).id}): 2021, niederösterreich, GK 4, holzbau · gemeinsam: niederösterreich, GK 4 · Holzbau mit Sicherheitstreppenhaus.`
+      // The intake's own labels, not its tokens: what the reader saw in the wizard.
+      `- Projekt 4 (id ${project(4).id}): 2021, Niederösterreich, GK 4, Holzbau/Stahlbeton, Neubau · gemeinsam: Niederösterreich, GK 4 · Holzbau mit Sicherheitstreppenhaus.`
     )
     expect(lines[1]).toContain('Projekt 3')
     expect(lines[1]).toContain('2018–2020')

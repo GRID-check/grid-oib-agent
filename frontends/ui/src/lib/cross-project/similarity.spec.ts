@@ -26,7 +26,7 @@ function profile(facts: Record<string, unknown>): Profile {
 }
 
 const here = similarityFacts(
-  profile({ bundesland: 'Niederösterreich', gebaeudeklasse: 'GK 4', bauweise: 'Holzbau', nutzungen: ['Wohnen', 'Büro'] })
+  profile({ bundesland: 'niederoesterreich', gebaeudeklasse: 'GK 4', bauweise: ['holzbau'], nutzungen: ['wohnen', 'buero'] })
 )
 
 describe('similarityFacts', () => {
@@ -44,10 +44,18 @@ describe('similarityFacts', () => {
 describe('similarity', () => {
   it('weighs the same Bundesland above any single trait, and below class, construction and uses together', () => {
     const at = (facts: Record<string, unknown>) => similarity(here, similarityFacts(profile(facts)))
-    const sameLand = at({ bundesland: 'niederösterreich' })
+    const sameLand = at({ bundesland: 'niederoesterreich' })
     expect(sameLand).toBeGreaterThan(at({ gebaeudeklasse: 4 }))
-    expect(sameLand).toBeGreaterThan(at({ bauweise: 'holzbau' }))
-    expect(at({ gebaeudeklasse: 4, bauweise: 'holzbau', nutzungen: ['wohnen', 'büro'] })).toBeGreaterThan(sameLand)
+    expect(sameLand).toBeGreaterThan(at({ bauweise: ['holzbau'] }))
+    expect(at({ gebaeudeklasse: 4, bauweise: ['holzbau'], nutzungen: ['wohnen', 'buero'] })).toBeGreaterThan(sameLand)
+  })
+
+  it('reads the Bauweise as the multi-select it is: a hybrid shares its timber with a timber building', () => {
+    const at = (bauweise: unknown) => similarity(here, similarityFacts(profile({ bauweise })))
+    expect(at(['stahlbeton', 'holzbau'])).toBeGreaterThan(0)
+    expect(at(['stahlbeton'])).toBe(0)
+    // „noch offen" says nothing about the building, so two undecided projects share nothing.
+    expect(similarity(similarityFacts(profile({ bauweise: ['offen'] })), similarityFacts(profile({ bauweise: ['offen'] })))).toBe(0)
   })
 
   it('counts a neighbouring class a little and a distant one not at all', () => {
@@ -66,9 +74,13 @@ describe('similarity', () => {
 describe('sharedTraits', () => {
   it('names what the two have in common, for the catalog line', () => {
     const other = similarityFacts(
-      profile({ bundesland: 'Niederösterreich', gebaeudeklasse: 4, bauweise: 'Massivbau', nutzungen: ['Wohnen'] })
+      profile({ bundesland: 'niederoesterreich', gebaeudeklasse: 4, bauweise: ['stahlbeton'], nutzungen: ['wohnen'] })
     )
-    expect(sharedTraits(here, other)).toEqual(['niederösterreich', 'GK 4', 'wohnen'])
+    expect(sharedTraits(here, other)).toEqual([
+      { key: 'bundesland', value: 'niederoesterreich' },
+      { key: 'gebaeudeklasse', value: '4' },
+      { key: 'nutzungen', value: 'wohnen' },
+    ])
   })
 })
 
