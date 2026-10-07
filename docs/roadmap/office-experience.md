@@ -210,6 +210,93 @@ is the Projektabschlussgespräch offices intend and skip, made cheap.
 GPC01), so the debrief writes before the status flips. Also needed: a
 promotion card, and the decision schema.
 
+## Augmentation: three levels, not one search box
+
+"Cross-project search" undersells it. Piloti augments three things, and
+each one feeds the next.
+
+### Augment the archive: enrich it once, backwards, cheaply
+
+An office's archive is fifteen years of PDFs nobody has read twice. It
+contains everything above: Bescheide with Auflagen, Nachforderungen, Gutachten
+verdicts, details that were built. Augmenting it means annotating every
+document and page with what it IS and what it SAYS, as structured records that
+retrieval, statistics and surfaces can use. The annotation runs as a cascade,
+and each stage is paid only for what the stage before it let through:
+
+| Stage | Who | Asks | Cost shape |
+|---|---|---|---|
+| **Sieve** | Jev, one call per page | Is this a Bescheid? Does it set an Auflage? Is it a Nachforderung, a Gutachten's verdict, a construction detail? Which document role (`document_roles` has 13 and no writer today)? Which Bundesland, Bauweise, use? | Cents per project: $0.042 per million input tokens, so 100,000 pages at ~1,000 tokens cost about $4 |
+| **Pen** | A generative model, only on what the sieve flagged at 0.8 or above | Extract the Auflage's text, the demanded Gutachten, the dates, the decision and its reasoning, the Gebäudeklasse from the Einreichplan's heights and floors | The expensive call runs on a few percent of pages |
+| **Judge** | A person, in one table per project or in the closing debrief | Confirm, correct, reject | Minutes per project. Confirmed beats suggested everywhere downstream |
+
+The annotations are versioned: model, threshold and date per record. A better
+model re-runs the sieve over the archive overnight, and a person's
+confirmation is never overwritten. This is what makes "bring your last ten
+years" a first-week offer rather than a consulting project.
+
+### Augment the work: experience at every step, not only when asked
+
+Chat is one surface. The same experience belongs wherever a planner decides:
+
+* **Drafting** an Einreichung or a Baubeschreibung: „Mödling verlangte 2022 und
+  2024 an dieser Stelle einen Nachweis der Fluchtwegbreite."
+* **The Einreichcheck**: the norm's checklist, plus this office's own
+  Nachforderungen for comparable projects at this Behörde.
+* **Reviewing a plan or an IFC model**: a detail that was rejected before is
+  flagged where it appears again.
+* **Project start, tenders, the closing**: capabilities 2, 5 and 6 above.
+
+Every one of these surfaces only ADDS. A precedent never hides a norm, never
+blocks a step, and always names its project, year and edition.
+
+### Augment the people: the office's heads, written down
+
+* **The closing debrief** turns the Projektabschlussgespräch into ten minutes of
+  confirming what Piloti drafted, including the why that Staab says a detail
+  database lacks.
+* **A new colleague** asks „Wie macht unser Büro das?" and gets the office's
+  answer with its projects, not the internet's.
+* **Who knows** stays a link to the Steckbrief, never model context
+  (ADR-0083). The office can see who solved what. The model cannot use it to
+  profile people.
+
+## Where Jev fits
+
+Jev (TypeSafe's decision model, ADR-0064) answers typed questions about a
+state: yes/no, a choice of up to 255, a level on a rubric. It answers in under
+a second, with a probability, for almost nothing. That is the exact shape of
+most of the augmentation work, which is why it matters more here than anywhere
+else in Piloti. Its documented limits decide what it may NOT do.
+
+| Use | Jev's question | Rule it obeys |
+|---|---|---|
+| **The archive sieve** (above) | Per page: Bescheid? Auflage? Nachforderung? Gutachten verdict? Detail? Document role? | Labels only, acted on at 0.8 or above, like ingestion tags (ADR-0064 use 4). The pen and the person decide content |
+| **Closed vocabularies of a project** | Choice: Bundesland, Bauweise, use, kind of work, a Bescheid's outcome (bewilligt / mit Auflagen / abgewiesen) | Writes *suggested* facts, never confirmed ones |
+| **The turn decision** | Add `referenz` to the corpus choice of ADR-0064 use 1, plus a noul: "has a comparable project likely faced this decision?" | Only ADDS a round-0 prefetch of the similar projects' search beside the project's own. The tool stays bound whatever it says |
+| **Precedent verdicts** | Per hit: "does this passage show how a comparable decision was solved?" | The same sufficiency judge as use 2, over reference hits. It decides whether to page on, never what the reader may see |
+| **Fit of a reference to a question** | Rank by fingerprint, then one "fits this question" noul per candidate (TypeSafe's own rank-then-verify cookbook) | Reorders the catalog and the `similar` scope; drops nothing |
+| **The compounding loop** | Are these two decisions the same solution? Does this Bescheid contradict that office standard? | Proposes a promotion or flags a conflict for a person; never promotes itself |
+
+What Jev must never do here:
+* **Decide access.** The BFF does, by the audience rule.
+* **Count, compute durations or compare dates.** It cannot. Approval
+  durations, „6 von 8" and edition drift are code over extracted fields.
+* **Derive a Gebäudeklasse.** That needs heights and floors: the pen's job, or
+  arithmetic.
+* **Withhold.** A wrong verdict may cost a fetch, never a source.
+
+Three risks need a mitigation before it reads archives:
+* **German.** The vendor warns of lower accuracy outside English. Each sieve
+  question is measured on a golden set of real Austrian Bescheide and plans
+  before its threshold is set.
+* **Hostile text in the state.** An archive page is untrusted input. Its labels
+  steer nothing but more reading, and the injection noul of use 2 runs on it
+  too.
+* **ZDR offices and the alpha endpoint.** Where Jev cannot be used, the same
+  questions run on a small generative model at a higher cost. The pipeline
+  does not depend on Jev, it is only cheaper with it.
+
 ## The data problem is the product problem
 
 Every capability above is bounded by the data. Data for past projects is
@@ -268,8 +355,8 @@ in smarter retrieval but in **turning an office's archive into experience**:
 | Step | Delivers | Unblocks |
 |---|---|---|
 | **0 (done)** | Access model, lookup, catalog, similarity | — |
-| **1 Archiv-Import + fingerprint extraction** | Fifteen years of projects as closed, searchable, ranked projects; `gebaeudeklasse` gets a writer; Erfahrungsdichte | Every later step has data |
-| **2 Permitting memory** | Bescheide and Nachforderungen: dates, Auflagen, demanded Gutachten extracted per project; Gemeinde resolved; the Einreichcheck seeded with the office's own Nachforderungen | The strongest, uncontested case: fewer Nachforderungen, months saved |
+| **1 Archiv-Import + the sieve** | Fifteen years of projects as closed, searchable, ranked projects. Every page annotated by the Jev sieve; fingerprints extracted by the pen and confirmed; `gebaeudeklasse` and `document_roles` get writers; Erfahrungsdichte. First: a German golden set for the sieve | Every later step has data |
+| **2 Permitting memory** | Bescheide and Nachforderungen: dates, Auflagen, demanded Gutachten extracted per project (sieve, then pen); Gemeinde resolved; the Einreichcheck seeded with the office's own Nachforderungen; the turn decision gains `referenz` | The strongest, uncontested case: fewer Nachforderungen, months saved |
 | **3 Closing debrief** | Every project that closes leaves a confirmed fingerprint, decisions, lessons and the why | Decisions accumulate without extra work |
 | **4 Entscheidungen** | A decision schema; harvested from memory, cards, reviews and Bescheide; retrieved before passages; answers split into Norm / Büro / Präzedenz with edition drift | „Wie haben wir das gelöst" answered with outcomes |
 | **5 Projektstart mit Erfahrung** | Similar projects, typical Auflagen, Gutachten and durations at project creation | Experience reaches people who did not ask |
