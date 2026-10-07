@@ -368,3 +368,15 @@ class TestTheBuildingModelToolsNeedAProject:
             "ifc_measure",
             "read_passage",
         ]
+
+
+def test_the_catalog_is_counted_by_its_project_lines_not_its_tail():
+    from aiq_agent.agents.piloti.register import reference_project_count
+
+    catalog = (
+        "- Holzwohnbau Baden (id b1): 2020–2022, Niederösterreich\n"
+        "- Wohnhausanlage Mödling (id c1): 2019–2021\n"
+        "- … und 4 weitere abgeschlossene Projekte, über `project_lookup` auffindbar."
+    )
+    assert reference_project_count(catalog) == 2
+    assert reference_project_count(None) == 0
