@@ -348,6 +348,17 @@ although no model call shows it. The report adds each kind of check over every r
 and after any change to the lookup, the catalog, the similarity or the prompt
 around them.
 
+**What the fixture's search is not.** `fixture_bff.py` matches words, not
+meaning: a document is served when a quarter of the query's words begin one
+of its words. It is precise and it misses German compounds, so
+„Traufausbildung Traufdetail" does not find „Traufe" and `traufe-frueher`
+fails `cites` on a turn that looked well. Before reading a failed `cites` as
+the agent's, check `requests.jsonl`: a search that was served nothing is the
+fixture's miss. Weighting words by rarity was tried (7 Oct 2026) and traded
+one question's recall for another's; the fix is to serve the fixture's
+passages from the real knowledge layer over the scratch corpus, not a better
+matcher here.
+
 **From a down-vote to a case.** Every down-voted answer can become a case, so a
 failure users reported cannot return unnoticed. Export the feedback CSV and run
 `.venv/bin/python scripts/feedback_to_cases.py feedback.csv --out /tmp/draft.yaml`:
