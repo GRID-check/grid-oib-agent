@@ -84,22 +84,16 @@ export const platform = {
     bulkDelete: 'Remove',
     bulkDeleteTitle: 'Remove {count, plural, one {# document} other {# documents}}?',
     bulkDeleteDescription:
-      'Uploaded documents are deleted together with all of their indexed content; documents shipped with the corpus are excluded from it and will not be re-ingested on the next sync. Answers can no longer ground on any of them.',
+      'The documents are deleted together with their stored files and all of their indexed content. Answers can no longer ground on any of them. Uploading a file again adds it back.',
     bulkDeleteConfirm: 'Remove {count, plural, one {# document} other {# documents}}',
     bulkDeleteDone: '{count, plural, one {# document} other {# documents}} removed',
     bulkDeleteFailed:
       '{count, plural, one {# document could} other {# documents could}} not be removed',
     // Detail sheet.
     detailClose: 'Close',
-    detailOrigin: 'Origin',
     detailChunks: 'Indexed sections',
     detailSize: 'Size',
     detailIngestedAt: 'Indexed on',
-    origin: {
-      corpus: 'Shipped with the corpus',
-      uploaded: 'Uploaded',
-      index_only: 'Index only — no source file',
-    },
     // Empty state.
     emptyTitle: 'No base documents yet',
     emptyDescription:
@@ -897,18 +891,11 @@ export const platform = {
     delete: 'Remove',
     deleteTitle: 'Remove {name}?',
     deleteDescription:
-      'This deletes the uploaded PDF, its registry entry, and all of its indexed content. Chats can no longer ground on it.',
+      'This deletes the PDF and all of its indexed content. Chats can no longer ground on it. Uploading the file again adds it back.',
     deleteConfirm: 'Remove document',
     deleteCancel: 'Cancel',
     deleteSuccess: '{name} removed from the base corpus',
     deleteFailed: 'Could not remove {name}',
-    // Removing a repo-shipped base document (excluded from the active corpus).
-    corpusDelete: 'Remove from corpus',
-    corpusDeleteTitle: 'Remove {name} from the corpus?',
-    corpusDeleteDescription:
-      'This removes a shipped base law from the active corpus: its indexed content is deleted and it will not be re-ingested on the next sync. Piloti will no longer check answers against it.',
-    corpusDeleteConfirm: 'Remove from corpus',
-    corpusDeleteSuccess: '{name} removed from the corpus',
     loadError: 'The knowledge base could not be loaded.',
     retry: 'Try again',
     chunkCount: '{count} chunks',

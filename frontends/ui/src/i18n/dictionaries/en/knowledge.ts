@@ -37,20 +37,15 @@ export const knowledge = {
     ingested: 'Indexed',
     stale: 'Outdated',
     pending: 'Not indexed yet',
-    snapshot: 'Indexed (no original)',
-    removed: 'Source removed',
+    removed: 'Not in corpus',
     inconsistent: 'Index missing',
   },
   stateHints: {
     ingested: 'Fully searchable by the assistant.',
-    stale: 'The file changed on disk since it was indexed; answers still reflect the previous version until the next sync.',
+    stale: 'The file was replaced since it was indexed; answers still reflect the previous version until the next sync.',
     pending: 'Uploaded but not processed yet — the assistant cannot use it until the next sync completes.',
-    snapshot: 'Taken from a prepared set; fully searchable, but the source PDF is not stored on this server.',
-    removed: 'The source file was removed; indexed content may still be retrievable until cleanup.',
+    removed: 'The corpus no longer lists this document, but its indexed content is still searchable. Delete it to clear it.',
     inconsistent: 'Recorded as processed but no searchable content was found. Re-run the sync.',
-  },
-  origin: {
-    uploaded: 'Uploaded',
   },
   viewer: {
     view: 'View PDF',

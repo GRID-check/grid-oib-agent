@@ -53,7 +53,6 @@ interface KnowledgeBasePanelProps {
 /** Badge color per corpus state — success only when the RAG really knows it. */
 const STATE_VARIANT: Record<KnowledgeFileState, 'success' | 'info' | 'warning' | 'destructive' | 'secondary'> = {
   ingested: 'success',
-  snapshot: 'success',
   pending: 'info',
   stale: 'warning',
   removed: 'secondary',
@@ -104,7 +103,7 @@ function CorpusRow({ file, onView }: { file: KnowledgeFile; onView: (fileName: s
         <Badge variant={STATE_VARIANT[file.state]} title={t(`stateHints.${file.state}`)}>
           {t(`states.${file.state}`)}
         </Badge>
-        {file.origin !== 'index_only' && (
+        {file.state !== 'removed' && (
           <Button
             variant="ghost"
             size="icon"
@@ -229,9 +228,9 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
     ? status.summary.pending + status.summary.stale + status.summary.removed + status.summary.inconsistent
     : 0
   // "Indexed" = everything the assistant can actually search: verified corpus
-  // files, snapshot-restored corpus files, and successfully ingested project docs.
+  // files and successfully ingested project docs.
   const readyProjectDocs = documents.filter((doc) => documentStatusVariant(doc.status) === 'success').length
-  const indexed = status ? status.summary.ingested + status.summary.snapshot + readyProjectDocs : 0
+  const indexed = status ? status.summary.ingested + readyProjectDocs : 0
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:px-8">

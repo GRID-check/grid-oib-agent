@@ -78,7 +78,6 @@ import { formatBytes } from '@/lib/format'
 
 const STATE_VARIANT: Record<KnowledgeFileState, 'success' | 'info' | 'warning' | 'destructive' | 'secondary'> = {
   ingested: 'success',
-  snapshot: 'success',
   pending: 'info',
   stale: 'warning',
   removed: 'secondary',
@@ -86,7 +85,7 @@ const STATE_VARIANT: Record<KnowledgeFileState, 'success' | 'info' | 'warning' |
 }
 
 /** Sorting a status column alphabetically is useless; sort it by urgency. */
-const STATE_ORDER: KnowledgeFileState[] = ['inconsistent', 'stale', 'pending', 'ingested', 'snapshot', 'removed']
+const STATE_ORDER: KnowledgeFileState[] = ['inconsistent', 'stale', 'pending', 'ingested', 'removed']
 
 // Poll cadence + ceiling while a freshly-uploaded document ingests in the
 // background. 3.5s × 60 ≈ 3.5 minutes, then we stop and let the owner refresh.
@@ -481,7 +480,6 @@ export function BaseKnowledge() {
   const handleDelete = useCallback(() => {
     const names = [...pendingDelete]
     if (names.length === 0) return
-    const targets = names.map((name) => byName.get(name))
     setIsDeleting(true)
     // Optimistic: drop the rows immediately; the refetch in finally() reconciles
     // (and brings them back if a request failed).
@@ -505,10 +503,7 @@ export function BaseKnowledge() {
           if (failed > 0) {
             toast.error(t('knowledge.deleteFailed', { name: names[0] }))
           } else {
-            const isUploaded = targets[0]?.origin === 'uploaded'
-            toast.success(
-              t(isUploaded ? 'knowledge.deleteSuccess' : 'knowledge.corpusDeleteSuccess', { name: names[0] }),
-            )
+            toast.success(t('knowledge.deleteSuccess', { name: names[0] }))
           }
           return
         }
@@ -521,7 +516,7 @@ export function BaseKnowledge() {
         setSelected((prev) => prev.filter((name) => !names.includes(name)))
         void load()
       })
-  }, [pendingDelete, byName, load, t])
+  }, [pendingDelete, load, t])
 
   // Dokumentart filter options — the classes actually present, in canonical
   // order (OIB foundations first), each with a live count. Nothing invented.
@@ -1018,9 +1013,6 @@ export function BaseKnowledge() {
                                   <Badge variant={STATE_VARIANT[file.state]} title={tk(`stateHints.${file.state}`)}>
                                     {tk(`states.${file.state}`)}
                                   </Badge>
-                                  {file.origin === 'uploaded' && (
-                                    <Badge variant="outline">{tk('origin.uploaded')}</Badge>
-                                  )}
                                 </div>
                               </TableCell>
                               <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
@@ -1127,7 +1119,6 @@ export function BaseKnowledge() {
               </div>
 
               <dl className="flex flex-col gap-2 rounded-lg border border-border p-3 text-sm">
-                <DetailRow label={t('knowledgeAdmin.detailOrigin')} value={t(`knowledgeAdmin.origin.${detailFile.origin}`)} />
                 <DetailRow
                   label={t('knowledgeAdmin.detailChunks')}
                   value={detailFile.chunkCount > 0 ? tk('corpus.chunkCount', { count: detailFile.chunkCount }) : '—'}
@@ -1149,7 +1140,7 @@ export function BaseKnowledge() {
               )}
 
               <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-2">
-                {detailFile.origin !== 'index_only' && (
+                {detailFile.state !== 'removed' && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -1174,7 +1165,7 @@ export function BaseKnowledge() {
                   }}
                 >
                   <Trash2 className="size-3.5" aria-hidden />
-                  {detailFile.origin === 'uploaded' ? t('knowledge.delete') : t('knowledge.corpusDelete')}
+                  {t('knowledge.delete')}
                 </Button>
               </div>
             </>
@@ -1194,23 +1185,17 @@ export function BaseKnowledge() {
         title={
           deleteTargets.length > 1
             ? t('knowledgeAdmin.bulkDeleteTitle', { count: deleteTargets.length })
-            : deleteTargets[0]?.origin === 'uploaded'
-              ? t('knowledge.deleteTitle', { name: deleteTargets[0]?.fileName ?? '' })
-              : t('knowledge.corpusDeleteTitle', { name: deleteTargets[0]?.fileName ?? '' })
+            : t('knowledge.deleteTitle', { name: deleteTargets[0]?.fileName ?? '' })
         }
         description={
           deleteTargets.length > 1
             ? t('knowledgeAdmin.bulkDeleteDescription')
-            : deleteTargets[0]?.origin === 'uploaded'
-              ? t('knowledge.deleteDescription')
-              : t('knowledge.corpusDeleteDescription')
+            : t('knowledge.deleteDescription')
         }
         confirmLabel={
           deleteTargets.length > 1
             ? t('knowledgeAdmin.bulkDeleteConfirm', { count: deleteTargets.length })
-            : deleteTargets[0]?.origin === 'uploaded'
-              ? t('knowledge.deleteConfirm')
-              : t('knowledge.corpusDeleteConfirm')
+            : t('knowledge.deleteConfirm')
         }
         cancelLabel={t('knowledge.deleteCancel')}
         tone="destructive"
