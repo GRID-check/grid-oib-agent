@@ -84,6 +84,8 @@ export const runs = {
     cancel: 'Stop',
     writeNow: 'Write now',
     continue: 'Update report',
+    /** In place of „Update report“ in a closed project (ADR-0082): a run would file into it. */
+    continueClosed: 'Closed project: no new research',
   },
   /**
    * Stopping a run. The confirmation says what survives, because the fear that
