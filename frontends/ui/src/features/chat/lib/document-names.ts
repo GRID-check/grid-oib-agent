@@ -11,7 +11,7 @@
  * This module is the CLIENT mirror of that derivation, used as the fallback for
  * everything the wire does not label: pruned messages stored before the wire
  * carried titles, the `--- Result N ---` / URL fallback parsers, and uploads
- * that have no derived title at all (project/Büroarchiv PDFs).
+ * that have no derived title at all (project/Büroablage PDFs).
  *
  * Keep {@link oibDisplayTitle} in sync with `guess_display_title` in
  * `src/aiq_agent/common/norm_registry.py` — same inputs must yield the same

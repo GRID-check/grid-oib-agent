@@ -157,7 +157,7 @@ class TestRestrictScopeToTurn:
                 ScopedCollection("s_1", Shelf.SESSION),
             ]
             kept = [entry.collection for entry in _restrict_scope_to_turn(entries)]
-            # The Büroarchiv is still subtracted — that narrowing is what #429 asked for.
+            # The Büroablage is still subtracted — that narrowing is what #429 asked for.
             assert "archiv_org" not in kept
             assert set(kept) == {"s_1", "oib_knowledge"}
         finally:

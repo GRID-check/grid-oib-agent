@@ -284,7 +284,7 @@ function completedBeforeLabel(
  * `unterbrochen` is `settled` and not a third colour: there IS a report, only a
  * narrower one, and the line under the track is what says so. The palette holds
  * no further chroma family that is not a provenance source, and borrowing the
- * Büroarchiv gold for it would put an archive collision back as a colour.
+ * Büroablage gold for it would put an archive collision back as a colour.
  */
 function trackTone(status: RunStatus): StageTrackTone {
   switch (status) {

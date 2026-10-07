@@ -98,7 +98,7 @@ beforeEach(() => {
 })
 
 describe('ArchivWorkspace — library listing', () => {
-  it('loads the Archiv and renders the shared card grid with the gold Büroarchiv chip', async () => {
+  it('loads the Archiv and renders the shared card grid with the gold Büroablage chip', async () => {
     render(<ArchivWorkspace canManage />)
 
     expect(await screen.findByText('brandschutz-gutachten.pdf')).toBeInTheDocument()
@@ -106,7 +106,7 @@ describe('ArchivWorkspace — library listing', () => {
     // Real AI summary is surfaced, and the card says where it came from.
     expect(screen.getByText('Brandschutzkonzept für mehrgeschossigen Holzbau.')).toBeInTheDocument()
     expect(screen.getByText('From: Brandschutz · Gutachten')).toBeInTheDocument()
-    // The card's chip is the document KIND, in the Büroarchiv's own wording.
+    // The card's chip is the document KIND, in the Büroablage's own wording.
     expect(screen.getAllByText('Document').length).toBeGreaterThan(0)
   })
 

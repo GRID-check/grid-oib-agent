@@ -92,7 +92,7 @@ export const runs: typeof en.runs = {
     addOne: '{name} hinzufügen',
     alreadyNamed: 'benannt',
     done: 'Fertig',
-    shelf: { project: 'Projekt', archiv: 'Büroarchiv', session: 'Dieser Chat', base: 'Regelwerke' },
+    shelf: { project: 'Projekt', archiv: 'Büroablage', session: 'Dieser Chat', base: 'Regelwerke' },
   },
   cancel: {
     confirmTitle: 'Auftrag abbrechen?',

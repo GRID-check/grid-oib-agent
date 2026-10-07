@@ -38,7 +38,7 @@ const officeDocument = () => {
     entries: [
       {
         number: 1,
-        markdown: 'Sockeldetail_Holzmassivbau.pdf (Büroarchiv)',
+        markdown: 'Sockeldetail_Holzmassivbau.pdf (Büroablage)',
       },
     ],
   })
@@ -366,7 +366,7 @@ describe('an inline `[N]` binds to the locus that knows its page (#621)', () => 
           isCited: true,
         }),
       ],
-      entries: [{ number: 1, markdown: 'Sockeldetail_Holzmassivbau.pdf (Büroarchiv)' }],
+      entries: [{ number: 1, markdown: 'Sockeldetail_Holzmassivbau.pdf (Büroablage)' }],
     })
     const bound = referencesByNumber([document!]).get(1)
 

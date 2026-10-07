@@ -23,7 +23,7 @@ export const nav: typeof en.nav = {
     jobs: 'Jobs',
     // Der führende Tab: an Piloti übergebene Arbeit, eine Karte je Task (ADR-0051).
     tasks: 'Tasks',
-    archiv: 'Archiv',
+    archiv: 'Büroablage',
     settings: 'Einstellungen',
     // Der Intake-Assistent, im Produkt „Einrichtung" (nur ⌘K-Palette).
     intake: 'Einrichtung',

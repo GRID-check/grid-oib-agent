@@ -6,7 +6,7 @@
  * when the `organization-archiv` feature flag is on (the same gate the
  * /app/archiv page and the topbar entry check).
  *
- * Gold is the Büroarchiv provenance signal (spec §4, `--source-office`),
+ * Gold is the Büroablage provenance signal (spec §4, `--source-office`),
  * always paired with the archive icon + label so color is never the only
  * carrier (a11y). The `--source-*` tokens land with the parallel token retune
  * (WS-1); until then the tint falls back to the warning feedback tokens —

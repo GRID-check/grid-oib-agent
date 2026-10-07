@@ -118,7 +118,7 @@ export interface FileShelf {
    * for a surface no host is mounted on (the Archiv sheet).
    */
   preview: { kind: 'dialog' } | { kind: 'store'; projectName: string }
-  /** Per-card provenance chip and footer — the Büroarchiv's gold kind label. */
+  /** Per-card provenance chip and footer — the Büroablage's gold kind label. */
   cardExtras?: (file: FileItem) => CardExtras
   messages: {
     dropToUpload: string

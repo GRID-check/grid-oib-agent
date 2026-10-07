@@ -1999,7 +1999,7 @@ class TestAgentAuthoredProvenanceParsing:
 
     @pytest.mark.parametrize(
         "herkunft",
-        [None, "Büroarchiv", "von Hand erstellt", ""],
+        [None, "Büroablage", "von Hand erstellt", ""],
         ids=["absent", "other-label", "prose", "empty"],
     )
     def test_anything_else_leaves_the_author_unknown(self, herkunft: str | None):
@@ -3029,7 +3029,7 @@ class TestDocumentIdentityIsCollectionAndFilename:
 
     One knowledge_search fans out across the base corpus, the session collection
     and the project collections concurrently, so a project `Plan.pdf` and a
-    Büroarchiv `Plan.pdf` can arrive in the SAME result set. They are different
+    Büroablage `Plan.pdf` can arrive in the SAME result set. They are different
     documents, and every stage — dedup, verification, resolution — has to keep
     them apart.
     """
@@ -3050,7 +3050,7 @@ class TestDocumentIdentityIsCollectionAndFilename:
                 citation_key=archiv_key,
                 source_type="knowledge_layer",
                 collection="archiv_org1",
-                chunk_text="Aus dem Büroarchiv.",
+                chunk_text="Aus der Büroablage.",
             )
         )
         return registry
@@ -3063,7 +3063,7 @@ class TestDocumentIdentityIsCollectionAndFilename:
         assert len(registry._citation_keys) == 2
         assert {entry.chunk_text for entry in registry._citation_keys} == {
             "Aus dem Projekt.",
-            "Aus dem Büroarchiv.",
+            "Aus der Büroablage.",
         }
 
     def test_chunks_of_one_document_still_merge(self):
@@ -3087,9 +3087,9 @@ class TestDocumentIdentityIsCollectionAndFilename:
     def test_a_qualified_key_resolves_to_the_shelf_it_names(self):
         registry = self._two_shelves(
             project_key="Plan.pdf (Projektwissen), p.3",
-            archiv_key="Plan.pdf (Büroarchiv), p.3",
+            archiv_key="Plan.pdf (Büroablage), p.3",
         )
-        assert registry.entry_for_citation_key("Plan.pdf (Büroarchiv), p.3").collection == "archiv_org1"
+        assert registry.entry_for_citation_key("Plan.pdf (Büroablage), p.3").collection == "archiv_org1"
         assert registry.entry_for_citation_key("Plan.pdf (Projektwissen), p.3").collection == "proj_alpha"
 
     def test_an_unqualified_key_still_validates(self):
@@ -3099,7 +3099,7 @@ class TestDocumentIdentityIsCollectionAndFilename:
         # qualifier.
         registry = self._two_shelves(
             project_key="Plan.pdf (Projektwissen), p.3",
-            archiv_key="Plan.pdf (Büroarchiv), p.3",
+            archiv_key="Plan.pdf (Büroablage), p.3",
         )
         assert registry.has_citation_key("Plan.pdf, p.3") is True
         assert registry.entry_for_citation_key("Plan.pdf, p.3") is not None
@@ -3146,7 +3146,7 @@ class TestQualifiedKeysSurviveVerification:
         )
         registry.add(
             SourceEntry(
-                citation_key="Plan.pdf (Büroarchiv), p.3",
+                citation_key="Plan.pdf (Büroablage), p.3",
                 source_type="knowledge_layer",
                 collection="archiv_org1",
             )
@@ -3158,12 +3158,12 @@ class TestQualifiedKeysSurviveVerification:
             "Im Projekt so geplant [1], im Büro so detailliert [2].\n\n"
             "**Quellen:**\n"
             "- [1] Plan.pdf (Projektwissen), p.3\n"
-            "- [2] Plan.pdf (Büroarchiv), p.3\n"
+            "- [2] Plan.pdf (Büroablage), p.3\n"
         )
         result = verify_citations(report, self._registry())
         assert result.removed_citations == []
         assert "Plan.pdf (Projektwissen), p.3" in result.verified_report
-        assert "Plan.pdf (Büroarchiv), p.3" in result.verified_report
+        assert "Plan.pdf (Büroablage), p.3" in result.verified_report
 
     def test_the_line_scanner_keeps_the_qualifier_it_finds(self):
         # `_match_registry_filename` rebuilds a canonical key from the line. It
@@ -3173,7 +3173,7 @@ class TestQualifiedKeysSurviveVerification:
         is_kl, key = _is_knowledge_citation("Bestandsplan – Plan.pdf (BÜROARCHIV), p.3", self._registry())
         assert is_kl is True
         # Canonical spelling, so the key matches regardless of how the LLM cased it.
-        assert key == "Plan.pdf (Büroarchiv), p.3"
+        assert key == "Plan.pdf (Büroablage), p.3"
 
     def test_a_title_in_front_of_the_filename_is_dropped_without_a_registry(self):
         """The shape test alone read "OIB-Richtlinie 2 – file.pdf, p.1" as ONE
@@ -3207,7 +3207,7 @@ class TestCitedDocumentsKeepTheirShelf:
     `cited_document_entries` feeds the deep-research `citation_use` events, i.e.
     the provenance row's "cited" filter. Matching on the bare filename marked
     whichever same-named entry the registry held first, so a report citing the
-    Büroarchiv `Plan.pdf` credited the project's unrelated file of the same name
+    Büroablage `Plan.pdf` credited the project's unrelated file of the same name
     and dropped the Archiv document the answer actually stood on.
     """
 
@@ -3225,7 +3225,7 @@ class TestCitedDocumentsKeepTheirShelf:
         return registry
 
     def test_the_qualified_shelf_is_the_one_marked_cited(self):
-        report = "Wie im Archivplan [1].\n\n**Quellen:**\n- [1] Plan.pdf (Büroarchiv), p.3\n"
+        report = "Wie im Archivplan [1].\n\n**Quellen:**\n- [1] Plan.pdf (Büroablage), p.3\n"
         entries = cited_document_entries(report, self._registry())
         assert [entry.collection for entry in entries] == ["archiv_org1"]
 
@@ -3234,7 +3234,7 @@ class TestCitedDocumentsKeepTheirShelf:
             "Projekt [1] gegen Archiv [2].\n\n"
             "**Quellen:**\n"
             "- [1] Plan.pdf (Projektwissen), p.3\n"
-            "- [2] Plan.pdf (Büroarchiv), p.3\n"
+            "- [2] Plan.pdf (Büroablage), p.3\n"
         )
         entries = cited_document_entries(report, self._registry())
         assert {entry.collection for entry in entries} == {"proj_alpha", "archiv_org1"}

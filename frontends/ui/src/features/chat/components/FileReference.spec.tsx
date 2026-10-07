@@ -111,7 +111,7 @@ describe('FileReferenceLink', () => {
     })
   })
 
-  // The shelf rides along as `focus_shelf`: a Büroarchiv file must not be asked
+  // The shelf rides along as `focus_shelf`: a Büroablage file must not be asked
   // about as though it were project knowledge.
   it('carries the shelf the file came from into the subject', async () => {
     const user = userEvent.setup()
@@ -163,7 +163,7 @@ describe('FileReferenceLink', () => {
     expect(useFilePreviewStore.getState().mode).toBe('modal')
   })
 
-  it('resolves a Büroarchiv file into the archive scope', async () => {
+  it('resolves a Büroablage file into the archive scope', async () => {
     const user = userEvent.setup()
     renderReference({
       href: fileReferenceHref('pd8280-2.pdf'),

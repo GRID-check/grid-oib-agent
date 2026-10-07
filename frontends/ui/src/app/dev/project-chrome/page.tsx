@@ -117,7 +117,7 @@ export default function ProjectChromePreviewPage(): JSX.Element {
 
       <Group label="Organization">
         <Chrome
-          title="Archiv"
+          title="Office filing"
           subtitle="Shared documents available to every project in your organization"
         />
         <Chrome

@@ -116,7 +116,7 @@ function loadThumbnail(fileId: string, provisional = false): Promise<string | nu
  * soft tile + format chip, never a lone glyph that mimics a broken image. Only a
  * GENUINE failure (5xx / network / broken image url) shows a distinct
  * "couldn't load" treatment. The route is scope-aware, so this serves both
- * project uploads and Büroarchiv documents by id.
+ * project uploads and Büroablage documents by id.
  */
 export function ThumbnailWithFallback({ file }: { file: FileItem }) {
   const t = useTranslations('files')
@@ -213,7 +213,7 @@ export interface FileCardProps {
   locale: string
   /** Present on a semantic/surfaced result: the snippet + page + score to show WHY it matched. */
   match?: { snippet: string; page: number | null; score: number }
-  /** Coarse corpus for a provenance chip in the metadata row (project vs Büroarchiv). */
+  /** Coarse corpus for a provenance chip in the metadata row (project vs Büroablage). */
   source?: 'projekt' | 'buero' | null
   /** Localized label for the provenance chip. */
   sourceLabel?: string

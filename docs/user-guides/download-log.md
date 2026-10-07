@@ -13,7 +13,7 @@ One entry each time Piloti hands a document's bytes to a person:
 
 | What the person did | Recorded | Shown in the log as |
 |---|---|---|
-| **Downloaded** a file (the download button) | Always, wherever the file is filed: a project folder, the Archiv, a chat attachment | `Download` |
+| **Downloaded** a file (the download button) | Always, wherever the file is filed: a project folder, the Büroablage, a chat attachment | `Download` |
 | **Opened** a file in the viewer (preview, PDF viewer, text preview, a version from the version list, the 3D model) | Only when the file is in a folder with its own access list, or in a folder below one | `Vorschau`, `Im Viewer geöffnet`, `Textvorschau`, `Version geöffnet`, `3D-Modell geöffnet` |
 
 Each entry holds: the person (their WorkOS user id), the organization, the

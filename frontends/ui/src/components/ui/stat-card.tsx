@@ -9,7 +9,7 @@ export type StatCardIconSize = 'md' | 'sm'
 
 /**
  * Tint pairs for {@link StatCardIcon}. The five feedback tones reuse the
- * `chip.tsx` tint pairs verbatim; `office` is the Büroarchiv provenance tint
+ * `chip.tsx` tint pairs verbatim; `office` is the Büroablage provenance tint
  * for surfaces (like the Archiv entry card) whose meaning is office, not
  * feedback.
  */

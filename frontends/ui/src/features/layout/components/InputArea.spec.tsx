@@ -997,16 +997,16 @@ describe('InputArea', () => {
      * THE REGRESSION THAT MATTERS. `computePresetSourceIds('office', …)`
      * legitimately returns [] — the office archive is retrieved through the
      * knowledge layer, which is not a toggleable source — so the old trigger
-     * answered "Büroarchiv" with "Datengrundlage 0".
+     * answered "Büroablage" with "Datengrundlage 0".
      */
-    test.skip('the office preset reads "Büroarchiv" on the trigger, never "0"', () => {
+    test.skip('the office preset reads "Büroablage" on the trigger, never "0"', () => {
       mockActiveSourcePreset = 'office'
       mockEnabledDataSourceIds = []
 
       render(<InputArea isAuthenticated={true} connectionMode="sse" />)
 
       const trigger = screen.getByRole('button', { name: /data basis/i })
-      expect(trigger).toHaveTextContent('Office archive')
+      expect(trigger).toHaveTextContent('Office filing')
       expect(trigger).not.toHaveTextContent('0')
     })
 
@@ -1030,7 +1030,7 @@ describe('InputArea', () => {
       // so it is drawn — with a chip where a Switch would lie about agency.
       const alwaysOn = screen.getByRole('list', { name: /always included/i })
       expect(within(alwaysOn).getByText('Project knowledge')).toBeInTheDocument()
-      expect(within(alwaysOn).getByText('Office archive')).toBeInTheDocument()
+      expect(within(alwaysOn).getByText('Office filing')).toBeInTheDocument()
       // A Chip, not a Switch: there is nothing here for the reader to decide.
       expect(within(alwaysOn).getAllByText('Always on')).toHaveLength(2)
       expect(within(alwaysOn).queryAllByRole('switch')).toHaveLength(0)

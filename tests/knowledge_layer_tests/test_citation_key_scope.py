@@ -2,7 +2,7 @@
 
 One ``knowledge_search`` fans out across the base corpus, the session collection
 and the project collections concurrently and merges the hits, so one result set
-can hold a project ``Plan.pdf`` and a Büroarchiv ``Plan.pdf`` — two different
+can hold a project ``Plan.pdf`` and a Büroablage ``Plan.pdf`` — two different
 documents. When that happens the ``Citation:`` field the LLM copies verbatim is
 qualified with the shelf, and only then: the ordinary case must stay a plain
 filename, because the qualifier is visible to the user in the answer's sources.
@@ -62,7 +62,7 @@ def test_a_name_held_on_two_shelves_is_qualified_on_both():
         ]
     )
     assert "Citation: Plan.pdf (Projektwissen), p.3" in text
-    assert "Citation: Plan.pdf (Büroarchiv), p.3" in text
+    assert "Citation: Plan.pdf (Büroablage), p.3" in text
 
 
 def test_only_the_ambiguous_name_is_qualified():
@@ -116,7 +116,7 @@ def test_an_unstated_shelf_is_never_guessed_from_the_collection_id():
     text = _format(chunks)
     assert "Citation: Plan.pdf, p.3" in text
     assert "(Projektwissen)" not in text
-    assert "(Büroarchiv)" not in text
+    assert "(Büroablage)" not in text
     assert "Shelf:" not in text
 
 
@@ -178,7 +178,7 @@ def test_a_legacy_entry_without_a_shelf_still_resolves_by_collection_name():
     registry = SourceRegistry()
     registry.add(
         SourceEntry(
-            citation_key="Plan.pdf (Büroarchiv), p.3",
+            citation_key="Plan.pdf (Büroablage), p.3",
             source_type="knowledge_layer",
             tool_name="knowledge_search",
             collection="archiv_org1",
@@ -192,7 +192,7 @@ def test_a_legacy_entry_without_a_shelf_still_resolves_by_collection_name():
             collection="proj_alpha",
         )
     )
-    archiv_hit = registry.entry_for_citation_key("Plan.pdf (Büroarchiv), p.3")
+    archiv_hit = registry.entry_for_citation_key("Plan.pdf (Büroablage), p.3")
     assert archiv_hit is not None and archiv_hit.collection == "archiv_org1"
 
 

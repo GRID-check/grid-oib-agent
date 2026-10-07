@@ -4,7 +4,7 @@
  *
  * Two of these tests are regressions for bugs the old naked-integer trigger
  * shipped: the knowledge layer being invisible to the count while riding every
- * turn, and the Büroarchiv preset rendering "0".
+ * turn, and the Büroablage preset rendering "0".
  */
 
 import { describe, expect, test } from 'vitest'
@@ -21,14 +21,14 @@ import {
 const LABELS = {
   projectName: 'Projektwissen',
   projectDescription: 'Ihre Projektunterlagen.',
-  officeName: 'Büroarchiv',
+  officeName: 'Büroablage',
   officeDescription: 'Unterlagen Ihres Büros.',
   signInRequired: 'Melden Sie sich an, um diese Quelle zu nutzen.',
 }
 
 const RIS = { id: 'ris', name: 'RIS – Österreichisches Recht', description: 'Rechtsinformationssystem' }
 const WEB = { id: 'web_search', name: 'Web Search', description: 'Offenes Web' }
-const ARCHIVE = { id: 'office_archive', name: 'Büroarchiv Connector', description: 'Archiv' }
+const ARCHIVE = { id: 'office_archive', name: 'Büroablage Connector', description: 'Archiv' }
 
 const build = (over: Partial<BuildSourceBasisInput> = {}) =>
   buildSourceBasis({
@@ -92,7 +92,7 @@ describe('summariseBasis', () => {
     expect(summary.consultedCount).toBe(4)
   })
 
-  test('the Büroarchiv preset says "Büroarchiv" — never zero', () => {
+  test('the Büroablage preset says "Büroablage" — never zero', () => {
     // The worst moment in the old control. `computePresetSourceIds('office', …)`
     // legitimately returns [] (the office archive is retrieved through the
     // knowledge layer, not a toggleable source), so the composer answered a

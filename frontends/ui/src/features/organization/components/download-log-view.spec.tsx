@@ -74,7 +74,7 @@ describe('DownloadLogView', () => {
     // Someone who has left is shown by id and said to have left; the Archiv has no folder.
     expect(within(rows[3]).getByText('user_gone')).toBeInTheDocument()
     expect(within(rows[3]).getByText('No longer in the organization')).toBeInTheDocument()
-    expect(within(rows[3]).getByText('Archive')).toBeInTheDocument()
+    expect(within(rows[3]).getByText('Office filing')).toBeInTheDocument()
     expect(within(rows[4]).getByText('Version 8f3a1c52')).toBeInTheDocument()
   })
 

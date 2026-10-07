@@ -5,7 +5,7 @@ export const projects: typeof en.projects = {
   list: {
     heading: 'Projekte',
     description:
-      'Jedes Bauprojekt in einem Arbeitsbereich — Dokumente, Mitglieder und Chat, fundiert in den Dateien, dem Büroarchiv und dem Baurecht.',
+      'Jedes Bauprojekt in einem Arbeitsbereich — Dokumente, Mitglieder und Chat, fundiert in den Dateien, der Büroablage und dem Baurecht.',
     loading: 'Projekte werden geladen…',
     searchPlaceholder: 'Projekte durchsuchen…',
     searchAria: 'Projekte nach Namen durchsuchen',
@@ -27,7 +27,7 @@ export const projects: typeof en.projects = {
     empty: {
       title: 'Starten Sie Ihr erstes Projekt',
       description:
-        'Piloti ist der Arbeitsbereich, in dem ein Planungsbüro ein Bauprojekt führt. Legen Sie ein Projekt an, um Dateien, Mitglieder und Chat zusammenzubringen — und sprechen Sie mit Piloti über die Arbeit, fundiert in den Dateien, dem Büroarchiv und dem österreichischen Baurecht.',
+        'Piloti ist der Arbeitsbereich, in dem ein Planungsbüro ein Bauprojekt führt. Legen Sie ein Projekt an, um Dateien, Mitglieder und Chat zusammenzubringen — und sprechen Sie mit Piloti über die Arbeit, fundiert in den Dateien, der Büroablage und dem österreichischen Baurecht.',
       action: 'Erstellen Sie Ihr erstes Projekt',
     },
   },
@@ -49,10 +49,10 @@ export const projects: typeof en.projects = {
     settingsAria: 'Einstellungen für {name} öffnen',
   },
   archivCard: {
-    title: 'Archiv',
+    title: 'Büroablage',
     subtitle:
       'Das organisationsweite Wissen Ihres Büros — geteilte Dokumente und bewährte Details, in jedem Projekt verfügbar.',
-    aria: 'Organisationsweites Archiv öffnen',
+    aria: 'Büroablage der Organisation öffnen',
   },
   dialog: {
     newProject: 'Neues Projekt',
@@ -78,7 +78,7 @@ export const projects: typeof en.projects = {
       oibBrandschutzAudit: { label: 'OIB Brandschutz-Audit', name: 'OIB Brandschutz-Audit' },
     },
     footnote:
-      'Erstellen Sie einen Arbeitsbereich für Dokumente, Mitglieder und Chat, fundiert in den Projektdateien, dem Büroarchiv und dem Baurecht.',
+      'Erstellen Sie einen Arbeitsbereich für Dokumente, Mitglieder und Chat, fundiert in den Projektdateien, der Büroablage und dem Baurecht.',
     submit: 'Projekt erstellen',
   },
   applicableStandards: {

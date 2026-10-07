@@ -119,7 +119,7 @@ export const runs = {
     addOne: 'Add {name}',
     alreadyNamed: 'named',
     done: 'Done',
-    shelf: { project: 'Project', archiv: 'Office archive', session: 'This chat', base: 'Regulations' },
+    shelf: { project: 'Project', archiv: 'Office filing', session: 'This chat', base: 'Regulations' },
   },
   cancel: {
     confirmTitle: 'Stop this task?',
