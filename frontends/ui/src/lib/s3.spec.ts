@@ -2,9 +2,11 @@
  * @vitest-environment node
  */
 import { describe, expect, it } from 'vitest'
+import { BadRequestError } from '@/lib/api/errors'
 import {
   MAX_STORED_IMAGES_PER_DOCUMENT,
   buildArchivStorageKey,
+  buildBaseCorpusStorageKey,
   buildImageDerivedPrefix,
   buildImageStorageKey,
   buildRenditionStorageKey,
@@ -216,5 +218,42 @@ describe('buildImageStorageKey', () => {
     expect(buildImageStorageKey('plan.pdf', 0)).toBeNull()
     expect(buildImageStorageKey('a/b/', 0)).toBeNull()
     expect(buildImageDerivedPrefix('')).toBeNull()
+  })
+})
+
+describe('buildBaseCorpusStorageKey', () => {
+  it('keeps a plain PDF basename verbatim under the base-corpus prefix', () => {
+    expect(buildBaseCorpusStorageKey('OIB-RL 2 Brandschutz.pdf')).toBe('base-corpus/OIB-RL 2 Brandschutz.pdf')
+    expect(buildBaseCorpusStorageKey('ÖNORM B 1300.PDF')).toBe('base-corpus/ÖNORM B 1300.PDF')
+    expect(buildBaseCorpusStorageKey('50%.pdf')).toBe('base-corpus/50%.pdf')
+    expect(buildBaseCorpusStorageKey('..hidden.pdf')).toBe('base-corpus/..hidden.pdf')
+  })
+
+  it('refuses anything that is not a plain PDF basename', () => {
+    const refused = [
+      '',
+      '.',
+      '..',
+      'norm.txt',
+      'norm.pdf.zip',
+      'norm',
+      '../norm.pdf',
+      'a/norm.pdf',
+      '/norm.pdf',
+      'a\\norm.pdf',
+      'nor\u0000m.pdf',
+      'nor\nm.pdf',
+      'nor\u007fm.pdf',
+      `${'a'.repeat(252)}.pdf`,
+    ]
+    for (const name of refused) {
+      expect(() => buildBaseCorpusStorageKey(name), JSON.stringify(name)).toThrow(BadRequestError)
+    }
+  })
+
+  it('accepts the 255-character ceiling exactly', () => {
+    const name = `${'a'.repeat(251)}.pdf`
+    expect(name).toHaveLength(255)
+    expect(buildBaseCorpusStorageKey(name)).toBe(`base-corpus/${name}`)
   })
 })

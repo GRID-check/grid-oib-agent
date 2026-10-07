@@ -1,4 +1,5 @@
 import { S3Client } from "@aws-sdk/client-s3";
+import { BadRequestError } from "@/lib/api/errors";
 
 const credentials = {
   accessKeyId: process.env.SEAWEED_ACCESS_KEY || "",
@@ -302,4 +303,36 @@ export function buildImageStorageKey(storageKey: string, index: number): string 
   const prefix = buildImageDerivedPrefix(storageKey)
   if (!prefix) return null
   return `${prefix}${index}.jpg`
+}
+
+/**
+ * The key prefix the platform base corpus (the OIB norm PDFs an admin uploads)
+ * lives under in the PLATFORM bucket ({@link bucketName}), ADR-0082. Not an
+ * organization prefix: this is platform data, no tenant owns it.
+ */
+export const BASE_CORPUS_KEY_PREFIX = 'base-corpus/'
+
+/**
+ * Storage key of one base-corpus PDF: `base-corpus/<fileName>`.
+ *
+ * The name is the corpus's own identity (citations, doc-class and display-title
+ * overrides all address a document by it), so it is kept verbatim rather than
+ * flattened like {@link storageKeySegment} does for a person's upload. That
+ * makes validation the only defence: anything but a plain `.pdf` basename is
+ * refused with a 400, because a `/`, a `\` or a `..` would let a name climb out
+ * of the prefix on a filer-backed gateway that resolves them, and the delete
+ * route would then remove an object outside the base corpus.
+ */
+export function buildBaseCorpusStorageKey(fileName: string): string {
+  const valid =
+    fileName.length >= 1 &&
+    fileName.length <= 255 &&
+    fileName.toLowerCase().endsWith('.pdf') &&
+    !/[/\\\u0000-\u001f\u007f]/.test(fileName) &&
+    fileName !== '.' &&
+    fileName !== '..'
+  if (!valid) {
+    throw new BadRequestError('A .pdf file name of at most 255 characters, without path separators or control characters, is required')
+  }
+  return `${BASE_CORPUS_KEY_PREFIX}${fileName}`
 }
