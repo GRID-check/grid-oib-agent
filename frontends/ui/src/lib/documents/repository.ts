@@ -11,7 +11,7 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, isNull, lt, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNull, lt, ne, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { ARCHIV_SHELF, projectShelf, shelfDocumentWhere, shelfFolderWhere, type DocumentShelf } from './shelf'
