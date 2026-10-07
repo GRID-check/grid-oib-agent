@@ -60,6 +60,13 @@ document-write permission, then write on each folder it touches. A folder the
 reader may not read answers **404**; one they may only read answers
 **`403 FORBIDDEN`** with `details.reason = 'folder-read-only'`.
 
+In a **closed project** (ADR-0082) every write route answers **`403
+FORBIDDEN`** with `details.reason = 'project-closed'`, an organization admin's
+included, before any folder is asked: files, folders, versions, the profile,
+project memory, deep research and tasks. Reading and chat answer as usual, and
+every organization member may read; folders with their own role list stay
+hidden from whoever reads the project only because it is closed.
+
 ## Architecture & error contract (ADR-0017)
 
 Every route is declared through a factory from `@/lib/api/handler`
@@ -144,7 +151,8 @@ Source: `frontends/ui/src/app/api/conversations/route.ts`, `frontends/ui/src/app
 | `POST` | `/api/projects` | Required | Create a project. Inserts DB row + creates WorkOS FGA resource + assigns creator as `project-admin`. | `{ name }` | `{ id, name, collectionName, ... }` (201) |
 | `GET` | `/api/projects/{id}` | Required | Get project details. Checks `project:view` FGA permission. | — | `{ id, name, collectionName, ... }` |
 | `PATCH` | `/api/projects/{id}` | Required | Rename a project. Checks `project:manage` FGA permission. | `{ name }` | `{ id, name, ... }` |
-| `DELETE` | `/api/projects/{id}` | Required | Soft-delete a project (name confirmation) and enqueue the purge after the grace period (ADR-0011). Checks `project:manage`. | `{ confirmName }` | `{ status: 'pending', purgeAfter }` (202) |
+| `DELETE` | `/api/projects/{id}` | Required | Soft-delete a project (name confirmation) and enqueue the purge after the grace period (ADR-0011). Checks `project:manage`; a closed project can be deleted too (ADR-0082). | `{ confirmName }` | `{ status: 'pending', purgeAfter }` (202) |
+| `PUT` | `/api/projects/{id}/status` | Required | Close a project or reopen it (ADR-0082). Checks `project:manage`, even on a closed project. Closing makes it read-only for files, folders, the profile and memory, and readable by every organization member; folders with their own role list stay restricted. 409 `already-closed` / `not-closed`. Audited as `project.closed` / `project.reopened`. | `{ status: 'active' \| 'closed' }` | `{ id, status, closedAt, closedBy }` |
 | `GET` | `/api/projects/{id}/members` | Required | List project members. Checks `project:manage`. Merges FGA role assignments with WorkOS user list. | — | `{ members: [{ organizationMembershipId, userId, email, name, role }] }` |
 | `POST` | `/api/projects/{id}/members` | Required | Add a member. Checks `project:manage`. Assigns a project-level FGA role. | `{ organizationMembershipId, roleSlug }` | `201 No Content` |
 | `DELETE` | `/api/projects/{id}/members/{assignmentId}` | Required | Remove a member. Checks `project:manage`. Removes WorkOS FGA role assignment. | — | `204 No Content` |

@@ -32,6 +32,15 @@ import { PageHeader } from '@/components/ui/page-header'
 import { SearchField } from '@/components/ui/search-field'
 import { SectionLabel } from '@/components/ui/section-label'
 import { splitForResume } from '@/features/projects/lib/resume-selection'
+import {
+  countByStatus,
+  defaultProjectStatusFilter,
+  filterProjectsByStatus,
+  isProjectStatusFilter,
+  PROJECT_STATUS_FILTERS,
+  type ProjectStatusFilter,
+} from '@/features/projects/lib/status-filter'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import type { Project } from '@/lib/db/schema'
 import { useTranslations } from '@/i18n'
 import { TOUR_ANCHORS } from '@/features/onboarding/lib/product-tour'
@@ -79,14 +88,21 @@ export function ProjectsGrid({
 }: ProjectsGridProps): JSX.Element {
   const t = useTranslations('projects')
   const [query, setQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<ProjectStatusFilter>(() => defaultProjectStatusFilter(projects))
+  const statusCounts = useMemo(() => countByStatus(projects), [projects])
+  // Offered only once there is something to tell apart: a list with no closed
+  // project needs no control that would only ever show one answer.
+  const showStatusFilter = statusCounts.closed > 0
 
   const needle = query.trim().toLowerCase()
   const isSearching = needle.length > 0
 
   const filtered = useMemo(() => {
-    if (!needle) return projects
-    return projects.filter((project) => project.name.toLowerCase().includes(needle))
-  }, [projects, needle])
+    const inStatus = showStatusFilter ? filterProjectsByStatus(projects, statusFilter) : projects
+    if (!needle) return inStatus
+    return inStatus.filter((project) => project.name.toLowerCase().includes(needle))
+  }, [projects, needle, statusFilter, showStatusFilter])
+  const emptyInStatus = showStatusFilter && !isSearching && filtered.length === 0
 
   // One helper serves both modes: zero rail slots turns the split into "order
   // everything by recency", which is exactly what a result list wants too.
@@ -134,6 +150,28 @@ export function ProjectsGrid({
         }
       />
 
+      {showStatusFilter && (
+        <ToggleGroup
+          type="single"
+          value={statusFilter}
+          onValueChange={(value) => {
+            if (isProjectStatusFilter(value)) setStatusFilter(value)
+          }}
+          segmented
+          size="sm"
+          aria-label={t('list.filter.label')}
+          className="mt-5"
+          data-testid="project-status-filter"
+        >
+          {PROJECT_STATUS_FILTERS.map((option) => (
+            <ToggleGroupItem key={option} value={option} data-testid={`project-status-filter-${option}`}>
+              {t(`list.filter.${option}`)}
+              <CountPill>{statusCounts[option]}</CountPill>
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      )}
+
       <div className="mt-7">
         {!hasProjects ? (
           <EmptyState
@@ -142,6 +180,17 @@ export function ProjectsGrid({
             description={t('list.empty.description')}
             action={<CreateProjectDialog label={t('list.empty.action')} />}
             className="min-h-96 justify-center"
+          />
+        ) : emptyInStatus ? (
+          <EmptyState
+            variant="bare"
+            title={statusFilter === 'closed' ? t('list.noneInFilter.closed') : t('list.noneInFilter.active')}
+            description={t('list.noneInFilter.description')}
+            action={
+              <Button variant="outline" size="sm" onClick={() => setStatusFilter('all')}>
+                {t('list.noneInFilter.showAll')}
+              </Button>
+            }
           />
         ) : isSearching ? (
           rest.length === 0 ? (

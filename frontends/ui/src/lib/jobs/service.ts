@@ -25,6 +25,7 @@ import { enforcementOn, requireSkillsEnabled } from '@/lib/authz/feature-flags'
 import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { insertConversation } from '@/lib/conversations/repository'
 import { findProjectInOrg } from '@/lib/projects/repository'
+import { isProjectClosed } from '@/lib/projects/project-status'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
@@ -877,9 +878,24 @@ export async function loadJobForFire(jobId: string): Promise<TaskDefinition | nu
  */
 export async function fireScheduledJob(
   definition: TaskDefinition,
-): Promise<{ fired: boolean; jobId?: string; reason?: 'disabled' | 'feature-disabled' | 'skipped' | 'error' }> {
+): Promise<{
+  fired: boolean
+  jobId?: string
+  reason?: 'disabled' | 'feature-disabled' | 'project-closed' | 'skipped' | 'error'
+}> {
   if (!definition.enabled) {
     return { fired: false, reason: 'disabled' }
+  }
+  // A closed project runs no task (ADR-0082): it is read-only, and a run files
+  // into it. The schedule stays, visibly skipped, so a reopen resumes it.
+  if (isProjectClosed(await findProjectInOrg(definition.projectId, definition.organizationId))) {
+    await recordRun(definition, 'schedule', 'scheduler', randomUUID(), {
+      status: 'skipped',
+      backendJobId: null,
+      error: 'Project is closed',
+      conversationId: null,
+    })
+    return { fired: false, reason: 'project-closed' }
   }
   if (enforcementOn()) {
     let flagOn = false

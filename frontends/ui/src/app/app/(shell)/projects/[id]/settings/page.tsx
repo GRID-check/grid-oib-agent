@@ -33,7 +33,7 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
   return withPageSession(async (session) => {
     const { id } = await params
 
-    const { role } = await requireProjectAccess(session, id, 'project:view')
+    const { role, closed } = await requireProjectAccess(session, id, 'project:view')
 
     const data = await getProjectOverviewData(id, session.organizationId, {
       hiddenFolderIds: await getHiddenFolderIds(session, id),
@@ -42,7 +42,10 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
       notFound()
     }
 
-    const canManageProject = role === 'project-admin'
+    // A closed project's role is unchanged, but nothing it lets one change is
+    // open (ADR-0082): only closing and reopening, and the members.
+    const managesProject = role === 'project-admin'
+    const canManageProject = managesProject && !closed
     // Folders whose roles were deleted since (ADR-0081). Asked only of a
     // project manager, who is the one who can set a role again.
     const foldersWithoutRole = canManageProject ? await listFoldersWithoutValidRole(session, id) : []
@@ -52,6 +55,8 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
         data={data}
         foldersWithoutRole={foldersWithoutRole}
         canManageProject={canManageProject}
+        canManageMembers={managesProject}
+        canChangeStatus={managesProject}
         // Knowledge left the top-level nav (spec §5) but stays reachable from
         // Settings while its feature flag is on.
         showKnowledgeLink={isProjectKnowledgePageEnabled(session)}

@@ -125,7 +125,7 @@ export async function listFoldersWithoutValidRole(
   if (!existing) return []
   const orphaned = foldersWithoutValidRole(folders, existing)
   if (orphaned.length === 0) return []
-  const access = computeFolderAccess(folders, await clearanceOf(session), '')
+  const access = computeFolderAccess(folders, await clearanceOf(session, projectId), '')
   const names = await customFolderNames(session.organizationId, projectId)
   return orphaned
     .filter((folderId) => access.isVisible(folderId))

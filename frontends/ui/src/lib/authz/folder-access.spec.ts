@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 vi.mock('./folder-access-repository', () => ({
@@ -9,6 +9,13 @@ vi.mock('./folder-access-repository', () => ({
 vi.mock('./projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn() }))
 vi.mock('./org-role-permissions', () => ({ orgRoleHoldsPermission: vi.fn(async (role: string) => role === 'admin') }))
+vi.mock('@/lib/projects/repository', () => ({
+  findProjectTenancy: vi.fn(async () => ({ organizationId: 'org-1', deletedAt: null, status: 'active' })),
+}))
+vi.mock('./resource-check', () => ({ checkResourcePermission: vi.fn(async () => true) }))
+vi.mock('./project-membership', () => ({
+  resolveSubjectMembership: vi.fn(async () => ({ organizationMembershipId: 'om-2', role: 'member' })),
+}))
 
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -43,6 +50,8 @@ import {
 } from './folder-access'
 import { listProjectFolderTree, projectHasCustomOrBinnedFolders } from './folder-access-repository'
 import { requireProjectAccess } from './projects'
+import { checkResourcePermission } from './resource-check'
+import { findProjectTenancy } from '@/lib/projects/repository'
 
 const COLLECTION = 'proj_8f2c3b1e-0000-4000-8000-000000000001'
 const F = {
@@ -295,28 +304,28 @@ describe('the session loaders', () => {
     vi.mocked(projectHasCustomOrBinnedFolders).mockReset()
     vi.mocked(listProjectFolderTree).mockReset()
     vi.mocked(requireProjectAccess).mockReset()
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor', closed: false, readsBecauseClosed: false })
     // WorkOS cannot be asked unless a test says what it answers: the token decides.
     vi.mocked(resolveMembershipRoles).mockResolvedValue(null)
   })
 
   it("reads every role the session holds; with WorkOS unreachable the admin bypass is the token's permission", async () => {
     vi.mocked(resolveMembershipRoles).mockResolvedValue(null)
-    expect((await clearanceOf(session([GF, 'member']))).roles).toEqual([GF, 'member'])
-    expect((await clearanceOf(session(undefined))).roles).toEqual(['member'])
-    expect((await clearanceOf(session(undefined, ['org:projects:administer']))).seesEverything).toBe(true)
-    expect((await clearanceOf(session(undefined))).seesEverything).toBe(false)
+    expect((await clearanceOf(session([GF, 'member']), 'proj-1')).roles).toEqual([GF, 'member'])
+    expect((await clearanceOf(session(undefined), 'proj-1')).roles).toEqual(['member'])
+    expect((await clearanceOf(session(undefined, ['org:projects:administer']), 'proj-1')).seesEverything).toBe(true)
+    expect((await clearanceOf(session(undefined), 'proj-1')).seesEverything).toBe(false)
   })
 
   it('takes the admin bypass from the membership as it is now, not from a token that outlives a demotion', async () => {
     // The token still lists org:projects:administer; WorkOS says the person now holds only `member`.
     vi.mocked(resolveMembershipRoles).mockResolvedValue(['member'])
-    expect((await clearanceOf(session(['member'], ['org:projects:administer']))).seesEverything).toBe(false)
+    expect((await clearanceOf(session(['member'], ['org:projects:administer']), 'proj-1')).seesEverything).toBe(false)
   })
 
   it('grants the bypass to a promoted admin before the token is refreshed', async () => {
     vi.mocked(resolveMembershipRoles).mockResolvedValue(['admin'])
-    expect((await clearanceOf(session(['admin'], []))).seesEverything).toBe(true)
+    expect((await clearanceOf(session(['admin'], []), 'proj-1')).seesEverything).toBe(true)
   })
 
   it('a demoted admin no longer reads or writes a folder whose list names none of their roles', async () => {
@@ -375,9 +384,59 @@ describe('the session loaders', () => {
 
   it('clearanceOfMember: WorkOS roles, every one of them, and admin from any', async () => {
     vi.mocked(resolveMembershipRoles).mockResolvedValue([BH, 'admin'])
-    expect(await clearanceOfMember('org-1', 'user-2')).toEqual({ roles: [BH, 'admin'], seesEverything: true })
+    expect(await clearanceOfMember('org-1', 'user-2', 'proj-1')).toEqual({ roles: [BH, 'admin'], seesEverything: true })
     vi.mocked(resolveMembershipRoles).mockResolvedValue(null)
-    expect(await clearanceOfMember('org-1', 'user-2')).toEqual({ roles: [], seesEverything: false })
+    expect(await clearanceOfMember('org-1', 'user-2', 'proj-1')).toEqual({ roles: [], seesEverything: false })
+  })
+})
+
+describe('a closed project (ADR-0082): closing opens no restricted folder', () => {
+  const closed = { organizationId: 'org-1', deletedAt: null, status: 'closed' as const }
+
+  beforeEach(() => {
+    vi.mocked(projectHasCustomOrBinnedFolders).mockResolvedValue(true)
+    vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
+    vi.mocked(findProjectTenancy).mockResolvedValue(closed)
+    vi.mocked(checkResourcePermission).mockReset()
+    vi.mocked(resolveMembershipRoles).mockImplementation(async (_org, userId) => (userId === 'user-admin' ? ['admin'] : [GF]))
+  })
+
+  afterEach(() => {
+    vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org-1', deletedAt: null, status: 'active' })
+    vi.mocked(checkResourcePermission).mockResolvedValue(true)
+  })
+
+  it('someone who reads it only because it is closed clears what a member with no role clears', async () => {
+    vi.mocked(checkResourcePermission).mockResolvedValue(false)
+    // Holds the Geschäftsführung role, which Verträge and Honorare grant, but was never a member of the project.
+    expect(await clearanceOf(session([GF]), 'proj-1')).toEqual(ANY_MEMBER)
+    const access = await getProjectFolderAccess(session([GF]), 'proj-1', COLLECTION)
+    expect(access.isVisible(F.vertraege)).toBe(false)
+    expect(access.isVisible(F.honorare)).toBe(false)
+    expect(access.isVisible(F.verwaltung)).toBe(true)
+    expect(access.clearedRestrictedCollections).toEqual([])
+    expect(await clearanceOfMember('org-1', 'user-2', 'proj-1')).toEqual(ANY_MEMBER)
+  })
+
+  it('a member of the project keeps exactly the folders their roles gave them', async () => {
+    vi.mocked(checkResourcePermission).mockResolvedValue(true)
+    expect((await clearanceOf(session([GF]), 'proj-1')).roles).toEqual([GF])
+    expect((await getProjectFolderAccess(session([GF]), 'proj-1', COLLECTION)).isVisible(F.honorare)).toBe(true)
+    expect((await clearanceOfMember('org-1', 'user-2', 'proj-1')).roles).toEqual([GF])
+  })
+
+  it('an organization admin keeps the bypass, and asks no project grant for it', async () => {
+    vi.mocked(resolveMembershipRoles).mockResolvedValue(['admin'])
+    expect((await clearanceOf(session(['admin']), 'proj-1')).seesEverything).toBe(true)
+    expect((await clearanceOfMember('org-1', 'user-admin', 'proj-1')).seesEverything).toBe(true)
+    expect(checkResourcePermission).not.toHaveBeenCalled()
+  })
+
+  it('an active project never asks whether someone is a member: the roles decide as before', async () => {
+    vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org-1', deletedAt: null, status: 'active' })
+    vi.mocked(checkResourcePermission).mockResolvedValue(false)
+    expect((await clearanceOf(session([GF]), 'proj-1')).roles).toEqual([GF])
+    expect(checkResourcePermission).not.toHaveBeenCalled()
   })
 })
 
@@ -387,7 +446,7 @@ describe('requireFolderWrite — the one write check', () => {
     vi.mocked(listProjectFolderTree).mockClear()
     vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
     vi.mocked(requireProjectAccess).mockReset()
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor', closed: false, readsBecauseClosed: false })
     vi.mocked(resolveMembershipRoles).mockResolvedValue(null)
   })
 

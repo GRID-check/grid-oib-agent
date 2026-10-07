@@ -24,7 +24,7 @@
 'use client'
 
 import { useState, type CSSProperties, type FC } from 'react'
-import { Globe } from 'lucide-react'
+import { Globe, Lock } from 'lucide-react'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -39,6 +39,7 @@ import {
 import { SourcePreviewChip } from './SourcePreview'
 import { CopyCitationsMenu } from './CopyCitation'
 import { useCitationScope } from './CitationScope'
+import { useCurrentProject } from '@/features/projects/lib/current-project'
 
 interface AnswerSourcesRowProps {
   /**
@@ -74,14 +75,30 @@ interface AnswerSourcesRowProps {
  */
 const MAX_ANSWER_SOURCES = 8
 
-/** The quiet meta line after a chip: which pages, or which host. */
+/**
+ * The quiet meta line after a chip: which pages, or which host. A project file
+ * cited in a closed project's chat also names the project and that it is
+ * closed (ADR-0082): a project chat cites its own project's files.
+ */
+const useClosedProjectNote = (): string | null => {
+  const tProjects = useTranslations('projects')
+  const project = useCurrentProject()
+  return project?.status === 'closed' ? tProjects('lifecycle.fileChip', { name: project.name }) : null
+}
+
 const useSourceMeta = (): ((doc: CitedDocument) => string | undefined) => {
   const t = useTranslations('chat')
+  const closedNote = useClosedProjectNote()
   return (doc) => {
     const pages = documentPages(doc)
-    if (pages.length === 1) return t('answerSources.page', { page: pages[0]! })
-    if (pages.length > 1) return t('answerSources.pages', { pages: pages.join(', ') })
-    return refHost({ document: doc })
+    const base =
+      pages.length === 1
+        ? t('answerSources.page', { page: pages[0]! })
+        : pages.length > 1
+          ? t('answerSources.pages', { pages: pages.join(', ') })
+          : refHost({ document: doc })
+    if (!closedNote || doc.kind !== 'projekt') return base
+    return base ? `${base} · ${closedNote}` : closedNote
   }
 }
 
@@ -94,6 +111,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
 }) => {
   const t = useTranslations('chat')
   const metaFor = useSourceMeta()
+  const closedNote = useClosedProjectNote()
   const scope = useCitationScope()
 
   const [expanded, setExpanded] = useState(false)
@@ -196,6 +214,13 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
                 <span key={number} id={`${anchorPrefix}${number}`} className="scroll-mt-6" />
               ))}
             <SourcePreviewChip citation={{ document: doc }} meta={metaFor(doc)} />
+            {/* On the face too, not only in the popover: a closed project's file. */}
+            {closedNote && doc.kind === 'projekt' && (
+              <span className="text-muted-foreground ml-1 inline-flex items-center align-middle" title={closedNote}>
+                <Lock className="size-3" aria-hidden />
+                <span className="sr-only">{closedNote}</span>
+              </span>
+            )}
           </span>
         )
       })}

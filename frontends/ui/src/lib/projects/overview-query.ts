@@ -39,6 +39,8 @@ export async function getProjectOverviewData(
       id: projects.id,
       name: projects.name,
       collectionName: projects.collectionName,
+      status: projects.status,
+      closedAt: projects.closedAt,
       createdAt: projects.createdAt,
       profile: projects.profile,
       profileDisplay: projects.profileDisplay,
@@ -115,6 +117,8 @@ export async function getProjectOverviewData(
     id: project.id,
     name: project.name,
     collectionName: project.collectionName,
+    status: project.status,
+    closedAt: project.closedAt ? new Date(project.closedAt).toISOString() : null,
     createdAt: project.createdAt.toISOString(),
     profileDisplay: project.profileDisplay
       ? {

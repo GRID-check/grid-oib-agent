@@ -159,7 +159,7 @@ async function assertMayBinSubtree(
 ): Promise<void> {
   const folders = await loadCustomFolderTree(session.organizationId, projectId)
   if (!folders) return
-  const access = computeFolderAccess(folders, await clearanceOf(session), '')
+  const access = computeFolderAccess(folders, await clearanceOf(session, projectId), '')
   if (!access.isVisible(rootId)) throw new NotFoundError('Folder not found')
   if (access.levelOf(rootId) !== 'write') throw folderReadOnlyError()
   for (const folderId of subtree) {
@@ -360,7 +360,7 @@ async function returnFromBin(
 /** The session's level on a folder of the tree, tombstones included, before the project ceiling. */
 async function levelOnFolder(session: AuthorizedSession, projectId: string, folderId: string): Promise<FolderLevel> {
   const tree = folderTree(await listProjectFolderTree(session.organizationId, projectId))
-  return effectiveFolderLevel(tree, await clearanceOf(session), folderId)
+  return effectiveFolderLevel(tree, await clearanceOf(session, projectId), folderId)
 }
 
 /** A bin entry's root folder that the session may at least read; 404 otherwise. */
@@ -460,7 +460,7 @@ export async function listFolderBin(session: AuthorizedSession, projectId: strin
     loadOrganizationDirectory(session.organizationId),
   ])
   const tree = folderTree(folders)
-  const clearance = await clearanceOf(session)
+  const clearance = await clearanceOf(session, project.id)
   const entries = rows.flatMap((row): FolderBinEntry[] => {
     const level = effectiveFolderLevel(tree, clearance, row.folderId)
     if (!atLeast(level, 'read')) return []
