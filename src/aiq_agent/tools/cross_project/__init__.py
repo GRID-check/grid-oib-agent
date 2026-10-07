@@ -1,1 +1,1 @@
-"""Cross-project lookups for a solo chat (ADR-0093): one tool, ``project_lookup``."""
+"""Cross-project lookups as the conversation's audience (ADR-0093): one tool, ``project_lookup``."""

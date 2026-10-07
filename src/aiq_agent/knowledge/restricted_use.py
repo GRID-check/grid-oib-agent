@@ -140,9 +140,11 @@ class CrossProjectTurn:
     not.
     """
 
-    #: The conversation drew on another project: an earlier turn did (the BFF
-    #: says so at turn start) or a lookup of this turn handed content out. Every
-    #: door a whole project reads is shut, memory included.
+    #: The conversation drew on another project in a way that narrows its
+    #: readers (an active project, or a restricted folder): an earlier turn did
+    #: (the BFF says so at turn start) or a lookup of this turn did. Every door a
+    #: whole project reads is shut, memory included. A closed project's open
+    #: folders never set it.
     drew_on_others: bool = False
     #: The collections of other projects whose content the BFF recorded and
     #: handed to this turn: what the admission lets through, and what may be
@@ -175,18 +177,24 @@ def drew_on_other_projects() -> bool:
     return turn is not None and turn.drew_on_others
 
 
-def note_cross_project_hand_out(collections: Iterable[str | None]) -> None:
+def note_cross_project_hand_out(collections: Iterable[str | None], *, restricting: bool) -> None:
     """A lookup was handed content from these collections of other projects, recorded by the BFF.
 
     Called by the cross-project tool with the collections of the answer it got,
     and only with those: the BFF recorded their projects and restricted folders
     before it answered. Outside a bound turn there is nothing to admit into, and
     the admission then withholds a restricted one.
+
+    ``restricting`` says whether any of it narrows who may read the
+    conversation: content from an ACTIVE other project, or from a restricted
+    folder. Content from a closed project's open folders does not (every office
+    member reads it, ADR-0089), so it is admitted without shutting a door.
     """
     turn = current_cross_project_turn()
     if turn is None:
         return
-    turn.drew_on_others = True
+    if restricting:
+        turn.drew_on_others = True
     turn.admitted.update(name for name in collections if isinstance(name, str) and name)
 
 

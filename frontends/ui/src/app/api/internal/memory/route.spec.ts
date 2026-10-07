@@ -27,7 +27,7 @@ vi.mock('@/lib/projects/memory-judge-audit', async (importOriginal) => ({
 const crossProject = vi.hoisted(() => ({ recorded: new Map<string, string[]>() }))
 vi.mock('@/lib/db', () => ({ getDb: () => ({}) }))
 vi.mock('@/lib/conversations/restricted-use-repository', () => ({
-  listRecordedSourceProjects: vi.fn(async (_db: unknown, _org: string, id: string) => crossProject.recorded.get(id) ?? []),
+  listRestrictingSourceProjects: vi.fn(async (_db: unknown, _org: string, id: string) => crossProject.recorded.get(id) ?? []),
 }))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectTenancy: vi.fn(async () => ({ organizationId: 'org_1', deletedAt: null })),

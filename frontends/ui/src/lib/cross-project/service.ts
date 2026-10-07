@@ -1,16 +1,21 @@
 /**
- * Cross-project lookups for a solo chat (ADR-0093): list and find the projects
- * the reader may chat in, read one project's brief, and search documents across
- * them. The one place that decides what a lookup may return; the agent's routes
- * (`app/api/internal/cross-project/*`) are thin adapters over it.
+ * Cross-project lookups (ADR-0093, docs/design/cross-project-escalation.md):
+ * list and find the projects in reach, read one project's brief, and search
+ * documents across them. The one place that decides what a lookup may return;
+ * the agent's routes (`app/api/internal/cross-project/*`) are thin adapters
+ * over it.
  *
  * ## Who may ask, and what is recorded
  *
- * Only a conversation that is its asker's alone. Every answer is recorded on
- * the conversation BEFORE it is returned (`recordCrossProjectHandOut`): the
- * projects it says anything about and the restricted folders its passages came
- * from, under the lock every share takes, with the solo check repeated there.
- * The record then decides who may read the conversation and what may leave it.
+ * Any chat. A lookup searches AS THE CONVERSATION'S AUDIENCE
+ * (`audience-reach.ts`): a solo chat reaches what its asker may chat in, a
+ * shared one what every reader may open, which always includes the office's
+ * closed projects. Every answer is recorded on the conversation BEFORE it is
+ * returned (`recordCrossProjectHandOut`): the projects it says anything about
+ * and the restricted folders its passages came from, under the lock every
+ * share takes, refused when the audience changed since the reach was computed.
+ * The record then decides who may read the conversation next and what may leave
+ * it; a project closed now restricts nobody.
  *
  * ## Access, with no second rule
  *
@@ -33,22 +38,14 @@
 import 'server-only'
 import { BadRequestError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { getProjectFolderAccess } from '@/lib/authz/folder-access'
-import { requireProjectAccess } from '@/lib/authz/projects'
-import {
-  isSoloAudience,
-  recordCrossProjectHandOut,
-  sharedChatRefusal,
-  type HandOutParty,
-} from '@/lib/conversations/cross-project-use'
-import { readConversationAudience } from '@/lib/conversations/restricted-use-repository'
-import { getDb } from '@/lib/db'
+import { recordCrossProjectHandOut, type HandOutParty } from '@/lib/conversations/cross-project-use'
 import type { Project } from '@/lib/db/schema'
 import { searchProjectDocuments } from '@/lib/documents/service'
 import { buildProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { findProjectInOrg } from '@/lib/projects/repository'
-import { listChatProjects } from '@/lib/projects/service'
+import { audienceReach, type AudienceReach } from './audience-reach'
+import { rankBySimilarity } from './similarity'
 import type { VerifiedGridRequestContext } from '@/lib/request-context'
 import {
   CROSS_PROJECT_PAGE_PROJECTS,
@@ -110,33 +107,24 @@ function party(caller: CrossProjectCaller): HandOutParty {
   }
 }
 
-/** Refuse early, before any search: the hand-out record checks again under the lock. */
-export async function requireSoloConversation(session: AuthorizedSession, conversationId: string): Promise<void> {
-  const audience = await readConversationAudience(getDb(), session.organizationId, conversationId)
-  if (!isSoloAudience(audience, session.userId)) throw sharedChatRefusal()
+/** The project status as the lookups report it; kept on the wire so an agent built before ticket 1 still parses. */
+export const PROJECT_STATUS_KNOWN = true
+
+/** A project's status (ADR-0089). */
+export function projectStatusOf(project: Pick<Project, 'status'>): ProjectStatus {
+  return project.status === 'closed' ? 'closed' : 'active'
 }
 
 /**
- * Whether project status is recorded. Ticket 1 adds `projects.status`; until it
- * lands every project reads as active and a `closed` scope finds nothing, and
- * every answer says so. The follow-up is {@link projectStatusOf},
- * {@link projectPeriodOf} and this flag.
+ * A project's period, as days: the Steckbrief's Beginn and Abschluss (month
+ * precision, migration 0117), else the day the project was created in Piloti
+ * and an open end.
  */
-export const PROJECT_STATUS_KNOWN = false
-
-/** A project's status, as the lookups report it. */
-export function projectStatusOf(project: Pick<Project, 'id'>): ProjectStatus {
-  void project
-  return 'active'
-}
-
-/**
- * A project's period, as days. Until ticket 1 records a start and an end
- * (Beginn, Abschluss), the start is the day the project was created in Piloti
- * and the period is open.
- */
-export function projectPeriodOf(project: Pick<Project, 'createdAt'>): { start: string; end: string | null } {
-  return { start: new Date(project.createdAt).toISOString().slice(0, 10), end: null }
+export function projectPeriodOf(
+  project: Pick<Project, 'createdAt' | 'startedOn' | 'endedOn'>
+): { start: string; end: string | null } {
+  const start = project.startedOn ?? new Date(project.createdAt).toISOString().slice(0, 10)
+  return { start, end: project.endedOn ?? null }
 }
 
 /** Whether a period overlaps `[from, to]`, both optional and inclusive; an open end runs to today and beyond. */
@@ -162,16 +150,20 @@ function listed(project: Project, currentProjectId: string | null): CrossProject
   }
 }
 
-/** The projects a search scope covers, in the listing's order, the conversation's own left out. */
+/**
+ * The projects a search scope covers, the conversation's own left out: in the
+ * listing's order (newest first), or, for `similar`, most like the current
+ * project first (`similarity.ts`).
+ */
 export function projectsInScope(
   reachable: readonly Project[],
   request: Pick<CrossProjectSearchRequest, 'scope' | 'projectIds' | 'from' | 'to'>,
-  currentProjectId: string | null
+  current: { id: string; profile: Project['profile'] | null } | null
 ): Project[] {
   const others = reachable.filter(
-    (project) =>
-      project.id !== currentProjectId && periodOverlaps(projectPeriodOf(project), request.from, request.to)
+    (project) => project.id !== current?.id && periodOverlaps(projectPeriodOf(project), request.from, request.to)
   )
+  if (request.scope === 'similar') return rankBySimilarity(current?.profile ?? null, others)
   if (request.scope === 'closed') return others.filter((project) => projectStatusOf(project) === 'closed')
   if (request.scope === 'named') {
     const named = new Set(request.projectIds)
@@ -180,14 +172,19 @@ export function projectsInScope(
   return others
 }
 
-/** List and find the projects the reader may chat in (ADR-0093). Every project listed is recorded. */
+/** The current project, for the similarity order; null outside every project or when it is gone. */
+async function currentProjectOf(caller: CrossProjectCaller): Promise<Project | null> {
+  return caller.currentProjectId ? findProjectInOrg(caller.currentProjectId, caller.session.organizationId) : null
+}
+
+/** List and find the projects in reach (ADR-0093). Every project listed is recorded. */
 export async function listLookupProjects(
   caller: CrossProjectCaller,
   request: CrossProjectListRequest
 ): Promise<CrossProjectListResponse> {
-  await requireSoloConversation(caller.session, caller.conversationId)
+  const reach = await audienceReach(caller.session, caller.conversationId)
   const needle = request.query?.toLocaleLowerCase('de') ?? ''
-  const matching = (await listChatProjects(caller.session, 'newest')).filter((project) => {
+  const matching = reach.projects.filter((project) => {
     if (request.status && projectStatusOf(project) !== request.status) return false
     if (!periodOverlaps(projectPeriodOf(project), request.from, request.to)) return false
     if (!needle) return true
@@ -195,21 +192,24 @@ export async function listLookupProjects(
     return haystack.includes(needle)
   })
   const projects = matching.slice(0, request.limit).map((project) => listed(project, caller.currentProjectId))
-  await recordCrossProjectHandOut(party(caller), {
-    projectIds: projects.filter((project) => !project.current).map((project) => project.id),
-    folderIds: [],
-  })
+  await recordCrossProjectHandOut(
+    party(caller),
+    { projectIds: projects.filter((project) => !project.current).map((project) => project.id), folderIds: [] },
+    reach.key
+  )
   return { projects, total: matching.length, statusKnown: PROJECT_STATUS_KNOWN }
 }
 
-/** One project's brief: its confirmed facts and its summary, for a reader who may chat in it. Recorded. */
+/** One project's brief: its confirmed facts and its summary, for a project in reach. Recorded. */
 export async function readProjectBrief(
   caller: CrossProjectCaller,
   request: CrossProjectBriefRequest
 ): Promise<CrossProjectBriefResponse> {
-  await requireSoloConversation(caller.session, caller.conversationId)
-  await requireProjectAccess(caller.session, request.projectId, CHAT_PERMISSIONS)
-  const project = await findProjectInOrg(request.projectId, caller.session.organizationId)
+  const reach = await audienceReach(caller.session, caller.conversationId)
+  // The conversation's own project is always readable here; any other must be in reach.
+  const project =
+    reach.projects.find((candidate) => candidate.id === request.projectId) ??
+    (request.projectId === caller.currentProjectId ? await currentProjectOf(caller) : null)
   if (!project) throw new NotFoundError()
   let facts = ''
   try {
@@ -223,7 +223,7 @@ export async function readProjectBrief(
     facts,
   }
   if (!brief.project.current) {
-    await recordCrossProjectHandOut(party(caller), { projectIds: [project.id], folderIds: [] })
+    await recordCrossProjectHandOut(party(caller), { projectIds: [project.id], folderIds: [] }, reach.key)
   }
   return brief
 }
@@ -271,7 +271,8 @@ interface FoundHit {
 async function searchOneProject(
   session: AuthorizedSession,
   project: Project,
-  request: CrossProjectSearchRequest
+  request: CrossProjectSearchRequest,
+  reach: Pick<AudienceReach, 'restrictedFolders'>
 ): Promise<FoundHit[]> {
   let found: Awaited<ReturnType<typeof searchProjectDocuments>>
   try {
@@ -286,7 +287,10 @@ async function searchOneProject(
     return []
   }
   const ref = { id: project.id, name: project.name, status: projectStatusOf(project) }
-  const matching = found.hits.filter((hit) => matchesTags(hit.tags ?? [], request))
+  // A shared chat searches no restricted folder: not every reader was asked about it.
+  const matching = found.hits.filter(
+    (hit) => matchesTags(hit.tags ?? [], request) && (reach.restrictedFolders || hit.collectionName === project.collectionName)
+  )
   const restricted = matching.some((hit) => hit.collectionName !== project.collectionName)
   const access = restricted ? await getProjectFolderAccess(session, project.id, project.collectionName) : null
   return matching.flatMap((hit) => {
@@ -312,26 +316,37 @@ async function searchOneProject(
   })
 }
 
-/** Search documents across the projects the reader may chat in, one bounded page of projects per call (ADR-0093). */
+/** Search documents across the projects in reach, one bounded page of projects per call (ADR-0093). */
 export async function searchAcrossProjects(
   caller: CrossProjectCaller,
   request: CrossProjectSearchRequest
 ): Promise<CrossProjectSearchResponse> {
-  await requireSoloConversation(caller.session, caller.conversationId)
-  const scope = projectsInScope(await listChatProjects(caller.session, 'newest'), request, caller.currentProjectId)
+  const [reach, current] = await Promise.all([
+    audienceReach(caller.session, caller.conversationId),
+    request.scope === 'similar' ? currentProjectOf(caller) : Promise.resolve(null),
+  ])
+  const scope = projectsInScope(
+    reach.projects,
+    request,
+    current ?? (caller.currentProjectId ? { id: caller.currentProjectId, profile: null } : null)
+  )
   const page = scope.slice(request.offset, request.offset + CROSS_PROJECT_PAGE_PROJECTS)
   const perProject = await mapBounded(page, SEARCH_CONCURRENCY, (project) =>
-    searchOneProject(caller.session, project, request)
+    searchOneProject(caller.session, project, request, reach)
   )
   const kept = perProject
     .flat()
     .sort((a, b) => b.hit.score - a.hit.score)
     .slice(0, request.limit)
   // Recorded before anything is returned: the projects and restricted folders of the hits handed out.
-  await recordCrossProjectHandOut(party(caller), {
-    projectIds: kept.map((found) => found.hit.project.id),
-    folderIds: kept.map((found) => found.folderId).filter((folderId): folderId is string => folderId !== null),
-  })
+  await recordCrossProjectHandOut(
+    party(caller),
+    {
+      projectIds: kept.map((found) => found.hit.project.id),
+      folderIds: kept.map((found) => found.folderId).filter((folderId): folderId is string => folderId !== null),
+    },
+    reach.key
+  )
   const next = request.offset + page.length
   return {
     hits: kept.map((found) => found.hit),

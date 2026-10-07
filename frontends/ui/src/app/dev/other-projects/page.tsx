@@ -1,14 +1,14 @@
 'use client'
 
 /**
- * Dev preview: how a solo chat shows that it drew on other projects (ADR-0093).
+ * Dev preview: how a chat shows that it drew on other projects (ADR-0093).
  * Rendered through the real components with fixture data, no backend:
  *
  *   1. THE SOURCES — an answer citing a project upload of this chat, a passage
  *      from a closed project's detail folder and one from a running project:
  *      each chip from another project names it.
  *   2. THE NOTICE — what the composer says once the chat's answers drew on
- *      other projects: which, and what that closes.
+ *      running other projects: which, and what that closes (a closed one closes nothing).
  *
  * Not linked anywhere; the `/dev` server layout 404s it outside development.
  */
@@ -68,8 +68,8 @@ export default function OtherProjectsDevPage() {
   return (
     <main className="mx-auto flex max-w-2xl flex-col gap-8 p-4 sm:p-8" data-testid="other-projects-preview">
       <div>
-        <h1 className="text-lg font-semibold">A solo chat that drew on other projects</h1>
-        <p className="text-muted-foreground mt-1 text-sm">ADR-0093: sources name their project; the composer says what closed.</p>
+        <h1 className="text-lg font-semibold">A chat that drew on other projects</h1>
+        <p className="text-muted-foreground mt-1 text-sm">ADR-0093: sources name their project; the composer names only running projects and what they close.</p>
       </div>
       <Block title="1. The sources">
         <AnswerCitations documents={documents} anchorPrefix="dev-other-projects">

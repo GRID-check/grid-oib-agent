@@ -2,56 +2,56 @@
  * @vitest-environment node
  */
 /**
- * The cross-project lookups (ADR-0093), with the projects listing, the
- * project's own search and the stores mocked: only a solo chat may ask; a
- * project the reader cannot open is invisible (the listing decides, and the
- * search never reaches it); the conversation's own project is left out; one
- * call searches a bounded page of projects and says where the next starts;
- * every hit names its project and status; the filters hold.
+ * The cross-project lookups (ADR-0093), with the audience's reach, the
+ * project's own search and the stores mocked: a project out of reach is
+ * invisible (the reach decides, and the search never reaches it); a shared
+ * chat gets no restricted folder; the record is checked against the audience
+ * the reach was computed for; the conversation's own project is left out; the
+ * `similar` scope walks the most alike projects first; one call searches a
+ * bounded page of projects and says where the next starts; every hit names its
+ * project and status; the filters hold. The reach itself: `audience-reach.spec.ts`.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { ConversationAudienceRow } from '@/lib/conversations/restricted-use-repository'
 import type { Project } from '@/lib/db/schema'
 
 vi.mock('server-only', () => ({}))
 
 const state = vi.hoisted(() => ({
-  audience: null as ConversationAudienceRow | null,
   reachable: [] as Project[],
+  /** Projects of the organization out of the audience's reach: they exist, the lookups must not see them. */
+  outOfReach: [] as Project[],
+  restrictedFolders: true,
   hits: new Map<string, Array<Record<string, unknown>>>(),
   failing: new Set<string>(),
   searched: [] as Array<{ projectId: string; topK: number; snippetMaxChars?: number; forModel?: boolean }>,
   recorded: [] as Array<{ projectIds: readonly string[]; folderIds: readonly string[] }>,
+  recordedFor: [] as string[],
   /** Restricted collection → source folder, for the project whose folder tree is asked. */
   folders: new Map<string, string>(),
   inFlight: 0,
   peak: 0,
 }))
 
-vi.mock('@/lib/db', () => ({ getDb: () => ({}) }))
-vi.mock('@/lib/conversations/restricted-use-repository', () => ({
-  readConversationAudience: vi.fn(async () => state.audience),
+vi.mock('./audience-reach', () => ({
+  audienceReach: vi.fn(async () => ({ projects: state.reachable, restrictedFolders: state.restrictedFolders, key: 'audience-key' })),
 }))
-vi.mock('@/lib/projects/service', () => ({ listChatProjects: vi.fn(async () => state.reachable) }))
-vi.mock('@/lib/conversations/cross-project-use', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/lib/conversations/cross-project-use')>()),
-  recordCrossProjectHandOut: vi.fn(async (_party: unknown, handOut: { projectIds: string[]; folderIds: string[] }) => {
-    state.recorded.push(handOut)
-  }),
+vi.mock('@/lib/conversations/cross-project-use', () => ({
+  recordCrossProjectHandOut: vi.fn(
+    async (_party: unknown, handOut: { projectIds: string[]; folderIds: string[] }, searchedFor: string) => {
+      state.recorded.push(handOut)
+      state.recordedFor.push(searchedFor)
+    }
+  ),
 }))
 vi.mock('@/lib/authz/folder-access', () => ({
   getProjectFolderAccess: vi.fn(async () => ({ sourceFolderOf: (collection: string) => state.folders.get(collection) ?? null })),
 }))
 vi.mock('@/lib/projects/repository', () => ({
-  findProjectInOrg: vi.fn(async (id: string) => state.reachable.find((project) => project.id === id) ?? null),
-}))
-vi.mock('@/lib/authz/projects', () => ({
-  requireProjectAccess: vi.fn(async (_session: unknown, projectId: string) => {
-    if (!state.reachable.some((project) => project.id === projectId)) throw new Error('Not found')
-    return { role: 'project-viewer' }
-  }),
+  findProjectInOrg: vi.fn(
+    async (id: string) => [...state.reachable, ...state.outOfReach].find((project) => project.id === id) ?? null
+  ),
 }))
 vi.mock('@/lib/documents/service', () => ({
   searchProjectDocuments: vi.fn(
@@ -66,15 +66,12 @@ vi.mock('@/lib/documents/service', () => ({
   }),
 }))
 
-import { CrossProjectSharedChatError, NotFoundError } from '@/lib/api/errors'
-import { requireProjectAccess } from '@/lib/authz/projects'
-import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
+import { CrossProjectAudienceChangedError, NotFoundError } from '@/lib/api/errors'
 import {
   CROSS_PROJECT_SNIPPET_CHARS,
   listLookupProjects,
   periodOverlaps,
   readProjectBrief,
-  requireSoloConversation,
   searchAcrossProjects,
   SEARCH_CONCURRENCY,
 } from './service'
@@ -123,43 +120,27 @@ function hit(id: string, score: number, extra: Record<string, unknown> = {}) {
   }
 }
 
-const solo: ConversationAudienceRow = { exists: true, projectId: null, createdBy: OWNER, visibility: 'private', grantees: [] }
 const caller = (currentProjectId: string | null = null) => ({ session, conversationId: 's_conv', currentProjectId })
 const search = (body: Record<string, unknown>) => crossProjectSearchRequestSchema.parse({ query: 'Dachdetail Holzbau', ...body })
 
 beforeEach(() => {
   vi.clearAllMocks()
-  state.audience = solo
   state.reachable = [project(1), project(2), project(3)]
+  state.outOfReach = [project(9)]
+  state.restrictedFolders = true
   state.hits = new Map()
   state.failing = new Set()
   state.searched = []
   state.recorded = []
+  state.recordedFor = []
   state.folders = new Map()
   state.inFlight = 0
   state.peak = 0
 })
 
-describe('who may ask', () => {
-  it('refuses a shared chat with a typed 409 whose German sentence the agent relays, before searching anything', async () => {
-    state.audience = { ...solo, grantees: ['user_ina'] }
-
-    const error = await searchAcrossProjects(caller(), search({})).catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(CrossProjectSharedChatError)
-    expect((error as CrossProjectSharedChatError).code).toBe('CROSS_PROJECT_SHARED_CHAT')
-    expect((error as CrossProjectSharedChatError).message).toContain('neuen Chat')
-    expect(state.searched).toEqual([])
-    expect(state.recorded).toEqual([])
-    await expect(listLookupProjects(caller(), crossProjectListRequestSchema.parse({}))).rejects.toBeInstanceOf(
-      CrossProjectSharedChatError
-    )
-    await expect(requireSoloConversation(session, 's_conv')).rejects.toBeInstanceOf(CrossProjectSharedChatError)
-  })
-})
-
 describe('searchAcrossProjects', () => {
-  it('searches only the projects the reader may chat in, never its own, and names each hit’s project and status', async () => {
+  it('searches only the projects in reach, never its own, and names each hit’s project and status', async () => {
+    state.reachable = [project(1), project(2), project(3, { status: 'closed', closedAt: new Date(), closedBy: OWNER })]
     const [one, two, three] = state.reachable
     state.hits.set(one.id, [hit('a', 0.5)])
     state.hits.set(three.id, [hit('c', 0.9, { displayName: 'Dachdetail Traufe', collectionName: 'proj_3' })])
@@ -168,11 +149,11 @@ describe('searchAcrossProjects', () => {
 
     expect(state.searched.map((call) => call.projectId)).toEqual([one.id, three.id])
     expect(result.hits.map((found) => [found.project.name, found.project.status, found.filename])).toEqual([
-      ['Projekt 3', 'active', 'c.pdf'],
+      ['Projekt 3', 'closed', 'c.pdf'],
       ['Projekt 1', 'active', 'a.pdf'],
     ])
     expect(result.hits[0]).toMatchObject({ title: 'Dachdetail Traufe', collection: 'proj_3', page: 2 })
-    expect(result).toMatchObject({ projectsInScope: 2, projectsSearched: 2, nextOffset: null, statusKnown: false })
+    expect(result).toMatchObject({ projectsInScope: 2, projectsSearched: 2, nextOffset: null, statusKnown: true })
   })
 
   it('records the projects of the hits it hands out, and only those, before it answers', async () => {
@@ -183,6 +164,8 @@ describe('searchAcrossProjects', () => {
 
     expect(state.recorded).toEqual([{ projectIds: [one.id], folderIds: [] }])
     expect(state.recorded[0].projectIds).not.toContain(three.id)
+    // Checked under the lock against the audience the reach was computed for.
+    expect(state.recordedFor).toEqual(['audience-key'])
   })
 
   it('records the restricted folder a passage came from, and drops one whose folder cannot be named', async () => {
@@ -200,12 +183,45 @@ describe('searchAcrossProjects', () => {
     expect(state.recorded).toEqual([{ projectIds: [one.id, one.id], folderIds: ['folder-honorare'] }])
   })
 
-  it('returns nothing when the record refuses: a chat shared while the search ran', async () => {
+  it('searches no restricted folder from a shared chat: only the project’s open collection reaches it', async () => {
+    const [one] = state.reachable
+    state.restrictedFolders = false
+    state.folders.set('proj_1_rabcdef012345', 'folder-honorare')
+    state.hits.set(one.id, [hit('honorar', 0.9, { collectionName: 'proj_1_rabcdef012345' }), hit('plan', 0.7)])
+
+    const result = await searchAcrossProjects(caller(), search({}))
+
+    expect(result.hits.map((found) => found.filename)).toEqual(['plan.pdf'])
+    expect(state.recorded).toEqual([{ projectIds: [one.id], folderIds: [] }])
+  })
+
+  it('returns nothing when the record refuses: the audience changed while the search ran', async () => {
     const { recordCrossProjectHandOut } = await import('@/lib/conversations/cross-project-use')
-    vi.mocked(recordCrossProjectHandOut).mockRejectedValueOnce(new CrossProjectSharedChatError('geteilt'))
+    vi.mocked(recordCrossProjectHandOut).mockRejectedValueOnce(new CrossProjectAudienceChangedError('geändert'))
     state.hits.set(state.reachable[0].id, [hit('a', 0.5)])
 
-    await expect(searchAcrossProjects(caller(), search({}))).rejects.toBeInstanceOf(CrossProjectSharedChatError)
+    await expect(searchAcrossProjects(caller(), search({}))).rejects.toBeInstanceOf(CrossProjectAudienceChangedError)
+  })
+
+  it('walks the projects most like the current one first by default', async () => {
+    const facts = (bundesland: string, gk: number) => ({
+      facts: {
+        bundesland: { value: bundesland, confidence: 'confirmed' as const, source: 'onboarding' as const, updatedAt: '' },
+        gebaeudeklasse: { value: gk, confidence: 'confirmed' as const, source: 'onboarding' as const, updatedAt: '' },
+      },
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    })
+    state.reachable = [
+      project(1, { profile: facts('wien', 2) }),
+      project(2, { profile: facts('niederoesterreich', 4) }),
+      project(3, { profile: facts('niederoesterreich', 4) }),
+    ]
+
+    await searchAcrossProjects(caller(state.reachable[2].id), search({}))
+
+    expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[1].id, state.reachable[0].id])
   })
 
   it('makes a project out of chat reach invisible, even when named', async () => {
@@ -246,11 +262,13 @@ describe('searchAcrossProjects', () => {
     expect(state.searched).toHaveLength(3)
   })
 
-  it('finds nothing in the closed scope while project status is not recorded, and says so', async () => {
+  it('searches only the closed projects in the closed scope', async () => {
+    state.reachable = [project(1), project(2, { status: 'closed', closedAt: new Date(), closedBy: OWNER })]
+
     const result = await searchAcrossProjects(caller(), search({ scope: 'closed' }))
 
-    expect(result).toMatchObject({ hits: [], projectsInScope: 0, statusKnown: false })
-    expect(state.searched).toEqual([])
+    expect(result).toMatchObject({ projectsInScope: 1, statusKnown: true })
+    expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[1].id])
   })
 
   it('narrows by the PROJECT’s period before searching, not by when a file was uploaded', async () => {
@@ -259,6 +277,12 @@ describe('searchAcrossProjects', () => {
 
     expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[0].id, state.reachable[1].id])
     expect(result.projectsInScope).toBe(2)
+
+    // The Steckbrief's Beginn and Abschluss win over the day the project was created in Piloti.
+    state.reachable = [project(1, { startedOn: '2015-03-01', endedOn: '2017-06-01' }), project(2)]
+    state.searched = []
+    await searchAcrossProjects(caller(), search({ from: '2015-01-01', to: '2018-01-01' }))
+    expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[0].id])
   })
 
   it('filters by type and discipline after retrieval, asking each project for more', async () => {
@@ -307,7 +331,7 @@ describe('listLookupProjects', () => {
     expect(state.recorded).toEqual([{ projectIds: [one.id], folderIds: [] }])
 
     const graz = await listLookupProjects(caller(), crossProjectListRequestSchema.parse({ query: 'graz' }))
-    expect(graz).toMatchObject({ total: 1, statusKnown: false })
+    expect(graz).toMatchObject({ total: 1, statusKnown: true })
   })
 
   it('filters by period and status, cuts to the limit while counting the rest, and records only what it lists', async () => {
@@ -325,7 +349,7 @@ describe('listLookupProjects', () => {
 })
 
 describe('readProjectBrief', () => {
-  it('reads the confirmed facts and the summary of a project the reader may chat in, and records it', async () => {
+  it('reads the confirmed facts and the summary of a project in reach, and records it', async () => {
     state.reachable = [
       project(1, {
         profile: { facts: { bauweise: { value: 'holzbau', confidence: 'confirmed', source: 'onboarding', updatedAt: '' } }, goals: {}, unknowns: [], assumptions: {} },
@@ -338,13 +362,10 @@ describe('readProjectBrief', () => {
     expect(brief.summary).toBe('Ein Holzbau in Graz.')
     expect(brief.facts).toContain('bauweise=holzbau')
     expect(brief.project.collection).toBe('proj_1')
-    expect(vi.mocked(requireProjectAccess)).toHaveBeenCalledWith(session, state.reachable[0].id, CHAT_PERMISSIONS)
     expect(state.recorded).toEqual([{ projectIds: [state.reachable[0].id], folderIds: [] }])
   })
 
-  it('is a not-found for a project the reader may not chat in, and records nothing', async () => {
-    vi.mocked(requireProjectAccess).mockRejectedValueOnce(new NotFoundError())
-
+  it('is a not-found for a project out of reach, and records nothing', async () => {
     await expect(readProjectBrief(caller(), { projectId: project(9).id })).rejects.toBeInstanceOf(NotFoundError)
     expect(state.recorded).toEqual([])
   })

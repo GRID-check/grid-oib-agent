@@ -151,7 +151,7 @@ Consequences, where a reader looks for them.
 | [0090](0090-the-steckbrief-keeps-people-apart-from-the-profile.md) | The Steckbrief keeps its people apart from the profile | Accepted |
 | [0091](0091-ausmisten-proposes-from-metadata-and-bins-through-a-subfolder.md) | „Ausmisten" proposes from metadata, and bins through a subfolder of each document's folder | Accepted |
 | [0092](0092-the-server-marks-the-message-that-drew-on-a-restricted-folder.md) | The server marks the message that drew on a restricted folder, and the mark outlives the chat | Accepted |
-| [0093](0093-cross-project-lookups-are-for-solo-chats-and-recorded-per-project.md) | Cross-project lookups are for solo chats, and what they return is recorded per project | Accepted |
+| [0093](0093-the-agent-searches-other-projects-as-the-conversations-audience.md) | The agent searches other projects as the conversation's audience, and a closed project restricts nobody | Accepted |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

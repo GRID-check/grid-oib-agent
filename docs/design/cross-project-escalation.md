@@ -1,6 +1,6 @@
 # Searching beyond the project: an escalation ladder
 
-Status: proposal, 7 Oct 2026. Revises ADR-0093 (cross-project lookups) once agreed.
+Status: built, 7 Oct 2026. The decision record is ADR-0093.
 
 ## What the user should get
 
@@ -73,67 +73,95 @@ Every source passage has a set of readers:
 
 ## The escalation ladder
 
-The model climbs the ladder; the BFF decides how high this chat may climb; and
-the user is asked only at the one rung where the label would narrow.
+The model climbs on its own and the BFF decides how high this chat may go.
+Nobody is asked: the product owner's correction of 7 Oct was that a user should
+not have to ask, or approve, for Piloti to look in past projects.
 
 | Rung | Scope | Who decides | What the user sees |
 |---|---|---|---|
 | 0 | this project | as today | as today |
-| 1 | **office reference**: closed projects, open folders, ranked by similarity | the model, silently, in **any** chat | status „Suche in Referenzprojekten …", source chips „Datei · Projekt · abgeschlossen" |
-| 2 | active projects **everyone in this chat** may open, plus the folders all of them are cleared for | the model proposes, the **user confirms once per chat** | a consent chip: „In laufenden Projekten suchen? Danach lässt sich der Chat nur mit Mitgliedern von X teilen." |
-| 3 | folders not everyone in the chat may read | never by escalation | the answer says how many hits it could not show; v2: the folder owner releases an excerpt |
+| 1 | **office reference**: closed projects, open folders, ranked by similarity | the model, unasked, in **any** chat | status „in anderen Projekten", chips „Datei · Projekt" with „Abgeschlossenes Projekt" |
+| 2 | active projects **everyone in this chat** may open (a solo chat: the asker's), and in a solo chat the restricted folders the asker may read | the model, unasked | the same, plus the composer notice naming the running projects and what they close |
+| 3 | folders not everyone in the chat may read | never | nothing |
 
-Why the consent sits on rung 2 and nowhere else:
+**Why no prompt anywhere.**
+- **Rung 1 cannot narrow anything.** A label whose readers are all office
+  members restricts no one.
+- **Rung 2 cannot expose anything to a current reader.** It searches only what
+  everyone already in the chat may open. What it does change is who may join
+  later, and that is said where it matters: the composer notice, and the share
+  dialog's refusal naming the reason.
+- **Asking would cost more than it protects.** An approval clicked on every
+  answer is confirmation fatigue, which FIDES, CaMeL and RTBAS all warn
+  against. The guarantees here are automatic.
 
-- **Rung 1 changes nothing anybody could lose.** Office content cannot narrow a
-  label whose readers are all office members, so asking would be pure
-  confirmation fatigue.
-- **Rung 2 narrows who the chat can later reach.** That is a consequence for the
-  user, not a security question for the model.
-- **The consent is a click, never a tool argument.** This is FIDES's
-  trusted-action rule: text retrieved from a document cannot grant it. A grant
-  lasts for the chat, as Claude Code's "don't ask again" lasts for the session.
+**Search as the audience, not as the asker.** Each rung searches only what
+every current reader may read. That is the intersection the code already
+computed for restricted folders (`drawableRestrictedCollections`), lifted to
+projects in `lib/cross-project/audience-reach.ts`. Because the transcript never
+holds anything a current member cannot read, a later widening only has to be
+checked against the record, which it already is.
 
-**Search as the audience, not as the asker.** In a shared chat each rung
-searches only what every current member may read. That is the intersection the
-code already computes for restricted folders (`drawableRestrictedCollections`),
-lifted to projects. The transcript then never holds anything a member cannot
-read. A later widening is checked against the label, as today.
+## The catalog: knowing what to look at
+
+This follows the pattern of a skills catalog (Claude Skills, Cursor rules,
+Devin Knowledge). Each entry has one short description that the model always
+sees, and the content is fetched only when it is relevant.
+
+- **What the model sees.** Every turn shows it the closed projects most like
+  this one, at most 12 (`lib/cross-project/reference-brief.ts`, rendered as
+  `<referenzprojekte>`).
+- **What each line holds:**
+  - name and id
+  - years
+  - Bundesland, Gebäudeklasse, Bauweise, uses, kind of work
+  - what the project shares with this one
+  - a short summary
+- **No recording needed.** It names only closed projects, which every office
+  member reads, so it is safe in any chat.
+- **When the model fetches.** The prompt tells it to use `project_lookup`
+  without being asked when:
+  - the question is comparative or about experience;
+  - a reference project may have made the same decision (Fluchtweg,
+    Brandschutzdetail, Abweichung, Gutachten, Behördenauflage, Konstruktion);
+  - the project's own sources do not answer.
+
+  It does not fetch for pure norm text or definitions.
+- **How it presents what it finds.** Cite precedent as precedent, with project
+  and year. Say when the rules may have changed since. When the references held
+  nothing comparable, say so in one sentence.
+- **Similarity.** The Bundesland outweighs any single trait, because it
+  decides the OIB edition and the Bauordnung. Gebäudeklasse comes next, and a
+  neighbouring class still counts a little. A project matching in class,
+  construction and use in another Land still outranks one that only shares the
+  Land. The weights are set by hand. They should be learned from which
+  references readers open.
 
 ## When the model climbs
 
-These are routing rules in the prompt and tool description, not new machinery:
+The model climbs when one of the catalog's triggers fires. `scope: similar`
+is the default, and `closed`, `all` and `named` remain available. The budgets
+stay: 8 projects per call, 4 at a time, a 900-character passage, and
+per-project attribution.
 
-- **Comparative or historical questions climb straight to rung 1.** Examples:
-  „wie haben wir …", „in früheren Projekten", „Referenz", „schon mal".
-- **A thin answer falls back to rung 1.** If the project's own search returns
-  nothing that answers the question (Corrective RAG), the model climbs to rung 1
-  before saying it does not know.
-- **„Similar" is the default scope.** It ranks projects by Steckbrief and profile
-  facts: Bundesland first, because it decides the OIB variant, then
-  Gebäudeklasse, Bauweise, Nutzung and period. "All" and "named" stay available.
-- **Discovery comes before content.** `find` returns project, title, period and
-  hit count; full passages come only from `search`. Only content and active
-  project names are recorded.
-- **Budgets.** At most 8 projects per call, 4 at a time, a 900-character
-  passage, and per-project attribution in the merged result, as today.
+## What changed against the first build
 
-## What changes against t3–t3d
-
-| Keep | Change |
+| Kept | Changed |
 |---|---|
-| BFF records at hand-out, under the conversation lock | the solo check becomes **search as the audience** |
-| `conversation_source_projects`, migration 0125 | a closed project's open folders **restrict nobody** while it stays closed (read-time filter in `peopleWhoMayRead`, `lockedConversationIds`, egress) |
-| citations with project, the notice, the status line | confined mode (prompt and BFF) becomes the **label check per target**: memory, Recherche, Auftrag and profile patch are allowed when the target's readers ⊆ the label |
-| one tool `project_lookup` | it is offered in **every** chat; it gains scope `similar`; the BFF answers `consentRequired` for rung 2 |
-| per-project clearance (ticket 1) | new: `conversation_scope_grants` (who, when, rung), written only by a UI route from a click |
+| The BFF records at hand-out, under the conversation lock | The solo check is replaced by **searching as the audience**, and by an audience-unchanged check under the lock |
+| `conversation_source_projects`, migration 0125 | A closed project **restricts nobody** while it stays closed (`listRestrictingSourceProjects`, read by every judge) |
+| Citations with project, the notice, the status line | Doors shut only for content that narrows the readers: a running project or a restricted folder. The notice names only running projects |
+| One tool, `project_lookup` | It is offered in every chat, gains `scope: similar` as default, and its description says to look unasked |
+| — | **New**: the reference catalog in every turn |
 
 ## Open for the product owner
 
-1. **Rung 2 consent: per chat, or per person?** The proposal is per chat.
-2. **Memory from rung 1.** A lesson from a closed project may enter this
-   project's memory under the label rule. Should it carry the source project as
-   provenance, so a reopen can flag it?
-3. **Rung 3 release by the folder owner.** It is deferred to v2. Is the "N hits
-   you cannot see here" line wanted, or does the existence of such hits already
-   say too much?
+1. **Restricted folders in shared chats.** A shared chat never searches another
+   project's restricted folders, even when every reader may read them. Asking
+   per hit and per person was deferred.
+2. **Memory written while a project was closed.** It stays after a reopen: it
+   was readable by everyone when it was written. Should it carry the source
+   project, so a reopen can flag it?
+3. **A visible "searched N reference projects" step.** The status line shows
+   the search while it runs. An answer that cites nothing from the references
+   says so only in prose.

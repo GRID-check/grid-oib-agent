@@ -1250,7 +1250,6 @@ export const chat: typeof en.chat = {
   /** The notice once a chat's answers drew on another project (ADR-0093). */
   otherProjects: {
     title: 'Dieser Chat stützt sich auf andere Projekte: {projects}.',
-    closed: '{name} (abgeschlossen)',
     body: 'Er lässt sich nur mit Personen teilen, die diese Projekte öffnen dürfen. Aus ihm geht nichts ins Projektgedächtnis, in Aufträge, in eine Tiefenrecherche oder in die Projektablage.',
   },
   screening: {

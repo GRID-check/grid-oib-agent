@@ -1,6 +1,8 @@
 /**
- * What the composer says once a chat's answers drew on another project
- * (ADR-0093): which projects, and what that closes. The chat stays with the
+ * What the composer says once a chat's answers drew on another project still
+ * running (ADR-0093): which projects, and what that closes. A closed project is
+ * read by the whole office and closes nothing, so it is not listed, and a chat
+ * that drew only on closed projects shows no notice: its sources name them. The chat stays with the
  * people who may open them, and nothing from it reaches what the whole project
  * reads (memory, tasks, deep research, filing). Said here, at the place the
  * reader is about to act, rather than first in a refused share.
@@ -21,11 +23,10 @@ export interface OtherProjectsNoticeProps {
 export const OtherProjectsNotice: FC<OtherProjectsNoticeProps> = ({ projects }) => {
   const t = useTranslations('chat')
   const { locale } = useLocale()
-  if (projects.length === 0) return null
+  const running = projects.filter((project) => project.status !== 'closed')
+  if (running.length === 0) return null
   const names = new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(
-    projects.map((project) =>
-      project.status === 'closed' ? t('otherProjects.closed', { name: project.name }) : project.name
-    )
+    running.map((project) => project.name)
   )
   return (
     <Alert variant="info" className="mt-2" role="status" data-testid="other-projects-notice">

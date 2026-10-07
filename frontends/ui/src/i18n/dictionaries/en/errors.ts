@@ -62,9 +62,9 @@ export const errors = {
    * the agent quotes the German one to the reader.
    */
   crossProject: {
-    sharedChat:
-      'Searching across projects works only in a chat that is yours alone. This chat is shared or visible to the project, so what another project holds could reach people who may not open it. Start a new chat to search across projects.',
+    audienceChanged:
+      'Who may read this conversation changed just now, so nothing was taken from other projects. Please ask again.',
     memory:
-      'This conversation drew on other projects, so nothing from it is saved to project or office memory: everyone in this project reads that memory, including people who may not open the other projects.',
+      'This conversation drew on other projects that are still running, so nothing from it is saved to project or office memory: everyone in this project reads that memory, including people who may not open those projects. What came from closed projects may be saved.',
   },
 }

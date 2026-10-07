@@ -171,7 +171,7 @@ function mentionRefusalMessage(
       return name
         ? tCollab('sharing.errors.restrictedContent', { name })
         : tCollab('sharing.errors.restrictedContentSomeone')
-    // Likewise a solo chat that drew on another project (ADR-0093).
+    // Likewise a chat that drew on a running other project (ADR-0093).
     case SHARING_ERROR_REASONS.crossProjectContent:
       return name
         ? tCollab('sharing.errors.crossProjectContent', { name })

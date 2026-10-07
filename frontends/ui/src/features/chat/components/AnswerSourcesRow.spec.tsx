@@ -161,4 +161,18 @@ describe('AnswerSourcesRow in a closed project (ADR-0089)', () => {
     )
     expect(screen.queryByText(/closed/)).toBeNull()
   })
+
+  test('judges a file from another project by that project’s status, not the chat’s (ADR-0093)', async () => {
+    const { CurrentProjectProvider } = await import('@/features/projects/lib/current-project')
+    const fromClosed: CitedDocument = { ...projectDoc, id: 'doc-ref', project: { id: 'p9', name: 'Wohnbau Graz', status: 'closed' } }
+    const fromRunning: CitedDocument = { ...projectDoc, id: 'doc-run', project: { id: 'p8', name: 'Schule Linz', status: 'active' } }
+    render(
+      <CurrentProjectProvider value={{ id: 'p1', name: 'Seestadt D12', status: 'closed', closedAt: null, readsBecauseClosed: false }}>
+        <AnswerSourcesRow documents={[fromClosed, fromRunning]} anchorPrefix="test-" />
+      </CurrentProjectProvider>
+    )
+    // The closed reference says so once; the running project's file says nothing of the chat's closed project.
+    expect(screen.getAllByText(/Closed project/)).toHaveLength(1)
+    expect(screen.queryByText(/Seestadt D12 · closed/)).toBeNull()
+  })
 })

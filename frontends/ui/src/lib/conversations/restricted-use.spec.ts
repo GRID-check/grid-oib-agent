@@ -81,8 +81,8 @@ vi.mock('./restricted-use-repository', () => ({
     state.recorded = [...new Set([...state.recorded, ...folders])]
   }),
   readConversationAudience: vi.fn(async () => (state.audiences.length > 1 ? state.audiences.shift()! : state.audiences[0])),
-  listRecordedSourceProjects: vi.fn(async () => [...state.projects]),
-  listRecordedSourceProjectsFor: vi.fn(
+  listRestrictingSourceProjects: vi.fn(async () => [...state.projects]),
+  listRestrictingSourceProjectsFor: vi.fn(
     async (_executor: unknown, _org: string, ids: readonly string[]) =>
       new Map(ids.filter((id) => state.projectsFor.has(id)).map((id) => [id, [...(state.projectsFor.get(id) ?? [])]]))
   ),
@@ -501,7 +501,7 @@ describe('lockedConversationIds: which of a list the session may no longer read 
   })
 })
 
-describe('a solo chat that drew on another project (ADR-0093)', () => {
+describe('a chat that drew on another project (ADR-0093)', () => {
   const OTHER = 'project_2'
   /** „Honorare" in the other project: Geschäftsführung only. */
   const HONORARE_ID = 'aaaa0000-0000-4000-8000-0000000000aa'
@@ -603,8 +603,8 @@ describe('a solo chat that drew on another project (ADR-0093)', () => {
     state.projects = []
     state.opens = new Set()
     const write = vi.fn(async () => 'written')
-    const { listRecordedSourceProjects } = await import('./restricted-use-repository')
-    vi.mocked(listRecordedSourceProjects)
+    const { listRestrictingSourceProjects } = await import('./restricted-use-repository')
+    vi.mocked(listRestrictingSourceProjects)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([OTHER])
 

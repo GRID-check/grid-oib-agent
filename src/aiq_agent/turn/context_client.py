@@ -33,6 +33,28 @@ class ContextBlocks:
     #: (ADR-0093). Absent from an older BFF's answer, which reads as False: the
     #: BFF refuses every door such a conversation may not use on its own.
     drew_on_other_projects: bool = False
+    #: The office's reference projects, one line each (the closed projects most
+    #: like this one), so the agent can look there unasked. None from an older
+    #: BFF, or when the office has none.
+    reference_projects: str | None = None
+
+
+#: The catalog is a dozen short lines; anything longer is cut at a line.
+REFERENCE_PROJECTS_MAX_CHARS = 4000
+
+
+def _bounded_lines(value: str | None, max_chars: int) -> str | None:
+    """``value`` cut to whole lines within ``max_chars``; None when nothing is left."""
+    if not value or not value.strip():
+        return None
+    kept: list[str] = []
+    used = 0
+    for line in value.strip().splitlines():
+        if used + len(line) + 1 > max_chars:
+            break
+        kept.append(line)
+        used += len(line) + 1
+    return "\n".join(kept) or None
 
 
 class TurnContextError(RuntimeError):
@@ -78,6 +100,10 @@ def _parse_blocks(body: object) -> ContextBlocks:
         ),
         org_instructions=normalize_org_instructions(_nullable_text(data, "orgInstructions")),
         drew_on_other_projects=data.get("drewOnOtherProjects") is True,
+        reference_projects=_bounded_lines(
+            data.get("referenceProjects") if isinstance(data.get("referenceProjects"), str) else None,
+            REFERENCE_PROJECTS_MAX_CHARS,
+        ),
     )
 
 

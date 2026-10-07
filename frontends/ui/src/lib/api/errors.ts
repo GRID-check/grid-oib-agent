@@ -78,15 +78,14 @@ export class ConversationConfinedError extends ApiError {
 }
 
 /**
- * 409 — a cross-project lookup (ADR-0093) asked from a conversation that is
- * not its asker's alone: shared with someone, visible to the project, or
- * someone else's. The lookups are for solo chats only, because what they find
- * in another project would then sit in a conversation others read. The
+ * 409 — a cross-project lookup (ADR-0093) whose conversation changed who may
+ * read it while the lookup ran: the reach it searched was computed for the old
+ * audience, so nothing is handed out. Asking again searches as the new one. The
  * message is the reader's sentence, relayed by the agent.
  */
-export class CrossProjectSharedChatError extends ApiError {
+export class CrossProjectAudienceChangedError extends ApiError {
   constructor(message: string) {
-    super(409, 'CROSS_PROJECT_SHARED_CHAT', message)
+    super(409, 'CROSS_PROJECT_AUDIENCE_CHANGED', message)
   }
 }
 

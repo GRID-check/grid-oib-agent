@@ -54,9 +54,9 @@ export const errors: typeof en.errors = {
       'Eine genannte Unterlage liegt in einem Ordner mit eingeschränktem Zugriff, deshalb lässt sie sich einer Recherche nicht als Unterlage mitgeben: Unterlagen und Bericht einer Recherche sind für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind.',
   },
   crossProject: {
-    sharedChat:
-      'Die Suche über Projekte hinweg geht nur in einem Chat, der Ihnen allein gehört. Dieser Chat ist geteilt oder für das Projekt sichtbar, und was ein anderes Projekt enthält, könnte so Personen erreichen, die es nicht öffnen dürfen. Starten Sie für die projektübergreifende Suche einen neuen Chat.',
+    audienceChanged:
+      'Wer diese Unterhaltung lesen darf, hat sich gerade geändert, deshalb wurde in anderen Projekten nichts übernommen. Fragen Sie bitte noch einmal.',
     memory:
-      'Diese Unterhaltung stützt sich auf andere Projekte, deshalb wird nichts aus ihr im Projekt- oder Büro-Gedächtnis gespeichert: Dieses Gedächtnis lesen alle im Projekt, auch Personen, die die anderen Projekte nicht öffnen dürfen.',
+      'Diese Unterhaltung stützt sich auf laufende andere Projekte, deshalb wird nichts aus ihr im Projekt- oder Büro-Gedächtnis gespeichert: Dieses Gedächtnis lesen alle im Projekt, auch Personen, die jene Projekte nicht öffnen dürfen. Was aus abgeschlossenen Projekten stammt, darf gespeichert werden.',
   },
 }

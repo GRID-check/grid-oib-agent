@@ -24,16 +24,17 @@ export const CROSS_PROJECT_MAX_HITS = 20
 /** How many projects one listing returns at most. */
 export const CROSS_PROJECT_MAX_LISTED = 30
 
-/** A project's life stage. `closed` arrives with ticket 1's `projects.status`; until then every project is `active`. */
+/** A project's life stage (ADR-0089). */
 export const PROJECT_STATUSES = ['active', 'closed'] as const
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number]
 
 /**
- * Which projects a search covers: the closed ones, every one the reader may
- * open, or the ones it names. The conversation's own project is never part of
+ * Which projects a search covers: every one in reach ordered by likeness to the
+ * current project (`similar`, the default), the closed ones, every one newest
+ * first, or the ones it names. The conversation's own project is never part of
  * it: that one is searched by the chat's own tools, under its own scope.
  */
-export const CROSS_PROJECT_SCOPES = ['closed', 'all', 'named'] as const
+export const CROSS_PROJECT_SCOPES = ['similar', 'closed', 'all', 'named'] as const
 export type CrossProjectScope = (typeof CROSS_PROJECT_SCOPES)[number]
 
 /** A calendar day, `YYYY-MM-DD`, that is a real date. */
@@ -54,7 +55,7 @@ const answerMessageId = z.string().uuid().nullish()
 
 export const crossProjectSearchRequestSchema = z.object({
   query: z.string().trim().min(2).max(500),
-  scope: z.enum(CROSS_PROJECT_SCOPES).default('all'),
+  scope: z.enum(CROSS_PROJECT_SCOPES).default('similar'),
   /** The projects a `named` scope searches; ignored for the others. Ids the reader may not open are skipped without a word. */
   projectIds: z.array(z.string().uuid()).max(CROSS_PROJECT_MAX_NAMED).default([]),
   /** Only documents tagged with one of these types (ingestion's closed vocabulary). */
@@ -110,7 +111,7 @@ export const crossProjectSearchResponseSchema = z.object({
   projectsSearched: z.number().int(),
   /** The offset of the next page of projects, or null when this page reached the end. */
   nextOffset: z.number().int().nullable(),
-  /** Whether project status is recorded yet. False until ticket 1's status column exists: `closed` then finds nothing. */
+  /** Always true since ticket 1 records project status; kept so older agents still parse the answer. */
   statusKnown: z.boolean(),
 })
 export type CrossProjectSearchResponse = z.infer<typeof crossProjectSearchResponseSchema>

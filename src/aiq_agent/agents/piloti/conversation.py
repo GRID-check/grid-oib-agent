@@ -453,6 +453,7 @@ class ConversationGraph:
             project_context=state.project_context,
             platform_lessons=state.platform_lessons,
             org_instructions=state.org_instructions,
+            reference_projects=state.reference_projects,
             focus_file_name=state.focus_file_name,
             focus_shelf=state.focus_shelf,
             # Told to the model so it writes an answer instead of a hand-off

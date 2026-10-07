@@ -385,47 +385,52 @@ Enabled data source IDs are tracked per conversation in `enabledDataSourceIds` a
 
 ## Searching other projects
 
-In a chat that only you can see, Piloti can look across the office's other
-projects when your question is about them: „Wie haben wir die Traufe beim
-Holzbau in Graz gelöst?", „Welche abgeschlossenen Projekte hatten eine
-Tiefgarage?". It can search their documents (by topic, optionally by document
-type such as Detail or Gutachten, by OIB discipline, and by the project's
-period), find a project by name or address, and read a project's brief (its
-confirmed facts and summary). Every source it cites from another project names
-that project on its chip („Detail Traufe · Wohnbau Graz"), and opening the chip
-opens the document in that project. While Piloti searches, the status line says
-„in anderen Projekten".
+Piloti knows the office's finished projects and looks into them on its own
+when your question calls for it: „Wie haben wir die Fluchttreppe beim letzten
+GK4-Holzbau gelöst?", „Was hat die Behörde bei ähnlichen Projekten verlangt?",
+or a question this project's own documents do not answer. You do not have to
+ask it to search there. At the start of every answer it sees a short list of
+the closed projects most like this one (same Bundesland first, then
+Gebäudeklasse, Bauweise and use), and it can search their documents (by topic,
+optionally by document type such as Detail or Gutachten, by OIB discipline,
+and by the project's period), find a project by name or address, and read a
+project's brief. While it searches, the status line says „in anderen
+Projekten". Every source from another project names that project on its chip
+(„Detail Traufe · Wohnbau Graz"), says „Abgeschlossenes Projekt" when it is
+closed, and opens the document in that project. Piloti treats such a source as
+a precedent, not as a rule, and says when the regulations may have changed
+since.
 
-What it may look at is decided by your access, never by Piloti:
+What it may look at is decided by Piloti's server, never by the model, and by
+**everyone who reads the chat**, not just by you:
 
-- only projects you may chat in, never the one this chat belongs to (Piloti
-  searches that one anyway);
-- inside each project, exactly what that project's own search would show you:
-  folders you may not read stay out, and a folder with its own access list is
-  searched only if you may read it;
-- one search covers up to eight projects; Piloti continues with the next ones
-  when it needs to.
+- in a chat only you can see: every project you may chat in, and inside each,
+  exactly what that project's own search would show you (folders with their
+  own access list only if you may read them);
+- in a chat shared with colleagues: the closed projects, and the running ones
+  every one of them may open; no folder with its own access list;
+- in a chat the whole project can see: the closed projects;
+- never the project this chat belongs to (Piloti searches that one anyway);
+- one search covers up to eight projects; Piloti continues when it needs to.
 
-Project status („abgeschlossen") arrives with project closing. Until then
-every project counts as running, and a search limited to closed projects finds
-nothing; Piloti says so and searches all projects instead.
+So everything Piloti shows in a chat is something everyone already in it may
+read.
 
-**A chat that used another project stays with the people who may open it.**
-From the moment Piloti shows you something from another project, the chat:
+**Closed projects change nothing about your chat.** The whole office may read a
+closed project, so a chat that drew on one stays as it was: shareable with
+anyone in the office, able to remember, start a Tiefenrecherche or an Auftrag.
 
-- can be shared only with colleagues who may open every project it drew on,
-  and read every restricted folder it drew on; it cannot be made visible to the
-  whole project;
+**A chat that used a running project, or a restricted folder of any project,
+stays with the people who may open it.** From then on the chat:
+
+- can be shared only with colleagues who may open every such project and read
+  every such folder; it cannot be made visible to the whole project;
 - starts no deep research and no task, changes no project brief, files nothing
   into the project, and adds nothing to project or office memory.
 
-Once an answer cites another project, a notice above the message box names the
-projects (a closed one as „abgeschlossen") and says what that closes.
-
-This is why the lookups work only in a chat that is yours alone: in a shared
-chat Piloti says it cannot search other projects there, and you can start a new
-chat for it. Keep cross-project questions in their own chat when you want the
-project chat to stay shareable.
+A notice above the message box names the running projects and says what that
+closes. If such a project is closed later, the chat opens up; if a closed one
+is reopened, the restriction comes back.
 
 ## Project-scoped chat
 

@@ -1,4 +1,10 @@
-"""``project_lookup``: a solo chat looks across the office's other projects (ADR-0093).
+"""``project_lookup``: a chat looks across the office's other projects (ADR-0093).
+
+The escalation step of docs/design/cross-project-escalation.md: the model
+climbs from this project to the office's reference projects on its own, when
+the question is comparative or the project's own sources are thin. The turn
+context lists the closest closed projects (``<referenzprojekte>``), so the
+model knows what is there before it looks.
 
 ## One tool, three actions
 
@@ -9,10 +15,12 @@ in production. ``propose_file_change`` is the precedent.
 
 ## What the BFF decides and what this decides
 
-The BFF decides everything about access (which projects, which folders, whether
-this chat may look at all), records what it hands out on the conversation
-before it answers, and refuses a chat that is not the asker's alone; this tool
-echoes the envelope and words the answer. See ``client.py``.
+The BFF decides everything about access: it searches as the conversation's
+whole audience (a solo chat reaches what the asker may chat in, a shared one
+what every reader may open, always including the closed projects), records
+what it hands out on the conversation before it answers, and refuses when the
+audience changed mid-lookup. This tool echoes the envelope and words the
+answer. See ``client.py``.
 
 ## What the model may do with an answer
 
@@ -24,9 +32,10 @@ returns a longer passage than a hit list does.
 
 Everything an answer carries was recorded by the BFF before it was returned,
 so the tool tells the turn (:func:`note_cross_project_hand_out`): the admission
-lets exactly these collections through, and every door a whole project reads
-(memory, tasks, deep research, the profile, filing) is shut for the rest of the
-conversation.
+lets exactly these collections through. Only content that narrows the
+conversation's readers (an active project, a restricted folder) shuts the doors
+a whole project reads (memory, tasks, deep research, the profile, filing); a
+closed project's open folders are read by the whole office and shut nothing.
 """
 
 from __future__ import annotations
@@ -46,6 +55,7 @@ from aiq_agent.common.grounding_block import GroundingHit
 from aiq_agent.common.grounding_block import SourceProject
 from aiq_agent.common.grounding_block import render_grounding_block
 from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.knowledge.restricted_collections import is_restricted_collection
 from aiq_agent.knowledge.restricted_use import note_collections_read
 from aiq_agent.knowledge.restricted_use import note_cross_project_hand_out
 from aiq_agent.turn.response import turn_answer_message_id
@@ -99,25 +109,30 @@ def _normalized(value: object) -> object:
 
 
 Action = Annotated[Literal["search", "find", "brief"], BeforeValidator(_normalized)]
-Scope = Annotated[Literal["all", "closed", "named"], BeforeValidator(_normalized)]
+Scope = Annotated[Literal["similar", "closed", "all", "named"], BeforeValidator(_normalized)]
 
 _DESCRIPTION = (
-    "Schlägt in ANDEREN Projekten des Büros nach, nur in einem Chat, der der Nutzerin allein gehört. "
-    "Nur aufrufen, wenn die Frage wirklich andere Projekte betrifft („wie haben wir das beim Holzbau in "
-    "Graz gelöst“, „welche abgeschlossenen Projekte hatten …“); das Projekt dieses Chats ist nie dabei, "
-    "dafür die üblichen Werkzeuge. `action`: "
-    "`search` durchsucht Dokumente (`query` nötig; `scope` `all` = alle Projekte, in denen sie chatten "
-    "darf, `closed` = abgeschlossene, `named` = nur `project_ids`; optional `document_types`, "
-    "`disciplines`, `period_from`/`period_to` als JJJJ-MM-TT für den Projektzeitraum). Ein Aufruf "
-    "durchsucht höchstens 8 Projekte; nennt das Ergebnis eine nächste Seite, mit `offset` weiter. "
+    "Schlägt in den ANDEREN Projekten des Büros nach, vor allem in den abgeschlossenen "
+    "Referenzprojekten. Ruf es selbst auf, ohne dass die Nutzerin danach fragt, wenn (a) die Frage "
+    "vergleichend oder erfahrungsbezogen ist („wie haben wir …“, „schon mal“, „früher“, „üblich bei "
+    "uns“, Details, Lösungen, Abweichungen, Gutachten, Behördenauflagen), (b) die Quellen dieses "
+    "Projekts die Frage nicht beantworten, oder (c) ein Referenzprojekt aus `<referenzprojekte>` "
+    "dieselbe Entscheidung schon getroffen hat. Nicht für reine Normtexte oder Definitionen. Das "
+    "Projekt dieses Chats ist nie dabei, dafür die üblichen Werkzeuge. `action`: "
+    "`search` durchsucht Dokumente (`query` nötig; `scope` `similar` = Projekte, die diesem am "
+    "ähnlichsten sind, zuerst (Standard), `closed` = nur abgeschlossene, `all` = alle neueste zuerst, "
+    "`named` = nur `project_ids`; optional `document_types`, `disciplines`, "
+    "`period_from`/`period_to` als JJJJ-MM-TT für den Projektzeitraum). Ein Aufruf durchsucht "
+    "höchstens 8 Projekte; nennt das Ergebnis eine nächste Seite, mit `offset` weiter. "
     "`find` listet Projekte mit Status, Zeitraum und Adresse (`query` sucht in Name und Adresse). "
     "`brief` liest die bestätigten Eckdaten und die Zusammenfassung eines Projekts (`project_id` aus "
-    "`find` oder einem Treffer). "
-    "Treffer zitierst du wie jede Quelle über ihren Citation-Schlüssel und nennst das Projekt. Die "
-    "Passage ist alles, was es gibt: Dokumente anderer Projekte lassen sich nicht weiter öffnen. "
-    "Was aus einem anderen Projekt in diesem Chat steht, schließt ihn: Er ist dann nur noch mit "
-    "Personen teilbar, die diese Projekte öffnen dürfen, und nichts daraus geht ins "
-    "Projektgedächtnis, in Aufträge, Tiefenrecherche oder die Ablage."
+    "`<referenzprojekte>`, `find` oder einem Treffer). "
+    "Treffer zitierst du wie jede Quelle über ihren Citation-Schlüssel und nennst Projekt und Jahr; "
+    "eine Referenz ist ein Präzedenzfall, keine Norm: sag, wenn sich die Rechtslage seither geändert "
+    "haben kann. Die Passage ist alles, was es gibt: Dokumente anderer Projekte lassen sich nicht "
+    "weiter öffnen. Abgeschlossene Projekte darf das ganze Büro lesen, sie schränken diesen Chat nicht "
+    "ein. Inhalte aus LAUFENDEN Projekten machen ihn nur noch mit Personen teilbar, die diese Projekte "
+    "öffnen dürfen, und schließen Projektgedächtnis, Aufträge, Tiefenrecherche und Ablage."
 )
 
 _NO_ENVELOPE = (
@@ -129,15 +144,24 @@ _UNREACHABLE = (
     "es nicht geklappt hat; nicht in derselben Antwort erneut versuchen."
 )
 _NOT_FOUND = (
-    "Dieses Projekt gibt es nicht, oder die Nutzerin darf darin nicht chatten. Nimm eine project_id aus `find`."
+    "Dieses Projekt gibt es nicht, oder nicht alle, die diesen Chat lesen, dürfen es öffnen. Nimm eine "
+    "project_id aus `<referenzprojekte>` oder `find`."
 )
 
-#: Said once per answer that handed content out: the doors it shut.
+#: Said once per answer that handed out content narrowing the chat's readers: the doors it shut.
 _CLOSED_DOORS = (
-    "[Dieser Chat stützt sich jetzt auf andere Projekte: kein Projektgedächtnis, keine Aufträge, keine "
-    "Tiefenrecherche, keine Ablage ins Projekt, und teilbar nur mit Personen, die diese Projekte öffnen "
-    "dürfen.]"
+    "[Dieser Chat stützt sich jetzt auf laufende andere Projekte: kein Projektgedächtnis, keine "
+    "Aufträge, keine Tiefenrecherche, keine Ablage ins Projekt, und teilbar nur mit Personen, die diese "
+    "Projekte öffnen dürfen.]"
 )
+
+
+def _restricts(status: object, collection: object) -> bool:
+    """Whether content from this project and collection narrows the chat's readers.
+
+    Everything does except a closed project's open folder, which every office member reads.
+    """
+    return str(status) != "closed" or is_restricted_collection(collection if isinstance(collection, str) else None)
 
 
 class ProjectLookupConfig(FunctionBaseConfig, name="project_lookup"):
@@ -178,7 +202,7 @@ async def _call(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     try:
         return await asyncio.to_thread(post_lookup, path, _with_answer(payload), envelope)
     except CrossProjectLookupError as exc:
-        if exc.code == "CROSS_PROJECT_SHARED_CHAT":
+        if exc.code == "CROSS_PROJECT_AUDIENCE_CHANGED":
             # The BFF's own sentence, in German: relayed to the reader as it is.
             raise _Refused(f"Nicht möglich: {exc}") from exc
         if exc.status == 404:
@@ -265,7 +289,7 @@ def _hit(raw: dict[str, Any]) -> GroundingHit | None:
     )
 
 
-def _search_preamble(body: dict[str, Any], hits: tuple[GroundingHit, ...], scope: str) -> list[str]:
+def _search_preamble(body: dict[str, Any], hits: tuple[GroundingHit, ...]) -> list[str]:
     projects = len({hit.project.id for hit in hits if hit.project})
     searched, in_scope = body.get("projectsSearched", 0), body.get("projectsInScope", 0)
     lines = [
@@ -275,27 +299,25 @@ def _search_preamble(body: dict[str, Any], hits: tuple[GroundingHit, ...], scope
     next_offset = body.get("nextOffset")
     if isinstance(next_offset, int):
         lines.append(f"[Weitere Projekte nicht durchsucht: dieselbe Suche mit offset={next_offset} setzt fort.]")
-    if scope == "closed" and body.get("statusKnown") is False:
-        lines.append(
-            "[Der Projektstatus wird in diesem Büro noch nicht erfasst, deshalb findet `scope: closed` nichts. "
-            "Mit `scope: all` und einem Zeitraum suchen.]"
-        )
-    if hits:
+    if any(_restricts(hit.project.status if hit.project else None, hit.collection) for hit in hits):
         lines.append(_CLOSED_DOORS)
     return lines
 
 
-def _render_search(body: dict[str, Any], scope: str) -> str:
+def _render_search(body: dict[str, Any]) -> str:
     raw_hits = body.get("hits") if isinstance(body.get("hits"), list) else []
     hits = tuple(hit for hit in (_hit(raw) for raw in raw_hits if isinstance(raw, dict)) if hit is not None)
-    preamble = _search_preamble(body, hits, scope)
+    preamble = _search_preamble(body, hits)
     if not hits:
         return "\n".join([*preamble, "Keine passenden Dokumente in diesen Projekten."])
     from knowledge_layer.register import _trace_lanes_for_hits
 
     # Handed out by the BFF, which recorded every one before it answered: what
     # the admission lets through for this turn, and what shuts its doors.
-    note_cross_project_hand_out(hit.collection for hit in hits)
+    note_cross_project_hand_out(
+        (hit.collection for hit in hits),
+        restricting=any(_restricts(hit.project.status if hit.project else None, hit.collection) for hit in hits),
+    )
     return render_grounding_block(
         GroundingBlock(
             preamble="\n".join(preamble),
@@ -330,26 +352,31 @@ def _project_line(project: dict[str, Any]) -> str:
     return f"- {line}" + (" — das Projekt dieses Chats" if project.get("current") else "")
 
 
+def _others(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [project for project in projects if project.get("collection") and not project.get("current")]
+
+
+def _any_active(projects: list[dict[str, Any]]) -> bool:
+    """Whether an answer named another project still running: that narrows the chat's readers."""
+    return any(str(project.get("status")) != "closed" for project in _others(projects))
+
+
 def _hand_out(projects: list[dict[str, Any]]) -> None:
     """Every project an answer named other than the chat's own: recorded by the BFF, noted for the turn."""
-    collections = [
-        str(project["collection"]) for project in projects if project.get("collection") and not project.get("current")
-    ]
+    collections = [str(project["collection"]) for project in _others(projects)]
     note_collections_read(collections)
     if collections:
-        note_cross_project_hand_out(collections)
+        note_cross_project_hand_out(collections, restricting=_any_active(projects))
 
 
 def _render_find(body: dict[str, Any]) -> str:
     projects = [project for project in body.get("projects") or [] if isinstance(project, dict)]
     if not projects:
-        return "Keine Projekte gefunden, in denen die Nutzerin chatten darf."
+        return "Keine Projekte gefunden, die alle in diesem Chat öffnen dürfen."
     _hand_out(projects)
     total = body.get("total", len(projects))
     lines = [f"{len(projects)} von {total} Projekt(en):", *(_project_line(project) for project in projects)]
-    if body.get("statusKnown") is False:
-        lines.append("[Der Projektstatus wird noch nicht erfasst: alle Projekte gelten als laufend.]")
-    if any(not project.get("current") for project in projects):
+    if _any_active(projects):
         lines.append(_CLOSED_DOORS)
     return "\n".join(lines)
 
@@ -362,7 +389,7 @@ def _render_brief(body: dict[str, Any]) -> str:
         lines.append(f"Zusammenfassung: {summary}")
     facts = str(body.get("facts") or "").strip()
     lines.append(facts if facts else "Keine bestätigten Eckdaten.")
-    if not project.get("current"):
+    if _any_active([project]):
         lines.append(_CLOSED_DOORS)
     return "\n".join(lines)
 
@@ -399,7 +426,7 @@ async def _lookup(
             period_to=period_to,
             offset=offset,
         )
-        return _render_search(await _call(SEARCH_PATH, payload), scope)
+        return _render_search(await _call(SEARCH_PATH, payload))
     if action == "find":
         payload: dict[str, Any] = {}
         if query.strip():
@@ -417,7 +444,7 @@ async def _lookup(
 async def run_project_lookup(
     action: Action,
     query: str = "",
-    scope: Scope = "all",
+    scope: Scope = "similar",
     project_ids: list[str] | None = None,
     document_types: list[DocumentType] | None = None,
     disciplines: list[Discipline] | None = None,
