@@ -7,12 +7,19 @@
  * latest, so a row still `queued` a quarter of an hour later is one of three
  * things, and each gets the truth:
  *
- *   - its job is still waiting or running: left alone, however long it takes;
+ *   - its job is still waiting or running: left alone, however long it takes
+ *     (the read leaves such rows out, so a backlog of live filings cannot fill
+ *     the batch ahead of a dead one; the check is repeated here in case the job
+ *     appeared after the read);
  *   - its job is dead (every attempt failed, or its worker vanished on the last
  *     one): the row says `failed` with the queue's own reason;
  *   - it has no job at all: if the report is filed after all (a reader's job
  *     did it) the row says `filed`, otherwise `failed`. A row must not say
  *     `queued` for work nothing is doing.
+ *
+ * The verdict is written only while the row still says `queued`
+ * (`settleQueuedFiling`): the job writes its own, and a sweep that judged from
+ * an earlier read must not overwrite it.
  *
  * Driven by the same clock as the document sweep
  * (`/api/internal/maintenance/reconcile-background-work`).
@@ -37,12 +44,14 @@ export interface StuckFilingSweepResult {
   filed: number
   /** Rows ended as `failed`: a dead job, or no job and no report. */
   failed: number
-  /** Rows whose job is still alive. */
+  /** Rows whose job is still alive (one that came to life after the read). */
   waiting: number
+  /** Rows the job or a reader settled between the read and the write: left as they say. */
+  settled: number
   errors: number
 }
 
-type Verdict = 'filed' | 'failed' | 'waiting'
+type Verdict = 'filed' | 'failed' | 'waiting' | 'settled'
 
 async function judge(run: TaskRun): Promise<Verdict> {
   const runId = run.backendJobId
@@ -53,23 +62,24 @@ async function judge(run: TaskRun): Promise<Verdict> {
     ? await findFiledResearchReport({ organizationId: run.organizationId, projectId: run.projectId, runId })
     : null
   if (filed) {
-    await repository.updateRun(run.id, run.organizationId, {
+    const written = await repository.settleQueuedFiling(run.id, run.organizationId, {
       filingStatus: 'filed',
       filingDetail: null,
       filedDocumentId: filed.documentId,
     })
-    return 'filed'
+    return written ? 'filed' : 'settled'
   }
 
   const dead = runId ? await findDeadJob(query) : null
   const detail = dead
     ? `the filing job failed every attempt: ${dead.lastError ?? 'no reason kept'}`
     : 'the filing job is gone and the report was never filed'
-  await repository.updateRun(run.id, run.organizationId, {
+  const written = await repository.settleQueuedFiling(run.id, run.organizationId, {
     filingStatus: 'failed',
     filingDetail: detail.slice(0, 500),
+    filedDocumentId: null,
   })
-  return 'failed'
+  return written ? 'failed' : 'settled'
 }
 
 /**
@@ -85,7 +95,7 @@ export async function recoverStuckFilings(
     repository.listRunsWithStaleQueuedFiling(before, options.batch ?? FILING_BATCH)
   )
 
-  const result: StuckFilingSweepResult = { checked: runs.length, filed: 0, failed: 0, waiting: 0, errors: 0 }
+  const result: StuckFilingSweepResult = { checked: runs.length, filed: 0, failed: 0, waiting: 0, settled: 0, errors: 0 }
   for (const run of runs) {
     try {
       const verdict = await withTenant({ organizationId: run.organizationId }, () => judge(run))

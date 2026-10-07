@@ -25,6 +25,7 @@ import {
 } from '@/lib/s3'
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
@@ -2226,6 +2227,14 @@ export async function runReingestFailedSlice(
   session: AuthorizedSession,
   payload: ReingestFailedPayload
 ): Promise<JobSliceResult<ReingestFailedPayload>> {
+  // The route's own gate, asked again: the job may have waited, and the walk
+  // spans slices. `session` is the requester's rights today (`handlers.ts`), so a
+  // person who lost `org:settings:manage` since they clicked ends the rescan here.
+  if (!hasPermission(session, ORG_PERMISSIONS.settingsManage)) {
+    console.warn(`[reingest] ${session.userId} no longer holds ${ORG_PERMISSIONS.settingsManage}; stopping the rescan`)
+    return { done: true, payload }
+  }
+
   const { ids, nextCursor } = await listFailedDocumentPageInOrg(session.organizationId, {
     limit: REINGEST_SLICE_DOCUMENTS,
     cursor: payload.cursor,

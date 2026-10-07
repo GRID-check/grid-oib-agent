@@ -43,9 +43,12 @@ export type { BffJobPriority }
 /**
  * The person a job runs on behalf of, as the permission checks need them.
  *
- * The job is authorized when it is enqueued, by the route that took the request;
- * what travels here is what the per-document checks that follow still read: who,
- * in which membership, holding which organization permissions. It is NOT a
+ * The job is authorized when it is enqueued, by the route that took the request.
+ * What travels here says WHO asked; the two walks (`reindex_project`,
+ * `reingest_failed`) do not trust the rest of it: `handlers.ts` resolves the
+ * person's membership and role again before every slice, so a role revoked
+ * while the job waited ends it. Only `file_research_report`, a one-step job a
+ * reader's request authorizes up front, files on the snapshot. It is NOT a
  * session token. The worker has no access token and nothing here can be
  * replayed against WorkOS; a project or resource check asks WorkOS live, by the
  * membership id, as it does for a request.

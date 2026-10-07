@@ -434,7 +434,12 @@ export interface CommissionedResearchRun {
   /** The run's message in the thread, or null when it could not be minted. */
   runMessageId: string | null
   conversationId: string
-  /** `queued` never survives this call: `running` when the worker took it, `failed` when it refused. */
+  /**
+   * What the run is when this returns: `queued` when the backend took the job and it waits for a
+   * research worker with a message for the worker's first flush to reach (the queue is claimed
+   * fairly and a busy fleet leaves it waiting, ADR-0078; `submittedRunStatus`), `running` otherwise,
+   * `failed` when the submission was refused. A caller must not read `queued` as "not submitted".
+   */
   status: TaskRun['status']
 }
 

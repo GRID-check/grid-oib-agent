@@ -8,13 +8,17 @@
  *
  * A walk (`reindex_project`, `reingest_failed`) runs as the person who asked, in
  * the job's organization. The runner has no session, so the session is built
- * here from the requester stored in the payload, and the services the handlers
- * call check access per document exactly as they do for a request. The other
- * kinds are single steps run as the system (see `./types.ts`).
+ * here, and built from what the identity provider says NOW: the payload names
+ * who asked, but a job can wait in the queue and a walk spans many slices, and
+ * a person who lost their role or left the organization in the meantime must
+ * not have it carry on with the rights they had when they clicked. The services
+ * the handlers call then check access per document exactly as they do for a
+ * request. The other kinds are single steps run as the system (see `./types.ts`).
  */
 
 import 'server-only'
 import type { ZodType } from 'zod'
+import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import {
   runBimExtractJob,
@@ -30,7 +34,6 @@ import {
   officeRenditionPayloadSchema,
   reindexProjectPayloadSchema,
   reingestFailedPayloadSchema,
-  sessionOf,
   type BffJobKind,
   type JobAttempt,
   type JobRequester,
@@ -51,6 +54,12 @@ export type JobHandler = (job: {
  * Tie a payload schema to its slice function, so the two cannot name different
  * payloads. A stored payload that does not parse throws: a row nobody can read
  * is a failed attempt, not something to guess at.
+ *
+ * The session is the requester's TODAY (`resolvePinnedRequesterSession`: their
+ * membership and role now, no access token), resolved before every slice. A
+ * requester who is no longer a member of the organization ends the job quietly,
+ * as the slices end it for one who lost the project: nothing is retried, because
+ * a retry would be refused the same way.
  */
 function handler<TPayload extends { requester: JobRequester }>(
   schema: ZodType<TPayload>,
@@ -58,7 +67,13 @@ function handler<TPayload extends { requester: JobRequester }>(
 ): JobHandler {
   return async ({ organizationId, payload }) => {
     const parsed = schema.parse(payload)
-    return slice(sessionOf(parsed.requester, organizationId), parsed)
+    const { userId, email } = parsed.requester
+    const session = await resolvePinnedRequesterSession({ userId, email, organizationId })
+    if (!session) {
+      console.warn(`[jobs] ${userId} is no longer a member of ${organizationId}; ending a job they asked for`)
+      return { done: true, payload: parsed }
+    }
+    return slice(session, parsed)
   }
 }
 

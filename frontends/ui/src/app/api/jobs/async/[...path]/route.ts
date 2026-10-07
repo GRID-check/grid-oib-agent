@@ -55,7 +55,11 @@ import {
 import { parseBodyContext, parseQueryContext } from '@/lib/proxy/collection-authz'
 import { buildProxyUrl, resolveSessionAndBearer } from '@/lib/proxy/proxy-request'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
-import { findFiledResearchReport, queueResearchReportFiling } from '@/lib/documents/research-report'
+import {
+  findFiledResearchReport,
+  findReportFilingRefusal,
+  queueResearchReportFiling,
+} from '@/lib/documents/research-report'
 import { requesterOf } from '@/lib/jobs-queue/types'
 import { findProjectIdByCollectionName } from '@/lib/projects/repository'
 
@@ -194,10 +198,22 @@ interface ReportFilingResult {
  * the document appears in Berichte when the job has run, retried by the queue
  * if it fails. A report that IS filed already answers `filed`, as it always
  * did, from one probe and no render.
+ *
+ * ## Why `refused` is its own end, and an answer of this request
+ *
+ * A reader who may not file here (no permission, the feature switched off) used
+ * to get a job queued on every read: the job was refused, had no row to say so
+ * on and ended cleanly, and the next read queued it again and answered
+ * `filingQueued`, for ever. The permission is asked BEFORE queueing now
+ * (`findReportFilingRefusal`), so a refusal is what the reader is told
+ * (`filingFailed`, the promise broken) and nothing is queued; the reason is in
+ * the log. It leaves the same body as `failed`: the reader cannot act on the
+ * difference.
  */
 type ReportFilingOutcome =
   | { status: 'filed'; filed: ReportFilingResult }
   | { status: 'queued' }
+  | { status: 'refused' }
   | { status: 'failed' }
 
 /** The report endpoint's body, as `JobReportResponse` on the backend defines it. */
@@ -320,6 +336,12 @@ async function fileReportIfCommissioned(
         status: 'filed',
         filed: { documentId: filed.documentId, filename: filed.filename, alreadyFiled: true },
       }
+    }
+
+    const refusal = await findReportFilingRefusal(session as AuthorizedSession, commissionedProjectId)
+    if (refusal) {
+      console.warn(`[${LOG_LABEL}] the reader may not file the report of run ${runId}: ${refusal}`)
+      return { status: 'refused' }
     }
 
     // Narrowed the way every other proxy-layer call to a session-taking service
@@ -467,7 +489,9 @@ export const GET = tenantSlotRoute(async function GET(
     // a report request). A client that has never heard of these keys keeps working.
     if (filing?.status === 'filed') return NextResponse.json({ ...data, filed: filing.filed })
     if (filing?.status === 'queued') return NextResponse.json({ ...data, filingQueued: true })
-    if (filing?.status === 'failed') return NextResponse.json({ ...data, filingFailed: true })
+    if (filing?.status === 'failed' || filing?.status === 'refused') {
+      return NextResponse.json({ ...data, filingFailed: true })
+    }
     return NextResponse.json(data)
   } catch (error) {
     if (isAuthzError(error)) {

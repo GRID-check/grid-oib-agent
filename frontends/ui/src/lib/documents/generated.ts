@@ -397,37 +397,16 @@ export function generatedFilename(title: string, contentType: string, now: Date)
 }
 
 /**
- * File a machine-authored document into a project.
+ * Whether this session may file a generated document into this project today:
+ * resolves, or throws the refusal ({@link ForbiddenError} for a switched-off
+ * deployment, the authorization ladder's 403 or 404 for a missing permission).
  *
- * Returns the existing row when this reference has already been filed: a report is
- * fetched every time its tab is opened, and a second document per re-read would
- * be a silent duplicate of a multi-minute run's only artifact.
- *
- * ## Once per (reference, producer), whichever way the calls interleave
- *
- * That guarantee is TWO mechanisms, and it needs both. The probe below answers
- * the sequential case cheaply and before anything is rendered. The unique index
- * `uniq_documents_authored_ref_producer_per_project` (migration 0065, widening
- * 0064's key by the producer; renamed with its column by 0066) answers the concurrent one, which the probe cannot: two tabs open the same report, both
- * probe before either inserts, both miss, and a lookup has no way to know it
- * lost. The catch around `admitOrDiscard` is what turns the index's rejection
- * into the same `alreadyFiled` answer the probe gives.
- *
- * The duplicate this forecloses is not merely untidy. `generatedFilename` is
- * deterministic, so two rows of ONE producer agree on filename, display name,
- * size, folder, author, run and second — identical in every attribute a reader
- * can see. (Two rows of two producers do not: they differ by extension, which
- * is why 0065 lets a diagram be both an SVG and a PDF and still be one thing.) The
- * repository calls that out as "precisely the thing an office cannot untangle
- * later", and an office that cannot tell two reports apart keeps both.
+ * The gates {@link fileGeneratedDocument} runs first, on their own, so a caller
+ * that would only QUEUE the filing (a reader opening a finished report) can
+ * learn of a refusal when it asks, instead of queueing a job that is refused
+ * the same way every time it is read.
  */
-export async function fileGeneratedDocument(
-  input: FileGeneratedDocumentInput,
-): Promise<FiledGeneratedDocument> {
-  const { session, projectId, producer, ref, title, render, request } = input
-  // Not passed in, and that is the point — see the producer map's header.
-  const refKind = GENERATED_DOCUMENT_PRODUCER_REF_KINDS[producer]
-
+export async function assertMayFileGeneratedDocument(session: AuthorizedSession, projectId: string): Promise<void> {
   // ## The gates, in the order they are cheapest to fail
   //
   // First the deployment's own answer, which costs no I/O and is nobody's
@@ -496,6 +475,41 @@ export async function fileGeneratedDocument(
   // this one exists to replace.
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
   await requireProjectAccess(session, projectId, 'project:documents:generate')
+}
+
+/**
+ * File a machine-authored document into a project.
+ *
+ * Returns the existing row when this reference has already been filed: a report is
+ * fetched every time its tab is opened, and a second document per re-read would
+ * be a silent duplicate of a multi-minute run's only artifact.
+ *
+ * ## Once per (reference, producer), whichever way the calls interleave
+ *
+ * That guarantee is TWO mechanisms, and it needs both. The probe below answers
+ * the sequential case cheaply and before anything is rendered. The unique index
+ * `uniq_documents_authored_ref_producer_per_project` (migration 0065, widening
+ * 0064's key by the producer; renamed with its column by 0066) answers the concurrent one, which the probe cannot: two tabs open the same report, both
+ * probe before either inserts, both miss, and a lookup has no way to know it
+ * lost. The catch around `admitOrDiscard` is what turns the index's rejection
+ * into the same `alreadyFiled` answer the probe gives.
+ *
+ * The duplicate this forecloses is not merely untidy. `generatedFilename` is
+ * deterministic, so two rows of ONE producer agree on filename, display name,
+ * size, folder, author, run and second — identical in every attribute a reader
+ * can see. (Two rows of two producers do not: they differ by extension, which
+ * is why 0065 lets a diagram be both an SVG and a PDF and still be one thing.) The
+ * repository calls that out as "precisely the thing an office cannot untangle
+ * later", and an office that cannot tell two reports apart keeps both.
+ */
+export async function fileGeneratedDocument(
+  input: FileGeneratedDocumentInput,
+): Promise<FiledGeneratedDocument> {
+  const { session, projectId, producer, ref, title, render, request } = input
+  // Not passed in, and that is the point — see the producer map's header.
+  const refKind = GENERATED_DOCUMENT_PRODUCER_REF_KINDS[producer]
+
+  await assertMayFileGeneratedDocument(session, projectId)
 
   // Idempotency, before any byte is rendered. The reference is the key because
   // it is the one identifier the producer and the row already share.

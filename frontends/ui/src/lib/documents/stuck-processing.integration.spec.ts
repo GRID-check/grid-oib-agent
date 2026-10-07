@@ -218,6 +218,85 @@ describe.skipIf(!url)('background-work sweeps against live Postgres', () => {
     expect(mine[0]).toMatchObject({ filingStatus: 'queued', organizationId: ORG })
   })
 
+  it('leaves out a filing whose job is alive, so a backlog of live ones cannot starve a dead one', async () => {
+    const seed = async (name: string, finishedMinutesAgo: number) => {
+      const backendJobId = `job_${name}_${STAMP}`
+      await context.withTenant({ organizationId: ORG }, async () => {
+        const run = await tasks.insertRun({
+          organizationId: ORG,
+          projectId: PROJECT,
+          kind: 'deep-research',
+          title: name,
+          plan: { prompt: name, skill: emptySkillSnapshot(), dataSources: null, goal: name, subject: null },
+          requesterUserId: USER,
+          trigger: 'delegated',
+          status: 'succeeded',
+          skillSnapshot: emptySkillSnapshot(),
+          backendJobId,
+          finishedAt: minutesAgo(finishedMinutesAgo),
+        })
+        await tasks.updateRun(run.id, ORG, { filingStatus: 'queued' })
+      })
+      return backendJobId
+    }
+    const job = (runId: string, status: 'queued' | 'claimed' | 'dead') =>
+      context.withTenant({ organizationId: ORG }, () =>
+        queue.insertJob({ kind: 'file_research_report', organizationId: ORG, priority: 0, payload: { runId } }),
+      ).then((jobId) =>
+        context.withPlatformAccess('test seed: put the filing job in its state', () =>
+          db.execute(sql`
+            UPDATE bff_job_queue
+            SET status = ${status}, dead_at = ${status === 'dead' ? sql`now()` : null},
+                claimed_by = ${status === 'claimed' ? 'w-0' : null}, heartbeat_at = ${status === 'claimed' ? sql`now()` : null}
+            WHERE job_id = ${jobId}::uuid
+          `),
+        ),
+      )
+    // The oldest are alive; the one a sweep has to reach is younger, with a dead job.
+    await job(await seed('alive-queued', 300), 'queued')
+    await job(await seed('alive-claimed', 290), 'claimed')
+    await job(await seed('dead-job', 120), 'dead')
+    await seed('no-job', 100)
+
+    const stale = await context.withPlatformAccess('test: the sweep’s read', () =>
+      tasks.listRunsWithStaleQueuedFiling(minutesAgo(15), 100),
+    )
+    const titles = stale.filter((run) => run.organizationId === ORG).map((run) => run.title)
+
+    expect(titles).toContain('dead-job')
+    expect(titles).toContain('no-job')
+    expect(titles).not.toContain('alive-queued')
+    expect(titles).not.toContain('alive-claimed')
+  })
+
+  it('settles a filing only while it is still queued', async () => {
+    const run = await context.withTenant({ organizationId: ORG }, async () => {
+      const row = await tasks.insertRun({
+        organizationId: ORG,
+        projectId: PROJECT,
+        kind: 'deep-research',
+        title: 'settle-me',
+        plan: { prompt: 'x', skill: emptySkillSnapshot(), dataSources: null, goal: 'x', subject: null },
+        requesterUserId: USER,
+        trigger: 'delegated',
+        status: 'succeeded',
+        skillSnapshot: emptySkillSnapshot(),
+        backendJobId: `job_settle_${STAMP}`,
+      })
+      await tasks.updateRun(row.id, ORG, { filingStatus: 'queued' })
+      return row
+    })
+    const verdict = (filingStatus: 'filed' | 'failed') => ({ filingStatus, filingDetail: null, filedDocumentId: null })
+
+    const first = await context.withTenant({ organizationId: ORG }, () => tasks.settleQueuedFiling(run.id, ORG, verdict('filed')))
+    const second = await context.withTenant({ organizationId: ORG }, () => tasks.settleQueuedFiling(run.id, ORG, verdict('failed')))
+    const read = await context.withTenant({ organizationId: ORG }, () => tasks.findRunById(run.id))
+
+    expect(first?.filingStatus).toBe('filed')
+    expect(second).toBeNull()
+    expect(read?.filingStatus).toBe('filed') // the later opinion did not overwrite the first
+  })
+
   it('refuses a filing status the vocabulary does not have', async () => {
     const bad = context.withPlatformAccess('test: a status the CHECK refuses', () =>
       db.execute(sql`UPDATE task_runs SET filing_status = 'someday' WHERE organization_id = ${ORG}`),

@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
-vi.mock('./generated', () => ({ fileGeneratedDocument: vi.fn() }))
+vi.mock('./generated', () => ({ fileGeneratedDocument: vi.fn(), assertMayFileGeneratedDocument: vi.fn() }))
 vi.mock('@/lib/pdf/markdown-pdf', () => ({ PDF_MEDIA_TYPE: 'application/pdf', renderMarkdownPdf: vi.fn() }))
 vi.mock('@/i18n/server', () => ({ getTranslations: vi.fn(), getLocale: vi.fn() }))
 vi.mock('./lifecycle', () => ({ createDocumentVersion: vi.fn(), transitionDocumentVersion: vi.fn() }))
@@ -24,7 +24,10 @@ vi.mock('@/lib/jobs-queue/repository', () => ({ findOpenJobId: vi.fn() }))
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
 import { findOpenJobId } from '@/lib/jobs-queue/repository'
 import type { FileResearchReportPayload } from '@/lib/jobs-queue/types'
-import { findFiledResearchReport, queueResearchReportFiling } from './research-report'
+import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import type { AuthorizedSession } from '@/lib/auth/types'
+import { assertMayFileGeneratedDocument } from './generated'
+import { findFiledResearchReport, findReportFilingRefusal, queueResearchReportFiling } from './research-report'
 import { findDocumentAuthoredByRef } from './repository'
 
 const payload: FileResearchReportPayload = {
@@ -93,5 +96,30 @@ describe('findFiledResearchReport', () => {
     await expect(
       findFiledResearchReport({ organizationId: 'org_1', projectId: 'proj-1', runId: 'backend-job-1' })
     ).resolves.toBeNull()
+  })
+})
+
+describe('findReportFilingRefusal', () => {
+  const session = { organizationId: 'org_1', userId: 'user_1' } as AuthorizedSession
+
+  it('is null when the reader may file', async () => {
+    vi.mocked(assertMayFileGeneratedDocument).mockResolvedValue(undefined)
+
+    await expect(findReportFilingRefusal(session, 'proj-1')).resolves.toBeNull()
+    expect(assertMayFileGeneratedDocument).toHaveBeenCalledWith(session, 'proj-1')
+  })
+
+  it('names a refusal: a switched-off feature (403) and a missing permission (404)', async () => {
+    vi.mocked(assertMayFileGeneratedDocument).mockRejectedValueOnce(new ForbiddenError('Agent-authored documents are disabled'))
+    vi.mocked(assertMayFileGeneratedDocument).mockRejectedValueOnce(new NotFoundError('Project not found'))
+
+    await expect(findReportFilingRefusal(session, 'proj-1')).resolves.toMatch(/Agent-authored documents are disabled/)
+    await expect(findReportFilingRefusal(session, 'proj-1')).resolves.toMatch(/Project not found/)
+  })
+
+  it('does not call a fault a refusal', async () => {
+    vi.mocked(assertMayFileGeneratedDocument).mockRejectedValue(new Error('FGA unreachable'))
+
+    await expect(findReportFilingRefusal(session, 'proj-1')).rejects.toThrow('FGA unreachable')
   })
 })

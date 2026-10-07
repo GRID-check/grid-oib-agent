@@ -2267,16 +2267,30 @@ describe('the org-wide rescan of failed ingestions', () => {
     const failedDoc = (id: string) =>
       makeDocument({ id, filename: `${id}.pdf`, status: 'failed', authoredBy: 'user', storageKey: `k/${id}.pdf` })
 
+    // The requester as they are today: an admin, who holds the permission the route is gated on.
+    const admin: AuthorizedSession = { ...session, role: 'admin', permissions: ['org:settings:manage'] }
+
     beforeEach(() => {
       vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
       mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ job_id: 'job-1' }) })
+    })
+
+    it('stops, without touching a document, when the requester no longer holds the permission the route is gated on', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+      const result = await runReingestFailedSlice(session, rescanState()) // `session` is a plain member
+
+      expect(result.done).toBe(true)
+      expect(listFailedDocumentPageInOrg).not.toHaveBeenCalled()
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(recordAuditEvent).not.toHaveBeenCalled()
     })
 
     it('sends a page of failed documents back with bulk priority and counts them', async () => {
       vi.mocked(listFailedDocumentPageInOrg).mockResolvedValueOnce({ ids: ['doc-1'], nextCursor: null })
       vi.mocked(findDocumentInOrg).mockResolvedValue(failedDoc('doc-1'))
 
-      const result = await runReingestFailedSlice(session, rescanState())
+      const result = await runReingestFailedSlice(admin, rescanState())
 
       expect(result.done).toBe(true)
       expect(result.payload.counts).toEqual({ queued: 1, skipped: 0, failed: 0, failedNames: [] })
@@ -2294,12 +2308,12 @@ describe('the org-wide rescan of failed ingestions', () => {
         .mockResolvedValueOnce({ ids: ['doc-2'], nextCursor: null })
       vi.mocked(findDocumentInOrg).mockImplementation(async (id: string) => failedDoc(id))
 
-      const first = await runReingestFailedSlice(session, rescanState())
+      const first = await runReingestFailedSlice(admin, rescanState())
       expect(first.done).toBe(false)
       expect(first.payload.cursor).toEqual(cursor)
       expect(recordAuditEvent).not.toHaveBeenCalled()
 
-      const second = await runReingestFailedSlice(session, JSON.parse(JSON.stringify(first.payload)))
+      const second = await runReingestFailedSlice(admin, JSON.parse(JSON.stringify(first.payload)))
 
       expect(second.done).toBe(true)
       expect(listFailedDocumentPageInOrg).toHaveBeenLastCalledWith('org-1', {
@@ -2322,7 +2336,7 @@ describe('the org-wide rescan of failed ingestions', () => {
         id === 'doc-1' ? failedDoc(id) : id === 'doc-2' ? makeDocument({ id, status: 'completed', authoredBy: 'agent', storageKey: 'k' }) : (null as never)
       )
 
-      const result = await runReingestFailedSlice(session, rescanState())
+      const result = await runReingestFailedSlice(admin, rescanState())
 
       // doc-1 goes back; doc-2 is an indexed machine document (not eligible); doc-3 is gone.
       expect(result.payload.counts).toEqual({ queued: 1, skipped: 2, failed: 0, failedNames: [] })
@@ -2333,7 +2347,7 @@ describe('the org-wide rescan of failed ingestions', () => {
       vi.mocked(findDocumentInOrg).mockResolvedValue(failedDoc('doc-1'))
       mockFetch.mockRejectedValue(new Error('backend down'))
 
-      const result = await runReingestFailedSlice(session, rescanState())
+      const result = await runReingestFailedSlice(admin, rescanState())
 
       expect(result.payload.counts).toEqual({ queued: 0, skipped: 0, failed: 1, failedNames: ['doc-1'] })
       expect(recordAuditEvent).toHaveBeenCalledWith(
