@@ -321,6 +321,31 @@ task be:eval:answer-suite -- --out /tmp/suite/before         # on the base branc
 task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before/results.json
 ```
 
+**The precedent set** (`-- --set precedent`) asks whether the agent uses the
+office's other projects well (docs/roadmap/office-experience.md, step A). Each
+turn is asked in the current project of a fixture office
+(`frontends/ui/tests/fixtures/precedent/office.json`: a timber GK 4 house in
+Niederösterreich, and seven past projects with Bescheide, a Nachforderung and
+details). The suite mints a signed envelope per run, and `fixture_bff.py`
+serves the routes such a turn reads: the turn context, with the reference
+catalog, and the three cross-project lookups. It drops every other connection,
+as the norm set's runs see no BFF at all. The catalog, the project context
+and the briefs are written by the production renderers
+(`reference-brief.fixture.spec.ts`, regenerated with `UPDATE_FIXTURES=1`), so
+the eval cannot drift from what production sends. The questions are in
+`tests/fixtures/precedent/precedent_questions.yaml`, in five groups:
+
+- **explicit:** asked about past projects;
+- **implicit:** a decision a past project made, not asked as such;
+- **norm:** must not look;
+- **none:** must say so and invent nothing;
+- **drift:** must name the older edition.
+
+The checks are `looked_up`, `no_lookup`, `cites`, `not_cites`, `says_none`
+and `caveat`. The report adds each kind of check over every run. Run it before
+and after any change to the lookup, the catalog, the similarity or the prompt
+around them.
+
 **From a down-vote to a case.** Every down-voted answer can become a case, so a
 failure users reported cannot return unnoticed. Export the feedback CSV and run
 `.venv/bin/python scripts/feedback_to_cases.py feedback.csv --out /tmp/draft.yaml`:
