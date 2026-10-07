@@ -654,43 +654,6 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     )
     await asyncio.get_running_loop().run_in_executor(None, ensure_job_access_table, db_url)
 
-    @app.get("/health", tags=["health"], summary="Health check")
-    async def health_check():
-        """Health check endpoint that validates DB connectivity."""
-        from sqlalchemy import text
-
-        from ..jobs.event_store import EventStore
-
-        # `sha` is the deployed commit (GRID_GIT_SHA, stamped into the image
-        # at build time), or "unknown". The boot log prints it too, but a pilot
-        # report arrives after that line has rotated — this answers "what is
-        # that deployment running" over HTTP, which is what makes the report
-        # actionable. It also reaches the BFF's own `/api/health`, which is a
-        # pass-through of this body. A commit sha of a private repository is
-        # not a credential and not tenant data.
-        from ..startup_banner import deployed_sha
-
-        result = {"status": "ok", "sha": deployed_sha(), "dask_available": dask_available, "db": "ok"}
-
-        # Check DB connectivity using any cached async engine
-        try:
-            cache = EventStore._async_engine_cache
-            if cache:
-                engine = next(iter(cache.values()))[0]
-                async with engine.connect() as conn:
-                    await asyncio.wait_for(conn.execute(text("SELECT 1")), timeout=3.0)
-            else:
-                result["db"] = "no_engine"
-        except Exception:
-            logger.warning("Health check DB ping failed", exc_info=True)
-            result["status"] = "degraded"
-            result["db"] = "unreachable"
-            from fastapi.responses import JSONResponse
-
-            return JSONResponse(status_code=503, content=result)
-
-        return result
-
     @app.post(
         "/v1/jobs/async/submit",
         response_model=JobStatusResponse,

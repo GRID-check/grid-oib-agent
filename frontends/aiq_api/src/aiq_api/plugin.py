@@ -55,13 +55,13 @@ from nat.front_ends.fastapi.fastapi_front_end_config import FastApiFrontEndConfi
 from nat.front_ends.fastapi.fastapi_front_end_plugin import FastApiFrontEndPlugin
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorker
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorkerBase
-from nat.front_ends.fastapi.routes.health import add_health_route
 from nat.runtime.session import SessionManager
 
 from .chat_socket import chat_socket_endpoint
 from .chat_socket import configure_websocket_auth
 from .chat_socket import drain_chat_turns
 from .chat_socket import send_stage
+from .health import install_health_route
 from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
 from .roles import WebRole
@@ -407,6 +407,11 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         else:
             await self._add_api_routes(app, builder)
 
+        # One /health for both roles, ours and not NAT's: the sha and the role,
+        # no database ping (aiq_api.health). Last, so it replaces the NAT route
+        # `super().add_routes` mounted on chat.
+        install_health_route(app, self._role)
+
         # Presigned URLs are live bearer credentials to a tenant's objects, and
         # this tier handles them on every ingest. Scrubbing is installed on the
         # HANDLERS, once, rather than relied on at each call site: the leaks that
@@ -442,14 +447,11 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         app.add_api_websocket_route(CHAT_SOCKET_PATH, chat_socket_endpoint(session_manager))
 
     async def _add_api_routes(self, app: FastAPI, builder: WorkflowBuilder) -> None:
-        """What only ``api`` serves beside its router: ``/health``, the job routes and the debug console.
+        """What only ``api`` serves beside its router: the job routes and the debug console.
 
         NAT's own routes (generate, chat, execution, evaluate, monitor, static,
-        MCP) belong to ``chat`` alone: nothing calls them on this tier, and
-        ``/health`` is the one of them both roles answer.
+        MCP) belong to ``chat`` alone: nothing calls them on this tier.
         """
-        await add_health_route(app)
-
         for register in API_APP_REGISTRARS:
             await register(app, builder, self)
         logger.info("Async Job API routes registered")

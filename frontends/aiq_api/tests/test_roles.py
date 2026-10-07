@@ -140,8 +140,8 @@ async def _baseline(worker: plugin.AIQAPIWorker) -> FastAPI:
 
 
 @pytest.fixture(scope="module")
-def route_sets(tmp_path_factory: pytest.TempPathFactory) -> dict[str, set[tuple[str, str]]]:
-    """The route keys of the chat role, the api role and the baseline, each from its own app."""
+def apps(tmp_path_factory: pytest.TempPathFactory) -> dict[str, FastAPI]:
+    """The chat role's app, the api role's and the baseline, each built on its own."""
     root: Path = tmp_path_factory.mktemp("roles")
     config_file = root / "config.yml"
     config_file.write_text("{}")
@@ -156,15 +156,21 @@ def route_sets(tmp_path_factory: pytest.TempPathFactory) -> dict[str, set[tuple[
         stack.enter_context(patch.object(plugin.AIQAPIWorker, "_install_signal_handlers", lambda self: None))
         stack.enter_context(patch.object(plugin, "install_presigned_url_scrubbing", lambda: None))
 
-        async def build_all() -> dict[str, set[tuple[str, str]]]:
+        async def build_all() -> dict[str, FastAPI]:
             chat = _worker("chat")
             return {
-                "chat": _route_keys(await _build(chat)),
-                "api": _route_keys(await _build(_worker("api"))),
-                "baseline": _route_keys(await _baseline(chat)),
+                "chat": await _build(chat),
+                "api": await _build(_worker("api")),
+                "baseline": await _baseline(chat),
             }
 
         return asyncio.run(build_all())
+
+
+@pytest.fixture(scope="module")
+def route_sets(apps: dict[str, FastAPI]) -> dict[str, set[tuple[str, str]]]:
+    """The route keys of each app."""
+    return {name: _route_keys(app) for name, app in apps.items()}
 
 
 def test_the_roles_serve_disjoint_routes_apart_from_health_and_the_docs(route_sets):
@@ -265,3 +271,17 @@ async def test_api_closes_its_sse_streams_and_waits_for_no_chat_turn(drains):
     await plugin.drain_owned_work(WebRole.API)
 
     assert drains == ["sse closed (5s)", "engines disposed"]
+
+
+@pytest.mark.parametrize("role", ["chat", "api"])
+def test_each_role_mounts_one_health_route_that_names_the_build_and_the_role(apps, monkeypatch, role):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("GRID_GIT_SHA", "abc1234")
+
+    health = [r for r in apps[role].routes if getattr(r, "path", None) == "/health"]
+    answer = TestClient(apps[role]).get("/health")
+
+    assert len(health) == 1
+    assert answer.status_code == 200
+    assert answer.json() == {"status": "healthy", "sha": "abc1234", "role": role}
