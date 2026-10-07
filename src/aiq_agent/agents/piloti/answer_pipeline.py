@@ -487,6 +487,27 @@ def _source_lookup_attempted(messages: Sequence[Any]) -> bool:
     )
 
 
+#: Data-source tools whose result is a record the BFF holds, not a passage
+#: search. `project_lookup` lists the office's projects, reads one project's
+#: brief, and reports a search over N projects that matched nothing: each is an
+#: answer in its own right („Eine Tiefgarage mit über 100 Stellplätzen hatten
+#: wir noch nicht"), and none registers a passage. Counting them as a failed
+#: retrieval replaced exactly the honest „nichts Vergleichbares" the feature
+#: promises with „versuchen Sie es noch einmal" (precedent eval, Oct 2026).
+#: Its passages, when it finds some, are cited like any other.
+RECORD_TOOLS = frozenset({"project_lookup"})
+
+
+def _passage_lookup_attempted(messages: Sequence[Any]) -> bool:
+    """Whether a data-source tool that answers in passages ran (pass this turn's messages)."""
+    return any(
+        isinstance(msg, ToolMessage)
+        and (name := getattr(msg, "name", "") or "") not in RECORD_TOOLS
+        and get_source_id_for_tool(name) is not None
+        for msg in messages
+    )
+
+
 def looked_up_this_turn(messages: Sequence[Any]) -> bool:
     """Whether a data-source tool ran since the last human message: the gate on the single-source fallback."""
     return _source_lookup_attempted(this_turn(messages))
@@ -637,7 +658,9 @@ def _require_retrieval(lookup_attempted: bool, tools: Sequence[BaseTool]) -> Non
     without ever querying a data source". Only the former is an error: a
     greeting, a shelf listing from the inventory or a reply from project
     context has nothing to cite, and discarding it would replace a
-    substantive answer with a misleading "search tools failed" message.
+    substantive answer with a misleading "search tools failed" message. So
+    does a record lookup (`RECORD_TOOLS`): the caller passes whether a
+    passage search ran.
     """
     if not lookup_attempted:
         logger.debug("Piloti: answered without querying any data-source tool; no verification")
@@ -1107,7 +1130,7 @@ async def finalize_answer(
         verified = await _verify_with_quote_patch(extracted.content, registry, repair)
         grounding = _ground(verified, registry, lookup_attempted=lookup_attempted)
     else:
-        _require_retrieval(lookup_attempted, tools)
+        _require_retrieval(_passage_lookup_attempted(turn), tools)
         grounding = _Grounding(extracted.content)
 
     dialect = _held_to_dialect(grounding.content, extracted.meta)

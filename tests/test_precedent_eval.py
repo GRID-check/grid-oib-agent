@@ -190,6 +190,21 @@ class TestTheChecks:
             "caveat": False,
         }
 
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            # Captured from the precedent eval's runs on 7 Oct 2026.
+            "In den durchsuchten Büroprojekten finde ich keinen belegten Fall einer Tiefgarage.",
+            "In den abgeschlossenen Referenzprojekten habe ich keinen Nachweis für eine Tiefgarage gefunden.",
+            "Eine konkrete Ausführung unserer Feuerwehraufzüge ist in den auffindbaren Unterlagen **nicht belegt**.",
+            "In den Referenzprojekten ist keine Lösung für Feuerwehraufzüge dokumentiert.",
+        ],
+    )
+    def test_saying_none_is_read_in_the_words_the_agent_uses(self, answer):
+        assert suite.precedent_checks({"says_none": True}, self._run([], ""), suite._normal(answer)) == {
+            "says_none": True
+        }
+
     def test_the_report_counts_each_kind_of_check_over_every_run(self):
         runs = [
             suite.Run(question_id="a", run=1, checks={"looked_up": True, "cites:Baden": True}),
