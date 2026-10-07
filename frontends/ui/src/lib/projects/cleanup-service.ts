@@ -1,0 +1,271 @@
+/**
+ * „Ausmisten" at a project's close (ADR-0084): Piloti proposes which documents
+ * the finished project no longer needs, the person closing it decides about
+ * every one, and what they confirm goes to the Papierkorb (14 days,
+ * restorable). Nothing is removed without that confirmation.
+ *
+ * ## The proposal
+ *
+ * Only among the documents the person may read AND write: a folder they may
+ * not read does not exist for them, and one they may only read is not theirs to
+ * clear out. Built from what the index already holds (name, folder path, type,
+ * tags and the summary ingestion wrote, read from the index as every file
+ * listing reads them, the editorial state), so nothing reaches a
+ * model that ingestion did not already send. Two sources, merged per document:
+ * the rules in `./cleanup-rules.ts`, always; and the model behind
+ * `POST /v1/cleanup-proposal`, when it answers. When it does not, the rules
+ * alone are the proposal and the response says so (`aiError`).
+ *
+ * ## Into the Papierkorb, without widening anyone's access
+ *
+ * The Papierkorb holds folders (ADR-0081). For each folder the confirmed
+ * documents are in (the project root counts as one), a subfolder „Ausgemistet
+ * <date>" is made INSIDE it, the documents are moved there and the subfolder is
+ * put in the Papierkorb. A subfolder that inherits its parent's access has
+ * exactly the parent's readers and the parent's retrieval collection, so the
+ * move widens nobody's access and re-ingests nothing; the bin then purges the
+ * chunks, and a restore puts the subfolder back in its original folder.
+ */
+
+import 'server-only'
+import { BadRequestError, ConflictError } from '@/lib/api/errors'
+import type { AuthorizedSession } from '@/lib/auth/types'
+import { recordAuditEvent } from '@/lib/audit/service'
+import { DOCUMENT_WRITE_PERMISSIONS, getProjectFolderAccess, requireFolderWrite } from '@/lib/authz/folder-access'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import { getBackendUrl } from '@/lib/backend-proxy'
+import { listProjectDocumentPage, type DocumentListRow } from '@/lib/documents/repository'
+import { summarizeDocumentVersions } from '@/lib/documents/lifecycle'
+import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
+import { moveDocumentToFolder } from '@/lib/documents/move-to-folder'
+import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
+import { moveFolderToBin } from './folder-bin'
+import { createProjectFolder, listProjectFolders } from './folder-service'
+import { findProjectInOrg } from './repository'
+import { CLEANUP_CATEGORIES, ruleCandidates, type CleanupCategory, type CleanupDocumentFacts } from './cleanup-rules'
+import type { CleanupProposal, CleanupProposalItem } from './cleanup-types'
+
+export type { CleanupProposal, CleanupProposalItem } from './cleanup-types'
+
+/** Most documents one proposal considers. A project larger than this is proposed over its newest. */
+export const CLEANUP_MAX_DOCUMENTS = 2000
+const PROPOSAL_TIMEOUT_MS = 60_000
+/** Longest summary sent to the model; the index already holds it, the model needs the gist. */
+const SUMMARY_CHARS = 300
+
+interface ModelCandidate {
+  id: string
+  category: string
+  reason: string
+}
+
+async function listAllDocuments(projectId: string, organizationId: string, hiddenFolderIds: string[]): Promise<DocumentListRow[]> {
+  const rows: DocumentListRow[] = []
+  let page = await listProjectDocumentPage(projectId, organizationId, { hiddenFolderIds })
+  rows.push(...page.rows)
+  while (page.nextCursor && rows.length < CLEANUP_MAX_DOCUMENTS) {
+    page = await listProjectDocumentPage(projectId, organizationId, { hiddenFolderIds, cursor: page.nextCursor })
+    rows.push(...page.rows)
+  }
+  return rows.slice(0, CLEANUP_MAX_DOCUMENTS)
+}
+
+/** The documents the session may read and write, as facts: metadata the index already holds. */
+async function writableFacts(session: AuthorizedSession, projectId: string): Promise<CleanupDocumentFacts[]> {
+  const project = await findProjectInOrg(projectId, session.organizationId)
+  if (!project) return []
+  const [access, folders] = await Promise.all([
+    getProjectFolderAccess(session, projectId, project.collectionName),
+    listProjectFolders(projectId, session),
+  ])
+  const pathOf = new Map(folders.map((folder) => [folder.id, folder.path]))
+  const rows = await listAllDocuments(projectId, session.organizationId, [...access.hiddenFolderIds])
+  const writable = await reconcileDocumentStatuses(
+    rows.filter((row) => access.isVisible(row.folderId) && access.levelOf(row.folderId) === 'write'),
+    session.organizationId
+  )
+  const versions = await summarizeDocumentVersions(
+    session.organizationId,
+    writable.map((row) => row.id)
+  )
+  return writable.map((row) => ({
+    id: row.id,
+    filename: row.displayName ?? row.filename,
+    folderId: row.folderId,
+    folderPath: row.folderId ? (pathOf.get(row.folderId) ?? null) : null,
+    contentType: row.contentType ?? null,
+    tags: row.tags ?? [],
+    summary: row.summary ? row.summary.slice(0, SUMMARY_CHARS) : null,
+    versionState: versions.get(row.id)?.state ?? null,
+    authoredBy: row.authoredBy,
+    contentHash: row.contentHash ?? null,
+    createdAt: new Date(row.createdAt).toISOString(),
+  }))
+}
+
+/** The model's proposal, or the reason there is none. Never throws: the rules stand in. */
+async function modelCandidates(
+  session: AuthorizedSession,
+  facts: readonly CleanupDocumentFacts[],
+  locale: string
+): Promise<{ candidates: ModelCandidate[]; error: string | null }> {
+  if (facts.length === 0) return { candidates: [], error: null }
+  try {
+    const res = await fetch(`${getBackendUrl()}/v1/cleanup-proposal`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-grid-organization-id': session.organizationId },
+      body: JSON.stringify({
+        locale,
+        documents: facts.map((fact) => ({
+          id: fact.id,
+          filename: fact.filename,
+          folder_path: fact.folderPath,
+          content_type: fact.contentType,
+          tags: fact.tags.slice(0, 50),
+          summary: fact.summary,
+          version_state: fact.versionState,
+          authored_by: fact.authoredBy,
+          uploaded_at: fact.createdAt.slice(0, 10),
+        })),
+      }),
+      signal: AbortSignal.timeout(PROPOSAL_TIMEOUT_MS),
+    })
+    if (!res.ok) return { candidates: [], error: `backend_${res.status}` }
+    const body = (await res.json()) as { candidates?: ModelCandidate[]; error?: string | null }
+    if (body.error) return { candidates: [], error: body.error }
+    return { candidates: Array.isArray(body.candidates) ? body.candidates : [], error: null }
+  } catch {
+    return { candidates: [], error: 'backend_unreachable' }
+  }
+}
+
+const asCategory = (value: string): CleanupCategory =>
+  (CLEANUP_CATEGORIES as readonly string[]).includes(value) ? (value as CleanupCategory) : 'other'
+
+/**
+ * Piloti's proposal of what to clear out of a project before it closes. Needs
+ * document write on the project, so a closed project gets none: the proposal
+ * belongs to closing it.
+ */
+export async function proposeCleanup(
+  session: AuthorizedSession,
+  projectId: string,
+  locale: string
+): Promise<CleanupProposal> {
+  await requireProjectAccess(session, projectId, DOCUMENT_WRITE_PERMISSIONS)
+  const facts = await writableFacts(session, projectId)
+  const byId = new Map(facts.map((fact) => [fact.id, fact]))
+  const rules = new Map(ruleCandidates(facts).map((candidate) => [candidate.id, candidate]))
+  const model = await modelCandidates(session, facts, locale)
+  // Only ids the reader may write: the backend already drops invented ones, and
+  // this is the side that decided who may write what.
+  const fromModel = new Map(model.candidates.filter((candidate) => byId.has(candidate.id)).map((candidate) => [candidate.id, candidate]))
+
+  const ids = [...new Set([...rules.keys(), ...fromModel.keys()])]
+  const items = ids.map((id): CleanupProposalItem => {
+    const fact = byId.get(id) as CleanupDocumentFacts
+    const rule = rules.get(id) ?? null
+    const ai = fromModel.get(id) ?? null
+    return {
+      documentId: id,
+      filename: fact.filename,
+      folderPath: fact.folderPath,
+      category: rule?.category ?? asCategory(ai?.category ?? 'other'),
+      aiReason: ai ? ai.reason.slice(0, 300) : null,
+      rule: rule?.rule ?? null,
+    }
+  })
+  items.sort((a, b) => (a.folderPath ?? '').localeCompare(b.folderPath ?? '') || a.filename.localeCompare(b.filename))
+  return { items, considered: facts.length, aiUsed: model.error === null, aiError: model.error }
+}
+
+export interface ConfirmCleanupInput {
+  /** What the person decided to remove. */
+  documentIds: readonly string[]
+  /** What the proposal offered: the audit trail records where the person went against it. */
+  proposedIds: readonly string[]
+  /** Whether the model's proposal was shown. */
+  aiUsed: boolean
+}
+
+export interface ConfirmCleanupResult {
+  /** Documents now in the Papierkorb. */
+  removed: number
+  /** Papierkorb entries made: one per folder the documents were in. */
+  binEntries: number
+}
+
+/** „Ausgemistet 2026-10-07", or with a counter when the folder already has one of that name. */
+async function makeCleanupFolder(session: AuthorizedSession, projectId: string, parentId: string | null, day: string) {
+  for (let attempt = 1; attempt <= 20; attempt++) {
+    const name = attempt === 1 ? `Ausgemistet ${day}` : `Ausgemistet ${day} (${attempt})`
+    const created = await createProjectFolder({ projectId, parentId, name }, session)
+    if (created.ok) return created.folder
+    if (created.error !== FOLDER_NAME_TAKEN) throw new BadRequestError(created.error)
+  }
+  throw new ConflictError('Could not name the Ausmisten folder.')
+}
+
+/**
+ * Put what the person confirmed into the Papierkorb (see the module header for
+ * why through a subfolder of each document's own folder). Every document is
+ * checked again: in this project, readable and writable by the session. Audited
+ * as `project.cleanup.confirmed`, with how far the decision followed the
+ * proposal.
+ */
+export async function confirmCleanup(
+  session: AuthorizedSession,
+  projectId: string,
+  input: ConfirmCleanupInput,
+  request?: Request
+): Promise<ConfirmCleanupResult> {
+  await requireProjectAccess(session, projectId, DOCUMENT_WRITE_PERMISSIONS)
+  const chosen = [...new Set(input.documentIds)]
+  if (chosen.length === 0) return { removed: 0, binEntries: 0 }
+  if (chosen.length > CLEANUP_MAX_DOCUMENTS) throw new BadRequestError('Too many documents.')
+
+  const facts = await writableFacts(session, projectId)
+  const writable = new Map(facts.map((fact) => [fact.id, fact]))
+  const unknown = chosen.filter((id) => !writable.has(id))
+  if (unknown.length > 0) {
+    throw new BadRequestError('Some documents cannot be removed by you.', { reason: 'not-writable', documentIds: unknown })
+  }
+
+  const byFolder = new Map<string | null, string[]>()
+  for (const id of chosen) {
+    const folderId = (writable.get(id) as CleanupDocumentFacts).folderId
+    byFolder.set(folderId, [...(byFolder.get(folderId) ?? []), id])
+  }
+  // Write on every source folder, asked once more right before anything moves.
+  await requireFolderWrite(session, projectId, [...byFolder.keys()])
+
+  const day = new Date().toISOString().slice(0, 10)
+  for (const [folderId, documentIds] of byFolder) {
+    const holder = await makeCleanupFolder(session, projectId, folderId, day)
+    for (const documentId of documentIds) {
+      const moved = await moveDocumentToFolder({ documentId, folderId: holder.id }, session)
+      if (!moved.ok) throw new BadRequestError(moved.error)
+    }
+    await moveFolderToBin(session, { projectId, folderId: holder.id }, request)
+  }
+
+  const proposed = new Set(input.proposedIds)
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'project.cleanup.confirmed',
+    targetType: 'project',
+    targetId: projectId,
+    metadata: {
+      removed: chosen.length,
+      proposed: proposed.size,
+      // Where the person went against the proposal, both ways.
+      removedUnproposed: chosen.filter((id) => !proposed.has(id)).length,
+      keptProposed: [...proposed].filter((id) => !chosen.includes(id)).length,
+      aiUsed: input.aiUsed,
+      documentIds: chosen.join(','),
+    },
+    request,
+  })
+  return { removed: chosen.length, binEntries: byFolder.size }
+}

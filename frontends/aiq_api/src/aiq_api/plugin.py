@@ -49,6 +49,7 @@ from .chat_socket import send_stage
 from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
 from .routes.cards import add_card_catalog_routes
+from .routes.cleanup_proposal import add_cleanup_proposal_routes
 from .routes.collections import add_collection_routes
 from .routes.config_info import add_config_info_routes
 from .routes.consistency_check import add_consistency_check_routes
@@ -257,6 +258,7 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_document_routes(knowledge_router)
         add_document_search_routes(knowledge_router)
         add_generate_summary_routes(knowledge_router)
+        add_cleanup_proposal_routes(knowledge_router)
         add_generate_conversation_title_routes(knowledge_router)
         add_consistency_check_routes(knowledge_router)
         add_feedback_digest_routes(knowledge_router)

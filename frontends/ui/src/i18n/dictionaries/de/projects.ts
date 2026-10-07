@@ -81,6 +81,37 @@ export const projects: typeof en.projects = {
     saved: 'Gespeichert.',
     error: 'Das hat nicht geklappt. Bitte versuchen Sie es erneut.',
   },
+  cleanup: {
+    title: 'Projekt abschließen',
+    intro:
+      'Vor dem Abschluss kann Piloti ausmisten: Arbeitskopien, überholte Fassungen, Duplikate, temporäre Dateien und nie veröffentlichte Entwürfe. Sie entscheiden über jeden Eintrag.',
+    loading: 'Piloti sieht die Dateien durch …',
+    aiNotice:
+      'KI-Vorschlag: erstellt von Piloti aus Dateinamen, Ordnern, Typen und den vorhandenen Zusammenfassungen, ohne den Inhalt der Dateien neu zu lesen. Prüfen Sie jeden Eintrag.',
+    aiUnavailable:
+      'Die KI-Prüfung war gerade nicht verfügbar. Die Vorschläge beruhen nur auf festen Regeln, etwa Sperrdateien, „Kopie von …" oder ältere Versionsnummern.',
+    considered: '{count} Dateien geprüft, die Sie bearbeiten dürfen.',
+    none: 'Piloti schlägt nichts zum Entfernen vor.',
+    unavailable: 'Vorschläge konnten nicht geladen werden. Sie können das Projekt trotzdem abschließen.',
+    binNote: 'Ausgewähltes kommt für 14 Tage in den Papierkorb und lässt sich von dort wiederherstellen.',
+    aiChip: 'KI-Vorschlag',
+    selectAll: 'Alle auswählen',
+    confirm: '{count} in den Papierkorb und abschließen',
+    closeOnly: 'Abschließen, ohne etwas zu entfernen',
+    cancel: 'Abbrechen',
+    removed: '{count} Dateien in den Papierkorb gelegt.',
+    error: 'Das Ausmisten hat nicht geklappt; das Projekt ist noch offen.',
+    rules: {
+      'lock-file': 'Sperrdatei eines Office-Programms',
+      'temp-file': 'Temporäre Datei',
+      'system-file': 'Systemdatei',
+      'copy-name': 'Arbeitskopie (Name)',
+      'old-name': 'Als alt markiert (Name)',
+      'same-content': 'Gleicher Inhalt wie eine ältere Datei',
+      'older-version': 'Ältere Fassung, eine neuere liegt im selben Ordner',
+      'unpublished-draft': 'Entwurf von Piloti, nie veröffentlicht',
+    },
+  },
   lifecycle: {
     fileChip: '{name} · abgeschlossen',
     fileChipNoName: 'Abgeschlossenes Projekt',
@@ -102,10 +133,8 @@ export const projects: typeof en.projects = {
       reopen: 'Projekt wieder öffnen',
     },
     closeDialog: {
-      title: 'Projekt abschließen?',
       description:
         'Danach kann niemand mehr Dateien, Ordner, das Briefing oder das Projektgedächtnis ändern, auch Tiefenrecherchen und Aufträge laufen nicht mehr. Alle im Büro können das Projekt lesen und dazu fragen. Sie können es jederzeit wieder öffnen. Ist im Steckbrief noch kein Abschluss eingetragen, wird der aktuelle Monat gesetzt.',
-      confirm: 'Abschließen',
     },
     reopenDialog: {
       title: 'Projekt wieder öffnen?',
