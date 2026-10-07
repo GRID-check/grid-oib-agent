@@ -111,4 +111,28 @@ describe('CloseProjectDialog', () => {
     expect(await screen.findByText('Clearing out did not work; the project is still open.')).toBeInTheDocument()
     expect(onClose).not.toHaveBeenCalled()
   })
+
+  test('when clearing out could not be fully undone, says where files may be left, and does not close', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) =>
+      url === '/api/projects/p1/cleanup' && init?.method === 'POST'
+        ? new Response(
+            JSON.stringify({
+              error: 'Clearing out failed and could not be fully undone.',
+              code: 'CLEANUP_PARTIALLY_UNDONE',
+              details: { reason: 'cleanup-partially-undone', folders: ['Ausgemistet 2026-10-07'] },
+            }),
+            { status: 502 }
+          )
+        : new Response(JSON.stringify(proposal()), { status: 200 })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const onClose = vi.fn(async () => true)
+    render(<CloseProjectDialog projectId="p1" open onOpenChange={() => {}} onClose={onClose} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Move 2 to the bin and close' }))
+    expect(await screen.findByTestId('cleanup-error')).toHaveTextContent(
+      'could not be fully undone. Some files may still be in a folder „Ausgemistet 2026-10-07“ inside their folder, or in the Papierkorb.'
+    )
+    expect(onClose).not.toHaveBeenCalled()
+  })
 })

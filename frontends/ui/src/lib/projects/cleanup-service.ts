@@ -42,7 +42,7 @@
  */
 
 import 'server-only'
-import { BadRequestError, ConflictError } from '@/lib/api/errors'
+import { ApiError, BadRequestError, ConflictError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { DOCUMENT_WRITE_PERMISSIONS, getProjectFolderAccess, requireFolderWrite } from '@/lib/authz/folder-access'
@@ -58,7 +58,7 @@ import { createProjectFolder, listProjectFolders } from './folder-service'
 import { findProjectInOrg } from './repository'
 import { deleteEmptyCreatedFolder, findDocumentScreening } from './cleanup-repository'
 import { CLEANUP_CATEGORIES, ruleCandidates, type CleanupCategory, type CleanupDocumentFacts } from './cleanup-rules'
-import type { CleanupProposal, CleanupProposalItem } from './cleanup-types'
+import { CLEANUP_PARTIALLY_UNDONE_REASON, type CleanupProposal, type CleanupProposalItem } from './cleanup-types'
 
 export type { CleanupProposal, CleanupProposalItem } from './cleanup-types'
 
@@ -231,15 +231,16 @@ async function makeCleanupFolder(session: AuthorizedSession, projectId: string, 
   for (let attempt = 1; attempt <= 20; attempt++) {
     const name = attempt === 1 ? `Ausgemistet ${day}` : `Ausgemistet ${day} (${attempt})`
     const created = await createProjectFolder({ projectId, parentId, name }, session)
-    if (created.ok) return created.folder
+    if (created.ok) return { folder: created.folder, name }
     if (created.error !== FOLDER_NAME_TAKEN) throw new BadRequestError(created.error)
   }
   throw new ConflictError('Could not name the Ausmisten folder.')
 }
 
+
 /** What a clean-out has done so far, so a failure can undo exactly that. */
 interface CleanOutDone {
-  holders: Array<{ id: string; sourceFolderId: string | null }>
+  holders: Array<{ id: string; name: string; sourceFolderId: string | null; documentIds: string[] }>
   moved: Array<{ documentId: string; sourceFolderId: string | null }>
   binned: string[]
 }
@@ -259,34 +260,58 @@ async function clearOutAllOrNothing(
   const done: CleanOutDone = { holders: [], moved: [], binned: [] }
   try {
     for (const [sourceFolderId, documentIds] of byFolder) {
-      const holder = await makeCleanupFolder(session, projectId, sourceFolderId, day)
-      done.holders.push({ id: holder.id, sourceFolderId })
+      const { folder, name } = await makeCleanupFolder(session, projectId, sourceFolderId, day)
+      const holder = { id: folder.id, name, sourceFolderId, documentIds: [] as string[] }
+      done.holders.push(holder)
       for (const documentId of documentIds) {
         const moved = await moveDocumentToFolder({ documentId, folderId: holder.id }, session)
         if (!moved.ok) throw new BadRequestError(moved.error)
         done.moved.push({ documentId, sourceFolderId })
+        holder.documentIds.push(documentId)
       }
     }
+    // Each subfolder goes to the bin only holding exactly what was moved into
+    // it: a file someone else filed there meanwhile is never binned with it.
     for (const holder of done.holders) {
-      await moveFolderToBin(session, { projectId, folderId: holder.id }, request)
+      await moveFolderToBin(session, { projectId, folderId: holder.id }, request, { onlyDocuments: holder.documentIds })
       done.binned.push(holder.id)
     }
   } catch (error) {
-    await undoCleanOut(session, projectId, done, request)
-    throw error
+    const failed = await undoCleanOut(session, projectId, done, request)
+    if (failed.length === 0) throw error
+    throw partiallyUndoneError(error, done)
   }
+}
+
+/**
+ * The error a person sees when the undo itself stopped short: the clean-out
+ * failed, and some files may still sit in a subfolder „Ausgemistet <date>" of
+ * their folder or in the Papierkorb. Keeps the original status.
+ */
+function partiallyUndoneError(cause: unknown, done: CleanOutDone): ApiError {
+  const status = cause instanceof ApiError ? cause.status : 500
+  const names = [...new Set(done.holders.map((holder) => holder.name))]
+  return new ApiError(
+    status,
+    'CLEANUP_PARTIALLY_UNDONE',
+    `Clearing out failed and could not be fully undone. Some files may still be in a folder ${names.map((name) => `"${name}"`).join(', ')} inside their folder, or in the Papierkorb. Check there, then try again.`,
+    { reason: CLEANUP_PARTIALLY_UNDONE_REASON, folders: names }
+  )
 }
 
 /**
  * Undo a clean-out that failed halfway, in reverse. Best effort per step: one
  * that fails is logged and the rest still run, so as much as possible is back.
+ * Returns the steps that failed, each already logged.
  */
-async function undoCleanOut(session: AuthorizedSession, projectId: string, done: CleanOutDone, request?: Request): Promise<void> {
+async function undoCleanOut(session: AuthorizedSession, projectId: string, done: CleanOutDone, request?: Request): Promise<string[]> {
+  const failed: string[] = []
   const attempt = async (what: string, step: () => Promise<unknown>): Promise<void> => {
     try {
       await step()
     } catch (error) {
-      console.error(`[cleanup] undoing a failed clean-out: ${what} failed`, error)
+      failed.push(what)
+      console.error(`[cleanup] undoing a failed clean-out in project ${projectId}: ${what} failed`, error)
     }
   }
   for (const folderId of [...done.binned].reverse()) {
@@ -299,8 +324,12 @@ async function undoCleanOut(session: AuthorizedSession, projectId: string, done:
     })
   }
   for (const holder of [...done.holders].reverse()) {
-    await attempt(`remove ${holder.id}`, () => deleteEmptyCreatedFolder(session.organizationId, projectId, holder.id))
+    await attempt(`remove ${holder.id}`, async () => {
+      // Not removed: something still lies in it (a move back failed, or a file someone else filed there).
+      if (!(await deleteEmptyCreatedFolder(session.organizationId, projectId, holder.id))) throw new Error('not empty')
+    })
   }
+  return failed
 }
 
 /**

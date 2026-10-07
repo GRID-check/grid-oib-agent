@@ -209,6 +209,21 @@ describe.skipIf(!url)('Ausmisten against Postgres', () => {
     expect(visible.isVisible(folder.plaene) && visible.isVisible(folder.vertraege)).toBe(true)
   })
 
+  it('never bins a file someone else filed into the subfolder: the bin checks its contents under its lock', async () => {
+    const holder = await insertFolder(`Ausgemistet probe ${STAMP}`, null)
+    const ours = await insertDocument('Skizze_alt.pdf', holder, COLLECTION)
+    const theirs = await insertDocument('Protokoll_neu.pdf', holder, COLLECTION)
+
+    await expect(
+      inOrg(() => bin.moveFolderToBin(gf, { projectId, folderId: holder }, undefined, { onlyDocuments: [ours] }))
+    ).rejects.toMatchObject({ status: 409, details: { reason: bin.FOLDER_CONTENTS_CHANGED_REASON } })
+    expect((await folderRow(holder)).deleted_at).toBeNull()
+    expect((await documentRow(theirs)).folder_id).toBe(holder)
+
+    const binned = await inOrg(() => bin.moveFolderToBin(gf, { projectId, folderId: holder }, undefined, { onlyDocuments: [ours, theirs] }))
+    expect(binned.documentsBinned).toBe(2)
+  })
+
   it('makes no proposal and removes nothing in a project the session cannot write', async () => {
     const reader = { ...gf, permissions: ['project:view'] } as AuthorizedSession
     await expect(inOrg(() => cleanup.proposeCleanup(reader, projectId, 'de'))).rejects.toBeInstanceOf(NotFoundError)

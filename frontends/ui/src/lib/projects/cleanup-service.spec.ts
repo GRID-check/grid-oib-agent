@@ -49,6 +49,7 @@ vi.mock('./repository', () => ({ findProjectInOrg: vi.fn(async () => ({ id: 'p1'
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: mocks.recordAuditEvent }))
 
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { UpstreamError } from '@/lib/api/errors'
 import { confirmCleanup, proposeCleanup } from './cleanup-service'
 
 const session: AuthorizedSession = {
@@ -221,6 +222,11 @@ describe('confirmCleanup', () => {
       `bin-holder-${FOLDER.plaene}`,
       'bin-holder-root',
     ])
+    // Each subfolder is binned only holding exactly what was moved into it.
+    expect(mocks.moveFolderToBin.mock.calls.map(([, , , options]) => options?.onlyDocuments)).toEqual([
+      [UUID(1)],
+      [UUID(5), UUID(6)],
+    ])
     expect(mocks.recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'project.cleanup.confirmed',
@@ -278,6 +284,25 @@ describe('confirmCleanup', () => {
       `bin-holder-${FOLDER.plaene}`,
     ])
     expect(mocks.recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('says where files may be left when the undo itself stops short, and keeps the original status', async () => {
+    mocks.moveFolderToBin.mockResolvedValueOnce({}).mockRejectedValueOnce(new UpstreamError('index did not confirm'))
+    // The Pläne subfolder cannot be removed: something is still in it.
+    mocks.deleteEmptyCreatedFolder.mockImplementation(async (_org: string, _project: string, id: string) => id !== `bin-holder-${FOLDER.plaene}`)
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const failure = await confirmCleanup(session, 'p1', { documentIds: [UUID(1), UUID(5)], proposedIds: [], aiUsed: true }).catch(
+      (error: unknown) => error
+    )
+    expect(failure).toMatchObject({
+      status: 502,
+      details: { reason: 'cleanup-partially-undone', folders: [expect.stringMatching(/^Ausgemistet \d{4}-\d{2}-\d{2}$/)] },
+    })
+    expect((failure as Error).message).toMatch(/could not be fully undone.*Papierkorb/)
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining(`remove bin-holder-${FOLDER.plaene} failed`), expect.anything())
+    expect(mocks.recordAuditEvent).not.toHaveBeenCalled()
+    errors.mockRestore()
   })
 
   it('names the subfolder with a counter when one of that name exists', async () => {

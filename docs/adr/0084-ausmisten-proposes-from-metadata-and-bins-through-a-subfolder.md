@@ -90,7 +90,23 @@ fails, what was done is undone in reverse: binned subfolders restored (and read
 back into the index, audited as the restore it is), documents moved back to
 their folders, the subfolders removed (`deleteEmptyCreatedFolder`, only a
 living, empty one). The person sees that it failed; the project is as it was
-and stays open. Audited, when it succeeded, as `project.cleanup.confirmed`: how many were removed and proposed, how many the
+and stays open. When an undo step fails too, every failed step is logged and
+the person is told that files may still be in a folder „Ausgemistet <date>"
+inside their folder or in the Papierkorb (`details.reason:
+'cleanup-partially-undone'`, `details.folders`), with the original status.
+
+A subfolder goes to the bin only holding exactly the documents moved into it
+(`moveFolderToBin`'s `onlyDocuments`, checked inside its transaction under the
+project's bin lock, which every insert or move into a folder also takes). A
+file someone else filed into „Ausgemistet <date>" between the move and the bin
+is therefore never binned with it: the bin answers 409
+`folder-contents-changed`, and the clean-out is undone, leaving that file where
+its author put it.
+
+The audit event is written after the clean-out has committed, through
+`recordAuditEvent`, which never throws (it logs a failed emit;
+`lib/audit/service.spec.ts`), so a failing audit cannot turn work that happened
+into an error. Audited, when it succeeded, as `project.cleanup.confirmed`: how many were removed and proposed, how many the
 person removed without a proposal and kept against one, whether the model's
 proposal was shown, and the ids.
 
@@ -106,10 +122,11 @@ proposal was shown, and the ids.
 
 `lib/projects/cleanup.integration.spec.ts` on real Postgres (the subfolder inherits, the restricted
 collection is unchanged, binned and hidden, restored into its original folder, nothing removed when
-one document is not the closer's, and a purge refused on the second folder leaving every document,
-folder and bin entry as it was), `cleanup-service.spec.ts` (only read-and-write documents whose
+one document is not the closer's, a purge refused on the second folder leaving every document,
+folder and bin entry as it was, and a subfolder holding a file nobody moved there refused by the bin), `cleanup-service.spec.ts` (only read-and-write documents whose
 screening passed, and only their metadata, reach the model; quarantined ones are not proposed;
-fallback; audit; undo after a failed move or bin), `cleanup-rules.spec.ts`, `close-project-dialog.spec.tsx`
+fallback; audit; undo after a failed move or bin; each subfolder binned only with what was moved
+into it; the error naming the folders when the undo stops short), `cleanup-rules.spec.ts`, `close-project-dialog.spec.tsx`
 (AI label, override, nothing before confirmation, the proposal asked with a POST), `frontends/aiq_api/tests/test_cleanup_proposal.py`.
 
 ## Pros and Cons of the Options

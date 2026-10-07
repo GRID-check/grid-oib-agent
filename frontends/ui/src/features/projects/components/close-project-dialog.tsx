@@ -19,6 +19,7 @@ import { Chip } from '@/components/ui/chip'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useLocale, useTranslations } from '@/i18n'
 import type { CleanupProposal } from '@/lib/projects/cleanup-types'
+import { CLEANUP_PARTIALLY_UNDONE_REASON } from '@/lib/projects/cleanup-types'
 
 export interface CloseProjectDialogProps {
   projectId: string
@@ -36,7 +37,8 @@ export function CloseProjectDialog({ projectId, open, onOpenChange, onClose }: C
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [pending, setPending] = useState(false)
-  const [error, setError] = useState(false)
+  /** Why the last attempt failed: in general, or with files possibly left in these folders. */
+  const [error, setError] = useState<false | { partialIn: string[] | null }>(false)
 
   useEffect(() => {
     if (!open) return
@@ -90,11 +92,14 @@ export function CloseProjectDialog({ projectId, open, onOpenChange, onClose }: C
             aiUsed: proposal.aiUsed,
           }),
         })
-        if (!res.ok) throw new Error(String(res.status))
+        if (!res.ok) {
+          setError({ partialIn: partiallyUndoneIn(await res.json().catch(() => null)) })
+          return
+        }
       }
       if (await onClose()) onOpenChange(false)
     } catch {
-      setError(true)
+      setError({ partialIn: null })
     } finally {
       setPending(false)
     }
@@ -156,7 +161,11 @@ export function CloseProjectDialog({ projectId, open, onOpenChange, onClose }: C
             </>
           )}
 
-          {error && <p className="text-error text-sm">{t('cleanup.error')}</p>}
+          {error && (
+            <p className="text-error text-sm" data-testid="cleanup-error">
+              {error.partialIn ? t('cleanup.partial', { folders: error.partialIn.join('“, „') }) : t('cleanup.error')}
+            </p>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:justify-between">
@@ -177,4 +186,12 @@ export function CloseProjectDialog({ projectId, open, onOpenChange, onClose }: C
       </DialogContent>
     </Dialog>
   )
+}
+
+/** The folders a clean-out that could not be fully undone may have left files in; null for any other failure. */
+function partiallyUndoneIn(body: unknown): string[] | null {
+  if (!body || typeof body !== 'object') return null
+  const details = (body as { details?: { reason?: unknown; folders?: unknown } }).details
+  if (details?.reason !== CLEANUP_PARTIALLY_UNDONE_REASON || !Array.isArray(details.folders)) return null
+  return details.folders.filter((name): name is string => typeof name === 'string')
 }

@@ -104,6 +104,9 @@ export const projects = {
     cancel: 'Cancel',
     removed: '{count} files moved to the bin.',
     error: 'Clearing out did not work; the project is still open.',
+    /** The clean-out failed and could not be fully undone (ADR-0084): where to look. */
+    partial:
+      'Clearing out did not work and could not be fully undone. Some files may still be in a folder „{folders}“ inside their folder, or in the Papierkorb. The project is still open.',
     rules: {
       'lock-file': 'Lock file of an Office program',
       'temp-file': 'Temporary file',

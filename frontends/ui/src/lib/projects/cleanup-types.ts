@@ -25,3 +25,6 @@ export interface CleanupProposal {
   /** Why the model's proposal is missing, when it is: the rules stood in. */
   aiError: string | null
 }
+
+/** The reason when a clean-out failed and could not be fully undone; `details.folders` names where to look. */
+export const CLEANUP_PARTIALLY_UNDONE_REASON = 'cleanup-partially-undone'
