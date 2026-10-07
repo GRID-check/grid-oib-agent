@@ -1,0 +1,145 @@
+# The precedent eval's questions (docs/roadmap/office-experience.md, step A).
+#
+# Asked in the CURRENT project of the fixture office
+# (frontends/ui/tests/fixtures/precedent/office.json): a four-storey timber
+# residential building, GK 4, in Perchtoldsdorf, Niederösterreich. Every
+# expectation is a fact read off that fixture office, never a value from memory.
+#
+# Run:  python scripts/turn_census/suite.py --set precedent --runs 2
+#
+# `expect` keys, each one check:
+#   lookup:      required | forbidden | optional — did the turn call project_lookup
+#   cites:       list of groups; each group is a list of alternatives, one of which
+#                must appear in the answer (a project's name, as the reader sees it)
+#   not_cites:   names that must NOT appear (a project the question does not concern,
+#                or an invented one)
+#   says_none:   the answer says no comparable reference was found
+#   caveat:      the answer says the precedent was decided under an earlier edition
+#                or that the rules may have changed since
+#   mentions:    as in the loop eval: a value that must appear (alternatives allowed)
+#
+# Groups: explicit (asked about past projects), implicit (a decision a past
+# project made, not asked as such: the agent should look unasked), norm (a pure
+# norm or definition question: no lookup), none (no comparable project exists:
+# say so, invent nothing), drift (a precedent under an older edition).
+
+questions:
+  # --- explicit -------------------------------------------------------------
+  - id: traufe-frueher
+    group: explicit
+    question: Wie haben wir die Traufe bei unseren früheren Holzbauten ausgeführt?
+    expect:
+      lookup: required
+      cites: [[Baden]]
+      mentions: [[Brandsperre, Brandsperren]]
+
+  - id: moedling-nachforderung
+    group: explicit
+    question: Was hat die Baubehörde in Mödling bei unserer Wohnhausanlage nachgefordert?
+    expect:
+      lookup: required
+      cites: [[Mödling, Moedling]]
+      mentions: [["1,20 m", "1,20"], [Rauchabzug]]
+
+  - id: fluchttreppe-moedling
+    group: explicit
+    question: Welche Fluchttreppe hatten wir bei der Wohnhausanlage in Mödling?
+    expect:
+      lookup: required
+      cites: [[Mödling, Moedling]]
+      mentions: [[Stahl, Stahlkonstruktion], [A2]]
+
+  - id: sicherheitstreppenhaus-referenz
+    group: explicit
+    question: Hatten wir schon ein Projekt mit Sicherheitstreppenhaus? Was hat die Behörde dort verlangt?
+    expect:
+      lookup: required
+      cites: [[Wien 22, Wagramer]]
+      mentions: [[Druckbelüftung, Druckbelueftung]]
+
+  - id: linz-decke
+    group: explicit
+    question: Wie ist bei der Schule in Linz die Holz-Beton-Verbunddecke aufgebaut?
+    expect:
+      lookup: required
+      cites: [[Linz]]
+      mentions: [["12 cm", Aufbeton]]
+
+  # --- implicit: the agent should look unasked ------------------------------
+  - id: kapselung-gk4
+    group: implicit
+    question: Wie können wir die Holzdecken in unserem GK-4-Holzbau brandschutztechnisch ausführen, wenn sie nicht in A2 sein sollen?
+    expect:
+      lookup: required
+      cites: [[Baden]]
+      mentions: [[Kapselung, K2 60, K₂60, "K2 60"]]
+
+  - id: auflagen-noe-gk4
+    group: implicit
+    question: Mit welchen Auflagen müssen wir bei der Baubewilligung für unser Wohnhaus rechnen?
+    expect:
+      lookup: required
+      cites: [[Baden, Mödling, Moedling]]
+
+  - id: gutachten-noetig
+    group: implicit
+    question: Brauchen wir für unseren Holzbau ein Brandschutzgutachten, oder reicht die OIB-Richtlinie 2?
+    expect:
+      lookup: optional
+      cites: [[Baden]]
+
+  # --- norm: no lookup ------------------------------------------------------
+  - id: fluchtniveau-definition
+    group: norm
+    question: Was ist das Fluchtniveau?
+    expect:
+      lookup: forbidden
+      not_cites: [Baden, Mödling, Moedling, Wagramer, Linz, Gänserndorf, Hinterbrühl]
+
+  - id: rauchabzug-norm
+    group: norm
+    question: Was verlangt die OIB-Richtlinie 2 für den Rauchabzug in Treppenhäusern?
+    expect:
+      lookup: forbidden
+
+  # --- none: no comparable project exists ------------------------------------
+  - id: feuerwehraufzug-keiner
+    group: none
+    question: Wie haben wir bei unseren Hochhäusern die Feuerwehraufzüge gelöst?
+    expect:
+      lookup: required
+      says_none: true
+      not_cites: [Baden, Mödling, Moedling, Linz, Gänserndorf]
+
+  - id: tiefgarage-keine
+    group: none
+    question: Hatten wir schon einmal eine Tiefgarage mit über 100 Stellplätzen?
+    expect:
+      lookup: required
+      says_none: true
+
+  # --- drift: an older edition ---------------------------------------------
+  - id: fluchttreppe-wie-moedling
+    group: drift
+    question: Können wir die Fluchttreppe genauso ausführen wie in Mödling 2019?
+    expect:
+      lookup: required
+      cites: [[Mödling, Moedling]]
+      caveat: true
+
+  - id: kapselung-wie-baden
+    group: drift
+    question: Können wir das Brandschutzkonzept vom Holzwohnbau Baden einfach übernehmen?
+    expect:
+      lookup: required
+      cites: [[Baden]]
+      caveat: true
+
+  # --- what the catalog alone should answer ----------------------------------
+  - id: aehnliche-projekte
+    group: explicit
+    question: Welche unserer abgeschlossenen Projekte sind diesem am ähnlichsten?
+    expect:
+      lookup: optional
+      cites: [[Baden], [Mödling, Moedling]]
+      not_cites: [Linz]

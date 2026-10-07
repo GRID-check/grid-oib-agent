@@ -1,0 +1,252 @@
+"""A fixture BFF for the precedent eval: the internal routes a cross-project turn reads, served from a fixture office.
+
+The answer suite runs the real agent with no BFF, so it cannot ask a single
+question about another project (docs/roadmap/office-experience.md, step A).
+This serves exactly the routes that question needs, from
+``frontends/ui/tests/fixtures/precedent/``:
+
+- ``POST /api/internal/turn-context``: the current project's PROJECT_CONTEXT
+  and the reference catalog, both as the production renderers wrote them
+  (``rendered.json``, from ``reference-brief.fixture.spec.ts``);
+- ``POST /api/internal/cross-project/{search,projects,brief}``: answered from
+  ``office.json``, in the routes' wire shape.
+
+Every OTHER internal route gets its connection dropped without an answer. That
+is exactly what a suite run sees today, with no BFF at all, so a run differs
+from the norm suite only by what this file serves. Search is lexical and
+deliberately simple. The eval measures what the AGENT does with what the
+lookup returns, not how well a vector search ranks: the BFF's own search is
+tested in ``lib/cross-project/service.spec.ts``.
+
+Every request is appended to ``requests.jsonl`` beside the run, so a check can
+read which lookups a turn made and with what arguments.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import threading
+import unicodedata
+from http.server import BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+FIXTURES = ROOT / "frontends" / "ui" / "tests" / "fixtures" / "precedent"
+
+#: As `CROSS_PROJECT_PAGE_PROJECTS` in `lib/cross-project/types.ts`.
+PAGE_PROJECTS = 8
+_WORD = re.compile(r"[a-z0-9]{4,}")
+
+
+def _fold(text: str) -> str:
+    """Lower-case, umlauts and ß spelled out, accents dropped: „Mödling" and „Moedling" are one word."""
+    text = text.casefold().replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
+def _words(text: str) -> set[str]:
+    return set(_WORD.findall(_fold(text)))
+
+
+def _stem(word: str) -> str:
+    """The word without an inflection ending: „Fluchttreppen" and „Fluchttreppe" share „fluchttrepp".
+
+    Only the last two letters go, never below five: a looser prefix made
+    „Feuerwehraufzug" match „Feuerwiderstand", a precedent that does not exist.
+    """
+    return word[: max(5, len(word) - 2)]
+
+
+def _score(query: str, document: dict[str, Any]) -> float:
+    """The share of the query's words the document carries, inflections allowed."""
+    wanted = _words(query)
+    if not wanted:
+        return 0.0
+    have = _words(" ".join(str(document.get(key) or "") for key in ("title", "filename", "text")))
+    hits = sum(1 for word in wanted if any(other.startswith(_stem(word)) for other in have))
+    return round(hits / len(wanted), 3)
+
+
+class FixtureOffice:
+    """The fixture office and what the production renderers made of it."""
+
+    def __init__(self, directory: Path = FIXTURES) -> None:
+        self.office = json.loads((directory / "office.json").read_text(encoding="utf-8"))
+        self.rendered = json.loads((directory / "rendered.json").read_text(encoding="utf-8"))
+        self.projects = {project["id"]: project for project in self.office["projects"]}
+
+    @property
+    def current(self) -> dict[str, Any]:
+        return self.office["current"]
+
+    def turn_context(self) -> dict[str, Any]:
+        return {
+            "data": {
+                "projectContext": self.rendered["projectContext"],
+                "projectMemory": None,
+                "orgInstructions": None,
+                "drewOnOtherProjects": False,
+                "referenceProjects": self.rendered["referenceProjects"],
+            }
+        }
+
+    def _ref(self, project: dict[str, Any]) -> dict[str, Any]:
+        return {"id": project["id"], "name": project["name"], "status": project["status"]}
+
+    def _listed(self, project: dict[str, Any]) -> dict[str, Any]:
+        return {
+            **self._ref(project),
+            "collection": project["collection"],
+            "address": project.get("facts", {}).get("standort_adresse"),
+            "period": {"start": project.get("startedOn") or "2013-01-01", "end": project.get("endedOn")},
+            "current": project["id"] == self.current["id"],
+        }
+
+    def _in_scope(self, body: dict[str, Any]) -> list[dict[str, Any]]:
+        scope = body.get("scope") or "similar"
+        if scope == "named":
+            named = set(body.get("projectIds") or [])
+            return [self.projects[pid] for pid in self.rendered["similarOrder"] if pid in named]
+        ordered = [self.projects[pid] for pid in self.rendered["similarOrder"]]
+        if scope == "closed":
+            return [project for project in ordered if project["status"] == "closed"]
+        return ordered
+
+    def search(self, body: dict[str, Any]) -> dict[str, Any]:
+        scope = self._in_scope(body)
+        offset = int(body.get("offset") or 0)
+        page = scope[offset : offset + PAGE_PROJECTS]
+        types, disciplines = set(body.get("documentTypes") or []), set(body.get("disciplines") or [])
+        hits = []
+        for project in page:
+            for document in project.get("documents") or []:
+                tags = set(document.get("tags") or [])
+                if (types and not types & tags) or (disciplines and not disciplines & tags):
+                    continue
+                score = _score(str(body.get("query") or ""), document)
+                if score < 0.25:
+                    continue
+                hits.append(
+                    {
+                        "project": self._ref(project),
+                        "documentId": document["documentId"],
+                        "filename": document["filename"],
+                        "title": document.get("title"),
+                        "collection": project["collection"],
+                        "page": document.get("page"),
+                        "snippet": document["text"],
+                        "score": score,
+                        "tags": sorted(tags),
+                        "uploadedAt": "2026-01-15T08:00:00.000Z",
+                    }
+                )
+        hits.sort(key=lambda hit: hit["score"], reverse=True)
+        following = offset + len(page)
+        return {
+            "hits": hits[: int(body.get("limit") or 10)],
+            "projectsInScope": len(scope),
+            "projectsSearched": len(page),
+            "nextOffset": following if following < len(scope) else None,
+            "statusKnown": True,
+        }
+
+    def projects_listing(self, body: dict[str, Any]) -> dict[str, Any]:
+        needle = _fold(str(body.get("query") or ""))
+
+        def found(project: dict[str, Any]) -> bool:
+            address = project.get("facts", {}).get("standort_adresse", "")
+            if body.get("status") and project["status"] != body["status"]:
+                return False
+            return not needle or needle in _fold(f"{project['name']} {address}")
+
+        matching = [project for project in [self.current, *self.office["projects"]] if found(project)]
+        listed = matching[: int(body.get("limit") or 10)]
+        return {"projects": [self._listed(project) for project in listed], "total": len(matching), "statusKnown": True}
+
+    def brief(self, body: dict[str, Any]) -> dict[str, Any] | None:
+        project = self.projects.get(str(body.get("projectId") or ""))
+        if project is None:
+            return None
+        return {
+            "project": self._listed(project),
+            "summary": project.get("summary"),
+            "facts": self.rendered["briefs"].get(project["id"], ""),
+        }
+
+
+class FixtureBFF:
+    """The fixture office behind a local HTTP server, on a free port, until :meth:`stop`."""
+
+    def __init__(self, token: str, log_path: Path, office: FixtureOffice | None = None) -> None:
+        self.office = office or FixtureOffice()
+        self.token = token
+        self.log_path = log_path
+        self._lock = threading.Lock()
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    @property
+    def url(self) -> str:
+        host, port = self._server.server_address[:2]
+        return f"http://{host}:{port}"
+
+    def start(self) -> FixtureBFF:
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+
+    def _log(self, entry: dict[str, Any]) -> None:
+        with self._lock, self.log_path.open("a", encoding="utf-8") as sink:
+            sink.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    def _answer(self, path: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]] | None:
+        if path == "/api/internal/turn-context":
+            return 200, self.office.turn_context()
+        if path == "/api/internal/cross-project/search":
+            return 200, self.office.search(body)
+        if path == "/api/internal/cross-project/projects":
+            return 200, self.office.projects_listing(body)
+        if path == "/api/internal/cross-project/brief":
+            found = self.office.brief(body)
+            return (200, found) if found is not None else (404, {"error": "Not found"})
+        return None
+
+    def _handler(self) -> type[BaseHTTPRequestHandler]:
+        bff = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_args: Any) -> None:  # the run's log stays the agent's
+                return
+
+            def do_POST(self) -> None:  # noqa: N802 - the stdlib's name
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length else b"{}"
+                try:
+                    body = json.loads(raw.decode("utf-8") or "{}")
+                except ValueError:
+                    body = {}
+                path = self.path.split("?", 1)[0]
+                conversation = self.headers.get("X-Grid-Request-Context") or ""
+                answer = bff._answer(path, body) if self.headers.get("X-Grid-Internal-Token") == bff.token else None
+                bff._log({"path": path, "body": body, "served": answer is not None, "envelope": conversation[:24]})
+                if answer is None:
+                    # As unreachable as today's suite's BFF: no status line at all.
+                    self.close_connection = True
+                    return
+                status, payload = answer
+                data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            do_GET = do_POST  # noqa: N815 - a GET to an unserved route is dropped like a POST
+
+        return Handler

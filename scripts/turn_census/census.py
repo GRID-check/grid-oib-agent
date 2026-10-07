@@ -184,12 +184,22 @@ def run_python() -> str:
     return str(venv) if venv.exists() else sys.executable
 
 
-def run_once(question: str, out: Path, conversation_id: str, overrides: list[list[str]] | None = None) -> Path:
-    """One `nat run` of the question with the recorder loaded; the JSONL it wrote."""
+def run_once(
+    question: str,
+    out: Path,
+    conversation_id: str,
+    overrides: list[list[str]] | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> Path:
+    """One `nat run` of the question with the recorder loaded; the JSONL it wrote.
+
+    ``extra_env`` is added to the run's environment: the precedent eval hands
+    each run its own signed envelope and the fixture BFF's address through it.
+    """
     record = out / f"{conversation_id}.jsonl"
     log = out / f"{conversation_id}.log"
     record.unlink(missing_ok=True)
-    env = {**os.environ, "REC_OUT": str(record), "PYTHONPATH": tree_pythonpath(out)}
+    env = {**os.environ, **(extra_env or {}), "REC_OUT": str(record), "PYTHONPATH": tree_pythonpath(out)}
     # -P: no working directory on sys.path, as the `nat` console script has none.
     nat = [run_python(), "-P", "-m", "nat.cli.main"]
     cmd = [*nat, "run", "--config_file", str(CONFIG), "--input", question, "--conversation_id", conversation_id]
