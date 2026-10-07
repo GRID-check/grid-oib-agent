@@ -77,3 +77,16 @@ def test_nothing_is_both():
     both = _source_tools(_config()) & set(NOT_SOURCES)
 
     assert not both, f"{both} cannot be a data source and declared not one"
+
+
+def test_every_record_tool_is_a_chat_data_source():
+    """`RECORD_TOOLS` names tools by string.
+
+    A renamed tool would silently lose its exemption from the empty-registry refusal.
+    """
+    from aiq_agent.agents.piloti.answer_pipeline import RECORD_TOOLS
+
+    config = _config()
+    stale = RECORD_TOOLS - (_source_tools(config) & set(_chat_tools(config)))
+
+    assert not stale, f"{stale} in RECORD_TOOLS is no data-source tool the chat binds"

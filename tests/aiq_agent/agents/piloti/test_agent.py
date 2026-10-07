@@ -1034,6 +1034,12 @@ def empty_web_search_tool(query: str) -> str:
 
 
 @tool
+def project_lookup(action: str, query: str = "") -> str:
+    """Look into the office's other projects (a search that matched nothing)."""
+    return "Treffer aus anderen Projekten: 0 Passage(n) aus 0 Projekt(en); 7 von 7 Projekten durchsucht."
+
+
+@tool
 def remember_tool(fact: str) -> str:
     """Durably save a user preference, decision, or project fact."""
     return f"Saved: {fact}"
@@ -1302,6 +1308,68 @@ class TestPilotiSourceRegistryGating:
         )
         with pytest.raises(EmptySourceRegistryError):
             await agent.run(state)
+
+    @pytest.mark.asyncio
+    async def test_a_lookup_in_other_projects_that_found_nothing_keeps_its_honest_answer(
+        self, mock_llm_provider, mock_llm
+    ):
+        """„Nichts Vergleichbares" is the answer, not a failed retrieval.
+
+        A search over the office's projects that matched nothing, a listing and
+        a brief register no passage; replacing the model's answer with the
+        retry message told a planner to try again a question whose answer is
+        „das hatten wir noch nie" (precedent eval, Oct 2026).
+        """
+        populate_from_config(
+            [{"id": "knowledge_layer", "name": "Knowledge", "description": "Projects.", "tools": ["project_lookup"]}],
+        )
+        honest = "Eine Tiefgarage mit über 100 Stellplätzen hatten wir in keinem Referenzprojekt."
+        mock_llm.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": "project_lookup", "args": {"action": "search", "query": "Tiefgarage"}, "id": "1"}
+                    ],
+                ),
+                AIMessage(content=honest),
+            ]
+        )
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[project_lookup])
+
+        result = await agent.run(
+            ResearchAgentState(
+                messages=[HumanMessage(content="Hatten wir schon eine Tiefgarage mit über 100 Stellplätzen?")]
+            )
+        )
+
+        assert honest in result.messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_an_empty_passage_search_beside_a_record_lookup_still_raises(self, mock_llm_provider, mock_llm):
+        """Only the record lookup is exempt: a norm search that came back empty is still the hard failure."""
+        populate_from_config(
+            [
+                {"id": "knowledge_layer", "name": "Knowledge", "description": "Projects.", "tools": ["project_lookup"]},
+                {"id": "web_search", "name": "Web Search", "description": "Web.", "tools": ["empty_web_search_tool"]},
+            ],
+        )
+        mock_llm.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": "project_lookup", "args": {"action": "search", "query": "Tiefgarage"}, "id": "1"},
+                        {"name": "empty_web_search_tool", "args": {"query": "OIB-RL 2.2 Garage"}, "id": "2"},
+                    ],
+                ),
+                AIMessage(content="Die OIB-RL 2.2 verlangt …"),
+            ]
+        )
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[project_lookup, empty_web_search_tool])
+
+        with pytest.raises(EmptySourceRegistryError):
+            await agent.run(ResearchAgentState(messages=[HumanMessage(content="Was verlangt die OIB für Garagen?")]))
 
     @pytest.mark.asyncio
     async def test_research_turn_answered_from_context_returns_answer(self, mock_llm_provider, mock_llm):

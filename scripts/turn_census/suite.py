@@ -384,6 +384,8 @@ def check(question: dict, run: Run, envelope: dict | None) -> dict[str, bool]:
 _SAYS_NONE = re.compile(
     r"kein(e|en)? (vergleichbar|passend|entsprechend|ähnlich)\w*|nichts (vergleichbar|passend|gefunden)\w*"
     r"|keine referenz|nicht gefunden|(haben|hatten) wir (noch )?(kein|nie)|kein solches projekt|bisher kein"
+    # Said as missing evidence rather than missing projects, as the agent words it.
+    r"|kein(en)? (belegten |dokumentierten )?(fall|nachweis|beleg)\b|nicht belegt|keine [^.]{0,60}dokumentiert"
 )
 #: The answer says the precedent was decided under an earlier edition, or the rules may have changed since.
 _CAVEAT = re.compile(
