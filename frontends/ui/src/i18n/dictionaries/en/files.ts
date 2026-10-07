@@ -628,6 +628,7 @@ export const files = {
     uploadFiles: 'Choose files',
   },
   errors: {
+    projectClosed: 'This project is closed and read-only. Whoever manages it can reopen it in the settings.',
     // Held back by the office's name screening (ADR-0079) on a path with no
     // upload dialog, such as a chat attachment.
     screenedOut: '{count} file(s) not uploaded because your office marks them as sensitive: {files}',

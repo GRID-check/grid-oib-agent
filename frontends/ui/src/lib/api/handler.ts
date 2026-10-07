@@ -50,6 +50,7 @@
  * be limited at all (which must say why).
  */
 
+import { PROJECT_CLOSED_SQLSTATE, projectClosedError } from '@/lib/projects/project-status'
 import { NextResponse } from 'next/server'
 import { ZodError, type ZodType, type output } from 'zod'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
@@ -307,6 +308,12 @@ export function errorResponse(error: unknown, request: Request): Response {
       404,
       requestId,
     )
+  }
+  // Something was added to a project that closed between the permission check
+  // and the insert (migration 0114's trigger): the same 403 the check gives.
+  if (findPostgresCode(error) === PROJECT_CLOSED_SQLSTATE) {
+    const closed = projectClosedError()
+    return errorPayload({ error: closed.message, code: closed.code, details: closed.details }, closed.status, requestId)
   }
   // Binding a filename to a uuid column is not an internal failure (#572).
   if (isInvalidUuidQueryError(error)) {

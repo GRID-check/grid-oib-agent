@@ -393,9 +393,9 @@ export async function restoreFolderFromBin(
   input: { projectId: string; folderId: string },
   request?: Request
 ): Promise<RestoreFolderResult> {
-  await requireProjectAccess(session, input.projectId, 'project:view')
+  const { closed } = await requireProjectAccess(session, input.projectId, 'project:view')
   const { project, root, level } = await binEntryFor(session, input.projectId, input.folderId)
-  const projectWrite = await projectMayWriteDocuments(session, project.id)
+  const projectWrite = await mayRestoreInProject(session, project.id, closed)
   if (level !== 'write' || !projectWrite) throw folderReadOnlyError()
 
   const { restoredTo, folders } = await unbinEntry(session.organizationId, project, root)
@@ -415,6 +415,24 @@ export async function restoreFolderFromBin(
     request,
   })
   return { restoredTo, folders, documents: docs.length }
+}
+
+/**
+ * The project half of who may restore: document write, as for deleting. In a
+ * closed project (ADR-0082) nobody writes, but a restore undoes a deletion
+ * rather than adding content, and the 14-day purge keeps running: whoever
+ * manages the project may restore there, so an „Ausgemistet" file is not lost
+ * for want of a reopen.
+ */
+async function mayRestoreInProject(session: AuthorizedSession, projectId: string, closed: boolean): Promise<boolean> {
+  if (!closed) return projectMayWriteDocuments(session, projectId)
+  try {
+    await requireProjectAccess(session, projectId, 'project:manage', { evenWhenClosed: true })
+    return true
+  } catch (error) {
+    if (error instanceof NotFoundError || error instanceof ForbiddenError) return false
+    throw error
+  }
 }
 
 /** One entry of the Papierkorb view. */
@@ -450,12 +468,12 @@ async function mayManageProject(session: AuthorizedSession, projectId: string): 
 
 /** The project's Papierkorb as the session may see it: the entries whose folder it may read. */
 export async function listFolderBin(session: AuthorizedSession, projectId: string): Promise<FolderBinListing> {
-  await requireProjectAccess(session, projectId, 'project:view')
+  const { closed } = await requireProjectAccess(session, projectId, 'project:view')
   const project = await projectFor(session.organizationId, projectId)
   const [rows, folders, projectWrite, canPurge, directory] = await Promise.all([
     listBinEntries(session.organizationId, project.id),
     listProjectFolderTree(session.organizationId, project.id),
-    projectMayWriteDocuments(session, project.id),
+    mayRestoreInProject(session, project.id, closed),
     mayManageProject(session, project.id),
     loadOrganizationDirectory(session.organizationId),
   ])

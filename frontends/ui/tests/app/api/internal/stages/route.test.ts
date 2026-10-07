@@ -15,7 +15,10 @@ vi.mock('@/lib/workos/feature-flags', () => ({
   isTaskAutomationEnabledForOrg: vi.fn(),
 }))
 
+vi.mock('@/lib/projects/repository', () => ({ findProjectTenancy: vi.fn(async () => null) }))
+
 import { GET } from '@/app/api/internal/stages/route'
+import { findProjectTenancy } from '@/lib/projects/repository'
 import {
   enabledPostAnswerStages,
   isDeepResearchEnabledForOrg,
@@ -47,6 +50,22 @@ afterEach(() => {
 })
 
 describe('GET /api/internal/stages', () => {
+  it('withdraws research and tasks in a closed project, and only there (ADR-0082)', async () => {
+    const PROJECT = '4f9c1d2e-3b4a-4c5d-8e6f-7a8b9c0d1e2f'
+    vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org_123', deletedAt: null, status: 'closed' })
+    const closed = await GET(makeRequest(`?organizationId=org_123&projectId=${PROJECT}`, REAL_TOKEN))
+    await expect(closed.json()).resolves.toMatchObject({ features: { deepResearch: false, tasks: false } })
+
+    vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org_123', deletedAt: null, status: 'active' })
+    const active = await GET(makeRequest(`?organizationId=org_123&projectId=${PROJECT}`, REAL_TOKEN))
+    await expect(active.json()).resolves.toMatchObject({ features: { deepResearch: true, tasks: true } })
+
+    // Another organization's project decides nothing here.
+    vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org_other', deletedAt: null, status: 'closed' })
+    const foreign = await GET(makeRequest(`?organizationId=org_123&projectId=${PROJECT}`, REAL_TOKEN))
+    await expect(foreign.json()).resolves.toMatchObject({ features: { deepResearch: true, tasks: true } })
+  })
+
   it('serves the enabled stage ids for the organization', async () => {
     const res = await GET(makeRequest('?organizationId=org_123', REAL_TOKEN))
     expect(res.status).toBe(200)
