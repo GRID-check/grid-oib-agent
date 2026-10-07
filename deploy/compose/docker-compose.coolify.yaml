@@ -376,7 +376,7 @@ services:
         i=0; until echo 'cluster.ps' | weed shell -master=seaweedfs:9333 2>/dev/null | grep -q ':8888';
         do i=$$((i+1)); [ $$i -ge 60 ] && { echo 'the filer never registered with the master'; exit 1; }; sleep 1; done;
         echo 's3.bucket.create -name grid-documents' | weed shell -master=seaweedfs:9333 || true;
-        echo 's3.bucket.list' | weed shell -master=seaweedfs:9333 | grep -q grid-documents
+        echo 's3.bucket.list' | weed shell -master=seaweedfs:9333 | grep -qE '(^|[[:space:]])grid-documents[[:space:]]'
         || { echo 'bucket grid-documents missing after init'; exit 1; };
         echo 'bucket present: grid-documents'
     depends_on:

@@ -283,7 +283,7 @@ services:
         | weed shell -master=seaweedfs:9333 || true;
         buckets=$$(echo 's3.bucket.list' | weed shell -master=seaweedfs:9333) || exit 1;
         for b in grid-documents langfuse; do
-        echo "$$buckets" | grep -q "$$b" || { echo "bucket $$b missing after init"; exit 1; }; done;
+        echo "$$buckets" | grep -qE "(^|[[:space:]])$$b[[:space:]]" || { echo "bucket $$b missing after init"; exit 1; }; done;
         echo 'buckets present: grid-documents langfuse'
     depends_on:
       seaweedfs:
