@@ -15,6 +15,12 @@ OpenTelemetry's own ``OTEL_METRIC_EXPORT_INTERVAL`` (milliseconds, default 60 s)
 
 Observable gauges (queue depth, oldest age) are read once per export interval,
 by the SDK's reader thread.
+
+The provider lives as long as the process, not as long as the workflow that
+installed it. OpenTelemetry lets the global provider be set once, and the
+research worker builds a workflow per job, so a provider stopped when its
+workflow closed left every later job measuring into a dead one. The SDK flushes
+it at interpreter exit (``shutdown_on_exit``); nothing here stops it sooner.
 """
 
 from __future__ import annotations
@@ -84,12 +90,3 @@ def _build(endpoint: str | None, env: Mapping[str, str], reader):
 
         reader = PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=metrics_endpoint(endpoint or "")))
     return MeterProvider(resource=Resource.create(_resource_attributes(env)), metric_readers=[reader])
-
-
-def shutdown_meter_provider() -> None:
-    """Flush and stop the installed provider, if there is one."""
-    global _installed
-    with _lock:
-        provider, _installed = _installed, None
-    if provider is not None:
-        provider.shutdown()
