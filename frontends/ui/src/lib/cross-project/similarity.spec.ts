@@ -76,6 +76,15 @@ describe('similarityFacts', () => {
     })
   })
 
+  it('reads a Land’s label and its token as one Land, and a site abroad as no Land', () => {
+    const at = (bundesland: string) => similarityFacts(profile({ bundesland })).bundesland
+    expect(at('Niederösterreich')).toBe('niederoesterreich')
+    expect(at('niederoesterreich')).toBe('niederoesterreich')
+    expect(at('ausserhalb_oesterreichs')).toBeNull()
+    const abroad = similarityFacts(profile({ bundesland: 'ausserhalb_oesterreichs' }))
+    expect(similarity(abroad, abroad)).toBe(0)
+  })
+
   it('reads every building’s class, and a use zone’s copy of a fact as no building’s', () => {
     expect(similarityFacts(profile({ 'gebaeudeklasse@bw2': 'GK 2', 'gebaeudeklasse@bw1': 4 })).gebaeudeklasse).toEqual([2, 4])
     expect(similarityFacts(profile({ 'nutzungen@bw1@wohnen': ['garage'] })).nutzungen).toEqual([])
