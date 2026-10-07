@@ -4,8 +4,8 @@
  * Provisions the whole stack against a provider-supplied kubeconfig:
  *   platform  → cert-manager (+ Let's Encrypt issuer), Envoy Gateway, metrics-server
  *   data      → CloudNativePG Postgres (3 DBs), Dragonfly cache, SeaweedFS (S3)
- *   app       → aiq-agent (StatefulSet, the singleton agent), frontend
- *               (Deployment + HPA), purger, skill-scheduler, gotenberg (office
+ *   app       → aiq-agent (StatefulSet, the chat role), aiq-api (Deployment +
+ *               HPA, the api role), frontend (Deployment + HPA), purger, skill-scheduler, gotenberg (office
  *               → PDF), a migration Job and a WorkOS audit-schema reconcile Job
  *   edge      → Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS,
  *               for the app, the landing site and the public S3 endpoint
@@ -35,6 +35,7 @@ import { runMigrations } from "./src/app/migrations-job";
 import { reconcileAuditSchemas } from "./src/app/audit-schemas-job";
 import { installBackend } from "./src/app/backend";
 import { installBackendScaling } from "./src/app/backend-scaling";
+import { installApi } from "./src/app/api";
 import { installFrontend } from "./src/app/frontend";
 import { installWeb } from "./src/app/web";
 import { installGotenberg } from "./src/app/gotenberg";
@@ -225,7 +226,16 @@ const backend = installBackend(wiring, cfg, secrets, [
   ...(chroma ? [chroma.service] : []),
 ]);
 
-const frontend = installFrontend(wiring, cfg, secrets, [migrations, backend.service]);
+// The api role (ADR-0082 step B): every backend HTTP route but the chat socket,
+// behind the Service BACKEND_URL names.
+const api = installApi(wiring, cfg, secrets, [
+  postgres.initJob,
+  seaweed.bucketInitJob,
+  dragonfly.service,
+  ...(chroma ? [chroma.service] : []),
+]);
+
+const frontend = installFrontend(wiring, cfg, secrets, [migrations, backend.service, api.service]);
 const workers = installWorkers(wiring, cfg, secrets, [migrations]);
 // Landing site + blog (Astro, frontends/web) — static-first, no app secrets,
 // but it pulls from the same registry, so it gets the pull Secret too.
@@ -307,7 +317,7 @@ const ingestWorker = cfg.ingestWorker.enabled
 const bffJobs = cfg.bffJobs.enabled
   ? installBffJobs(wiring, cfg, secrets, [
       migrations,
-      backend.service,
+      api.service,
       ...(keda ? [keda] : []),
       ...(scalerGrants ? [scalerGrants] : []),
       ...(scalerSecret ? [scalerSecret] : []),
@@ -420,6 +430,7 @@ export const webUrl = pulumi.interpolate`https://${cfg.ingress.webDomain}`;
 export const appNamespace = namespace;
 export const postgresRwHost = postgres.rwHost;
 export const backendService = backend.service.metadata.name;
+export const apiService = api.service.metadata.name;
 export const frontendService = frontend.service.metadata.name;
 export const webService = web.service.metadata.name;
 export const purgerDeployment = workers.purger.metadata.name;
@@ -456,7 +467,7 @@ export const deployedImages = {
 };
 export const ingestWorkerDeployment = ingestWorker
   ? ingestWorker.deployment.metadata.name
-  : pulumi.output("(none: ingestion runs in the backend pods)");
+  : pulumi.output("(none: the ingest queue is off and ingestion runs in the api and chat pods)");
 export const bffJobsDeployment = bffJobs
   ? bffJobs.deployment.metadata.name
   : pulumi.output("(none: reindex and rescan jobs are not run)");

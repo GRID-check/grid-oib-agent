@@ -768,6 +768,22 @@ export interface GridConfig {
     chatAffinity: boolean;
   };
 
+  /**
+   * The api tier (ADR-0082 step B): `GRID_ROLE=api`, every backend HTTP route
+   * except the chat socket (knowledge, jobs and SSE, LLM utilities, admin,
+   * housekeeping). A Deployment of the backend image behind the `aiq-api`
+   * Service, which is what `BACKEND_URL` names. HPA-owned, like the frontend:
+   * the work is request-bound, so CPU is the signal, where the chat tier's
+   * (`backend`) is running turns.
+   */
+  api: {
+    resources: ResourceSpec;
+    minReplicas: number;
+    maxReplicas: number;
+    /** HPA target average CPU utilisation (%). */
+    hpaCpuTargetPercent: number;
+  };
+
   frontend: {
     resources: ResourceSpec;
     minReplicas: number;
@@ -831,8 +847,10 @@ export interface GridConfig {
   /**
    * The ingestion tier (ADR-0076): dedicated replicas that claim jobs from the
    * durable, fair ingest queue (`ingest_job_queue`), scaled by KEDA on its
-   * depth. When enabled the web tier stops claiming (`GRID_INGEST_QUEUE_CLAIM
-   * =false`), so ingestion no longer shares the chat pods' CPU and GIL.
+   * depth. The chat and api roles only put jobs in the queue and never claim
+   * them, so ingestion shares neither their CPU nor their GIL. Disabled (it
+   * needs `jobExecution: db` and the shared Chroma), the queue is off
+   * (`GRID_INGEST_QUEUE=off`) and the accepting process runs the job itself.
    */
   ingestWorker: {
     enabled: boolean;
@@ -1522,6 +1540,15 @@ export function loadConfig(): GridConfig {
     throw new Error(
       `grid-oib:backendMaxReplicas (${backendMaxReplicas}) must be >= backendReplicas ` +
         `(${backendReplicas}), the floor the chat tier scales between.`,
+    );
+  }
+  // The api tier's floor and ceiling, the bounds its HPA moves between.
+  const apiMinReplicas = Math.max(1, num(cfg, "apiMinReplicas", 2));
+  const apiMaxReplicas = Math.max(1, num(cfg, "apiMaxReplicas", 4));
+  if (apiMaxReplicas < apiMinReplicas) {
+    throw new Error(
+      `grid-oib:apiMaxReplicas (${apiMaxReplicas}) must be >= apiMinReplicas ` +
+        `(${apiMinReplicas}), the floor the api tier's HPA scales between.`,
     );
   }
   // Affinity off hands every socket to the Service and leans on the bus to keep
@@ -2578,6 +2605,22 @@ export function loadConfig(): GridConfig {
       // fits the 90 s grace period the tier has always had stays the default.
       drainSeconds: Math.max(10, num(cfg, "backendDrainSeconds", chatAffinity ? 20 : 2730)),
       chatAffinity,
+    },
+
+    api: {
+      // Request-bound LLM utilities, knowledge routes and SSE streams: CPU is
+      // modest per pod, memory carries the workflow the process builds at boot
+      // (the same one the chat tier builds). `requests` is what the HPA divides
+      // by, so it stays near steady state (see `frontend`).
+      resources: {
+        requestsCpu: cfg.get("apiRequestsCpu") ?? "500m",
+        requestsMemory: cfg.get("apiRequestsMemory") ?? "1536Mi",
+        limitsCpu: cfg.get("apiLimitsCpu") ?? "2",
+        limitsMemory: cfg.get("apiLimitsMemory") ?? "6Gi",
+      },
+      minReplicas: apiMinReplicas,
+      maxReplicas: apiMaxReplicas,
+      hpaCpuTargetPercent: num(cfg, "apiHpaCpuTargetPercent", 70),
     },
 
     frontend: {

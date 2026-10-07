@@ -482,3 +482,7 @@ config:
   # database/role pairs x pgPoolerPoolSize 12 + 1 auth session) = 74, plus 82 held
   # for the direct connections (see POSTGRES_DIRECT_RESERVE) = 156, 44 to spare.
   grid-oib:pgPoolerInstances: "2"
+  # ── The api tier (ADR-0082 step B) ── every backend HTTP route but the chat
+  # socket, behind the aiq-api Service (BACKEND_URL). Sized like the frontend.
+  grid-oib:apiMinReplicas: "1"
+  grid-oib:apiMaxReplicas: "3"

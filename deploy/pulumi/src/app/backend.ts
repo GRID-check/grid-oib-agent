@@ -10,7 +10,7 @@ import {
   orderedRollout,
   secretChecksumAnnotations,
 } from "../platform/rollout";
-import { AppSecrets, AppWiring, backendEnv } from "./config";
+import { AppSecrets, AppWiring, chatEnv } from "./config";
 import { PORT, UID } from "../constants";
 
 export interface Backend {
@@ -22,10 +22,12 @@ export interface Backend {
 }
 
 /**
- * The agent (aiq-agent): FastAPI web tier + an in-process Dask cluster. It keeps
- * no files: the vectors live in the shared Chroma server, the base corpus in
- * SeaweedFS and a Postgres table (ADR-0082 step A2), and what it caches on its
- * own disk (`GRID_BASE_CORPUS_CACHE_DIR`, under /tmp) it can lose at any restart.
+ * The chat tier (aiq-agent, `GRID_ROLE=chat`, ADR-0082): the chat socket and the
+ * answers running on it, plus NAT's own routes. Every other backend route is the
+ * api tier's (`api.ts`, the `aiq-api` Service). It keeps no files: the vectors
+ * live in the shared Chroma server, the base corpus in SeaweedFS and a Postgres
+ * table (ADR-0082 step A2), and what it caches on its own disk
+ * (`GRID_BASE_CORPUS_CACHE_DIR`, under /tmp) it can lose at any restart.
  *
  * Replica count depends on the execution mode:
  *   - "dask" (default): a HARD SINGLETON (replicas=1) — in-pod Dask +
@@ -100,7 +102,7 @@ export function installBackend(
                 imagePullPolicy: appPullPolicy(cfg, backendImage(cfg)),
                 securityContext: hardenedContainerSecurityContext(),
                 ports: [{ containerPort: PORT.backend, name: "http" }],
-                env: backendEnv(w),
+                env: chatEnv(w),
                 resources: toResourceRequirements(cfg.backend.resources),
                 lifecycle: shutdown.lifecycle,
                 // Boot spins up Dask and opens the Chroma client — generous
@@ -164,8 +166,9 @@ export function installBackend(
     { provider: w.provider },
   );
 
-  // Load-balanced ClusterIP for callers that don't need affinity (BACKEND_URL,
-  // internal REST, the migration/health checks).
+  // Load-balanced ClusterIP for callers that don't need affinity: the frontend's
+  // WebSocket proxy when it has no pod address (BACKEND_CHAT_URL), and KEDA's
+  // occupancy scaler. HTTP callers use the api tier's Service, not this one.
   const service = new k8s.core.v1.Service(
     "aiq-agent",
     {
