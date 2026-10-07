@@ -170,13 +170,6 @@ jobs:
           )
           pattern="$(IFS='|'; echo "(${expected[*]})@sha256:[a-f0-9]{64}")"
           grep -oE "$pattern" deploy/pulumi/src/config.ts | sort -u | tee pinned-images.txt
-          # Scan 13.5.2 (.NET 8.0.31) instead of 13.4.2 so CVE-2026-62901 is
-          # not a gate. The digest lives in deploy/pulumi/aspire-dashboard.pin
-          # until the same string is the default in src/config.ts.
-          if [ -f deploy/pulumi/aspire-dashboard.pin ]; then
-            pin="$(tr -d '[:space:]' < deploy/pulumi/aspire-dashboard.pin)"
-            sed -i "s#mcr.microsoft.com/dotnet/aspire-dashboard@sha256:[a-f0-9]\\{64\\}#${pin}#" pinned-images.txt
-          fi
           test "$(wc -l < pinned-images.txt)" -eq "${#expected[@]}"
           for image in "${expected[@]}"; do
             grep -qE "^${image}@sha256:[a-f0-9]{64}$" pinned-images.txt
