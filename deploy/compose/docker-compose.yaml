@@ -40,13 +40,21 @@ services:
     environment:
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # Database config (with Docker defaults)
-      - NAT_JOB_STORE_DB_URL=${NAT_JOB_STORE_DB_URL:-postgresql+asyncpg://aiq:aiq_dev@postgres:5432/aiq_jobs}
-      - AIQ_CHECKPOINT_DB=${AIQ_CHECKPOINT_DB:-postgresql://aiq:aiq_dev@postgres:5432/aiq_checkpoints}
-      - AIQ_SUMMARY_DB=${AIQ_SUMMARY_DB:-postgresql+psycopg://aiq:aiq_dev@postgres:5432/aiq_jobs}
-      # SSE LISTEN/NOTIFY needs a direct Postgres session; set explicitly so a
-      # future PgBouncer in front of the pooled DSNs never breaks job streams.
+      # Database config (with Docker defaults). Same split as Kubernetes
+      # (ADR-0083): the first three go through the transaction pooler
+      # (`pgbouncer`), and everything that needs ONE server connection across
+      # statements goes straight to `postgres`, so a session-feature regression
+      # fails here and not first in production.
+      - NAT_JOB_STORE_DB_URL=${NAT_JOB_STORE_DB_URL:-postgresql+asyncpg://aiq:aiq_dev@pgbouncer:5432/aiq_jobs}
+      - AIQ_CHECKPOINT_DB=${AIQ_CHECKPOINT_DB:-postgresql://aiq:aiq_dev@pgbouncer:5432/aiq_checkpoints}
+      - AIQ_SUMMARY_DB=${AIQ_SUMMARY_DB:-postgresql+psycopg://aiq:aiq_dev@pgbouncer:5432/aiq_jobs}
+      # SSE LISTEN/NOTIFY: a notification reaches the one server session that ran
+      # LISTEN, which a transaction pooler does not keep for the client.
       - AIQ_LISTEN_DB_URL=${AIQ_LISTEN_DB_URL:-postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs}
+      # Session advisory locks (leader election, the re-ingest lock, the ghost-job
+      # reaper). A session owns the lock, so behind the pooler it would be taken
+      # on one server connection and "released" on another.
+      - AIQ_LOCK_DB_URL=${AIQ_LOCK_DB_URL:-postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs}
       # Shared cache (Dragonfly, ADR-0020): citation-registry snapshots and
       # cross-replica caches. Unset = per-process in-memory fallback.
       - REDIS_URL=${REDIS_URL:-redis://dragonfly:6379/0}
@@ -111,6 +119,8 @@ services:
       seaweedfs:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
       # service_started, NOT service_healthy: the cache is optional by design
       # (fail-open in both tiers) and must never block the stack.
@@ -296,7 +306,7 @@ services:
       - GRID_APP_MIGRATION_DATABASE_URL=${GRID_APP_MIGRATION_DATABASE_URL:-postgresql://aiq:aiq_dev@postgres:5432/grid_app}
       # Read only so `ensure-rls-roles` can keep grid_app_rw's login in step
       # with the credential the app actually uses.
-      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@pgbouncer:5432/grid_app}
     depends_on:
       postgres:
         condition: service_healthy
@@ -376,7 +386,7 @@ services:
       # Runtime connection: the least-privilege role, subject to row-level
       # security (ADR-0041). A repository that forgets its organization
       # predicate returns no rows instead of another tenant's.
-      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@pgbouncer:5432/grid_app}
       # Shared service token for the internal memory endpoint (must match aiq-agent)
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       # S1 security default: agent org-wide memory writes are OFF unless explicitly
@@ -500,6 +510,8 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
       # Started, not healthy: conversion fails open (the original stays
       # downloadable), so a broken converter must never block the UI.
       gotenberg:
@@ -566,6 +578,8 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
       interval: 15s
@@ -585,7 +599,7 @@ services:
       # Least-privilege runtime role (ADR-0041). This worker sweeps every
       # organization, so it steps up to grid_app_platform per transaction
       # — see frontends/ui/workers/platform-scope.js.
-      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@pgbouncer:5432/grid_app}
       - BACKEND_URL=${BACKEND_URL:-http://aiq-agent:8000}
       # A chat erasure the delete request could not finish is retried through
       # the BFF, which owns its steps.
@@ -607,6 +621,8 @@ services:
       grid-migrate:
         condition: service_completed_successfully
       postgres:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
       seaweedfs:
         condition: service_healthy
@@ -634,7 +650,7 @@ services:
       # Least-privilege runtime role (ADR-0041). This worker sweeps every
       # organization, so it steps up to grid_app_platform per transaction
       # — see frontends/ui/workers/platform-scope.js.
-      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}
+      - GRID_APP_DATABASE_URL=${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@pgbouncer:5432/grid_app}
       - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       # Object storage, for `view_knowledge_image` (ADR-0039): the tool asks the
@@ -663,6 +679,8 @@ services:
       grid-migrate:
         condition: service_completed_successfully
       postgres:
+        condition: service_healthy
+      pgbouncer:
         condition: service_healthy
       frontend:
         condition: service_healthy
@@ -830,6 +848,44 @@ services:
       # Crash recovery (fsync of the data dir) can take >1 min on slow disks;
       # without a start_period the stack fails with "postgres is unhealthy".
       start_period: 120s
+    restart: unless-stopped
+
+  # Transaction pooler in front of the pooled DSNs (ADR-0083): the same
+  # PgBouncer parameters Kubernetes runs through the CloudNativePG `Pooler`
+  # (`deploy/pulumi/src/data/postgres.ts`), so a session feature that only works
+  # on a direct connection fails here instead of first in production. LISTEN, the
+  # session locks, migrations and Langfuse bypass it on purpose.
+  #
+  # `edoburu/pgbouncer`, not CloudNativePG's image (which expects its operator to
+  # write the config and the auth query) and not Bitnami's (the free images are
+  # discontinued). It is configured by environment, is maintained, and tracks
+  # upstream PgBouncer one-for-one: v1.26.0 is the version the Pooler runs, and
+  # >= 1.21 is what `max_prepared_statements` needs. Digest-pinned.
+  #
+  # One login per pooled role, written to its userlist from the DSNs below. The
+  # passwords are interpolated into URLs, so they cannot contain `:`, `@` or `/`.
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.26.0-p0@sha256:b17551c776ef7e5769ef80b956d20f85e2fd25dd8912d31d58f782aad495b711
+    container_name: aiq-pgbouncer
+    environment:
+      DATABASE_URLS: postgres://aiq:aiq_dev@postgres:5432/aiq_jobs,postgres://aiq:aiq_dev@postgres:5432/aiq_checkpoints,postgres://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app  # pragma: allowlist secret (compose dev default)
+      POOL_MODE: transaction
+      AUTH_TYPE: scram-sha-256
+      MAX_CLIENT_CONN: "2000"
+      DEFAULT_POOL_SIZE: "12"
+      MAX_PREPARED_STATEMENTS: "200"
+      # What the CloudNativePG Pooler ignores, too.
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits,options
+    networks:
+      - aiq-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "5432"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   # ===========================================================================
