@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from '@/i18n'
+import { isProjectClosedBody } from '@/lib/projects/project-status'
 import { formatCalendarDate } from '@/lib/format'
 import type { FileItem, FolderItem } from '../file-types'
 import type { FolderAccessLevel } from '../lib/file-shelf'
@@ -209,11 +210,13 @@ export function useFolderTree({
         const body = (await response.json().catch(() => null)) as { details?: { reason?: unknown } } | null
         const reason = typeof body?.details?.reason === 'string' ? body.details.reason : null
         toast.error(
-          reason === 'folder-contents-protected'
-            ? t('workspace.deleteFolderProtected')
-            : response.status === 502
-              ? t('workspace.deleteFolderIndexDown')
-              : t('workspace.deleteFolderError')
+          isProjectClosedBody(body)
+            ? t('errors.projectClosed')
+            : reason === 'folder-contents-protected'
+              ? t('workspace.deleteFolderProtected')
+              : response.status === 502
+                ? t('workspace.deleteFolderIndexDown')
+                : t('workspace.deleteFolderError')
         )
         return false
       }

@@ -56,10 +56,32 @@ writes one event.
 (`CLOSED_PROJECT_KEEPS` in `lib/projects/project-status.ts`): `project:view`,
 `project:chat` and `project:members:manage`. A request whose every permission is
 a write is refused with a 403, `details.reason: 'project-closed'`, which names
-the project's state because every member may see that it exists. Deep research
+the project's state because every member may see that it exists. The database's
+own refusal (`GPC01`, below) answers the same 403 at the BFF's error boundary
+(`errorResponse`). The upload and the folder delete, the two writes a tab left
+open across a close still offers, name it in the reader's language; other
+surfaces show their own refusal. Deep research
 and tasks (`project:documents:generate`, `project:skills:manage`) are refused:
 the safer reading of the product owner's "may be refused or allowed", because
-both file into the project or run on a schedule as if it were live. A schedule
+both file into the project or run on a schedule as if it were live. Refusing
+alone was not enough: the agent offered research („Recherche starten") and the
+run was refused only after the reader approved its plan. The per-turn flags
+(`/api/internal/stages`) now take the turn's project, and a closed one answers
+`deepResearch: false` and `tasks: false`, so the turn stays a plain answer
+(product owner, 7 Oct 2026). A direct `POST /api/jobs/async/submit` naming a
+closed project is refused with the same 403.
+
+**Runs in flight are not cancelled by closing.** A run commissioned before the
+close finishes; its report lands in its conversation, which chat still allows,
+and filing it as a project document is refused like every other write. Who may
+steer a run (cancel it, have it write now) is its requester or a member of the
+project, never someone who reads the project only because it is closed; handing
+a run a document is a write and is refused.
+
+**The Papierkorb is the one exception.** Restoring a folder undoes a deletion
+rather than adding content, and the 14-day purge keeps running after a close,
+so whoever holds `project:manage` may restore in a closed project (with write
+on the folder, as always). Deleting, moving and purging stay refused. A schedule
 in a closed project is recorded as a skipped run, so a reopen resumes it.
 `project:manage` is refused too, because it also renames, changes folder access
 and empties the Papierkorb; closing, reopening, deleting and restoring a closed

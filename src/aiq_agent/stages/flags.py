@@ -102,7 +102,7 @@ def _internal_base_url() -> str:
     return url.rstrip("/")
 
 
-def fetch_turn_flags(*, organization_id: str | None) -> TurnFlags:
+def fetch_turn_flags(*, organization_id: str | None, project_id: str | None = None) -> TurnFlags:
     """What this tenant's turn may do, read from the BFF for THIS turn.
 
     Raises on any configuration or transport problem so the caller can fall back
@@ -118,7 +118,12 @@ def fetch_turn_flags(*, organization_id: str | None) -> TurnFlags:
     if not token:
         raise RuntimeError("GRID_INTERNAL_API_TOKEN is not configured")
 
-    query = urllib.parse.urlencode({"organizationId": organization_id} if organization_id else {})
+    # The project, when the turn has one: a closed project withdraws deep
+    # research and tasks (ADR-0082), because both file into it.
+    params = {"organizationId": organization_id} if organization_id else {}
+    if project_id:
+        params["projectId"] = project_id
+    query = urllib.parse.urlencode(params)
     url = f"{_internal_base_url()}/api/internal/stages"
     request = urllib.request.Request(
         f"{url}?{query}" if query else url,
@@ -140,7 +145,9 @@ def fetch_turn_flags(*, organization_id: str | None) -> TurnFlags:
     )
 
 
-async def resolve_turn_flags(*, organization_id: str | None, memory_reflection_enabled: bool) -> TurnFlags:
+async def resolve_turn_flags(
+    *, organization_id: str | None, memory_reflection_enabled: bool, project_id: str | None = None
+) -> TurnFlags:
     """This turn's flags, with the connection-time values as fallback.
 
     Fail-open to the frozen value rather than fail-closed to nothing: a BFF
@@ -151,7 +158,7 @@ async def resolve_turn_flags(*, organization_id: str | None, memory_reflection_e
     own session.
     """
     try:
-        return await asyncio.to_thread(fetch_turn_flags, organization_id=organization_id)
+        return await asyncio.to_thread(fetch_turn_flags, organization_id=organization_id, project_id=project_id)
     except Exception:
         logger.warning("Live per-turn flags unavailable; using the connection-time value", exc_info=True)
         return TurnFlags(
