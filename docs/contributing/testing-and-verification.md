@@ -348,6 +348,29 @@ although no model call shows it. The report adds each kind of check over every r
 and after any change to the lookup, the catalog, the similarity or the prompt
 around them.
 
+**Against overfitting.** A question may name a `scenario`: the office the run
+sits in (`office.json` → `scenarios`, each rendered by the production code
+like the default). `wien-bestand` puts the chat in a Vienna office building
+conversion, another Land, use and kind of work than the default house;
+`leeres-buero` is an office with no other project. A third of the questions
+are `holdout: true`: written before any of them ran, never used to tune a
+prompt, a check or the fixture. The report scores tuned, held-out and each
+scenario apart; a held-out score well below the tuned one is overfitting, and
+the fix is never to tune on the held-out questions.
+
+**Meanings are judged, not matched.** `says_none` and `caveat` go to a model
+judge (`scripts/turn_census/judge.py`, `SUITE_JUDGE_MODEL`) with one yes/no
+question about what the answer means; without a key, or when it cannot
+answer, the check is left out, never guessed. Phrase lists were tried first
+and read the eval's own answers wrong both ways: on 65 answers that cited a
+precedent they called 11 a „nothing found", because a precedent's own caveat
+(„keine Vorgabe für Ihr Projekt") reads like one, and every phrase added for a
+miss made the next false pass likelier. Validated on 77 captured answers (7
+Oct 2026): `says_none` recall 10/10, with two disagreements that were the
+label's error; `caveat` no false pass in 12 norm answers, recall 9/12, the
+misses borderline. Do not tune the rubric to answers; re-validate it on new
+captures instead.
+
 **What the fixture's search is not.** `fixture_bff.py` matches words, not
 meaning: a document is served when a quarter of the query's words begin one
 of its words. It is precise and it misses German compounds, so
