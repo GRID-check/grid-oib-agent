@@ -16,6 +16,7 @@
  */
 
 const { hasActiveHold } = require('./db')
+const { eraseProject } = require('../workers/job-queue')
 
 /** @typedef {import('./types').Tx} Tx */
 /** @typedef {import('./types').QueueEntry} QueueEntry */
@@ -319,6 +320,12 @@ async function purgeProject(tx, entry, deps) {
   await tx`DELETE FROM mention_requests WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
   await tx`DELETE FROM resource_shares WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
   await tx`DELETE FROM resource_assignments WHERE resource_type = 'document' AND resource_id IN (SELECT id::text FROM documents WHERE project_id = ${projectId})`
+  //    The project's background jobs (ADR-0078). `bff_job_queue` points at the
+  //    project only through its payload (no foreign key), and a payload holds the
+  //    project's work: a research report, file names, storage keys, the
+  //    requester. Nothing cascades, so without this a purged project's jobs, dead
+  //    ones included, would outlive it until their retention.
+  await eraseProject(tx, orgId, projectId)
   await tx`DELETE FROM conversations WHERE project_id = ${projectId}`
   await tx`DELETE FROM projects WHERE id = ${projectId}`
 }

@@ -45,7 +45,10 @@ const purgers = {
   project: purgeProject,
   // The retry of a chat erasure its delete request could not finish.
   conversation: purgeConversation,
-  // document / organization / user: later phases
+  // document / organization / user: later phases. The organization purge must call
+  // `eraseLane` (`workers/job-queue.js`) for the organization's background jobs,
+  // as the project purge calls `eraseProject`: their payloads hold its content and
+  // nothing cascades to them.
 }
 
 /**

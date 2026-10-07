@@ -341,7 +341,9 @@ Read by `frontends/ui/workers/jobs/index.js`, the entry point of the `bff-jobs` 
 | `GRID_BFF_JOBS_POLL_MS` | No | `2000` | Idle wait between claims. |
 | `GRID_BFF_JOBS_DRAIN_SECONDS` | No | `60` | After SIGTERM the loop lets the slice in hand finish for up to this long, gives every claim back **without spending an attempt**, then stops the BFF. Pulumi `bffJobsDrainSeconds`; the pod's grace period is this plus 30 s. |
 | `GRID_BFF_JOBS_STALE_SECONDS` | No | `180` | A claim whose worker has sent no heartbeat for this long is claimed again by another worker. Never below four heartbeats (60 s). |
-| `GRID_BFF_JOBS_MAX_ATTEMPTS` | No | `3` | Claims of one job before it is marked `dead` (its reason kept in `last_error`; nothing deletes it). |
+| `GRID_BFF_JOBS_MAX_ATTEMPTS` | No | `3` | Claims of one job before it is marked `dead` (its reason kept in `last_error`, its payload reduced to ids; deleted after `GRID_BFF_JOBS_DEAD_RETENTION_DAYS`). Only a drain or a cap gives an attempt back: a failed slice, a slice timeout and a BFF that did not answer all spend one. |
+| `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS` | No | `30` | How long a failed job waits before its second attempt; each further attempt doubles it, to at most 15 minutes. `0` retries at once. |
+| `GRID_BFF_JOBS_DEAD_RETENTION_DAYS` | No | `14` | How long a `dead` job is kept as a trace before it is deleted (checked every ten minutes by every `bff-jobs` replica). A project's purge deletes its jobs at once. |
 | `GRID_BFF_JOBS_MAX_PER_ORG` | No | `0` | Most jobs one organisation may run **across the whole fleet**; 0 for no cap. The claim is fair without it. Hard: a claim that raced past the cap gives its job back. Pulumi `bffJobsMaxPerOrg`. |
 | `GRID_BFF_JOBS_SLICE_TIMEOUT_MS` | No | `300000` | Ceiling on one slice's request to the BFF; a slice that outlives it is a failed attempt. |
 

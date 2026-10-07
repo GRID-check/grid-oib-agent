@@ -1024,9 +1024,11 @@ bulk), then oldest, with `FOR UPDATE SKIP LOCKED`.
 | `lane` | text | The organization id: the unit of fairness AND of tenancy. |
 | `priority` | smallint | `0` interactive, `1` bulk (CHECK). |
 | `payload` | jsonb | The job's whole state: what was asked and how far it got (a keyset cursor, the counts). Saved after every slice and read back by whichever worker claims it next. Holds the requester's identity, permissions and feature flags, never an access token. A `file_research_report` job carries the finished report itself (the backend forgets a run after a day), so it is the one payload that can be large. |
-| `status` | text | `queued`, `claimed` or `dead` (CHECK). A finished job is **deleted**; a job that failed every attempt is `dead` and stays, with its reason. |
+| `status` | text | `queued`, `claimed` or `dead` (CHECK). A finished job is **deleted**; a job that failed every attempt is `dead` and stays, with its reason, until `GRID_BFF_JOBS_DEAD_RETENTION_DAYS` after `dead_at`. When a row goes dead its `payload` is reduced to `runId`, `projectId`, `documentId` and `taskRunId` (`KEPT_PAYLOAD_KEYS`): the sweeps match a dead job by them, and nothing else of the report, requester or storage keys outlives the attempt. |
 | `attempts` | integer | Claims spent. A drain or a cap gives a claim back without spending one. |
 | `claimed_by`, `claimed_at`, `heartbeat_at` | text, timestamptz | A `claimed` row always has a holder and a heartbeat (CHECK); a claim silent for `GRID_BFF_JOBS_STALE_SECONDS` is claimed again. |
+| `not_before` | timestamptz | Migration 0104. A failed job is not claimed again before this: `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS` doubled per attempt, at most 15 minutes. NULL is no wait; a claim, a drain's release and a cap's release clear it. |
+| `dead_at` | timestamptz | Migration 0104. Set when the row goes dead (CHECK `bff_job_queue_dead_stamped`: a dead row always has one), and what the retention counts from. |
 | `created_at`, `last_error` | timestamptz, text | |
 
 A document at `processing` remembers its job as `documents.metadata.bffJobId`,
@@ -1035,16 +1037,16 @@ which the sweep joins on. Migration 0103 lets `task_runs.filing_status` be
 index `ix_task_runs_filing_queued` the filing sweep reads.
 
 Indexes: `(lane, priority, created_at)` over the rows that are not dead (the
-claim's second step) and `(heartbeat_at)` over claimed rows (the stale test and
-the reaper). `bff_job_lane_turns` is one row per lane with `last_claimed_at`.
+claim's second step), `(heartbeat_at)` over claimed rows (the stale test and
+the reaper) and `(dead_at)` over dead rows (the retention purge). `bff_job_lane_turns` is one row per lane with `last_claimed_at`.
 
 RLS: both are tenant tables whose predicate compares `lane` (not an
 `organization_id` column) to `grid_current_org()`, so a request enqueues and
 reads only its own organization's jobs. The runner is cross-tenant by nature
 and steps up to `grid_app_platform` per transaction
 (`workers/platform-scope.js`), as the purger and the scheduler do. KEDA counts
-the table as `grid_keda_scaler`, a login with SELECT on this table and nothing
-else; it crosses the tenant boundary by a second policy,
+the table as `grid_keda_scaler`, a login with SELECT on this table's `status`
+column and nothing else (a leaked scaler DSN cannot read a payload); it crosses the tenant boundary by a second policy,
 `grid_keda_scaler_count` (`FOR SELECT TO grid_keda_scaler USING (true)`), which
 the Pulumi grants Job (`deploy/pulumi/src/app/queue-scaler-grants.ts`) creates
 after the migrations, not a migration: the role exists only where CloudNativePG

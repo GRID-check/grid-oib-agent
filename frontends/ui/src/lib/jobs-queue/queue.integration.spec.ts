@@ -225,21 +225,172 @@ describe.skipIf(!url)('bff_job_queue claim against live Postgres (migration 0102
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       await claim('w1')
-      expect(await queue.fail(sql, id, 'w1', new Error(`boom ${attempt}`), 3)).toBe('queued')
+      expect(await queue.fail(sql, id, 'w1', new Error(`boom ${attempt}`), 3, 0)).toBe('queued')
     }
     await claim('w1')
-    expect(await queue.fail(sql, id, 'w1', new Error('boom 3'), 3)).toBe('dead')
+    expect(await queue.fail(sql, id, 'w1', new Error('boom 3'), 3, 0)).toBe('dead')
 
     const dead = await row(id)
     expect([dead?.status, dead?.last_error, dead?.claimed_by]).toEqual(['dead', 'boom 3', null])
-    expect(await queue.fail(sql, id, 'w1', new Error('late'), 3)).toBeNull()
+    expect(await queue.fail(sql, id, 'w1', new Error('late'), 3, 0)).toBeNull()
+  })
+
+  it('keeps a failed job out of the claim until its backoff has passed, and doubles the wait per attempt', async () => {
+    const id = await seed('a0', A, '2026-09-30T10:00:00Z')
+    const waitOf = async () => {
+      const r = await withPlatformScope(
+        sql,
+        (tx) => tx`SELECT EXTRACT(EPOCH FROM (not_before - now()))::float8 AS wait FROM bff_job_queue WHERE job_id = ${id}::uuid`,
+      )
+      return Number(r[0].wait)
+    }
+
+    await claim('w1')
+    expect(await queue.fail(sql, id, 'w1', new Error('boom'), 3, 60)).toBe('queued')
+    expect(await waitOf()).toBeGreaterThan(55)
+    expect(await waitOf()).toBeLessThanOrEqual(60)
+    expect(await claim('w2')).toBeNull() // waiting: neither a lane nor a candidate
+
+    await withPlatformScope(sql, (tx) => tx`UPDATE bff_job_queue SET not_before = now() - interval '1 second' WHERE job_id = ${id}::uuid`)
+    const second = await claim('w2')
+    expect([idOf(second), second?.attempts]).toEqual(['a0', 2])
+    expect((await row(id))?.not_before).toBeNull()
+
+    expect(await queue.fail(sql, id, 'w2', new Error('boom'), 3, 60)).toBe('queued')
+    expect(await waitOf()).toBeGreaterThan(115) // 60 s x 2 after the second attempt
+    expect(await waitOf()).toBeLessThanOrEqual(120)
+  })
+
+  it('caps the backoff, and a drain gives a job back with no wait', async () => {
+    const id = await seed('a0', A, '2026-09-30T10:00:00Z')
+    await withPlatformScope(sql, (tx) => tx`UPDATE bff_job_queue SET attempts = 9 WHERE job_id = ${id}::uuid`)
+    await withPlatformScope(
+      sql,
+      (tx) => tx`UPDATE bff_job_queue SET status = 'claimed', claimed_by = 'w1', heartbeat_at = now() WHERE job_id = ${id}::uuid`,
+    )
+
+    await queue.fail(sql, id, 'w1', new Error('boom'), 99, 600)
+    const wait = await withPlatformScope(
+      sql,
+      (tx) => tx`SELECT EXTRACT(EPOCH FROM (not_before - now()))::float8 AS wait FROM bff_job_queue WHERE job_id = ${id}::uuid`,
+    )
+    expect(Number(wait[0].wait)).toBeLessThanOrEqual(queue.MAX_RETRY_BACKOFF_SECONDS)
+    expect(Number(wait[0].wait)).toBeGreaterThan(queue.MAX_RETRY_BACKOFF_SECONDS - 5)
+
+    await withPlatformScope(sql, (tx) => tx`UPDATE bff_job_queue SET not_before = NULL, status = 'queued' WHERE job_id = ${id}::uuid`)
+    await claim('w1')
+    await queue.release(sql, id, 'w1')
+    expect((await row(id))?.not_before).toBeNull()
+    expect(idOf(await claim('w2'))).toBe('a0')
+  })
+
+  it('reduces a row to its identifiers when it goes dead, whichever way it gets there', async () => {
+    const payload = {
+      runId: 'run-1',
+      projectId: 'p-1',
+      documentId: 'd-1',
+      taskRunId: 't-1',
+      report: 'the whole report',
+      storageKey: 'org/x/project/p-1/file.pdf',
+      requester: { email: 'person@example.test', permissions: ['org:projects:administer'] },
+    }
+    const insert = (id: string) =>
+      withPlatformScope(
+        sql,
+        (tx) => tx`
+          INSERT INTO bff_job_queue (kind, lane, payload, created_at)
+          VALUES ('file_research_report', ${A}, ${JSON.stringify({ id, ...payload })}::text::jsonb, '2026-09-30T10:00:00Z'::timestamptz)
+          RETURNING job_id
+        `,
+      ).then((rows) => String(rows[0].job_id))
+    const kept = { runId: 'run-1', projectId: 'p-1', documentId: 'd-1', taskRunId: 't-1' }
+
+    const failed = await insert('failed')
+    await claim('w1')
+    expect(await queue.fail(sql, failed, 'w1', new Error('boom'), 1, 0)).toBe('dead')
+    const failedRow = await row(failed)
+    expect(failedRow?.payload).toEqual(kept)
+    expect(failedRow?.dead_at).toBeInstanceOf(Date)
+    expect(failedRow?.not_before).toBeNull()
+
+    const lost = await insert('lost')
+    await claim('w1')
+    await ageHeartbeat(lost)
+    expect(await queue.reapExhausted(sql, { staleSeconds: 180, maxAttempts: 1 })).toEqual([lost])
+    const lostRow = await row(lost)
+    expect(lostRow?.payload).toEqual(kept)
+    expect(lostRow?.dead_at).toBeInstanceOf(Date)
+  })
+
+  it('refuses a dead row that was not stamped, so the retention can always reach it', async () => {
+    const id = await seed('a0', A, '2026-09-30T10:00:00Z')
+
+    await expect(
+      withPlatformScope(sql, (tx) => tx`UPDATE bff_job_queue SET status = 'dead' WHERE job_id = ${id}::uuid`),
+    ).rejects.toThrow(/bff_job_queue_dead_stamped/)
+  })
+
+  it('deletes dead rows past their retention, and nothing else', async () => {
+    const old = await seed('old', A, '2026-09-30T10:00:00Z')
+    const recent = await seed('recent', A, '2026-09-30T10:00:01Z')
+    const live = await seed('live', A, '2026-09-30T10:00:02Z')
+    await withPlatformScope(sql, async (tx) => {
+      await tx`UPDATE bff_job_queue SET status = 'dead', dead_at = now() - interval '20 days' WHERE job_id = ${old}::uuid`
+      await tx`UPDATE bff_job_queue SET status = 'dead', dead_at = now() - interval '1 day' WHERE job_id = ${recent}::uuid`
+    })
+
+    expect(await queue.purgeDead(sql, { olderThanSeconds: 14 * 86_400 })).toBeGreaterThanOrEqual(1)
+
+    expect(await row(old)).toBeUndefined()
+    expect(await row(recent)).toBeDefined()
+    expect(await row(live)).toBeDefined()
+  })
+
+  it('erases a project’s jobs in every state, and only that project’s, in the purge transaction', async () => {
+    const forProject = (id: string, lane: string, projectId: string | null, status = 'queued') =>
+      withPlatformScope(
+        sql,
+        (tx) => tx`
+          INSERT INTO bff_job_queue (kind, lane, status, dead_at, payload)
+          VALUES ('office_rendition', ${lane}, ${status}, ${status === 'dead' ? new Date() : null},
+                  ${JSON.stringify({ id, projectId })}::text::jsonb)
+          RETURNING job_id
+        `,
+      ).then((rows) => String(rows[0].job_id))
+    const mine = await forProject('mine', A, 'p-gone')
+    const mineDead = await forProject('mine-dead', A, 'p-gone', 'dead')
+    const otherProject = await forProject('other-project', A, 'p-kept')
+    const otherOrg = await forProject('other-org', B, 'p-gone')
+    const orgLevel = await forProject('org-level', A, null)
+
+    const erased = await withPlatformScope(sql, (tx) => queue.eraseProject(tx, A, 'p-gone'))
+
+    expect(erased).toBe(2)
+    expect([await row(mine), await row(mineDead)]).toEqual([undefined, undefined])
+    for (const id of [otherProject, otherOrg, orgLevel]) expect(await row(id)).toBeDefined()
+  })
+
+  it('erases an organization’s jobs and its place in the rotation', async () => {
+    await seed('a0', A, '2026-09-30T10:00:00Z')
+    await seed('b0', B, '2026-09-30T10:00:01Z')
+    await claim('w1') // gives lane A a turn
+
+    const erased = await withPlatformScope(sql, (tx) => queue.eraseLane(tx, A))
+
+    expect(erased).toBe(1)
+    const left = await withPlatformScope(
+      sql,
+      (tx) => tx`SELECT (SELECT COUNT(*)::int FROM bff_job_queue WHERE lane = ${A}) AS jobs, (SELECT COUNT(*)::int FROM bff_job_lane_turns WHERE lane = ${A}) AS turns`,
+    )
+    expect([left[0].jobs, left[0].turns]).toEqual([0, 0])
+    expect(idOf(await claim('w2'))).toBe('b0')
   })
 
   it('counts every job but the dead ones as depth', async () => {
     const before = await queue.depth(sql)
     await seed('a0', A, '2026-09-30T10:00:00Z')
     const dead = await seed('a1', A, '2026-09-30T10:00:01Z')
-    await withPlatformScope(sql, (tx) => tx`UPDATE bff_job_queue SET status = 'dead' WHERE job_id = ${dead}::uuid`)
+    await withPlatformScope(sql, (tx) => tx`UPDATE bff_job_queue SET status = 'dead', dead_at = now() WHERE job_id = ${dead}::uuid`)
 
     expect(await queue.depth(sql)).toBe(before + 1)
   })

@@ -9,6 +9,15 @@
  * the work: which kind does what, and the progress a slice leaves behind in the
  * job's payload.
  *
+ * WHAT COSTS AN ATTEMPT. Only a clean shutdown is free: a drain, or a claim over
+ * its lane's cap, gives the job back WITHOUT spending an attempt. Everything
+ * else spends one and the job waits out a backoff before its next: a handler
+ * that threw, a slice that timed out, a BFF that answered 5xx or not at all. A
+ * job that always times out, or always takes the BFF down, is therefore dead
+ * after `maxAttempts` claims, with the reason kept, instead of cycling for ever.
+ * (A BFF that was merely briefly unavailable costs the jobs in flight an
+ * attempt too; the backoff and the attempts left are what absorb it.)
+ *
  * A SLICE IS THE UNIT OF DRAINING. A job is not one long request. Each POST
  * does a bounded step (a page of documents, say) and answers `done: false` with
  * where it got to, which this loop saves as the job's progress, until the job
@@ -44,6 +53,9 @@ const { databaseOutage, describeTransportError, describeFailedResponse, isTransi
  * @property {number} perLaneCap    most live claims one organization may hold; 0 is no cap
  * @property {number} reapEveryMs   how often exhausted claims are marked dead
  * @property {number} transientBackoffMs  wait after the BFF was briefly unavailable
+ * @property {number} retryBackoffSeconds  wait before a failed job's next attempt (doubles per attempt)
+ * @property {number} deadRetentionSeconds  how long a dead row is kept before it is deleted
+ * @property {number} purgeEveryMs  how often dead rows past their retention are deleted
  */
 
 /**
@@ -115,6 +127,7 @@ function createRunner(config, deps) {
   /** @type {Promise<void>[]} */
   const slots = []
   let lastReapAt = 0
+  let lastPurgeAt = 0
 
   /**
    * Keep the claim alive while a slice runs. A heartbeat that says the claim is
@@ -174,14 +187,30 @@ function createRunner(config, deps) {
     }
     if (outcome.kind === 'lost') return log.warn(`[bff-jobs] job ${claim.jobId} (${claim.kind}) is no longer this worker's`)
     if (outcome.kind === 'transient') {
-      // The BFF in this pod is not answering yet (it is booting, or a request
-      // met a database outage). The job did nothing wrong, so it keeps its attempt.
+      // The BFF did not answer (it is booting or restarting, the slice outlived
+      // its timeout, a request met a database outage). Whether the job caused it
+      // cannot be told from here, and a job that always causes it must still end,
+      // so the attempt is spent, behind a backoff. A shutdown is the exception:
+      // the BFF going away under the slice is the drain's doing, not the job's.
       streak.failed(outcome.failure)
-      await giveBack(held, outcome.failure.kind)
-      return stopping ? undefined : sleep(config.transientBackoffMs)
+      if (stopping) return giveBack(held, 'draining')
+      await failAttempt(held, outcome.failure.detail ?? outcome.failure.kind)
+      return sleep(config.transientBackoffMs)
     }
-    const verdict = await queue.fail(sql, claim.jobId, worker, outcome.message, config.maxAttempts)
-    log.error(`[bff-jobs] job ${claim.jobId} (${claim.kind}) attempt ${claim.attempts} failed: ${outcome.message}`)
+    await failAttempt(held, outcome.message)
+  }
+
+  /**
+   * Spend the attempt: the job is queued again after its backoff, or dead when
+   * it was the last.
+   *
+   * @param {{ claim: Claim, worker: string }} held
+   * @param {string} message
+   */
+  async function failAttempt(held, message) {
+    const { claim, worker } = held
+    const verdict = await queue.fail(sql, claim.jobId, worker, message, config.maxAttempts, config.retryBackoffSeconds)
+    log.error(`[bff-jobs] job ${claim.jobId} (${claim.kind}) attempt ${claim.attempts} failed: ${message}`)
     if (verdict === 'dead') log.error(`[bff-jobs] a job failed every attempt and is now dead: ${claim.jobId} (${claim.kind})`)
   }
 
@@ -208,13 +237,30 @@ function createRunner(config, deps) {
   }
 
   /**
-   * One pass of one slot: reap if due, claim, run. True when it ran a job.
+   * Delete dead rows past their retention. At most once per `purgeEveryMs`, and
+   * a failure only costs the next pass: it must never keep a worker from claiming.
+   */
+  async function purgeIfDue() {
+    const now = Date.now()
+    if (now - lastPurgeAt < config.purgeEveryMs) return
+    lastPurgeAt = now
+    try {
+      const purged = await queue.purgeDead(sql, { olderThanSeconds: config.deadRetentionSeconds })
+      if (purged > 0) log.log(`[bff-jobs] deleted ${purged} dead job(s) past their retention`)
+    } catch (error) {
+      log.warn(`[bff-jobs] could not purge dead jobs: ${describe(error)}`)
+    }
+  }
+
+  /**
+   * One pass of one slot: reap and purge if due, claim, run. True when it ran a job.
    *
    * @param {string} worker
    */
   async function step(worker) {
     try {
       await reapIfDue()
+      await purgeIfDue()
       const claim = await queue.claimNext(sql, worker, options)
       if (!claim) {
         streak.succeeded()

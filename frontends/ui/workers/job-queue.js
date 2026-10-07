@@ -35,12 +35,21 @@
  * stale window and another worker took the job) can neither finish nor release
  * what is no longer its own:
  *
- *   - `complete`   the job is done: the row is deleted, the only deletion.
+ *   - `complete`   the job is done: the row is deleted.
  *   - `release`    give it back WITHOUT spending an attempt (a drain, a cap).
- *   - `fail`       the attempt went wrong: queued again, or `dead` when it was
+ *   - `fail`       the attempt went wrong: queued again AFTER A BACKOFF
+ *                  (`not_before`, doubling per attempt), or `dead` when it was
  *                  the last one. A dead row keeps its reason in `last_error`.
  *   - `reapExhausted` claims whose worker vanished on their last attempt are
  *                  marked dead too, so a job is never silently dropped.
+ *
+ * A DEAD ROW IS A TRACE, NOT A COPY OF THE JOB. A payload holds what the job was
+ * asked to do: a research report, the requester's email and permissions, storage
+ * keys. Once the row is dead nothing will run it, so the payload is reduced to the
+ * few identifiers a sweep still matches a job by (`KEPT_PAYLOAD_KEYS`) at the
+ * moment it goes dead, exactly as the Python substrate blanks its own. The row
+ * is then deleted after the retention (`purgeDead`), and with its project
+ * (`eraseProject`, the purger's step) or its organization (`eraseLane`).
  */
 
 const { withPlatformScope } = require('./platform-scope')
@@ -69,6 +78,20 @@ const QUEUED = 'queued'
 const CLAIMED = 'claimed'
 const DEAD = 'dead'
 
+/**
+ * What a dead row keeps of its payload: ids, never content. The sweeps find a
+ * dead job by `runId` (a report's filing) and the document and project ids say
+ * what it was for; everything else (the report text, the requester, storage
+ * keys, file names) goes with the attempt that failed.
+ */
+const KEPT_PAYLOAD_KEYS = ['runId', 'projectId', 'documentId', 'taskRunId']
+
+/** Wait before a failed job's second attempt; each further one doubles it. 0 retries at once. */
+const DEFAULT_RETRY_BACKOFF_SECONDS = 30
+
+/** The longest a job waits between attempts, however many it has had. */
+const MAX_RETRY_BACKOFF_SECONDS = 900
+
 /** Lanes ranked per claim: more than one, so a claim still succeeds while racing claimers hold the top lane's next job. */
 const LANES_PER_CLAIM = 4
 
@@ -82,6 +105,35 @@ const MAX_ERROR_CHARS = 2000
 function describeError(error) {
   const text = error instanceof Error ? error.message : String(error)
   return text.slice(0, MAX_ERROR_CHARS)
+}
+
+/**
+ * The payload of a row going dead: its identifiers only. A fragment of the
+ * UPDATE it sits in (it reads that row's `payload`).
+ *
+ * @param {Tx} tx
+ */
+function scrubbedPayload(tx) {
+  return tx`(
+    SELECT COALESCE(jsonb_object_agg(kept.key, kept.value), '{}'::jsonb)
+    FROM jsonb_each(CASE WHEN jsonb_typeof(payload) = 'object' THEN payload ELSE '{}'::jsonb END) AS kept
+    WHERE kept.key IN ${tx(KEPT_PAYLOAD_KEYS)}
+  )`
+}
+
+/**
+ * A job a worker may take now, on the alias `q`: queued and past its backoff,
+ * or claimed by a worker that went silent with attempts left.
+ *
+ * @param {Tx} tx
+ * @param {ClaimOptions} options
+ */
+function runnable(tx, options) {
+  return tx`(
+    (q.status = ${QUEUED} AND (q.not_before IS NULL OR q.not_before <= now()))
+    OR (q.status = ${CLAIMED} AND q.attempts < ${options.maxAttempts}::int
+        AND q.heartbeat_at < now() - make_interval(secs => ${options.staleSeconds}::float8))
+  )`
 }
 
 /**
@@ -116,7 +168,6 @@ async function enqueue(sql, job) {
  */
 async function claimStatement(tx, worker, options) {
   const stale = options.staleSeconds
-  const maxAttempts = options.maxAttempts
   const cap = Math.max(0, options.perLaneCap ?? 0)
   const rows = await tx`
     WITH running AS (
@@ -129,9 +180,7 @@ async function claimStatement(tx, worker, options) {
       FROM (
         SELECT q.lane, MIN(q.priority) AS best, MIN(q.created_at) AS oldest
         FROM bff_job_queue q
-        WHERE q.status = ${QUEUED}
-           OR (q.status = ${CLAIMED} AND q.attempts < ${maxAttempts}::int
-               AND q.heartbeat_at < now() - make_interval(secs => ${stale}::float8))
+        WHERE ${runnable(tx, options)}
         GROUP BY q.lane
       ) w
       LEFT JOIN running r ON r.lane = w.lane
@@ -144,10 +193,7 @@ async function claimStatement(tx, worker, options) {
       SELECT pick.job_id FROM lanes
       CROSS JOIN LATERAL (
         SELECT q.job_id FROM bff_job_queue q
-        WHERE q.lane = lanes.lane
-          AND (q.status = ${QUEUED}
-               OR (q.status = ${CLAIMED} AND q.attempts < ${maxAttempts}::int
-                   AND q.heartbeat_at < now() - make_interval(secs => ${stale}::float8)))
+        WHERE q.lane = lanes.lane AND ${runnable(tx, options)}
         ORDER BY q.priority, q.created_at, q.job_id
         FOR UPDATE SKIP LOCKED
         LIMIT 1
@@ -158,7 +204,7 @@ async function claimStatement(tx, worker, options) {
     claimed AS (
       UPDATE bff_job_queue q
       SET status = ${CLAIMED}, claimed_by = ${worker}, claimed_at = now(), heartbeat_at = now(),
-          attempts = q.attempts + 1
+          not_before = NULL, attempts = q.attempts + 1
       FROM candidate WHERE q.job_id = candidate.job_id
       RETURNING q.job_id, q.kind, q.lane, q.priority, q.payload, q.attempts
     ),
@@ -202,7 +248,7 @@ async function releaseOverCap(sql, worker, claim, options) {
     await tx`
       UPDATE bff_job_queue
       SET status = ${QUEUED}, claimed_by = NULL, claimed_at = NULL, heartbeat_at = NULL,
-          attempts = GREATEST(attempts - 1, 0)
+          not_before = NULL, attempts = GREATEST(attempts - 1, 0)
       WHERE job_id = ${claim.jobId}::uuid AND claimed_by = ${worker}
     `
     return true
@@ -314,7 +360,7 @@ async function release(sql, jobId, worker) {
     (tx) => tx`
       UPDATE bff_job_queue
       SET status = ${QUEUED}, claimed_by = NULL, claimed_at = NULL, heartbeat_at = NULL,
-          attempts = GREATEST(attempts - 1, 0)
+          not_before = NULL, attempts = GREATEST(attempts - 1, 0)
       WHERE job_id = ${jobId}::uuid AND claimed_by = ${worker} AND status = ${CLAIMED}
       RETURNING job_id
     `,
@@ -323,23 +369,34 @@ async function release(sql, jobId, worker) {
 }
 
 /**
- * The attempt went wrong. The job is queued again while it has attempts left
- * and goes `dead` on its last, with the reason kept in `last_error` either way.
- * Null when the claim was not this worker's.
+ * The attempt went wrong. The job is queued again while it has attempts left,
+ * not before `retryBackoffSeconds` (doubling with each attempt, at most
+ * {@link MAX_RETRY_BACKOFF_SECONDS}): three attempts in the same few seconds
+ * would only test whether the cause was a blip, and a dependency that is down
+ * for a minute would take every job's attempts with it. It goes `dead` on its
+ * last attempt, its payload reduced to ids, with the reason kept in
+ * `last_error` either way. Null when the claim was not this worker's.
  *
  * @param {Sql} sql
  * @param {string} jobId
  * @param {string} worker
  * @param {unknown} error
  * @param {number} maxAttempts
+ * @param {number} [retryBackoffSeconds]
  * @returns {Promise<'queued' | 'dead' | null>}
  */
-async function fail(sql, jobId, worker, error, maxAttempts) {
+async function fail(sql, jobId, worker, error, maxAttempts, retryBackoffSeconds = DEFAULT_RETRY_BACKOFF_SECONDS) {
+  const base = Math.max(0, retryBackoffSeconds)
   const rows = await withPlatformScope(
     sql,
     (tx) => tx`
       UPDATE bff_job_queue
       SET status = CASE WHEN attempts >= ${maxAttempts}::int THEN ${DEAD} ELSE ${QUEUED} END,
+          dead_at = CASE WHEN attempts >= ${maxAttempts}::int THEN now() END,
+          payload = CASE WHEN attempts >= ${maxAttempts}::int THEN ${scrubbedPayload(tx)} ELSE payload END,
+          not_before = CASE WHEN attempts >= ${maxAttempts}::int THEN NULL ELSE
+            now() + make_interval(secs => LEAST(${base}::float8 * power(2, GREATEST(attempts - 1, 0)), ${MAX_RETRY_BACKOFF_SECONDS}::float8))
+          END,
           claimed_by = NULL, claimed_at = NULL, heartbeat_at = NULL,
           last_error = ${describeError(error)}
       WHERE job_id = ${jobId}::uuid AND claimed_by = ${worker} AND status = ${CLAIMED}
@@ -365,7 +422,8 @@ async function reapExhausted(sql, options) {
     sql,
     (tx) => tx`
       UPDATE bff_job_queue
-      SET status = ${DEAD}, claimed_by = NULL, claimed_at = NULL, heartbeat_at = NULL,
+      SET status = ${DEAD}, dead_at = now(), payload = ${scrubbedPayload(tx)},
+          claimed_by = NULL, claimed_at = NULL, heartbeat_at = NULL,
           last_error = COALESCE(last_error || ' | ', '') ||
             ${`worker lost on its last attempt (${options.maxAttempts} claims)`}
       WHERE status = ${CLAIMED} AND attempts >= ${options.maxAttempts}::int
@@ -374,6 +432,59 @@ async function reapExhausted(sql, options) {
     `,
   )
   return rows.map((row) => String(row.job_id))
+}
+
+/**
+ * Delete the dead rows older than the retention: a dead row is the trace of a
+ * failure, kept long enough for an operator to see it, not a record.
+ *
+ * @param {Sql} sql
+ * @param {{ olderThanSeconds: number }} options
+ * @returns {Promise<number>} how many rows were deleted
+ */
+async function purgeDead(sql, options) {
+  const rows = await withPlatformScope(
+    sql,
+    (tx) => tx`
+      DELETE FROM bff_job_queue
+      WHERE status = ${DEAD} AND dead_at < now() - make_interval(secs => ${options.olderThanSeconds}::float8)
+      RETURNING job_id
+    `,
+  )
+  return rows.length
+}
+
+/**
+ * Erase every job of one project, whatever its state: the project is being
+ * purged, and its jobs' payloads hold its reports, file names and storage keys.
+ * Runs in the caller's transaction (the purger's, already under the platform
+ * role), so it commits or rolls back with the rest of the purge. A claimed row
+ * is deleted too: its worker's next heartbeat finds the claim gone and stops.
+ *
+ * @param {Tx} tx
+ * @param {string} lane the organization id
+ * @param {string} projectId
+ * @returns {Promise<number>} how many rows were deleted
+ */
+async function eraseProject(tx, lane, projectId) {
+  const rows = await tx`
+    DELETE FROM bff_job_queue WHERE lane = ${lane} AND payload ->> 'projectId' = ${projectId} RETURNING job_id
+  `
+  return rows.length
+}
+
+/**
+ * Erase every job of one organization, and its place in the fairness rotation.
+ * What an organization purge calls (none exists yet; see `purger/index.js`).
+ *
+ * @param {Tx} tx
+ * @param {string} lane the organization id
+ * @returns {Promise<number>} how many jobs were deleted
+ */
+async function eraseLane(tx, lane) {
+  const rows = await tx`DELETE FROM bff_job_queue WHERE lane = ${lane} RETURNING job_id`
+  await tx`DELETE FROM bff_job_lane_turns WHERE lane = ${lane}`
+  return rows.length
 }
 
 /**
@@ -394,14 +505,20 @@ async function depth(sql) {
 module.exports = {
   CLAIMED,
   DEAD,
+  DEFAULT_RETRY_BACKOFF_SECONDS,
+  KEPT_PAYLOAD_KEYS,
+  MAX_RETRY_BACKOFF_SECONDS,
   QUEUED,
   claimNext,
   complete,
   depth,
   describeError,
   enqueue,
+  eraseLane,
+  eraseProject,
   fail,
   heartbeat,
+  purgeDead,
   reapExhausted,
   release,
   saveProgress,

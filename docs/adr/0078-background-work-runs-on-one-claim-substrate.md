@@ -79,6 +79,28 @@ Chosen option 3.
   between offices; priority decides inside one.
 * **Measured.** OTel meters (`grid.queue.*`) through the existing collector:
   depth by status, oldest-queued age, claim latency, job duration, dead rows.
+  **The gap:** the Python queues (`ingest_job_queue`, `research_job_queue`) emit
+  them; `bff_job_queue` does not. The `bff-jobs` runner is a plain Node process
+  that bridges logs to the collector (`observability/otel-logs.js`) but ships no
+  OTLP metrics exporter, and adding one is a new dependency and lockfile change
+  this decision did not take on. Until it does, the BFF queue is observed through
+  the depth KEDA already counts, the `[bff-jobs] … now dead` ERROR lines (each
+  one opens an issue), and a `SELECT` on the table.
+* **A failed attempt costs an attempt, behind a backoff; a dead row is a trace.**
+  Only a drain or a cap gives a claim back free. A handler that threw, a slice
+  that timed out and a BFF that did not answer spend the attempt, and the job
+  waits `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS`, doubling, before the next
+  (`bff_job_queue.not_before`), so a job that always times out or kills the BFF
+  ends instead of cycling, and three attempts are not burnt in the seconds one
+  blip lasts. A job that goes dead keeps its reason and only the identifiers a
+  sweep matches it by: its payload (a report, a requester's email and
+  permissions, storage keys) is dropped, as the Python queues blank theirs. The
+  row is deleted after `GRID_BFF_JOBS_DEAD_RETENTION_DAYS`, and at once with its
+  project (`purger/purge-project.js`) or, when an organization purge exists, its
+  organization (`eraseLane`).
+* **The scaler reads a count, not rows.** KEDA's login holds SELECT on the
+  `status` column of each queue table and nothing else, so a leaked DSN cannot
+  read a payload.
 * Chat scale-out and the provider ceiling are the two neighbouring decisions
   the same survey produced: ADR-0079 and ADR-0080. The implementation plan
   below covers all three, because they ship together.

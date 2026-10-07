@@ -50,7 +50,7 @@ describe.skipIf(!url)('background-work sweeps against live Postgres', () => {
     await context.withPlatformAccess('test seed: put the job in its state', () =>
       db.execute(sql`
         UPDATE bff_job_queue
-        SET status = ${status}, last_error = ${lastError ?? null},
+        SET status = ${status}, last_error = ${lastError ?? null}, dead_at = ${status === 'dead' ? sql`now()` : null},
             claimed_by = ${status === 'claimed' ? 'w-0' : null},
             heartbeat_at = ${status === 'claimed' ? sql`now()` : null}
         WHERE job_id = ${jobId}::uuid

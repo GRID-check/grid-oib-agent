@@ -28,6 +28,8 @@
  *   GRID_BFF_JOBS_DRAIN_SECONDS      - SIGTERM budget to finish a slice (default 60)
  *   GRID_BFF_JOBS_STALE_SECONDS      - a claim silent this long is claimed again (default 180)
  *   GRID_BFF_JOBS_MAX_ATTEMPTS       - claims one job gets before it is dead (default 3)
+ *   GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS - wait before a failed job's second attempt, doubling per attempt, at most 15 min; 0 retries at once (default 30)
+ *   GRID_BFF_JOBS_DEAD_RETENTION_DAYS - how long a dead job is kept before it is deleted (default 14)
  *   GRID_BFF_JOBS_MAX_PER_ORG        - most jobs one organization runs fleet-wide; 0 = no cap (default 0)
  *   GRID_BFF_JOBS_SLICE_TIMEOUT_MS   - ceiling on one slice's request (default 300000)
  */
@@ -72,6 +74,9 @@ function readConfig(env) {
       perLaneCap: toInt(env.GRID_BFF_JOBS_MAX_PER_ORG, 0, { min: 0 }),
       reapEveryMs: 60_000,
       transientBackoffMs: 5_000,
+      retryBackoffSeconds: toInt(env.GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS, queue.DEFAULT_RETRY_BACKOFF_SECONDS, { min: 0 }),
+      deadRetentionSeconds: toInt(env.GRID_BFF_JOBS_DEAD_RETENTION_DAYS, 14) * 86_400,
+      purgeEveryMs: 600_000,
     },
   }
 }

@@ -1097,12 +1097,19 @@ died half way left no record of which half. Both are now jobs:
   interactive before bulk, then oldest), heartbeats, and POSTs each slice to
   its own pod's `/api/internal/jobs/run`. **There is no Service and no
   HTTPRoute**, and the work runs here, never on the pods that proxy chat.
-- **A drain never costs an attempt.** On SIGTERM the loop stops claiming, lets
+- **A drain never costs an attempt; a failure always does.** On SIGTERM the loop stops claiming, lets
   the slice in hand finish (`bffJobsDrainSeconds`, 60), gives every claim back
   without spending an attempt, and only then stops the BFF; the pod's grace
   period is the drain plus 30 s. A claim that lost its worker is taken again
-  after `GRID_BFF_JOBS_STALE_SECONDS`; after `GRID_BFF_JOBS_MAX_ATTEMPTS` the
-  row is marked `dead` with its reason in `last_error`, not deleted.
+  after `GRID_BFF_JOBS_STALE_SECONDS`. Every other end of an attempt spends
+  it (a handler that threw, a slice past `GRID_BFF_JOBS_SLICE_TIMEOUT_MS`, a BFF
+  that answered 5xx or not at all) and the job waits `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS`,
+  doubling, before the next, so a job that always times out or kills the BFF
+  ends. After `GRID_BFF_JOBS_MAX_ATTEMPTS` the row is marked `dead` with its
+  reason in `last_error` and its payload (a report, the requester, storage keys)
+  reduced to ids; it is deleted `GRID_BFF_JOBS_DEAD_RETENTION_DAYS` later, or at
+  once with its project. The BFF queue has no `grid.queue.*` meters yet (ADR-0078):
+  watch it through the depth KEDA reads and the `[bff-jobs] … now dead` ERROR lines.
 - **KEDA scales it on the queue.** A `postgresql` trigger (its own
   TriggerAuthentication, on the app database) counts the rows whose status is
   not `dead` and asks for ceil(jobs / `bffJobsConcurrency`) replicas between

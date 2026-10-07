@@ -11,12 +11,18 @@
 import 'server-only'
 
 export {
+  DEFAULT_RETRY_BACKOFF_SECONDS,
+  KEPT_PAYLOAD_KEYS,
+  MAX_RETRY_BACKOFF_SECONDS,
   claimNext,
   complete,
   depth,
   enqueue,
+  eraseLane,
+  eraseProject,
   fail,
   heartbeat,
+  purgeDead,
   reapExhausted,
   release,
   saveProgress,
