@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Piloti now recalls project memory by meaning, not only by shared words,
+    and finds other projects' decisions however a question is phrased, in
+    any language. The step that compares meaning had silently not run.
