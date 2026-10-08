@@ -19,10 +19,14 @@ import {
   type CitationEventSeverity,
   type NewCitationEvent,
 } from '@/lib/db/schema'
-import { getWorkOS } from '@/lib/workos/client'
+import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
 import { getKnowledgeBaseStatus } from '@/lib/knowledge/service'
 import { getNormRegistry } from '@/lib/norms/service'
-import { buildMissingSourceCandidates, type MissingSourceCandidate } from './missing-sources'
+import {
+  buildMissingSourceCandidates,
+  type MissingSourceCandidate,
+  type PlatformInventory,
+} from './missing-sources'
 import * as repository from './repository'
 import { clampWindowDays } from './window'
 
@@ -34,7 +38,7 @@ export async function recordCitationEvents(events: NewCitationEvent[]): Promise<
 
 /** Every kind except the per-turn baseline row — i.e. the things that went wrong. */
 export const CITATION_DEFECT_KINDS = CITATION_EVENT_KINDS.filter(
-  (kind) => kind !== CITATION_BASELINE_KIND && kind !== CITATION_PRECISION_KIND,
+  (kind) => kind !== CITATION_BASELINE_KIND && kind !== CITATION_PRECISION_KIND
 ) as readonly Exclude<CitationEventKind, 'turn_verified' | 'retrieval_precision'>[]
 
 /** Midnight UTC today — the same day boundary the spend ledger uses. */
@@ -67,7 +71,12 @@ export interface CitationReasonTotal {
   kind: CitationEventKind
   reason: string
   occurrences: number
-  /** Share of all reason occurrences in the window, 0–1. */
+  /**
+   * Share of THIS KIND's items in the window, 0–1: for `citations_removed`,
+   * the share of removed citations dropped for this reason; for
+   * `confidence_capped`, the share of capped answers. Never a share across
+   * kinds, so reasons of different kinds do not add up to 1 together.
+   */
   share: number
 }
 
@@ -111,7 +120,11 @@ export interface CitationFinding {
   severity: 'error' | 'warn' | 'info'
   /** The concrete thing to look at (an organization, a tool), when there is one. */
   subject: { type: 'organization' | 'tool'; label: string } | null
-  /** Interpolated into the localized copy: `{turns}`, `{share}` (already a %) … */
+  /**
+   * Interpolated into the localized copy. Counts are plain integers; every
+   * metric named `share` or `platformShare` is a FRACTION (0–1) the client
+   * formats as a percentage in the reader's locale.
+   */
   metrics: Record<string, number>
 }
 
@@ -145,7 +158,26 @@ const THRESHOLDS = {
 } as const
 
 const SEVERITY_RANK: Record<CitationFinding['severity'], number> = { error: 0, warn: 1, info: 2 }
-const pct = (value: number): number => Math.round(value * 1000) / 10
+
+/**
+ * The organization the `organization_outlier` finding names, if any: enough
+ * volume to compare, and at least `outlierRateMultiple` times the platform
+ * rate. Exported so the service can resolve this one organization's name even
+ * when it falls outside the displayed list.
+ */
+export function findOrganizationOutlier<
+  T extends Pick<CitationOrganizationTotal, 'organizationId' | 'turns' | 'defectRate'>,
+>(organizations: T[], platformRate: number): T | undefined {
+  if (platformRate <= 0) return undefined
+  return organizations.find(
+    (org) =>
+      // The unattributed bucket (organizationId null) is not somewhere an
+      // operator can go look, and it would render an empty subject label.
+      org.organizationId !== null &&
+      org.turns >= THRESHOLDS.outlierMinTurns &&
+      org.defectRate >= platformRate * THRESHOLDS.outlierRateMultiple
+  )
+}
 
 /**
  * Turn the window's rollups into a prioritized action list.
@@ -160,6 +192,12 @@ export function buildFindings(input: {
   reasons: CitationReasonTotal[]
   organizations: CitationOrganizationTotal[]
   unavailableTools: repository.UnavailableToolRow[]
+  /** Distinct unavailable tools in the window; `unavailableTools` may be a top-N. */
+  unavailableToolCount?: number
+  /**
+   * EVERY candidate the snapshot scanned, not the displayed top-N: the
+   * findings' `sources` counts are totals and must be computed over all of them.
+   */
   missingSources?: MissingSourceCandidate[]
   /**
    * Distinct turns behind the missing-source candidates, split by whether the
@@ -173,10 +211,17 @@ export function buildFindings(input: {
   const missingSources = input.missingSources ?? []
   if (turns === 0) return []
 
-  const kindTurns = (kind: CitationEventKind): number => byKind.find((row) => row.kind === kind)?.turns ?? 0
-  const kindItems = (kind: CitationEventKind): number => byKind.find((row) => row.kind === kind)?.items ?? 0
+  const kindTurns = (kind: CitationEventKind): number =>
+    byKind.find((row) => row.kind === kind)?.turns ?? 0
+  const kindItems = (kind: CitationEventKind): number =>
+    byKind.find((row) => row.kind === kind)?.items ?? 0
+  // Shares of REMOVED CITATIONS only, as the copy says ("{share}% of removed
+  // citations"). Reasons of other kinds (`confidence_capped`) share the list,
+  // and summing across kinds would mix two denominators.
   const reasonShare = (...keys: string[]): number =>
-    reasons.filter((row) => keys.includes(row.reason)).reduce((sum, row) => sum + row.share, 0)
+    reasons
+      .filter((row) => row.kind === 'citations_removed' && keys.includes(row.reason))
+      .reduce((sum, row) => sum + row.share, 0)
 
   const findings: CitationFinding[] = []
 
@@ -187,14 +232,20 @@ export function buildFindings(input: {
   // can be done about that. `addable` is the subset with a remedy — a web page
   // is not addable to the corpus, but citing one that was never retrieved is
   // still the model writing a source out of thin air.
-  const unheld = missingSources.filter((candidate) => !candidate.present)
-  const addable = unheld.filter((candidate) => candidate.action !== 'none')
-  const heldButUnretrieved = missingSources.filter((candidate) => candidate.present)
+  // `present: null` (inventory unavailable) is in neither half: it is not
+  // evidence the platform lacks the source, and not evidence it holds it.
+  const unheld = missingSources.filter((candidate) => candidate.present === false)
+  const addable = unheld.filter((candidate) => isAddable(candidate))
+  const heldButUnretrieved = missingSources.filter((candidate) => candidate.present === true)
   // Upper bound when the exact union is unavailable: a turn cannot be flagged
   // more often than it was flagged. Summing per-candidate turns would report
   // more turns than the whole window contains.
   const boundedTurns = (candidates: MissingSourceCandidate[], exact: number | undefined): number =>
-    exact ?? Math.min(defectTurns, candidates.reduce((sum, candidate) => sum + candidate.turns, 0))
+    exact ??
+    Math.min(
+      defectTurns,
+      candidates.reduce((sum, candidate) => sum + candidate.turns, 0)
+    )
 
   // A retrieval integration is down — nothing else matters until it is back.
   const emptyTurns = kindTurns('registry_empty')
@@ -203,7 +254,7 @@ export function buildFindings(input: {
       id: 'retrieval_unavailable',
       severity: 'error',
       subject: unavailableTools[0] ? { type: 'tool', label: unavailableTools[0].tool } : null,
-      metrics: { turns: emptyTurns, tools: unavailableTools.length },
+      metrics: { turns: emptyTurns, tools: input.unavailableToolCount ?? unavailableTools.length },
     })
   }
 
@@ -219,7 +270,7 @@ export function buildFindings(input: {
       // per-org breakdown of `answer_ungrounded` specifically, which the rollup
       // does not carry.
       subject: null,
-      metrics: { turns: ungroundedTurns, share: pct(ungroundedTurns / turns) },
+      metrics: { turns: ungroundedTurns, share: ungroundedTurns / turns },
     })
   }
 
@@ -233,10 +284,12 @@ export function buildFindings(input: {
   // `sources_unretrievable` (an indexing fault), and accusing the model of
   // citing from memory would send an operator to rewrite a prompt over a
   // retrieval bug. We cannot prove the model did not also guess a filename that
-  // happens to exist, so the tie goes to the explanation backed by evidence.
+  // happens to exist, so the tie goes to the explanation backed by evidence —
+  // and an unknown inventory is no evidence, so it leaves invention unexplained.
   const removedTurns = kindTurns('citations_removed')
   const inventedShare = reasonShare('url_not_in_registry', 'citation_key_not_in_registry')
-  const inventionUnexplained = missingSources.length === 0 || unheld.length > 0
+  const inventionUnexplained =
+    missingSources.length === 0 || missingSources.some((candidate) => candidate.present !== true)
   if (
     removedTurns / turns >= THRESHOLDS.removedShare &&
     inventedShare >= THRESHOLDS.inventedReasonShare &&
@@ -249,7 +302,7 @@ export function buildFindings(input: {
       metrics: {
         turns: removedTurns,
         citations: kindItems('citations_removed'),
-        share: pct(inventedShare),
+        share: inventedShare,
         unheld: unheld.length,
       },
     })
@@ -262,7 +315,11 @@ export function buildFindings(input: {
       id: 'quotes_fabricated',
       severity: 'warn',
       subject: null,
-      metrics: { turns: quoteTurns, quotes: kindItems('quote_unverified'), share: pct(quoteTurns / turns) },
+      metrics: {
+        turns: quoteTurns,
+        quotes: kindItems('quote_unverified'),
+        share: quoteTurns / turns,
+      },
     })
   }
 
@@ -274,30 +331,22 @@ export function buildFindings(input: {
       id: 'citation_format_unparsed',
       severity: 'warn',
       subject: null,
-      metrics: { turns: fallbackTurns, share: pct(fallbackTurns / turns) },
+      metrics: { turns: fallbackTurns, share: fallbackTurns / turns },
     })
   }
 
   // One tenant is much worse than the platform — look at THEIR corpus, not the
   // pipeline. Guarded on volume so a single bad turn cannot raise this.
   const platformRate = defectTurns / turns
-  const outlier = organizations.find(
-    (org) =>
-      // The unattributed bucket (organizationId null) is not somewhere an
-      // operator can go look, and it would render an empty subject label.
-      org.organizationId !== null &&
-      org.turns >= THRESHOLDS.outlierMinTurns &&
-      platformRate > 0 &&
-      org.defectRate >= platformRate * THRESHOLDS.outlierRateMultiple,
-  )
+  const outlier = findOrganizationOutlier(organizations, platformRate)
   if (outlier) {
     findings.push({
       id: 'organization_outlier',
       severity: 'warn',
       subject: { type: 'organization', label: outlier.name ?? outlier.organizationId! },
       metrics: {
-        share: pct(outlier.defectRate),
-        platformShare: pct(platformRate),
+        share: outlier.defectRate,
+        platformShare: platformRate,
         turns: outlier.defectTurns,
       },
     })
@@ -324,7 +373,10 @@ export function buildFindings(input: {
     findings.push({
       id: 'sources_unretrievable',
       severity: 'warn',
-      subject: { type: 'tool', label: heldButUnretrieved[0].fileName ?? heldButUnretrieved[0].target },
+      subject: {
+        type: 'tool',
+        label: heldButUnretrieved[0].fileName ?? heldButUnretrieved[0].target,
+      },
       metrics: {
         sources: heldButUnretrieved.length,
         turns: boundedTurns(heldButUnretrieved, input.missingSourceTurns?.held),
@@ -339,18 +391,35 @@ export function buildFindings(input: {
       id: 'duplicates_only',
       severity: 'info',
       subject: null,
-      metrics: { share: pct(reasonShare('duplicate')) },
+      metrics: { share: reasonShare('duplicate') },
     })
   }
 
   if (findings.length === 0) {
-    return [{ id: 'all_clear', severity: 'info', subject: null, metrics: { turns, share: pct(1 - platformRate) } }]
+    return [
+      {
+        id: 'all_clear',
+        severity: 'info',
+        subject: null,
+        metrics: { turns, share: 1 - platformRate },
+      },
+    ]
   }
 
   return findings.sort(
-    (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || (b.metrics.turns ?? 0) - (a.metrics.turns ?? 0),
+    (a, b) =>
+      SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] ||
+      (b.metrics.turns ?? 0) - (a.metrics.turns ?? 0)
   )
 }
+
+/** A candidate with an add action the operator can take. */
+const isAddable = (candidate: MissingSourceCandidate): boolean =>
+  candidate.action === 'add_to_norm_catalog' || candidate.action === 'upload_to_base_knowledge'
+
+/** How many rows the dashboard lists; totals are reported beside them. */
+const MISSING_SOURCES_SHOWN = 25
+const ORGANIZATIONS_SHOWN = 50
 
 export interface CitationHealthSnapshot {
   windowDays: number
@@ -378,11 +447,25 @@ export interface CitationHealthSnapshot {
   dailyTrend: CitationDailyPoint[]
   reasons: CitationReasonTotal[]
   sourceMix: repository.SourceMixRow[]
-  /** Retrieval tools reported unavailable on turns that captured no source. */
+  /** Retrieval tools reported unavailable on turns that captured no source (top 8). */
   unavailableTools: repository.UnavailableToolRow[]
-  /** Sources answers keep citing that the platform does not (verifiably) hold. */
+  /**
+   * The most-cited sources verification rejected, cross-checked against what
+   * the platform holds (top 25 by affected turns).
+   */
   missingSources: MissingSourceCandidate[]
+  /** Distinct rejected sources in the window; `missingSources` lists the first 25. */
+  missingSourcesTotal: number
+  /**
+   * False when the corpus or the norm catalog could not be read. Candidates
+   * that depend on the missing inventory then carry `present: null` and the
+   * `inventory_unknown` action instead of an add.
+   */
+  inventoryKnown: boolean
+  /** Most defective turns first (top 50). */
   organizations: CitationOrganizationTotal[]
+  /** Organizations with any turn in the window; `organizations` lists the first 50. */
+  organizationsTotal: number
   recent: CitationDefectSample[]
 }
 
@@ -421,6 +504,16 @@ export interface CitationExportTurn {
   retrievedSources: string[]
   /** Source identities the answer cited and that survived verification. */
   citedSources: string[]
+  /**
+   * The `retrieval_precision` observation for this turn, when one was
+   * recorded: how many retrieved sources the answer used, and which it ignored.
+   */
+  precision: {
+    retrievedCount: number | null
+    citedCount: number | null
+    uncitedCount: number | null
+    uncitedSources: string[]
+  } | null
   problems: {
     kind: CitationEventKind
     severity: CitationEventSeverity
@@ -429,6 +522,8 @@ export interface CitationExportTurn {
     reasons: Record<string, number> | null
     /** The specific sources that failed, and why: `{target, reason}`. */
     failedSources: { target: string; reason: string }[]
+    /** `registry_empty` only: the retrieval tools reported unavailable. */
+    unavailableTools: string[]
   }[]
 }
 
@@ -447,30 +542,65 @@ export interface CitationExportBundle {
 }
 
 /**
- * What each problem kind MEANS. Shipped inside the export so an AI agent given
- * the file needs no other context to reason about it.
+ * What each problem kind, reason and field MEANS. Shipped inside the export so
+ * an AI agent given the file needs no other context to reason about it. Every
+ * field named here is one the export actually carries — a glossary that
+ * describes fields the file lacks sends its reader looking for them.
+ *
+ * The reason vocabularies mirror the emitter: removal reasons from
+ * `verify_citations` (`citation_events.normalize_removal_reason`), confidence
+ * reasons from `CappedReason` (`agents/piloti/markers.py`).
  */
 const EXPORT_GLOSSARY: Record<string, string> = {
   citations_removed:
-    'Citation verification removed one or more citations the model wrote because their target was not among the sources retrieval actually returned. failedSources lists the cited target and the reason.',
+    'Citation verification removed one or more citations the model wrote. problems[].reasons counts the removed citations by reason (see reason.*); problems[].failedSources lists each cited target and its reason.',
   quote_unverified:
-    'A passage the answer put in quotation marks could not be found (fuzzy match) in any retrieved passage. The cited documents are listed; the quoted wording itself is deliberately not recorded.',
+    'A passage the answer put in quotation marks could not be found (fuzzy match) in any retrieved passage. citedSources lists the documents the answer cited; the quoted wording itself is deliberately not recorded.',
   answer_ungrounded:
-    'Sources were retrieved but no citation survived verification, so the answer shipped with a visible "without source citation" gap. retrievedSources shows what the model had available and ignored.',
+    'Sources were retrieved but no citation survived verification, so the answer shipped with a visible "without source citation" gap. retrievedSources shows what the model had available; failedSources shows what it cited instead.',
   registry_empty:
-    'The turn captured no source at all — retrieval returned nothing. detail.unavailable_tools names the tools reported unavailable.',
+    'The turn captured no source at all: retrieval returned nothing. problems[].unavailableTools names the tools reported unavailable.',
   citation_fallback:
     'Nothing the model cited survived verification, but exactly one retrieved source existed and was attached automatically. Usually a citation-format mismatch rather than a wrong answer.',
   confidence_capped:
-    'The deterministic overconfidence guard downgraded the answer\'s self-reported confidence to "low". The reason is either ungrounded or quote_unverified.',
-  retrieval_precision:
-    'Info-only: how many of the sources retrieval returned for the turn were actually cited in the answer. detail.retrieved_count / cited_count / uncited_count / uncited_sources quantify the gap; not a defect.',
+    "The deterministic overconfidence guard lowered the answer's self-reported confidence. problems[].reasons holds exactly one confidence reason (see confidence.*).",
+  precision:
+    'Not a defect. turns[].precision is the retrieval_precision observation: retrievedCount unique sources retrieval returned, citedCount of them the answer cited, uncitedCount it ignored, and uncitedSources naming those (at most 10). null when the turn recorded none.',
+  'reason.url_not_in_registry':
+    'Removal: the cited URL was not among the sources retrieved on that turn. Means "not retrieved", not "unknown to the platform".',
+  'reason.citation_key_not_in_registry':
+    'Removal: the cited document key (file name, page) was not among the sources retrieved on that turn.',
+  'reason.unverifiable':
+    'Removal: the source line named no URL or document key the verifier could check.',
+  'reason.digest_line_not_citable':
+    "Removal: the line cited the conversation's read index (a digest line), not a retrieved passage.",
+  'reason.duplicate': 'Removal: the citation repeated one already present in the same answer.',
+  'confidence.ungrounded':
+    'Confidence capped to low: no verified citation, and nothing was measured.',
+  'confidence.quote_unverified':
+    'Confidence capped to low: a quoted span matched no retrieved passage.',
+  'confidence.normative_claim_uncited':
+    'Confidence capped: the answer was grounded in a measurement but also made a legal claim without a verified citation.',
+  'confidence.measurement_only':
+    'Confidence reduced from high to medium: grounded in a measurement only and purely descriptive.',
+  'confidence.citation_fallback':
+    'Confidence capped: the only grounding is the single source attached automatically by the citation fallback.',
 }
 
 const asStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 
 const asNumber = (value: unknown): number | null => (typeof value === 'number' ? value : null)
+
+function asPrecision(detail: Record<string, unknown> | null): CitationExportTurn['precision'] {
+  if (!detail) return null
+  return {
+    retrievedCount: asNumber(detail.retrieved_count),
+    citedCount: asNumber(detail.cited_count),
+    uncitedCount: asNumber(detail.uncited_count),
+    uncitedSources: asStringArray(detail.uncited_sources),
+  }
+}
 
 function asFailedSources(value: unknown): { target: string; reason: string }[] {
   if (!Array.isArray(value)) return []
@@ -482,15 +612,69 @@ function asFailedSources(value: unknown): { target: string; reason: string }[] {
   })
 }
 
+const detailOf = (event: CitationEvent | undefined): Record<string, unknown> | null =>
+  (event?.detail as Record<string, unknown> | null | undefined) ?? null
+
+/**
+ * One flagged turn's record, or null for a clean turn. Clean turns are
+ * omitted: the export exists to be handed to an agent for diagnosis, and a
+ * turn with nothing wrong carries no signal. Counts for the whole window still
+ * live in `summary`.
+ */
+function toExportTurn(
+  turnId: string,
+  turnEvents: CitationEvent[],
+  names: Map<string, string>
+): CitationExportTurn | null {
+  const problems = turnEvents.filter(
+    (event) => event.kind !== CITATION_BASELINE_KIND && event.kind !== CITATION_PRECISION_KIND
+  )
+  if (problems.length === 0) return null
+
+  const head = turnEvents.find((event) => event.kind === CITATION_BASELINE_KIND) ?? problems[0]
+
+  // Retrieved/cited identities live on whichever event carried them: the
+  // baseline row for a verified turn, the defect row for a failed one.
+  const retrieved = new Set<string>()
+  const cited = new Set<string>()
+  for (const event of turnEvents) {
+    for (const label of asStringArray(detailOf(event)?.retrieved_sources)) retrieved.add(label)
+    for (const label of asStringArray(detailOf(event)?.cited_sources)) cited.add(label)
+  }
+
+  return {
+    turnId,
+    conversationId: head.conversationId,
+    organizationId: head.organizationId,
+    organization: head.organizationId ? (names.get(head.organizationId) ?? null) : null,
+    agent: head.agent as CitationEventAgent,
+    jobId: head.jobId,
+    occurredAt: head.createdAt.toISOString(),
+    sourceCount: asNumber(detailOf(head)?.source_count),
+    citedCount: asNumber(detailOf(head)?.cited_count),
+    retrievedSources: [...retrieved],
+    citedSources: [...cited],
+    precision: asPrecision(
+      detailOf(turnEvents.find((event) => event.kind === CITATION_PRECISION_KIND))
+    ),
+    problems: problems.map((event) => ({
+      kind: event.kind as CitationEventKind,
+      severity: event.severity as CitationEventSeverity,
+      count: event.count,
+      reasons: (event.reasons as Record<string, number> | null) ?? null,
+      failedSources: asFailedSources(detailOf(event)?.targets),
+      unavailableTools: asStringArray(detailOf(event)?.unavailable_tools),
+    })),
+  }
+}
+
 /**
  * Group the window's raw events into one record per flagged turn, resolving
  * "what was the source" and "what was the problem" into the same object.
- *
- * Clean turns are omitted: the export exists to be handed to an agent for
- * diagnosis, and a turn with nothing wrong carries no signal. Counts for the
- * whole window still live in `summary`.
  */
-export async function getCitationExport(options: { days?: number } = {}): Promise<CitationExportBundle> {
+export async function getCitationExport(
+  options: { days?: number } = {}
+): Promise<CitationExportBundle> {
   const windowDays = clampWindowDays(options.days)
   const start = utcDayStart()
   start.setUTCDate(start.getUTCDate() - (windowDays - 1))
@@ -510,50 +694,12 @@ export async function getCitationExport(options: { days?: number } = {}): Promis
     else byTurn.set(event.turnId, [event])
   }
 
-  const turns: CitationExportTurn[] = []
-  for (const [turnId, turnEvents] of byTurn) {
-    const problems = turnEvents.filter(
-      (event) => event.kind !== CITATION_BASELINE_KIND && event.kind !== CITATION_PRECISION_KIND,
-    )
-    if (problems.length === 0) continue
-
-    const baseline = turnEvents.find((event) => event.kind === CITATION_BASELINE_KIND)
-    const head = baseline ?? problems[0]
-    const detailOf = (event: CitationEvent): Record<string, unknown> =>
-      (event.detail as Record<string, unknown> | null) ?? {}
-
-    // Retrieved/cited identities live on whichever event carried them: the
-    // baseline row for a verified turn, the defect row for a failed one.
-    const retrieved = new Set<string>()
-    const cited = new Set<string>()
-    for (const event of turnEvents) {
-      for (const label of asStringArray(detailOf(event).retrieved_sources)) retrieved.add(label)
-      for (const label of asStringArray(detailOf(event).cited_sources)) cited.add(label)
-    }
-
-    turns.push({
-      turnId,
-      conversationId: head.conversationId,
-      organizationId: head.organizationId,
-      organization: head.organizationId
-        ? (snapshot.organizations.find((org) => org.organizationId === head.organizationId)?.name ?? null)
-        : null,
-      agent: head.agent as CitationEventAgent,
-      jobId: head.jobId,
-      occurredAt: head.createdAt.toISOString(),
-      sourceCount: asNumber(detailOf(head).source_count),
-      citedCount: asNumber(detailOf(head).cited_count),
-      retrievedSources: [...retrieved],
-      citedSources: [...cited],
-      problems: problems.map((event) => ({
-        kind: event.kind as CitationEventKind,
-        severity: event.severity as CitationEventSeverity,
-        count: event.count,
-        reasons: (event.reasons as Record<string, number> | null) ?? null,
-        failedSources: asFailedSources(detailOf(event).targets),
-      })),
-    })
-  }
+  // Every organization the exported turns name, not just the dashboard's top
+  // list: a turn from an organization outside it would otherwise lose its name.
+  const names = await getOrganizationDisplayNames(events.map((event) => event.organizationId))
+  const turns = [...byTurn].flatMap(
+    ([turnId, turnEvents]) => toExportTurn(turnId, turnEvents, names) ?? []
+  )
 
   return {
     schema: 'grid.citation-health.export/v1',
@@ -569,35 +715,24 @@ export async function getCitationExport(options: { days?: number } = {}): Promis
 
 /**
  * What the platform currently holds: base-corpus filenames and catalogued RIS
- * document numbers. Best-effort — an unreachable backend yields empty
- * inventories, which makes every candidate read as "not held". That is the
- * safer failure direction (it over-reports work to do rather than declaring
- * everything fine), and the UI labels an unknown inventory as such.
+ * document numbers. Best-effort per inventory — one that cannot be read is
+ * `null` (unknown), never an empty list, so an unreachable backend cannot make
+ * every held document read as missing.
  */
-async function platformInventory(): Promise<{ corpusFileNames: string[]; documentNumbers: string[]; known: boolean }> {
+async function platformInventory(): Promise<PlatformInventory> {
   const [corpus, norms] = await Promise.all([
     getKnowledgeBaseStatus().catch(() => null),
     getNormRegistry().catch(() => null),
   ])
   return {
-    corpusFileNames: (corpus?.files ?? []).map((file) => file.fileName).filter((name): name is string => Boolean(name)),
-    documentNumbers: (norms?.registry?.entries ?? [])
-      .map((entry) => entry.document_number)
-      .filter((value): value is string => Boolean(value)),
-    known: corpus !== null && norms !== null,
-  }
-}
-
-/**
- * Organization id -> display name, best-effort. A WorkOS outage must degrade
- * the card to bare ids, never fail the whole snapshot.
- */
-async function organizationNames(): Promise<Map<string, string>> {
-  try {
-    const list = await getWorkOS().organizations.listOrganizations({ limit: 100 })
-    return new Map(list.data.map((org) => [org.id, org.name]))
-  } catch {
-    return new Map()
+    corpusFileNames: corpus
+      ? corpus.files.map((file) => file.fileName).filter((name): name is string => Boolean(name))
+      : null,
+    catalogedDocumentNumbers: norms
+      ? (norms.registry?.entries ?? [])
+          .map((entry) => entry.document_number)
+          .filter((value): value is string => Boolean(value))
+      : null,
   }
 }
 
@@ -606,7 +741,7 @@ function buildDailyTrend(
   kindRows: repository.DailyKindRow[],
   turnRows: repository.DailyTurnRow[],
   start: Date,
-  days: number,
+  days: number
 ): CitationDailyPoint[] {
   const kindsByDay = new Map<string, repository.DailyKindRow[]>()
   for (const row of kindRows) {
@@ -615,24 +750,21 @@ function buildDailyTrend(
     if (list) list.push(row)
     else kindsByDay.set(row.day, [row])
   }
-  const turnsByDay = new Map(turnRows.map((row) => [row.day, row.turns]))
+  const turnsByDay = new Map(turnRows.map((row) => [row.day, row]))
 
   const series: CitationDailyPoint[] = []
   const cursor = new Date(start)
   for (let index = 0; index < days; index += 1) {
     const day = cursor.toISOString().slice(0, 10)
-    const turns = turnsByDay.get(day) ?? 0
     const byKind: Record<string, number> = {}
     for (const row of kindsByDay.get(day) ?? []) byKind[row.kind] = row.turns
-    const kindTurns = Object.values(byKind)
+    // Distinct defective turns, counted in SQL. The per-kind counts above are
+    // not additive (one turn often carries several defects), so they cannot
+    // stand in for it.
     series.push({
       day,
-      turns,
-      // A turn can carry several defects at once, so the per-kind turn counts
-      // are NOT additive. The honest "how many turns were bad" figure is at
-      // least the largest single kind and at most the turns observed that day;
-      // we take the lower bound rather than overstate the damage.
-      defectTurns: Math.min(turns, kindTurns.length > 0 ? Math.max(...kindTurns) : 0),
+      turns: turnsByDay.get(day)?.turns ?? 0,
+      defectTurns: turnsByDay.get(day)?.defectTurns ?? 0,
       byKind,
     })
     cursor.setUTCDate(cursor.getUTCDate() + 1)
@@ -641,13 +773,80 @@ function buildDailyTrend(
 }
 
 /**
+ * Each reason's share of its OWN kind's items: removed citations for
+ * `citations_removed`, capped answers for `confidence_capped`. The denominator
+ * is the kind's summed `count` from SQL, so it is untruncated whatever the
+ * reason list shows.
+ */
+function toReasonTotals(
+  reasonRows: repository.ReasonTotalRow[],
+  itemsByKind: Map<CitationEventKind, number>
+): CitationReasonTotal[] {
+  const occurrencesByKind = new Map<CitationEventKind, number>()
+  for (const row of reasonRows) {
+    occurrencesByKind.set(row.kind, (occurrencesByKind.get(row.kind) ?? 0) + row.occurrences)
+  }
+  return reasonRows.map((row) => {
+    // Fallback for a kind whose rows carry no count; the reason list itself
+    // is per-kind complete (`REASONS_PER_KIND`) for every emitted taxonomy.
+    const denominator = itemsByKind.get(row.kind) || occurrencesByKind.get(row.kind) || 0
+    return { ...row, share: denominator > 0 ? Math.min(1, row.occurrences / denominator) : 0 }
+  })
+}
+
+/** Rows with their rates, most defective turns first. */
+function toOrganizationTotals(
+  rows: repository.OrganizationTotalRow[]
+): CitationOrganizationTotal[] {
+  return (
+    rows
+      .map((row) => ({
+        organizationId: row.organizationId,
+        name: null as string | null,
+        turns: row.turns,
+        defectTurns: row.defectTurns,
+        errorTurns: row.errorTurns,
+        defectRate: row.turns > 0 ? row.defectTurns / row.turns : 0,
+      }))
+      // Worst first, but an org with a single bad turn must not outrank one with
+      // hundreds of bad turns — rate breaks ties on volume, not the reverse.
+      .sort((a, b) => b.defectTurns - a.defectTurns || b.defectRate - a.defectRate)
+  )
+}
+
+/**
+ * How many DISTINCT turns each half of the candidate list accounts for.
+ * Per-candidate counts overlap (one turn commonly cites several of them), so
+ * the union is a query rather than a sum — see `countTurnsForTargets`.
+ */
+async function countMissingSourceTurns(
+  start: Date,
+  candidates: MissingSourceCandidate[]
+): Promise<{ held: number; addable: number }> {
+  const targets = (keep: (candidate: MissingSourceCandidate) => boolean): string[] =>
+    candidates.filter(keep).map((candidate) => candidate.target)
+  const [held, addable] = await Promise.all([
+    repository.countTurnsForTargets(
+      start,
+      targets((candidate) => candidate.present === true)
+    ),
+    repository.countTurnsForTargets(
+      start,
+      targets((candidate) => candidate.present === false && isAddable(candidate))
+    ),
+  ])
+  return { held, addable }
+}
+
+/**
  * The full citation-health snapshot for the platform dashboard.
  *
- * Every rate is computed against `turn_verified` rows (one per observed
- * research turn), so a window with no research traffic reports a 100 % clean
- * rate rather than dividing by zero.
+ * Every rate is computed against distinct observed turns, so a window with no
+ * research traffic reports a 100 % clean rate rather than dividing by zero.
  */
-export async function getCitationHealth(options: { days?: number } = {}): Promise<CitationHealthSnapshot> {
+export async function getCitationHealth(
+  options: { days?: number } = {}
+): Promise<CitationHealthSnapshot> {
   const windowDays = clampWindowDays(options.days)
   const start = utcDayStart()
   start.setUTCDate(start.getUTCDate() - (windowDays - 1))
@@ -660,10 +859,9 @@ export async function getCitationHealth(options: { days?: number } = {}): Promis
     dailyTurnRows,
     reasonRows,
     sourceMix,
-    unavailableTools,
-    orgRows,
+    tools,
+    orgs,
     recentRows,
-    names,
     failedTargets,
     inventory,
   ] = await Promise.all([
@@ -677,61 +875,41 @@ export async function getCitationHealth(options: { days?: number } = {}): Promis
     repository.aggregateUnavailableTools(start),
     repository.aggregateByOrganization(start),
     repository.listRecentDefects(start),
-    organizationNames(),
     repository.aggregateFailedTargets(start),
     platformInventory(),
   ])
 
-  const missingSources = buildMissingSourceCandidates(
-    failedTargets,
-    inventory.corpusFileNames,
-    inventory.documentNumbers,
-  )
-
-  // How many DISTINCT turns each half of that list accounts for. Per-candidate
-  // counts overlap (one turn commonly cites several of them), so the union is
-  // a second query rather than a sum — see `countTurnsForTargets`.
-  const [heldTurns, addableTurns] = await Promise.all([
-    repository.countTurnsForTargets(
-      start,
-      missingSources.filter((candidate) => candidate.present).map((candidate) => candidate.target),
-    ),
-    repository.countTurnsForTargets(
-      start,
-      missingSources
-        .filter((candidate) => !candidate.present && candidate.action !== 'none')
-        .map((candidate) => candidate.target),
+  const missingSources = buildMissingSourceCandidates(failedTargets.rows, inventory)
+  const organizations = toOrganizationTotals(orgs.rows)
+  const shownOrganizations = organizations.slice(0, ORGANIZATIONS_SHOWN)
+  // Names for the listed organizations, plus the outlier the findings may
+  // name from further down the list. Resolved per id, so none is cut off by a
+  // WorkOS page boundary.
+  const outlier =
+    turns > 0 ? findOrganizationOutlier(organizations, defectTurns / turns) : undefined
+  const [missingSourceTurns, names] = await Promise.all([
+    countMissingSourceTurns(start, missingSources),
+    getOrganizationDisplayNames(
+      [...shownOrganizations, ...(outlier ? [outlier] : [])].map((org) => org.organizationId)
     ),
   ])
+  for (const org of organizations)
+    org.name = org.organizationId ? (names.get(org.organizationId) ?? null) : null
 
   const byKindMap = new Map(kindRows.map((row) => [row.kind, row]))
   const cleanTurns = Math.max(0, turns - defectTurns)
-  const share = (value: number): number => (turns > 0 ? value / turns : 0)
-
   const byKind: CitationKindTotal[] = CITATION_DEFECT_KINDS.map((kind) => {
     const row = byKindMap.get(kind)
-    return { kind, turns: row?.turns ?? 0, items: row?.items ?? 0, share: share(row?.turns ?? 0) }
+    return {
+      kind,
+      turns: row?.turns ?? 0,
+      items: row?.items ?? 0,
+      share: turns > 0 ? (row?.turns ?? 0) / turns : 0,
+    }
   })
     .filter((entry) => entry.turns > 0)
     .sort((a, b) => b.turns - a.turns)
-
-  const reasonTotal = reasonRows.reduce((sum, row) => sum + row.occurrences, 0)
-  const reasons: CitationReasonTotal[] = reasonRows.map((row) => ({
-    ...row,
-    share: reasonTotal > 0 ? row.occurrences / reasonTotal : 0,
-  }))
-  const organizations: CitationOrganizationTotal[] = orgRows
-    .map((row) => ({
-      organizationId: row.organizationId,
-      name: row.organizationId ? (names.get(row.organizationId) ?? null) : null,
-      turns: row.turns,
-      defectTurns: row.defectTurns,
-      errorTurns: row.errorTurns,
-      defectRate: row.turns > 0 ? row.defectTurns / row.turns : 0,
-    }))
-    // Worst first, but an org with a single bad turn must not outrank one with
-    // hundreds of bad turns — rate breaks ties on volume, not the reverse.
-    .sort((a, b) => b.defectTurns - a.defectTurns || b.defectRate - a.defectRate)
+  const reasons = toReasonTotals(reasonRows, new Map(kindRows.map((row) => [row.kind, row.items])))
 
   return {
     windowDays,
@@ -751,17 +929,22 @@ export async function getCitationHealth(options: { days?: number } = {}): Promis
       byKind,
       reasons,
       organizations,
-      unavailableTools,
+      unavailableTools: tools.rows,
+      unavailableToolCount: tools.total,
       missingSources,
-      missingSourceTurns: { held: heldTurns, addable: addableTurns },
+      missingSourceTurns,
     }),
     byKind,
     dailyTrend: buildDailyTrend(dailyKindRows, dailyTurnRows, start, windowDays),
     reasons,
     sourceMix,
-    unavailableTools,
-    missingSources,
-    organizations,
+    unavailableTools: tools.rows,
+    missingSources: missingSources.slice(0, MISSING_SOURCES_SHOWN),
+    missingSourcesTotal: failedTargets.total,
+    inventoryKnown:
+      inventory.corpusFileNames !== null && inventory.catalogedDocumentNumbers !== null,
+    organizations: shownOrganizations,
+    organizationsTotal: orgs.total,
     recent: recentRows.map(toSample),
   }
 }

@@ -20,6 +20,11 @@
 import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { PlatformModelDefaults } from '@/app/app/(shell)/platform/models/platform-model-defaults'
+import { PageHeader } from '@/components/ui/page-header'
+import { SectionLabel } from '@/components/ui/section-label'
+import { PlatformAccessProvider } from '@/features/platform/platform-access'
+import { useTranslations } from '@/i18n'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { AGENT_GROUPS as REGISTRY } from '@/lib/model-config/agent-groups'
 
 // The real registry, not a copy of it: a renamed group or a reworded
@@ -48,14 +53,24 @@ const DEFAULTS = {
   },
 }
 
-const WORKFLOW_DEFAULTS = Object.fromEntries(AGENT_GROUPS.map((group) => [group.id, 'openai/gpt-6-luna']))
+const WORKFLOW_DEFAULTS = Object.fromEntries(
+  AGENT_GROUPS.map((group) => [group.id, 'openai/gpt-6-luna'])
+)
 
 // The thinking-level half of the same card. Pinned at both ends of the scale
 // (`follow_ups` → none, `deep_research` → xhigh) so the cheapest and most expensive
 // labels are both on screen; the rest inherit.
 const EFFORTS = {
-  follow_ups: { effort: 'none', updatedByEmail: 'owner@grid.example', updatedAt: '2026-08-01T09:00:00Z' },
-  deep_research: { effort: 'xhigh', updatedByEmail: 'owner@grid.example', updatedAt: '2026-08-01T09:00:00Z' },
+  follow_ups: {
+    effort: 'none',
+    updatedByEmail: 'owner@grid.example',
+    updatedAt: '2026-08-01T09:00:00Z',
+  },
+  deep_research: {
+    effort: 'xhigh',
+    updatedByEmail: 'owner@grid.example',
+    updatedAt: '2026-08-01T09:00:00Z',
+  },
 }
 
 // Mirrors the shipped config: routing roles run reasoning-off, everything else
@@ -73,8 +88,20 @@ const WORKFLOW_EFFORTS: Record<string, string | null> = {
 }
 
 const CATALOG = [
-  { id: 'anthropic/claude-sonnet-5', name: 'Claude Sonnet 5', contextLength: 200000, promptPrice: 0.000003, completionPrice: 0.000015 },
-  { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', contextLength: 163840, promptPrice: 0.00000027, completionPrice: 0.0000011 },
+  {
+    id: 'anthropic/claude-sonnet-5',
+    name: 'Claude Sonnet 5',
+    contextLength: 200000,
+    promptPrice: 0.000003,
+    completionPrice: 0.000015,
+  },
+  {
+    id: 'deepseek/deepseek-v4-flash',
+    name: 'DeepSeek V4 Flash',
+    contextLength: 163840,
+    promptPrice: 0.00000027,
+    completionPrice: 0.0000011,
+  },
 ]
 
 const PREVIEW_PATH = '/dev/platform-models'
@@ -106,7 +133,8 @@ function installShim(): void {
   w.__platformModelDefaultsShim = true
   const real = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
     if (window.location.pathname.startsWith(PREVIEW_PATH)) {
       if (url.includes('/api/platform/model-defaults/models')) {
         return Response.json({ group: 'preview', models: CATALOG })
@@ -116,7 +144,9 @@ function installShim(): void {
           agentGroups: AGENT_GROUPS,
           defaults: DEFAULTS,
           workflowDefaults: WORKFLOW_DEFAULTS,
-          workflowDefaultsZdrSafe: Object.fromEntries(Object.keys(WORKFLOW_DEFAULTS).map((group) => [group, true])),
+          workflowDefaultsZdrSafe: Object.fromEntries(
+            Object.keys(WORKFLOW_DEFAULTS).map((group) => [group, true])
+          ),
         })
       }
       if (url.includes('/api/platform/reasoning-efforts')) {
@@ -130,20 +160,27 @@ function installShim(): void {
 installShim()
 
 export default function PlatformModelsDevPage(): JSX.Element {
+  const t = useTranslations('platform')
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
 
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-8" data-testid="platform-models-preview">
-      <div>
-        <h1 className="text-lg font-semibold">Platform — Default models and thinking levels</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Platform-owner surface: the model each agent group runs on, and how hard it thinks, for every
-          organization that has not chosen its own.
-        </p>
+    <main
+      className="mx-auto flex max-w-4xl flex-col gap-10 px-4 py-8 md:px-8"
+      data-testid="platform-models-preview"
+    >
+      <div className="flex flex-col gap-6">
+        <PageHeader title={t('sections.models.title')} subtitle={t('sections.models.subtitle')} />
+        <PlatformModelDefaults />
       </div>
-      <PlatformModelDefaults />
+      {/* The read-only support role: same rows, no write control. */}
+      <section className="flex flex-col gap-3">
+        <SectionLabel as="h2">Read-only (platform:settings:view)</SectionLabel>
+        <PlatformAccessProvider permissions={[PLATFORM_PERMISSIONS.settingsView]}>
+          <PlatformModelDefaults />
+        </PlatformAccessProvider>
+      </section>
     </main>
   )
 }

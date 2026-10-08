@@ -57,9 +57,10 @@ vi.mock('@/lib/authz/platform', async (importOriginal) => {
 })
 
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
-import type { GridSession } from '@/lib/auth/types'
+import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import {
   assertWithinStorageQuota,
+  getStorageOverview,
   getStorageQuotaBytes,
   setStorageQuota,
   STORAGE_QUOTA_SETTING,
@@ -136,6 +137,22 @@ describe('storage quota', () => {
     it('ignores a nonsense platform default rather than blocking every upload', async () => {
       process.env.GRID_DEFAULT_STORAGE_QUOTA_BYTES = 'not-a-number'
       await expect(getStorageQuotaBytes('org-1')).resolves.toBeNull()
+    })
+  })
+
+  describe('getStorageOverview', () => {
+    // The tenant's read-only view names the upload limit beside the quota: a
+    // member whose file was refused for its size finds the number there.
+    it('carries the effective per-file upload limit', async () => {
+      const member: AuthorizedSession = {
+        ...platformSession(),
+        organizationId: 'org-member',
+        organizationMembershipId: 'om-2',
+        role: 'member',
+      }
+      getOrgSettings.mockResolvedValue({ settings: { maxUploadFileBytes: 40e6 } })
+      const overview = await getStorageOverview(member)
+      expect(overview.effectiveMaxUploadFileBytes).toBe(40e6)
     })
   })
 
