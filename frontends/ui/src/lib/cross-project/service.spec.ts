@@ -66,9 +66,18 @@ vi.mock('./decisions-repository', () => ({
     return state.decisions
   }),
 }))
+// The live folder judgement is live-access.spec's subject; here it carries the clearance through.
+vi.mock('@/lib/permits/live-access', () => ({
+  liveFolderAccess: vi.fn(async (_org: string, _projectId: string, readableFolderIds: readonly string[]) => ({
+    visibleFolderIds: null,
+    restrictionOf: () => null,
+    readableFolderIds,
+  })),
+}))
+
 vi.mock('@/lib/permits/repository', () => ({
-  searchPermitRequirements: vi.fn(async (_org: string, scopes: Array<{ projectId: string; readableFolderIds: readonly string[] }>) => {
-    state.permitScopes.push(...scopes)
+  searchPermitRequirements: vi.fn(async (_org: string, scopes: Array<{ projectId: string; access: { readableFolderIds: readonly string[] } }>) => {
+    state.permitScopes.push(...scopes.map((scope) => ({ projectId: scope.projectId, readableFolderIds: scope.access.readableFolderIds })))
     return state.permits
   }),
 }))

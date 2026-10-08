@@ -53,6 +53,14 @@ vi.mock('@/lib/projects/service', () => ({
   }),
   memoryClearance: vi.fn(async (_session: unknown, projectId: string) => ({ cleared: state.cleared.get(projectId) ?? [] })),
 }))
+// Live folder judgement is live-access.spec's subject; here the cleared folders pass through as the visible ones.
+vi.mock('@/lib/permits/live-access', () => ({
+  liveFolderAccess: vi.fn(async (_org: string, _projectId: string, readable: readonly string[]) => ({
+    visibleFolderIds: [...readable],
+    restrictionOf: () => null,
+  })),
+}))
+
 vi.mock('@/lib/permits/repository', () => ({
   listPermitRecordsForProject: vi.fn(async (_org: string, projectId: string) => state.permits.get(projectId) ?? []),
 }))

@@ -47,6 +47,7 @@ import { buildProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { audienceReach, type AudienceReach } from './audience-reach'
 import { searchProjectDecisions, type DecisionScope, type FoundDecision } from './decisions-repository'
+import { liveFolderAccess } from '@/lib/permits/live-access'
 import { searchPermitRequirements, type FoundPermitRecord } from '@/lib/permits/repository'
 import { bundeslandOf, rankBySimilarity } from './similarity'
 import type { VerifiedGridRequestContext } from '@/lib/request-context'
@@ -414,7 +415,19 @@ export async function searchAcrossProjects(
   const [perProject, decided, permitted] = await Promise.all([
     mapBounded(page, SEARCH_CONCURRENCY, (project) => searchOneProject(caller.session, project, request, reach)),
     memoryScopes.then((scopes) => searchProjectDecisions(caller.session.organizationId, scopes, request.query)),
-    memoryScopes.then((scopes) => searchPermitRequirements(caller.session.organizationId, scopes, request.query)),
+    memoryScopes.then(async (scopes) =>
+      searchPermitRequirements(
+        caller.session.organizationId,
+        // Permits are judged by the document's live folder (permits/live-access.ts), from the same clearance.
+        await Promise.all(
+          scopes.map(async (scope) => ({
+            projectId: scope.projectId,
+            access: await liveFolderAccess(caller.session.organizationId, scope.projectId, scope.readableFolderIds),
+          }))
+        ),
+        request.query
+      )
+    ),
   ])
   const byId = new Map(page.map((project) => [project.id, project]))
   const decisions = decided.flatMap((found) => {

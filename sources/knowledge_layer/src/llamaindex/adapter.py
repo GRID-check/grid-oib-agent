@@ -525,6 +525,8 @@ JOB_RETENTION_SECONDS = 3600  # 1 hour
 # call over the document, then the BFF embeds its requirements). Past it the
 # record is skipped, never the file.
 PERMIT_RECORD_TIMEOUT_SECONDS = 90
+#: Dropping a record is one internal call, no model: it must never hold up an ingest.
+PERMIT_RECORD_DROP_TIMEOUT_SECONDS = 5
 
 # The per-file error of an attempt whose document was deleted while it indexed
 # (see `document_presence`). FAILED rather than SUCCESS so the end-of-job
@@ -4325,9 +4327,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         Runs once the tags are known, and only when the job names the BFF row it was
         dispatched for. A Bescheid is read: the extraction is a second model call over the
         whole document, so it gets its own deadline, and a slow model costs the record,
-        never the ingest. A document the tag decision no longer calls a Bescheid has its
-        record dropped (one internal call, no model), so a re-typed document stops answering
-        as a permit (docs/design/permitting-memory.md).
+        never the ingest.
+
+        A document the tag decision positively typed as something else (a non-empty tag
+        list without Bescheid) has its record dropped, with no model call and under a short
+        deadline, so a re-typed document stops answering as a permit. ``None`` is no
+        decision: the tagger timed out or failed, the classifier abstained, or summaries
+        are off. Placement re-ingests on every move, so treating that as "not a Bescheid"
+        would erase a real Bescheid's record whenever the tagger was slow
+        (docs/design/permitting-memory.md).
         """
         from aiq_agent.knowledge.permit_extraction import extract_and_store_permit_record
         from aiq_agent.knowledge.permit_extraction import is_bescheid
@@ -4337,26 +4345,47 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         if not (organization_id and document_id):
             return
         if not is_bescheid(tags):
-            store_permit_record(str(organization_id), str(document_id), collection_name, file_name, "", None)
+            if tags:
+                self._bounded(
+                    "Permit record drop",
+                    file_name,
+                    PERMIT_RECORD_DROP_TIMEOUT_SECONDS,
+                    store_permit_record,
+                    str(organization_id),
+                    str(document_id),
+                    collection_name,
+                    file_name,
+                    "",
+                    None,
+                )
             return
         if not (self.generate_summary_enabled and self.summary_llm):
             return
+        pages = [(doc.metadata.get("page_label"), doc.get_content()) for doc in text_documents]
+        self._bounded(
+            "Permit record",
+            file_name,
+            PERMIT_RECORD_TIMEOUT_SECONDS,
+            extract_and_store_permit_record,
+            pages,
+            self.summary_llm,
+            organization_id=str(organization_id),
+            document_id=str(document_id),
+            collection=collection_name,
+            file_name=file_name,
+        )
+
+    @staticmethod
+    def _bounded(label: str, name: str, timeout: float, work: Callable[..., Any], /, *args: Any, **kwargs: Any) -> None:
+        """Run ``work`` on its own thread under ``timeout``: past it, or on a fault, the ingest goes on without it.
+
+        Positional-only, so ``work``'s own keywords (``file_name``) pass through untouched.
+        """
         from aiq_agent.common.cost_tracking import submit_in_context
 
-        pages = [(doc.metadata.get("page_label"), doc.get_content()) for doc in text_documents]
         pool = ThreadPoolExecutor(max_workers=1)
         try:
-            future = submit_in_context(
-                pool,
-                extract_and_store_permit_record,
-                pages,
-                self.summary_llm,
-                organization_id=str(organization_id),
-                document_id=str(document_id),
-                collection=collection_name,
-                file_name=file_name,
-            )
-            _future_result(future, "Permit record", file_name, timeout=PERMIT_RECORD_TIMEOUT_SECONDS)
+            _future_result(submit_in_context(pool, work, *args, **kwargs), label, name, timeout=timeout)
         finally:
             pool.shutdown(wait=False)
 

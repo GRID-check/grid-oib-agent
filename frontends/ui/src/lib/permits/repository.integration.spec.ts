@@ -63,8 +63,10 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
   let repo: typeof import('./repository')
+  let live: typeof import('./live-access')
   const ids = { baden: '', moedling: '', other: '', foreign: '' }
-  const FOLDER = randomUUID()
+  // A real folder with its own access list, in Mödling: the restricted record's document sits in it.
+  let FOLDER = ''
 
   const inOrg = <T>(organizationId: string, run: () => PromiseLike<T>) => withTenant({ organizationId, userId: USER }, run)
   const first = (rows: Iterable<{ id: unknown }>) => String(Array.from(rows)[0]?.id)
@@ -140,16 +142,41 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
       return { records: Number(rows.records), requirements: Number(rows.requirements) }
     })
 
+  /** A folder with its own access list (one role, not every member): it restricts reading. */
+  async function customFolder(projectId: string, name: string): Promise<string> {
+    return first(
+      await inOrg(ORG, () =>
+        // One statement: the 0110 trigger wants the list in the same commit.
+        db.execute<{ id: string }>(sql`
+          with folder as (
+            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+            values (${ORG}, ${projectId}::uuid, ${name}, ${name}, 'custom', ${USER}, now())
+            returning id, project_id
+          ), grants as (
+            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
+            select ${ORG}, project_id, id, 'org-gf', 'write' from folder
+          )
+          select id from folder`)
+      )
+    )
+  }
+
+  // The scopes as the cross-project service builds them: each project's folders judged now, from the clearance.
   const search = (
     organizationId: string,
     question: string,
     readable: Record<string, string[]> = {},
     options?: { maxRecords?: number; maxPerRecord?: number }
   ) =>
-    inOrg(organizationId, () =>
+    inOrg(organizationId, async () =>
       repo.searchPermitRequirements(
         organizationId,
-        [ids.baden, ids.moedling].map((projectId) => ({ projectId, readableFolderIds: readable[projectId] ?? [] })),
+        await Promise.all(
+          [ids.baden, ids.moedling].map(async (projectId) => ({
+            projectId,
+            access: await live.liveFolderAccess(organizationId, projectId, readable[projectId] ?? []),
+          }))
+        ),
         question,
         options
       )
@@ -164,6 +191,7 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
     withPlatformAccess = context.withPlatformAccess
     db = (await import('@/lib/db')).getDb()
     repo = await import('./repository')
+    live = await import('./live-access')
     ids.baden = await project(ORG, 'Baden')
     ids.moedling = await project(ORG, 'Moedling')
     ids.other = await project(ORG, 'Nebenprojekt')
@@ -178,7 +206,10 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
       // The same meaning from another embedder: noise of the right shape, never compared.
       requirement('Tragwerk nachweisen.', { vector: STATICS, model: 'another-embedder' }),
     ], { authority: 'Stadtgemeinde Mödling', municipality: 'Mödling' })
-    await store(ORG, ids.moedling, await document(ORG, ids.moedling, 'Honorar_Moedling.pdf'), 'Honorar_Moedling.pdf', [
+    FOLDER = await customFolder(ids.moedling, `Honorare_${STAMP}`)
+    const fees = await document(ORG, ids.moedling, 'Honorar_Moedling.pdf')
+    await inOrg(ORG, () => db.execute(sql`update documents set folder_id = ${FOLDER}::uuid where id = ${fees}::uuid`))
+    await store(ORG, ids.moedling, fees, 'Honorar_Moedling.pdf', [
       requirement('Das Honorar der Statikerin wurde pauschal vereinbart.', { vector: FEES }),
     ], { restrictedFolderIds: [FOLDER], authority: 'Gemeinde Moedling', municipality: null })
     await store(ORG, ids.other, await document(ORG, ids.other, 'Nebenprojekt.pdf'), 'Nebenprojekt.pdf', [
@@ -415,15 +446,19 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
         queryVector = null
       })
 
-      it('goes quiet when its document moved to another collection: a folder that gained an access list', async () => {
+      it('goes quiet the moment its document is in a restricted folder, before placement moves its collection', async () => {
+        // The lag: a move (or a new access list) sets folder_id first, and placement re-points the
+        // collection later, or not yet while an ingest is in flight. The record still says "open".
         const content = 'Die Zufahrt für die Feuerwehr ist mit 3,5 m Breite herzustellen.'
         const documentId = await storedNotice('Bescheid_verschoben.pdf', content)
+        const folderId = await customFolder(ids.baden, `Vertraulich_${STAMP}`)
 
-        // What collection placement does when the document's folder gains an access list.
-        await change(sql`update documents set collection_name = ${`proj_prm_${ids.baden}_r0123456789ab`} where id = ${documentId}::uuid`)
+        await change(sql`update documents set folder_id = ${folderId}::uuid, status = 'processing' where id = ${documentId}::uuid`)
 
         expect(contents(await search(ORG, content))).not.toContain(content)
-        expect(contents(await search(ORG, content, { [ids.baden]: [FOLDER] }))).not.toContain(content)
+        const cleared = await search(ORG, content, { [ids.baden]: [folderId] })
+        // A reader cleared for the folder is served it, and the hand-out records the folder it sits in NOW.
+        expect(cleared.find((record) => record.fileName === 'Bescheid_verschoben.pdf')?.restrictedFolderIds).toEqual([folderId])
       })
 
       it('goes quiet the moment its folder is in the Papierkorb, not when the purge cascades', async () => {
@@ -462,8 +497,12 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
   })
 
   describe('a project’s records as its reader sees them', () => {
+    // As the page asks: the reader's cleared folders, judged against each document's live folder.
     const list = (projectId: string, readable: string[], options = { maxRecords: 20, maxPerRecord: 4 }) =>
-      inOrg(ORG, () => repo.listPermitRecordsForProject(ORG, projectId, readable, options))
+      inOrg(ORG, async () => {
+        const access = await live.liveFolderAccess(ORG, projectId, readable)
+        return repo.listPermitRecordsForProject(ORG, projectId, access.visibleFolderIds, options)
+      })
 
     it('lists only open records to a reader cleared for none of the folders, each with its requirements in document order', async () => {
       const open = await list(ids.moedling, [])
@@ -516,7 +555,9 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
       )
 
       const change = (statement: ReturnType<typeof sql>) => inOrg(ORG, () => db.execute(statement))
-      await change(sql`update documents set collection_name = ${`proj_prm_${own}_r0123456789ab`} where id = ${moved}::uuid`)
+      // Moved into a folder with its own list; placement has not re-pointed its collection yet.
+      const restricted = await customFolder(own, `Vertraulich_list_${STAMP}`)
+      await change(sql`update documents set folder_id = ${restricted}::uuid where id = ${moved}::uuid`)
       const [folder] = await change(sql`
         insert into project_folders (organization_id, project_id, name, path)
         values (${ORG}, ${own}::uuid, ${`Bin_list_${STAMP}`}, ${`Bin_list_${STAMP}`}) returning id`)
