@@ -8,7 +8,6 @@ describe('isForwardableV1Request', () => {
   it.each([
     ['GET', ['data_sources']],
     ['GET', ['documents', 'job-1', 'status']],
-    ['GET', ['jobs', 'async', 'jobs']],
     ['POST', ['collections']],
     ['GET', ['collections', 's_abc']],
     ['GET', ['collections', 's_abc', 'documents']],
@@ -24,6 +23,8 @@ describe('isForwardableV1Request', () => {
     ['POST', ['generate']],
     ['POST', ['jobs', 'async', 'submit']],
     ['GET', ['jobs', 'async', 'job', 'j1']],
+    // The run listing goes through the job proxy, which signs its project.
+    ['GET', ['jobs', 'async', 'jobs']],
     ['GET', ['admin', 'oib', 'sync']],
     ['POST', ['maintenance', 'purge-project-resources']],
     ['GET', ['collections']],

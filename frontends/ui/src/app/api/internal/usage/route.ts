@@ -29,6 +29,8 @@ const usageEventSchema = z.object({
     .regex(/^[a-z][a-z0-9_]{0,63}$/)
     .nullable()
     .optional(),
+  /** Seconds of audio a transcription call processed (voice dictation). */
+  audioSeconds: z.number().min(0).max(3600).finite().nullable().optional(),
 })
 
 const usageBatchSchema = z.object({
@@ -39,7 +41,7 @@ const usageBatchSchema = z.object({
   jobId: z.string().max(255).nullable().optional(),
   /** The chat answer the batch's spend belongs to (`turn.response.answer_message_id`). */
   messageId: z.string().max(128).nullable().optional(),
-  /** The kind of work the whole batch served (`ingest` for a document ingestion job). */
+  /** The kind of work the whole batch served (`ingest`, `dictation`). */
   activity: z.enum(USAGE_ACTIVITIES).nullable().optional(),
   events: z.array(usageEventSchema).min(1).max(100),
 })
@@ -78,6 +80,7 @@ export const POST = internalApiRoute(
         costUsd: event.costUsd.toFixed(8),
         costSource: event.costSource,
         isByok: event.isByok ?? null,
+        audioSeconds: event.audioSeconds == null ? null : event.audioSeconds.toFixed(2),
       }))
       )
     )

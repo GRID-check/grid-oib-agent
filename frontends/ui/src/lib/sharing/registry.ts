@@ -84,7 +84,7 @@ export interface ResourceProbe {
   /**
    * The project folder the resource is filed in, for a resource that has one
    * (a project document). A folder the session is not cleared for hides the
-   * resource whatever grant it holds (ADR-0084).
+   * resource whatever grant it holds (ADR-0086).
    */
   folderId?: string | null
 }

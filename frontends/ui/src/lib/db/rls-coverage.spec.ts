@@ -96,8 +96,8 @@ const BOUNDARY_MIGRATIONS = [
   // active tenant; the runner reads across lanes under the platform role.
   '0104_bff_job_queue.sql',
   // Adds upload_batches — one upload gesture and when it was all read
-  // (ADR-0083). Keyed directly by its organization.
-  '0108_upload_batches.sql',
+  // (ADR-0085). Keyed directly by its organization.
+  '0109_upload_batches.sql',
   // Adds project_folder_grants — a folder's own access list, one row per role
   // and level (ADR-0085). Keyed directly by its organization.
   '0109_project_folder_grants.sql',

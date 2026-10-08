@@ -46,15 +46,8 @@ docker compose up -d --build
          │      • ENTRYPOINT: python /app/deploy/entrypoint.py
          │      │
          │      │   entrypoint.py:
-         │      │   1. Reads CONFIG_FILE, HOST, PORT, DASK_* env vars
-         │      │   2. Starts dask-scheduler on port 8786
-         │      │   3. Polls scheduler up to 30s until ready
-         │      │   4. Starts dask-worker connecting to scheduler
-         │      │      • nworkers (default 1), nthreads (default 4)
-         │      │      • Optional: memory-limit, lifetime, lifetime-restart
-         │      │   5. Waits 3s for worker to connect
-         │      │   6. Sets NAT_DASK_SCHEDULER_ADDRESS env var
-         │      │   7. Starts python /app/deploy/start_web.py as subprocess
+         │      │   1. Reads CONFIG_FILE, HOST, PORT
+         │      │   2. Starts python /app/deploy/start_web.py as subprocess
          │      │
          │      │   start_web.py:
          │      │   1. Configures logging (LOG_LEVEL, format)
@@ -128,24 +121,30 @@ If a dependency fails its healthcheck within the retry limit, the dependent serv
 
 - **PostgreSQL**: PostgreSQL manages its own connections. The Docker healthcheck runs `pg_isready` on all 3 databases every 5 seconds.
 - **SeaweedFS**: Healthcheck runs `wget http://localhost:9333/cluster/status` every 5 seconds.
-- **aiq-agent**: The Dask scheduler startup has a 30-attempt loop (1s per attempt). After that, the agent relies on Docker's `restart: unless-stopped` for crash recovery. There is no built-in reconnection to PostgreSQL or SeaweedFS if they become unavailable after startup.
+- **aiq-agent**: The agent relies on Docker's `restart: unless-stopped` for crash recovery. There is no built-in reconnection to PostgreSQL or SeaweedFS if they become unavailable after startup.
 - **frontend**: Same `restart: unless-stopped` policy. No built-in reconnection logic beyond Docker restart.
 
-## Manual Step: OIB Ingestion
+## Manual Step: Uploading the OIB corpus
 
-After the stack starts, OIB PDFs must be ingested into ChromaDB:
+The backend ingests nothing at boot. The base corpus lives in SeaweedFS and the
+`oib_corpus_files` table (ADR-0082), so after the stack starts the PDFs have to be
+uploaded: in the platform-admin UI, or from a directory of PDFs with
 
 ```bash
-docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec aiq-agent python scripts/ingest_oib.py
+GRID_ADMIN_TOKEN=... uv run python scripts/upload_oib_corpus.py data/oib --url http://localhost:8000
 ```
 
-This command:
-1. Enumerates PDFs in `data/oib/` and `data/oib_uploads/` (both may be empty —
-   the corpus is operator-provided, see `data/oib/README.md`)
-2. Computes SHA-256 hashes and compares against `data/oib_registry.json`
-3. Uploads new/changed files to the LlamaIndex ingestor
-4. Polls file status until SUCCESS or FAILED (2s interval, 600s timeout)
-5. Records successful hashes so unchanged files are skipped on next run
+Each upload stores the file and queues its ingest job at once; the ingest workers
+(the `ingest-worker` tier, in Compose and on Kubernetes alike) run it. Anything
+that has no job yet (a chunking change, a job that could not be queued) is picked up by the
+`base-corpus` housekeeping route, which the `housekeeping` service calls every ten
+minutes (a CronJob on Kubernetes), and an admin can run a cycle by hand with
+`POST /v1/admin/oib/sync`. A cycle compares each row's `sha256` and
+`chunk_format_version` with what its `ingested_sha256` and recorded version say the
+index was built from, queues one job on the durable ingest queue for each file that
+differs and has no job, and records the hash of every job that reached SUCCESS. A job
+that gave up reads `failed` and is not queued again until the file changes or an
+admin re-indexes it. It ingests nothing itself. See [`oib-sync.md`](../technical-reference/oib-sync.md).
 
 ## Row-level security roles and migrations (ADR-0041)
 

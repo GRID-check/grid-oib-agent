@@ -22,7 +22,7 @@ vi.mock('@/lib/projects/memory-service', () => ({
   implicateMemoryFromFeedback: vi.fn(async () => 0),
 }))
 
-// The office's chat screening (ADR-0083): the REAL matcher over Piloti's
+// The office's chat screening (ADR-0085): the REAL matcher over Piloti's
 // suggested list, with no database behind it.
 vi.mock('@/lib/upload-screening/service', async () => {
   const { chatScreeningRules, maskText } = await import('@/lib/upload-screening/content-screen')
@@ -170,7 +170,7 @@ describe('submitAnswerFeedback', () => {
     })
   })
 
-  it("stores a down-vote comment masked against the office's policy (ADR-0083)", async () => {
+  it("stores a down-vote comment masked against the office's policy (ADR-0085)", async () => {
     await submitAnswerFeedback(session, {
       messageId: 'msg_1',
       verdict: 'down',

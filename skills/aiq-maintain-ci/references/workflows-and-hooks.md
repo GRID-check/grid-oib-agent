@@ -1,22 +1,49 @@
 # Workflows and hooks
 
 Authoritative sources: the workflow files under `.github/workflows/` and
-`CONTRIBUTING.md` "CI and Bot Workflow".
+`CONTRIBUTING.md` "CI and the merge gate".
 
 ## Workflows
 
-- `ci.yml` ("AIQ CI") — jobs: `pre-commit`, `test` (pytest with a coverage gate),
-  `helm-lint` (deploy charts), `test-scripts`. The `pre-commit` job does **not**
-  run the full hook set: it runs `ruff check .` / `ruff format --check .`
-  separately and `SKIP=ruff-check,ruff-format,pytest,helm-lint pre-commit run
-  --all-files`, leaving pytest/helm-lint to their own jobs.
-- `ui.yml` — jobs `install`, `lint`, `type-check`, `unit-test`, `build` for
-  `frontends/ui/`.
-- `skills-eval.yml` ("Skills Eval") — runs on `push` and `workflow_dispatch`. A
-  `detect-changes` job path-gates the run; the trigger deliberately does not use a
-  `paths:` filter (see the comment in the file). See the skill-eval-harness
-  reference for the stages.
-- `request-nvskills-ci.yml` — comment-triggered NVSkills CI request.
+- `ci.yml` ("CI") — PRs and pushes to `develop` and `release/**`. Jobs:
+  `changes` (path filter over `.github/filters.yml`, plus the reuse lookup on
+  push), `backend-lint` (`task be:lint`: ruff check and format), `repo-lint`
+  (`pre-commit run --all-files`, then `task agents:audit`), `backend-test` (the
+  coverage-gated core suite), `backend-test-plugins` (the aiq_api suite and the
+  `sources/` suites, beside it; `task be:verify` runs all three locally), `frontend`, `frontend-test` (six shards),
+  `frontend-coverage`, `tenant-isolation`, `web`, `infra`, `packages`,
+  `release-note` (note lint on every run; requiring a note only on pull
+  requests), and `ci-ok`, the single required check.
+- `security.yml` ("Security") — Semgrep, OSV-Scanner and trivy behind the
+  `changes` filter, gitleaks on every run, and `security-ok` ("Security OK"),
+  the aggregate gate. Also weekly on a schedule, always in full.
+- Reuse on push: a green `pull_request` run's gate job (`ci-ok`,
+  `security-ok`) uploads a `ci-green-<tree>` / `security-green-<tree>` marker,
+  and on push `changes` runs `ci/reuse_green_run.py`. On a hit every tier output
+  is `'false'`, every job skips and the run still concludes `success`, which is
+  what `deploy.yml`'s gate reads. A new job must take its `if:` from a
+  `changes` output (or `reused`), or it re-runs on every merge;
+  `tests/test_ci_change_detection.py` evaluates every job's condition and fails
+  on one that does not skip.
+- `docker-build.yml` ("Docker Build") — builds the backend, frontend and web
+  images on PRs, no push, reading the shared path filter.
+- `pr.yml` ("PR") — `pull_request_target` hygiene: the Conventional PR title
+  check, closing keywords, and labels. Never checks out PR code.
+- `blog-preview.yml` — screenshots changed blog posts on PRs that touch
+  `frontends/web/src/content/`. Informational, never blocks.
+- `publish-images.yml` ("Publish Images") — builds and pushes the images to GHCR
+  on pushes to `develop`, `release/**` and `v*` tags.
+- `deploy.yml` ("Deploy (staging)") — chained off Publish Images on `develop`;
+  requires the commit's CI and Security runs to be green first.
+- `release-notes.yml` ("Release notes") — on `develop`, regenerates the
+  published changelog from `releasenotes/` and commits it back.
+- `labels.yml` ("Sync Labels") — syncs `.github/labels.yml` to the repo labels
+  (`skip-delete`).
+- Scheduled and on demand: `docs-links.yml` (weekly external link sweep),
+  `turn-shapes-live.yml` (weekly live-model turn shapes), `workos-drift.yml`
+  (weekly WorkOS drift check).
+- `claude.yml` and `claude-code-review.yml` — the `@claude` agent and the
+  automatic PR review.
 
 ## CI trigger flow
 
@@ -28,23 +55,18 @@ the PR checks automatically.
 
 ## Pre-commit hooks
 
-`.pre-commit-config.yaml` is the source of truth. Default-stage hooks (run by a
-plain `pre-commit run`) include: `ruff-check`, `ruff-format`, `uv-lock`,
-`check-merge-conflict`, `check-added-large-files`, `check-yaml`,
-`end-of-file-fixer`, `trailing-whitespace`, `detect-secrets`, `validate-skills`,
-`clear-notebook-output-cells`, and `markdown-link-check`.
-
-Two hooks — `pytest` and `helm-lint` — are `stages: [push]`, so a default
-`pre-commit run` / `pre-commit run --all-files` **skips them**. Include them
-explicitly with `pre-commit run --all-files --hook-stage push`. CI does not run
-them via the `pre-commit` job either (it `SKIP=`s them); they run as the dedicated
-`test` and `helm-lint` jobs in `ci.yml`.
+`.pre-commit-config.yaml` is the source of truth. A plain `pre-commit run` runs
+every hook, all at the default stage: ruff-check and ruff-format, uv-lock, the
+pre-commit-hooks set (check-merge-conflict, check-added-large-files, check-yaml,
+end-of-file-fixer, trailing-whitespace), the repo's own checks (sync-platform-skills,
+card-schemas, wire-schemas, agent-docs, adr-check, hidden-unicode, doc-paths,
+validate-skills), and markdown-link-check. Secret scanning is not a hook: gitleaks
+runs in `security.yml`.
 
 ## Validation
 
 ```bash
-uv run pre-commit run --all-files                     # default-stage hooks
-uv run pre-commit run --all-files --hook-stage push   # + pytest, helm-lint
+.venv/bin/pre-commit run --all-files                  # every hook
 actionlint .github/workflows/<file>.yml               # if installed
 ```
 

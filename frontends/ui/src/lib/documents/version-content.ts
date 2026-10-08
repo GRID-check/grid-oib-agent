@@ -401,7 +401,7 @@ export async function readVersionContent(
 
 /**
  * A subject in a folder not every project member may read is refused as no
- * subject at all (ADR-0084, ADR-0085): no chat turn may draw on a restricted
+ * subject at all (ADR-0086, ADR-0087): no chat turn may draw on a restricted
  * folder yet, so its bytes never leave for the agent. A document in the open
  * project collection reads as before.
  */

@@ -5,15 +5,15 @@ import { describe, expect, it } from 'vitest'
 import { resolveCorpusFileName } from './resolve-corpus-file'
 
 const files = [
-  { fileName: 'oib-rl_1_ausgabe_mai_2023.pdf', origin: 'corpus' },
-  { fileName: 'oib-rl_2.1_ausgabe_mai_2023.pdf', origin: 'corpus' },
-  { fileName: 'oib-rl_2_ausgabe_mai_2023.pdf', origin: 'corpus' },
-  { fileName: 'oib-rl_2_leitfaden_ausgabe_mai_2023.pdf', origin: 'corpus' },
-  { fileName: 'oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf', origin: 'corpus' },
-  { fileName: 'aenderungen_oib-rl_2_ausgabe_mai_2023.pdf', origin: 'corpus' },
+  { fileName: 'oib-rl_1_ausgabe_mai_2023.pdf', state: 'ingested' },
+  { fileName: 'oib-rl_2.1_ausgabe_mai_2023.pdf', state: 'ingested' },
+  { fileName: 'oib-rl_2_ausgabe_mai_2023.pdf', state: 'ingested' },
+  { fileName: 'oib-rl_2_leitfaden_ausgabe_mai_2023.pdf', state: 'ingested' },
+  { fileName: 'oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf', state: 'ingested' },
+  { fileName: 'aenderungen_oib-rl_2_ausgabe_mai_2023.pdf', state: 'ingested' },
   // The name oib.or.at publishes OIB-RL 2.2 under, with its Erläuterungen beside it.
-  { fileName: 'oib-richtlinie_2.2_ausgabe_mai_2023.pdf', origin: 'corpus' },
-  { fileName: 'erlaeuterungen-zu-oib-richtlinie_2.2_ausgabe_mai_2023.pdf', origin: 'corpus' },
+  { fileName: 'oib-richtlinie_2.2_ausgabe_mai_2023.pdf', state: 'ingested' },
+  { fileName: 'erlaeuterungen-zu-oib-richtlinie_2.2_ausgabe_mai_2023.pdf', state: 'ingested' },
 ]
 
 describe('resolveCorpusFileName', () => {
@@ -41,8 +41,8 @@ describe('resolveCorpusFileName', () => {
     expect(resolveCorpusFileName('', files)).toBeNull()
   })
 
-  it('never resolves to files whose source is not on this server', () => {
-    const indexOnly = [{ fileName: 'oib-rl_2_ausgabe_mai_2023.pdf', origin: 'index_only' }]
+  it('never resolves to files the corpus does not hold', () => {
+    const indexOnly = [{ fileName: 'oib-rl_2_ausgabe_mai_2023.pdf', state: 'removed' }]
     expect(resolveCorpusFileName('OIB-Richtlinie 2', indexOnly)).toBeNull()
   })
 
