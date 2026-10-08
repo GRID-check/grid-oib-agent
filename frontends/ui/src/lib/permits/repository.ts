@@ -16,13 +16,15 @@
  * No relevance floor: the best few are returned and the model judges which
  * matter. Without an embedder the token channel alone answers.
  *
- * What a reader may see is judged per project exactly as restricted memory is
- * (`memoryVisibleTo`): open rows, and restricted ones only for a reader cleared
- * for every folder the document sits in.
+ * What a reader may see is judged per project from the document's LIVE folder,
+ * as the document hits beside it are (`live-access.ts`): a record from a
+ * restricted folder only for a reader cleared for every folder restricting it
+ * now. The restriction stored on a record is where the document was when read,
+ * kept for the record's own history and never consulted for access.
  */
 
 import 'server-only'
-import { and, desc, eq, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm'
 import { CROSS_PROJECT_MAX_PERMIT_REQUIREMENTS, CROSS_PROJECT_MAX_PERMITS } from '@/lib/cross-project/types'
 import { getDb } from '@/lib/db'
 import {
@@ -36,7 +38,7 @@ import {
 import { contentTokens, jaccardSimilarity, normalizeContentGerman } from '@/lib/knowledge/consolidation'
 import { cosineSimilaritySql, embedNote, type EmbeddedNote } from '@/lib/knowledge/embeddings'
 import { fuseHybridRelevance } from '@/lib/knowledge/recall-scoring'
-import { memoryVisibleTo } from '@/lib/projects/memory-service'
+import type { LiveFolderAccess } from './live-access'
 
 /** How many records one search returns at most: the wire's bound, so the two cannot drift. */
 export const PERMIT_MAX_RECORDS = CROSS_PROJECT_MAX_PERMITS
@@ -87,7 +89,15 @@ export interface PermitRecordInput {
 /** A project to search, and the folders whose restricted records the reader may see (empty: open records only). */
 export interface PermitScope {
   projectId: string
-  readableFolderIds: readonly string[]
+  /** The project's folders as this reader may be served from them, judged now (`liveFolderAccess`). */
+  access: LiveFolderAccess
+}
+
+/** A document filed where the reader may be served from: the project root, or a folder the access lists. */
+function servedFrom(visibleFolderIds: readonly string[] | null): SQL {
+  if (visibleFolderIds === null) return sql`true`
+  if (visibleFolderIds.length === 0) return isNull(documents.folderId)
+  return or(isNull(documents.folderId), inArray(documents.folderId, [...visibleFolderIds])) as SQL
 }
 
 export interface FoundPermitRequirement {
@@ -224,19 +234,16 @@ export async function deletePermitRecord(organizationId: string, documentId: str
 }
 
 /**
- * A record is served only while its document still stands where the record was
- * read from. The restriction a record carries is a snapshot of the collection the
- * document sat in at extraction (a restricted folder has its own collection), so
- * a document moved since, into a restricted folder or because its folder gained
- * an access list, no longer matches and its record goes quiet until it is read
- * again. Nor is a record served whose document is in the Papierkorb (every folder
- * of a binned subtree carries `deleted_at`, migration 0113), quarantined or
- * archived: deleting through the bin removes what was derived from it at once,
- * not when the purge cascades.
+ * A record is served only while its document is live: not quarantined, not
+ * archived, and not in the Papierkorb (every folder of a binned subtree carries
+ * `deleted_at`, migration 0113), so deleting through the bin removes what was
+ * derived from it at once, not when the purge cascades. WHO may be served it is
+ * decided apart, from the document's live folder (`live-access.ts`): the stored
+ * restriction is a snapshot of where the document was read, and nothing here
+ * trusts it.
  */
 const documentServesItsRecord = and(
   eq(documents.organizationId, permitRecords.organizationId),
-  eq(documents.collectionName, permitRecords.collectionName),
   sql`${documents.status} <> 'quarantined'`,
   eq(documents.lifecycle, 'active'),
   sql`NOT EXISTS (SELECT 1 FROM project_folders f WHERE f.id = ${documents.folderId} AND f.deleted_at IS NOT NULL)`
@@ -261,17 +268,13 @@ export async function searchPermitRequirements(
     : sql<number | null>`null::double precision`
   const visible = or(
     ...scopes.map((scope) =>
-      and(
-        eq(permitRequirements.projectId, scope.projectId),
-        memoryVisibleTo(scope.readableFolderIds, permitRequirements.restrictedFolderIds)
-      )
+      and(eq(permitRequirements.projectId, scope.projectId), servedFrom(scope.access.visibleFolderIds))
     )
   )
   const rows = await getDb()
     .select({
       recordId: permitRequirements.recordId,
       projectId: permitRequirements.projectId,
-      restrictedFolderIds: permitRequirements.restrictedFolderIds,
       position: permitRequirements.position,
       kind: permitRequirements.kind,
       content: permitRequirements.content,
@@ -282,6 +285,7 @@ export async function searchPermitRequirements(
       relevance,
       collectionName: permitRecords.collectionName,
       fileName: permitRecords.fileName,
+      folderId: documents.folderId,
       recordKind: permitRecords.kind,
       authority: permitRecords.authority,
       municipality: permitRecords.municipality,
@@ -324,6 +328,7 @@ export async function searchPermitRequirements(
     else byRecord.set(entry.row.recordId, [entry])
   }
 
+  const accessOf = new Map(scopes.map((scope) => [scope.projectId, scope.access]))
   // Raw values are not runtime-validated: coerced at the boundary.
   return [...byRecord.values()].slice(0, maxRecords).map((entries) => {
     const { row } = entries[0]
@@ -337,7 +342,8 @@ export async function searchPermitRequirements(
       bundesland: row.bundesland,
       issuedOn: row.issuedOn === null ? null : String(row.issuedOn),
       reference: row.reference,
-      restrictedFolderIds: row.restrictedFolderIds && row.restrictedFolderIds.length > 0 ? [...row.restrictedFolderIds] : null,
+      // Where the document is now, not where it was when read: the hand-out records this.
+      restrictedFolderIds: accessOf.get(String(row.projectId))?.restrictionOf(row.folderId) ?? null,
       requirements: entries.slice(0, maxPerRecord).map(({ row: requirement }) => ({
         kind: requirement.kind,
         content: requirement.content,

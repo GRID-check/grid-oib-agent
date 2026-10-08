@@ -124,8 +124,11 @@ Request:
   backfill only knows the name); unknown, binned or project-less →
   `{ stored: false }`, 200.
 - `record: null` deletes the document's record and answers `{ stored: false }`.
-  The ingest hook sends it when the tag decision no longer calls the document a
-  Bescheid (a re-typed or re-uploaded document), without a model call. The pen
+  The ingest hook sends it when the tag decision positively types the document
+  as something else (a non-empty tag list without Bescheid), without a model
+  call and under a 5 s deadline. No decision (`None`: the tagger timed out or
+  failed, the classifier abstained, summaries are off) drops nothing: placement
+  re-ingests on every move, and a slow tagger must not erase a real record. The pen
   never sends null for a FAILED extraction: an outage must not erase a stored
   record.
 - Otherwise it replaces the document's record and requirements in one
@@ -137,15 +140,18 @@ Request:
 
 ### Read: `permits` in the cross-project search
 
-**A record is served only while its document still stands where it was read
-from.** The restriction a record carries is a snapshot of the collection its
-document sat in at extraction, so the search joins the document and serves a
-record only while the document's collection is still the record's (a document
-moved into a restricted folder, or whose folder gained an access list, has
-another), it is not quarantined or archived, and its folder is not in the
-Papierkorb. A moved document's record goes quiet until it is read again; it
-never answers with the access it used to have. Re-ingest is not needed for any
-of this to hold.
+**Who may be served a record is judged from where its document is now.** The
+restriction stored on a record is a snapshot of where the document was read,
+and the document's collection only follows a folder change once placement has
+run (a move or a new access list updates `folder_id` first; placement skips a
+document whose ingest is in flight and moves a batch per call). So the search
+joins the document and judges its LIVE `folder_id` against the project's folder
+tree, as the document hits beside it are judged (`lib/permits/live-access.ts`):
+a record from a restricted folder only for a reader cleared for every folder
+restricting it now, and the restriction the hand-out records is that live one.
+A record whose document is quarantined, archived or in the Papierkorb is not
+served at all. Neither re-ingest nor placement is needed for any of this to
+hold.
 
 `CrossProjectSearchResponse` gains `permits: CrossProjectPermit[]` (≤ 8
 records), ranked as `searchProjectDecisions` ranks (query embedding against
