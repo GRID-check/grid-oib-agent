@@ -4,6 +4,29 @@ House rules that are not obvious from the code, each one written down because
 somebody already paid for it. Language defaults and formatting live in the
 tooling (`ruff`, `eslint`, `tsconfig`), not here.
 
+## Comments say what is true now
+
+A comment or docstring states what the code does and why it is that way, as
+the reader finds it. The reason a choice holds belongs there; the story of how
+the code got here does not. What a line used to do, when it changed, which
+review found a bug, the commit or PR that fixed it: that is the commit
+message's, and when it records a decision, the ADR's. `git log -L` and
+`git blame` find it for anyone who needs it, and the file stays true the day
+after it is written.
+
+Keep the reason, drop the story. „A stale generated module type-checks
+perfectly, so only CI would notice" is a reason and stays; „this broke the build
+three times" is the story around it.
+
+`scripts/check_history_comments.py` runs as a pre-commit hook and in CI's
+repo-lint. It reads comments and docstrings only, so a date in a fixture or a
+German prompt is not its business, and it refuses the unmistakable signals: a
+calendar day, „used to" after it/this/that/which, „originally", „found by a
+review", „was renamed in", a commit or PR reference. History in a form it does
+not recognise is still history; review catches the rest. Migrations, ADRs,
+release notes and the security-exception ledger (`.trivyignore.yaml`) record
+history by design and are not read.
+
 ## Python
 
 Ruff, line length 120, Python 3.14. New tools use `@register_function` with a
