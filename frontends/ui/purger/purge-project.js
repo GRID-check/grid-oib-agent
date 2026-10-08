@@ -108,7 +108,7 @@ async function purgeBackendCollection(deps, fetchImpl, collectionName, conversat
  * @returns {Promise<void>}
  */
 async function purgeProject(tx, entry, deps) {
-  const { bucket, workos, deleteStoragePrefix } = deps
+  const { bucket, workos, deleteStoragePrefix, abortMultipartUploads } = deps
   const fetchImpl = deps.fetchImpl || fetch
   const projectId = entry.entity_id
   const orgId = entry.organization_id
@@ -159,7 +159,7 @@ async function purgeProject(tx, entry, deps) {
 
   //    Every OTHER collection the project's own documents name. A document
   //    filed under a restricted folder lives in that folder's collection,
-  //    `<project collection>_r<12 hex>` (ADR-0086), not in the project's, so a
+  //    `<project collection>_r<12 hex>` (ADR-0087), not in the project's, so a
   //    purge given only the project's name left every restricted folder's
   //    chunks — the files a restriction exists for — readable in Chroma after
   //    the rows that named them were gone. Read here, before step 4 cascades
@@ -167,7 +167,7 @@ async function purgeProject(tx, entry, deps) {
   //
   //    DISTINCT over the rows rather than derived from the folders: a document
   //    records the collection it was ingested into, and a re-classification
-  //    moves the row only after the old collection was purged (ADR-0086), so
+  //    moves the row only after the old collection was purged (ADR-0087), so
   //    the rows name every collection that still holds this project's chunks.
   const documentCollections = /** @type {{ collection_name: string | null }[]} */ (
     await tx`
@@ -202,7 +202,7 @@ async function purgeProject(tx, entry, deps) {
     await purgeBackendCollection(deps, fetchImpl, sessionCollection, [])
   }
 
-  // 1c. The restricted folders' collections (ADR-0086). Same contract as 1b:
+  // 1c. The restricted folders' collections (ADR-0087). Same contract as 1b:
   //     one call each, a hold re-checked before each, and a failure throws
   //     before anything below has run, so the rows naming them drive the retry.
   //     Session collections are not in this set (their rows have no
@@ -251,10 +251,16 @@ async function purgeProject(tx, entry, deps) {
   //    Sequential rather than concurrent on purpose: the prefix sweep is a
   //    list-then-delete loop, and running several against one storage tier only
   //    trades a rarely-hot latency for contention on the thing being erased.
+  //    An Outlook archive half-sent into the project's mail import (ADR-0085)
+  //    names its bucket on its own row: a project with no document yet would
+  //    otherwise never reach that bucket, and its upload would never be aborted.
   const recorded = /** @type {{ storage_bucket: string }[]} */ (
     await tx`
       SELECT DISTINCT storage_bucket FROM documents
-       WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL`
+       WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL
+      UNION
+      SELECT staging_bucket AS storage_bucket FROM mail_imports
+       WHERE project_id = ${projectId}`
   )
   const targets = new Set([bucket, ...recorded.map((row) => row.storage_bucket)])
   for (const target of targets) {
@@ -266,6 +272,10 @@ async function purgeProject(tx, entry, deps) {
     // continues past the moment someone said stop, and reports success.
     await assertNoHold(tx, entry)
     await deleteStoragePrefix(target, `org/${orgId}/project/${projectId}/`)
+    // And what is not an object yet: an Outlook archive half-sent into the
+    // project's mail import (ADR-0085). Only the organization's own bucket
+    // receives one, but sweeping each target costs a list and catches any.
+    await abortMultipartUploads(target, `org/${orgId}/project/${projectId}/`)
   }
 
   // 2b. SeaweedFS objects under each CHAT's prefix.

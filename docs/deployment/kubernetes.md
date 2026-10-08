@@ -1116,7 +1116,10 @@ died half way left no record of which half. Both are now jobs:
 - **A drain never costs an attempt; a failure always does.** On SIGTERM the loop stops claiming, lets
   the slice in hand finish (`bffJobsDrainSeconds`, 60), gives every claim back
   without spending an attempt, and only then stops the BFF; the pod's grace
-  period is the drain plus 30 s. A claim that lost its worker is taken again
+  period is the drain plus 30 s. A claim that has held its slot for ten
+  minutes is given back the same way between two slices, so a job that runs
+  for hours (an archive import) waits its turn behind the fair claim instead of
+  keeping the slot. A claim that lost its worker is taken again
   after `GRID_BFF_JOBS_STALE_SECONDS`. Every other end of an attempt spends
   it (a handler that threw, a slice past `GRID_BFF_JOBS_SLICE_TIMEOUT_MS`, a BFF
   that answered 5xx or not at all) and the job waits `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS`,
@@ -1140,7 +1143,7 @@ a project a slice at a time; the other three are one step each:
 
 | Kind | Replaces | Priority | The row it keeps true |
 |---|---|---|---|
-| `placement_reingest` | the re-ingest of every document a folder restriction moved, inside the request that drew it and the placement sweep (ADR-0086) | `bulk`, and every dispatch it makes `bulk` | `documents.status`: `processing` with `metadata.placementReingest` until a slice takes the row, then the ingest's own status. One job waits per project; the request and the sweep reuse it |
+| `placement_reingest` | the re-ingest of every document a folder restriction moved, inside the request that drew it and the placement sweep (ADR-0087) | `bulk`, and every dispatch it makes `bulk` | `documents.status`: `processing` with `metadata.placementReingest` until a slice takes the row, then the ingest's own status. One job waits per project; the request and the sweep reuse it |
 | `bim_extract` | the detached IFC parse in the upload's pod | `interactive` for an upload, `bulk` inside a reindex | `documents.status` (`processing`, then `pending` or `failed`) and the `bim_models` row. A restart no longer strands the model at `extracting` |
 | `office_rendition` | the detached conversion behind a per-process queue | same | `documents.status`, as above |
 | `file_research_report` | rendering the PDF inside the research outcome callback and the report GET | `interactive` | `task_runs.filing_status`: `queued`, then `filed`, `refused` or `failed` |

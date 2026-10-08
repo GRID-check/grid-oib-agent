@@ -314,7 +314,7 @@ refused (`rejected{invalid_message}`), and so is an unknown `type`
 {"v":2,"type":"user_message","conversation_id":"s_1","message_id":"msg_1759000000000_3","text":"Wie lang darf der Fluchtweg in GK 4 sein?","data_sources":["knowledge_layer"]}
 ```
 
-### Sensitive data is masked, never refused (ADR-0085)
+### Sensitive data is masked, never refused (ADR-0086)
 
 The free text of a `user_message` (`context_only` lines included) and of an
 `interaction_response` `{text}` answer is masked against the office's

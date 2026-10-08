@@ -16,7 +16,9 @@
  */
 
 const {
+  AbortMultipartUploadCommand,
   DeleteObjectsCommand,
+  ListMultipartUploadsCommand,
   ListObjectsV2Command,
   S3Client,
 } = require('@aws-sdk/client-s3')
@@ -142,4 +144,49 @@ async function deleteStoragePrefix(s3, bucket, prefix) {
   return deleted
 }
 
-module.exports = { createS3Client, deleteStoragePrefix, isMissingBucket }
+/**
+ * Abort every multipart upload open under `prefix`; the number aborted.
+ *
+ * The prefix sweep above lists OBJECTS, and an unfinished multipart upload is
+ * not one: its parts are stored, billed and readable to whoever completes it,
+ * and invisible to `ListObjectsV2`. The mail import stages an Outlook archive
+ * as one (ADR-0085) inside the project's prefix, so a project erased while an
+ * archive was half-sent kept that half of a mailbox. An upload already gone
+ * between the list and the abort is not an error.
+ *
+ * @param {import('@aws-sdk/client-s3').S3Client} s3
+ * @param {string} bucket
+ * @param {string} prefix
+ * @returns {Promise<number>}
+ */
+async function abortMultipartUploads(s3, bucket, prefix) {
+  let aborted = 0
+  /** @type {string | undefined} */
+  let keyMarker
+  /** @type {string | undefined} */
+  let uploadIdMarker
+  do {
+    let page
+    try {
+      page = await s3.send(
+        new ListMultipartUploadsCommand({ Bucket: bucket, Prefix: prefix, KeyMarker: keyMarker, UploadIdMarker: uploadIdMarker }),
+      )
+    } catch (error) {
+      if (isMissingBucket(error)) return aborted
+      throw error
+    }
+    for (const upload of page.Uploads || []) {
+      try {
+        await s3.send(new AbortMultipartUploadCommand({ Bucket: bucket, Key: upload.Key, UploadId: upload.UploadId }))
+        aborted += 1
+      } catch (error) {
+        if (/** @type {{ name?: string }} */ (error).name !== 'NoSuchUpload') throw error
+      }
+    }
+    keyMarker = page.IsTruncated ? page.NextKeyMarker : undefined
+    uploadIdMarker = page.IsTruncated ? page.NextUploadIdMarker : undefined
+  } while (keyMarker)
+  return aborted
+}
+
+module.exports = { abortMultipartUploads, createS3Client, deleteStoragePrefix, isMissingBucket }

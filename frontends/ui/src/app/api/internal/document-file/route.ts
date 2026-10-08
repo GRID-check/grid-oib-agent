@@ -16,7 +16,7 @@
  * from SeaweedFS).
  *
  * A restricted folder's collection (`<project collection>_r<12 hex>`,
- * ADR-0087) is never answered for: no chat turn may draw on one yet, and the
+ * ADR-0088) is never answered for: no chat turn may draw on one yet, and the
  * collection is an argument the model chose. The refusal is the same 404 as an
  * unknown document.
  *

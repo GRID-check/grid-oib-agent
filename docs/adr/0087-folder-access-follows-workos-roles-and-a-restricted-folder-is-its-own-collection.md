@@ -8,7 +8,7 @@ informed: everyone working in this repo
 
 # Folder access follows WorkOS roles, and a restricted folder is its own retrieval collection
 
-> **Partly superseded by [ADR-0087](0087-folder-access-is-read-write-per-role.md)** (2026-10-06):
+> **Partly superseded by [ADR-0088](0088-folder-access-is-read-write-per-role.md)** (2026-10-06):
 > who may see a folder (a role list on `restricted_roles`, replaced by per-role read/write
 > grants that only narrow when nested), the per-conversation mark and the per-socket
 > confinement check (replaced by a per-person record of source folders, judged at read time).
@@ -61,7 +61,7 @@ outside WorkOS moves there; organization admins see everything.
 ## Decision Outcome
 
 **Who: WorkOS custom roles.** *(The folder's role list and the clearance rule in this
-paragraph are superseded by ADR-0087: per-role read/write grants, the minimum over the path;
+paragraph are superseded by ADR-0088: per-role read/write grants, the minimum over the path;
 the session's roles now come from the WorkOS membership, at most 60 s stale.)* An office creates roles such as
 „Geschäftsführung" in Piloti (Organisation → Personen & Zugriff → Eigene
 Rollen), which calls WorkOS's organization role API: slug `org-…`, permissions
@@ -103,7 +103,7 @@ Deleting a restricted folder, or moving a folder so the restricted folders
 above it change, is a change of folder access: it requires `project:manage`
 and is audited as `project.folder.access_changed`, like drawing a restriction.
 
-**Indirect leaks** are closed where the answer can travel. *(Superseded by ADR-0087: the
+**Indirect leaks** are closed where the answer can travel. *(Superseded by ADR-0088: the
 mark, the per-turn confinement check and the `4412` close are replaced by a per-person record
 of the source folders a conversation drew on, admitted per tool round and judged against the
 folders' current access.)* A conversation that

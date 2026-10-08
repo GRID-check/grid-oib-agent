@@ -439,7 +439,7 @@ refused_in() {
 }
 
 # ---------------------------------------------------------------------------
-# Migration 0110: read/write grants per folder (ADR-0087), and its DOWN.
+# Migration 0111: read/write grants per folder (ADR-0088), and its DOWN.
 #
 # What the database itself holds: a custom list may not be emptied (the
 # deferred trigger), may be REPLACED in one transaction, refuses a level or a
@@ -448,8 +448,8 @@ refused_in() {
 # down removes the tombstones, the grants table and the columns, and puts
 # develop's non-partial name index back; 0110 then re-applies.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0110 grants, their constraints and the down migration on grid_grants"
-migrate_until grid_grants 0110_project_folder_grants
+echo "==> verifying the 0111 grants, their constraints and the down migration on grid_grants"
+migrate_until grid_grants 0111_project_folder_grants
 sql_in grid_grants <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
 VALUES ('aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'Grants 0110', 'user_1', 'proj_0106');
@@ -494,15 +494,15 @@ check_in grid_grants "SELECT string_agg(role_slug || ':' || level, ',' ORDER BY 
 check_in grid_grants "SELECT count(*) FROM project_folder_grants WHERE folder_id = 'b2b2b2b2-b2b2-4000-8000-000000000106'" "1" "a tombstone keeps its list"
 refused_in grid_grants "INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) SELECT 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'd4d4d4d4-d4d4-4000-8000-000000000106', 'org-extra-' || n, 'read' FROM generate_series(1, 19) AS n;" "it needs 1 to 20" "a list holds at most 20 entries"
 refused_in grid_grants "INSERT INTO project_folders (organization_id, project_id, name, path) VALUES ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Personal', 'Personal');" "uniq_project_folders_parent_name" "two living folders still cannot share a name"
-apply_in grid_grants 0110_project_folder_grants.down.sql
+apply_in grid_grants 0111_project_folder_grants.down.sql
 check_in grid_grants "SELECT string_agg(name, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare,Personal,Pläne,Verträge" "down removed the tombstone and kept every living folder"
 check_in grid_grants "SELECT to_regclass('public.project_folder_grants') IS NULL" "t" "down dropped the grants table"
 check_in grid_grants "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('access_mode', 'access_changed_by', 'access_changed_at', 'deleted_at', 'deleted_by')" "0" "down dropped the new columns"
 check_in grid_grants "SELECT indexdef LIKE '%WHERE%' FROM pg_indexes WHERE indexname = 'uniq_project_folders_parent_name'" "f" "down put develop's non-partial name index back"
-apply_in grid_grants 0110_project_folder_grants.sql
+apply_in grid_grants 0111_project_folder_grants.sql
 check_in grid_grants "SELECT string_agg(name || '=' || access_mode, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare=inherit,Personal=inherit,Pläne=inherit,Verträge=inherit" "0110 re-applies, every folder inheriting"
 
-echo "==> 0110 grants, constraints and down migration verified"
+echo "==> 0111 grants, constraints and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0111: the per-folder chat record, and its DOWN.
