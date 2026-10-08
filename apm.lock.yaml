@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-10-08T10:17:57.988695+00:00'
+generated_at: '2026-10-08T11:37:49.469958+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-add-data-source
@@ -180,10 +180,10 @@ dependencies:
   deployed_file_hashes:
     .agents/skills/aiq-maintain-ci/SKILL.md: sha256:b86fdd801ee2eea53db7fcb20e4c37e4c84cb7c00da8e43bcd0ca5921089c0d5
     .agents/skills/aiq-maintain-ci/references/skill-eval-harness.md: sha256:c645d57829bf72ee531d339741f40ae51f8455693f003724fbf5ece890509f26
-    .agents/skills/aiq-maintain-ci/references/workflows-and-hooks.md: sha256:0cf3a2d58b751c1b285e23a3f5a9f3314c7adca7d876dc599f649f4c8b8c66d5
+    .agents/skills/aiq-maintain-ci/references/workflows-and-hooks.md: sha256:dc90b513e1cc49887e5f7e19f1cfec1925954043fd7dc83e441b877d001ac777
     .claude/skills/aiq-maintain-ci/SKILL.md: sha256:b86fdd801ee2eea53db7fcb20e4c37e4c84cb7c00da8e43bcd0ca5921089c0d5
     .claude/skills/aiq-maintain-ci/references/skill-eval-harness.md: sha256:c645d57829bf72ee531d339741f40ae51f8455693f003724fbf5ece890509f26
-    .claude/skills/aiq-maintain-ci/references/workflows-and-hooks.md: sha256:0cf3a2d58b751c1b285e23a3f5a9f3314c7adca7d876dc599f649f4c8b8c66d5
+    .claude/skills/aiq-maintain-ci/references/workflows-and-hooks.md: sha256:dc90b513e1cc49887e5f7e19f1cfec1925954043fd7dc83e441b877d001ac777
   source: local
   local_path: ./skills/aiq-maintain-ci
 - repo_url: _local/aiq-piloti-riso
@@ -1027,7 +1027,7 @@ deployments:
   owners:
   - ./skills/aiq-maintain-ci
   active_owner: ./skills/aiq-maintain-ci
-  content_hash: sha256:0cf3a2d58b751c1b285e23a3f5a9f3314c7adca7d876dc599f649f4c8b8c66d5
+  content_hash: sha256:dc90b513e1cc49887e5f7e19f1cfec1925954043fd7dc83e441b877d001ac777
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-piloti-riso
@@ -2071,7 +2071,7 @@ deployments:
   owners:
   - ./skills/aiq-maintain-ci
   active_owner: ./skills/aiq-maintain-ci
-  content_hash: sha256:0cf3a2d58b751c1b285e23a3f5a9f3314c7adca7d876dc599f649f4c8b8c66d5
+  content_hash: sha256:dc90b513e1cc49887e5f7e19f1cfec1925954043fd7dc83e441b877d001ac777
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-piloti-riso

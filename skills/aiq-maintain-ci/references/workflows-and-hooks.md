@@ -11,6 +11,17 @@ Authoritative sources: the workflow files under `.github/workflows/` and
   aiq_api suite and the `sources/` suites), the frontend, tenant-isolation, web,
   infra and packages jobs, `release-note` (pull requests only), and `ci-ok`, the
   single required check.
+- `security.yml` ("Security") — Semgrep, OSV-Scanner and trivy behind the
+  `changes` filter, gitleaks on every run, and `security-ok` ("Security OK"),
+  the aggregate gate. Also weekly on a schedule, always in full.
+- Reuse on push: a green `pull_request` run's gate job (`ci-ok`,
+  `security-ok`) uploads a `ci-green-<tree>` / `security-green-<tree>` marker,
+  and on push `changes` runs `ci/reuse_green_run.py`. On a hit every tier output
+  is `'false'`, every job skips and the run still concludes `success`, which is
+  what `deploy.yml`'s gate reads. A new job must take its `if:` from a
+  `changes` output (or `reused`), or it re-runs on every merge;
+  `tests/test_ci_change_detection.py` evaluates every job's condition and fails
+  on one that does not skip.
 - `ui.yml` — jobs `install`, `lint`, `type-check`, `unit-test`, `build` for
   `frontends/ui/`.
 - `skills-eval.yml` ("Skills Eval") — runs on `push` and `workflow_dispatch`. A

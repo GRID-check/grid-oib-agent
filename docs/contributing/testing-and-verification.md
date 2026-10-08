@@ -72,6 +72,23 @@ by `fe:test:merge` for the coverage comment. Run in series on one runner, the
 tests were about 63% of the job's wall clock. Locally `task fe:verify` runs lint,
 types, tests and build in order instead.
 
+A push to `develop` or `release/**` whose tree a green pull request run already
+tested does not run the jobs again. CI and Security still start and conclude
+`success` (the deploy gate reads exactly that), but `changes` finds the PR
+run's `ci-green-<tree>` / `security-green-<tree>` marker and every job skips. A
+squash merge onto a base that did not move lands that tree; a base that moved
+lands a different one and runs in full. The decision and every reason to refuse
+a marker (a cancelled, failed or still-running run, a fork, another workflow, a
+workflow file that differs from the pushed one, an expired marker, an API
+error) live in [`ci/reuse_green_run.py`](../../ci/reuse_green_run.py) and
+[`tests/test_reuse_green_run.py`](../../tests/test_reuse_green_run.py);
+[`tests/test_ci_change_detection.py`](../../tests/test_ci_change_detection.py)
+evaluates every job's condition to pin that a hit skips all of them and a miss
+skips none. What a reused push gives up: Semgrep's full-tree report (advisory
+on push anyway), and a trivy re-scan against an advisory database up to the
+marker's seven days newer, which on push only ever ran when the image pins
+changed. The weekly scan covers both.
+
 Three required checks are not in `task verify` at all: `db:test:rls` (it needs
 PostgreSQL server binaries), `pkg:test` (four minutes, on a directory most
 changes never touch — see below), and the release-note gate (it needs the PR's

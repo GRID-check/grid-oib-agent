@@ -15,7 +15,9 @@ name: Security
 #                    any repo-built Dockerfile, so no other scanner sees them)
 #
 # Runs on every PR and push to the integration branches, plus a weekly scheduled
-# full scan to catch newly-disclosed advisories in code that has not changed.
+# full scan to catch newly-disclosed advisories in code that has not changed. A
+# push whose tree a green pull_request run already scanned skips every scan and
+# passes (`changes`, ci/reuse_green_run.py); the scheduled run never does.
 #
 # Phase 1 (current): Semgrep and OSV-Scanner are non-blocking (continue-on-error)
 # so findings surface in the job log without blocking merges while we tune noise
@@ -46,18 +48,33 @@ jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # find the pull request run's green marker (ci/reuse_green_run.py)
     outputs:
-      images: ${{ steps.filter.outputs.security_images }}
-      deps: ${{ steps.filter.outputs.security_deps }}
-      sast: ${{ steps.filter.outputs.security_sast }}
+      # Same reuse as ci.yml: on a hit the filter does not run and every scope
+      # reads 'false', so every scan skips and Security OK passes.
+      reused: ${{ steps.reuse.outputs.hit || 'false' }}
+      images: ${{ steps.filter.outputs.security_images || 'false' }}
+      deps: ${{ steps.filter.outputs.security_deps || 'false' }}
+      sast: ${{ steps.filter.outputs.security_sast || 'false' }}
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
           fetch-depth: 0
           ref: ${{ github.event.action == 'synchronize' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
+      # Push only, so the weekly scheduled scan always runs in full.
+      - name: Reuse the pull request's green result for this tree
+        id: reuse
+        if: github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 ci/reuse_green_run.py security-green
       - uses: dorny/paths-filter@v4
         id: filter
+        if: steps.reuse.outputs.hit != 'true'
         with:
           filters: .github/filters.yml
           token: ''
@@ -140,6 +157,10 @@ jobs:
 
   secret-scan:
     name: Secret scan (gitleaks)
+    needs: changes
+    # Runs even when `changes` failed (it never depended on it), but not on a
+    # push whose tree a green pull_request run already scanned.
+    if: ${{ !cancelled() && needs.changes.outputs.reused != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -231,3 +252,44 @@ jobs:
         with:
           path: .trivy-cache/fanal
           key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pinned-images.txt') }}
+
+  security-ok:
+    name: Security OK
+    if: always()
+    # The aggregate gate docs/deployment/cd.md names. Same rule as CI OK: every
+    # needed job succeeded or was skipped.
+    needs: [changes, semgrep, deps-osv, secret-scan, image-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require needed jobs to have passed (skipped is fine)
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          needs = json.loads('''${{ toJSON(needs) }}''')
+          failed = {k: v["result"] for k, v in needs.items() if v["result"] not in ("success", "skipped")}
+          if failed:
+              print("Failing jobs:", failed)
+              sys.exit(1)
+          print("All required jobs passed or were skipped.")
+          EOF
+      # The marker `changes` looks for on push; see the same steps in ci.yml.
+      - name: Name the tree this run tested
+        id: tree
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$GITHUB_SHA" --jq .tree.sha)"
+          [[ "$tree" =~ ^[0-9a-f]{40}$ ]]
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/green-run.txt"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+      - name: Record this tree as green
+        if: github.event_name == 'pull_request' && steps.tree.outputs.tree != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: security-green-${{ steps.tree.outputs.tree }}
+          path: ${{ runner.temp }}/green-run.txt
+          retention-days: 7
+          overwrite: true

@@ -4,7 +4,8 @@ name: CI
 # backend and/or frontend jobs a change actually touches; the `ci-ok` gate at
 # the end is the single required status check for branch protection (it passes
 # when every needed job succeeded or was skipped). Private repo -> PRs run
-# directly (no copy-pr-bot).
+# directly (no copy-pr-bot). A push whose tree a green pull_request run already
+# tested skips every job and passes (`changes`, ci/reuse_green_run.py).
 on:
   push:
     branches: [develop, "release/**"]
@@ -27,12 +28,19 @@ jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # find the pull request run's green marker (ci/reuse_green_run.py)
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-      frontend: ${{ steps.filter.outputs.frontend }}
-      web: ${{ steps.filter.outputs.web }}
-      infra: ${{ steps.filter.outputs.infra }}
-      packages: ${{ steps.filter.outputs.packages }}
+      # 'true' when this push's tree already passed in full on its pull request.
+      # The filter then does not run, every tier reads 'false', every job below
+      # skips, and CI OK passes: the run still concludes `success` for deploy.yml.
+      reused: ${{ steps.reuse.outputs.hit || 'false' }}
+      backend: ${{ steps.filter.outputs.backend || 'false' }}
+      frontend: ${{ steps.filter.outputs.frontend || 'false' }}
+      web: ${{ steps.filter.outputs.web || 'false' }}
+      infra: ${{ steps.filter.outputs.infra || 'false' }}
+      packages: ${{ steps.filter.outputs.packages || 'false' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -41,8 +49,22 @@ jobs:
           # synchronize checks out the PR head. The default PR checkout is a
           # merge commit, which would mix develop into the diff.
           ref: ${{ github.event.action == 'synchronize' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
+      # A squash merge onto a base that has not moved lands exactly the tree the
+      # PR's last run tested, so on push this looks for that run's green marker
+      # (uploaded by CI OK below) and skips the re-run on a hit. Only a completed,
+      # successful pull_request run of this same, unmodified workflow from this
+      # repository counts. A miss or any error runs everything, as does a failure
+      # of this step (continue-on-error leaves `hit` unset).
+      - name: Reuse the pull request's green result for this tree
+        id: reuse
+        if: github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 ci/reuse_green_run.py ci-green
       - uses: dorny/paths-filter@v4
         id: filter
+        if: steps.reuse.outputs.hit != 'true'
         with:
           # One definition, read by this workflow and by Docker Build. What each
           # family means, and why the image scopes are separate: .github/filters.yml
@@ -73,8 +95,13 @@ jobs:
   # deploy/** or frontends/ui/** could land drift on develop that stayed
   # invisible until some later, unrelated backend PR tripped over it. Running it
   # on every PR means whoever introduces the drift is the one who sees it.
+  #
+  # It does wait for `changes`, for one answer only: a push whose tree already
+  # passed on its pull request skips this too.
   repo-lint:
     name: Repo lint (pre-commit, all files)
+    needs: changes
+    if: needs.changes.outputs.reused != 'true'
     runs-on: ubuntu-latest
     steps:
       # No persisted checkout token: this job executes repository-defined
@@ -502,3 +529,29 @@ jobs:
               sys.exit(1)
           print("All required jobs passed or were skipped.")
           EOF
+      # A green pull_request run leaves a marker named for the tree it tested
+      # (GITHUB_SHA is the merge commit every job checked out), so the push that
+      # lands this exact tree can reuse the result: `changes` reads it. After the
+      # check above and without always(), so a failing gate uploads nothing, and
+      # the push still demands that the whole run concluded `success`. Best
+      # effort: a hiccup here costs the push a full re-run, never this gate.
+      - name: Name the tree this run tested
+        id: tree
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$GITHUB_SHA" --jq .tree.sha)"
+          [[ "$tree" =~ ^[0-9a-f]{40}$ ]]
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/green-run.txt"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+      - name: Record this tree as green
+        if: github.event_name == 'pull_request' && steps.tree.outputs.tree != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-green-${{ steps.tree.outputs.tree }}
+          path: ${{ runner.temp }}/green-run.txt
+          retention-days: 7
+          overwrite: true
