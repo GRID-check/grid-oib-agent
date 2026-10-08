@@ -107,7 +107,6 @@ describe("Postgres routing", () => {
       "grid-oib:seaweedfsTopology": "split",
       "grid-oib:seaweedfsFilerStore": "postgres",
       "grid-oib:seaweedfsPerOrgBuckets": "true",
-      "grid-oib:jobExecution": "db",
       "grid-oib:allowPlaintextJobPayloads": "true",
       "grid-oib:pgInstances": "3",
     });

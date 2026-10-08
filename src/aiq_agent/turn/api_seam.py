@@ -28,7 +28,7 @@ from typing import Any
 
 from aiq_api.auth.errors import AuthError
 
-__all__ = ["AuthError", "async_job_dispatch", "enqueue_ingest_job", "skip_clarifier_requested", "submit_agent_job"]
+__all__ = ["AuthError", "enqueue_ingest_job", "skip_clarifier_requested", "submit_agent_job"]
 
 
 def skip_clarifier_requested() -> bool:
@@ -41,13 +41,6 @@ def skip_clarifier_requested() -> bool:
     from aiq_api.auth.middleware import get_current_user
 
     return bool(get_current_user().get("skip_clarifier"))
-
-
-def async_job_dispatch() -> str | None:
-    """The backend that can run a deep-research job out of process, or ``None``."""
-    from aiq_api.jobs.submit import async_job_dispatch as _dispatch
-
-    return _dispatch()
 
 
 async def submit_agent_job(**kwargs: Any) -> str:

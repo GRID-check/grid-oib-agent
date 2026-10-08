@@ -31,7 +31,7 @@ export const RESEARCH_QUEUE_DEPTH_QUERY = queueDepthQuery(QUEUE_TABLE);
  * Dedicated worker replicas (same backend image, `GRID_ROLE=worker`) claim
  * deep-research jobs from Postgres and execute them, so the token-heavy
  * workload scales horizontally and independently of the chat/web tier. No web
- * port, no Dask, no PVC — workers are stateless (vectors live in shared Chroma,
+ * port, no PVC — workers are stateless (vectors live in shared Chroma,
  * job state in Postgres).
  *
  * SCALED ON THE QUEUE, NOT ON CPU. A research job spends its time waiting on

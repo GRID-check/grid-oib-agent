@@ -79,7 +79,6 @@ describe.each(COMPOSE_FILES)("%s", (file) => {
     for (const name of ["aiq-agent", "aiq-api", "agent-worker", "ingest-worker"]) {
       expect(Object.keys(services[name].depends_on ?? {}), name).toContain("chroma");
     }
-    expect(env(services["aiq-agent"]).GRID_JOB_EXECUTION).toBe("db");
   });
 });
 
@@ -107,5 +106,35 @@ describe("the retired role and claim switch", () => {
       .join("\n");
 
     expect(python).not.toContain("GRID_INGEST_QUEUE_CLAIM");
+  });
+});
+
+/** Research runs on the database queue alone: no execution switch, scheduler address or worker-pool knob survives. */
+describe("the research queue is the only execution path", () => {
+  const retired = /GRID_JOB_EXECUTION|NAT_DASK_SCHEDULER_ADDRESS|NAT_USE_DASK_THREADS|DASK_|GRID_MAX_ACTIVE_JOBS(?!_)/;
+  const files = [
+    ...COMPOSE_FILES.map((f) => join("deploy", "compose", f)),
+    join("deploy", ".env.example"),
+    join("deploy", "entrypoint.py"),
+    join("deploy", "pulumi", "src", "config.ts"),
+    join("deploy", "pulumi", "src", "app", "config.ts"),
+    join("deploy", "pulumi", "src", "app", "api.ts"),
+    join("deploy", "pulumi", "src", "app", "backend.ts"),
+  ];
+
+  it.each(files)("%s names no retired execution setting", (file) => {
+    expect(read(file)).not.toMatch(retired);
+  });
+
+  it("the Python sources read none of them either", () => {
+    const python = [join("frontends", "aiq_api", "src", "aiq_api"), join("src", "aiq_agent")]
+      .flatMap((dir) =>
+        readdirSync(join(repoRoot, dir), { recursive: true })
+          .filter((f): f is string => typeof f === "string" && f.endsWith(".py"))
+          .map((f) => read(dir, f)),
+      )
+      .join("\n");
+
+    expect(python).not.toMatch(retired);
   });
 });

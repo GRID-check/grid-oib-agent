@@ -23,8 +23,7 @@ export const QUEUE_DEPTH_QUERY = queueDepthQuery(QUEUE_TABLE);
 /**
  * The ingestion tier (ADR-0076), the only process that claims ingestion jobs.
  *
- * Replicas of the backend image with `GRID_ROLE=ingest-worker`: no web port, no
- * Dask, no PVC. Each builds the ingestor once and its `concurrency` threads
+ * Replicas of the backend image with `GRID_ROLE=ingest-worker`: no web port, no PVC. Each builds the ingestor once and its `concurrency` threads
  * claim jobs from Postgres, fairly across organisations (fewest running first,
  * fleet-wide). Vectors live in the shared Chroma, jobs in Postgres, so a replica
  * is disposable.

@@ -34,14 +34,13 @@ NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma`,
 | `bff-jobs` | The BFF's background pool (ADR-0079): runs the jobs in `bff_job_queue`: project reindex, failed-ingestion rescan, IFC model extraction (`bim_extract`), Office-to-PDF rendition through `gotenberg` (`office_rendition`) and the filing of a finished research report (`file_research_report`). `extends` the `frontend` service, so it shares its environment (`GOTENBERG_URL` included); publishes nothing. Without it none of those run: an uploaded IFC model never gets its structure, a Word or Excel file is never indexed from its PDF, a finished report is never filed, and a reindex or rescan stays queued | No (internal) |
 | `seaweedfs-init` | One-shot: creates the `grid-documents` bucket | No |
 
-> **Deep-research runs on its own worker (`GRID_JOB_EXECUTION=db`).**
+> **Deep-research runs on its own worker.**
 > This compose mirrors the Kubernetes topology: the `aiq-agent` chat role enqueues
 > research jobs to Postgres and the `agent-worker` service claims and executes
 > them (`FOR UPDATE SKIP LOCKED`), so token-heavy runs scale and crash
 > independently of the chat tier, and every backend role reads and writes the
 > shared `chroma` server. The value is fixed: a job submitted by the chat role is
-> streamed and cancelled by the `aiq-api` role, which a per-process Dask cluster
-> cannot serve (ADR-0082). See §7 for the one-time re-ingestion this implies on
+> streamed and cancelled by the `aiq-api` role (ADR-0082). See §7 for the one-time re-ingestion this implies on
 > an existing embedded-Chroma deployment.
 
 Only **frontend** and **seaweedfs** get a public domain. Everything else talks over
@@ -448,7 +447,7 @@ docker compose -f docker-compose.coolify.yaml up -d
 | Concern | Dev compose | Coolify compose |
 |---|---|---|
 | Container names | fixed (`aiq-agent`, …) | none (Coolify namespaces) |
-| Deep-research execution | in-process (`dask`), embedded Chroma | `db` mode: dedicated `agent-worker` + shared `chroma` server (mirrors K8s) |
+| Deep-research execution | dedicated `agent-worker` + shared `chroma` server (mirrors K8s) |
 | Docker network | custom `aiq-network` (bridge) | none declared — Coolify's managed per-stack network (avoids dual-homed 504/DNS failures) |
 | Host ports | published (3000, 8000, 5432, 8333/8888) | none — proxy + FQDN vars |
 | Secrets | `deploy/.env` literals | Coolify UI (`${VAR:?}`) + generated passwords; `OPENROUTER_API_KEY`, `TAVILY_API_KEY`, `GRID_ADMIN_TOKEN` all required |

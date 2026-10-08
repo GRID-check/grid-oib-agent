@@ -34,7 +34,6 @@ const pulumiDir = join(__dirname, "..");
 async function load(config: Record<string, string> = {}) {
   pulumi.runtime.setAllConfig({
     ...baseStackConfig(),
-    "grid-oib:jobExecution": "db",
     "grid-oib:allowPlaintextJobPayloads": "true",
     "grid-oib:observabilityEnabled": "false",
     ...config,

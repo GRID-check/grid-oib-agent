@@ -4,7 +4,7 @@ Run as a dedicated container: ``python -m aiq_api.jobs.worker``. It claims
 ``research_job_queue`` rows on the claim substrate (``aiq_agent.common.claim_queue``:
 fairly across organizations, interactive before bulk inside one, at most
 ``GRID_MAX_ACTIVE_JOBS_PER_ORG`` of an organization's jobs running at once),
-executes the same ``run_agent_job`` body the Dask path runs, heartbeats the claim
+executes the ``run_agent_job`` body, heartbeats the claim
 so a crash is reclaimed, and marks the row done. Worker replicas scale research
 execution horizontally, independently of the web tier, and KEDA scales them on the
 queue's depth. Cancellation needs nothing special here: the cancel route flips
@@ -59,6 +59,21 @@ RETRIES_EXHAUSTED_ERROR = "research worker retries exhausted"
 
 #: How often the worker deletes dead rows past their retention.
 _PURGE_EVERY_SECONDS = 3600
+
+#: Payload keys that ``run_agent_job`` no longer accepts, dropped at replay.
+#: They are here because the release before #887 queued rows (and ran jobs that a
+#: new worker reclaims) with ``scheduler_address`` in the payload, the Dask
+#: scheduler it submitted to. Without this a job queued or running at upgrade
+#: fails with a TypeError when a new worker claims it. Delete this constant and
+#: the filtering in ``_replay_kwargs`` once no installation has a pre-#887 queue
+#: row. Only these names are dropped: an unknown key in a new payload must still fail.
+RETIRED_PAYLOAD_KEYS = frozenset({"scheduler_address"})
+
+
+def _replay_kwargs(payload: dict, worker_id: str) -> dict:
+    """The decrypted queue payload as ``run_agent_job`` kwargs: retired keys dropped, our claim id set."""
+    kwargs = {key: value for key, value in payload.items() if key not in RETIRED_PAYLOAD_KEYS}
+    return {**kwargs, "claim_owner": worker_id}
 
 
 def _int_env(name: str, default: int) -> int:
@@ -171,7 +186,7 @@ class ResearchWorker:
         # the run so a reclaimed loser publishes nothing user-visible
         # (status/turn/notice) — the spread keeps old payloads without the key
         # working, with our id winning over the submit-time None.
-        run_task = asyncio.create_task(run_agent_job(**{**payload, "claim_owner": self.worker_id}))
+        run_task = asyncio.create_task(run_agent_job(**_replay_kwargs(payload, self.worker_id)))
         self._held[job_id] = run_task
         heartbeat = asyncio.create_task(self._heartbeat_loop(job_id, run_task))
         claim_lost = False

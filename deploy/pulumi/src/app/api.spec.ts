@@ -217,19 +217,8 @@ describe("the api tier", () => {
     expect(cfg.ingestWorker).not.toHaveProperty("enabled");
   });
 
-  it("deploys research as DB-claimed only, and refuses any other jobExecution naming ADR-0082 B", async () => {
-    const { loadConfig } = await import("../config");
-
-    expect(cfg.jobExecution).toBe("db");
-    expect(apiEnvValues.GRID_JOB_EXECUTION).toBe("db");
-    for (const value of ["dask", "", "Db"]) {
-      pulumi.runtime.setAllConfig({ ...baseStackConfig(), "grid-oib:jobExecution": value });
-      expect(() => loadConfig(), value).toThrow(
-        /ADR-0082 step B.*cannot cancel or stream a job that lives on a chat container's Dask cluster/s,
-      );
-    }
-    pulumi.runtime.setAllConfig({ ...baseStackConfig(), "grid-oib:jobExecution": "db" });
-    expect(loadConfig().jobExecution).toBe("db");
+  it("runs research on the database queue alone: the api workload carries no execution switch", () => {
+    expect(apiEnvValues).not.toHaveProperty("GRID_JOB_EXECUTION");
   });
 
   it("is reachable from the frontend and the CronJobs through the namespace-wide ingress allow", async () => {

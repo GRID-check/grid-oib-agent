@@ -61,7 +61,6 @@ const NETPOL = "kubernetes:networking.k8s.io/v1:NetworkPolicy";
 const STATEFULSET = "kubernetes:apps/v1:StatefulSet";
 
 const AUTOSCALING = {
-  "grid-oib:jobExecution": "db",
   "grid-oib:allowPlaintextJobPayloads": "true",
   "grid-oib:chatAffinity": "false",
   "grid-oib:backendReplicas": "1",

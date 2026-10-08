@@ -107,11 +107,8 @@ services:
       # by each process separately cannot do. The backend keeps no files: the base
       # corpus is in SeaweedFS and a table (ADR-0082), its cache is under /tmp.
       AIQ_CHROMA_URL: ${AIQ_CHROMA_URL:-http://chroma:8000}
-      # Research execution (ADR-0021): jobs are claimed from Postgres by the
-      # `agent-worker` service below, so the chat role may submit one and the api
-      # role stream and cancel it. A Dask job would run on the cluster of the
-      # container that submitted it, out of the other role's reach.
-      GRID_JOB_EXECUTION: db
+      # Research jobs (ADR-0021) are claimed from Postgres by the `agent-worker`
+      # service below: the chat role submits one, the api role streams and cancels it.
       # Encrypts DB-claimed job payloads at rest (AES-256-GCM). Empty = plaintext
       # (a one-time warning is logged); acceptable on a single trusted node. Set a
       # base64 32-byte key to encrypt: `openssl rand -base64 32`.
@@ -121,15 +118,6 @@ services:
       CONFIG_FILE: ${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
       HOST: 0.0.0.0
       PORT: "8000"
-      # Dask worker config (GRID_JOB_EXECUTION=dask only)
-      DASK_NWORKERS: ${DASK_NWORKERS:-1}
-      DASK_NTHREADS: ${DASK_NTHREADS:-4}
-      # Optional: bound per-worker memory (Dask spills/restarts above this)
-      # DASK_MEMORY_LIMIT: ${DASK_MEMORY_LIMIT:-}
-      # Optional: recycle workers after this many seconds to drop accumulated state
-      # DASK_LIFETIME: ${DASK_LIFETIME:-}
-      # Optional (default true): set to "false" to let workers exit gracefully without respawning
-      # DASK_LIFETIME_RESTART: ${DASK_LIFETIME_RESTART:-}
     ports:
       # Not the API: the chat WebSocket, for a client that talks to it directly
       # (the evals do). The API is published by `aiq-api` on ${PORT:-8000}.
@@ -206,7 +194,7 @@ services:
     # Research jobs (ADR-0021), the docker-compose mirror of the Kubernetes
     # Deployment in deploy/pulumi/src/app/agent-worker.ts: the backend image as
     # GRID_ROLE=worker claims jobs from Postgres (FOR UPDATE SKIP LOCKED) and
-    # reads and writes the shared Chroma. No web port, no Dask.
+    # reads and writes the shared Chroma. No web port.
     image: ${BACKEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-agent:2.0.0}
     build:
       context: ../..

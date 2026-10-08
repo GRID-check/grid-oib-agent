@@ -135,9 +135,10 @@ Deployment when that routing is gone.
 * Good, because a tier's name says what it does.
 * Bad, because the BFF routes to two backend services instead of one.
 * Bad, because Dask is no longer deployable: the api role cannot cancel or
-  stream a job that lives on a chat container's Dask cluster, so Pulumi refuses
-  any `jobExecution` but `db` and both Compose files run `db` only. The Python
-  Dask path is not removed by B.
+  stream a job that lives on a chat container's Dask cluster. Step B also
+  removed the Python Dask path (ADR-0021, amendment): research runs on the
+  database queue only, and neither the Pulumi program nor the Compose files
+  carry an execution setting.
 * Neutral: one more Deployment of the same image.
 
 ### Confirmation
@@ -166,9 +167,9 @@ Each step adds its own gate as it lands:
   Compose files to the same four roles and URLs, and to the entrypoint's list.
   `GRID_ROLE` has no default, so a process with no role stops at start
   (`tests/test_entrypoint_roles.py`, `test_roles.py`). B assumes
-  `GRID_JOB_EXECUTION=db`: the chat role submits research jobs in process and the
-  api role streams and cancels them, which a per-process Dask cluster cannot do
-  across two processes, so Pulumi refuses any `jobExecution` but `db`. B also
+  the research queue: the chat role submits research jobs and the api role
+  streams and cancels them, which a per-process Dask cluster cannot do across two
+  processes. B also
   removes in-process ingestion claiming: the `ingest-worker` tier is the only
   claimer, and both Compose files and the Pulumi program always run it.
 

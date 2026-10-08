@@ -18,12 +18,6 @@ from aiq_agent.common.db_utils import ensure_schema
 _job_access_schema_initialized: set[str] = set()
 
 _JOB_ACCESS_INDEX_SQL = "CREATE INDEX IF NOT EXISTS idx_job_access_owner ON job_access(owner_auth_type, owner_subject)"
-_JOB_ACCESS_ORG_INDEX_SQL = (
-    # The per-org admission count (`count_active_jobs(... organization_id=...)`)
-    # filters `job_access.organization_id` on the submit hot path; without this it
-    # is an unindexed scan against the (never-pruned in db mode) job_info join.
-    "CREATE INDEX IF NOT EXISTS idx_job_access_org ON job_access(organization_id)"
-)
 _JOB_ACCESS_PROJECT_INDEX_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_job_access_owner_project ON job_access(owner_subject, project_collection)"
 )
@@ -71,30 +65,6 @@ def create_job_access(
             _principal_params(job_id, principal, conversation_id, project_collection, organization_id),
         )
         conn.commit()
-
-
-def count_active_jobs(
-    db_url: str,
-    terminal_statuses: tuple[str, ...],
-    organization_id: str | None = None,
-) -> int:
-    """Count non-terminal, non-expired jobs (admission control).
-
-    Org scoping joins ``job_access.organization_id``, written at submit time;
-    pre-existing rows without it simply don't count toward per-org caps.
-    """
-    _ensure_job_access_schema(db_url)
-    with _job_access_connection(db_url) as conn:
-        placeholders = ", ".join(f":s{i}" for i in range(len(terminal_statuses)))
-        params: dict[str, Any] = {f"s{i}": status for i, status in enumerate(terminal_statuses)}
-        query = (
-            "SELECT count(*) FROM job_info ji JOIN job_access ja ON ja.job_id = ji.job_id "
-            f"WHERE ji.status NOT IN ({placeholders}) AND ji.is_expired IS NOT TRUE"
-        )
-        if organization_id is not None:
-            query += " AND ja.organization_id = :organization_id"
-            params["organization_id"] = organization_id
-        return int(conn.execute(text(query), params).scalar() or 0)
 
 
 def get_job_access(job_id: str, db_url: str) -> dict[str, Any] | None:
@@ -425,7 +395,6 @@ def _create_job_access_schema(conn: Connection, db_url: str) -> None:
     else:
         _ensure_sqlite_job_access_columns(conn)
     conn.execute(text(_JOB_ACCESS_PROJECT_INDEX_SQL))
-    conn.execute(text(_JOB_ACCESS_ORG_INDEX_SQL))
 
 
 def _job_access_table_sql(db_url: str) -> str:

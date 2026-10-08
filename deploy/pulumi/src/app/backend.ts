@@ -29,14 +29,9 @@ export interface Backend {
  * table (ADR-0082 step A2), and what it caches on its own disk
  * (`GRID_BASE_CORPUS_CACHE_DIR`, under /tmp) it can lose at any restart.
  *
- * Replica count depends on the execution mode:
- *   - "dask" (default): a HARD SINGLETON (replicas=1) — in-pod Dask +
- *     in-process state pin work to one process. Scales VERTICALLY (CPU/memory
- *     + Dask worker/thread knobs, bounded by admission caps).
- *   - "db": the chat/retrieval path is replica-safe (shared Chroma, Postgres
- *     DSNs, shared cache, DB-persisted ingest status, advisory-locked reapers),
- *     so it runs `backend.replicas` replicas. Research executes on the separate
- *     agent-worker tier.
+ * The chat and retrieval path is replica-safe (shared Chroma, Postgres DSNs,
+ * shared cache, DB-persisted ingest status, advisory-locked reapers), so it runs
+ * `backend.replicas` replicas. Research executes on the separate agent-worker tier.
  *
  * Still a StatefulSet, though nothing here needs one any more: chat affinity
  * hashes a conversation onto a pod ordinal (ADR-0028, ADR-0080), and that
@@ -104,7 +99,7 @@ export function installBackend(
                 env: chatEnv(w),
                 resources: toResourceRequirements(cfg.backend.resources),
                 lifecycle: shutdown.lifecycle,
-                // Boot spins up Dask and opens the Chroma client — generous
+                // Boot opens the Chroma client — generous
                 // startup window before liveness kicks in.
                 startupProbe: {
                   httpGet: { path: "/health", port: PORT.backend },
@@ -136,7 +131,7 @@ export function installBackend(
       ignoreChanges: autoscaled ? ["spec.replicas"] : [],
       // Fixed-name StatefulSet: replaces must delete first (see chroma.ts).
       deleteBeforeReplace: true,
-      // First boot = multi-GB image pull + Dask init; the startupProbe alone
+      // First boot = multi-GB image pull + startup work; the startupProbe alone
       // allows 10 min. Give the await headroom so a healthy-but-slow first
       // deploy doesn't fail on Pulumi's default 10m.
       // An update also waits out every replica's drain, one pod at a time.
@@ -182,7 +177,7 @@ export function installBackend(
 
   // PDB only when the tier is genuinely multi-replica (db mode). On a singleton
   // a maxUnavailable:1 PDB is a no-op, but adding it conditionally keeps the
-  // intent explicit and avoids churn on the dask-mode stack.
+  // intent explicit and avoids churn on a single-replica stack.
   const pdb = multiReplica
     ? installPdb("aiq-agent", w.namespace, w.provider, labels, [statefulSet])
     : undefined;

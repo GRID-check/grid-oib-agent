@@ -223,8 +223,8 @@ export const ROLLOUT = {
   },
 
   /**
-   * aiq-agent chat tier (StatefulSet). Boot is heavy — multi-GB image, Dask
-   * spin-up, Chroma open, optional corpus sync — hence the long grace and the
+   * aiq-agent chat tier (StatefulSet). Boot is heavy — multi-GB image,
+   * Chroma open, optional corpus sync — hence the long grace and the
    * generous startupProbe in backend.ts.
    */
   backend: {

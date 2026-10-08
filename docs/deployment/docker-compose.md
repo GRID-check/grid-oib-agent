@@ -73,13 +73,10 @@ Every other HTTP route is [`aiq-api`](#aiq-api-the-api-role)'s.
 | `AIQ_LISTEN_DB_URL` | `postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs` (direct: SSE LISTEN/NOTIFY) |
 | `AIQ_LOCK_DB_URL` | `postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs` (direct: session advisory locks) |
 | `GRID_ROLE` | `chat` |
-| `GRID_JOB_EXECUTION` | `db` (the chat role submits research jobs in process, the api role streams and cancels them, so the jobs live in Postgres and the `agent-worker` runs them) |
 | `AIQ_CHROMA_URL` | `http://chroma:8000` (no embedded fallback: the backend keeps no volume) |
 | `CONFIG_FILE` | `/app/configs/config_oib_openrouter.yml` |
 | `HOST` | `0.0.0.0` |
 | `PORT` | `8000` |
-| `DASK_NWORKERS` | `1` |
-| `DASK_NTHREADS` | `4` |
 
 The environment is written once, on this service, as a YAML anchor
 (`&backend-environment`); `aiq-api`, `agent-worker` and `ingest-worker` alias it
