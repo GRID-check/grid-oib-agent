@@ -300,6 +300,9 @@ class FixtureOffice:
                 "project": self._ref(candidates[index][0]),
                 "collection": candidates[index][0]["collection"],
                 **candidates[index][1],
+                # The fixture's decisions are person-written; none was read from documents.
+                "origin": "person" if candidates[index][1]["confirmed"] else "agent",
+                "evidence": [],
             }
             for index, _score, relevance in ranked
             if relevance is not None

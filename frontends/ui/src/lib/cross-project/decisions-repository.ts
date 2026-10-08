@@ -25,7 +25,7 @@ import { getDb } from '@/lib/db'
 import { contentTokens, jaccardSimilarity, normalizeContentGerman } from '@/lib/knowledge/consolidation'
 import { cosineSimilaritySql, embedNote } from '@/lib/knowledge/embeddings'
 import { fuseHybridRelevance } from '@/lib/knowledge/recall-scoring'
-import { projectMemory, type ProjectMemoryKind } from '@/lib/db/schema'
+import { projectMemory, type ProjectMemoryKind, type ProjectMemoryVerification } from '@/lib/db/schema'
 import { memoryVisibleTo } from '@/lib/projects/memory-service'
 
 /** The memory kinds that are experience another project can use. */
@@ -46,6 +46,10 @@ export interface FoundDecision {
   content: string
   /** A person confirmed, pinned or wrote it: not only the agent's reading. */
   confirmed: boolean
+  /** How the agent's reading was verified: `source_grounded` when it was read from the project's documents. */
+  verification: ProjectMemoryVerification
+  /** The documents and pages it was read from (empty when none). */
+  evidence: { fileName: string; page: string | null }[]
   updatedAt: Date
   /** The restricted folders it came from, for the hand-out record; null for open memory. */
   restrictedFolderIds: string[] | null
@@ -78,6 +82,7 @@ export async function searchProjectDecisions(
       verification: projectMemory.verification,
       provenanceType: projectMemory.provenanceType,
       pinned: projectMemory.pinned,
+      evidence: projectMemory.evidence,
       updatedAt: projectMemory.updatedAt,
       restrictedFolderIds: projectMemory.restrictedFolderIds,
       relevance,
@@ -117,6 +122,8 @@ export async function searchProjectDecisions(
       kind: row.kind,
       content: row.content,
       confirmed: row.pinned || row.verification === 'user_confirmed' || row.provenanceType === 'user',
+      verification: row.verification,
+      evidence: row.evidence ?? [],
       updatedAt: new Date(row.updatedAt),
       restrictedFolderIds: row.restrictedFolderIds && row.restrictedFolderIds.length > 0 ? [...row.restrictedFolderIds] : null,
     }))

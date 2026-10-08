@@ -356,15 +356,27 @@ async function decisionScopes(
   }))
 }
 
+/**
+ * Who stands behind a recorded decision. A person's confirmation outranks the
+ * documents it was read from, which outrank the agent's own note alone.
+ */
+export function decisionOriginOf(found: Pick<FoundDecision, 'confirmed' | 'verification'>): CrossProjectDecision['origin'] {
+  if (found.confirmed) return 'person'
+  return found.verification === 'source_grounded' ? 'documents' : 'agent'
+}
+
 function asDecision(found: FoundDecision, byId: ReadonlyMap<string, Project>): CrossProjectDecision | null {
   const project = byId.get(found.projectId)
   if (!project) return null
+  const origin = decisionOriginOf(found)
   return {
     project: projectRefOf(project),
     collection: project.collectionName,
     kind: found.kind === 'constraint' ? 'constraint' : 'decision',
     content: found.content,
-    confirmed: found.confirmed,
+    origin,
+    confirmed: origin === 'person',
+    evidence: found.evidence,
     recordedAt: found.updatedAt.toISOString(),
     restricted: found.restrictedFolderIds !== null,
   }

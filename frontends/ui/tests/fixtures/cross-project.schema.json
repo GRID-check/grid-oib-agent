@@ -141,8 +141,42 @@
               "content": {
                 "type": "string"
               },
+              "origin": {
+                "type": "string",
+                "enum": [
+                  "person",
+                  "documents",
+                  "agent"
+                ]
+              },
               "confirmed": {
                 "type": "boolean"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "fileName": {
+                      "type": "string"
+                    },
+                    "page": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "fileName",
+                    "page"
+                  ],
+                  "additionalProperties": true
+                }
               },
               "recordedAt": {
                 "type": "string"
@@ -156,7 +190,9 @@
               "collection",
               "kind",
               "content",
+              "origin",
               "confirmed",
+              "evidence",
               "recordedAt",
               "restricted"
             ],

@@ -487,6 +487,8 @@ describe('the decisions other projects recorded', () => {
     kind: 'decision',
     content: 'Stiegenhaus in Stahlbeton, weil das Gutachten nur so die Abweichung zuließ.',
     confirmed: true,
+    verification: 'unverified',
+    evidence: [],
     updatedAt: new Date('2022-05-01T08:00:00Z'),
     restrictedFolderIds: null,
     ...extra,
@@ -504,13 +506,34 @@ describe('the decisions other projects recorded', () => {
         collection: 'proj_1',
         kind: 'decision',
         content: 'Stiegenhaus in Stahlbeton, weil das Gutachten nur so die Abweichung zuließ.',
+        origin: 'person',
         confirmed: true,
+        evidence: [],
         recordedAt: '2022-05-01T08:00:00.000Z',
         restricted: false,
       },
       expect.objectContaining({ kind: 'constraint', restricted: true }),
     ])
     expect(state.recorded).toEqual([{ projectIds: [one.id, two.id], folderIds: ['folder-vertrag'] }])
+  })
+
+  it('say who stands behind each: the documents it was read from with their evidence, a person, or the agent alone', async () => {
+    const [one, two, three] = state.reachable
+    const evidence = [{ fileName: 'Bescheid.pdf', page: '3' }]
+    state.decisions = [
+      decision(one.id, { confirmed: false, verification: 'source_grounded', evidence }),
+      // A person confirming a drafted decision makes it theirs: the person outranks the documents.
+      decision(two.id, { confirmed: true, verification: 'source_grounded', evidence }),
+      decision(three.id, { confirmed: false, verification: 'unverified' }),
+    ]
+
+    const result = await searchAcrossProjects(caller(), search({}))
+
+    expect(result.decisions.map(({ origin, confirmed, evidence }) => ({ origin, confirmed, evidence }))).toEqual([
+      { origin: 'documents', confirmed: false, evidence },
+      { origin: 'person', confirmed: true, evidence },
+      { origin: 'agent', confirmed: false, evidence: [] },
+    ])
   })
 
   it('come only from the page of projects searched, never from the conversation’s own', async () => {
