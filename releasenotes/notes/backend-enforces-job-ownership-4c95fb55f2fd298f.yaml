@@ -1,0 +1,4 @@
+---
+operators:
+  - >
+    The backend now enforces job ownership in Kubernetes: all four backend tiers get REQUIRE_AUTH and WORKOS_CLIENT_ID from the stack, so a research job is returned only to its submitter. Direct submissions made before this release belong to no user and are no longer returned to anyone.

@@ -16,6 +16,14 @@ REQUIRE_AUTH=true
 
 When auth is disabled, the system runs with a default unauthenticated user context. The Python backend receives no JWT tokens and operates in anonymous mode.
 
+The backend reads the same variable. With `REQUIRE_AUTH=true` it enforces:
+
+- **Job ownership.** A research job is returned only to the principal that submitted it. Another user gets the same 404 as for a job that does not exist.
+- **The signed envelope.** A WorkOS-authenticated request to any route not on the exempt list must carry a valid `X-Grid-Request-Context` envelope (`aiq_api/context_envelope.py`).
+- **Document search scope.** `/v1/collections/{name}/search` refuses a request that carries no signed scope.
+
+The Kubernetes deployment sets the flag on every backend tier (chat, api, agent-worker, ingest-worker), from the same value as the frontend. With `REQUIRE_AUTH=false` every caller can read every job, so use it only in a throwaway environment.
+
 ### WorkOS Configuration
 
 When `REQUIRE_AUTH=true`, these variables must be set:

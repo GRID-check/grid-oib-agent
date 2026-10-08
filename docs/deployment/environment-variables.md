@@ -46,11 +46,11 @@ Variables set in `docker-compose.yaml` under `environment:` take precedence over
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `WORKOS_CLIENT_ID` | When `REQUIRE_AUTH=true` | — | WorkOS client ID. Format: `client_xxx`. |
+| `WORKOS_CLIENT_ID` | When `REQUIRE_AUTH=true` | — | WorkOS client ID. Format: `client_xxx`. Read by the frontend and by every backend tier (the chat, api, agent-worker and ingest-worker roles, which all share `backendEnv` in `deploy/pulumi/src/app/config.ts`). It loads the backend's JWT validator, and with `REQUIRE_AUTH=true` the backend refuses to start without one. In Kubernetes it is set on all of them from `grid-oib:workosClientId`; in Compose the backend reads it from `deploy/.env` through `env_file`. |
 | `WORKOS_API_KEY` | When `REQUIRE_AUTH=true` | — | WorkOS API key. Format: `sk_live_xxx` (production) or `sk_test_xxx` (test mode). |
 | `WORKOS_REDIRECT_URI` | When `REQUIRE_AUTH=true` | `http://localhost:3000/api/auth/callback` | AuthKit OAuth callback URL. Must match the redirect URI configured in WorkOS dashboard. |
 | `WORKOS_COOKIE_PASSWORD` | When `REQUIRE_AUTH=true` | — | 32-byte random hex string used to encrypt the AuthKit session cookie. Generate with: `openssl rand -hex 32`. |
-| `REQUIRE_AUTH` | No | `false` | Set to `true` to require WorkOS AuthKit login. When `false`, the app uses a "Default User" with no login required. |
+| `REQUIRE_AUTH` | No | `false` | Set to `true` to require WorkOS AuthKit login. When `false`, the app uses a "Default User" with no login required. Read by the frontend and by the backend. On the backend, `true` enforces job ownership, the signed-envelope rule for WorkOS callers, and the validator requirement at boot, on every request. In Kubernetes it is set on the frontend and on all four backend tiers (chat, api, agent-worker, ingest-worker) from `grid-oib:requireAuth`, the same value for each (default `true`). In Compose the backend reads it from `deploy/.env` through `env_file`, and the default there is `false`. |
 
 ---
 

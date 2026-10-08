@@ -1463,6 +1463,15 @@ emitted somewhere it can read; see §10.
   into the `grid-secrets` Secret. The two passwords must differ — see §7e for
   why, and for what stays plaintext on the wire. `allowUnauthenticatedRedis`
   is the explicit, warned opt-out; there is no silent one.
+- **Backend authentication** (`grid-oib:requireAuth`, default **on**): every
+  backend tier (`aiq-agent`, `aiq-api`, `agent-worker`, `ingest-worker`) gets
+  `REQUIRE_AUTH` and `WORKOS_CLIENT_ID` from the same values as the frontend
+  (`backendEnv` in `src/app/config.ts`). With it on, the backend enforces job
+  ownership and the signed-envelope rule (see `docs/deployment/security-config.md`).
+  The backend refuses to boot without a WorkOS client id while auth is required.
+  Jobs a user submitted directly before this change were recorded under the
+  generic caller type, not the user, so they are not returned to anyone once the
+  flag is on. Scheduled and commissioned runs keep their owner.
 - **Image pull policy** resolves to `Always` for the moving `latest` tag (so a
   rescheduled pod never silently runs a stale image) and `IfNotPresent` for a
   pinned SHA. Pin `imageTag` to a SHA in prod for reproducible deploys — the

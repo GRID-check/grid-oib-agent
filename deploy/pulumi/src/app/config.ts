@@ -288,6 +288,13 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     sref("GRID_ADMIN_TOKEN"),
+    // WorkOS, the same two values the frontend gets (frontendEnv). With
+    // REQUIRE_AUTH=true the backend enforces job ownership and the signed-envelope
+    // rule for JWT callers, and it refuses to boot without a validator, which
+    // needs the client id (aiq_api/plugin.py). Left unset, every tier ran with
+    // ownership off while the frontend required login.
+    { name: "REQUIRE_AUTH", value: String(cfg.auth.requireAuth) },
+    { name: "WORKOS_CLIENT_ID", value: cfg.auth.workosClientId },
     // OTLP tracing via the cluster collector (ADR-0029 amendment). Producers
     // send plain OTLP in-cluster — the collector alone holds the Aspire API
     // key. HTTP/protobuf to :4318 — the full /v1/traces path is required: the
