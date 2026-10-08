@@ -587,6 +587,7 @@ export const files: typeof en.files = {
       type: 'Dateityp nicht zugelassen',
       size: 'zu groß',
       unreadable: 'im Archiv beschädigt',
+      screened: 'vom Namensfilter des Büros zurückgehalten',
     },
   },
   upload: {
