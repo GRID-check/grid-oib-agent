@@ -139,6 +139,12 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/projects/steckbrief.integration.spec.ts \
     src/lib/projects/cleanup.integration.spec.ts
 
+# The tenant suites above may leave queued jobs behind: Ausmisten bins a
+# subfolder, and a Papierkorb delete queues its purge takeover and a refused
+# one its restore. The job-queue suites claim from the whole table and expect
+# only their own seeds, so they start from an empty one.
+$MIGRATE -v ON_ERROR_STOP=1 -q -c "DELETE FROM bff_job_queue" >/dev/null
+
 # The job-queue suites claim from ONE table, whichever lane a job is in, so run
 # in parallel they claim each other's seeded jobs. One file at a time.
 echo "==> running the job-queue suites one file at a time as grid_app_rw"
