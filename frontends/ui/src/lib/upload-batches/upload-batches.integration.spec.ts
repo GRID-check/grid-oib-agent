@@ -214,7 +214,7 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
   })
 
   it("leaves a batch's documents in a hidden folder uncounted, with the listing's own predicate", async () => {
-    const batch = '7c1f0f8e-0b6a-4f41-9d3b-5a0b2f9e1a02'
+    const batch = '7c1f0f8e-0b6a-4f41-9d3b-5a0b2f9e1a04'
     await repo.insertUploadBatch({ id: batch, organizationId: ORG, createdBy: USER, scope: 'project', projectId, expectedCount: 3 })
     const folders = await inTenant(ORG, () =>
       db.execute<{ id: string }>(sql`
