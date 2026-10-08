@@ -84,6 +84,7 @@ from aiq_agent.turn.response import answer_message_id
 from aiq_agent.turn.response import build_result
 from aiq_agent.turn.response import finished
 from aiq_agent.turn.response import post_answer_turn_facts
+from aiq_agent.turn.response import turn_answer_message_id
 from aiq_agent.turn.streaming import TurnTextFold
 from aiq_agent.turn.streaming import fold_turn
 from aiq_agent.turn.streaming import note_settled_replaced
@@ -489,7 +490,11 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
         # before anything reads the scope (ADR-0086, ADR-0087). Bound on every
         # turn, None included, so one turn never runs on the last one's answer;
         # the scope read below and every read path after it keep only these.
-        bind_restricted_use(await begin_restricted_use(request, conversation_id))
+        bind_restricted_use(
+            await begin_restricted_use(
+                request, conversation_id, answer_message_id=turn_answer_message_id(conversation_id)
+            )
+        )
         header_scope = get_scoped_collections_from_context()
         # Say what is happening in the FIRST hole of the turn — only when one
         # of the reader's OWN shelves is in scope; the base corpus is a constant.

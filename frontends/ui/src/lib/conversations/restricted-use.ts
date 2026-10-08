@@ -63,6 +63,7 @@ import {
   listRecordedSourceFolders,
   listRecordedSourceFoldersFor,
   lockConversationAudience,
+  markAnswerRestrictedUse,
   readConversationAudience,
   recordSourceFolders,
   type ConversationAudienceRow,
@@ -178,6 +179,19 @@ export async function recordedRestrictedFolders(conversationId: string, organiza
   return stillRestricting(await treeOf(organizationId, project), recorded)
 }
 
+/**
+ * Mark the answer a turn is writing when its conversation already drew on a
+ * folder with restricted access, by the database's rule
+ * (`grid_conversation_restricted_use`, ADR-0091). Asked at turn start, before
+ * the model reads the conversation's history: the answer can quote what an
+ * earlier turn admitted, and a vote on it names it by this id whether or not
+ * the answer is ever persisted. Without an answer id, nothing to mark.
+ */
+export async function markTurnAnswer(request: RestrictedUseRequest): Promise<void> {
+  if (!request.answerMessageId) return
+  await markAnswerRestrictedUse(getDb(), request.organizationId, request.conversationId, request.answerMessageId)
+}
+
 /** The folder tree of a project; a conversation with no project reads every folder as unknown, so nobody may read any. */
 async function treeForProject(organizationId: string, projectId: string | null): Promise<FolderTree> {
   return projectId ? folderTree(await listProjectFolderTree(organizationId, projectId)) : new Map()
@@ -288,6 +302,14 @@ export interface RestrictedUseRequest {
   userId: string
   /** The project the turn runs in; used only when the conversation has no row yet. */
   projectId: string | null
+  /**
+   * The id of the answer this turn is writing, when the agent sends it. The
+   * agent derives it from the conversation and the turn
+   * (`aiq_agent.turn.response.answer_message_id`), the same id it streams and
+   * persists, so the server can mark that answer at admission, before the
+   * model reads anything (ADR-0091). Absent off the chat path.
+   */
+  answerMessageId?: string | null
 }
 
 /** The folder each restricted collection is the collection of, for the collections that are current ones. */
@@ -391,6 +413,9 @@ export async function admitSourceFolders(request: RestrictedUseRequest, folderId
     const audience = await readConversationAudience(tx, organizationId, conversationId)
     const admitted = foldersEveryoneMayRead(tree, restricted, audience, audiencePeople(audience, request.userId), clearances)
     await recordSourceFolders(tx, organizationId, conversationId, admitted)
+    if (request.answerMessageId) {
+      await markAnswerRestrictedUse(tx, organizationId, conversationId, request.answerMessageId)
+    }
     const recorded = await listRecordedSourceFolders(tx, organizationId, conversationId)
     const kept = new Set([...open, ...admitted])
     return {

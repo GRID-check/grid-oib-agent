@@ -603,6 +603,7 @@ describe('readVersionForService — the conversation is part of the predicate', 
 
   describe('a subject in a folder not every member may read (ADR-0086, ADR-0087)', () => {
     const RESTRICTED = 'proj_abc_r0123456789ab'
+    const ANSWER_ID = '0b7c6d2e-5f1a-5c3b-9d4e-8f7a6b5c4d3e'
     beforeEach(() => {
       vi.mocked(findConversationInOrg).mockResolvedValue({
         subjectResourceType: 'document',
@@ -615,19 +616,26 @@ describe('readVersionForService — the conversation is part of the predicate', 
     it('admits the folder for the conversation before the bytes leave, and says so', async () => {
       vi.mocked(admitRestrictedUse).mockResolvedValue({ admitted: [RESTRICTED], refused: [], recorded: ['folder_vertraege'] })
 
-      await expect(readVersionForService('ver_1', 'org_1', 'conv_1', 'user_asker')).resolves.toMatchObject({
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1', { askerUserId: 'user_asker', answerMessageId: ANSWER_ID })).resolves.toMatchObject({
         content: '# Aktenvermerk',
         drewOnRestrictedFolder: true,
       })
       expect(admitRestrictedUse).toHaveBeenCalledWith(
-        { organizationId: 'org_1', conversationId: 'conv_1', userId: 'user_asker', projectId: 'proj_1' },
+        {
+          organizationId: 'org_1',
+          conversationId: 'conv_1',
+          userId: 'user_asker',
+          projectId: 'proj_1',
+          // Marked in the admission's transaction, before the bytes leave (ADR-0091).
+          answerMessageId: ANSWER_ID,
+        },
         [RESTRICTED],
       )
     })
 
     it('reads as no subject when the admission is refused, or there is no asker to check', async () => {
       vi.mocked(admitRestrictedUse).mockResolvedValue({ admitted: [], refused: [RESTRICTED], recorded: [] })
-      await expect(readVersionForService('ver_1', 'org_1', 'conv_1', 'user_asker')).rejects.toMatchObject({
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1', { askerUserId: 'user_asker', answerMessageId: ANSWER_ID })).rejects.toMatchObject({
         status: 404,
       })
       await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).rejects.toMatchObject({ status: 404 })

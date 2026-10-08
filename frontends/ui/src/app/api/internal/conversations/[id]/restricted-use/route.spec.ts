@@ -18,12 +18,14 @@ vi.mock('@/lib/conversations/restricted-use', () => ({
   ADMISSION_MAX_COLLECTIONS: 20,
   admitRestrictedUse: vi.fn(),
   drawableRestrictedCollections: vi.fn(),
+  markTurnAnswer: vi.fn(),
   recordedRestrictedFolders: vi.fn(),
 }))
 
 import {
   admitRestrictedUse,
   drawableRestrictedCollections,
+  markTurnAnswer,
   recordedRestrictedFolders,
 } from '@/lib/conversations/restricted-use'
 import { withTenant } from '@/lib/db/tenant-context'
@@ -45,7 +47,14 @@ const ask = (body: unknown, token: string = TOKEN, id: string = CONVERSATION_ID)
     { params: Promise.resolve({ id }) }
   )
 
-const REQUEST = { organizationId: ORG_ID, conversationId: CONVERSATION_ID, userId: ASKER, projectId: 'proj-1' }
+const ANSWER_ID = '0b7c6d2e-5f1a-5c3b-9d4e-8f7a6b5c4d3e'
+const REQUEST = {
+  organizationId: ORG_ID,
+  conversationId: CONVERSATION_ID,
+  userId: ASKER,
+  projectId: 'proj-1',
+  answerMessageId: null,
+}
 
 beforeEach(() => {
   vi.stubEnv('GRID_INTERNAL_API_TOKEN', TOKEN)
@@ -91,6 +100,28 @@ describe('POST /api/internal/conversations/[id]/restricted-use', () => {
       recorded: ['folder-vertraege'],
     })
     expect(admitRestrictedUse).toHaveBeenCalledWith(REQUEST, [VERTRAEGE])
+  })
+
+  /**
+   * The answer id is the server's key for the mark (ADR-0091): the turn start
+   * marks it when an earlier turn drew on a restricted folder, the admission in
+   * the transaction that records the folder. Both before the model reads.
+   */
+  it('hands the answer the turn writes to the mark, at turn start and at admission', async () => {
+    vi.mocked(admitRestrictedUse).mockResolvedValue({ admitted: [VERTRAEGE], refused: [], recorded: [] })
+    const withAnswer = { ...REQUEST, answerMessageId: ANSWER_ID }
+
+    await ask({ organizationId: ORG_ID, userId: ASKER, projectId: 'proj-1', candidates: [VERTRAEGE], answerMessageId: ANSWER_ID })
+    expect(markTurnAnswer).toHaveBeenCalledWith(withAnswer)
+
+    await ask({ organizationId: ORG_ID, userId: ASKER, projectId: 'proj-1', admit: [VERTRAEGE], answerMessageId: ANSWER_ID })
+    expect(admitRestrictedUse).toHaveBeenCalledWith(withAnswer, [VERTRAEGE])
+  })
+
+  it('refuses an answer id that is not one the agent mints', async () => {
+    const response = await ask({ organizationId: ORG_ID, userId: ASKER, admit: [VERTRAEGE], answerMessageId: 'not-a-uuid' })
+    expect(response.status).toBe(400)
+    expect(admitRestrictedUse).not.toHaveBeenCalled()
   })
 
   it('refuses a caller without the internal token, and asks nothing', async () => {

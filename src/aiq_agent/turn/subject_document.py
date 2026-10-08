@@ -89,6 +89,7 @@ from aiq_agent.tools.documents.draft_store import get_draft_backend
 from aiq_agent.tools.documents.filing import FilingError
 from aiq_agent.tools.documents.filing import get_document_version_content
 from aiq_agent.turn.payload import SubjectVersion
+from aiq_agent.turn.response import turn_answer_message_id
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,12 @@ async def _fetch(version_id: str, organization_id: str, conversation_id: str, us
     """
     try:
         return await asyncio.to_thread(
-            get_document_version_content, version_id, organization_id, conversation_id, user_id
+            get_document_version_content,
+            version_id,
+            organization_id,
+            conversation_id,
+            user_id,
+            turn_answer_message_id(conversation_id),
         )
     except FilingError as refused:
         if refused.status == 404:

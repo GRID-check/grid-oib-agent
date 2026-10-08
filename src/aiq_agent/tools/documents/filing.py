@@ -129,7 +129,11 @@ def _error_code(exc: urllib.error.HTTPError) -> str | None:
 
 
 def get_document_version_content(
-    version_id: str, organization_id: str, conversation_id: str, user_id: str | None = None
+    version_id: str,
+    organization_id: str,
+    conversation_id: str,
+    user_id: str | None = None,
+    answer_message_id: str | None = None,
 ) -> dict[str, Any]:
     """One version's text and identity from the internal read route.
 
@@ -148,7 +152,9 @@ def get_document_version_content(
     the caller reads as "no subject to load". ``user_id`` is the turn's signed
     asker: a version in a folder not every member may read is sent only once the
     BFF has admitted that folder for the conversation (ADR-0086, ADR-0087), and
-    without an asker it answers ``404`` too.
+    without an asker it answers ``404`` too. ``answer_message_id`` is the answer
+    the turn writes: when the read admits such a folder, the BFF marks that
+    answer in the same transaction (ADR-0091).
 
     Raises :class:`FilingError` for every refusal and every transport failure,
     the same one thing every caller in this module has to catch. Blocking — call
@@ -162,6 +168,8 @@ def get_document_version_content(
     params = {"organizationId": organization_id, "conversationId": conversation_id}
     if user_id:
         params["userId"] = user_id
+    if answer_message_id:
+        params["answerMessageId"] = answer_message_id
     query = urllib.parse.urlencode(params)
     request = urllib.request.Request(
         f"{_internal_base_url()}{path}?{query}",

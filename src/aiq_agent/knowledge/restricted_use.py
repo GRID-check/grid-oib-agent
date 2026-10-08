@@ -85,6 +85,11 @@ class RestrictedUse:
     #: The restricted collections admitted for the conversation this turn: what
     #: may be named to the model from here on (:func:`may_name`).
     admitted: set[str] = field(default_factory=set)
+    #: The id of the answer this turn writes (``turn.response.answer_message_id``).
+    #: Sent with every question, so the BFF marks that answer when the
+    #: conversation drew on a restricted folder, before the model reads anything
+    #: (ADR-0091). ``None`` when the caller has no turn to name.
+    answer_message_id: str | None = None
 
     def allows(self, collection: str) -> bool:
         """Whether a restricted ``collection`` may stay in this turn's scope."""
@@ -135,6 +140,8 @@ def _post(use: RestrictedUse, body: dict[str, Any]) -> dict[str, Any] | None:
     payload = {"organizationId": use.organization_id, "userId": use.user_id, **body}
     if use.project_id:
         payload["projectId"] = use.project_id
+    if use.answer_message_id:
+        payload["answerMessageId"] = use.answer_message_id
     conversation = urllib.parse.quote(use.conversation_id, safe="")
     request = urllib.request.Request(
         f"{_base_url()}/api/internal/conversations/{conversation}/restricted-use",
@@ -195,10 +202,15 @@ def admit(use: RestrictedUse, collections: Sequence[str]) -> set[str]:
     return admitted
 
 
-async def begin_restricted_use(request: Any, conversation_id: str | None) -> RestrictedUse | None:
+async def begin_restricted_use(
+    request: Any, conversation_id: str | None, *, answer_message_id: str | None = None
+) -> RestrictedUse | None:
     """The turn's restricted use, asked of the BFF; ``None`` when its scope holds no restricted collection.
 
     ``request`` is the turn's :class:`aiq_agent.project_context.GridRequestContext`.
+    ``answer_message_id`` is the answer the turn writes: the BFF marks it now
+    when an earlier turn already drew on a restricted folder, and at every
+    admission later in the turn.
     Only a VERIFIED envelope counts: a restricted collection in a scope read
     from the unsigned header fallback vouches for nothing, so the turn gets a
     use with nothing drawable and counts as confined, without asking.
@@ -214,6 +226,7 @@ async def begin_restricted_use(request: Any, conversation_id: str | None) -> Res
         conversation_id=conversation_id or "",
         project_id=getattr(request, "project_id", None),
         confined=True,
+        answer_message_id=answer_message_id,
     )
     if not getattr(request, "envelope_header", None):
         logger.warning("Restricted collections in an unsigned scope: nothing drawable")

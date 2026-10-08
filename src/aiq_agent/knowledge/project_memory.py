@@ -243,6 +243,11 @@ def fetch_memory_digest(
         params["restrictedCollections"] = ",".join(dict.fromkeys(restricted))
     if user_id and user_id.strip():
         params["userId"] = user_id.strip()[:128]
+    use = current_restricted_use()
+    if restricted and use is not None and use.answer_message_id:
+        # The answer this turn writes: marked when a restricted note is
+        # admitted, in the same transaction (ADR-0091).
+        params["answerMessageId"] = use.answer_message_id
     query_string = urllib.parse.urlencode(params)
 
     request = urllib.request.Request(

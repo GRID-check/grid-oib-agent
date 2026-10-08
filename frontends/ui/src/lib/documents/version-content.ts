@@ -444,6 +444,14 @@ export async function readVersionTextForTask(
   return (await fetchVersionText(session, documentId, versionId, { forModel: true })).text
 }
 
+/** Who a service read of a subject is for: the turn's signed asker, and the answer it is writing. */
+export interface ServiceReader {
+  /** The turn's asker, as signed; needed only for a document in a restricted folder. */
+  askerUserId: string | null
+  /** The answer the turn writes; marked when the read admits a restricted folder (ADR-0091). */
+  answerMessageId: string | null
+}
+
 /**
  * A subject in a restricted folder is opened into the turn's working directory
  * whole, so reading it is USE of that folder (ADR-0086, ADR-0087): admitted for
@@ -456,7 +464,7 @@ async function admitSubjectRead(
   document: Document,
   organizationId: string,
   conversationId: string,
-  askerUserId: string | null,
+  { askerUserId, answerMessageId }: ServiceReader,
 ): Promise<boolean> {
   if (!document.projectId || !document.folderId) return false
   const projectCollection = await findProjectCollectionName(document.projectId, organizationId)
@@ -470,7 +478,7 @@ async function admitSubjectRead(
   if (collection === projectCollection) return false
   if (!askerUserId) throw new NotFoundError('Version not found')
   const admission = await admitRestrictedUse(
-    { organizationId, conversationId, userId: askerUserId, projectId: document.projectId },
+    { organizationId, conversationId, userId: askerUserId, projectId: document.projectId, answerMessageId },
     [collection],
   )
   if (admission.refused.length > 0) throw new NotFoundError('Version not found')
@@ -510,8 +518,7 @@ export async function readVersionForService(
   versionId: string,
   organizationId: string,
   conversationId: string,
-  /** The turn's asker, as signed; needed only for a document in a restricted folder. */
-  askerUserId: string | null = null,
+  reader: ServiceReader = { askerUserId: null, answerMessageId: null },
 ): Promise<{
   documentId: string
   versionId: string
@@ -540,7 +547,7 @@ export async function readVersionForService(
   const document = await findDocumentInOrg(version.documentId, organizationId, SCREENED_ONLY)
   // The verdict is about the item's bytes; these are the version's.
   if (!document || !versionBytesPassedScreening(document, version)) throw new NotFoundError('Version not found')
-  const drewOnRestrictedFolder = await admitSubjectRead(document, organizationId, conversationId, askerUserId)
+  const drewOnRestrictedFolder = await admitSubjectRead(document, organizationId, conversationId, reader)
   return {
     documentId: version.documentId,
     versionId: version.id,

@@ -259,6 +259,7 @@ describe('what a person decided about the drafts this conversation filed', () =>
  */
 describe('restricted memory in the per-turn digest', () => {
   const DRAWABLE = 'proj_x_raaaaaaaaaaaa'
+  const ANSWER_ID = '0b7c6d2e-5f1a-5c3b-9d4e-8f7a6b5c4d3e'
   const options = () => vi.mocked(buildProjectMemoryDigest).mock.calls[0][2] ?? {}
 
   it("serves an interactive turn the notes its asker may read, admitting each note's folders for the conversation", async () => {
@@ -270,7 +271,7 @@ describe('restricted memory in the per-turn digest', () => {
 
     const response = await GET(
       makeRequest(
-        `?projectId=${PROJECT_ID}&organizationId=${ORG_ID}&conversationId=s_conv_1&userId=user_gf&restrictedCollections=${DRAWABLE}`,
+        `?projectId=${PROJECT_ID}&organizationId=${ORG_ID}&conversationId=s_conv_1&userId=user_gf&restrictedCollections=${DRAWABLE}&answerMessageId=${ANSWER_ID}`,
         REAL_TOKEN
       )
     )
@@ -278,8 +279,15 @@ describe('restricted memory in the per-turn digest', () => {
     expect(response.status).toBe(200)
     expect(clearanceOfMember).toHaveBeenCalledWith(ORG_ID, 'user_gf', PROJECT_ID)
     expect(options().readableFolderIds).toEqual(['folder-open', 'folder-secret'])
+    // The answer the turn writes is marked in the admission's transaction (ADR-0091).
     expect(admitSourceFolders).toHaveBeenCalledWith(
-      { organizationId: ORG_ID, conversationId: 's_conv_1', userId: 'user_gf', projectId: PROJECT_ID },
+      {
+        organizationId: ORG_ID,
+        conversationId: 's_conv_1',
+        userId: 'user_gf',
+        projectId: PROJECT_ID,
+        answerMessageId: ANSWER_ID,
+      },
       ['folder-secret']
     )
     // The agent counts the served folders as this turn's use.

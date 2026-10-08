@@ -46,6 +46,18 @@ def answer_message_id(conversation_id: str | None, turn_id: str | None) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"grid:assistant:{conversation_id}:{turn_id or 'default'}"))
 
 
+def turn_answer_message_id(conversation_id: str | None) -> str:
+    """The id of the answer the running turn writes: :func:`answer_message_id` of its NAT context.
+
+    For a caller that must name the answer before it exists: the BFF marks it
+    when restricted content is admitted into the turn (ADR-0091), so a vote on
+    it is judged by the server's record whether or not the answer is persisted.
+    """
+    from aiq_agent.project_context import get_user_message_id_from_context
+
+    return answer_message_id(conversation_id, get_user_message_id_from_context())
+
+
 def answer_text(state: ConversationState) -> str:
     """The delivered answer: the last message's content, as text."""
     if not state.messages:
