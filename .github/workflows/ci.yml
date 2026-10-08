@@ -71,9 +71,8 @@ jobs:
   # Deliberately NOT behind a paths filter. `pre-commit run --all-files` scans
   # the WHOLE repo, so gating it on the backend filter meant a PR touching only
   # deploy/** or frontends/ui/** could land drift on develop that stayed
-  # invisible until some later, unrelated backend PR tripped over it — which is
-  # exactly how the secrets baseline kept breaking CI. Running it on every PR
-  # means whoever introduces the drift is the one who sees it.
+  # invisible until some later, unrelated backend PR tripped over it. Running it
+  # on every PR means whoever introduces the drift is the one who sees it.
   repo-lint:
     name: Repo lint (pre-commit, all files)
     runs-on: ubuntu-latest
@@ -100,21 +99,17 @@ jobs:
       #
       # The whole directory is cached, not just the repo dirs: db.db is the
       # url+rev -> dir index, and restoring one without the other desynchronises
-      # them. Note this cache deliberately contains no ruff env, since SKIP
-      # suppresses installing those hooks — do not reuse this key from a job
-      # that actually runs ruff.
+      # them.
       - uses: actions/cache@v6
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: |
             pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-
-      # `pytest` in SKIP is a no-op kept for clarity: that local hook is
-      # stages: [push], so it never runs at the default stage anyway.
-      - name: Pre-commit (non-ruff, non-pytest hooks)
+      - name: Pre-commit (all hooks)
         run: |
           . .venv/bin/activate
-          SKIP=ruff-check,ruff-format,pytest pre-commit run --all-files
+          pre-commit run --all-files
       - uses: ./.github/actions/setup-task
       # The other half of `task lint:repo`, and deliberately in THIS job rather
       # than behind a paths filter: `skills/` is the source, `.claude/` and
@@ -146,10 +141,8 @@ jobs:
         run: task be:test:ci
       - name: aiq_api plugin suite
         run: task be:test:api:ci
-      # sources/ was covered only by the push-stage pre-commit hook, which the
-      # repo-lint job skips — so a stale test there stayed green through every
-      # gate until someone ran pytest by hand. Same definition as the local
-      # `task be:verify`.
+      # sources/ is its own suite, not part of tests/. Same definition as the
+      # local `task be:verify`.
       - name: sources/ package suites
         run: task be:test:sources
       - name: Coverage comment (backend)
@@ -430,6 +423,9 @@ jobs:
 
   release-note:
     name: Release note
+    # A push has no PR to label, so the job runs on pull requests only. `ci-ok`
+    # treats a skipped job as a pass, and nothing else needs this one.
+    if: github.event_name == 'pull_request'
     # Deliberately NOT behind a paths filter, and deliberately not part of the
     # backend tier: this job answers "does this change need a note, and does the
     # note read like something a customer can use?", which is a question about
@@ -459,7 +455,7 @@ jobs:
       # Escape hatch: the `no-release-note` label, for a PR that genuinely changes
       # nothing a user can observe.
       - name: Require a note for user-visible changes
-        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'no-release-note')
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-release-note') }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}

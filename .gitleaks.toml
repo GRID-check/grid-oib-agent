@@ -11,11 +11,9 @@ useDefault = true
 [allowlist]
 description = "Global false-positive allowlist"
 
-# The detect-secrets baseline (.pre-commit-config.yaml) already tracks accepted
-# findings; these paths hold fixtures, examples, generated lockfiles, and docs
-# that legitimately contain secret-shaped strings.
+# These paths hold fixtures, examples, generated lockfiles, and docs that
+# legitimately contain secret-shaped strings.
 paths = [
-  '''\.secrets\.baseline$''',
   '''(^|/)tests?/''',
   # Shared fixtures that are not under `tests/` and are not themselves specs —
   # `deploy/pulumi/src/test-support/` holds the stack config every Pulumi spec
