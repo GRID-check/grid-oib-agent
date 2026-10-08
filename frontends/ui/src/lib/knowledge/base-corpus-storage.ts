@@ -11,26 +11,23 @@
 
 import 'server-only'
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { bucketName, buildBaseCorpusStorageKey, s3Client, signingS3Client } from '@/lib/s3'
+import { bucketName, buildBaseCorpusStorageKey, presignForBackend, s3Client } from '@/lib/s3'
 
 /** Same expiry as the raster presign: the backend PUTs right after asking. */
 const BASE_CORPUS_UPLOAD_EXPIRES_SECONDS = 3600
 
 /**
- * One presigned PUT for a base-corpus PDF. Signed by the same client as the
- * image presign (`signingS3Client`), so the URL's host is whatever the backend
- * already reaches for its other PUTs. Throws `BadRequestError` for a name that
- * is not a plain `.pdf` basename.
+ * One presigned PUT for a base-corpus PDF, signed for the backend that PUTs it
+ * (`presignForBackend`). Throws `BadRequestError` for a name that is not a plain
+ * `.pdf` basename.
  */
 export async function presignBaseCorpusUpload(
   fileName: string
 ): Promise<{ uploadUrl: string; storageKey: string }> {
   const storageKey = buildBaseCorpusStorageKey(fileName)
-  const uploadUrl = await getSignedUrl(
-    signingS3Client,
+  const uploadUrl = await presignForBackend(
     new PutObjectCommand({ Bucket: bucketName, Key: storageKey, ContentType: 'application/pdf' }),
-    { expiresIn: BASE_CORPUS_UPLOAD_EXPIRES_SECONDS }
+    BASE_CORPUS_UPLOAD_EXPIRES_SECONDS
   )
   return { uploadUrl, storageKey }
 }

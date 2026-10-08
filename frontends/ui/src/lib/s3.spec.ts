@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { BadRequestError } from '@/lib/api/errors'
 import {
   MAX_STORED_IMAGES_PER_DOCUMENT,
@@ -255,5 +255,31 @@ describe('buildBaseCorpusStorageKey', () => {
     const name = `${'a'.repeat(251)}.pdf`
     expect(name).toHaveLength(255)
     expect(buildBaseCorpusStorageKey(name)).toBe(`base-corpus/${name}`)
+  })
+})
+
+describe('presignForBackend', () => {
+  it('signs against the in-network endpoint, never the browser-facing one', async () => {
+    // The clients read the endpoints at import, so this imports a fresh copy
+    // with the two set apart, the way Compose and Kubernetes set them.
+    const saved = { internal: process.env.SEAWEED_ENDPOINT, browser: process.env.SEAWEED_PUBLIC_ENDPOINT }
+    process.env.SEAWEED_ENDPOINT = 'http://seaweedfs:8333'
+    process.env.SEAWEED_PUBLIC_ENDPOINT = 'http://localhost:8333'
+    try {
+      vi.resetModules()
+      const fresh = await import('./s3')
+      const { PutObjectCommand } = await import('@aws-sdk/client-s3')
+      const url = new URL(
+        await fresh.presignForBackend(
+          new PutObjectCommand({ Bucket: 'grid-documents', Key: 'base-corpus/x.pdf', ContentType: 'application/pdf' }),
+          60
+        )
+      )
+      expect(url.host).toBe('seaweedfs:8333')
+    } finally {
+      process.env.SEAWEED_ENDPOINT = saved.internal
+      process.env.SEAWEED_PUBLIC_ENDPOINT = saved.browser
+      vi.resetModules()
+    }
   })
 })

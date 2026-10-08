@@ -1,4 +1,5 @@
-import { S3Client } from "@aws-sdk/client-s3";
+import { S3Client, type GetObjectCommand, type PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { BadRequestError } from "@/lib/api/errors";
 
 const credentials = {
@@ -18,6 +19,22 @@ export const s3Client = new S3Client({
   requestChecksumCalculation: "WHEN_REQUIRED",
   responseChecksumValidation: "WHEN_REQUIRED",
 });
+
+/**
+ * Presign a URL the BACKEND uses, against the in-network endpoint.
+ *
+ * The backend reads and writes the store from inside the network, so a URL it is
+ * handed must name the endpoint it can reach (SEAWEED_ENDPOINT), never the
+ * browser-facing one: in Compose that is `localhost:8333`, which inside the
+ * backend container is the backend itself, and in Kubernetes it is the public
+ * edge, a round trip out of the cluster and back. Every URL in an ingest job
+ * (`file_ref`, the rendition, the thumbnail slot) and every slot the backend asks
+ * for (document images, base-corpus PDFs) goes through here; a URL for the
+ * browser goes through {@link signingS3Client}.
+ */
+export function presignForBackend(command: GetObjectCommand | PutObjectCommand, expiresIn: number): Promise<string> {
+  return getSignedUrl(s3Client, command, { expiresIn });
+}
 
 /**
  * Client used ONLY to SIGN presigned URLs handed to the browser.

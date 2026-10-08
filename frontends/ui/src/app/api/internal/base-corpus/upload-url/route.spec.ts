@@ -69,7 +69,10 @@ describe('POST /api/internal/base-corpus/upload-url', () => {
       storageKey: 'base-corpus/OIB-RL 2.pdf',
     })
     const [client, command, options] = vi.mocked(getSignedUrl).mock.calls[0]
-    expect(client).toBe(signingClient)
+    // The backend PUTs this from inside the network: the in-network client, not the browser's.
+    const actual = await vi.importActual<typeof import('@/lib/s3')>('@/lib/s3')
+    expect(client).toBe(actual.s3Client)
+    expect(client).not.toBe(signingClient)
     expect((command as PutObjectCommand).input).toEqual({
       Bucket: 'grid-documents',
       Key: 'base-corpus/OIB-RL 2.pdf',
