@@ -18,8 +18,8 @@ sends it.
 ## What the gate does not cover
 
 `task db:test:rls` is required whenever you touch the tenant boundary, and
-`task verify` does not run it. `task fe:types` is the signal that the production
-build will typecheck, because the UI tsconfig includes spec files. `bun`
+`task verify` does not run it. `next build` typechecks production code only
+(`tsconfig.build.json`); the specs are typechecked by `task fe:types`. `bun
 installs and runs scripts here and is never the runtime: `--bun` exports
 `NODE_OPTIONS=--bun`, which kills Turbopack's PostCSS step.
 

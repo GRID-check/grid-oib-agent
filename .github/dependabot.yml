@@ -18,8 +18,9 @@ updates:
       default-days: 7
     open-pull-requests-limit: 5
 
-  # Frontend (Next.js UI).
-  - package-ecosystem: npm
+  # Frontend (Next.js UI). bun.lock is its only lockfile; the Docker build and
+  # CI install from it.
+  - package-ecosystem: bun
     directory: "/frontends/ui"
     schedule:
       interval: weekly

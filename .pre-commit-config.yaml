@@ -99,7 +99,9 @@ repos:
         entry: python3 scripts/check_agent_docs.py
         language: system
         pass_filenames: false
-        files: ^(.*/)?(AGENTS|CLAUDE)\.md$|^scripts/check_agent_docs\.py$
+        # It also resolves every tracked Markdown file's relative links against
+        # git, so it runs on any .md change.
+        files: \.md$|^scripts/check_agent_docs\.py$
 
       - id: adr-check
         name: the ADR directory and its index tell the same story

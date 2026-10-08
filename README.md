@@ -205,7 +205,7 @@ task infra:types
 (`.venv/Scripts` vs `.venv/bin`) and the `PYTHONPATH=src` that `nat run` and ad-hoc
 scripts need. Bare `pytest` already tests `src/` through `pyproject.toml`.
 
-Note: the UI tsconfig includes test files, so spec type errors block the production `next build`. See [AGENTS.md](AGENTS.md) for the full contributor workflow.
+`task fe:types` typechecks the UI including its specs; `next build` checks production code only (`tsconfig.build.json`). See [AGENTS.md](AGENTS.md) for the full contributor workflow.
 
 ---
 
