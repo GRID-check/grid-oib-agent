@@ -762,7 +762,7 @@ project-wide `PROPOSAL_DECISIONS` block.
 
 The table itself is described in
 [`project-memory-design.md`](../architecture/project-memory-design.md) §2; this
-is the column 0111 adds.
+is the column 0112 adds.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
@@ -771,7 +771,7 @@ is the column 0111 adds.
 Index: `uniq_project_memory_project_content_active` keys on
 `(project_id, coalesce(restricted_folder_ids, '{}'), normalized content)`, so an
 open and a restricted note with the same text can both be live; consolidation
-never crosses a restriction. The 0111 down DELETES restricted notes rather than
+never crosses a restriction. The 0112 down DELETES restricted notes rather than
 opening them. Proven against Postgres in `memory-restricted.integration.spec.ts`;
 the index, the CHECK and the down in `scripts/rls-test-db.sh`.
 

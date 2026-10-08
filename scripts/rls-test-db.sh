@@ -522,17 +522,17 @@ echo "==> 0111 chat record and down migration verified"
 # ---------------------------------------------------------------------------
 # Migration 0112: restricted memory by folder, and its DOWN.
 #
-# An open and a restricted note with the same text can both be live (the 0111
+# An open and a restricted note with the same text can both be live (the 0112
 # index); an empty folder list and a restricted organization note are refused
-# (the 0111 CHECK). The down is lossy on purpose and in the safe direction:
+# (the 0112 CHECK). The down is lossy on purpose and in the safe direction:
 # restricted notes are DELETED, because dropping the column alone would serve
-# them to everyone. It restores develop's dedup index; 0111 then re-applies.
+# them to everyone. It restores develop's dedup index; 0112 then re-applies.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0112 restricted memory and its down migration on grid_memory"
 migrate_until grid_memory 0112_project_memory_restricted_folders
 sql_in grid_memory <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
-VALUES ('aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'Memory 0111', 'user_1', 'proj_0108');
+VALUES ('aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'Memory 0112', 'user_1', 'proj_0108');
 INSERT INTO project_memory (scope, project_id, organization_id, kind, content, restricted_folder_ids) VALUES
   ('project', 'aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'decision', 'Honorar pauschal', NULL),
   ('project', 'aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'decision', 'Honorar pauschal', ARRAY['d4d4d4d4-d4d4-4000-8000-000000000108'::uuid]);
@@ -546,7 +546,7 @@ check_in grid_memory "SELECT count(*) FROM project_memory WHERE organization_id 
 check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "0" "down dropped the column"
 check_in grid_memory "SELECT indexdef LIKE '%coalesce%' FROM pg_indexes WHERE indexname = 'uniq_project_memory_project_content_active'" "f" "down restored develop's dedup index"
 apply_in grid_memory 0112_project_memory_restricted_folders.sql
-check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "1" "0111 re-applies"
+check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "1" "0112 re-applies"
 
 echo "==> 0112 restricted memory and down migration verified"
 
