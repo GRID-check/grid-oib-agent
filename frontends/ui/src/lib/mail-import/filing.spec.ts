@@ -26,12 +26,12 @@ vi.mock('./archive-client', async (importOriginal) => {
 })
 vi.mock('./repository', () => ({ markInflight: vi.fn(async () => true) }))
 
-import { BadRequestError, InsufficientStorageError } from '@/lib/api/errors'
+import { BadRequestError, FileTooLargeError, InsufficientStorageError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { MailImport } from '@/lib/db/schema'
 import { resolveShelfFolderPath } from '@/lib/documents/folder-path'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
-import { assertUploadTypeAllowed, uploadDocument } from '@/lib/documents/service'
+import { assertFileSizeAllowed, assertUploadTypeAllowed, uploadDocument } from '@/lib/documents/service'
 import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
 import { createProjectFolder, ensureProjectFolderPaths } from '@/lib/projects/folder-service'
 import { AttachmentUnreadableError, readArchiveAttachment, type ArchiveMail } from './archive-client'
@@ -142,6 +142,18 @@ describe('fileMail', () => {
     expect(readArchiveAttachment).not.toHaveBeenCalled()
     expect(result.skipped).toContainEqual({ mail: LEAF, file: 'Plan.pdf', reason: 'type' })
     vi.mocked(assertUploadTypeAllowed).mockReset()
+  })
+
+  it('skips an attachment over the organization’s file limit, before or during the upload, without failing the mail', async () => {
+    vi.mocked(assertFileSizeAllowed).mockRejectedValueOnce(new FileTooLargeError({ fileSize: 3, maxSizeBytes: 1 }))
+    const before = await fileMail(await context(), mail)
+    expect(readArchiveAttachment).not.toHaveBeenCalled()
+    expect(before.skipped).toContainEqual({ mail: LEAF, file: 'Plan.pdf', reason: 'size' })
+
+    vi.mocked(uploadDocument).mockRejectedValueOnce(new FileTooLargeError({ fileSize: 3, maxSizeBytes: 1 }))
+    const during = await fileMail(await context(), mail)
+    expect(during.skipped).toContainEqual({ mail: LEAF, file: 'Plan.pdf', reason: 'size' })
+    expect(uploadedNames().at(-1)).toBe(`${LEAF}.md`)
   })
 
   it('numbers the second of two same-named attachments of one mail instead of overwriting the first', async () => {

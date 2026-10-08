@@ -18,7 +18,7 @@
  */
 
 import 'server-only'
-import { BadRequestError, InsufficientStorageError, NotFoundError } from '@/lib/api/errors'
+import { BadRequestError, FileTooLargeError, InsufficientStorageError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { MailImport, MailImportSkippedSample, MailImportSkipReason } from '@/lib/db/schema'
 import { resolveShelfFolderPath } from '@/lib/documents/folder-path'
@@ -147,9 +147,9 @@ export async function fileMail(context: FilingContext, mail: ArchiveMail): Promi
   )
   const noteName = noteFilename(folder.name)
   const filedNote = await fileBytes(context, folder.id, noteName, new TextEncoder().encode(note), 'text/markdown', claimed)
-  if (!filedNote) {
+  if (!filedNote.filed) {
     result.filesSkipped += 1
-    result.skipped.push({ mail: folder.name, file: noteName, reason: 'type' })
+    result.skipped.push({ mail: folder.name, file: noteName, reason: filedNote.reason })
   }
   return result
 }
@@ -237,8 +237,7 @@ async function fileAttachment(
     if (error instanceof AttachmentUnreadableError) return { filed: false, reason: 'unreadable' }
     throw error
   }
-  const filename = await fileBytes(context, folder.id, desired, bytes, attachment.content_type ?? '', claimed)
-  return filename ? { filed: true, filename } : { filed: false, reason: 'type' }
+  return fileBytes(context, folder.id, desired, bytes, attachment.content_type ?? '', claimed)
 }
 
 /** What the upload gates would refuse, asked before the bytes are fetched from the archive. */
@@ -254,18 +253,26 @@ async function refusalBeforeReading(
     throw error
   }
   try {
-    assertFileSizeAllowed(size, filename)
+    await assertFileSizeAllowed(session.organizationId, size, filename)
   } catch (error) {
-    if (error instanceof BadRequestError) return 'size'
+    const reason = refusalReason(error)
+    if (reason) return reason
     throw error
   }
   return null
 }
 
+/** The skip a refusal of the upload path stands for, or null when `error` is not one. */
+function refusalReason(error: unknown): MailImportSkipReason | null {
+  if (error instanceof FileTooLargeError) return 'size'
+  if (error instanceof BadRequestError) return 'type'
+  return null
+}
+
 /**
  * Upload `bytes` into the mail's folder under the first name free in the
- * project. The name used, or null when the upload path refused the file: a
- * refusal a retry would repeat, so it is a skip, not a failed slice.
+ * project: the name used, or why the upload path refused the file. A refusal
+ * is one a retry would repeat, so it is a skip, not a failed slice.
  */
 async function fileBytes(
   context: FilingContext,
@@ -274,7 +281,7 @@ async function fileBytes(
   bytes: Uint8Array,
   contentType: string,
   claimed: Set<string>,
-): Promise<string | null> {
+): Promise<AttachmentOutcome> {
   const filename = await freeFilename(context, folderId, desired, claimed)
   claimed.add(filename)
   const file = new File([bytes as Uint8Array<ArrayBuffer>], filename, { type: contentType })
@@ -286,10 +293,11 @@ async function fileBytes(
     )
   } catch (error) {
     if (error instanceof InsufficientStorageError) throw new MailImportQuotaError()
-    if (error instanceof BadRequestError) return null
+    const reason = refusalReason(error)
+    if (reason) return { filed: false, reason }
     throw error
   }
-  return filename
+  return { filed: true, filename }
 }
 
 /**
