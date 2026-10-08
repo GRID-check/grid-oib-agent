@@ -43,6 +43,12 @@ BFF writes ◀──────── fingerprint + decisions, each with eviden
   memory rows with `provenanceType: distillation` and
   `verification: source_grounded` and their evidence; the debrief confirms
   (`user_confirmed`) or dismisses (`status: dismissed`) each.
+* **Masked like a note.** The quote stored as an assumption's `reason` goes
+  through the office's „Sensible Daten" policy (ADR-0086) first, as a memory
+  note does: the profile rides every turn, and a Bescheid names its addressee.
+* **Inside one request.** The BFF gives the backend 90 s, under the ~100 s the
+  edge proxy allows a request. A slower extraction writes nothing and the
+  person asks again; the backend's work is lost, never half-written.
 * **Confirmed beats suggested, suggested beats nothing.** The similarity
   ranking reads a confirmed fact first and a suggested one only where no fact
   exists; the agent is told which is which.

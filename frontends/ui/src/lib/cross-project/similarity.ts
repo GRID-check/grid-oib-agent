@@ -106,7 +106,7 @@ function gebaeudeklasse(value: unknown): number | null {
 }
 
 /** The intake's „noch offen": an answer that says nothing about the building. */
-const UNDECIDED = 'offen'
+export const UNDECIDED = 'offen'
 
 /** Values as distinct tokens, „offen" left out. */
 function tokens(values: readonly unknown[]): string[] {
