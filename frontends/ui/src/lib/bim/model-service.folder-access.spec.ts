@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * A model under a folder the session is not cleared for does not exist for it
- * (ADR-0086).
+ * (ADR-0087).
  *
  * Every user-facing BIM surface authorizes through the model's DOCUMENT: the
  * header, the element query, the presigned URL to the raw IFC, the

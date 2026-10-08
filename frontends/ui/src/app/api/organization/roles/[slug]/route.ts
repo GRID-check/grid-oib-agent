@@ -1,5 +1,5 @@
 /**
- * One custom role (ADR-0086). `org:members:manage` for both methods; the
+ * One custom role (ADR-0087). `org:members:manage` for both methods; the
  * service refuses a platform role (403), a slug that is not this
  * organization's (404), adding a permission the editor lacks (403), and
  * deleting a role somebody still holds (409).

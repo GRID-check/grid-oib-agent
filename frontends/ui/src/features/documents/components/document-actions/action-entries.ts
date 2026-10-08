@@ -46,7 +46,7 @@ export const DEFAULT_DOCUMENT_ACTIONS: readonly DocumentActionKind[] = [
 ]
 
 /**
- * What a document in a folder the reader may only read offers (ADR-0087):
+ * What a document in a folder the reader may only read offers (ADR-0088):
  * nothing that changes it. The server refuses the rest anyway.
  */
 export const READ_ONLY_DOCUMENT_ACTIONS: readonly DocumentActionKind[] = ['open', 'ask', 'download', 'copyOriginPath']

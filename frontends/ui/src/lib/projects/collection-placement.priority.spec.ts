@@ -1,6 +1,6 @@
 /**
  * Placement's re-reads are bulk work, on every way a document is read
- * (ADR-0079, ADR-0081, ADR-0086).
+ * (ADR-0079, ADR-0081, ADR-0087).
  *
  * Restricting a large folder re-reads every document in it. Nobody is waiting
  * on those re-reads, so they must queue behind a colleague's upload in the same

@@ -1,4 +1,4 @@
-"""Restricted-folder collections, as the Python side recognises them (ADR-0086).
+"""Restricted-folder collections, as the Python side recognises them (ADR-0087).
 
 A document filed under a restricted project folder is ingested into its own
 collection, ``<project collection>_r<12 hex of the folder id>``, and the BFF
@@ -14,7 +14,7 @@ scope. Two other kinds of reader do:
   read a restricted collection as its base project collection rather than as a
   second, competing project;
 - whoever writes something that outlives the turn and is read by people the
-  restriction excludes. Project memory is that (ADR-0086): a turn with
+  restriction excludes. Project memory is that (ADR-0087): a turn with
   restricted collections in scope writes none (the ``remember`` tool in
   ``aiq_agent/memory/register.py`` and the reflection stage's gate).
 

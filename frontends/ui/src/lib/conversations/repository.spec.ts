@@ -226,7 +226,7 @@ describe('deleteConversationInOrg', () => {
     expect(params).toEqual(['conv_1', 'org_1'])
   })
 
-  it('takes the record of restricted source folders with the row, in the same organization (ADR-0086, ADR-0087)', async () => {
+  it('takes the record of restricted source folders with the row, in the same organization (ADR-0087, ADR-0088)', async () => {
     await deleteConversationInOrg('conv_1', 'org_1')
 
     // No foreign key reaches the record: a first admission writes it before the row exists.

@@ -22,8 +22,8 @@ import 'server-only'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { resolveSubjectMembership } from '@/lib/authz/project-membership'
 import { permissionsForOrgRole } from '@/lib/authz/permissions'
-import { enforcementOn, FEATURE_FLAGS } from '@/lib/authz/feature-flags'
-import { isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
+import { enforcementOn } from '@/lib/authz/feature-flags'
+import { enabledFlagsForOrganization } from '@/lib/workos/feature-flags'
 
 export interface PinnedRequester {
   userId: string
@@ -40,6 +40,14 @@ export interface PinnedRequester {
  * answer is what the fleet-wide kill switch means); without enforcement the
  * gates read the environment and ignore the session, so `null` there is the
  * same thing a live session without the claim reports.
+ *
+ * EVERY flag the organization has, not the one the first caller needed. This
+ * resolved only `agent-authored-documents`, and asked for it with the slug and
+ * the organization swapped, so under enforcement every pinned session carried
+ * no flags at all. A scheduled report could then never file
+ * (`isAgentAuthoredDocumentsEnabled` read the empty set), and the mail import
+ * (ADR-0085), which files through the upload path's `image-upload` gate, would
+ * have refused every picture.
  */
 export async function resolvePinnedRequesterSession(
   requester: PinnedRequester,
@@ -49,9 +57,7 @@ export async function resolvePinnedRequesterSession(
   // nothing here today; the caller refuses rather than guesses a role.
   if (!membership || !membership.role) return null
 
-  const featureFlags = enforcementOn()
-    ? await enabledFlagsForOrg(requester.organizationId)
-    : null
+  const featureFlags = enforcementOn() ? await enabledFlagsForOrganization(requester.organizationId) : null
 
   return {
     userId: requester.userId,
@@ -63,16 +69,5 @@ export async function resolvePinnedRequesterSession(
     role: membership.role,
     permissions: [...permissionsForOrgRole(membership.role)],
     featureFlags,
-  }
-}
-
-/** The one flag the filing path gates on, resolved for the organization. */
-async function enabledFlagsForOrg(organizationId: string): Promise<string[]> {
-  try {
-    const on = await isOrgFeatureEnabled(organizationId, FEATURE_FLAGS.agentAuthoredDocuments)
-    return on ? [FEATURE_FLAGS.agentAuthoredDocuments] : []
-  } catch {
-    // Fail closed: a flag lookup that broke is a flag that is not on.
-    return []
   }
 }

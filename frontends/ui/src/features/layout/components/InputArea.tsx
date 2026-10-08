@@ -108,7 +108,7 @@ export type ConnectionMode = 'sse' | 'websocket'
 
 /**
  * A message the composer did not send because it contains something the
- * office's „Sensible Daten" policy covers (ADR-0085): what was typed, what it
+ * office's „Sensible Daten" policy covers (ADR-0086): what was typed, what it
  * would be masked to, and — when the send was a resumed upload hold — the
  * held text it came from.
  */
@@ -515,7 +515,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
    * and reads as Piloti being careful rather than as Piloti being slow.
    */
   const [heldForUpload, setHeldForUpload] = useState<string | null>(null)
-  // A message that matched the office's „Sensible Daten" (ADR-0085): shown,
+  // A message that matched the office's „Sensible Daten" (ADR-0086): shown,
   // not sent, until the person picks „Maskiert senden" or „Bearbeiten".
   const [screeningHold, setScreeningHold] = useState<ScreeningHold | null>(null)
   const screenChat = useChatScreening()
@@ -1105,7 +1105,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     noteSendIntent()
     const currentMessage = source.trim()
 
-    // The office's „Sensible Daten" (ADR-0085). A match is never sent as typed:
+    // The office's „Sensible Daten" (ADR-0086). A match is never sent as typed:
     // the composer says what it found and the person chooses — masked, or back
     // to the editor with the text untouched. Before the HITL branch, so an
     // answer to Piloti's question is screened like a question. Masking is
@@ -1792,7 +1792,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               }
             />
 
-            {/* „Sensible Daten" (ADR-0085): what the screen found in the message
+            {/* „Sensible Daten" (ADR-0086): what the screen found in the message
             that was not sent, and the only two ways on. Under the textarea, which
             still holds the text as typed. */}
             {screeningHold && (
