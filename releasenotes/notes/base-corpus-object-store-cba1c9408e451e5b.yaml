@@ -1,0 +1,24 @@
+---
+operators:
+  - >
+    Base-corpus PDFs now live in object storage (SeaweedFS), listed in one table
+    in the knowledge database. The first deploy carries the existing PDFs over
+    by itself: a one-shot legacy-corpus-import Job (Kubernetes) or service
+    (Compose) copies them off the old data volume, and they are re-indexed
+    within ten minutes. Nothing has to be uploaded again.
+  - >
+    The per-replica data volume is removed and the backend keeps no files. On
+    Kubernetes the first deploy replaces the aiq-agent StatefulSet without its
+    claim, and chromaEnabled must be true. Delete the old data-aiq-agent claim
+    once the knowledge view lists the corpus; the import reads it until then.
+  - >
+    In Docker Compose the backend no longer mounts the aiq-data volume or the
+    OIB directory; only the one-shot import reads them, and the volume can be
+    removed after it has run.
+    The corpus is ingested by a housekeeping job every ten minutes instead of at
+    boot, and OIB_FORCE_REINGEST no longer exists.
+  - >
+    Ingestion of uploaded corpus files now runs on the ingest workers, as one
+    queued job per file, and no longer in the web pod. OIB_SYNC_MAX_WORKERS is
+    gone. A file whose job fails shows as failed in the knowledge view and is
+    not retried until it changes or you re-index it.

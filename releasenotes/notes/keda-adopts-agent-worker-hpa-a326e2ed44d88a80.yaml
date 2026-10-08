@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    A stack upgraded from before the KEDA queue scaling no longer fails its
+    deploy at the agent-worker ScaledObject. KEDA now takes over the research
+    worker's old autoscaler instead of refusing to scale a workload it already
+    scaled, so the deploy finishes with nothing done by hand.
