@@ -200,7 +200,7 @@ class TestMatchesEscalationKeywords:
 
 
 class TestRestrictedContent:
-    """ADR-0084, glue until restricted memory lands: nothing is distilled into
+    """ADR-0086, glue until restricted memory lands: nothing is distilled into
     project memory from a turn that could read a restricted folder."""
 
     def test_a_restricted_turn_is_skipped(self):

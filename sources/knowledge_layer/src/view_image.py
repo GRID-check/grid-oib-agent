@@ -30,7 +30,7 @@ an object key itself. Fail-open: every failure returns a text-only block
 explaining what went wrong — the tool never raises.
 
 The collection is the model's argument, so it is checked before anything is
-looked up (ADR-0085): it must be in the turn's scope, and a restricted folder's
+looked up (ADR-0087): it must be in the turn's scope, and a restricted folder's
 collection must also be one the turn may draw on. The lookup echoes the turn's
 signed envelope, and the BFF answers only inside the scope it signs. An image
 returned from a collection is reported (``note_collections_read``), so the tools
@@ -264,7 +264,7 @@ def _envelope_headers() -> dict[str, str]:
     """The turn's signed request-context envelope, ECHOED to the lookup; empty off a chat turn.
 
     The BFF answers for a collection only inside the scope this envelope signs,
-    and for a restricted folder's collection only with one (ADR-0085). Echo,
+    and for a restricted folder's collection only with one (ADR-0087). Echo,
     never sign (ADR-0054 §4): the two strings go out exactly as they arrived.
     """
     try:
@@ -288,7 +288,7 @@ def _may_read(collection: str) -> bool:
     turn may draw on (:func:`aiq_agent.knowledge.scoping.get_collection_scope_from_context`).
     A restricted folder's collection needs more than its name in a scope: a
     restricted use bound for the turn that lets it be drawn on, which only a
-    verified envelope gets (ADR-0085). A run with no scope at all (a CLI run, an
+    verified envelope gets (ADR-0087). A run with no scope at all (a CLI run, an
     eval) reads no restricted collection and keeps reaching the others by name.
     """
     from aiq_agent.knowledge.restricted_collections import is_restricted_collection

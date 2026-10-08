@@ -1036,7 +1036,7 @@ class TestTheFindingsRideIntoMemory:
 
 
 class TestReportReflectionHasNoScopeCheck:
-    """ADR-0084: a run's reflection takes no scope, because a check on it could never fire.
+    """ADR-0086: a run's reflection takes no scope, because a check on it could never fire.
 
     The BFF signs restricted collections only into an interactive chat scope, and
     refuses to commission a run from a conversation that drew on a restricted

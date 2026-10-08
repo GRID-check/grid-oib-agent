@@ -12,8 +12,8 @@ When a user asks a question, the AI needs to know which knowledge sources to sea
 - The org-wide Archiv collection (`archiv_{orgId}`, when the Archiv feature is enabled for the org — ADR-0024)
 - The active project collection (`proj_{projectId}`, if working in a project)
 - The restricted-folder collections the session is cleared for
-  (`<project collection>_r<12 hex>`, interactive chat turns only — ADR-0084, see
-  [Restricted folders](#restricted-folders-adr-0084-adr-0085))
+  (`<project collection>_r<12 hex>`, interactive chat turns only — ADR-0086, see
+  [Restricted folders](#restricted-folders-adr-0086-adr-0085))
 - The session collection (`s_{conversationId}`, if in a conversation)
 
 This page is about which collections a request READS. What writes into the
@@ -152,7 +152,7 @@ the session may read the folder (`lib/proxy/collection-authz.ts`).
 ### Per person, by what the conversation used
 
 A conversation is restricted by what it USED, recorded per source folder in
-`conversation_restricted_folders` (migration 0110): content from a folder not
+`conversation_restricted_folders` (migration 0111): content from a folder not
 every member may read entered the model's context. Being able to search a
 folder is not use. Each use is ADMITTED by the BFF
 (`POST /api/internal/conversations/[id]/restricted-use`) before the content

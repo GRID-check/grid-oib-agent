@@ -25,7 +25,7 @@ export interface RequestContext {
    * The scope is for an interactive chat turn: the WebSocket upgrade, and
    * nothing else. Only such a scope may carry the restricted-folder collections
    * the session, and everyone the conversation is shared with, is cleared for
-   * (ADR-0084). Deep research and scheduled runs file their reports for the
+   * (ADR-0086). Deep research and scheduled runs file their reports for the
    * whole project, so every other caller leaves this unset and gets none,
    * whoever is asking.
    */
@@ -130,7 +130,7 @@ async function authorizeConversationScope(
 }
 
 /**
- * The restricted-folder collections (ADR-0084) an interactive chat turn may
+ * The restricted-folder collections (ADR-0086) an interactive chat turn may
  * search: those `folder-access.ts` clears this session for, narrowed to the ones
  * everyone the conversation is shared with is cleared for too, and none on a
  * conversation visible to the whole project (`restricted-use.ts`). A turn with
@@ -264,7 +264,7 @@ export async function buildCollectionScopeFromRequest(
     : undefined
   const sessionCollection = conversationId ? sessionCollectionName(conversationId) : undefined
 
-  // Restricted folders (ADR-0084): an interactive chat turn of a cleared
+  // Restricted folders (ADR-0086): an interactive chat turn of a cleared
   // session, in a project whose row was found, on a conversation whose every
   // reader is cleared for them. Every other scope — deep research, scheduled
   // runs, the proxies, an anonymous deployment — carries none.
