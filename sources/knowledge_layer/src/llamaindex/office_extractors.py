@@ -54,7 +54,7 @@ def _cells_cut(row: tuple[Any, ...]) -> int:
     """Cells of a row the bounds drop or shorten: past the column cap, or longer than a cell may be.
 
     Counted because what is cut is read by nothing, the upload screen included, so a
-    file that lost some can only claim a partial check (ADR-0085).
+    file that lost some can only claim a partial check (ADR-0086).
     """
     beyond = sum(1 for value in row[MAX_TABLE_COLS:] if value not in (None, ""))
     shortened = sum(

@@ -62,7 +62,7 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       conversationId,
       // The upgrade opens an interactive chat socket: the one scope that may
       // carry the restricted-folder collections this session, and everyone the
-      // conversation is shared with, is cleared for (ADR-0086). Fixed for the
+      // conversation is shared with, is cleared for (ADR-0087). Fixed for the
       // socket's life; a turn draws on one only through an admission that
       // checks the conversation's audience again.
       interactiveChat: true,

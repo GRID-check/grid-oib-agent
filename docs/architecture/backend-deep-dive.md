@@ -1333,7 +1333,7 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    The `collection` argument is the model's, so the tool refuses one outside
    the turn's scope, or a restricted folder's the turn may not draw on, before
    any lookup; it echoes the turn's signed envelope, and the route answers only
-   inside the scope that envelope signs (ADR-0087). An image it returns is
+   inside the scope that envelope signs (ADR-0088). An image it returns is
    reported (`note_collections_read`) and admitted with the rest of the round.
    Every failure path (missing file, lookup/fetch/render error, invalid page
    number, disabled flag, no VLM key) degrades to a text-only explanation

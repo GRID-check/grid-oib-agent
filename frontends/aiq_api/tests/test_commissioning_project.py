@@ -84,7 +84,7 @@ def test_the_base_collection_is_read_from_the_environment(monkeypatch) -> None:
     assert derive_project_collection(["at_normen", "oib_knowledge", "proj_abc"]) is None
 
 
-# ADR-0086: a restricted folder's documents live in `<project collection>_r<12 hex>`,
+# ADR-0087: a restricted folder's documents live in `<project collection>_r<12 hex>`,
 # and a cleared member's chat scope carries it beside the project's own collection.
 _RESTRICTED = "proj_abc_r0123456789ab"
 

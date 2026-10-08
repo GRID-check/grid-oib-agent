@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * A conversation's restricted use (ADR-0086, migration 0111) against a REAL
+ * A conversation's restricted use (ADR-0087, migration 0112) against a REAL
  * Postgres, through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -78,7 +78,7 @@ describe('the restricted-use suite is not silently skipped in CI', () => {
   })
 })
 
-describe.skipIf(!url)('restricted use against Postgres (migrations 0111, 0110)', () => {
+describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
@@ -87,7 +87,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0111, 0110)',
   let upsertGrant: typeof import('@/lib/sharing/repository').upsertGrant
   let projectId = ''
   let restricted = ''
-  /** The source folder of `restricted`: what the record names (ADR-0087). */
+  /** The source folder of `restricted`: what the record names (ADR-0088). */
   let folderId = ''
 
   const session: AuthorizedSession = {

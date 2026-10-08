@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * The per-person rule for restricted folders (ADR-0086, ADR-0087; product owner
+ * The per-person rule for restricted folders (ADR-0087, ADR-0088; product owner
  * 2026-10-02: "only when actually used … being restricted is unique to one
  * person"), driven with the stores mocked and the folder rule real. The record
  * names SOURCE FOLDERS and is judged against the folders' access at read time.

@@ -1,4 +1,4 @@
-"""Restricted-folder collections, as the Python side recognises them (ADR-0086).
+"""Restricted-folder collections, as the Python side recognises them (ADR-0087).
 
 A document filed under a restricted project folder is ingested into its own
 collection, ``<project collection>_r<12 hex of the folder id>``, and the BFF

@@ -734,7 +734,7 @@ export async function updateMessageDetail(
 
   if (patch.promptState !== undefined) {
     // What the person typed in answer to Piloti's question, or the plan they
-    // edited before approving it: stored masked (ADR-0085), because the stored
+    // edited before approving it: stored masked (ADR-0086), because the stored
     // thread is what later reaches a model.
     const promptState = await screenedPromptState(session.organizationId, patch.promptState)
     if (promptState) metadata.promptState = promptState
@@ -982,7 +982,7 @@ async function prepareMessage(
 /**
  * What a client wrote, as it may be stored and handed on: each message's text
  * (and the inbox note made from it, and a typed answer it carries) masked
- * against the office's „Sensible Daten" policy (ADR-0085, "Chat messages are
+ * against the office's „Sensible Daten" policy (ADR-0086, "Chat messages are
  * screened too").
  *
  * Every role, not only `user`: the role is the client's word, so a message a
@@ -1024,7 +1024,7 @@ async function screenedInputs<
 
 /**
  * A typed answer to Piloti's question (ADR-0037) as it may be stored: bounded
- * by `sanitizePromptState`, then masked like any message (ADR-0085). The plan
+ * by `sanitizePromptState`, then masked like any message (ADR-0086). The plan
  * approval's edited plan arrives here too. `undefined` when nothing usable is
  * left, so a caller writes nothing rather than an empty answer.
  */

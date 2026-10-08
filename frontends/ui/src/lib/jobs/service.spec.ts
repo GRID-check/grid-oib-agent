@@ -759,7 +759,7 @@ describe('submitAgentRun', () => {
     expect(submitted).not.toHaveProperty('documents')
   })
 
-  it('never searches a restricted folder: its report is filed for the whole project (ADR-0086)', async () => {
+  it('never searches a restricted folder: its report is filed for the whole project (ADR-0087)', async () => {
     // The real scope assembly, so the names on the wire are the ones checked.
     const actual = await vi.importActual<typeof import('@/lib/collection-scope')>('@/lib/collection-scope')
     vi.mocked(computeCollectionScope).mockImplementation(actual.computeCollectionScope)

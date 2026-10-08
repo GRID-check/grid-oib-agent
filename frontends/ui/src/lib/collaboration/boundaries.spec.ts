@@ -35,7 +35,7 @@ vi.mock('@/lib/authz/project-membership', () => ({
   isUserInOrganization: vi.fn(),
 }))
 
-// ADR-0086/0085: no conversation here recorded a restricted folder, so every
+// ADR-0087/0086: no conversation here recorded a restricted folder, so every
 // widening is allowed; the rule itself is `restricted-use.spec.ts`.
 vi.mock('@/lib/conversations/restricted-use', () => ({
   assertMayWidenConversation: vi.fn(async () => undefined),

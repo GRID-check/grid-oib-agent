@@ -1,5 +1,5 @@
 /**
- * An office's own roles, kept in WorkOS (ADR-0086).
+ * An office's own roles, kept in WorkOS (ADR-0087).
  *
  * WorkOS has organization-scoped custom roles: roles that exist only inside one
  * organization, with a slug that starts `org-`, a name, and permissions from
