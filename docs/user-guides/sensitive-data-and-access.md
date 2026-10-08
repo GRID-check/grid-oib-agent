@@ -138,6 +138,8 @@ same holds when you upload a corrected file over an existing one, or publish a
 new version of a document from a draft: until the new content is checked,
 colleagues do not see the document at all, its earlier version included, and
 a link or a citation to it answers as if it did not exist for those minutes.
+If the corrected file is held back for its content, Piloti stops finding the
+earlier version too, until one of the people above releases or deletes it.
 
 **A file whose reading failed before the check** (an IFC model too large to
 read, for example) stays held back, because nothing has checked it. It waits in

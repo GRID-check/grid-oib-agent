@@ -532,7 +532,14 @@ window in which a file nobody had screened was everybody's.
   screened version included. Citations, chat subjects, assignments and shares
   that point at the document answer 404 for those minutes, while the earlier
   chunks stay in the index (the backend retires them only once the new version
-  is indexed), so Piloti can cite a document a member cannot open yet. Serving
+  is indexed), so Piloti can cite a document a member cannot open yet. When the
+  new bytes are quarantined the hold lasts until a reviewer acts, so the backend
+  takes the earlier chunks out as the verdict lands (`_retire_held_predecessor`):
+  nothing of a quarantined document answers retrieval. Its metadata row stays,
+  with the Dokumentart a person set, so the model's document list can still name
+  it with its earlier summary. A re-upload whose reading fails keeps the earlier
+  chunks, as before the hold, until its uploader retries or a reviewer acts.
+  Serving
   the last screened version while the next one is screened would close this; it
   is not built, because the item has one storage key and every byte path would
   have to choose between it and the last screened version's.

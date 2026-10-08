@@ -279,6 +279,14 @@ retrieval serves, and the job logs `Kept the previous version of …`. Deleting
 first, as this step once did, left such a document with no chunks at all.
 The cost is that both versions are retrievable for the length of the job.
 
+A file the upload screen quarantines is the exception. A quarantine holds the
+whole document, its earlier screened version included, from everyone but its
+uploader and its reviewers until a reviewer releases or deletes it (ADR-0085),
+so `_retire_held_predecessor` takes the previous version's chunks out of Chroma
+and the lexical mirror as the verdict lands, still under the replacement lock.
+It drops no metadata row: the Dokumentart and title a person set wait there for
+the release's reading.
+
 A file that fails after some of its chunks were inserted (an embedding batch
 timing out halfway through a long PDF) takes those chunks back out:
 `_discard_partial_version` deletes, from Chroma and the lexical mirror, the ids

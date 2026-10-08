@@ -397,6 +397,58 @@ def test_a_reupload_with_no_vlm_key_keeps_the_previous_image(tmp_path, monkeypat
     assert stores.count("proj_img") == 2
 
 
+def test_a_quarantined_reupload_retires_the_previous_version_and_keeps_its_row(tmp_path, live_ingestor, stores):
+    """A quarantine holds the whole document (ADR-0085), so nothing of it answers retrieval.
+
+    Unlike a failed re-upload, which the uploader retries, a quarantine waits on
+    a reviewer for as long as it takes. The previous version's chunks would go
+    on answering for a document no member may open, so they go as the verdict
+    lands. The metadata row stays: it carries the Dokumentart and the title a
+    person set, which the release's reading keeps.
+    """
+    from aiq_agent.knowledge import get_document_display_title
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _seed_previous_version(live_ingestor, stores, "proj_held", "lohn.txt")
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Gehaltsabrechnung Maerz 2026, Brutto 4.200,00 EUR", encoding="utf-8")
+
+    job_id = live_ingestor.submit_job(
+        [str(upload)],
+        "proj_held",
+        config={
+            "original_filenames": ["lohn.txt"],
+            "screening": {"content_terms": ["Gehaltsabrechnung"], "detectors": []},
+        },
+    )
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert status.file_details[0].screening == "quarantined"
+    assert _chunks(live_ingestor, "proj_held") == {}
+    assert stores.count("proj_held") == 0
+    assert get_document_doc_class("proj_held", "lohn.txt") == "tragwerk"
+    assert get_document_display_title("proj_held", "lohn.txt") == "Statik Bauteil B"
+
+
+def test_a_reupload_that_passes_its_screen_replaces_the_previous_version(tmp_path, live_ingestor, stores):
+    _seed_previous_version(live_ingestor, stores, "proj_screened", "statik.txt")
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Neue Fassung der Statik.", encoding="utf-8")
+
+    job_id = live_ingestor.submit_job(
+        [str(upload)],
+        "proj_screened",
+        config={
+            "original_filenames": ["statik.txt"],
+            "screening": {"content_terms": ["Gehaltsabrechnung"], "detectors": []},
+        },
+    )
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert status.file_details[0].screening == "clean"
+    assert list(_chunks(live_ingestor, "proj_screened").values()) == ["Neue Fassung der Statik."]
+
+
 def test_a_reupload_that_indexes_replaces_the_previous_version(tmp_path, live_ingestor, stores):
     """Old chunks and mirror rows go; the new ones and the row a person edited stay."""
     from aiq_agent.knowledge import get_available_documents

@@ -4111,6 +4111,50 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 exc_info=True,
             )
 
+    def _quarantined(self, job: IngestionJobStatus, file_index: int) -> bool:
+        """Whether this job's upload screen quarantined file ``file_index``."""
+        with self._lock:
+            return file_index < len(job.file_details) and job.file_details[file_index].screening == "quarantined"
+
+    def _retire_held_predecessor(
+        self, chroma_collection, collection_name: str, file_name: str, previous: _PreviousVersion
+    ) -> None:
+        """Take a quarantined re-upload's predecessor out of retrieval.
+
+        A quarantine holds the whole document from everyone but its uploader and
+        its reviewers (ADR-0085), the earlier screened version included, and it
+        lasts until a reviewer releases or deletes it, not for the minutes a
+        reading takes. Its earlier chunks would answer retrieval for a document
+        no member may open, so they go now: from Chroma and the lexical mirror,
+        by the ids collected before the job, exactly as
+        :meth:`_retire_previous_version` takes them.
+
+        Unlike that retirement no metadata row goes, under any spelling: no new
+        version has written its row, and the rows carry what people set (the
+        Dokumentart, the title), which the release's reading takes over. A
+        failed re-upload is not handled here: its uploader retries it, and the
+        version it could not replace stays meanwhile, as it always has.
+        """
+        if not previous.chunk_ids:
+            return
+        try:
+            from aiq_agent.knowledge.chunk_text_store import get_chunk_text_store
+
+            chroma_collection.delete(ids=previous.chunk_ids)
+            bump_collection_version(collection_name)
+            get_chunk_text_store().delete_chunks(collection_name, previous.chunk_ids)
+            logger.info(
+                "Took %d chunk(s) of the previous version of a quarantined re-upload out of %s",
+                len(previous.chunk_ids),
+                collection_name,
+            )
+        except Exception:  # noqa: BLE001 — the verdict stands; a failed retire must not mask it
+            logger.warning(
+                "Could not take the previous version of a quarantined re-upload out of %s; it still answers",
+                collection_name,
+                exc_info=True,
+            )
+
     def _chunk_ids_under(self, chroma_collection, file_name: str) -> set[str] | None:
         """The ids stored under exactly ``file_name``, or None when they could not be read."""
         try:
@@ -5113,6 +5157,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     self._update_file_status(job, i, FileStatus.FAILED, error=str(e))
                     self._discard_partial_version(chroma_collection, collection_name, file_name, chunks_before)
                 finally:
+                    # Still under the replacement lock: a quarantined re-upload
+                    # holds its whole document (ADR-0085) until a reviewer
+                    # acts, so its predecessor stops answering now.
+                    if previous is not None and not retired and not deleted and self._quarantined(job, i):
+                        self._retire_held_predecessor(chroma_collection, collection_name, file_name, previous)
+                        retired = True
                     file_scope.close()
                     # A predecessor still here had a re-upload that did not
                     # index (raised, or reported FAILED and skipped ahead); it
