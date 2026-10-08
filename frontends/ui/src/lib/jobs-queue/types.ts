@@ -19,7 +19,10 @@ import { BFF_JOB_PRIORITY, type BffJobPriority } from '@/lib/db/schema'
  *
  * `reindex_project`, `reingest_failed` and `restore_folder_bin` walk a set of
  * documents a page per slice and run AS the person who asked (their payload
- * carries a `requester`). The other three are one bounded step each and run as the system, because the
+ * carries a `requester`). `purge_binned_chunks` walks too, but as the system:
+ * it finishes a delete a person already committed, and whether a binned folder
+ * stays searchable must not depend on whether that person is still a member.
+ * The other three are one bounded step each and run as the system, because the
  * person's permission was checked when the work was requested and what they do
  * afterwards takes no session: parsing a model, converting a file, rendering
  * and filing a report as the run's own pinned requester.
@@ -28,6 +31,7 @@ export const BFF_JOB_KINDS = [
   'reindex_project',
   'reingest_failed',
   'restore_folder_bin',
+  'purge_binned_chunks',
   'bim_extract',
   'office_rendition',
   'file_research_report',
@@ -160,6 +164,30 @@ export const restoreFolderBinPayloadSchema = z.object({
   counts: countsSchema,
 })
 export type RestoreFolderBinPayload = z.infer<typeof restoreFolderBinPayloadSchema>
+
+/**
+ * `purge_binned_chunks`: finish the chunk purge of a folder delete whose
+ * request did not (ADR-0087). Queued in the transaction that puts the folder in
+ * the bin, not before `BIN_PURGE_TAKEOVER_MS`; the request deletes it once its
+ * own purge is confirmed, so it runs only when the request died half way.
+ *
+ * `entryId` is the bin entry's `deletion_queue` row: the job acts only while
+ * that row is still pending and has no `chunksPurgedAt`, so a restore, a purge
+ * or a second delete of the same folder ends it. `requester` is who deleted,
+ * kept for the one case the job undoes the delete (the index refused on its
+ * last attempt) and the restore job it then queues runs as them.
+ */
+export const purgeBinnedChunksPayloadSchema = z.object({
+  projectId: z.string().min(1),
+  folderId: z.string().min(1),
+  entryId: z.string().min(1),
+  requester: requesterSchema,
+  /** The last document id purged; `null` is the first slice. */
+  cursor: z.string().nullable(),
+  /** Documents purged so far, recorded on the bin entry at the end. */
+  documents: z.number().int().nonnegative(),
+})
+export type PurgeBinnedChunksPayload = z.infer<typeof purgeBinnedChunksPayloadSchema>
 
 /**
  * A stored document to run background work for: what `dispatchDocument` was

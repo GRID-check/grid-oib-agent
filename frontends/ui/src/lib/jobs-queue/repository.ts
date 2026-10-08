@@ -5,8 +5,8 @@
  * Claiming, heartbeating, releasing and failing are not here: they are SQL in
  * `workers/job-queue.js`, run by the `bff-jobs` runner, because that process
  * has no build step and the claim must exist once (see `./queue.ts`). The BFF
- * adds a job, finds the open one of a kind, and reads back the row a worker was
- * handed.
+ * adds a job, withdraws one nobody claimed, finds the open one of a kind, and
+ * reads back the row a worker was handed.
  */
 
 import 'server-only'
@@ -23,7 +23,9 @@ import { bffJobQueue, type BffJobPriority, type BffJobRow } from '@/lib/db/schem
  *
  * `executor` is the caller's transaction when the job must exist exactly when
  * the caller's other writes do (the Papierkorb queues its jobs that way).
- * `jobId` lets such a caller stamp rows with the id before the insert returns.
+ * `jobId` lets such a caller stamp rows with the id before the insert returns;
+ * `notBefore` holds the job back until then, the same column the retry backoff
+ * uses.
  */
 export async function insertJob(
   job: {
@@ -32,6 +34,7 @@ export async function insertJob(
     priority: BffJobPriority
     payload: Record<string, unknown>
     jobId?: string
+    notBefore?: Date
   },
   executor: DbExecutor = getDb()
 ): Promise<string> {
@@ -43,9 +46,24 @@ export async function insertJob(
       lane: job.organizationId,
       priority: job.priority,
       payload: job.payload,
+      notBefore: job.notBefore ?? null,
     })
     .returning({ jobId: bffJobQueue.jobId })
   return row.jobId
+}
+
+/**
+ * Withdraw a job nobody has claimed yet, in the caller's lane; whether it was
+ * there. A claimed job is left alone: its worker owns it now, and a job that
+ * may be withdrawn checks on its own whether it still has work.
+ */
+export async function deleteQueuedJob(jobId: string): Promise<boolean> {
+  const db = getDb()
+  const rows = await db
+    .delete(bffJobQueue)
+    .where(and(eq(bffJobQueue.jobId, jobId), eq(bffJobQueue.status, 'queued')))
+    .returning({ jobId: bffJobQueue.jobId })
+  return rows.length > 0
 }
 
 /**

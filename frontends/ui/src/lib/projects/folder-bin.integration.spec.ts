@@ -429,6 +429,86 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
         'Archiv.pdf',
         'Plan.pdf',
       ])
+      // The undo withdrew the takeover job: nothing is left to finish.
+      expect(await queuedJobs('purge_binned_chunks')).toEqual([])
+    })
+
+    it('queues, with the bin entry, the job that finishes the purge, and withdraws it once the request confirmed', async () => {
+      let during: Awaited<ReturnType<typeof queuedJobs>> = []
+      vi.mocked(collectionRef.purgeIngestedChunks).mockImplementation(async () => {
+        if (during.length === 0) during = await queuedJobs('purge_binned_chunks')
+        return true
+      })
+      const before = Date.now()
+      await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
+      // While the request purged, the job was there, held back for the request.
+      expect(during).toHaveLength(1)
+      expect(during[0].priority).toBe(0)
+      expect(new Date(String(during[0].not_before)).getTime()).toBeGreaterThanOrEqual(before + bin.BIN_PURGE_TAKEOVER_MS - 5_000)
+      expect(during[0].payload).toMatchObject({ projectId, folderId: folder.plaene, cursor: null })
+      // Done: the job is gone and the entry says so.
+      expect(await queuedJobs('purge_binned_chunks')).toEqual([])
+      const [entry] = await queueRow(folder.plaene)
+      expect(entry.payload).toMatchObject({ documents: 2, chunksPurgedAt: expect.any(String) })
+    })
+
+    it('is finished by its job when the request died half way, so it is not searchable for the grace period', async () => {
+      // The request is cut off after the bin committed: no purge confirmed, no undo.
+      vi.mocked(collectionRef.purgeIngestedChunks).mockImplementation(async () => {
+        throw new Error('the pod went away')
+      })
+      await expect(bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })).rejects.toThrow(/went away/)
+      expect((await folderState(folder.plaene))?.deleted_at).not.toBeNull()
+      expect((await queueRow(folder.plaene))[0]?.payload.chunksPurgedAt).toBeUndefined()
+
+      const [job] = await queuedJobs('purge_binned_chunks')
+      vi.mocked(collectionRef.purgeIngestedChunks).mockReset()
+      vi.mocked(collectionRef.purgeIngestedChunks).mockResolvedValue(true)
+      const result = await jobs.runPurgeBinnedChunksSlice(ORG, job.payload as never, { last: false })
+      expect(result.done).toBe(true)
+      expect(vi.mocked(collectionRef.purgeIngestedChunks).mock.calls.map(([, ref]) => ref.filename).sort()).toEqual([
+        'Archiv.pdf',
+        'Plan.pdf',
+      ])
+      expect((await queueRow(folder.plaene))[0]?.payload).toMatchObject({ documents: 2, chunksPurgedAt: expect.any(String) })
+      expect((await folderState(folder.plaene))?.deleted_at).not.toBeNull()
+
+      // A second run finds the purge recorded and touches nothing.
+      vi.mocked(collectionRef.purgeIngestedChunks).mockClear()
+      await jobs.runPurgeBinnedChunksSlice(ORG, job.payload as never, { last: false })
+      expect(collectionRef.purgeIngestedChunks).not.toHaveBeenCalled()
+    })
+
+    it('has its job retry a refused purge, and undo the delete on the last attempt instead of leaving it searchable', async () => {
+      vi.mocked(collectionRef.purgeIngestedChunks).mockImplementation(async () => {
+        throw new Error('the pod went away')
+      })
+      await expect(bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })).rejects.toThrow(/went away/)
+      const [job] = await queuedJobs('purge_binned_chunks')
+      vi.mocked(collectionRef.purgeIngestedChunks).mockReset()
+      vi.mocked(collectionRef.purgeIngestedChunks).mockImplementation(async (_backend, ref) => ref.filename !== 'Archiv.pdf')
+
+      await expect(jobs.runPurgeBinnedChunksSlice(ORG, job.payload as never, { last: false })).rejects.toThrow(/did not confirm/)
+      expect((await folderState(folder.plaene))?.deleted_at).not.toBeNull()
+
+      await expect(jobs.runPurgeBinnedChunksSlice(ORG, job.payload as never, { last: true })).resolves.toMatchObject({ done: true })
+      expect((await folderState(folder.plaene))?.deleted_at).toBeNull()
+      expect((await queueRow(folder.plaene))[0]?.status).toBe('restored')
+      expect(await queuedJobs('restore_folder_bin')).toHaveLength(1)
+    })
+
+    it('has its job do nothing once the folder was restored', async () => {
+      vi.mocked(collectionRef.purgeIngestedChunks).mockImplementation(async () => {
+        throw new Error('the pod went away')
+      })
+      await expect(bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })).rejects.toThrow(/went away/)
+      const [job] = await queuedJobs('purge_binned_chunks')
+      await bin.restoreFolderFromBin(pl, { projectId, folderId: folder.plaene })
+      vi.mocked(collectionRef.purgeIngestedChunks).mockReset()
+      vi.mocked(collectionRef.purgeIngestedChunks).mockResolvedValue(true)
+      await expect(jobs.runPurgeBinnedChunksSlice(ORG, job.payload as never, { last: true })).resolves.toMatchObject({ done: true })
+      expect(collectionRef.purgeIngestedChunks).not.toHaveBeenCalled()
+      expect((await folderState(folder.plaene))?.deleted_at).toBeNull()
     })
 
     it('is never placed back into a collection while it is in the bin', async () => {

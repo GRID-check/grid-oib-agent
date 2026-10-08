@@ -103,7 +103,9 @@ Chosen option 3.
   `restore_folder_bin` (ADR-0087) resolve the requester's membership and role
   again before every slice (`resolvePinnedRequesterSession`) and the rescan
   re-checks `org:settings:manage`. A role revoked, or a person who left, ends the
-  job quietly. A reader's
+  job quietly. One walk runs as the system instead: `purge_binned_chunks`
+  finishes the chunk purge of a folder delete whose request died, and a binned
+  folder must leave retrieval whoever deleted it. A reader's
   filing of a finished report asks for permission when the request is made, so a
   refusal is the answer they get rather than a job that is refused on every read.
 * **The scaler reads a count, not rows.** KEDA's login holds SELECT on the

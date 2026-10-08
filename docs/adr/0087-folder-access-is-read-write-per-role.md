@@ -126,7 +126,10 @@ purged from retrieval in the request and read again on restore, rather than
 hits being filtered by folder state wherever retrieval resolves them: a purged
 chunk cannot be found by any path, the agent's included, and a filter would
 leak through the first path that forgot it. A purge the index does not confirm
-undoes the delete (502). Triggers refuse filing into a deleted folder under the
+undoes the delete (502). A request that dies after binning the folder leaves a
+`purge_binned_chunks` job, queued with the bin entry and held back two minutes,
+to finish the purge on the `bff-jobs` pool, or undo the delete when the index
+keeps refusing. Triggers refuse filing into a deleted folder under the
 project's bin lock (`GFD01`). A restore within `FOLDER_PURGE_GRACE_DAYS`
 (default 14) brings the folder back with its access, at the project root when
 its parent is gone; its documents become `processing` in the same transaction
@@ -276,7 +279,9 @@ recorded folders.
   Dokumentart or display title set on the backend's metadata row is lost, as with a placement
   move.
 * Bad, because a deleted folder's chunks are purged in the request: a folder of many documents
-  takes a while to delete, and a backend that does not confirm refuses the delete.
+  takes a while to delete, and a backend that does not confirm refuses the delete. A request cut
+  off half way leaves the folder partly searchable until its `purge_binned_chunks` job takes over
+  (two minutes).
 * Bad, because removing derived content cannot reach the agent's LangGraph checkpoints of the
   affected chats; they go with the idle-thread reaper (14 days) or the chat's deletion.
 * Good, because a manager cannot widen their own access: changing a list needs write on the
@@ -400,7 +405,9 @@ recorded folders.
 * `projects/folder-bin.integration.spec.ts` (real Postgres): a deleted folder and its
   documents hidden from every listing, document read and the agent's restricted list, for admins
   too; chunks purged and `document-exists` answering gone; a refused purge undoing the delete;
-  a restore's documents `processing` for its job and found by the stuck sweep when the job is gone,
+  the takeover job queued with the entry, withdrawn by a request that finished, finishing a
+  request that died, undoing on its last attempt and idle once the folder was restored; a
+  restore's documents `processing` for its job and found by the stuck sweep when the job is gone,
   dispatched at bulk, a row with nothing to read failed, a Piloti document by its published
   version, the walk stopped for a requester who lost the project;
   the generic refusal for a subtree with a hidden or read-only folder; the triggers refusing an

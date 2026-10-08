@@ -13,8 +13,8 @@
  * spans many slices, and a person who lost their role or left the organization
  * in the meantime must not have it carry on with the rights they had when they
  * clicked. The services the handlers call then check access per document
- * exactly as they do for a request. The other kinds are single steps run as
- * the system (see `./types.ts`).
+ * exactly as they do for a request. `purge_binned_chunks` walks as the system,
+ * and the other kinds are single steps run as the system (see `./types.ts`).
  */
 
 import 'server-only'
@@ -27,13 +27,14 @@ import {
   runReindexSlice,
   runReingestFailedSlice,
 } from '@/lib/documents/service'
-import { runRestoreFolderSlice } from '@/lib/projects/folder-bin-jobs'
+import { runPurgeBinnedChunksSlice, runRestoreFolderSlice } from '@/lib/projects/folder-bin-jobs'
 import { runReportFilingJob } from '@/lib/tasks/service'
 import { isLastAttempt } from './attempts'
 import {
   bimExtractPayloadSchema,
   fileResearchReportPayloadSchema,
   officeRenditionPayloadSchema,
+  purgeBinnedChunksPayloadSchema,
   reindexProjectPayloadSchema,
   reingestFailedPayloadSchema,
   restoreFolderBinPayloadSchema,
@@ -96,11 +97,26 @@ function systemHandler<TPayload extends object>(
   }
 }
 
+/**
+ * A walk that runs as the system: sliced like the person's walks, but with no
+ * session, because what it finishes must not depend on who asked (see
+ * `./types.ts`). It is told whether this is its last attempt, so it can leave
+ * the truth behind before the queue gives up on it.
+ */
+function systemSliceHandler<TPayload extends object>(
+  schema: ZodType<TPayload>,
+  slice: (organizationId: string, payload: TPayload, attempt: JobAttempt) => Promise<JobSliceResult<TPayload>>
+): JobHandler {
+  return async ({ organizationId, payload, attempts }) =>
+    slice(organizationId, schema.parse(payload), { last: isLastAttempt(attempts) })
+}
+
 /** One handler per kind; the record's type makes a kind without one a compile error. */
 export const JOB_HANDLERS: Record<BffJobKind, JobHandler> = {
   reindex_project: handler(reindexProjectPayloadSchema, runReindexSlice),
   reingest_failed: handler(reingestFailedPayloadSchema, runReingestFailedSlice),
   restore_folder_bin: handler(restoreFolderBinPayloadSchema, runRestoreFolderSlice),
+  purge_binned_chunks: systemSliceHandler(purgeBinnedChunksPayloadSchema, runPurgeBinnedChunksSlice),
   bim_extract: systemHandler(bimExtractPayloadSchema, runBimExtractJob),
   office_rendition: systemHandler(officeRenditionPayloadSchema, runOfficeRenditionJob),
   file_research_report: systemHandler(fileResearchReportPayloadSchema, runReportFilingJob),

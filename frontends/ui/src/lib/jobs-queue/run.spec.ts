@@ -19,8 +19,10 @@ vi.mock('@/lib/documents/service', () => ({
 }))
 
 const runRestoreFolderSlice = vi.fn()
+const runPurgeBinnedChunksSlice = vi.fn()
 vi.mock('@/lib/projects/folder-bin-jobs', () => ({
   runRestoreFolderSlice: (...args: unknown[]) => runRestoreFolderSlice(...args),
+  runPurgeBinnedChunksSlice: (...args: unknown[]) => runPurgeBinnedChunksSlice(...args),
 }))
 
 const runReportFilingJob = vi.fn()
@@ -71,6 +73,7 @@ beforeEach(() => {
   runOfficeRenditionJob.mockReset()
   runReportFilingJob.mockReset()
   runRestoreFolderSlice.mockReset()
+  runPurgeBinnedChunksSlice.mockReset()
   // Who the identity provider says the requester is today: the role they hold now, not the one they clicked with.
   resolvePinnedRequesterSession.mockReset()
   resolvePinnedRequesterSession.mockImplementation(async ({ userId, email, organizationId }) => ({
@@ -192,6 +195,7 @@ describe('runJobSlice', () => {
       cursor: null,
       counts: emptyCounts(),
     }
+    const purge = { projectId: 'p-1', folderId: 'f-1', entryId: 'q-1', requester, cursor: null, documents: 0 }
 
     it('runs a restore as the requester of today, and saves where it got to', async () => {
       findClaimedJob.mockResolvedValue(row({ kind: 'restore_folder_bin', payload: restore }))
@@ -202,6 +206,19 @@ describe('runJobSlice', () => {
       expect(resolvePinnedRequesterSession).toHaveBeenCalledWith({ userId: 'user-1', email: 'user@example.com', organizationId: 'org-1' })
       expect(runRestoreFolderSlice.mock.calls[0][0]).toMatchObject({ organizationId: 'org-1', organizationMembershipId: 'om-now' })
       expect(outcome).toMatchObject({ done: false, payload: { cursor: 'doc-25' } })
+    })
+
+    it('finishes a delete’s chunk purge as the system, whoever deleted, and says when the attempt is the last', async () => {
+      findClaimedJob.mockResolvedValue(row({ kind: 'purge_binned_chunks', payload: purge, attempts: 3 }))
+      // The person who deleted has left: the purge still runs.
+      resolvePinnedRequesterSession.mockResolvedValue(null)
+      runPurgeBinnedChunksSlice.mockImplementation(async (_organizationId, state) => ({ done: true, payload: state }))
+
+      const outcome = await runJobSlice('job-1', 'w-0')
+
+      expect(outcome.done).toBe(true)
+      expect(resolvePinnedRequesterSession).not.toHaveBeenCalled()
+      expect(runPurgeBinnedChunksSlice).toHaveBeenCalledWith('org-1', expect.objectContaining(purge), { last: true })
     })
   })
 

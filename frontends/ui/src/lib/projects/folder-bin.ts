@@ -32,6 +32,13 @@
  * `document-exists` once it has indexed, is told "gone", and takes its chunks
  * back out.
  *
+ * A request can die half way (a rollout drains a frontend in 30 s). So the
+ * transaction that bins the folder also queues a `purge_binned_chunks` job,
+ * held back {@link BIN_PURGE_TAKEOVER_MS}: the request withdraws it once every
+ * purge is confirmed and the entry records `chunksPurgedAt`; when the request
+ * did not get that far, the job finishes the purge on the `bff-jobs` pool, or
+ * undoes the delete when the index keeps refusing (`folder-bin-jobs.ts`).
+ *
  * ## Restore reads the documents again, as a job
  *
  * The transaction that takes the folder out of the bin also marks its
@@ -90,15 +97,18 @@ import { lockConversationAudience, recordSourceFolders } from '@/lib/conversatio
 import { getDb } from '@/lib/db'
 import { isUniqueViolation } from '@/lib/db/errors'
 import { withTenant } from '@/lib/db/tenant-context'
+import type { Document } from '@/lib/db/schema'
 import { computePurgeAfter, folderGraceDays } from '@/lib/deletion/policy'
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
 import { eraseProjectDocument } from '@/lib/documents/service'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
+import { deleteQueuedJob } from '@/lib/jobs-queue/repository'
 import {
   BFF_JOB_PRIORITY,
   emptyCounts,
   requesterOf,
   type JobRequester,
+  type PurgeBinnedChunksPayload,
   type RestoreFolderBinPayload,
 } from '@/lib/jobs-queue/types'
 import { getDeletedFolderContentPolicy } from '@/lib/organizations/deleted-folder-content'
@@ -148,9 +158,18 @@ export const FOLDER_NAME_TAKEN_REASON = 'folder-name-taken'
 
 const CHUNK_PURGE_TIMEOUT_MS = 15_000
 /** How many backend calls one bin operation has in flight at once. */
-const BACKEND_CONCURRENCY = 8
+export const BACKEND_CONCURRENCY = 8
 /** How many documents a purge erases at once: each is several stores. */
 const ERASE_CONCURRENCY = 4
+
+/**
+ * How long a delete's own request has to confirm its chunk purge before its
+ * `purge_binned_chunks` job takes over. Well past a frontend's drain (30 s),
+ * short because a binned folder whose purge is unfinished is still partly
+ * searchable until then. A request still purging when the job starts costs
+ * only a second purge of the same chunks, which is idempotent.
+ */
+export const BIN_PURGE_TAKEOVER_MS = 2 * 60_000
 
 /** Run `work` over `items`, at most `limit` at a time, in order of the results. */
 export async function inPool<T, R>(items: readonly T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
@@ -164,6 +183,23 @@ export async function inPool<T, R>(items: readonly T[], limit: number, work: (it
   })
   await Promise.all(workers)
   return results
+}
+
+/** Take one document's chunks out of retrieval; true when the backend confirmed (or it owns none). */
+export function purgeChunksOf(doc: Document): Promise<boolean> {
+  const ref = collectionFileRef(doc)
+  return ref ? purgeIngestedChunks(getBackendUrl(), ref, CHUNK_PURGE_TIMEOUT_MS) : Promise.resolve(true)
+}
+
+/**
+ * Withdraw a delete's `purge_binned_chunks` job once the request has done its
+ * work. Best effort: a job left behind finds the entry says `chunksPurgedAt`
+ * (or is no longer pending) and ends without touching anything.
+ */
+async function withdrawPurgeJob(organizationId: string, jobId: string): Promise<void> {
+  await withTenant({ organizationId }, () => deleteQueuedJob(jobId)).catch((error) => {
+    console.warn('[folder-bin] could not withdraw the chunk purge job', jobId, error)
+  })
 }
 
 function contentsProtectedError(): ForbiddenError {
@@ -232,6 +268,7 @@ export async function moveFolderToBin(
 
   const purgeAfter = options.purgeAfter ?? computePurgeAfter(new Date(), folderGraceDays())
   const at = new Date()
+  const purgeJobId = randomUUID()
   const requester = requesterOf(session)
   const folderIds = await withTenant({ organizationId }, () =>
     db.transaction(async (tx) => {
@@ -250,7 +287,7 @@ export async function moveFolderToBin(
         folderIds: subtree,
         documents: 0,
       }
-      await insertFolderBinEntry(tx, {
+      const entryId = await insertFolderBinEntry(tx, {
         organizationId,
         folderId: root.id,
         displayName: root.path,
@@ -258,6 +295,28 @@ export async function moveFolderToBin(
         purgeAfter,
         payload,
       })
+      // Whoever finishes the purge if this request does not: committed with
+      // the bin entry, so there is no moment the folder is in the bin with
+      // nothing owning its chunks.
+      const takeover: PurgeBinnedChunksPayload = {
+        projectId: project.id,
+        folderId: root.id,
+        entryId,
+        requester,
+        cursor: null,
+        documents: 0,
+      }
+      await enqueueJob(
+        {
+          kind: 'purge_binned_chunks',
+          organizationId,
+          payload: { ...takeover },
+          priority: BFF_JOB_PRIORITY.interactive,
+          jobId: purgeJobId,
+          notBefore: new Date(at.getTime() + BIN_PURGE_TAKEOVER_MS),
+        },
+        tx
+      )
       return subtree
     })
   )
@@ -265,19 +324,22 @@ export async function moveFolderToBin(
   // Out of retrieval at once. Every purge confirmed, or the bin entry is
   // undone and the request refused: never in the bin and still searchable.
   const docs = await listDocumentsInFolders(organizationId, project.id, folderIds)
-  const purged = await inPool(docs, BACKEND_CONCURRENCY, async (doc) => {
-    const ref = collectionFileRef(doc)
-    return ref ? purgeIngestedChunks(getBackendUrl(), ref, CHUNK_PURGE_TIMEOUT_MS) : true
-  })
+  const purged = await inPool(docs, BACKEND_CONCURRENCY, purgeChunksOf)
   if (purged.some((ok) => !ok)) {
-    await returnFromBin(organizationId, project, root.id, requester).catch((error) => {
+    try {
+      await returnFromBin(organizationId, project, root.id, requester)
+      await withdrawPurgeJob(organizationId, purgeJobId)
+    } catch (error) {
+      // The job stays: it finishes the purge the person asked for, or undoes
+      // the delete itself, so the folder is not left half searchable.
       console.error('[folder-bin] undoing a delete whose chunk purge failed also failed:', root.id, error)
-    })
+    }
     throw new UpstreamError(
       'The folder could not be moved to the bin: the search index did not confirm. Nothing was deleted; please try again.'
     )
   }
-  await mergeBinEntryPayload(organizationId, root.id, { documents: docs.length })
+  await mergeBinEntryPayload(organizationId, root.id, { documents: docs.length, chunksPurgedAt: new Date().toISOString() })
+  await withdrawPurgeJob(organizationId, purgeJobId)
 
   await recordAuditEvent({
     organizationId,
@@ -358,7 +420,7 @@ async function unbinEntry(
  * Undo a bin entry without a person asking (its chunk purge failed): out of
  * the bin, and its documents read again by the restore's job, as `requester`.
  */
-async function returnFromBin(
+export async function returnFromBin(
   organizationId: string,
   project: ProjectRow,
   rootId: string,

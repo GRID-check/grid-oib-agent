@@ -1,16 +1,22 @@
 /**
- * The Papierkorb's walk on the `bff-jobs` pool (ADR-0087, ADR-0079).
+ * The Papierkorb's two walks on the `bff-jobs` pool (ADR-0087, ADR-0079).
  *
- * It used to run inside the person's request on a user-facing frontend, which
- * a rollout drains in 30 s. It now belongs to a job the restore queues in the
- * same transaction as its own writes, so whatever is not yet read again has an
- * owner the moment the restore commits.
+ * Both used to run inside the person's request on a user-facing frontend,
+ * which a rollout drains in 30 s. Each now belongs to a job the request queues
+ * in the same transaction as its own writes, so whatever the request did not
+ * finish has an owner the moment it commits.
  *
- * `restore_folder_bin` ({@link runRestoreFolderSlice}) reads a restored
- * folder's documents into the index again, a page per slice, as the person who
- * restored it. The restore marked them `processing` with this job's id, so a
- * slice reads exactly the rows still waiting, and a row the job never reaches
- * is one the stuck-processing sweep recovers.
+ * - `restore_folder_bin` ({@link runRestoreFolderSlice}): reads a restored
+ *   folder's documents into the index again, a page per slice, as the person
+ *   who restored it. The restore marked them `processing` with this job's id,
+ *   so a slice reads exactly the rows still waiting, and a row the job never
+ *   reaches is one the stuck-processing sweep recovers.
+ * - `purge_binned_chunks` ({@link runPurgeBinnedChunksSlice}): finishes the
+ *   chunk purge of a delete whose request died after binning the folder.
+ *   Held back `BIN_PURGE_TAKEOVER_MS` and withdrawn by a request that
+ *   finished, so normally it never runs. It runs as the system: a folder in the
+ *   bin must leave retrieval whether or not the person who deleted it is still
+ *   a member.
  */
 
 import 'server-only'
@@ -18,7 +24,9 @@ import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { computeFolderAccess, loadCustomFolderTree } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { getDb } from '@/lib/db'
 import type { Document } from '@/lib/db/schema'
+import { withTenant } from '@/lib/db/tenant-context'
 import { collectionFileRef } from '@/lib/documents/collection-file-ref'
 import { resolveDocumentFolderPath } from '@/lib/documents/folder-path'
 import { redispatchPublishedVersion } from '@/lib/documents/lifecycle'
@@ -26,18 +34,31 @@ import { markDocumentIngestFailed } from '@/lib/documents/repository'
 import { INGEST_DISPATCH_FAILED_MESSAGE, dispatchDocument } from '@/lib/documents/service'
 import {
   recordJobFailure,
+  type JobAttempt,
   type JobCounts,
   type JobSliceResult,
+  type PurgeBinnedChunksPayload,
   type RestoreFolderBinPayload,
 } from '@/lib/jobs-queue/types'
-import { inPool } from './folder-bin'
-import { listRestoringDocumentPage, setDocumentCollection } from './folder-bin-repository'
+import { BACKEND_CONCURRENCY, inPool, purgeChunksOf, returnFromBin } from './folder-bin'
+import {
+  findBinEntryById,
+  findFolderInOrg,
+  listDocumentPageInFolders,
+  listEntryFolderIds,
+  listRestoringDocumentPage,
+  mergeBinEntryPayload,
+  setDocumentCollection,
+  type FolderBinPayload,
+} from './folder-bin-repository'
 import { findProjectInOrg } from './repository'
 
 /** Documents one restore slice re-dispatches: seconds of work, the unit a draining worker waits for. */
 export const RESTORE_SLICE_DOCUMENTS = 25
 /** Re-dispatches one restore slice has in flight at once. */
 const RESTORE_CONCURRENCY = 4
+/** Documents one purge slice takes out of retrieval; a purge is one backend call each. */
+export const PURGE_SLICE_DOCUMENTS = 50
 
 type ProjectRow = NonNullable<Awaited<ReturnType<typeof findProjectInOrg>>>
 
@@ -139,4 +160,55 @@ export async function runRestoreFolderSlice(
     )
   }
   return { done, payload: next }
+}
+
+/**
+ * One slice of a `purge_binned_chunks` job: the next page of a binned folder's
+ * documents taken out of retrieval, for a delete whose request did not confirm
+ * it.
+ *
+ * Nothing to do (the job ends) once the bin entry is no longer pending (it was
+ * restored, or a purge has claimed it and erases the documents itself), says
+ * `chunksPurgedAt` (the request finished), or names a folder that is not in
+ * the bin. A purge the index does not confirm is retried by the queue, with its
+ * backoff; on the last attempt the delete is undone instead, as the request
+ * would have undone it, so the folder is never left in the bin while part of it
+ * is still searchable.
+ */
+export async function runPurgeBinnedChunksSlice(
+  organizationId: string,
+  payload: PurgeBinnedChunksPayload,
+  attempt: JobAttempt
+): Promise<JobSliceResult<PurgeBinnedChunksPayload>> {
+  const finished = { done: true, payload }
+  const entry = await findBinEntryById(organizationId, payload.entryId)
+  const recorded = (entry?.payload ?? null) as Partial<FolderBinPayload> | null
+  if (!entry || entry.status !== 'pending' || recorded?.chunksPurgedAt) return finished
+  const db = getDb()
+  const root = await withTenant({ organizationId }, () => findFolderInOrg(db, organizationId, payload.projectId, payload.folderId))
+  if (!root || !root.deletedAt || root.purgedAt || root.binRootId !== root.id) return finished
+
+  const folderIds = await withTenant({ organizationId }, () => listEntryFolderIds(db, root))
+  const page = await listDocumentPageInFolders(organizationId, root.projectId, folderIds, payload.cursor, PURGE_SLICE_DOCUMENTS)
+  const confirmed = await inPool(page, BACKEND_CONCURRENCY, purgeChunksOf)
+  const refused = confirmed.filter((ok) => !ok).length
+  if (refused > 0) {
+    if (!attempt.last) {
+      throw new Error(`the search index did not confirm the chunk purge of ${refused} document(s) of binned folder ${root.id}`)
+    }
+    const project = await findProjectInOrg(root.projectId, organizationId)
+    if (project) await returnFromBin(organizationId, project, root.id, payload.requester)
+    console.error(`[folder-bin] the index refused the chunk purge of binned folder ${root.id} on every attempt; the delete was undone`)
+    return finished
+  }
+
+  const next: PurgeBinnedChunksPayload = {
+    ...payload,
+    cursor: page.at(-1)?.id ?? payload.cursor,
+    documents: payload.documents + page.length,
+  }
+  if (page.length === PURGE_SLICE_DOCUMENTS) return { done: false, payload: next }
+  await mergeBinEntryPayload(organizationId, root.id, { chunksPurgedAt: new Date().toISOString(), documents: next.documents })
+  console.warn(`[folder-bin] finished the chunk purge of binned folder ${root.id}, which its delete request left unfinished`)
+  return { done: true, payload: next }
 }

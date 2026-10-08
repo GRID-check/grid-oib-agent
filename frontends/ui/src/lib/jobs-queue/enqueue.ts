@@ -31,6 +31,8 @@ export async function enqueueJob(
     priority?: BffJobPriority
     /** The id to give the job, when the caller stamps it on rows in the same transaction. */
     jobId?: string
+    /** Not claimed before this. */
+    notBefore?: Date
   },
   /** The caller's transaction, when the job must commit or roll back with its other writes. */
   executor?: DbExecutor
@@ -42,6 +44,7 @@ export async function enqueueJob(
       priority: input.priority ?? BFF_JOB_PRIORITY.bulk,
       payload: input.payload,
       jobId: input.jobId,
+      notBefore: input.notBefore,
     },
     executor
   )

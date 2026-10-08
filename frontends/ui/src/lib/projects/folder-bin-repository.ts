@@ -291,30 +291,41 @@ export async function listDocumentsInFolders(
   projectId: string,
   folderIds: readonly string[]
 ): Promise<Document[]> {
-  if (folderIds.length === 0) return []
-  const db = getDb()
   const found: Document[] = []
   let afterId: string | null = null
   for (;;) {
-    const page: Document[] = await withTenant({ organizationId }, () =>
-      db
-        .select()
-        .from(documents)
-        .where(
-          and(
-            eq(documents.organizationId, organizationId),
-            eq(documents.projectId, projectId),
-            inArray(documents.folderId, [...folderIds]),
-            ...(afterId ? [gt(documents.id, afterId)] : [])
-          )
-        )
-        .orderBy(asc(documents.id))
-        .limit(DOCUMENT_PAGE)
-    )
+    const page: Document[] = await listDocumentPageInFolders(organizationId, projectId, folderIds, afterId, DOCUMENT_PAGE)
     found.push(...page)
     if (page.length < DOCUMENT_PAGE) return found
     afterId = page[page.length - 1].id
   }
+}
+
+/** One page of the documents filed in these folders, by id after `afterId`: what a sliced job reads. */
+export async function listDocumentPageInFolders(
+  organizationId: string,
+  projectId: string,
+  folderIds: readonly string[],
+  afterId: string | null,
+  limit: number
+): Promise<Document[]> {
+  if (folderIds.length === 0) return []
+  const db = getDb()
+  return withTenant({ organizationId }, () =>
+    db
+      .select()
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.projectId, projectId),
+          inArray(documents.folderId, [...folderIds]),
+          ...(afterId ? [gt(documents.id, afterId)] : [])
+        )
+      )
+      .orderBy(asc(documents.id))
+      .limit(limit)
+  )
 }
 
 /** Point a document at the collection a restore puts it in. */
@@ -333,6 +344,12 @@ export interface FolderBinPayload {
   projectId: string
   folderIds: string[]
   documents: number
+  /**
+   * When every document's chunks were confirmed purged. Absent while the
+   * delete's purge is unfinished: the request that binned the folder died
+   * before it was done, and its `purge_binned_chunks` job finishes it.
+   */
+  chunksPurgedAt?: string
   /** Set when the purge removed what was derived from the folder („Mit dem Ordner entfernen"): the ids. */
   derivedRemoval?: DerivedRemovalRecord
   /** What a purge removed, counted. */
@@ -370,16 +387,35 @@ export async function insertFolderBinEntry(
     purgeAfter: Date
     payload: FolderBinPayload
   }
-): Promise<void> {
-  await tx.insert(deletionQueue).values({
-    entityType: 'folder',
-    entityId: entry.folderId,
-    displayName: entry.displayName,
-    organizationId: entry.organizationId,
-    requestedBy: entry.requestedBy,
-    purgeAfter: entry.purgeAfter,
-    payload: { ...entry.payload },
-  })
+): Promise<string> {
+  const [row] = await tx
+    .insert(deletionQueue)
+    .values({
+      entityType: 'folder',
+      entityId: entry.folderId,
+      displayName: entry.displayName,
+      organizationId: entry.organizationId,
+      requestedBy: entry.requestedBy,
+      purgeAfter: entry.purgeAfter,
+      payload: { ...entry.payload },
+    })
+    .returning({ id: deletionQueue.id })
+  return row.id
+}
+
+/** A bin entry's queue row by its id, in any state; null when it is not the organization's folder entry. */
+export async function findBinEntryById(organizationId: string, entryId: string): Promise<FolderQueueRow | null> {
+  const db = getDb()
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select()
+      .from(deletionQueue)
+      .where(
+        and(eq(deletionQueue.id, entryId), eq(deletionQueue.entityType, 'folder'), eq(deletionQueue.organizationId, organizationId))
+      )
+      .limit(1)
+  )
+  return row ?? null
 }
 
 export type FolderQueueRow = typeof deletionQueue.$inferSelect
