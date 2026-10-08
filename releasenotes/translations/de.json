@@ -1104,6 +1104,10 @@
     "de": "Dateien lassen sich jetzt wie überall sonst in Ordnern öffnen: Klicken Sie auf einen Ordner, um ihn zu öffnen. Der Pfad oben („Alle Dateien › Brandschutz“) zeigt genau, wo Sie sich befinden, und ermöglicht Ihnen, zu jeder übergeordneten Ebene zurückzukehren. Ordner werden auf jeder Ebene direkt neben Ihren Dateien als Karten angezeigt, nicht nur ganz oben."
   },
   {
+    "en": "Files of a closed project say so wherever they appear, and the projects list can show active, closed or all projects.",
+    "de": "Dateien eines abgeschlossenen Projekts sind überall, wo sie erscheinen, als solche gekennzeichnet, und die Projektliste kann aktive, abgeschlossene oder alle Projekte zeigen."
+  },
+  {
     "en": "Files you upload start being read right away, even while another office is importing a large folder, and a busy day brings more reading capacity instead of a longer wait.",
     "de": "Dateien, die Sie uploaden, werden sofort eingelesen – auch während ein anderes Büro einen großen Ordner importiert. An stark ausgelasteten Tagen steht mehr Kapazität zum Einlesen zur Verfügung, statt dass sich die Wartezeit verlängert."
   },
@@ -2538,6 +2542,10 @@
   {
     "en": "Word, Excel and PowerPoint files now open in the document viewer as a PDF preview, and a reference to one opens that preview instead of only offering a download. Download still gives you the original file, unchanged.",
     "de": "Word-, Excel- und PowerPoint-Dateien öffnen sich jetzt im Dokumentbetrachter als PDF-Vorschau, und ein Verweis auf eine solche Datei öffnet diese Vorschau, statt nur einen Download anzubieten. Der Download liefert weiterhin die unveränderte Originaldatei."
+  },
+  {
+    "en": "You can now close a finished project in its settings. It stays complete and searchable, becomes read-only, and everyone in your office can read it, while folders with their own access list stay restricted.",
+    "de": "Ein fertiges Projekt lässt sich jetzt in seinen Einstellungen abschließen. Es bleibt vollständig und durchsuchbar, wird schreibgeschützt und ist für alle in Ihrem Büro lesbar, während Ordner mit eigener Zugriffsliste eingeschränkt bleiben."
   },
   {
     "en": "You can now dictate a question: press the microphone in the message field and speak, and the text appears where your cursor was, with German and English kept as you said them and hesitations such as „äh“ left out. Dictation is free and never counts against your organization's budget.",
