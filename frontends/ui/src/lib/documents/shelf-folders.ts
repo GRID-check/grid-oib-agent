@@ -26,6 +26,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireShelfRead, requireShelfWrite } from './shelf-authz'
 import { shelfCollectionName } from './shelf-collection'
 import { shelfDocumentWhere, shelfOwner, shelfFolderWhere, type DocumentShelf } from './shelf'
+import { escapeLikePattern } from '@/lib/text/like-pattern'
 
 /** Backend calls here are decoration on a committed write — keep them short. */
 const BACKEND_MIRROR_TIMEOUT_MS = 5_000
@@ -389,10 +390,6 @@ async function getOrCreateChild(
  * The prefix query is what finds them; `escapeLikePattern` keeps a folder
  * called `100 % Plans` from matching half the shelf.
  */
-function escapeLikePattern(value: string): string {
-  return value.replace(/([\\%_])/g, '\\$1')
-}
-
 /**
  * Rewrite `path` for a subtree that has just moved or been renamed.
  *
