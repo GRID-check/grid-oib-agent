@@ -681,6 +681,60 @@ describe('readProjectBrief', () => {
   })
 })
 
+describe('the OIB edition a listed project carries', () => {
+  const at = (value: string, source: 'agent_suggested' | 'onboarding_default' = 'agent_suggested') => ({
+    value,
+    status: 'unconfirmed' as const,
+    reason: 'Aus den Unterlagen',
+    source,
+    updatedAt: '',
+  })
+  const withFact = (value: string) => ({ value, confidence: 'confirmed' as const, source: 'user_confirmed' as const, updatedAt: '' })
+
+  it('is confirmed when a person set it, on find and on the brief', async () => {
+    state.reachable = [project(1, { profile: { facts: { oib_ausgabe: withFact('2019') }, goals: {}, unknowns: [], assumptions: {} } })]
+
+    const found = await listLookupProjects(caller(), crossProjectListRequestSchema.parse({}))
+    const brief = await readProjectBrief(caller(), { projectId: state.reachable[0].id })
+
+    expect(found.projects[0].oibEdition).toEqual({ value: '2019', confirmed: true })
+    expect(brief.project.oibEdition).toEqual({ value: '2019', confirmed: true })
+  })
+
+  it('is unconfirmed when only the documents suggest it, and a fact still wins over a suggestion', async () => {
+    state.reachable = [
+      project(1, { profile: { facts: {}, goals: {}, unknowns: [], assumptions: { oib_ausgabe: at('2015') } } }),
+      project(2, {
+        profile: {
+          facts: { oib_ausgabe: withFact('2019') },
+          goals: {},
+          unknowns: [],
+          assumptions: { oib_ausgabe: at('2015') },
+        },
+      }),
+    ]
+
+    const found = await listLookupProjects(caller(), crossProjectListRequestSchema.parse({}))
+
+    expect(found.projects.map((listed) => listed.oibEdition)).toEqual([
+      { value: '2015', confirmed: false },
+      { value: '2019', confirmed: true },
+    ])
+  })
+
+  it('is null when neither a person nor the documents say it, and a wizard default is no evidence', async () => {
+    state.reachable = [
+      project(1, { profile: { facts: {}, goals: {}, unknowns: [], assumptions: { oib_ausgabe: at('2015', 'onboarding_default') } } }),
+    ]
+
+    const found = await listLookupProjects(caller(), crossProjectListRequestSchema.parse({}))
+    const brief = await readProjectBrief(caller(), { projectId: state.reachable[0].id })
+
+    expect(found.projects[0].oibEdition).toBeNull()
+    expect(brief.project.oibEdition).toBeNull()
+  })
+})
+
 describe('periodOverlaps', () => {
   it('is inclusive at both ends, treats an open end as running on, and is open when a bound is missing', () => {
     expect(periodOverlaps({ start: '2020-01-01', end: '2021-06-30' }, '2021-06-30', '2022-01-01')).toBe(true)

@@ -207,6 +207,12 @@ export const crossProjectListedSchema = crossProjectRefSchema.extend({
   address: z.string().nullable(),
   /** The project's period, as days: its start, and its end once it has one (open until then). */
   period: z.object({ start: z.string(), end: z.string().nullable() }),
+  /**
+   * The OIB-Richtlinien edition the project was planned under (a year, `2015`).
+   * Confirmed when a person set it; unconfirmed when only the project's documents
+   * suggest it. Null when neither says.
+   */
+  oibEdition: z.object({ value: z.string(), confirmed: z.boolean() }).nullable(),
   /** Whether this is the project the conversation runs in. */
   current: z.boolean(),
 })

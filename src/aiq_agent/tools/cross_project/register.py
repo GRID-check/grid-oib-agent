@@ -548,10 +548,25 @@ def _period(raw: object) -> str:
     return f"seit {start}" if not end else f"{start} bis {end}"
 
 
+def _edition_note(project: dict[str, Any]) -> str | None:
+    """The OIB edition the project was planned under; unconfirmed when only its documents suggest it."""
+    edition = project.get("oibEdition")
+    if not isinstance(edition, dict) or not _text(edition.get("value")):
+        return None
+    note = f"geplant nach OIB-Richtlinien {_text(edition['value'])}"
+    if not edition.get("confirmed"):
+        note += " (aus den Unterlagen, unbestätigt)"
+    return note
+
+
 def _project_line(project: dict[str, Any]) -> str:
     parts = [f"{_text(project.get('name'))} — {_status_label(project.get('status'))}"]
     if period := _period(project.get("period")):
         parts.append(period)
+    if land := _land_note(project):
+        parts.append(land)
+    if edition := _edition_note(project):
+        parts.append(edition)
     if address := _text(project.get("address")):
         parts.append(address)
     line = " · ".join(parts) + f" (project_id {project.get('id')})"
