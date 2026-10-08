@@ -38,6 +38,8 @@ import signal
 import socket
 import time
 
+from aiq_agent.knowledge.leader_lock import require_direct_dsns
+
 from . import queue
 from .outcome_notify import notify_job_outcome_from_access
 from .runner import _purge_deep_checkpoint
@@ -436,6 +438,9 @@ async def _mark_waiting_while_unclaimed(store, job_id: str) -> bool:
 
 def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+    # Its knowledge layer takes session advisory locks, which need the direct DSN
+    # (ADR-0083). It never LISTENs. Fail the boot, not the first lock.
+    require_direct_dsns(listen=False)
     worker = ResearchWorker()
 
     loop = asyncio.new_event_loop()

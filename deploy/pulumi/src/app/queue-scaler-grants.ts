@@ -145,10 +145,12 @@ export function installQueueScalerGrants(
     {
       metadata: { namespace: w.namespace, labels },
       stringData: {
-        JOBS_DSN: w.dsn({ db: "aiq_jobs" }),
-        APP_DSN: w.dsn({ db: "grid_app" }),
-        NAT_JOB_STORE_DB_URL: w.dsn({ db: "aiq_jobs", driver: "postgresql+asyncpg" }),
-        AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
+        // All direct (ADR-0083): a one-shot DDL and GRANT Job holds the owner's
+        // session for its own statements and has no use for a pool.
+        JOBS_DSN: w.dsn({ db: "aiq_jobs", via: "direct" }),
+        APP_DSN: w.dsn({ db: "grid_app", via: "direct" }),
+        NAT_JOB_STORE_DB_URL: w.dsn({ db: "aiq_jobs", via: "direct", driver: "postgresql+asyncpg" }),
+        AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", via: "direct", driver: "postgresql+psycopg" }),
       },
     },
     { provider: w.provider },

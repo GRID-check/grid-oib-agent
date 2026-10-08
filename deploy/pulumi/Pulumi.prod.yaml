@@ -477,3 +477,9 @@ config:
   # any one model. The adaptive limiter starts at these and halves on a 429.
   grid-oib:providerLimitCeiling: "128"
   grid-oib:providerModelLimitCeiling: "32"
+  # ── Postgres pooler (ADR-0083) ──
+  # Two PgBouncers, spread across nodes, so a drain takes one. Budget against the
+  # primary's max_connections of 200 (assertPgConnectionBudget): 2 x (3 pooled
+  # database/role pairs x pgPoolerPoolSize 12 + 1 auth session) = 74, plus 82 held
+  # for the direct connections (see POSTGRES_DIRECT_RESERVE) = 156, 44 to spare.
+  grid-oib:pgPoolerInstances: "2"
