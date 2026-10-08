@@ -9,7 +9,9 @@ on:
   push:
     branches: [develop, "release/**"]
   pull_request:
-    branches: [develop, "release/**"]
+    # `claude/**`: a PR stacked on another PR's branch gets the same gate as
+    # one that targets develop, instead of nothing until the PR below merges.
+    branches: [develop, "release/**", "claude/**"]
 
 permissions:
   contents: read

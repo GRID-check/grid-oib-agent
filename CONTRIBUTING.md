@@ -34,7 +34,9 @@ than leaving the next person to trip over them.
 ## Branching
 
 - Cut feature branches from `develop` (the integration branch). `develop` and
-  `release/**` are the protected branches CI runs against.
+  `release/**` are the protected branches CI runs against. CI and the security
+  scan also run on a pull request whose base is a `claude/**` branch, so every
+  PR of a stack gets its gate before the one below it merges.
 - One logical change per branch.
 - One logical change per commit. When a feature trips over **correlated
   substrate debt** (an extension point that is not actually generic), lift
