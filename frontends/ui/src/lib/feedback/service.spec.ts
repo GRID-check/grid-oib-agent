@@ -11,9 +11,11 @@ vi.mock('./repository', () => ({
   upsertAnswerFeedback: vi.fn(),
   deleteAnswerFeedbackForUser: vi.fn(),
   getAnswerFeedbackForUser: vi.fn(async () => null),
+  getAnswerTraceId: vi.fn(async () => null),
   listAnswerFeedbackForConversation: vi.fn(),
   getFeedbackHealth: vi.fn(),
   listFeedbackTurns: vi.fn(),
+  FEEDBACK_EXPORT_ROW_CAP: 3,
 }))
 
 // The memory-implication trigger: mocked wholesale — its own behavior is
@@ -41,6 +43,18 @@ vi.mock('@/lib/upload-screening/service', async () => {
 
 vi.mock('./digest', () => ({ getFeedbackDigest: vi.fn() }))
 
+// The Langfuse client: its own behaviour is pinned in lib/langfuse/*.spec.ts;
+// here only when the service calls it, with what, and that it never waits on it.
+vi.mock('@/lib/langfuse/feedback-score', () => ({
+  feedbackScoringEnabled: vi.fn(() => true),
+  upsertFeedbackScore: vi.fn(async () => true),
+  deleteFeedbackScore: vi.fn(async () => true),
+}))
+
+vi.mock('@/lib/organizations/display-names', () => ({
+  getOrganizationDisplayNames: vi.fn(async () => new Map<string, string>()),
+}))
+
 vi.mock('@/lib/authz/platform', () => ({
   requirePlatformPermission: vi.fn(),
   PlatformAccessDeniedError: class PlatformAccessDeniedError extends Error {},
@@ -53,15 +67,24 @@ import { PlatformAccessDeniedError, requirePlatformPermission } from '@/lib/auth
 import {
   deleteAnswerFeedbackForUser,
   getAnswerFeedbackForUser,
+  getAnswerTraceId,
   getFeedbackHealth,
   listAnswerFeedbackForConversation,
+  listFeedbackTurns,
   upsertAnswerFeedback,
 } from './repository'
 import { implicateMemoryFromFeedback } from '@/lib/projects/memory-service'
 import { memoryClearance } from '@/lib/projects/service'
 import { getFeedbackDigest } from './digest'
+import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
+import {
+  deleteFeedbackScore,
+  feedbackScoringEnabled,
+  upsertFeedbackScore,
+} from '@/lib/langfuse/feedback-score'
 import {
   getAnswerFeedbackDigest,
+  getAnswerFeedbackExport,
   getAnswerFeedbackHealth,
   getOwnConversationFeedback,
   retractAnswerFeedback,
@@ -133,7 +156,13 @@ describe('submitAnswerFeedback', () => {
       lessonsHoldout: null,
       projectId: null,
     })
-    expect(view).toEqual({ messageId: 'msg_1', verdict: 'up', reason: null, comment: null, expectedAnswer: null })
+    expect(view).toEqual({
+      messageId: 'msg_1',
+      verdict: 'up',
+      reason: null,
+      comment: null,
+      expectedAnswer: null,
+    })
     expect(mockRequireProjectAccess).not.toHaveBeenCalled()
   })
 
@@ -146,13 +175,23 @@ describe('submitAnswerFeedback', () => {
       reason: 'inaccurate',
     })
 
-    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'down', reason: 'inaccurate' }))
-    expect(view).toEqual({ messageId: 'msg_1', verdict: 'down', reason: 'inaccurate', comment: null, expectedAnswer: null })
+    expect(mockUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ verdict: 'down', reason: 'inaccurate' })
+    )
+    expect(view).toEqual({
+      messageId: 'msg_1',
+      verdict: 'down',
+      reason: 'inaccurate',
+      comment: null,
+      expectedAnswer: null,
+    })
   })
 
   it('accepts a down vote without a reason (reason arrives on chip click)', async () => {
     await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'down' })
-    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ verdict: 'down', reason: null }))
+    expect(mockUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ verdict: 'down', reason: null })
+    )
   })
 
   it('implicates memory when a down vote carries new comment text', async () => {
@@ -229,17 +268,21 @@ describe('submitAnswerFeedback', () => {
 
   it('rejects a reason on an up vote', async () => {
     await expect(
-      submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up', reason: 'inaccurate' }),
+      submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up', reason: 'inaccurate' })
     ).rejects.toBeInstanceOf(BadRequestError)
     expect(mockUpsert).not.toHaveBeenCalled()
   })
 
   it('rejects unknown verdicts and reasons (defense in depth beyond zod)', async () => {
     await expect(
-      submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'meh' as never }),
+      submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'meh' as never })
     ).rejects.toBeInstanceOf(BadRequestError)
     await expect(
-      submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'down', reason: 'nope' as never }),
+      submitAnswerFeedback(session, {
+        messageId: 'msg_1',
+        verdict: 'down',
+        reason: 'nope' as never,
+      })
     ).rejects.toBeInstanceOf(BadRequestError)
     expect(mockUpsert).not.toHaveBeenCalled()
   })
@@ -253,7 +296,7 @@ describe('submitAnswerFeedback', () => {
     expect(mockRequireProjectAccess).toHaveBeenCalledWith(
       session,
       '00000000-0000-0000-0000-000000000001',
-      'project:view',
+      'project:view'
     )
   })
 
@@ -264,7 +307,7 @@ describe('submitAnswerFeedback', () => {
         messageId: 'msg_1',
         verdict: 'up',
         projectId: '00000000-0000-0000-0000-000000000001',
-      }),
+      })
     ).rejects.toBeInstanceOf(NotFoundError)
     expect(mockUpsert).not.toHaveBeenCalled()
   })
@@ -272,14 +315,99 @@ describe('submitAnswerFeedback', () => {
 
 describe('retractAnswerFeedback', () => {
   it('deletes the vote scoped to the session user + org', async () => {
-    mockDelete.mockResolvedValue(true)
+    mockDelete.mockResolvedValue('fb_1')
     await retractAnswerFeedback(session, 'msg_1')
     expect(mockDelete).toHaveBeenCalledWith('user_1', 'msg_1', 'org_1')
   })
 
   it('is idempotent — retracting a non-existent vote is a success', async () => {
-    mockDelete.mockResolvedValue(false)
+    mockDelete.mockResolvedValue(null)
     await expect(retractAnswerFeedback(session, 'msg_gone')).resolves.toBeUndefined()
+    expect(deleteFeedbackScore).not.toHaveBeenCalled()
+  })
+
+  it("deletes the vote's Langfuse score by the deleted row's id", async () => {
+    mockDelete.mockResolvedValue('fb_1')
+    await retractAnswerFeedback(session, 'msg_1')
+    expect(deleteFeedbackScore).toHaveBeenCalledWith('fb_1')
+  })
+
+  it('does not wait for Langfuse to answer the retraction', async () => {
+    mockDelete.mockResolvedValue('fb_1')
+    vi.mocked(deleteFeedbackScore).mockReturnValueOnce(new Promise(() => {}))
+    await expect(retractAnswerFeedback(session, 'msg_1')).resolves.toBeUndefined()
+  })
+})
+
+/**
+ * Every vote also lands in Langfuse as a score on its answer's trace
+ * (ADR-0044, Amendment 3), after the database write and never in its way.
+ */
+describe('submitAnswerFeedback -> Langfuse score', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it('scores the trace the answer row names, keyed by the feedback row', async () => {
+    vi.mocked(getAnswerTraceId).mockResolvedValueOnce('6135ac80f26d5f7dab0f1633fe313293')
+    mockUpsert.mockResolvedValueOnce({
+      ...storedRow,
+      verdict: 'down',
+      reason: 'inaccurate',
+      comment: 'R 60, nicht R 90',
+    })
+
+    await submitAnswerFeedback(session, {
+      messageId: 'msg_1',
+      verdict: 'down',
+      reason: 'inaccurate',
+      comment: 'R 60, nicht R 90',
+    })
+    await flush()
+
+    expect(getAnswerTraceId).toHaveBeenCalledWith('msg_1', 'org_1')
+    expect(upsertFeedbackScore).toHaveBeenCalledWith({
+      feedbackId: 'fb_1',
+      traceId: '6135ac80f26d5f7dab0f1633fe313293',
+      verdict: 'down',
+      reason: 'inaccurate',
+      comment: 'R 60, nicht R 90',
+      expectedAnswer: null,
+    })
+  })
+
+  it('sends nothing when the answer row names no trace', async () => {
+    vi.mocked(getAnswerTraceId).mockResolvedValueOnce(null)
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up' })
+    await flush()
+    expect(upsertFeedbackScore).not.toHaveBeenCalled()
+  })
+
+  it('does not even look the trace up when Langfuse is not configured', async () => {
+    vi.mocked(feedbackScoringEnabled).mockReturnValueOnce(false)
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up' })
+    await flush()
+    expect(getAnswerTraceId).not.toHaveBeenCalled()
+    expect(upsertFeedbackScore).not.toHaveBeenCalled()
+  })
+
+  it('returns the vote without waiting for Langfuse, and survives its failure', async () => {
+    vi.mocked(getAnswerTraceId).mockResolvedValueOnce('6135ac80f26d5f7dab0f1633fe313293')
+    vi.mocked(upsertFeedbackScore).mockReturnValueOnce(new Promise(() => {}))
+    await expect(
+      submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up' })
+    ).resolves.toMatchObject({
+      verdict: 'up',
+    })
+
+    vi.mocked(getAnswerTraceId).mockRejectedValueOnce(new Error('db down'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await expect(
+      submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up' })
+    ).resolves.toMatchObject({
+      verdict: 'up',
+    })
+    await flush()
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
   })
 })
 
@@ -295,7 +423,13 @@ describe('getOwnConversationFeedback', () => {
     expect(mockList).toHaveBeenCalledWith('user_1', 'conv_1', 'org_1')
     expect(views).toEqual([
       { messageId: 'msg_1', verdict: 'up', reason: null, comment: null, expectedAnswer: null },
-      { messageId: 'msg_2', verdict: 'down', reason: 'too_slow', comment: null, expectedAnswer: null },
+      {
+        messageId: 'msg_2',
+        verdict: 'down',
+        reason: 'too_slow',
+        comment: null,
+        expectedAnswer: null,
+      },
     ])
   })
 })
@@ -316,7 +450,7 @@ describe('getAnswerFeedbackHealth', () => {
     vi.mocked(requirePlatformPermission).mockRejectedValue(new PlatformAccessDeniedError())
 
     await expect(getAnswerFeedbackHealth({} as never)).rejects.toBeInstanceOf(
-      PlatformAccessDeniedError,
+      PlatformAccessDeniedError
     )
     // The guard runs BEFORE the unscoped query — a refusal must not still have
     // touched every tenant's rows.
@@ -340,6 +474,81 @@ describe('getAnswerFeedbackHealth', () => {
     expect(health.totals).toEqual({ up: 4, down: 1 })
     expect(requirePlatformPermission).toHaveBeenCalledOnce()
   })
+
+  /** The platform view links each rated turn to its trace, and the project to its scores. */
+  it('links turns to their Langfuse traces when the UI is configured, and not otherwise', async () => {
+    vi.mocked(requirePlatformPermission).mockResolvedValue(undefined)
+    const health = {
+      windowDays: 30,
+      totals: { up: 0, down: 2 },
+      reasons: [],
+      daily: [],
+      organizations: [],
+      topics: [],
+      turns: [
+        {
+          id: 'fb_1',
+          organizationId: 'org_1',
+          messageId: 'm1',
+          traceId: '6135ac80f26d5f7dab0f1633fe313293',
+        },
+        { id: 'fb_2', organizationId: 'org_1', messageId: 'm2', traceId: null },
+      ],
+    }
+    vi.mocked(getFeedbackHealth).mockResolvedValue(health as never)
+
+    vi.stubEnv('LANGFUSE_PUBLIC_URL', 'https://langfuse.example.at/')
+    vi.stubEnv('LANGFUSE_PROJECT_ID', 'grid')
+    try {
+      const linked = await getAnswerFeedbackHealth({} as never)
+      expect(linked.turns.map((turn) => turn.langfuseTraceUrl)).toEqual([
+        'https://langfuse.example.at/project/grid/traces/6135ac80f26d5f7dab0f1633fe313293',
+        null,
+      ])
+      expect(linked.langfuse).toEqual({ projectUrl: 'https://langfuse.example.at/project/grid' })
+
+      vi.stubEnv('LANGFUSE_PROJECT_ID', '')
+      const unlinked = await getAnswerFeedbackHealth({} as never)
+      expect(unlinked.turns.map((turn) => turn.langfuseTraceUrl)).toEqual([null, null])
+      expect(unlinked.langfuse).toBeNull()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  /** A raw `org_arch_buero` tells the platform owner nothing; the name does. */
+  it('names every organization in the rollup and in the drill-in, null where unknown', async () => {
+    vi.mocked(requirePlatformPermission).mockResolvedValue(undefined)
+    vi.mocked(getOrganizationDisplayNames).mockResolvedValue(
+      new Map([['org_arch_buero', 'Architekturbüro Huber']])
+    )
+    vi.mocked(getFeedbackHealth).mockResolvedValue({
+      windowDays: 30,
+      totals: { up: 0, down: 2 },
+      reasons: [],
+      daily: [],
+      organizations: [
+        { organizationId: 'org_arch_buero', up: 0, down: 1, voters: 1 },
+        { organizationId: 'org_gone', up: 0, down: 1, voters: 1 },
+      ],
+      topics: [],
+      turns: [
+        { id: 'fb_1', organizationId: 'org_arch_buero', messageId: 'm1' },
+        { id: 'fb_2', organizationId: 'org_gone', messageId: 'm2' },
+      ],
+    } as never)
+
+    const health = await getAnswerFeedbackHealth({} as never)
+
+    expect(health.organizations.map((org) => org.organizationName)).toEqual([
+      'Architekturbüro Huber',
+      null,
+    ])
+    expect(health.turns.map((turn) => turn.organizationName)).toEqual([
+      'Architekturbüro Huber',
+      null,
+    ])
+  })
 })
 
 /**
@@ -358,7 +567,7 @@ describe('getAnswerFeedbackDigest', () => {
     vi.mocked(requirePlatformPermission).mockRejectedValue(new PlatformAccessDeniedError())
 
     await expect(getAnswerFeedbackDigest({} as never)).rejects.toBeInstanceOf(
-      PlatformAccessDeniedError,
+      PlatformAccessDeniedError
     )
     expect(getFeedbackHealth).not.toHaveBeenCalled()
     expect(getFeedbackDigest).not.toHaveBeenCalled()
@@ -377,5 +586,51 @@ describe('getAnswerFeedbackDigest', () => {
     expect(getFeedbackHealth).toHaveBeenCalledWith({ windowDays: 7, limit: 0 })
     expect(getFeedbackDigest).toHaveBeenCalledWith(health, { windowDays: 7 }, { locale: 'en' })
     expect(result).toEqual({ digest: null, error: 'too_few_votes' })
+  })
+})
+
+/**
+ * The export used to read through the health view and so stopped at the page's
+ * 50 rows without a word. It has its own bound now, and reports hitting it.
+ */
+describe('getAnswerFeedbackExport', () => {
+  beforeEach(() => {
+    vi.mocked(requirePlatformPermission).mockReset()
+    vi.mocked(listFeedbackTurns).mockReset()
+  })
+
+  it('refuses anyone who is not a platform owner, and does not read first', async () => {
+    vi.mocked(requirePlatformPermission).mockRejectedValue(new PlatformAccessDeniedError())
+
+    await expect(getAnswerFeedbackExport({} as never)).rejects.toBeInstanceOf(
+      PlatformAccessDeniedError
+    )
+    expect(listFeedbackTurns).not.toHaveBeenCalled()
+  })
+
+  it('reads one row past the cap, keeps the filters, and reports a cut', async () => {
+    vi.mocked(requirePlatformPermission).mockResolvedValue(undefined)
+    vi.mocked(listFeedbackTurns).mockResolvedValue([
+      { id: '1' },
+      { id: '2' },
+      { id: '3' },
+      { id: '4' },
+    ] as never)
+
+    const exported = await getAnswerFeedbackExport({} as never, { windowDays: 90, verdict: 'up' })
+
+    expect(listFeedbackTurns).toHaveBeenCalledWith({ windowDays: 90, verdict: 'up', limit: 4 })
+    expect(exported.turns).toHaveLength(3)
+    expect(exported).toMatchObject({ truncated: true, cap: 3 })
+  })
+
+  it('does not report a cut when the window fit exactly', async () => {
+    vi.mocked(requirePlatformPermission).mockResolvedValue(undefined)
+    vi.mocked(listFeedbackTurns).mockResolvedValue([{ id: '1' }, { id: '2' }, { id: '3' }] as never)
+
+    const exported = await getAnswerFeedbackExport({} as never)
+
+    expect(exported.turns).toHaveLength(3)
+    expect(exported.truncated).toBe(false)
   })
 })

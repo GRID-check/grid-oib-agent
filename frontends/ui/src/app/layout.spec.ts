@@ -320,6 +320,35 @@ describe('File Upload Configuration', () => {
   })
 })
 
+describe('an organization upload limit', () => {
+  // The root layout passes the session organization's effective limit
+  // (`getEffectiveMaxUploadBytes`) as `maxFileSizeBytes`; a public page passes
+  // nothing and gets the deployment default.
+  test('replaces the per-file limit the browser enforces and labels', () => {
+    const config = getFileUploadConfigFromEnv({}, { maxFileSizeBytes: 20 * 1_000_000 })
+    expect(config.maxFileSize).toBe(20 * 1_000_000)
+    // Lowering the per-file limit leaves the chat batch total where it was.
+    expect(config.maxTotalSize).toBe(100 * 1_000_000)
+  })
+
+  test('raises the chat batch total with it, so one admissible file always fits', () => {
+    const config = getFileUploadConfigFromEnv({}, { maxFileSizeBytes: 200 * 1_000_000 })
+    expect(config.maxFileSize).toBe(200 * 1_000_000)
+    expect(config.maxTotalSize).toBe(200 * 1_000_000)
+    expect(config.maxTotalSizeMB).toBe(200)
+  })
+
+  test('leaves the IFC ceiling alone', () => {
+    const config = getFileUploadConfigFromEnv({}, { maxFileSizeBytes: 5 * 1_000_000 })
+    expect(config.maxIfcFileSize).toBe(250 * 1_000_000)
+  })
+
+  test('is the deployment default when none is passed', () => {
+    const config = getFileUploadConfigFromEnv({ FILE_UPLOAD_MAX_SIZE_MB: '40' })
+    expect(config.maxFileSize).toBe(40 * 1_000_000)
+  })
+})
+
 describe('the transport ceiling clears the largest file any route admits', () => {
   // Issue #369. The client validator and `assertFileSizeAllowed` both admitted
   // a 149 MB .ifc against BIM_MAX_IFC_BYTES, while next.config derived the

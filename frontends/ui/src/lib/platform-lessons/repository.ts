@@ -32,6 +32,7 @@ import { normalizeContentGerman } from '@/lib/knowledge/consolidation'
 import { toVectorLiteral } from '@/lib/knowledge/embeddings'
 import { executeRows } from '@/lib/db/execute-rows'
 import { OUTSIDE_RESTRICTED_USE } from '@/lib/feedback/repository'
+import { VOTED_TURN_JOINS } from '@/lib/feedback/turn-join'
 
 /** Hard ceilings on every dashboard list. */
 export const LESSON_LIST_LIMIT = 200
@@ -60,8 +61,8 @@ export interface UnprocessedDownvote {
 
 /**
  * Down-votes with no `platform_lesson_reports` row yet, oldest first so the
- * backlog drains in arrival order. The joins mirror `listFeedbackTurns`
- * (lib/feedback/repository.ts): LEFT throughout, because a vote whose turn was
+ * backlog drains in arrival order. The joins are `listFeedbackTurns`'s own
+ * (`VOTED_TURN_JOINS`, lib/feedback/turn-join.ts): LEFT throughout, because a vote whose turn was
  * never persisted is still a report — reason and comment alone can carry the
  * signal.
  *
@@ -82,16 +83,7 @@ export async function listUnprocessedDownvotes(limit: number): Promise<Unprocess
       q.content     as question
     from answer_feedback f
     left join platform_lesson_reports r on r.feedback_id = f.id
-    left join messages m on m.id::text = f.message_id
-    left join lateral (
-      select content
-      from messages
-      where conversation_id = f.conversation_id
-        and role = 'user'
-        and (m.created_at is null or created_at <= m.created_at)
-      order by created_at desc
-      limit 1
-    ) q on true
+    ${VOTED_TURN_JOINS}
     where f.verdict = 'down'
       and r.id is null
       and ${OUTSIDE_RESTRICTED_USE}

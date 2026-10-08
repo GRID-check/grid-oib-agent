@@ -6,6 +6,7 @@
 
 import 'server-only'
 import type { AgentProfilerSpan, NewAgentProfilerSpan, SpanKind, SpanStatus } from '@/lib/db/schema'
+import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
 import * as repository from './repository'
 
 export async function recordProfilerSpans(spans: NewAgentProfilerSpan[]): Promise<number> {
@@ -15,6 +16,8 @@ export async function recordProfilerSpans(spans: NewAgentProfilerSpan[]): Promis
 export interface ProfiledConversationSummary {
   conversationId: string
   organizationId: string | null
+  /** Display name for `organizationId`; null when unknown or unresolvable. */
+  organizationName: string | null
   title: string | null
   turnCount: number
   totalDurationMs: number
@@ -26,11 +29,13 @@ export async function listProfiledConversations(query?: string): Promise<{
   capped: boolean
 }> {
   const { rows, capped } = await repository.listProfiledConversations(query)
+  const names = await getOrganizationDisplayNames(rows.map((row) => row.organizationId))
   return {
     capped,
     conversations: rows.map((row) => ({
       conversationId: row.conversationId,
       organizationId: row.organizationId,
+      organizationName: row.organizationId ? (names.get(row.organizationId) ?? null) : null,
       title: row.title,
       turnCount: row.turnCount,
       totalDurationMs: row.totalDurationMs,
@@ -59,7 +64,8 @@ export interface ProfiledTurn {
   durationMs: number
   status: SpanStatus
   spanCount: number
-  root: SpanNode | null
+  /** Never null: a turn whose root span was lost gets a synthetic one. */
+  root: SpanNode
 }
 
 function toNode(span: AgentProfilerSpan): SpanNode {
@@ -77,12 +83,97 @@ function toNode(span: AgentProfilerSpan): SpanNode {
   }
 }
 
+const byStart = (
+  a: { startedAt: string; spanId: string },
+  b: { startedAt: string; spanId: string }
+): number => a.startedAt.localeCompare(b.startedAt) || a.spanId.localeCompare(b.spanId)
+
 /**
- * Group a conversation's flat span list into one tree per turn, keyed by
- * `parentSpanId`. A span whose parent didn't make it into the ledger (a
- * dropped flush batch — same best-effort tolerance as the cost ledger) is
- * dropped from the tree but still counted in `spanCount`.
+ * The turn's root: the earliest `turn`-kind span without a parent, else the
+ * earliest parentless span. Deterministic, because a turn CAN carry several
+ * parentless spans (a retried flush, a second entry point), and "the last one
+ * in the loop wins" made the tree depend on row order.
  */
+function pickRoot(candidates: SpanNode[]): SpanNode | null {
+  const sorted = [...candidates].sort(byStart)
+  return sorted.find((node) => node.kind === 'turn') ?? sorted[0] ?? null
+}
+
+/**
+ * A stand-in root for a turn whose root span never reached the ledger (a
+ * dropped flush batch). Spans the whole turn, so the turn still has a duration
+ * and a tree; `metadata.synthetic` marks it as not a recorded span.
+ */
+function syntheticRoot(turnId: string, nodes: SpanNode[]): SpanNode {
+  const startedAt = nodes.map((node) => node.startedAt).sort()[0]
+  const endedAt = nodes
+    .map((node) => node.endedAt)
+    .sort()
+    .at(-1) as string
+  return {
+    spanId: `${turnId}:root`,
+    kind: 'turn',
+    name: 'turn',
+    startedAt,
+    endedAt,
+    durationMs: Math.max(0, Date.parse(endedAt) - Date.parse(startedAt)),
+    status: nodes.some((node) => node.status === 'error') ? 'error' : 'ok',
+    errorMessage: null,
+    metadata: { synthetic: true },
+    children: [],
+  }
+}
+
+/**
+ * True when following `spanId`'s parents leads back to it. A cycle would make
+ * the tree infinite (and the JSON response unserializable), so its spans are
+ * treated as parentless instead.
+ */
+function inCycle(spanId: string, parentOf: Map<string, string | null>): boolean {
+  let current = parentOf.get(spanId) ?? null
+  for (let steps = 0; current !== null && steps <= parentOf.size; steps += 1) {
+    if (current === spanId) return true
+    current = parentOf.get(current) ?? null
+  }
+  return false
+}
+
+/**
+ * One turn's tree, keyed by `parentSpanId`. Every span lands in it: a span
+ * whose parent is missing from the ledger (a dropped flush batch, the same
+ * best-effort tolerance as the cost ledger), and every parentless span other
+ * than the root, hang off the root rather than vanishing.
+ */
+function buildTurn(turnId: string, turnSpans: AgentProfilerSpan[]): ProfiledTurn {
+  const nodes = new Map(turnSpans.map((span) => [span.spanId, toNode(span)]))
+  const parentOf = new Map(turnSpans.map((span) => [span.spanId, span.parentSpanId]))
+  const isTopLevel = (span: AgentProfilerSpan): boolean =>
+    span.parentSpanId === null || inCycle(span.spanId, parentOf)
+  const recordedRoot = pickRoot(
+    turnSpans.filter(isTopLevel).map((span) => nodes.get(span.spanId) as SpanNode)
+  )
+  const root = recordedRoot ?? syntheticRoot(turnId, [...nodes.values()])
+
+  for (const span of turnSpans) {
+    const node = nodes.get(span.spanId) as SpanNode
+    if (node === root) continue
+    const parent = isTopLevel(span) ? undefined : nodes.get(span.parentSpanId as string)
+    ;(parent ?? root).children.push(node)
+  }
+  for (const node of [root, ...nodes.values()]) node.children.sort(byStart)
+
+  return {
+    turnId,
+    jobId: turnSpans.find((span) => span.jobId)?.jobId ?? null,
+    startedAt: root.startedAt,
+    durationMs: root.durationMs,
+    status: root.status,
+    spanCount: turnSpans.length,
+    root,
+  }
+}
+
+/** Group a conversation's flat span list into one tree per turn, oldest turn first. */
 function buildTurns(spans: AgentProfilerSpan[]): ProfiledTurn[] {
   const byTurn = new Map<string, AgentProfilerSpan[]>()
   for (const span of spans) {
@@ -90,42 +181,24 @@ function buildTurns(spans: AgentProfilerSpan[]): ProfiledTurn[] {
     if (list) list.push(span)
     else byTurn.set(span.turnId, [span])
   }
-
-  const turns: ProfiledTurn[] = []
-  for (const [turnId, turnSpans] of byTurn) {
-    const nodesBySpanId = new Map(turnSpans.map((span) => [span.spanId, toNode(span)]))
-    let root: SpanNode | null = null
-    for (const span of turnSpans) {
-      const node = nodesBySpanId.get(span.spanId)
-      if (!node) continue
-      if (span.parentSpanId === null) {
-        root = node
-        continue
-      }
-      nodesBySpanId.get(span.parentSpanId)?.children.push(node)
-    }
-    for (const node of nodesBySpanId.values()) {
-      node.children.sort((a, b) => a.startedAt.localeCompare(b.startedAt))
-    }
-    const hasError = turnSpans.some((span) => span.status === 'error')
-    turns.push({
-      turnId,
-      jobId: turnSpans.find((span) => span.jobId)?.jobId ?? null,
-      startedAt: root?.startedAt ?? turnSpans[0].startedAt.toISOString(),
-      durationMs: root?.durationMs ?? Math.max(...turnSpans.map((span) => span.durationMs)),
-      status: root?.status ?? (hasError ? 'error' : 'ok'),
-      spanCount: turnSpans.length,
-      root,
-    })
-  }
-  turns.sort((a, b) => a.startedAt.localeCompare(b.startedAt))
-  return turns
+  return [...byTurn]
+    .map(([turnId, turnSpans]) => buildTurn(turnId, turnSpans))
+    .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
 }
 
-export async function getConversationTimeline(conversationId: string): Promise<{
+export interface ConversationTimeline {
   conversationId: string
+  /** The newest turns, oldest first (at most `TIMELINE_TURN_CAP`). */
   turns: ProfiledTurn[]
-}> {
-  const spans = await repository.getSpansForConversation(conversationId)
-  return { conversationId, turns: buildTurns(spans) }
+  /** Distinct turns the conversation has in the ledger, loaded or not. */
+  totalTurns: number
+  /** True when older turns, or spans past the span ceiling, were left out. */
+  capped: boolean
+}
+
+export async function getConversationTimeline(
+  conversationId: string
+): Promise<ConversationTimeline> {
+  const { spans, totalTurns, capped } = await repository.getSpansForConversation(conversationId)
+  return { conversationId, turns: buildTurns(spans), totalTurns, capped }
 }
