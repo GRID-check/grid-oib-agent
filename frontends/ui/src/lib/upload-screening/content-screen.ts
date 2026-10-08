@@ -1,6 +1,6 @@
 /**
  * The content screen in TypeScript: the office's content terms and number
- * detectors, found and masked in a text (ADR-0085, "Chat messages are screened
+ * detectors, found and masked in a text (ADR-0086, "Chat messages are screened
  * too").
  *
  * The composer runs it before a chat message leaves the browser, and the BFF

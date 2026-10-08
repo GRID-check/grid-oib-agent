@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * What a chat the reader may no longer read answers over HTTP (ADR-0087): the
+ * What a chat the reader may no longer read answers over HTTP (ADR-0088): the
  * detail and the messages routes return the typed 403, and nothing of the chat.
  *
  * The client tells this refusal from "not found" and from any other 403 by

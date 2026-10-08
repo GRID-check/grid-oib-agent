@@ -50,7 +50,7 @@ afterEach(() => {
 })
 
 describe('GET /api/internal/stages', () => {
-  it('withdraws research and tasks in a closed project, and only there (ADR-0088)', async () => {
+  it('withdraws research and tasks in a closed project, and only there (ADR-0089)', async () => {
     const PROJECT = '4f9c1d2e-3b4a-4c5d-8e6f-7a8b9c0d1e2f'
     vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org_123', deletedAt: null, status: 'closed' })
     const closed = await GET(makeRequest(`?organizationId=org_123&projectId=${PROJECT}`, REAL_TOKEN))

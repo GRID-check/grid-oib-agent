@@ -283,13 +283,13 @@ describe('the ops it does serve', () => {
         request: expect.any(Request),
         actingHuman: false,
         // The thread rides along, so content from a conversation that drew on a
-        // restricted folder goes only where it may (ADR-0086, ADR-0087).
+        // restricted folder goes only where it may (ADR-0087, ADR-0088).
         origin: { conversationId: expect.any(String), locale: 'de' },
       },
     )
   })
 
-  it('hands both writes the conversation, never the signed scope: what may leave is what the conversation USED (ADR-0087)', async () => {
+  it('hands both writes the conversation, never the signed scope: what may leave is what the conversation USED (ADR-0088)', async () => {
     const restricted = 'proj_3333_r0123456789ab'
     const headers = envelopeHeaders({ collectionScope: ['oib_knowledge', 'proj_3333', restricted] })
     await call(

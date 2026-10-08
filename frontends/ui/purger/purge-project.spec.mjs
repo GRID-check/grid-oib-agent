@@ -34,7 +34,7 @@ function makeTx({
   sessionDocumentRows = [],
   /**
    * `{ collection_name }` rows: the distinct collections the project's OWN
-   * documents name. A document under a restricted folder (ADR-0086) names
+   * documents name. A document under a restricted folder (ADR-0087) names
    * `<project collection>_r<12 hex>`, which the project's purge call does not
    * reach.
    */
@@ -91,6 +91,7 @@ function makeDeps(overrides = {}) {
     fetchImpl: vi.fn().mockResolvedValue({ ok: true }),
     deleteStoragePrefix: vi.fn().mockResolvedValue(3),
     eraseConversationTraces: vi.fn().mockResolvedValue({ configured: true, traces: 0, batches: 0 }),
+    abortMultipartUploads: vi.fn().mockResolvedValue(0),
     workos: {
       authorization: {
         deleteResourceByExternalId: vi.fn().mockResolvedValue(undefined),
@@ -148,6 +149,10 @@ describe('purgeProject', () => {
 
     expect(deps.fetchImpl).toHaveBeenCalled()
     expect(deps.deleteStoragePrefix).toHaveBeenCalledWith('grid-documents', 'org/org1/project/p1/')
+    // A half-sent mail import is not an object; the sweep aborts it too (ADR-0085).
+    const bucketRead = executed.find((step) => step.text.startsWith('SELECT DISTINCT storage_bucket'))
+    expect(bucketRead.text).toContain('FROM mail_imports')
+    expect(deps.abortMultipartUploads).toHaveBeenCalledWith('grid-documents', 'org/org1/project/p1/')
     expect(executed.filter((q) => q.text.startsWith('DELETE')).at(-1).text).toContain('FROM projects')
   })
 
@@ -537,7 +542,7 @@ describe('session attachments', () => {
   })
 })
 
-// ADR-0086: a restricted folder's documents live in their own collection,
+// ADR-0087: a restricted folder's documents live in their own collection,
 // `<project collection>_r<12 hex>`. Purging only the project's collection left the
 // one set of chunks a restriction exists for readable after the project was gone.
 describe('restricted folder collections', () => {

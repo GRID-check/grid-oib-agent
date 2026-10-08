@@ -130,7 +130,7 @@ describe('AnswerSourcesRow lane tints', () => {
   })
 })
 
-describe('AnswerSourcesRow in a closed project (ADR-0088)', () => {
+describe('AnswerSourcesRow in a closed project (ADR-0089)', () => {
   const projectDoc: CitedDocument = {
     id: 'doc-plan',
     title: 'Einreichplan EG',

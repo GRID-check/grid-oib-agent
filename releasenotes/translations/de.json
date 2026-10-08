@@ -1756,6 +1756,10 @@
     "de": "Die Zeitplan-Karten zeigen jetzt den Auftrag im Wortlaut statt des verwendeten Skills, und ein Zeitplan lässt sich wieder löschen."
   },
   {
+    "en": "Scheduled research reports are filed into the project again in organizations whose features are switched on individually; they had been held back.",
+    "de": "Geplante Rechercheberichte werden in Organisationen, in denen Funktionen individuell aktiviert werden, wieder im Projekt abgelegt; bisher wurden sie zurückgehalten."
+  },
+  {
     "en": "Scheduled tasks are no longer skipped when the research queue is full: a run that has to wait shows as queued in Aufgaben and starts as soon as a worker is free. An office's scheduled runs go after its own questions and never ahead of another office's work.",
     "de": "Geplante Aufgaben werden nicht mehr übersprungen, wenn die Recherche-Warteschlange voll ist: Ein wartender Durchlauf wird in Aufgaben als eingereiht angezeigt und startet, sobald ein Worker frei ist. Die geplanten Durchläufe eines Büros werden erst nach dessen eigenen Fragen ausgeführt und niemals vor der Arbeit eines anderen Büros."
   },
@@ -2562,6 +2566,10 @@
   {
     "en": "Word, Excel and PowerPoint files now open in the document viewer as a PDF preview, and a reference to one opens that preview instead of only offering a download. Download still gives you the original file, unchanged.",
     "de": "Word-, Excel- und PowerPoint-Dateien öffnen sich jetzt im Dokumentbetrachter als PDF-Vorschau, und ein Verweis auf eine solche Datei öffnet diese Vorschau, statt nur einen Download anzubieten. Der Download liefert weiterhin die unveränderte Originaldatei."
+  },
+  {
+    "en": "You can import an Outlook archive (.pst or .ost, up to 25 GB) into a project's files, and every email becomes a folder with its attachments and a note holding its sender, recipients, date and text. Piloti can then find and cite your correspondence; your administrator switches the import on.",
+    "de": "Sie können ein Outlook-Archiv (.pst oder .ost, bis zu 25 GB) in die Dateien eines Projekts importieren. Dabei wird jede E-Mail zu einem Ordner mit ihren Anhängen und einer Notiz mit Absender, Empfängern, Datum und Text. Piloti kann Ihre Korrespondenz anschließend finden und zitieren; Ihre Administratorin oder Ihr Administrator schaltet den Import ein."
   },
   {
     "en": "You can now close a finished project in its settings. It stays complete and searchable, becomes read-only, and everyone in your office can read it, while folders with their own access list stay restricted.",

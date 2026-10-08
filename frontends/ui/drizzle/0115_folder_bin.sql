@@ -1,4 +1,4 @@
--- 0113: deleting a folder puts it in the Papierkorb (ADR-0087, deletion
+-- 0113: deleting a folder puts it in the Papierkorb (ADR-0088, deletion
 -- pipeline), and a legal hold can cover a folder.
 --
 -- ## The bin
@@ -63,7 +63,7 @@ COMMENT ON COLUMN "project_folders"."bin_root_id" IS
   'The folder a person deleted, for every folder that went to the Papierkorb with it (itself included). NULL for a living folder and for a tombstone older than 0114.';
 --> statement-breakpoint
 COMMENT ON COLUMN "project_folders"."purged_at" IS
-  'When the purge removed what the folder held. Set: a permanent tombstone (row and grants kept, ADR-0087). NULL with deleted_at set: in the Papierkorb.';
+  'When the purge removed what the folder held. Set: a permanent tombstone (row and grants kept, ADR-0088). NULL with deleted_at set: in the Papierkorb.';
 --> statement-breakpoint
 -- The decision point probes a project for a folder in the bin on most document
 -- reads (a document filed in one is hidden from everyone), and the Papierkorb
@@ -318,4 +318,4 @@ END
 $$;
 --> statement-breakpoint
 COMMENT ON FUNCTION grid_legal_hold_blocks(text, text, text) IS
-  'Whether an active legal hold covers erasing this entity: a hold on it, on what contains it, on what it contains, on its creator (custodian hold), or on its organization. Folders since 0114. The one predicate the BFF, the purger and the delete triggers share (migration 0093).';
+  'Whether an active legal hold covers erasing this entity: a hold on it, on what contains it, on what it contains, on its creator (custodian hold), or on its organization. Folders since 0115. The one predicate the BFF, the purger and the delete triggers share (migration 0093).';

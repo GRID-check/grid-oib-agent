@@ -1,5 +1,5 @@
 /**
- * Seal an upload (ADR-0085): the browser has sent its last file. `unchanged`
+ * Seal an upload (ADR-0086): the browser has sent its last file. `unchanged`
  * and `failed` are the files that, for those reasons, wrote no row.
  */
 

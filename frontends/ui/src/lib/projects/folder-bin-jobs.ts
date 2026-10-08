@@ -1,5 +1,5 @@
 /**
- * The Papierkorb's two walks on the `bff-jobs` pool (ADR-0087, ADR-0079).
+ * The Papierkorb's two walks on the `bff-jobs` pool (ADR-0088, ADR-0079).
  *
  * Both used to run inside the person's request on a user-facing frontend,
  * which a rollout drains in 30 s. Each now belongs to a job the request queues

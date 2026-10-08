@@ -53,7 +53,7 @@ export interface ShelfEndpoints {
   searchBody?: Record<string, unknown>
 }
 
-/** A project shelf's per-role folder access (ADR-0087). */
+/** A project shelf's per-role folder access (ADR-0088). */
 export interface ShelfFolderAccess {
   /** The project the access dialog writes to. */
   projectId: string
@@ -89,13 +89,13 @@ export interface FileShelf {
    */
   canManage: boolean
   /**
-   * Who may read and write each folder, per WorkOS role (ADR-0087). A project's
+   * Who may read and write each folder, per WorkOS role (ADR-0088). A project's
    * shelf only: the Archiv's folders are governed by `canManage` alone, so it
    * leaves this out and shows no lock, no „Nur lesen" and no „Zugriff…".
    */
   folderAccess?: ShelfFolderAccess
   /**
-   * The shelf's Papierkorb, a project's only (ADR-0087): deleting a folder
+   * The shelf's Papierkorb, a project's only (ADR-0088): deleting a folder
    * moves it there with its subfolders and documents, the toast links to it,
    * and the header carries a way in. Without it (the Archiv) deleting a folder
    * re-files its contents into the parent and removes the folder.

@@ -1,5 +1,5 @@
 /**
- * The closed project's banner and the close/reopen card (ADR-0088).
+ * The closed project's banner and the close/reopen card (ADR-0089).
  */
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'

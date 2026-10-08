@@ -218,7 +218,7 @@ export const chat: typeof en.chat = {
     // Ein offener Befund lässt sich als eigener Auftrag klären; der Lauf
     // erscheint als Block in diesem Verlauf.
     clarify: 'Klären',
-    /** Unter der Matrix in einem abgeschlossenen Projekt, wo „Klären“ stünde (ADR-0088). */
+    /** Unter der Matrix in einem abgeschlossenen Projekt, wo „Klären“ stünde (ADR-0089). */
     clarifyClosed: 'Abgeschlossenes Projekt: keine neue Recherche zu offenen Befunden.',
     commissioned: 'Auftrag angelegt',
     // Gegenüber dem vorigen Bericht zum selben Thema.
@@ -1243,7 +1243,7 @@ export const chat: typeof en.chat = {
     failed: 'Nachricht konnte nicht kopiert werden',
   },
   /**
-   * Sensible Daten im Chat (ADR-0085): was der Composer vor dem Senden meldet.
+   * Sensible Daten im Chat (ADR-0086): was der Composer vor dem Senden meldet.
    * Die Platzhalter selbst sind Fachdaten und kommen aus `content-screen.ts`.
    */
   screening: {

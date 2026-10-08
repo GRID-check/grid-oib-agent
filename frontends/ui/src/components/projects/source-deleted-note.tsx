@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 
 /**
  * „Quelle gelöscht am …" — the one line every surface shows under content
- * derived from a folder that was permanently deleted (ADR-0087): a chat
+ * derived from a folder that was permanently deleted (ADR-0088): a chat
  * answer, a memory note, a filed report. Provenance, not an error: muted, one
  * line, the date the purge ran.
  */

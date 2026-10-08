@@ -30,7 +30,7 @@ vi.mock('@/lib/events/bus', () => ({
 }))
 
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
-// The third-party precondition reads the project's status (ADR-0088): an active one here.
+// The third-party precondition reads the project's status (ADR-0089): an active one here.
 vi.mock('@/lib/projects/repository', async (importActual) => ({
   ...(await importActual<typeof import('@/lib/projects/repository')>()),
   findProjectTenancy: vi.fn(async () => ({ organizationId: 'org_1', deletedAt: null, status: 'active' })),
@@ -50,7 +50,7 @@ vi.mock('@/lib/auth/require-auth', () => ({
   authzErrorResponse: () => null,
 }))
 
-// ADR-0086/0085: no conversation here recorded a restricted folder, so every
+// ADR-0087/0086: no conversation here recorded a restricted folder, so every
 // widening is allowed; the rule itself is `restricted-use.spec.ts`.
 vi.mock('@/lib/conversations/restricted-use', () => ({
   peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),

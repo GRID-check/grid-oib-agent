@@ -1,6 +1,6 @@
 -- 0109: upload_batches — what one upload gesture brought in, so its uploader
 -- can be told when it has all been read, and so a project keeps a record of its
--- uploads (tickets „Übersicht – Was ist angekommen?", ADR-0085).
+-- uploads (tickets „Übersicht – Was ist angekommen?", ADR-0086).
 --
 -- ## Why a row of its own
 --

@@ -17,7 +17,7 @@
  * density it wins on the two things a scan needs: a fixed left edge to index by
  * (the initials tile) and columns that line up down the page.
  *
- * The row carries the status chip only for a CLOSED project (ADR-0088). An
+ * The row carries the status chip only for a CLOSED project (ADR-0089). An
  * „Aktiv" chip on every row would be a solid band of chroma reading as the
  * loudest thing on the page while carrying no information; the exception is
  * the one worth reading.

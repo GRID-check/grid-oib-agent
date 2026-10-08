@@ -564,7 +564,7 @@ subfolder" `+` on each folder row and makes root creation explicit.
 
 `folder-service.ts` carries `createProjectFolder`, `updateProjectFolder`
 (rename and/or move) and `deleteProjectFolder`, which is the Papierkorb's
-`moveFolderToBin` in `folder-bin.ts` (ADR-0087). They sit behind
+`moveFolderToBin` in `folder-bin.ts` (ADR-0088). They sit behind
 `POST`/`PATCH`/`DELETE` on `/api/projects/{id}/folders[/{folderId}]`; the
 Archiv's folders (`/api/archiv/folders`, ADR-0078) share the shelf core in
 `lib/documents/shelf-folders.ts`, delete included. Two invariants are
@@ -582,7 +582,7 @@ load-bearing:
   delete marks it and its subfolders `deleted_at` (the Papierkorb), purges their
   documents' chunks and keeps every row; the purge after
   `FOLDER_PURGE_GRACE_DAYS` erases the documents one by one and keeps the
-  folders as tombstones with their grants. Migration 0114's triggers refuse
+  folders as tombstones with their grants. Migration 0115's triggers refuse
   filing anything into a deleted folder, and its CHECK refuses a deleted Archiv
   folder. `folder-bin.integration.spec.ts` pins it against Postgres. An Archiv
   folder has no bin: `deleteShelfFolder` re-files its documents and child
@@ -1340,7 +1340,7 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    The `collection` argument is the model's, so the tool refuses one outside
    the turn's scope, or a restricted folder's the turn may not draw on, before
    any lookup; it echoes the turn's signed envelope, and the route answers only
-   inside the scope that envelope signs (ADR-0087). An image it returns is
+   inside the scope that envelope signs (ADR-0088). An image it returns is
    reported (`note_collections_read`) and admitted with the rest of the round.
    Every failure path (missing file, lookup/fetch/render error, invalid page
    number, disabled flag, no VLM key) degrades to a text-only explanation

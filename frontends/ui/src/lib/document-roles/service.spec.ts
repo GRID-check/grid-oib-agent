@@ -29,7 +29,7 @@ const repo = vi.hoisted(() => ({
   confirmed: [] as Array<{ bindingId: string; confidence: string; source: string }>,
   documentInProject: true,
   /**
-   * Documents filed in a folder the session is not cleared for (ADR-0086). The
+   * Documents filed in a folder the session is not cleared for (ADR-0087). The
    * fake answers "hidden" for these whenever the reader names any hidden
    * folder, which is what the real SQL does for a document filed in one.
    */
@@ -414,7 +414,7 @@ describe('bauwerkIds', () => {
   })
 })
 
-describe('restricted folders (ADR-0086)', () => {
+describe('restricted folders (ADR-0087)', () => {
   const HONORARE = 'folder-honorare'
 
   beforeEach(() => {
