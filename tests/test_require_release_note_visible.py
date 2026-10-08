@@ -37,8 +37,46 @@ def test_a_comment_only_change_is_no_change(check):
     assert not check.visible_change(TS, hunk("-  // old note", "+  // new note"))
 
 
-def test_a_jsdoc_line_is_a_comment_in_typescript(check):
-    assert not check.visible_change(TS, hunk("-  * old text", "+  * new text"))
+def test_a_jsdoc_line_inside_a_block_comment_is_a_comment(check):
+    old = "/**\n * old text\n */\nconst a = 1\n"
+    new = "/**\n * new text\n */\nconst a = 1\n"
+    diff = "@@ -2 +2 @@\n-  * old text\n+  * new text\n"
+
+    assert not check.visible_change(TS, diff, old=old, new=new)
+
+
+def test_a_star_line_outside_a_block_comment_is_code(check):
+    # A multiplication continuation looks like a JSDoc line; without block
+    # context it is treated as code, so the check errs toward a visible change.
+    assert check.visible_change(TS, hunk("-  * 2", "+  * 3"))
+
+
+def test_a_python_indentation_change_is_visible(check):
+    # Moving a statement into a block changes when it runs.
+    assert check.visible_change(PY, hunk("-run_next()", "+    run_next()"))
+
+
+def test_an_escaped_backslash_is_not_an_escape(check):
+    # `\\uFEFF` is an escaped backslash then text; `\uFEFF` is the BOM character.
+    diff = hunk("-x = '\\\\uFEFF'", "+x = '\\uFEFF'")
+
+    assert check.visible_change(TS, diff)
+
+
+def test_a_mode_change_is_visible_even_with_a_comment_only_edit(check):
+    diff = "diff --git a/f b/f\nold mode 100644\nnew mode 100755\n" + hunk("-// old", "+// new")
+
+    assert check.visible_change(TS, diff)
+
+
+def test_bytes_that_are_not_utf8_are_visible(check):
+    assert check.visible_change(TS, None)
+
+
+def test_a_new_file_with_code_is_visible(check):
+    diff = "diff --git a/f b/f\nnew file mode 100644\n" + hunk("+x = 1")
+
+    assert check.visible_change(TS, diff)
 
 
 def test_a_leading_star_in_python_is_code_not_a_comment(check):
