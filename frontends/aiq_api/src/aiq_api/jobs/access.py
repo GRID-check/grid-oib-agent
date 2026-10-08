@@ -13,6 +13,7 @@ from sqlalchemy.engine import Connection
 
 from aiq_agent.auth import Principal
 from aiq_agent.auth import get_current_principal
+from aiq_agent.common.db_utils import ensure_schema
 
 _job_access_schema_initialized: set[str] = set()
 
@@ -51,9 +52,7 @@ def _is_postgres(db_url: str) -> bool:
 
 def ensure_job_access_table(db_url: str) -> None:
     """Create the AIQ-owned job access table if it does not exist."""
-    with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
-        conn.commit()
+    _ensure_job_access_schema(db_url)
 
 
 def create_job_access(
@@ -65,8 +64,8 @@ def create_job_access(
     organization_id: str | None = None,
 ) -> None:
     """Persist the verified owner for a newly created job."""
+    _ensure_job_access_schema(db_url)
     with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
         conn.execute(
             _job_access_upsert_sql(db_url),
             _principal_params(job_id, principal, conversation_id, project_collection, organization_id),
@@ -84,8 +83,8 @@ def count_active_jobs(
     Org scoping joins ``job_access.organization_id``, written at submit time;
     pre-existing rows without it simply don't count toward per-org caps.
     """
+    _ensure_job_access_schema(db_url)
     with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
         placeholders = ", ".join(f":s{i}" for i in range(len(terminal_statuses)))
         params: dict[str, Any] = {f"s{i}": status for i, status in enumerate(terminal_statuses)}
         query = (
@@ -100,8 +99,8 @@ def count_active_jobs(
 
 def get_job_access(job_id: str, db_url: str) -> dict[str, Any] | None:
     """Return job access metadata for a job."""
+    _ensure_job_access_schema(db_url)
     with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
         row = conn.execute(_JOB_ACCESS_SELECT_SQL, {"job_id": job_id}).mappings().first()
         return dict(row) if row is not None else None
 
@@ -165,8 +164,8 @@ def job_exists(job_id: str, db_url: str) -> bool:
     """
     from sqlalchemy import inspect
 
+    _ensure_job_access_schema(db_url)
     with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
         row = conn.execute(text("SELECT 1 FROM job_access WHERE job_id = :job_id"), {"job_id": job_id}).first()
         if row is not None:
             return True
@@ -180,22 +179,25 @@ def job_exists(job_id: str, db_url: str) -> bool:
 
 def delete_job_access(job_id: str, db_url: str) -> int:
     """Delete job access metadata for a specific job."""
+    _ensure_job_access_schema(db_url)
     with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
         result = conn.execute(_JOB_ACCESS_DELETE_SQL, {"job_id": job_id})
         conn.commit()
         return result.rowcount or 0
 
 
 def cleanup_job_access(db_url: str, conn: Connection | None = None) -> int:
-    """Delete access rows for expired or missing jobs."""
+    """Delete access rows for expired or missing jobs.
+
+    With ``conn``, ``job_access`` must already exist (``ensure_job_access_table``): the
+    schema is created on a connection of its own, which would wait for the locks ``conn`` holds.
+    """
+    _ensure_job_access_schema(db_url)
     if conn is not None:
-        _ensure_job_access_schema(conn, db_url)
         result = conn.execute(_JOB_ACCESS_CLEANUP_SQL)
         return result.rowcount or 0
 
     with _job_access_connection(db_url) as owned_conn:
-        _ensure_job_access_schema(owned_conn, db_url)
         result = owned_conn.execute(_JOB_ACCESS_CLEANUP_SQL)
         owned_conn.commit()
         return result.rowcount or 0
@@ -313,8 +315,8 @@ def rollback_job_submission(job_id: str, db_url: str) -> None:
     from .event_store import EventStore
 
     EventStore._ensure_table_exists(db_url)
+    _ensure_job_access_schema(db_url)
     with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
         conn.execute(_JOB_ACCESS_DELETE_SQL, {"job_id": job_id})
         conn.execute(_JOB_EVENTS_DELETE_SQL, {"job_id": job_id})
         conn.execute(_JOB_INFO_DELETE_SQL, {"job_id": job_id})
@@ -394,9 +396,22 @@ def _job_access_connection(db_url: str):
     return engine.connect()
 
 
-def _ensure_job_access_schema(conn: Connection, db_url: str) -> None:
+def _ensure_job_access_schema(db_url: str) -> None:
+    """Create or upgrade ``job_access`` in a transaction of its own, then remember it.
+
+    Not on the caller's connection: a read path closes its connection without
+    committing, which would roll the DDL back under a flag that says it is done.
+    """
     if db_url in _job_access_schema_initialized:
         return
+    from .event_store import EventStore
+
+    engine = EventStore._get_or_create_sync_engine(db_url)
+    ensure_schema(engine, "job_access", lambda conn: _create_job_access_schema(conn, db_url))
+    _job_access_schema_initialized.add(db_url)
+
+
+def _create_job_access_schema(conn: Connection, db_url: str) -> None:
     conn.execute(text(_job_access_table_sql(db_url)))
     conn.execute(text(_JOB_ACCESS_INDEX_SQL))
     # Backfill columns onto pre-existing tables BEFORE creating the
@@ -411,7 +426,6 @@ def _ensure_job_access_schema(conn: Connection, db_url: str) -> None:
         _ensure_sqlite_job_access_columns(conn)
     conn.execute(text(_JOB_ACCESS_PROJECT_INDEX_SQL))
     conn.execute(text(_JOB_ACCESS_ORG_INDEX_SQL))
-    _job_access_schema_initialized.add(db_url)
 
 
 def _job_access_table_sql(db_url: str) -> str:

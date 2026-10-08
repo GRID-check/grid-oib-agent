@@ -73,6 +73,8 @@ from sqlalchemy import bindparam
 from sqlalchemy import inspect
 from sqlalchemy import text
 
+from aiq_agent.common.db_utils import ensure_schema
+
 from . import ingest_queue
 from .document_metadata_store import DocumentMetadataStore
 from .schema import FileStatus
@@ -127,7 +129,8 @@ def _ensure_table(url: str) -> None:
         return
     engine = DocumentMetadataStore._get_or_create_sync_engine(url)
     ts = "TIMESTAMP WITH TIME ZONE DEFAULT NOW()" if _is_postgres(url) else "DATETIME DEFAULT CURRENT_TIMESTAMP"
-    with engine.connect() as conn:
+
+    def create(conn) -> None:
         conn.execute(
             # ts is a dialect-chosen column-type literal; no user input.
             # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
@@ -142,7 +145,9 @@ def _ensure_table(url: str) -> None:
         _add_missing_columns(conn, url)
         # `_stale_predicate` reads the queue table, so it must exist too.
         ingest_queue.ensure_table(url, conn)
-        conn.commit()
+
+    # The processes of a boot all reach this at once (see `lock_schema`).
+    ensure_schema(engine, "ingest_jobs", create)
     ingest_queue.mark_ensured(url)
     _initialized.add(url)
 

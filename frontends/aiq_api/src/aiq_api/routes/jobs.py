@@ -1536,6 +1536,7 @@ async def _run_event_cleanup(
     automatically released on commit/rollback, avoiding leak risks.
     """
     from ..jobs.access import cleanup_job_access
+    from ..jobs.access import ensure_job_access_table
     from ..jobs.access import expire_terminal_jobs
     from ..jobs.event_store import EventStore
 
@@ -1545,6 +1546,8 @@ async def _run_event_cleanup(
         from sqlalchemy import text
 
         engine = EventStore._get_or_create_sync_engine(db_url)
+        # Before the connection below holds locks: the DDL runs on a connection of its own.
+        ensure_job_access_table(db_url)
 
         with engine.connect() as conn:
             # On PostgreSQL, acquire a transaction-level advisory lock. If another pod
