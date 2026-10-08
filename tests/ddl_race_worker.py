@@ -29,6 +29,8 @@ SITES: dict[str, tuple[str, ...]] = {
     "event_store_class": ("job_events",),
     "event_store_async": ("job_events",),
     "job_access": ("job_access",),
+    "langgraph_checkpointer": ("checkpoints", "checkpoint_blobs", "checkpoint_writes", "checkpoint_migrations"),
+    "langgraph_store": ("store", "store_migrations"),
 }
 
 
@@ -104,6 +106,37 @@ def _job_access(url: str) -> bool:
     return url in access._job_access_schema_initialized
 
 
+def _langgraph_checkpointer(url: str) -> bool:
+    import asyncio
+
+    from aiq_agent import common
+
+    async def ensure() -> None:
+        try:
+            await common.get_checkpointer(url)
+        finally:
+            await common.get_checkpoint_pool(url).close()
+
+    asyncio.run(ensure())
+    return url in common._checkpointers
+
+
+def _langgraph_store(url: str) -> bool:
+    import asyncio
+
+    from aiq_agent import common
+    from aiq_agent.tools.documents import draft_store
+
+    async def ensure() -> None:
+        try:
+            await draft_store.get_draft_store(url)
+        finally:
+            await common.get_checkpoint_pool(url).close()
+
+    asyncio.run(ensure())
+    return url in draft_store._stores
+
+
 _ENSURE = {
     "ingest_status_store": _ingest_status_store,
     "research_queue": _research_queue,
@@ -115,6 +148,8 @@ _ENSURE = {
     "event_store_class": _event_store_class,
     "event_store_async": _event_store_async,
     "job_access": _job_access,
+    "langgraph_checkpointer": _langgraph_checkpointer,
+    "langgraph_store": _langgraph_store,
 }
 
 
