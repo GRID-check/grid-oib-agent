@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS "document_quarantine_decisions" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "document_quarantine_decisions" IS
-  'The content gate''s quarantine decisions (0117, ADR-0083): one row per ingest job that quarantined a document, written with the status, sent to the audit trail as document.quarantined until audited_at is set. No foreign keys: the row outlives the document until it is audited, or seven days. Only audited_at changes; only the platform role (the upload sweep''s retention) deletes.';
+  'The content gate''s quarantine decisions (0117, ADR-0085): one row per ingest job that quarantined a document, written with the status, sent to the audit trail as document.quarantined until audited_at is set. No foreign keys: the row outlives the document until it is audited, or seven days. Only audited_at changes; only the platform role (the upload sweep''s retention) deletes.';
 --> statement-breakpoint
 -- The sweep's discovery: what is still owed to the trail, found without a scan.
 CREATE INDEX IF NOT EXISTS "document_quarantine_decisions_due_idx"

@@ -422,7 +422,7 @@ const resolveFromCollection = (
  * tracks (`list_files` in the knowledge layer's adapter), so for a row that
  * carries a job the entry may be an EARLIER dispatch's: a released file's old
  * quarantine, written back over the new dispatch and recorded as a decision
- * that job never made (ADR-0083). The job is the only witness to its own
+ * that job never made (ADR-0085). The job is the only witness to its own
  * failure; a row whose job the backend forgot stays as it is.
  */
 const attributableFailure = (jobId: string | null): boolean => jobId === null

@@ -656,8 +656,8 @@ check_in grid_judge "SELECT count(*) FROM pg_constraint WHERE conname = 'project
 echo "==> 0117 restriction judge and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0117: the content gate's quarantine decisions, owed to the audit
-# trail (ADR-0083), and its DOWN. The repository's claims (one decision per
+# Migration 0118: the content gate's quarantine decisions, owed to the audit
+# trail (ADR-0085), and its DOWN. The repository's claims (one decision per
 # dispatch, owed until marked once, outliving the document, deleted once spent
 # by the platform role alone) are proved through
 # the runtime role by upload-batches.integration.spec.ts above; here, what the

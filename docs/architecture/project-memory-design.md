@@ -350,7 +350,7 @@ is one it knows. Only that refusal offers the card (`_failure_result` in
 `memory/register.py`): an organization write that failed otherwise (a 500, a
 timeout) reached no audit, so it gets the honest "not saved" and no card that
 would write the finding open past the trail. A failure to assemble the audit line never fails the write. A note that ends up restricted also keeps the verdict
-(`restriction_judge`, migration 0116) and the panel's lock says a model helped
+(`restriction_judge`, migration 0117) and the panel's lock says a model helped
 decide („von KI mitbestimmt"); an open note never does (CHECK), because its
 readers may not know a restricted folder exists.
 
