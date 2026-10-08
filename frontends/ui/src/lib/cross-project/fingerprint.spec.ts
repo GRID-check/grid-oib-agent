@@ -99,6 +99,30 @@ describe('fingerprintOf', () => {
   })
 })
 
+describe('a value only the documents suggest', () => {
+  const withSuggestion = () => {
+    const profile = built({ A2_country: 'at', A2_land: 'niederoesterreich' })
+    profile.assumptions.gebaeudeklasse = {
+      value: 4,
+      status: 'unconfirmed',
+      reason: 'Baubeschreibung.pdf, S. 2: „Gebäudeklasse 4"',
+      source: 'agent_suggested',
+      updatedAt: '2026-10-08T00:00:00.000Z',
+    }
+    return profile
+  }
+
+  it('is flagged as suggested, and a confirmed value is not', () => {
+    const facts = byKey(fingerprintOf(withSuggestion()))
+    expect(facts.gebaeudeklasse).toMatchObject({ value: 'GK 4', suggested: true })
+    expect(facts.bundesland).toMatchObject({ value: 'Niederösterreich', suggested: false })
+  })
+
+  it('is marked in the one-line summary the agent’s catalog prints', () => {
+    expect(fingerprintLabels(withSuggestion())).toEqual(['Niederösterreich', 'GK 4 (aus den Unterlagen, unbestätigt)'])
+  })
+})
+
 describe('factLabel', () => {
   it('shows a token no option names as it is', () => {
     expect(factLabel('bundesland', 'atlantis')).toBe('atlantis')

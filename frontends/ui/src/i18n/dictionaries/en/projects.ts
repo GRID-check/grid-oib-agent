@@ -125,12 +125,28 @@ export const projects = {
         period: 'Period',
         periodOpen: '{start} to now',
         periodNone: 'open; enter it in the Steckbrief',
+        suggested: 'Suggestion from the documents',
+        accept: 'Accept',
+        oibEdition: 'OIB-Richtlinien {edition}',
         labels: {
           bundesland: 'Federal state',
           gebaeudeklasse: 'Building class',
           bauweise: 'Construction',
           nutzungen: 'Uses',
           vorhabensart: 'Kind of work',
+          oibEdition: 'OIB edition',
+        },
+      },
+      extract: {
+        action: 'Read from the documents',
+        pending: 'Piloti is reading the documents …',
+        result:
+          '{suggested, plural, one {# fact} other {# facts}} suggested, {drafted, plural, one {# decision} other {# decisions}} drafted from {documents, plural, one {# document} other {# documents}}.',
+        none: 'Piloti found nothing new in the documents.',
+        errors: {
+          backendUnavailable: 'Piloti could not read the documents just now. Please try again later.',
+          noDocuments: 'There are no readable documents in the open folders yet.',
+          failed: 'The reading did not work. Please try again later.',
         },
       },
       decisions: {
@@ -140,6 +156,9 @@ export const projects = {
         empty: 'Piloti has not recorded any decisions for this project yet.',
         confirm: 'Confirm',
         confirmed: 'Confirmed',
+        dismiss: 'Dismiss',
+        grounded: 'Drawn from the documents',
+        evidencePage: '{file}, p. {page}',
         kind: { decision: 'Decision', constraint: 'Constraint' },
       },
       lesson: {
