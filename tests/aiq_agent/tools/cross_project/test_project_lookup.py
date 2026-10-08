@@ -69,7 +69,6 @@ SEARCH_BODY = {
     "projectsInScope": 12,
     "projectsSearched": 8,
     "nextOffset": 8,
-    "statusKnown": True,
 }
 
 
@@ -140,7 +139,7 @@ class TestWhatItSends:
             period_to="2022-12-31",
             offset=8,
         )
-        _answering(monkeypatch, calls, {"projects": [], "total": 0, "statusKnown": False})
+        _answering(monkeypatch, calls, {"projects": [], "total": 0})
         await lookup.run_project_lookup("find", query="Graz", period_from="2020-01-01")
         _answering(monkeypatch, calls, {"project": {}, "summary": None, "facts": ""})
         await lookup.run_project_lookup("brief", project_id=OTHER)
@@ -584,7 +583,7 @@ class TestFindAndBrief:
             "period": {"start": "2019-03-01", "end": "2021-06-30"},
             "current": False,
         }
-        _answering(monkeypatch, calls, {"projects": [own, other], "total": 2, "statusKnown": True})
+        _answering(monkeypatch, calls, {"projects": [own, other], "total": 2})
 
         result = await lookup.run_project_lookup("find", query="Graz")
 
@@ -605,7 +604,7 @@ class TestFindAndBrief:
             "period": {"start": "2026-01-01", "end": None},
             "current": False,
         }
-        _answering(monkeypatch, calls, {"projects": [running], "total": 1, "statusKnown": True})
+        _answering(monkeypatch, calls, {"projects": [running], "total": 1})
 
         result = await lookup.run_project_lookup("find", query="Linz")
 

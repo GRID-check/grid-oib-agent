@@ -182,8 +182,6 @@ export const crossProjectSearchResponseSchema = z.object({
   projectsSearched: z.number().int(),
   /** The offset of the next page of projects, or null when this page reached the end. */
   nextOffset: z.number().int().nullable(),
-  /** Always true since ticket 1 records project status; kept so older agents still parse the answer. */
-  statusKnown: z.boolean(),
 })
 export type CrossProjectSearchResponse = z.infer<typeof crossProjectSearchResponseSchema>
 
@@ -218,7 +216,6 @@ export const crossProjectListResponseSchema = z.object({
   projects: z.array(crossProjectListedSchema),
   /** How many projects matched before `limit` cut the list. */
   total: z.number().int(),
-  statusKnown: z.boolean(),
 })
 export type CrossProjectListResponse = z.infer<typeof crossProjectListResponseSchema>
 
