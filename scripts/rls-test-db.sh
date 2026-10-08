@@ -658,7 +658,8 @@ echo "==> 0116 restriction judge and down migration verified"
 # ---------------------------------------------------------------------------
 # Migration 0117: the content gate's quarantine decisions, owed to the audit
 # trail (ADR-0083), and its DOWN. The repository's claims (one decision per
-# dispatch, owed until marked once, outliving the document) are proved through
+# dispatch, owed until marked once, outliving the document, deleted once spent
+# by the platform role alone) are proved through
 # the runtime role by upload-batches.integration.spec.ts above; here, what the
 # database itself refuses, and that the down and a re-apply run clean.
 # ---------------------------------------------------------------------------

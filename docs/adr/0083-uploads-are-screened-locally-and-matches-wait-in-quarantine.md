@@ -113,7 +113,9 @@ German, and explains each verdict.
   A repeat is the same event: the WorkOS idempotency key is the decision's id,
   and the event is built from the row alone with the decision's time as
   `occurredAt`. The row has no foreign key, so a decision reaches the trail
-  even when a reviewer deletes the file first. Each event carries kinds and
+  even when a reviewer deletes the file first. It is personal data kept for
+  that alone: the sweep deletes it once the trail has it, and any decision
+  older than the seven days in which it is sent, trail on or off. Each event carries kinds and
   terms only, never a sample or text (AI Act transparency;
   `docs/user-guides/ai-act.md`), and the decision records the folder the file
   was filed in, so a file under a folder not every project member may read is

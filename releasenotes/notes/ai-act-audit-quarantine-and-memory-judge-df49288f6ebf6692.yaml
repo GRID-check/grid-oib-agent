@@ -9,3 +9,7 @@ features:
   - >
     A restricted note in the Projektspeicher now says „von KI mitbestimmt" when
     a language model helped decide who may read it.
+  - >
+    Piloti keeps its own copy of a quarantine decision only until the audit log
+    has it, and seven days at the most, because it names the file and who
+    uploaded it.
