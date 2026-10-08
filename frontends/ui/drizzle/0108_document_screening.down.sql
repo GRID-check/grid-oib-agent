@@ -1,4 +1,4 @@
--- Reverse 0107: forget screening outcomes and releases.
+-- Reverse 0108: forget screening outcomes and releases.
 --
 -- ORDER: roll the frontend back first; the newer build reads and writes these
 -- columns. Lossy: which documents were released from quarantine, by whom, is

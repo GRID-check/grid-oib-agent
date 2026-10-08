@@ -42,7 +42,7 @@ export const projectFolders = pgTable('project_folders', {
    * `(organization_id, COALESCE(project_id, '000…0'::uuid),
    * COALESCE(parent_id, '000…0'::uuid), name) WHERE deleted_at IS NULL` — one
    * living folder per name per parent on a shelf (migrations 0063, 0102; partial
-   * since 0109, so a tombstone does not hold its name). It is not declared here because
+   * since 0110, so a tombstone does not hold its name). It is not declared here because
    * it is an EXPRESSION index and drizzle's index builder cannot express one,
    * the same arrangement `documents_conversation_idx` has for being partial.
    *
