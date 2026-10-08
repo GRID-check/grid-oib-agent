@@ -32,6 +32,8 @@ const Q2 = '0f0f0f0f-0000-4000-8000-000000000003'
 const A2 = '0f0f0f0f-0000-4000-8000-000000000004'
 /** An answer id with no message row: the turn was never persisted. */
 const A_MISSING = '0f0f0f0f-0000-4000-8000-0000000000ff'
+/** A1's trace id, as the agent writes it: the answer UUID's 32 hex digits. */
+const TRACE_A1 = A1.replace(/-/g, '')
 /** An answer from before every window, rated today. */
 const A_OLD = '0f0f0f0f-0000-4000-8000-000000000005'
 
@@ -85,6 +87,11 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
           (${A2}::uuid, ${CHAT}, 'assistant', 'Ebenfalls 40 m.',                   ${minutesAgo(19)}::timestamptz),
           (${A_OLD}::uuid, ${CHAT}, 'assistant', 'Eine alte Antwort.',             ${minutesAgo(100 * 24 * 60)}::timestamptz)
       `)
+      // The agent names the trace an answer was produced in on its row
+      // (`observability/turn_trace.py`); A1 has one, A2 predates the field.
+      await db.execute(sql`
+        update messages set metadata = jsonb_build_object('trace_id', ${TRACE_A1}::text) where id = ${A1}::uuid
+      `)
     })
     await vote(A1, 'down', { reason: 'inaccurate' })
     await vote(A2, 'down', { reason: 'other' })
@@ -111,6 +118,24 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
     })
     const { closeDb } = await import('@/lib/db')
     await closeDb()
+  })
+
+  describe('the Langfuse trace of a rated answer', () => {
+    it('is read off the answer row, for the vote path and the drill-in alike', async () => {
+      await expect(inOrg(() => repo.getAnswerTraceId(A1, ORG))).resolves.toBe(TRACE_A1)
+      await expect(inOrg(() => repo.getAnswerTraceId(A2, ORG))).resolves.toBeNull()
+      await expect(inOrg(() => repo.getAnswerTraceId(A_MISSING, ORG))).resolves.toBeNull()
+
+      const turns = await platform(() => repo.listFeedbackTurns({ organizationId: ORG, verdict: 'down' }))
+      const traceOf = new Map(turns.map((turn) => [turn.messageId, turn.traceId]))
+      expect(traceOf.get(A1)).toBe(TRACE_A1)
+      expect(traceOf.get(A2)).toBeNull()
+      expect(traceOf.get(A_MISSING)).toBeNull()
+    })
+
+    it("is not another organization's to read", async () => {
+      await expect(inOrg(() => repo.getAnswerTraceId(A1, `${ORG}_other`))).resolves.toBeNull()
+    })
   })
 
   describe('coverage', () => {
