@@ -121,12 +121,20 @@ export function releaseDateTime(release: ChangelogRelease): string | undefined {
   return release.date ?? undefined
 }
 
+/** The sections that count as something new: what the reader gained, and what got better. */
+const NEW_SECTIONS = new Set(['features', 'improvements'])
+
 /**
- * How much has shipped, counted from the notes: every note in every section,
- * and the weeks they came in. The landing page and /warum-piloti/ say it, so
- * the number is the changelog's, never a figure someone typed.
+ * How much has shipped, counted from the notes: every new feature and
+ * improvement, and the weeks they came in. Fixes are not counted, because the
+ * claim is "{notes} Neuerungen" and a repaired bug is not one. The landing page
+ * and /warum-piloti/ say it, so the number is the changelog's, never a figure
+ * someone typed.
  */
 export function shippedTotals(): { notes: number; weeks: number } {
-  const notes = releases.reduce((sum, r) => sum + r.sections.reduce((n, s) => n + s.notes.length, 0), 0)
+  const notes = releases.reduce(
+    (sum, r) => sum + r.sections.filter((s) => NEW_SECTIONS.has(s.key)).reduce((n, s) => n + s.notes.length, 0),
+    0
+  )
   return { notes, weeks: releases.filter((r) => r.kind === 'week').length }
 }

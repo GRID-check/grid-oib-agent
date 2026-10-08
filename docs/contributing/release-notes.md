@@ -47,7 +47,7 @@ features:
 |---|---|---|
 | `features` | yes | Something the reader could not do before |
 | `improvements` | yes | Something they already had, now better |
-| `fixes` | yes | An ordinary thing that used to go wrong: a button, a label, a slow screen |
+| `fixes` | yes, folded | An ordinary thing that used to go wrong: a button, a label, a slow screen |
 | `deprecations` | yes | What is going away, and what replaces it |
 | `upgrade` | yes | Only when the reader has to do something themselves |
 | `other` | yes | Genuinely user-visible, fits nowhere above |

@@ -11,10 +11,14 @@ interface Props {
 const { release, locale, headingAs: Heading = 'h2' } = Astro.props
 const t = ui[locale].changelog
 const Section = Heading === 'h2' ? 'h3' : 'h4'
-// A week can carry seventy notes. When it has a summary, that summary is the
-// reading; the sections fold to their title and count, one click from the list.
+// A week can carry seventy notes. Past eight, every section folds to its title
+// and count, one click from the list, and the summary (when the week has one)
+// is the reading. Fixes fold in every week: the page is about what Piloti can
+// do, and the list of what used to go wrong is there for whoever looks for it.
+const FOLD_ABOVE = 8
 const total = release.sections.reduce((n, s) => n + s.notes.length, 0)
-const fold = Boolean(release.summary) && total > 8
+const fold = total > FOLD_ABOVE
+const folded = (key: string) => fold || key === 'fixes'
 ---
 
 <article
@@ -47,7 +51,7 @@ const fold = Boolean(release.summary) && total > 8
     <div class:list={[fold ? 'space-y-1' : 'space-y-7']}>
       {
         release.sections.map((section) =>
-          fold ? (
+          folded(section.key) ? (
             <details class="group">
               <summary class="flex min-h-11 cursor-pointer list-none items-center gap-3 text-lg font-semibold text-ink [&::-webkit-details-marker]:hidden">
                 <span aria-hidden="true" class="font-mono text-sm text-accent-600 transition-transform group-open:rotate-90">›</span>
