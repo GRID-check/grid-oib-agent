@@ -14,7 +14,7 @@
  *   3. the object key's owner prefix (`uploadStorageKey`),
  *   4. the audit action and what it records (`uploadAuditEvent`).
  *
- * Both shelves also run the organization's name screening (ADR-0085).
+ * Both shelves also run the organization's name screening (ADR-0086).
  *
  * `@/lib/documents/service#uploadDocument` and
  * `@/lib/archiv/service#uploadArchivDocument` are the names the two shelves'
@@ -53,7 +53,7 @@ export interface ShelfUploadInput {
   originPath?: string | null
   /**
    * The uploader released this file in the upload dialog although the
-   * organization's name screening excludes it (ADR-0085) — the Bauvertrag in a
+   * organization's name screening excludes it (ADR-0086) — the Bauvertrag in a
    * folder called „Verträge". Honoured and audited; absent means "do not
    * override", so a client that never asks is screened.
    */
@@ -143,7 +143,7 @@ interface PlaceUploadInput {
   bytes: Buffer
   contentHash: string
   storageBucket: string
-  /** The screening matches the uploader released (ADR-0085), audited once stored. */
+  /** The screening matches the uploader released (ADR-0086), audited once stored. */
   screeningOverridden: Awaited<ReturnType<typeof assertUploadNameAllowed>>['overridden']
 }
 
@@ -324,7 +324,7 @@ async function prepareUpload(
   const collectionName = await shelfCollectionName(shelf, session.organizationId)
   if (!collectionName) throw new NotFoundError('Project not found')
   const originPath = sanitizeOriginPath(input.originPath)
-  // The name gate's server-side repeat (ADR-0085), before a byte is stored.
+  // The name gate's server-side repeat (ADR-0086), before a byte is stored.
   const nameGate = await assertUploadNameAllowed(
     session.organizationId,
     { filename: file.name, originPath, folderPath },

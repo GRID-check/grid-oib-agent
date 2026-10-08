@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Dev preview for Organisation → Sensible Daten (ADR-0085). Renders the REAL
+ * Dev preview for Organisation → Sensible Daten (ADR-0086). Renders the REAL
  * form twice, with fixtures and no backend:
  *
  *  - an admin while Piloti's suggestion is still in force (the hint, both
@@ -59,7 +59,7 @@ export default function UploadScreeningDevPage(): JSX.Element {
       <div>
         <h1 className="text-lg font-semibold">Organisation — Sensible Daten</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          The upload-screening policy (ADR-0085): name gate in the browser, content gate before any model.
+          The upload-screening policy (ADR-0086): name gate in the browser, content gate before any model.
         </p>
       </div>
       {views.map((view) => (
