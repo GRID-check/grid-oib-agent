@@ -7,7 +7,10 @@
  * „Maskiert senden" sends the message with each match replaced by its
  * placeholder, „Bearbeiten" sends nothing and leaves the text in the editor.
  * There is no way to send it unmasked from here. A message with no match, or
- * an office that switched screening off, sends as before.
+ * an office that switched screening off, sends as before. A dictated
+ * transcript is held like typed text: its audio has already reached the
+ * transcription model, so the notice promises only that the ANSWERING model
+ * does not see it.
  *
  * The matcher itself is pinned by `content-screen.spec.ts` against the shared
  * fixture; this file pins the WIRING. Its own file, beside
@@ -22,6 +25,7 @@ import {
   SUGGESTED_SCREENING_POLICY,
   type UploadScreeningPolicy,
 } from '@/lib/upload-screening/policy'
+import type { DictationButtonProps } from '@/features/dictation'
 import { InputArea } from './InputArea'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn(), message: vi.fn() } }))
@@ -63,6 +67,16 @@ vi.mock('@/adapters/api/upload-screening-policy', () => ({
 }))
 
 const IBAN = 'AT61 1904 3002 3457 3201'
+
+// A stand-in microphone that delivers what a recording of an IBAN would.
+vi.mock('@/features/dictation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/features/dictation')>()),
+  DictationButton: ({ onTranscript }: DictationButtonProps) => (
+    <button type="button" onClick={() => onTranscript(`Überweisung an ${IBAN}`)}>
+      fake transcript
+    </button>
+  ),
+}))
 
 beforeEach(() => {
   mockSendMessage.mockReset()
@@ -173,6 +187,24 @@ describe('the composer screens a message against the office’s „Sensible Date
 
     await waitFor(() => expect(mockSendMessage).toHaveBeenCalledWith(`IBAN ${IBAN}`))
     expect(screen.queryByTestId('chat-screening-notice')).not.toBeInTheDocument()
+  })
+
+  test('a dictated transcript is held at send like typed text, and the notice promises only the answering model', async () => {
+    const user = userEvent.setup()
+    render(<InputArea isAuthenticated connectionMode="sse" />)
+
+    await user.click(screen.getByRole('button', { name: 'fake transcript' }))
+    expect(composer()).toHaveValue(`Überweisung an ${IBAN}`)
+    await user.click(send())
+
+    const notice = await screen.findByTestId('chat-screening-notice')
+    expect(mockSendMessage).not.toHaveBeenCalled()
+    // The transcription model has already heard the audio: "the model" would be untrue.
+    expect(notice).toHaveTextContent('Piloti does not send this to the answering model.')
+    await user.click(screen.getByRole('button', { name: 'Send masked' }))
+    await waitFor(() =>
+      expect(mockSendMessage).toHaveBeenCalledWith('Überweisung an [IBAN entfernt]')
+    )
   })
 
   test("an answer to Piloti's question is screened like a question", async () => {

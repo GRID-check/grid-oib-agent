@@ -57,6 +57,8 @@ import {
 } from '@/lib/jobs/backend-client'
 import { signJobRequestContext } from '@/lib/jobs/request-envelope'
 import type { PlanDocument } from './plan-documents'
+import { AGENT_REFUSAL_LOCALE, requirePlanDocumentsOpen } from '@/lib/conversations/restricted-egress'
+import type { Locale } from '@/i18n/config'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import * as taskRepository from '@/lib/tasks/repository'
@@ -551,12 +553,19 @@ export async function cancelRun(
  * Add a document to a running run's Grundlage on a person's request. Same
  * gate and the same refusals as „Jetzt schreiben" ({@link writeNowRun}); the
  * ledger lists the document through the run's own stream, never here.
+ *
+ * One refusal of its own: a document from a folder not every project member
+ * may read (`requirePlanDocumentsOpen`, 403 `CONVERSATION_CONFINED`), because
+ * the run's stream and report are read by the whole project. Refused before
+ * the backend hears of it. This is the only door a document reaches a running
+ * run by; the async proxy refuses `job/{id}/documents`.
  */
 export async function addRunDocument(
   session: AuthorizedSession,
   projectId: string,
   runId: string,
-  document: PlanDocument
+  document: PlanDocument,
+  locale: Locale = AGENT_REFUSAL_LOCALE
 ): Promise<RunView> {
   await requireProjectAccess(session, projectId, 'project:view')
   await requireProjectAccess(session, projectId, CHAT_PERMISSIONS)
@@ -564,6 +573,7 @@ export async function addRunDocument(
   if (!run) throw new NotFoundError('Unknown run')
   if (!isActiveTaskRunStatus(run.status)) throw new ConflictError('This run has already ended')
   if (!run.backendJobId) throw new ConflictError('This run has no backend job to hand the document to')
+  await requirePlanDocumentsOpen(session.organizationId, projectId, [document], locale)
 
   try {
     await addDocumentToBackendJob(run.backendJobId, document, await jobControlCaller(session, projectId))
