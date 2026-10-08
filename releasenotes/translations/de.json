@@ -392,6 +392,10 @@
     "de": "Ein Durchlauf, dessen Ende der Browser verpasst hat, sperrt den Chat nicht mehr; eine laufende Recherche blockiert weder Eingabe noch Umbenennen oder Löschen."
   },
   {
+    "en": "A restricted note in the Projektspeicher now says „von KI mitbestimmt\" when a language model helped decide who may read it.",
+    "de": "Eine eingeschränkte Notiz im Projektspeicher zeigt jetzt „von KI mitbestimmt“, wenn ein Sprachmodell mitentschieden hat, wer sie lesen darf."
+  },
+  {
     "en": "A results table in a comparison or file note is headed Ergebnisse, not Befunde, and passes no verdict the report did not reach.",
     "de": "Eine Ergebnistabelle in einem Vergleich oder Aktenvermerk heißt „Ergebnisse“ statt „Befunde“ und fällt kein Urteil, das der Bericht nicht gefällt hat."
   },
@@ -1556,6 +1560,10 @@
     "de": "Piloti ist jetzt für Smartphones konzipiert und nicht bloß dafür angepasst. Zahlen und Quellen in einer Antwort, Erwähnungen in einem geteilten Thread, Schritte einer Karte und die Gliederung eines Berichts sind auf die Bedienung mit dem Finger ausgelegt. So brauchen Sie vor Ort nicht mehr drei Anläufe, um herauszufinden, woher eine Anforderung stammt."
   },
   {
+    "en": "Piloti keeps its own copy of a quarantine decision only until the audit log has it, and seven days at the most, because it names the file and who uploaded it.",
+    "de": "Piloti behält eine eigene Kopie einer Quarantäne-Entscheidung nur, bis das Audit-Protokoll sie hat, und höchstens sieben Tage, weil sie die Datei und die hochladende Person nennt."
+  },
+  {
     "en": "Piloti knows which documents are still missing and answers accordingly. Without a Bebauungsplan it says so instead of answering as if it had read one.",
     "de": "Piloti weiß, welche Unterlagen noch fehlen, und antwortet entsprechend vorsichtig. Fehlt der Bebauungsplan, sagt es das, statt zu antworten, als hätte es ihn gelesen."
   },
@@ -1990,6 +1998,10 @@
   {
     "en": "The assistant could not start, so questions went unanswered. It starts again.",
     "de": "Der Assistent startet wieder, nachdem er zuvor nicht starten konnte und Fragen unbeantwortet blieben."
+  },
+  {
+    "en": "The audit log now records when Piloti quarantines an upload, with the terms and checks that matched, once per decision, even if the log was briefly unreachable. It also records each decision of the model that judges who may read a note Piloti keeps from a chat with restricted folders, including a firm-wide note Piloti offered you to save.",
+    "de": "Das Audit-Protokoll hält jetzt fest, wenn Piloti einen Upload in Quarantäne nimmt, mit den Begriffen und Prüfungen, die angeschlagen haben – einmal pro Entscheidung, auch wenn das Protokoll kurz nicht erreichbar war. Es hält außerdem jede Entscheidung des Modells fest, das beurteilt, wer eine Notiz lesen darf, die Piloti aus einem Chat mit eingeschränkten Ordnern behält, auch eine büroweite Notiz, die Piloti Ihnen zum Speichern angeboten hat."
   },
   {
     "en": "The banner names where a report will be filed while the research is starting, when you can still stop it, and links to the finished file with „Im Projekt öffnen“. If nothing could be filed, it promises nothing.",
