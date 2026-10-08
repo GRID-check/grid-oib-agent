@@ -127,7 +127,16 @@ def decide(get: Get, *, prefix: str, tree: str, blob: str, repo: str, workflow_r
 
 
 def github_get(api_url: str, token: str) -> Get:
+    """A GET against the GitHub API at `api_url`, which must be https.
+
+    Anything else raises before a request is built, and `decide` turns that into
+    a miss, so the URL is always the API base plus a path this script builds.
+    """
+
     def get(path: str) -> Any:
+        base = urllib.parse.urlsplit(api_url)
+        if base.scheme != "https" or not base.netloc:
+            raise ValueError(f"GITHUB_API_URL must be an https URL, got {api_url!r}")
         request = urllib.request.Request(
             api_url.rstrip("/") + path,
             headers={
@@ -136,6 +145,8 @@ def github_get(api_url: str, token: str) -> Get:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
         )
+        # The base is the https GitHub API (checked above); the path is built here.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310 - fixed https API base
             return json.load(response)
 

@@ -167,6 +167,18 @@ def test_an_api_error_is_a_miss(reuse):
     assert "lookup failed" in message
 
 
+@pytest.mark.parametrize("api_url", ["http://api.github.com", "file:///etc", "ftp://api.github.com", "api.github.com"])
+def test_a_non_https_api_url_is_refused_before_any_request(reuse, monkeypatch, api_url):
+    def urlopen(*args, **kwargs):
+        raise AssertionError("no request may be made")
+
+    monkeypatch.setattr(reuse.urllib.request, "urlopen", urlopen)
+    hit, message = decide(reuse, reuse.github_get(api_url, "token"))
+
+    assert not hit
+    assert "ValueError" in message and "https" in message
+
+
 def test_a_malformed_response_is_a_miss(reuse):
     assert decide(reuse, lambda path: ["not", "an", "object"])[0] is False
 
