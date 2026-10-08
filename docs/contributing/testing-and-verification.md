@@ -37,9 +37,10 @@ Then run `task verify:fast` before you push.
 
 ## Traps the task list cannot tell you about
 
-**Spec type errors block the production build.** The UI `tsconfig` includes test
-files, so a type error in a `.spec.tsx` fails `next build`, not just the test
-run. A green `task fe:types` is what tells you the build will typecheck.
+**`next build` does not typecheck the specs; `task fe:types` does.** The build
+reads `frontends/ui/tsconfig.build.json` (`typescript.tsconfigPath` in
+`next.config.ts`), which leaves specs and test helpers out of its roots, so a
+type error in a test fails `fe:types` and never the production build.
 
 **`task db:test:rls` is a required merge check and is not part of `task
 verify`.** It needs PostgreSQL server binaries, so it runs separately. Run it

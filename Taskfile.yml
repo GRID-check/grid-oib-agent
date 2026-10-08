@@ -217,7 +217,7 @@ tasks:
       - bun run lint
 
   fe:types:
-    desc: Typecheck the UI (includes specs — a spec type error blocks next build)
+    desc: Typecheck the UI, specs included (next build checks production code only)
     dir: '{{.UI}}'
     cmds:
       - bun run type-check
