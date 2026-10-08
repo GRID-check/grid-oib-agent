@@ -4,7 +4,7 @@ import { GridConfig } from "../config";
 import { APP_DEFAULTS, KEDA_SCALER_ROLE, LANGFUSE, PORT } from "../constants";
 import type { Postgres } from "../data/postgres";
 import { FRONTEND_DRAIN_SECONDS, secretChecksum } from "../platform/rollout";
-import { LANGFUSE_SECRETS_NAME, LANGFUSE_SECRET_KEYS } from "../platform/langfuse";
+import { frontendLangfuseEnv, LANGFUSE_SECRETS_NAME, LANGFUSE_SECRET_KEYS } from "../platform/langfuse";
 
 type EnvVar = k8s.types.input.core.v1.EnvVar;
 
@@ -572,6 +572,9 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
           { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318" },
         ]
       : []),
+    // Answer feedback as Langfuse scores, and links from a rated turn to its
+    // trace (ADR-0044, Amendment 3). Only where the Langfuse tier is deployed.
+    ...frontendLangfuseEnv(cfg),
   ];
 }
 

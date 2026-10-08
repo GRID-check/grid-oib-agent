@@ -460,7 +460,10 @@ export const organization = {
     archivDocuments: 'Organization Archiv',
     /** Count-neutral: a scope with exactly one document renders this too. */
     documentCount: 'Documents: {count}',
-    setByPlatform: 'Your storage quota is set by Piloti. Contact support if you need more room.',
+    /** The per-file upload limit, read-only; `size` is formatted with its unit. */
+    maxFileSize: 'Largest file per upload',
+    setByPlatform:
+      'Your storage quota and the largest file you can upload are set by Piloti. Contact support if you need more.',
     loadError: 'Could not load storage usage.',
   },
   budgets: {
@@ -495,6 +498,7 @@ export const organization = {
     dailyLimit: 'Daily limit ({unit})',
     monthlyLimit: 'Monthly limit ({unit})',
     noLimitPlaceholder: 'No limit',
+    limitInvalid: 'Enter a number of 0 or more, or leave blank for no limit.',
     saveLimits: 'Save limits',
     limitsSaved: 'Budget limits saved',
     limitsSaveError: 'Could not save the budget limits.',
