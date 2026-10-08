@@ -207,7 +207,7 @@ describe('getUploadSummary', () => {
     expect(summary.documents[3]?.errorMessage).toContain('pdf_pages_unreadable')
   })
 
-  it('leaves out what was filed in a folder the uploader may no longer see (ADR-0084)', async () => {
+  it('leaves out what was filed in a folder the uploader may no longer see (ADR-0086)', async () => {
     vi.mocked(listBatchDocuments).mockResolvedValue([
       makeDocument({ id: 'open', filename: 'EG.pdf', folderId: 'f-open' }),
       makeDocument({ id: 'hidden', filename: 'Honorar.pdf', folderId: 'f-hidden' }),
@@ -329,7 +329,7 @@ describe('listProjectUploadHistory', () => {
     expect(entry).toMatchObject({ excludedCount: 2, unchangedCount: 1, counts: { ready: 2, quarantined: 1, reading: 0 } })
   })
 
-  it('counts nothing filed in a folder hidden from the reader, as the document listing leaves it out (ADR-0084)', async () => {
+  it('counts nothing filed in a folder hidden from the reader, as the document listing leaves it out (ADR-0086)', async () => {
     const OTHER = '1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f'
     vi.mocked(loadCustomFolderTree).mockResolvedValue([inherit('f-open'), gfOnly('f-hidden')])
     vi.mocked(listProjectUploadBatchPage).mockResolvedValue({

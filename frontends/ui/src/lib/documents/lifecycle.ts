@@ -1067,7 +1067,7 @@ export async function replaceVersionContent(
     /**
      * The conversation the new content came out of, for the agent's rewrite. Content from a thread that drew on a
      * restricted folder goes only into a document filed at least as narrowly
-     * (ADR-0084, `restricted-egress.ts`), exactly as a new filing does.
+     * (ADR-0086, `restricted-egress.ts`), exactly as a new filing does.
      */
     origin?: ConversationOrigin
   } = {},

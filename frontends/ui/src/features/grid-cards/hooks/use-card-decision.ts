@@ -62,7 +62,7 @@ const selectCardDecision = (
 /**
  * The conversation that holds the card's message, or null. A card whose answer
  * writes something project-wide names it, so the server can refuse a proposal
- * from a thread that drew on a restricted folder (ADR-0084).
+ * from a thread that drew on a restricted folder (ADR-0086).
  */
 export const selectCardConversationId = (
   state: Pick<ChatStore, 'currentConversation' | 'conversations'>,

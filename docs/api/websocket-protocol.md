@@ -48,13 +48,13 @@ ws://<host>/websocket?v=2&projectId=<uuid>&conversationId=<session_id>
   signed into the context envelope. A client message naming another
   conversation is refused with `rejected{conversation_mismatch}`; the socket
   stays open. To talk in another conversation, open a socket for it.
-- **A restricted scope is narrowed per turn, not per socket (ADR-0085).** When
+- **A restricted scope is narrowed per turn, not per socket (ADR-0087).** When
   the signed scope carries a restricted folder's collection, the agent asks
   the BFF at the start of every turn which of them the asker and everyone the
   conversation is shared with may read now
   (`POST /api/internal/conversations/[id]/restricted-use`), and searches only
   those. A thread shared since the upgrade keeps its socket; the server no
-  longer closes it (the `4412` close of ADR-0084 is retired).
+  longer closes it (the `4412` close of ADR-0086 is retired).
 - **Auth** is read at the handshake and every client message re-checks the
   token's `exp`; an expired one is refused with `rejected{auth_expired}`, and
   the client reconnects with a fresh token.
@@ -143,10 +143,11 @@ full design.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BACKEND_URL` | `http://localhost:8000` | Backend HTTP URL |
+| `BACKEND_URL` | `http://localhost:8000` | Backend HTTP URL: the `api` role (ADR-0082) |
+| `BACKEND_CHAT_URL` | none (required by the gateway) | The backend's `chat` role, the only role that serves the socket; no fallback to `BACKEND_URL` |
 | `NEXT_PUBLIC_BACKEND_URL` | Falls back to `BACKEND_URL` | Browser-accessible backend URL |
 
-The WebSocket URL is derived by replacing `http` → `ws` in `BACKEND_URL`. Keep-alive is set to 15 seconds on upstream sockets.
+The WebSocket URL is derived by replacing `http` → `ws` in `BACKEND_CHAT_URL`. Keep-alive is set to 15 seconds on upstream sockets.
 
 ---
 
@@ -320,7 +321,7 @@ refused (`rejected{invalid_message}`), and so is an unknown `type`
 {"v":2,"type":"user_message","conversation_id":"s_1","message_id":"msg_1759000000000_3","text":"Wie lang darf der Fluchtweg in GK 4 sein?","data_sources":["knowledge_layer"]}
 ```
 
-### Sensitive data is masked, never refused (ADR-0083)
+### Sensitive data is masked, never refused (ADR-0085)
 
 The free text of a `user_message` (`context_only` lines included) and of an
 `interaction_response` `{text}` answer is masked against the office's

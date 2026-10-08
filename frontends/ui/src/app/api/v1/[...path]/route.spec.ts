@@ -20,7 +20,7 @@ vi.mock('@/lib/collection-scope-request', () => ({
 }))
 
 vi.mock('@/lib/proxy/proxy-request', () => ({
-  buildProxyUrl: vi.fn(() => 'http://aiq-agent:8000/v1/data_sources'),
+  buildProxyUrl: vi.fn(() => 'http://aiq-api:8000/v1/data_sources'),
 }))
 
 import { DELETE, GET, POST } from './route'
@@ -99,6 +99,6 @@ describe('/api/v1/[...path] proxy — control-plane path blocking', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ items: [] })
     expect(fetchSpy).toHaveBeenCalledTimes(1)
-    expect(fetchSpy.mock.calls[0][0]).toBe('http://aiq-agent:8000/v1/data_sources')
+    expect(fetchSpy.mock.calls[0][0]).toBe('http://aiq-api:8000/v1/data_sources')
   })
 })

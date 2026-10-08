@@ -206,7 +206,7 @@ function readBlockScalar(
 }
 
 export function parseSkillDocument(raw: string): SkillDocumentParseResult {
-  const lines = raw.replace(/^﻿/, '').split(/\r?\n/)
+  const lines = raw.replace(/^\uFEFF/, '').split(/\r?\n/)
 
   let cursor = 0
   while (cursor < lines.length && lines[cursor].trim() === '') cursor += 1

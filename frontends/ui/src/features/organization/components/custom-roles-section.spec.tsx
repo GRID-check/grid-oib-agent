@@ -172,7 +172,7 @@ describe('CustomRolesSection', () => {
     expect(calls('DELETE')[0][0]).toBe('/api/organization/roles/org-geschaeftsfuehrung')
   })
 
-  describe('a role that folders name (ADR-0085)', () => {
+  describe('a role that folders name (ADR-0087)', () => {
     const FOLDERS = [
       { folderId: 'f1', folderName: 'Honorare', projectId: 'p1', projectName: 'Schule Süd', deleted: null },
       { folderId: 'f2', folderName: 'Verträge', projectId: 'p2', projectName: 'Halle 3', deleted: null },

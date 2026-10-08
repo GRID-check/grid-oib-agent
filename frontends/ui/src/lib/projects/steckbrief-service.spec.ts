@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The Steckbrief service (ADR-0087): who may read, change and erase, that an
+ * The Steckbrief service (ADR-0089): who may read, change and erase, that an
  * account link must name a member, and that the audit trail never names a
  * person.
  */

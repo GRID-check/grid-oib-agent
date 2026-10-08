@@ -25,7 +25,7 @@ export interface RequestContext {
    * The scope is for an interactive chat turn: the WebSocket upgrade, and
    * nothing else. Only such a scope may carry the restricted-folder collections
    * the session, and everyone the conversation is shared with, is cleared for
-   * (ADR-0084). Deep research and scheduled runs file their reports for the
+   * (ADR-0086). Deep research and scheduled runs file their reports for the
    * whole project, so every other caller leaves this unset and gets none,
    * whoever is asking.
    */
@@ -114,15 +114,23 @@ export async function resolveActiveProjectId(
  * Requires `viewer`: opening a turn is not contributing yet (the message POST
  * demands `collaborator` in its own right), but reading the thread's context is
  * the least the caller must be entitled to.
+ *
+ * Answers whether a row was found and authorized. An absent row passes for the
+ * scope above, but it is not a conversation anybody checked, so it is never one
+ * the BFF signs as reachable (`verifiedConversationId`, ADR-0084).
  */
-async function authorizeConversationScope(session: AuthorizedSession, conversationId: string): Promise<void> {
+async function authorizeConversationScope(
+  session: AuthorizedSession,
+  conversationId: string
+): Promise<boolean> {
   const tenancy = await findConversationTenancy(conversationId)
-  if (!tenancy) return
+  if (!tenancy) return false
   await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
+  return true
 }
 
 /**
- * The restricted-folder collections (ADR-0084) an interactive chat turn may
+ * The restricted-folder collections (ADR-0086) an interactive chat turn may
  * search: those `folder-access.ts` clears this session for, narrowed to the ones
  * everyone the conversation is shared with is cleared for too, and none on a
  * conversation visible to the whole project (`restricted-use.ts`). A turn with
@@ -186,6 +194,20 @@ export async function buildCollectionScopeFromRequest(
   projectId: string | undefined
   projectCollectionName: string | undefined
   conversationId: string | undefined
+  /**
+   * The conversation only when a row exists and the caller holds `viewer` on
+   * it. `conversationId` above is also set for a conversation whose first
+   * message has not created the row yet; this one is what the job envelope may
+   * sign as reachable (ADR-0084).
+   */
+  verifiedConversationId: string | undefined
+  /**
+   * The caller reaches the project only because it is closed (ADR-0088): they
+   * may read it and chat about it, and steer no run but their own. The job
+   * envelope signs no project for them (`signJobRequestContext`). Always set
+   * here; optional so a stand-in that predates it reads as a member.
+   */
+  projectReadOnly?: boolean
 }> {
   const anonymous = !isAuthRequired()
 
@@ -201,17 +223,24 @@ export async function buildCollectionScopeFromRequest(
 
   // The conversation is authorized as well as the project. Both are
   // caller-supplied, and until this ran only the project was ever checked.
-  if (conversationId && session && !anonymous) {
-    await authorizeConversationScope(session as AuthorizedSession, conversationId)
-  }
+  const conversationVerified =
+    conversationId && session && !anonymous
+      ? await authorizeConversationScope(session as AuthorizedSession, conversationId)
+      : false
 
+  let projectReadOnly = false
   if (projectId && session && !anonymous) {
     if (explicitProject) {
       // The collection scope is what a chat request retrieves against, so
       // reaching it is chatting in the project — `project:chat`, not
       // `project:view`. A reader gets the project's documents through the
       // documents API; they do not get the agent pointed at them.
-      await requireProjectAccess(session as AuthorizedSession, projectId, CHAT_PERMISSIONS)
+      const access = await requireProjectAccess(
+        session as AuthorizedSession,
+        projectId,
+        CHAT_PERMISSIONS
+      )
+      projectReadOnly = access.readsBecauseClosed
     } else {
       // Implicit fallback from the stored active_project_id preference, which
       // can go stale (project soft-deleted, membership revoked) and is never
@@ -219,7 +248,12 @@ export async function buildCollectionScopeFromRequest(
       // projectId — global listings 404, general chat WS upgrades 403 — so
       // degrade to an unscoped request instead of failing.
       try {
-        await requireProjectAccess(session as AuthorizedSession, projectId, CHAT_PERMISSIONS)
+        const access = await requireProjectAccess(
+          session as AuthorizedSession,
+          projectId,
+          CHAT_PERMISSIONS
+        )
+        projectReadOnly = access.readsBecauseClosed
       } catch {
         projectId = undefined
       }
@@ -248,7 +282,7 @@ export async function buildCollectionScopeFromRequest(
     : undefined
   const sessionCollection = conversationId ? sessionCollectionName(conversationId) : undefined
 
-  // Restricted folders (ADR-0084): an interactive chat turn of a cleared
+  // Restricted folders (ADR-0086): an interactive chat turn of a cleared
   // session, in a project whose row was found, on a conversation whose every
   // reader is cleared for them. Every other scope — deep research, scheduled
   // runs, the proxies, an anonymous deployment — carries none.
@@ -298,5 +332,7 @@ export async function buildCollectionScopeFromRequest(
     projectId,
     projectCollectionName,
     conversationId,
+    verifiedConversationId: conversationVerified ? conversationId : undefined,
+    projectReadOnly: Boolean(projectId) && projectReadOnly,
   }
 }

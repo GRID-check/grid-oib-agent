@@ -205,7 +205,7 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
       const stages = sanitizeStages(metadata.stages)
       return stages ? { stages } : {}
     })(),
-    // Content drawn from a deleted folder (ADR-0085): the purge's mark, and a
+    // Content drawn from a deleted folder (ADR-0087): the purge's mark, and a
     // removal of what was derived from it („Mit dem Ordner entfernen“).
     // Dates only, read as such.
     ...(() => {

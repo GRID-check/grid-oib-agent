@@ -63,7 +63,7 @@ const defaultFetch = (input: RequestInfo | URL) => {
   const url = String(input)
   if (url === '/api/knowledge-base') {
     return Promise.resolve(
-      jsonResponse({ files: [{ fileName: OIB, state: 'ingested', origin: 'corpus' }] })
+      jsonResponse({ files: [{ fileName: OIB, state: 'ingested' }] })
     )
   }
   return Promise.resolve(jsonResponse({ documents: [] }))

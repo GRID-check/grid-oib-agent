@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * An office's own roles, kept in WorkOS (ADR-0084).
+ * An office's own roles, kept in WorkOS (ADR-0086).
  *
  * Only the WorkOS client, the cache and the audit sink are stubbed; the
  * service's rules run for real. The ones that matter most:
@@ -313,7 +313,7 @@ describe('deleteCustomRole', () => {
     })
   })
 
-  describe('a role that folders name (ADR-0085)', () => {
+  describe('a role that folders name (ADR-0087)', () => {
     const folder = {
       folderId: 'f1',
       folderName: 'Honorare',

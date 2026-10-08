@@ -399,7 +399,7 @@ class AgentEventCallback(BaseCallbackHandler):
         3. This callback's own mirror of the sources its tool results carried
            (:meth:`_mirror_sources`).
 
-        Tier 2 used to be the WHOLE lookup, and inside a Dask worker nothing
+        Tier 2 used to be the WHOLE lookup, and inside a research worker nothing
         bound it: only the synchronous chat paths called
         ``set_session_registry``. Every lookup here therefore returned None for
         a deep-research run, ``_emit_cited_documents`` early-returned, and no

@@ -33,6 +33,7 @@
 #
 #   docker run -p 3000:3000 \
 #     -e BACKEND_URL=http://backend:8000 \
+#     -e BACKEND_CHAT_URL=http://backend-chat:8000 \
 #     -e REQUIRE_AUTH=true \
 #     -e WORKOS_CLIENT_ID=client_xxx \
 #     -e WORKOS_API_KEY=sk_test_xxx \
@@ -44,6 +45,7 @@
 #
 #   docker run -p 3000:3000 \
 #     -e BACKEND_URL=http://backend:8000 \
+#     -e BACKEND_CHAT_URL=http://backend-chat:8000 \
 #     -e REQUIRE_AUTH=false \
 #     aiq-blueprint-ui:latest
 #
@@ -52,7 +54,8 @@
 # -----------------------------------------------------------------------------
 #
 # Backend:
-#   BACKEND_URL                     - Backend API URL (default: http://localhost:8000)
+#   BACKEND_URL                     - Backend api role URL: every HTTP call (default: http://localhost:8000)
+#   BACKEND_CHAT_URL                - Backend chat role URL for the WebSocket (required, no default)
 #
 # Authentication:
 #   REQUIRE_AUTH                    - Set to 'true' to require WorkOS AuthKit login (default: false)

@@ -80,7 +80,7 @@ export function parseDelimited(
 ): { rows: string[][]; delimiter: string; truncated: boolean } {
   // A BOM survives every round trip through Excel and renders as a stray glyph
   // welded to the first header cell.
-  const text = input.replace(/^﻿/, '')
+  const text = input.replace(/^\uFEFF/, '')
   const sep = delimiter ?? sniffDelimiter(text)
 
   const rows: string[][] = []

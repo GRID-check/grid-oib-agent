@@ -21,8 +21,8 @@ _QUESTION = "Welche Stellplatzverpflichtung gilt für einen Neubau?"
 
 def _two_states(catalog):
     """A registry holding the Viennese and the Tyrolean Bauordnung."""
-    from tests.conftest import LookupHarness
-    from tests.conftest import norm_entry
+    from sources.ris_adapter.tests.conftest import LookupHarness
+    from sources.ris_adapter.tests.conftest import norm_entry
 
     return catalog(
         norm_entry(),
@@ -78,7 +78,7 @@ async def test_the_land_read_off_the_question_is_labelled_as_such(lookup, catalo
 
 async def test_the_caller_land_outranks_the_planner_in_a_live_search(lookup, monkeypatch):
     """A planner that forgets the Bundesland must not widen the search back out."""
-    from tests.conftest import FakePlanner
+    from sources.ris_adapter.tests.conftest import FakePlanner
 
     planner = FakePlanner(application="LrKons", suchworte="Stellplatzverpflichtung", bundesland="")
     lookup.with_llms(monkeypatch, planner=planner)

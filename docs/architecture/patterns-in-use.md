@@ -30,7 +30,7 @@ correctly and the wrong thing happens anyway.
 | Script | Catches |
 |---|---|
 | `frontends/ui/scripts/check-static-utility-modifiers.mjs` | `bg-warning/15` against a static Tailwind v4 `@utility`, which matches no rule and is silently dropped. Reads the utility names out of `globals.css`, so it tracks the design system rather than a hardcoded list |
-| `scripts/check_agent_docs.py` | An `AGENTS.md` no agent can reach |
+| `scripts/check_agent_docs.py` | An `AGENTS.md` no agent can reach, and a Markdown link to a file git does not track |
 | `scripts/check_adrs.py` | The ADR index disagreeing with the directory |
 | `scripts/validate_skills.py` | A malformed skill bundle |
 

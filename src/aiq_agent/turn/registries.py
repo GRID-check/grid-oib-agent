@@ -53,15 +53,15 @@ class TurnRegistries:
     #: What the ``remember`` tool wrote DURING the turn. Filled when the
     #: context exits — the log is unbound at that moment.
     memory_writes: tuple[str, ...] = field(default_factory=tuple)
-    #: The part of ``memory_writes`` stored as restricted memory (ADR-0084).
+    #: The part of ``memory_writes`` stored as restricted memory (ADR-0086).
     restricted_memory_writes: tuple[str, ...] = field(default_factory=tuple)
     #: The retrieval collections of every source the conversation's citation
     #: registry holds once the turn ended — this turn's and the earlier ones,
     #: whose passages are in the history. Read by the memory restriction
-    #: decision (ADR-0084). Filled when the context exits.
+    #: decision (ADR-0086). Filled when the context exits.
     source_collections: tuple[str, ...] = field(default_factory=tuple)
     #: The restricted memory EARLIER turns of the conversation were shown, with
-    #: their collections (ADR-0084, ``memory/shown_notes.py``). Read by the
+    #: their collections (ADR-0086, ``memory/shown_notes.py``). Read by the
     #: memory restriction decision; bound for the ``remember`` tool as well.
     shown_notes: ShownNotes = field(default_factory=ShownNotes)
 
@@ -112,7 +112,7 @@ async def turn_registries(
     """Bind the five per-turn registries; unbind and persist on exit, however it exits.
 
     ``memory_digest`` is the memory digest the agent is shown this turn; the
-    memory log keeps it for the ``remember`` tool (ADR-0084). ``shown_notes`` is
+    memory log keeps it for the ``remember`` tool (ADR-0086). ``shown_notes`` is
     what earlier turns were shown of restricted memory, and
     ``restricted_scope`` the restricted collections of this turn's signed
     scope: on exit this turn's restricted lines and restricted writes are added

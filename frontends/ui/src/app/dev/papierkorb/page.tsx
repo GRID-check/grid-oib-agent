@@ -2,7 +2,7 @@
 
 /**
  * Dev preview for the Papierkorb and everything around a deleted folder
- * (ADR-0085).
+ * (ADR-0087).
  *
  * The REAL `FolderBinPanel` over a fixture listing: one folder restorable,
  * one whose parent is gone (restores to the project root), one the reader may

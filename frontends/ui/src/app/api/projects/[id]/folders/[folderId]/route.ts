@@ -5,7 +5,7 @@
  * rename and move share their request handling with the Archiv's folders
  * (`@/lib/documents/folder-route-handlers`). The delete does not: a project
  * folder goes to the Papierkorb with its subfolders and their documents
- * (`@/lib/projects/folder-bin`, ADR-0085), restorable with its access for
+ * (`@/lib/projects/folder-bin`, ADR-0087), restorable with its access for
  * `FOLDER_PURGE_GRACE_DAYS`, then purged to a tombstone. It answers
  * `{ documentsBinned, foldersBinned, purgeAfter }`, not the Archiv's re-filing
  * counts.

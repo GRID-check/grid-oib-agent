@@ -38,7 +38,7 @@
       "Routes to aiq-research",
       "Checks AIQ_SERVER_URL or the default local backend before the request",
       "Preserves the user's Santa Clara weather prompt",
-      "Uses scripts/aiq.py chat for the routed request",
+      "Uses scripts/aiq.py chat for the routed request, which posts to the chat role at AIQ_CHAT_URL (default http://localhost:8001), not the api role",
       "Returns a concise answer for Santa Clara, CA",
       "Does not force a deep_researcher job unless AI-Q returns an async job ID"
     ]
