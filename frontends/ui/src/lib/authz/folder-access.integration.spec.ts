@@ -41,7 +41,7 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     withTenant({ organizationId, userId: USER }, run)
   const firstId = (rows: Iterable<{ id: string }>): string => String(Array.from(rows)[0]?.id)
 
-  /** A folder, with its own list in the same statement: the 0109 trigger checks at commit. */
+  /** A folder, with its own list in the same statement: the 0110 trigger checks at commit. */
   async function insertFolder(name: string, parentId: string | null, path: string, grants: Grants | null) {
     const rows = await inTenant(() =>
       db.execute<{ id: string }>(sql`
