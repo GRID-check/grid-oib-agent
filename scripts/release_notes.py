@@ -76,10 +76,20 @@ SUMMARIES_FILE = RELNOTES_DIR / "summaries.yaml"
 PRELUDE_SECTION = "prelude"
 
 # Sections reno keeps and the public changelog never shows. The changelog on
-# piloti.at is written for the architect using Piloti; a note that only the people
-# running the platform can act on (model defaults, the Platform area, deployment
-# and migration steps) goes here instead. `task release:preview` still lists it.
-INTERNAL_SECTIONS = frozenset({"operators"})
+# piloti.at is product news for the architect using Piloti, not a bug register,
+# so three kinds of note are kept in the repository and off the page:
+#
+# * `operators`: only the people running the platform can act on it (model
+#   defaults, the Platform area, deployment and migration steps);
+# * `security`: a vulnerability, a hardening, a dependency bumped for a CVE. The
+#   public page named a remote-code-execution flaw before this was internal;
+# * `incident`: a severe fix, something that should never have happened (data
+#   lost or kept after deletion, a permission or legal hold that did not hold,
+#   an answer passed as checked when it was not, a false claim on the site).
+#
+# A customer who must hear about a security or incident fix is told directly,
+# not by a changelog line. `task release:preview` still lists all three.
+INTERNAL_SECTIONS = frozenset({"operators", "security", "incident"})
 
 # German titles for the sections defined in releasenotes/config.yaml. The English
 # side lives in that config (reno owns it); this is the other half. They are
@@ -91,6 +101,7 @@ SECTION_TITLES_DE = {
     "improvements": "Verbesserungen",
     "fixes": "Fehlerbehebungen",
     "security": "Sicherheit",
+    "incident": "Schwere Fehler",
     "deprecations": "Auslaufende Funktionen",
     "upgrade": "Hinweise zur Umstellung",
     "other": "Sonstiges",
@@ -109,8 +120,9 @@ MAX_SENTENCES = 2
 # A week's summary covers a dozen notes, so it gets a little more room than one.
 SUMMARY_MAX_LENGTH = 500
 SUMMARY_MAX_SENTENCES = 3
-# An `operators` note may carry a migration step, so it gets two more sentences.
-OPERATOR_MAX_SENTENCES = 4
+# An internal note may carry a migration step or the cause of an incident, so it
+# gets two more sentences. Nobody outside the repository reads it.
+INTERNAL_MAX_SENTENCES = 4
 
 # The source language is English; German is generated from it. A note written
 # in German is published as "English" on /en/changelog and translated from German
@@ -321,8 +333,8 @@ def group_notes(
       six weeks, some holding one note and some fifty; an ISO week is the unit a
       reader can take in.
 
-    Only sections in `section_order` survive, which is how the `operators`
-    section stays off the public page. A group's summary comes from
+    Only sections in `section_order` survive, which is how the internal
+    sections (`INTERNAL_SECTIONS`) stay off the public page. A group's summary comes from
     `summaries` (releasenotes/summaries.yaml, keyed by group id) and falls back
     to a reno prelude.
     """
@@ -625,7 +637,7 @@ def lint_note(filename: str, raw: str, valid_sections: set[str]) -> list[str]:
                 problems.append(f"{filename}: section `{section}` has an entry that is not text.")
                 continue
             public = section not in INTERNAL_SECTIONS
-            limit = MAX_SENTENCES if public else OPERATOR_MAX_SENTENCES
+            limit = MAX_SENTENCES if public else INTERNAL_MAX_SENTENCES
             issues = lint_text(entry, public=public, max_sentences=limit)
             problems.extend(f"{filename} ({section}): {issue}" for issue in issues)
     return problems

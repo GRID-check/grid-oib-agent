@@ -241,6 +241,24 @@ def test_operator_notes_never_reach_the_public_changelog():
     assert "operators" not in data["sectionTitles"]
 
 
+@pytest.mark.parametrize("section", ["security", "incident"])
+def test_security_and_incident_notes_are_kept_but_never_published(section):
+    """The changelog is product news; a vulnerability or a severe fix is not shown there."""
+    assert section in SECTION_KEYS
+    public = [key for key, _ in rn.public_sections(SECTIONS)]
+    assert section not in public
+    groups = rn.group_notes(
+        [note("0.0.0", "2026-09-26", **{section: ["Kept in the repository only."], "features": ["Public."]})],
+        public,
+    )
+    assert rn.collect_strings(groups) == ["Public."]
+    assert section not in rn.build_changelog(groups, rn.public_sections(SECTIONS), {})["sectionTitles"]
+
+
+def test_ordinary_fixes_stay_public():
+    assert {"features", "improvements", "fixes"} <= {key for key, _ in rn.public_sections(SECTIONS)}
+
+
 def test_an_edited_note_keeps_the_day_it_first_shipped():
     """reno dates a note by its latest revision; an edit must not move it to this week."""
     log = "\n".join(
