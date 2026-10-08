@@ -37,7 +37,7 @@ would have typed.
   transcription model unscreened (zero data retention on the platform's key,
   the provider's own policy for an office on its own key), so dictation is one
   of the doors the
-  [ADR-0085 chat amendment](../adr/0085-uploads-are-screened-locally-and-matches-wait-in-quarantine.md#amendment-2026-10-02-chat-messages-are-screened-too)
+  [ADR-0086 chat amendment](../adr/0086-uploads-are-screened-locally-and-matches-wait-in-quarantine.md#amendment-2026-10-02-chat-messages-are-screened-too)
   lists under "Neutral", outside chat screening.
 
 ## How a recording travels

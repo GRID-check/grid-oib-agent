@@ -1116,7 +1116,10 @@ died half way left no record of which half. Both are now jobs:
 - **A drain never costs an attempt; a failure always does.** On SIGTERM the loop stops claiming, lets
   the slice in hand finish (`bffJobsDrainSeconds`, 60), gives every claim back
   without spending an attempt, and only then stops the BFF; the pod's grace
-  period is the drain plus 30 s. A claim that lost its worker is taken again
+  period is the drain plus 30 s. A claim that has held its slot for ten
+  minutes is given back the same way between two slices, so a job that runs
+  for hours (an archive import) waits its turn behind the fair claim instead of
+  keeping the slot. A claim that lost its worker is taken again
   after `GRID_BFF_JOBS_STALE_SECONDS`. Every other end of an attempt spends
   it (a handler that threw, a slice past `GRID_BFF_JOBS_SLICE_TIMEOUT_MS`, a BFF
   that answered 5xx or not at all) and the job waits `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS`,

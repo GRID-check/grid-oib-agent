@@ -48,6 +48,8 @@ import { findLiveDocumentByFilename, findProjectCollectionsHoldingFilename } fro
 import { retryRacedUpload } from './unique-conflicts'
 import { newVersionWriteId, versionWriteKey } from './version-content'
 import { shelfOwner, type DocumentShelf } from './shelf'
+// Type only: `service.ts` imports this module, and a value import would be a cycle.
+import type { IngestPriority } from './service'
 import { requireShelfWrite } from './shelf-authz'
 import { shelfCollectionName } from './shelf-collection'
 
@@ -58,17 +60,23 @@ export interface ShelfUploadInput {
   originPath?: string | null
   /**
    * The uploader released this file in the upload dialog although the
-   * organization's name screening excludes it (ADR-0085) — the Bauvertrag in a
+   * organization's name screening excludes it (ADR-0086) — the Bauvertrag in a
    * folder called „Verträge". Honoured and audited; absent means "do not
    * override", so a client that never asks is screened.
    */
   screeningRelease?: boolean
   /**
-   * The upload gesture this file belongs to (migration 0109), as the browser
+   * The upload gesture this file belongs to (migration 0110), as the browser
    * opened it. Recorded on the row when it is the uploader's own open batch
    * for this shelf; anything else is ignored rather than refused.
    */
   uploadBatchId?: string | null
+  /**
+   * The ingest queue's priority for these bytes. A person's upload is
+   * `interactive` (the default); a machine filing thousands of files on their
+   * behalf, the mail import (ADR-0085), says `bulk` so it yields to them.
+   */
+  priority?: IngestPriority
 }
 
 export interface UploadDocumentResult {
@@ -342,7 +350,7 @@ async function prepareUpload(
     }
   }
   const originPath = sanitizeOriginPath(input.originPath)
-  // The name gate's server-side repeat (ADR-0085), before a byte is stored.
+  // The name gate's server-side repeat (ADR-0086), before a byte is stored.
   const nameGate = await assertUploadNameAllowed(
     session.organizationId,
     { filename: file.name, originPath, folderPath },
@@ -489,6 +497,7 @@ export async function uploadToShelf(
     // document under (ADR-0049), so the agent's inventory and
     // `knowledge_search folder=` see the folder from the first ingest onward.
     folderPath,
+    priority: input.priority,
   })
 
   await uploadAuditEvent(session, shelf, request, {

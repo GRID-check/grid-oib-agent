@@ -101,6 +101,10 @@ const BOUNDARY_MIGRATIONS = [
   // Adds project_folder_grants — a folder's own access list, one row per role
   // and level (ADR-0087). Keyed directly by its organization.
   '0110_project_folder_grants.sql',
+  // Adds mail_imports (ADR-0085), an Outlook archive a member is filing into a
+  // project. Keyed by the organization, secured like product_feedback; the
+  // stale-upload sweep reads across tenants under the platform role.
+  '0108_mail_imports.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

@@ -24,11 +24,19 @@ export async function insertJob(job: {
   organizationId: string
   priority: BffJobPriority
   payload: Record<string, unknown>
+  /** Not claimable before this instant; the claim already honours `not_before`. */
+  notBefore?: Date
 }): Promise<string> {
   const db = getDb()
   const [row] = await db
     .insert(bffJobQueue)
-    .values({ kind: job.kind, lane: job.organizationId, priority: job.priority, payload: job.payload })
+    .values({
+      kind: job.kind,
+      lane: job.organizationId,
+      priority: job.priority,
+      payload: job.payload,
+      ...(job.notBefore ? { notBefore: job.notBefore } : {}),
+    })
     .returning({ jobId: bffJobQueue.jobId })
   return row.jobId
 }

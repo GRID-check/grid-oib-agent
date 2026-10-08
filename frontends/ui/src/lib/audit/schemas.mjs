@@ -129,7 +129,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'model_config_version' }],
     metadata: { ...MODEL_GROUP_METADATA, reset: 'boolean', rollback: 'boolean' },
   },
-  // An office's own roles, kept in WorkOS (ADR-0086). The slug and the
+  // An office's own roles, kept in WorkOS (ADR-0087). The slug and the
   // permission list the role holds after the change; a role is a bundle of
   // permissions, so "who composed which bundle" is the trail that matters.
   'org.role.created': {
@@ -293,13 +293,13 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     metadata: { projectId: 'string', filename: 'string', fileSize: 'number' },
   },
   // A file the name gate would have excluded, uploaded anyway because its
-  // uploader released it in the upload dialog (ADR-0085): the Bauvertrag in a
+  // uploader released it in the upload dialog (ADR-0086): the Bauvertrag in a
   // folder called „Verträge". The terms say which rule was overridden.
   'document.screening_overridden': {
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', terms: 'string' },
   },
-  // A quarantined document a reviewer released for indexing (ADR-0085). The
+  // A quarantined document a reviewer released for indexing (ADR-0086). The
   // reasons are the content gate's verdict as stored on the row.
   'document.quarantine_released': {
     targets: [{ type: 'document' }],

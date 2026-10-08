@@ -193,7 +193,7 @@ export function ProjectSettings({
       </StaggerItem>
 
       {/* Uploads — who brought how many files in when, and how they ended
-          (ADR-0085, ticket „Verlauf/Protokoll"). Read-only reference beside
+          (ADR-0086, ticket „Verlauf/Protokoll"). Read-only reference beside
           the roster; each uploader's own rows open their summary. */}
       <StaggerItem>
         <section aria-label={tUploads('history.title')} className="space-y-4">
