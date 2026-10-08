@@ -248,7 +248,12 @@ export async function revokeDocumentRole(
   session: AuthorizedSession
 ): Promise<void> {
   await requireProjectAccess(session, projectId, [...WRITE_PERMISSIONS])
-  const removed = await deleteBindings(projectId, [bindingId])
+  // A binding is answered the way its document is: one to a file in a folder
+  // this session may not see (ADR-0086), or to a held file it neither uploaded
+  // nor reviews (ADR-0085), is not there to remove, exactly as it is not there
+  // to list. Its id is the only thing that names it.
+  const visible = await listProjectDocumentRoles(projectId, await sessionRoleReader(session, projectId))
+  const removed = visible.some((row) => row.id === bindingId) ? await deleteBindings(projectId, [bindingId]) : 0
   // Invalidate BEFORE reporting the miss. Throwing first meant a retry after a
   // failed invalidation deleted nothing, took this branch, and returned without
   // touching the cache again — so the removed binding stayed in the agent's

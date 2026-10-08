@@ -513,6 +513,16 @@ window in which a file nobody had screened was everybody's.
   audited, re-dispatched. Its uploader may ask for that („Freigabe anfragen").
   Before this a retry failed the same way and the file stayed with its uploader
   for good.
+* **Writes answer the way reads do, where a person names the row.** The
+  ratchet holds every READ of `documents` to the predicate; a write is held by
+  how it finds its rows. Revoking a document role finds the binding through the
+  session's reader, so one to a colleague's held file answers `404` and removes
+  nothing. Three writes act on held rows on purpose: a single-holder role slot
+  displaces a held holder without naming it, as it does a hidden one (the slot
+  is the project's, and a held file is not the project's yet); deleting a
+  Büroablage folder re-files every document in it, held ones included, and only
+  its curators, who review its quarantine, may do it; and binning, restoring and
+  purging a project folder take every document filed in it (below).
 * **The Papierkorb counts what its reader may see.** A binned folder's count
   leaves out a colleague's held file. Binning, restoring and purging a folder
   still take every document filed in it, held ones included: the folder is the

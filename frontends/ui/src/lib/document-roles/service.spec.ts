@@ -34,6 +34,11 @@ const repo = vi.hoisted(() => ({
    * folder, which is what the real SQL does for a document filed in one.
    */
   hiddenDocumentIds: [] as string[],
+  /**
+   * Documents held by their upload screening and uploaded by somebody else
+   * (ADR-0085): a member's reader does not see them, as the real SQL does not.
+   */
+  heldDocumentIds: [] as string[],
   // A project whose intake was never saved: the column holds `{}`, which
   // `findProjectProfile` hands out as this empty profile (never `null` for an
   // existing project). The implicit first building (`bw1`) is the only one.
@@ -51,8 +56,13 @@ vi.mock('@/lib/projects/repository', () => ({
 }))
 
 vi.mock('./repository', () => ({
-  listProjectDocumentRoles: vi.fn(async (_projectId: string, reader: { hiddenFolderIds: string[] }) =>
-    repo.bindings.filter((b) => reader.hiddenFolderIds.length === 0 || !repo.hiddenDocumentIds.includes(b.documentId))
+  listProjectDocumentRoles: vi.fn(
+    async (_projectId: string, reader: { hiddenFolderIds: string[]; documents?: { kind: string } }) =>
+      repo.bindings.filter(
+        (b) =>
+          (reader.hiddenFolderIds.length === 0 || !repo.hiddenDocumentIds.includes(b.documentId)) &&
+          (reader.documents?.kind !== 'member' || !repo.heldDocumentIds.includes(b.documentId))
+      )
   ),
   findBindingsForRole: vi.fn(async () => repo.bindings),
   documentBelongsToProject: vi.fn(
@@ -142,6 +152,7 @@ beforeEach(() => {
   repo.deleted = []
   repo.documentInProject = true
   repo.hiddenDocumentIds = []
+  repo.heldDocumentIds = []
   vi.clearAllMocks()
   vi.mocked(getHiddenFolderIds).mockResolvedValue([])
 })
@@ -263,6 +274,24 @@ describe('revokeDocumentRole', () => {
     repo.bindings = [binding({ id: 'binding-7' })]
     await expect(revokeDocumentRole('proj-1', 'binding-7', session)).resolves.toBeUndefined()
     expect(repo.deleted).toEqual(['binding-7'])
+  })
+
+  // The binding is answered the way its document is: a colleague's held upload
+  // (ADR-0085) and a file in a folder this session is not cleared for
+  // (ADR-0086) are not there for it, to list or to remove.
+  it('answers 404 for a binding to a held file the session may not see, and removes nothing', async () => {
+    repo.bindings = [binding({ id: 'binding-held', documentId: 'doc-held' })]
+    repo.heldDocumentIds = ['doc-held']
+    await expect(revokeDocumentRole('proj-1', 'binding-held', session)).rejects.toThrow(/not found/)
+    expect(repo.deleted).toEqual([])
+  })
+
+  it('answers 404 for a binding to a file in a hidden folder, and removes nothing', async () => {
+    vi.mocked(getHiddenFolderIds).mockResolvedValue(['folder-fees'])
+    repo.bindings = [binding({ id: 'binding-fee', documentId: 'doc-fee' })]
+    repo.hiddenDocumentIds = ['doc-fee']
+    await expect(revokeDocumentRole('proj-1', 'binding-fee', session)).rejects.toThrow(/not found/)
+    expect(repo.deleted).toEqual([])
   })
 })
 
