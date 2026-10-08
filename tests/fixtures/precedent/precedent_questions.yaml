@@ -16,7 +16,10 @@
 #   says_none:   the answer says no comparable reference was found
 #   caveat:      the answer says the precedent was decided under an earlier edition
 #                or that the rules may have changed since
-#   mentions:    as in the loop eval: a value that must appear (alternatives allowed)
+#   mentions:    as in the loop eval: a VALUE that must appear (a dimension, a
+#                material, a project's name), alternatives allowed. Never a
+#                meaning: whether an answer warns, refuses or says none is the
+#                judge's (says_none, caveat), not a word list's
 #
 #   scenario:    which office the run sits in (office.json `scenarios`): `default`
 #                when absent, `wien-bestand` (a Vienna office building conversion:
@@ -229,8 +232,9 @@ questions:
     expect:
       lookup: required
       cites: [[Baden]]
-      # Baden is in Niederösterreich, this project in Wien: another Bauordnung.
-      mentions: [[Bauordnung, Bundesland, Niederösterreich]]
+      # Baden is in Niederösterreich, this project in Wien: the answer must warn
+      # that another Bauordnung applied there. A meaning, so the judge reads it.
+      caveat: true
 
   - id: wien-norm-bestand
     group: norm

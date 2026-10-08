@@ -22,6 +22,8 @@ import os
 import urllib.error
 import urllib.request
 
+from aiq_agent.common.openrouter import PLATFORM_FIXED
+
 JUDGE_MODEL = os.environ.get("SUITE_JUDGE_MODEL", "openai/gpt-6-luna")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -60,14 +62,17 @@ def ask(kind: str, question: str, answer: str, *, timeout: float = 60.0) -> bool
     key = _api_key()
     if key is None or kind not in RUBRICS or not answer.strip():
         return None
-    body = {
-        "model": JUDGE_MODEL,
-        "temperature": 0,
-        "messages": [
-            {"role": "system", "content": _SYSTEM},
-            {"role": "user", "content": f"{RUBRICS[kind]}\n\nQUESTION:\n{question}\n\nANSWER:\n{answer}"},
-        ],
-    }
+    # Through the OpenRouter seam like every model call: pinned to zero data retention.
+    body = PLATFORM_FIXED.apply(
+        {
+            "model": JUDGE_MODEL,
+            "temperature": 0,
+            "messages": [
+                {"role": "system", "content": _SYSTEM},
+                {"role": "user", "content": f"{RUBRICS[kind]}\n\nQUESTION:\n{question}\n\nANSWER:\n{answer}"},
+            ],
+        }
+    )
     request = urllib.request.Request(
         OPENROUTER_URL,
         data=json.dumps(body).encode("utf-8"),
