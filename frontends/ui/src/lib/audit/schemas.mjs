@@ -392,7 +392,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', terms: 'string', nameWithheld: 'boolean' },
   },
-  // The content gate's own decision to hold a document back (ADR-0085): rule
+  // The content gate's own decision to hold a document back (ADR-0086): rule
   // based, before any model reads it. Its actor is `system:upload_screening`,
   // not a person, and `uploadedBy` names whose upload it was. The reasons are
   // kinds and terms (`term:Lohnzettel,iban`), never a matched sample or text;
@@ -415,7 +415,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       nameWithheld: 'boolean',
     },
   },
-  // A quarantined document a reviewer released for indexing (ADR-0085). The
+  // A quarantined document a reviewer released for indexing (ADR-0086). The
   // reasons are the kinds of the content gate's verdict as stored on the row;
   // the terms are the office's words it found in the text, which say what the
   // document holds, so they are withheld with the name.
@@ -612,7 +612,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       collectionName: 'string',
     },
   },
-  // The restricted-memory judge's verdict on one note (ADR-0086), a language
+  // The restricted-memory judge's verdict on one note (ADR-0087), a language
   // model deciding who may read it: `drawn` (it named folders the note draws
   // on), `none` (it named none, so they add no restriction) or `failed` (no
   // usable answer; restricted to every folder in scope). Actor

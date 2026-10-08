@@ -423,7 +423,7 @@ const resolveFromCollection = (
  * tracks (`list_files` in the knowledge layer's adapter), so for a row that
  * carries a job the entry may be an EARLIER dispatch's: a released file's old
  * quarantine, written back over the new dispatch and recorded as a decision
- * that job never made (ADR-0085). The job is the only witness to its own
+ * that job never made (ADR-0086). The job is the only witness to its own
  * failure; a row whose job the backend forgot stays as it is.
  */
 const attributableFailure = (jobId: string | null): boolean => jobId === null
@@ -675,7 +675,7 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   }
 
   // Rows that came to rest settle their upload, audit a quarantine and tell
-  // its reviewers (ADR-0085). Only the rows this read moved: a concurrent read
+  // its reviewers (ADR-0086). Only the rows this read moved: a concurrent read
   // that lost the race settles nothing. Never throws. A quarantine whose audit
   // event did not go out stays owed in `document_quarantine_decisions`, and the
   // upload sweep sends it; a batch left open is the sweep's too.

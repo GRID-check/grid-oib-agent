@@ -391,7 +391,7 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
 echo "==> 0097 step rewrite and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migrations 0110 to 0114, 0117 and 0118: each on a database of its own.
+# Migrations 0111 to 0115, 0118 and 0119: each on a database of its own.
 #
 # `migrate_until <db> <tag>` creates <db> and applies the journal up to and
 # including <tag>, so every section below starts from exactly the chain it
@@ -655,32 +655,32 @@ check_in grid_bin "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8
 echo "==> 0115 backfill, triggers and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0117: a restricted note records the memory judge's verdict
-# (ADR-0086), and its DOWN. Only a restricted note carries one, and only a
+# Migration 0118: a restricted note records the memory judge's verdict
+# (ADR-0087), and its DOWN. Only a restricted note carries one, and only a
 # verdict the judge gives; the down drops the column and its CHECK, and 0117
 # re-applies.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0117 restriction judge column, its CHECK and the down migration on grid_judge"
-migrate_until grid_judge 0117_project_memory_restriction_judge
+echo "==> verifying the 0118 restriction judge column, its CHECK and the down migration on grid_judge"
+migrate_until grid_judge 0118_project_memory_restriction_judge
 check_in grid_judge "SELECT count(*) FROM pg_constraint WHERE conname = 'project_memory_restriction_judge_check'" "1" "the verdict is checked"
 check_in grid_judge "SELECT pg_get_constraintdef(oid) LIKE '%restricted_folder_ids IS NOT NULL%' FROM pg_constraint WHERE conname = 'project_memory_restriction_judge_check'" "t" "only a restricted note carries a verdict"
-apply_in grid_judge 0117_project_memory_restriction_judge.down.sql
+apply_in grid_judge 0118_project_memory_restriction_judge.down.sql
 check_in grid_judge "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restriction_judge'" "0" "down dropped the column"
-apply_in grid_judge 0117_project_memory_restriction_judge.sql
+apply_in grid_judge 0118_project_memory_restriction_judge.sql
 check_in grid_judge "SELECT count(*) FROM pg_constraint WHERE conname = 'project_memory_restriction_judge_check'" "1" "0117 re-applies"
 
-echo "==> 0117 restriction judge and down migration verified"
+echo "==> 0118 restriction judge and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0118: the content gate's quarantine decisions, owed to the audit
-# trail (ADR-0085), and its DOWN. The repository's claims (one decision per
+# Migration 0119: the content gate's quarantine decisions, owed to the audit
+# trail (ADR-0086), and its DOWN. The repository's claims (one decision per
 # dispatch, owed until marked once, outliving the document, deleted once spent
 # by the platform role alone) are proved through
 # the runtime role by upload-batches.integration.spec.ts above; here, what the
 # database itself refuses, and that the down and a re-apply run clean.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0118 quarantine decisions, their guard and the down migration on grid_quarantine"
-migrate_until grid_quarantine 0118_document_quarantine_decisions
+echo "==> verifying the 0119 quarantine decisions, their guard and the down migration on grid_quarantine"
+migrate_until grid_quarantine 0119_document_quarantine_decisions
 check_in grid_quarantine "SELECT relrowsecurity FROM pg_class WHERE relname = 'document_quarantine_decisions'" "t" "the decisions are inside the tenant boundary"
 check_in grid_quarantine "SELECT count(*) FROM pg_indexes WHERE tablename = 'document_quarantine_decisions'" "3" "the primary key, the dispatch key and the partial index of what is owed"
 sql_in grid_quarantine <<<"INSERT INTO document_quarantine_decisions (id, organization_id, document_id, job_id, scope, filename, uploaded_by) VALUES ('f1f1f1f1-f1f1-4000-8000-000000000117', 'org_0117', 'f2f2f2f2-f2f2-4000-8000-000000000117', 'job-1', 'archiv', 'Lohn.pdf', 'u');"
@@ -690,13 +690,13 @@ refused_in grid_quarantine "UPDATE document_quarantine_decisions SET reasons = '
 sql_in grid_quarantine <<<"UPDATE document_quarantine_decisions SET audited_at = now() WHERE id = 'f1f1f1f1-f1f1-4000-8000-000000000117';"
 refused_in grid_quarantine "UPDATE document_quarantine_decisions SET audited_at = now() WHERE id = 'f1f1f1f1-f1f1-4000-8000-000000000117';" "only marked audited once" "a decision is marked audited once"
 refused_in grid_quarantine "DELETE FROM document_quarantine_decisions;" "deleted only by the platform role" "only the platform role deletes"
-apply_in grid_quarantine 0118_document_quarantine_decisions.down.sql
+apply_in grid_quarantine 0119_document_quarantine_decisions.down.sql
 check_in grid_quarantine "SELECT to_regclass('public.document_quarantine_decisions') IS NULL" "t" "down dropped the decisions"
 check_in grid_quarantine "SELECT to_regprocedure('grid_document_quarantine_decisions_guard()') IS NULL" "t" "down dropped the guard function"
-apply_in grid_quarantine 0118_document_quarantine_decisions.sql
+apply_in grid_quarantine 0119_document_quarantine_decisions.sql
 check_in grid_quarantine "SELECT count(*) FROM document_quarantine_decisions" "0" "0118 re-applies, empty"
 
-echo "==> 0118 quarantine decisions and down migration verified"
+echo "==> 0119 quarantine decisions and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

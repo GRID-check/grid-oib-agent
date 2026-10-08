@@ -102,7 +102,7 @@ describe('recordAuditEvent (WorkOS-native audit trail)', () => {
     expect(event.metadata).toEqual({})
   })
 
-  // An event an outbox sends again (the quarantine decisions, ADR-0085) must
+  // An event an outbox sends again (the quarantine decisions, ADR-0086) must
   // be the SAME event: its own key, and the decision's time rather than now.
   it('passes a fixed occurredAt and the idempotency key through, and mints neither when absent', async () => {
     const decidedAt = new Date('2026-10-01T08:00:00Z')

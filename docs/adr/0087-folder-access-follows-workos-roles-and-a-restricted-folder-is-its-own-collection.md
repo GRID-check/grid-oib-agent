@@ -204,7 +204,7 @@ session cleared for all of them is ever served it or shown it. Which collections
   `system:memory_judge`, with the note's id and the folders, never its text. A
   "none" is what leaves a note open, so it is the verdict the trail exists for.
 - A restricted note also keeps the verdict (`project_memory.restriction_judge`,
-  migration 0117), and its lock in the Projektspeicher says „von KI
+  migration 0118), and its lock in the Projektspeicher says „von KI
   mitbestimmt": a reader learns that a model helped decide who reads it. An
   open note never carries it (CHECK): its readers may not know a restricted
   folder exists, and the marker would tell them the chat could list one. Those

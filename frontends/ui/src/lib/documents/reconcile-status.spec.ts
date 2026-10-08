@@ -1079,7 +1079,7 @@ describe('reconcileDocumentStatuses — upload screening', () => {
     expect(db.set).toHaveBeenCalledWith(
       expect.objectContaining({ status: 'quarantined', errorMessage: verdict, screeningOutcome: 'quarantined' })
     )
-    // The decision, keyed on its dispatch, owed to the audit trail (ADR-0085):
+    // The decision, keyed on its dispatch, owed to the audit trail (ADR-0086):
     // kinds and terms, never the masked sample or the page list.
     expect(db.values).toHaveBeenCalledWith({
       organizationId: 'org-1',

@@ -1,5 +1,5 @@
 /**
- * What happens when documents come to rest (ADR-0085): their upload completes
+ * What happens when documents come to rest (ADR-0086): their upload completes
  * and its uploader is told, and a quarantined file's quarantine is audited and
  * its reviewers are told.
  *

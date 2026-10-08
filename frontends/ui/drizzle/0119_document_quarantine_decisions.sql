@@ -1,5 +1,5 @@
 -- 0118: the content gate's quarantine decisions, kept until the audit trail
--- has them (ADR-0085; AI Act transparency).
+-- has them (ADR-0086; AI Act transparency).
 --
 -- `document.quarantined` was emitted once, from the read whose guarded status
 -- write moved the row. An emit that failed (WorkOS down, the process gone
@@ -29,7 +29,7 @@
 -- the time, the shelf and the folder it was filed in, the uploader, and the
 -- reasons as kinds and terms (never a matched sample or text). The folder is
 -- what the trail asks before it names the file: a name filed under a folder
--- not every project member may read is withheld (ADR-0086).
+-- not every project member may read is withheld (ADR-0087).
 --
 -- ## Retention
 --
@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS "document_quarantine_decisions" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "document_quarantine_decisions" IS
-  'The content gate''s quarantine decisions (0117, ADR-0085): one row per ingest job that quarantined a document, written with the status, sent to the audit trail as document.quarantined until audited_at is set. No foreign keys: the row outlives the document until it is audited, or seven days. Only audited_at changes; only the platform role (the upload sweep''s retention) deletes.';
+  'The content gate''s quarantine decisions (0117, ADR-0086): one row per ingest job that quarantined a document, written with the status, sent to the audit trail as document.quarantined until audited_at is set. No foreign keys: the row outlives the document until it is audited, or seven days. Only audited_at changes; only the platform role (the upload sweep''s retention) deletes.';
 --> statement-breakpoint
 -- The sweep's discovery: what is still owed to the trail, found without a scan.
 CREATE INDEX IF NOT EXISTS "document_quarantine_decisions_due_idx"

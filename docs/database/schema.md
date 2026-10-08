@@ -845,7 +845,7 @@ re-apply in `scripts/rls-test-db.sh`.
 
 ---
 
-## document_quarantine_decisions (migration 0118, ADR-0085)
+## document_quarantine_decisions (migration 0119, ADR-0086)
 
 The content gate's quarantine decisions, kept until the audit trail has them
 (AI Act), and no longer. One row per ingest job that quarantined a document, inserted by
@@ -875,7 +875,7 @@ exists. The audit trail holds the event under its own retention.
 | `decided_at` | `timestamptz` | NOT NULL, `now()` | The event's `occurredAt` |
 | `scope` | `text` | NOT NULL, CHECK `project`/`archiv`/`session` | |
 | `project_id` | `uuid` | | CHECK `(scope = 'project') = (project_id IS NOT NULL)` |
-| `folder_id` | `uuid` | | The folder the document was filed in when quarantined; NULL at a shelf's root. No FK. The event's `filedIn`: under a folder not every project member may read, the name is withheld (`nameWithheld`, ADR-0086) |
+| `folder_id` | `uuid` | | The folder the document was filed in when quarantined; NULL at a shelf's root. No FK. The event's `filedIn`: under a folder not every project member may read, the name is withheld (`nameWithheld`, ADR-0087) |
 | `filename` | `text` | NOT NULL, CHECK 1–500 characters | The name at the time |
 | `reasons` | `text` | NOT NULL, default `''` | Kinds and terms (`term:Lohnzettel,iban`), never a masked sample or text |
 | `checked` | `text` | NOT NULL, default `''` | `full` or `partial` |
@@ -893,7 +893,7 @@ not yet audited.
 
 ---
 
-## project_memory.restricted_folder_ids (migration 0112, ADR-0086, ADR-0087)
+## project_memory.restricted_folder_ids (migration 0113, ADR-0087, ADR-0088)
 
 The table itself is described in
 [`project-memory-design.md`](../architecture/project-memory-design.md) §2; this
@@ -902,7 +902,7 @@ is the column 0112 adds.
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `restricted_folder_ids` | `uuid[]` | NULL, or CHECK 1–20 entries, none NULL, `scope = 'project'` (`project_memory_restricted_folders_check`) | The source folders the note depends on; `NULL` = open. Stored sorted and de-duplicated (`canonicalRestriction`). Served and shown only to a session that may read ALL of them now (`memoryVisibleTo` with `readableFolderIdsFor`, tombstones included); a folder since opened to every member opens the note |
-| `restriction_judge` | `text` | NULL, or CHECK `drawn` / `none` / `failed` AND `restricted_folder_ids IS NOT NULL` (`project_memory_restriction_judge_check`, migration 0117) | The memory judge's verdict when a language model helped decide who may read this restricted note (AI Act); the Projektspeicher's lock says so. Set on insert only. Never on an open note, which readers see who may not know a restricted folder exists: the marker would tell them the chat could list one. Every verdict, open ones included, is in the audit trail as `project.memory.restriction_judged`. Rows before 0117 stay NULL |
+| `restriction_judge` | `text` | NULL, or CHECK `drawn` / `none` / `failed` AND `restricted_folder_ids IS NOT NULL` (`project_memory_restriction_judge_check`, migration 0118) | The memory judge's verdict when a language model helped decide who may read this restricted note (AI Act); the Projektspeicher's lock says so. Set on insert only. Never on an open note, which readers see who may not know a restricted folder exists: the marker would tell them the chat could list one. Every verdict, open ones included, is in the audit trail as `project.memory.restriction_judged`. Rows before 0118 stay NULL |
 
 Index: `uniq_project_memory_project_content_active` keys on
 `(project_id, coalesce(restricted_folder_ids, '{}'), normalized content)`, so an

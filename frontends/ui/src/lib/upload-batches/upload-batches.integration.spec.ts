@@ -12,7 +12,7 @@
  * completes ONCE however often it is settled (the inbox item it triggers must
  * go out once), another organization cannot see it, and a release takes only
  * for the exact bytes the reviewer saw. And the content gate's decisions
- * (migration 0118): a status write lands only on the dispatch it resolved,
+ * (migration 0119): a status write lands only on the dispatch it resolved,
  * records one decision per dispatch, and the decision stays owed to the audit
  * trail, outliving its document, until it is marked once; then the retention
  * sweep, and only it, deletes it.

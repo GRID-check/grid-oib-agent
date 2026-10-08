@@ -106,7 +106,7 @@ German, and explains each verdict.
   at once, and a release between them puts the row back in flight under a new
   job: the status write is guarded on the status AND the job the read saw, so
   it lands only on the dispatch it is about. The same transaction records the
-  decision in `document_quarantine_decisions` (migration 0118), unique per
+  decision in `document_quarantine_decisions` (migration 0119), unique per
   document and job, and the decision stays owed until the trail has it: the
   read that moved the row sends it at once, and the upload sweep sends what is
   still owed a minute later, so a failed send or a lost process is retried.
@@ -119,7 +119,7 @@ German, and explains each verdict.
   terms only, never a sample or text (AI Act transparency;
   `docs/user-guides/ai-act.md`), and the decision records the folder the file
   was filed in, so a file under a folder not every project member may read is
-  not named (ADR-0086).
+  not named (ADR-0087).
 - **What is not screened.** Files with no local text (images, scanned pages,
   plans without a text layer) pass on the name gate alone, and the upload
   summary says the content was not checked. The product owner chose this over

@@ -81,7 +81,7 @@ const internalMemorySchema = z
       .optional(),
     /**
      * The restricted-memory judge's verdict on this finding, when it was asked
-     * (ADR-0086): recorded in the audit trail with the item (AI Act), and the
+     * (ADR-0087): recorded in the audit trail with the item (AI Act), and the
      * verdict alone kept on a restricted item, so the panel can say a model
      * helped decide who reads it. Collections only, never text.
      */

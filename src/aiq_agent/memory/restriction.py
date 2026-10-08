@@ -95,7 +95,7 @@ Restriction = tuple[str, ...] | None
 
 @dataclass(frozen=True)
 class JudgeVerdict:
-    """What the judge said about one memory, for the audit trail (AI Act; ADR-0086).
+    """What the judge said about one memory, for the audit trail (AI Act; ADR-0087).
 
     Collections only, never the memory's text or what the judge was shown: the
     BFF records which note, which folders, and the verdict.
