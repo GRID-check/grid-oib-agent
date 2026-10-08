@@ -233,6 +233,7 @@ async def _turn_flags(request: GridRequestContext, resolve_stages: bool) -> Turn
     flags = await resolve_turn_flags(
         organization_id=request.organization_id,
         memory_reflection_enabled=request.memory_reflection_enabled,
+        project_id=request.project_id,
     )
     if resolve_stages:
         return flags

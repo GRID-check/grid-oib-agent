@@ -1,4 +1,7 @@
-import { index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import { check, index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+
+import type { ProjectStatus } from '../../projects/project-status'
 
 import type { ProjectProfile, ProjectProfileDisplay } from '../../project-profile/types'
 
@@ -19,6 +22,12 @@ export const projects = pgTable(
     profilePromptView: text('profile_prompt_view'),
     profileDisplay: jsonb('profile_display').$type<ProjectProfileDisplay>(),
     profileUpdatedAt: timestamp('profile_updated_at', { withTimezone: true }),
+    /** `active` or `closed` (ADR-0086, migration 0114). A closed project is read-only and open to every member. */
+    status: text('status').$type<ProjectStatus>().notNull().default('active'),
+    /** When it was closed; set exactly when `status` is `closed`. */
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    /** Who closed it (WorkOS user id); set exactly when `status` is `closed`. */
+    closedBy: text('closed_by'),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -32,6 +41,14 @@ export const projects = pgTable(
     // to the project it names (see `document_roles`). `id` is already the primary
     // key, so this adds no new restriction — it exists to be a foreign-key target.
     idOrgKey: unique('projects_id_organization_id_key').on(table.id, table.organizationId),
+    orgStatusIdx: index('projects_org_status_idx')
+      .on(table.organizationId, table.status)
+      .where(sql`${table.deletedAt} IS NULL`),
+    statusCheck: check('projects_status_check', sql`${table.status} IN ('active', 'closed')`),
+    closedStateCheck: check(
+      'projects_closed_state_check',
+      sql`(${table.status} = 'closed') = (${table.closedAt} IS NOT NULL) AND (${table.status} = 'closed') = (${table.closedBy} IS NOT NULL)`
+    ),
   })
 )
 

@@ -66,6 +66,8 @@ export const runs: typeof en.runs = {
     cancel: 'Abbrechen',
     writeNow: 'Jetzt schreiben',
     continue: 'Bericht fortschreiben',
+    /** Statt „Bericht fortschreiben“ in einem abgeschlossenen Projekt (ADR-0086): ein Lauf legt dort ab. */
+    continueClosed: 'Abgeschlossenes Projekt: keine neue Recherche',
   },
   unterlagen: {
     receiptLabel: 'Für diesen Auftrag benannte Unterlagen',

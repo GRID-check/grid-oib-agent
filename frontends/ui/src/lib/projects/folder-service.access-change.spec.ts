@@ -99,6 +99,7 @@ vi.mock('./ifc-folder-guard', () => ({ assertFolderMoveKeepsIfcOpen: vi.fn(async
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn(async () => undefined) }))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectInOrg: vi.fn(async () => ({ id: 'proj-1', collectionName: 'proj_collection' })),
+  findProjectTenancy: vi.fn(async () => ({ organizationId: 'org-1', deletedAt: null, status: 'active' })),
 }))
 vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:8000' }))
 

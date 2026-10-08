@@ -11,7 +11,13 @@ vi.mock('@/lib/collection-scope-request', () => ({
   buildCollectionScopeFromRequest: vi.fn(),
 }))
 
+vi.mock('@/lib/projects/repository', async (importActual) => ({
+  ...(await importActual<typeof import('@/lib/projects/repository')>()),
+  findProjectTenancy: vi.fn(async () => null),
+}))
+
 import { GET, POST, DELETE } from '@/app/api/jobs/async/[...path]/route'
+import { findProjectTenancy } from '@/lib/projects/repository'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 
@@ -116,6 +122,32 @@ describe('/api/jobs/async/[...path]', () => {
       expect(res.status).toBe(200)
       expect(mockRequireAuthorizedSession).not.toHaveBeenCalled()
       expect(getHeader(fetchMock.mock.calls[0][1], 'X-Grid-Collection-Scope')).toBe('anon-scope')
+    })
+
+    it('refuses to submit research in a closed project, and forwards nothing (ADR-0086)', async () => {
+      process.env.REQUIRE_AUTH = 'true'
+      mockRequireAuthorizedSession.mockResolvedValue(baseSession)
+      mockBuildCollectionScopeFromRequest.mockResolvedValue({
+        scope: ['proj_proj-1'],
+        scopedCollections: [{ collection: 'proj_proj-1', shelf: 'project' }],
+        headerValue: 'encoded-scope',
+        projectId: 'proj-1',
+        conversationId: 'conv-1',
+        projectCollectionName: undefined,
+      })
+      vi.mocked(findProjectTenancy).mockResolvedValueOnce({ organizationId: 'org_1', deletedAt: null, status: 'closed' })
+      const fetchMock = vi.fn()
+      global.fetch = fetchMock
+
+      const req = new Request('http://localhost:3000/api/jobs/async/submit', {
+        method: 'POST',
+        body: JSON.stringify({ projectId: 'proj-1', conversationId: 'conv-1' }),
+      })
+      const res = await POST(req, makeParams(['submit']))
+
+      expect(res.status).toBe(403)
+      await expect(res.json()).resolves.toMatchObject({ error: { details: { reason: 'project-closed' } } })
+      expect(fetchMock).not.toHaveBeenCalled()
     })
 
     it('returns 404 when project access is missing', async () => {

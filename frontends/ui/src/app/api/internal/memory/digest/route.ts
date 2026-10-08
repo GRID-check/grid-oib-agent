@@ -117,7 +117,7 @@ export const GET = internalApiRoute(
       const open = projectId ? new Set(await readableFolderIdsFor(tenant, projectId, ANY_MEMBER)) : new Set<string>()
       const readable =
         projectId && eligible && userId
-          ? await readableFolderIdsFor(tenant, projectId, await clearanceOfMember(tenant, userId))
+          ? await readableFolderIdsFor(tenant, projectId, await clearanceOfMember(tenant, userId, projectId))
           : [...open]
       let restrictedFoldersServed: string[] = []
       const digest = await buildProjectMemoryDigest(projectId, tenant, {

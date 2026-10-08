@@ -5,10 +5,15 @@
  * report („Bericht fortschreiben"). The BFF mints the run's message in this
  * conversation; the thread is re-read so the block appears where the reader
  * is, and the run block then follows the run's own ledger stream.
+ *
+ * Null in a closed project (ADR-0086): a run files its report into the
+ * project, so the BFF refuses it, and the thread offers neither „Klären" nor
+ * „Bericht fortschreiben" (the matrix and the run block say why instead).
  */
 
 import { useCallback, useState } from 'react'
 import { useChatStore } from '@/features/chat/store'
+import { useCurrentProject } from '@/features/projects/lib/current-project'
 import { commissionRun } from '@/lib/runs/run-view-client'
 import type { PlanDocuments } from '@/lib/runs/plan-documents'
 
@@ -41,6 +46,8 @@ export function useCommissionRun(
     },
     [projectId, conversationId, hydrate]
   )
+  const project = useCurrentProject()
   if (!projectId || !conversationId) return null
+  if (project?.id === projectId && project.status === 'closed') return null
   return { commission, pending }
 }

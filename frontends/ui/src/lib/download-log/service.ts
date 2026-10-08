@@ -36,6 +36,7 @@
  */
 
 import 'server-only'
+import type { ProjectStatus } from '@/lib/projects/project-status'
 import { BadRequestError, ForbiddenError, ServiceUnavailableError } from '@/lib/api/errors'
 import { recordAuditEvent, recordAuditEventOrThrow } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -173,6 +174,8 @@ export interface DownloadLogEntry {
   scope: AccessLogRow['scope']
   projectId: string | null
   projectName: string | null
+  /** `closed`: the file's project is closed (ADR-0086), said beside its name. */
+  projectStatus: ProjectStatus | null
   documentId: string
   documentName: string
   versionId: string | null
@@ -282,6 +285,7 @@ export async function listDownloadLog(
         scope: row.scope,
         projectId: row.projectId,
         projectName: row.projectName,
+        projectStatus: row.projectStatus,
         documentId: row.documentId,
         documentName: row.documentName,
         versionId: row.versionId,

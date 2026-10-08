@@ -51,6 +51,14 @@ describe('DownloadLogView', () => {
     expect(screen.getByText(/audit log records who looked/)).toBeInTheDocument()
   })
 
+  it("says beside a closed project's file that its project is closed (ADR-0086)", async () => {
+    stubApi(() => page([entry(1, { projectStatus: 'closed' }), entry(2, { projectStatus: 'active', projectName: 'Lände 3' })]))
+    render(<DownloadLogView people={PEOPLE} />)
+
+    expect(await screen.findByText('Wohnbau Nord · closed')).toBeInTheDocument()
+    expect(screen.queryByText('Lände 3 · closed')).not.toBeInTheDocument()
+  })
+
   it('lists who, what, which document and where, and flags a folder with its own list', async () => {
     stubApi(() =>
       page([

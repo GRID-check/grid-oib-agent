@@ -482,6 +482,10 @@ conversation graph refuses the escalation even when the model asks anyway. So a
 tenant without deep research is never shown a plan, and one without tasks is
 never told an Auftrag was created.
 
+The same answer carries a closed project (ADR-0086): the turn sends its
+`projectId`, and a closed project answers `deepResearch: false` and
+`tasks: false` whatever the flags say, because both file into the project.
+
 That is what the flags did NOT do before. Each was read at exactly one route —
 `POST /api/jobs/async/submit` for deep research, nothing at all for tasks — so
 the agent went on escalating into a queue that would refuse it, and the reader

@@ -61,7 +61,8 @@ import {
   queueResearchReportFiling,
 } from '@/lib/documents/research-report'
 import { requesterOf } from '@/lib/jobs-queue/types'
-import { findProjectIdByCollectionName } from '@/lib/projects/repository'
+import { findProjectIdByCollectionName, findProjectTenancy } from '@/lib/projects/repository'
+import { isProjectClosed, projectClosedError } from '@/lib/projects/project-status'
 
 /**
  * Per-org runtime model overrides ({agentGroup: openrouterModelId}) plus the
@@ -559,6 +560,17 @@ export const POST = tenantSlotRoute(async function POST(
       projectId,
       collectionScope: scopedCollections,
     })
+
+    // A closed project files nothing (ADR-0086): a research run's report would
+    // land in it. The agent no longer offers research there; this is the door a
+    // direct call comes through.
+    if (path[0] === 'submit' && projectId && isProjectClosed(await findProjectTenancy(projectId))) {
+      const closed = projectClosedError()
+      return NextResponse.json(
+        { error: { code: closed.code, message: closed.message, details: closed.details } },
+        { status: closed.status }
+      )
+    }
 
     // Forward the request to the backend.
     //

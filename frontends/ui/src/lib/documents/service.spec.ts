@@ -1020,7 +1020,7 @@ describe('deriveSearchTopK', () => {
 
 describe('resolveProjectDocumentsByName', () => {
   it('gates on project:view, looks the names up directly, and hydrates like the listing', async () => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     const row = {
       id: 'doc-old',
       filename: 'Bestand-1962.pdf',
@@ -1081,7 +1081,7 @@ describe('searchProjectDocuments', () => {
   ]
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findProjectDocumentsByFilenames).mockResolvedValue([])
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue(
       fileRows.map((r) => ({ ...r, metadata: { ingestJobId: 'j' } }))
@@ -1614,7 +1614,7 @@ describe('deleteDocument', () => {
 
   it('refuses a held document with a 409 before erasing anything', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(isCoveredByActiveHold).mockResolvedValueOnce(true)
     vi.mocked(s3Client.send).mockClear()
     mockFetch.mockClear()
@@ -1646,7 +1646,7 @@ describe('deleteDocument', () => {
 
   it('purges chunks, deletes the object + row, and audits', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockResolvedValue({ ok: true })
 
     await deleteDocument(session, 'doc-1', new Request('http://x'))
@@ -1669,7 +1669,7 @@ describe('deleteDocument', () => {
 
   it('erases every stored object (each version, _thumb, _img/, _bim/) before the row', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockResolvedValue({ ok: true })
     const order: string[] = []
     vi.mocked(eraseDocumentObjectsOrKeepRow).mockImplementationOnce(async () => {
@@ -1687,7 +1687,7 @@ describe('deleteDocument', () => {
 
   it('keeps the row, and audits nothing, when the objects could not be erased', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockResolvedValue({ ok: true })
     vi.mocked(eraseDocumentObjectsOrKeepRow).mockRejectedValueOnce(new UpstreamError('nope'))
 
@@ -1701,7 +1701,7 @@ describe('deleteDocument', () => {
 
   it('still deletes the row + audits when the best-effort chunk purge fails', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockRejectedValue(new Error('backend down'))
 
     await deleteDocument(session, 'doc-1', new Request('http://x'))
@@ -1718,7 +1718,7 @@ describe('deleteDocument', () => {
   // later ask reads „gone“ (ADR-0054, correction 18).
   it('purges the chunks again once the row is gone', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     const order: string[] = []
     mockFetch.mockImplementation(async (url: unknown, init?: RequestInit) => {
       if (String(url).endsWith('/documents') && init?.method === 'DELETE') order.push('purge')
@@ -1738,7 +1738,7 @@ describe('deleteDocument', () => {
 
   it('audits and answers normally when only the purge after the row fails', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error('backend down'))
 
     await deleteDocument(session, 'doc-1', new Request('http://x'))
@@ -1755,7 +1755,7 @@ describe('deleteDocument', () => {
 
   it('does not purge after a row it kept', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockClear()
     mockFetch.mockResolvedValue({ ok: true })
     vi.mocked(eraseDocumentObjectsOrKeepRow).mockRejectedValueOnce(new UpstreamError('nope'))
@@ -1776,7 +1776,7 @@ describe('renameDocument', () => {
   const request = () => new Request('http://x')
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockResolvedValue({ ok: true, json: async () => ({}) })
   })
 
@@ -1928,7 +1928,7 @@ describe('getDocumentStatus', () => {
   const projectDoc = makeDocument({ displayName: 'Aufsicht 1:100' })
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findDocumentInOrg).mockResolvedValue(projectDoc)
     vi.mocked(reconcileDocumentStatuses).mockImplementation(
       async (rows) => rows.map((row) => ({ ...row })) as never
@@ -2026,7 +2026,7 @@ describe('the authorship gate on the (collection, filename) join', () => {
     mockFetch.mock.calls.filter(([url]) => String(url).includes('/v1/collections/'))
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
   })
 
@@ -2215,7 +2215,7 @@ describe('the authorship gate on the (collection, filename) join', () => {
  */
 describe('reindexProject', () => {
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
   })
 
   it('checks the caller may rebuild the project, then queues ONE bulk job and answers with its id', async () => {
@@ -2292,7 +2292,7 @@ describe('runReindexSlice', () => {
   })
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
   })
 
   it('re-dispatches without deleting the current chunks first', async () => {
@@ -2459,7 +2459,7 @@ describe('the org-wide rescan of failed ingestions', () => {
     const admin: AuthorizedSession = { ...session, role: 'admin', permissions: ['org:settings:manage'] }
 
     beforeEach(() => {
-      vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+      vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
       mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ job_id: 'job-1' }) })
     })
 
@@ -2559,7 +2559,7 @@ describe('getDocumentTextPreview', () => {
   })
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
   })
 
   it('returns the bytes as text for a format the pane renders itself', async () => {
@@ -2676,7 +2676,7 @@ describe('re-uploading a filename this collection already holds', () => {
   }
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findProjectInOrg).mockResolvedValue(
       makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
     )
@@ -2856,7 +2856,7 @@ describe('a delete that lands after the upload wrote its row', () => {
    * ingest and answered 200. It is a 409 now, and nothing downstream runs.
    */
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findProjectInOrg).mockResolvedValue(
       makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
     )
@@ -2912,7 +2912,7 @@ describe('a re-upload whose document is deleted underneath it', () => {
   }
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findProjectInOrg).mockResolvedValue(
       makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
     )
@@ -2959,7 +2959,7 @@ describe('two FIRST uploads of one filename at once', () => {
   }
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findProjectInOrg).mockResolvedValue(
       makeProject({ id: 'proj-1', collectionName: 'proj_abc' }),
     )
@@ -3065,7 +3065,7 @@ describe('an office document is viewed through its PDF rendition', () => {
 
   beforeEach(() => {
     vi.stubEnv('GOTENBERG_URL', 'http://gotenberg:3000')
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findDocumentInOrg).mockResolvedValue(officeDoc())
     vi.mocked(getSignedUrl).mockClear()
     vi.mocked(s3Client.send).mockReset()
@@ -3185,7 +3185,7 @@ describe('restricted folders (ADR-0084)', () => {
   }
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findProjectInOrg).mockResolvedValue(makeProject({ collectionName: 'proj_abc' }))
     vi.mocked(getHiddenFolderIds).mockResolvedValue([HIDDEN])
     vi.mocked(getProjectFolderAccess).mockResolvedValue(restricted)
@@ -3288,7 +3288,7 @@ describe('the download log records what leaves', () => {
     })
 
   beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     vi.mocked(findDocumentInOrg).mockResolvedValue(pdf())
     vi.mocked(s3Client.send).mockReset()
   })

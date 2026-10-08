@@ -245,3 +245,19 @@ describe('authorize() denial shapes', () => {
     expect(decision).toMatchObject({ allowed: true, rule: 'jwt-permission' })
   })
 })
+
+describe('a closed project (ADR-0086)', () => {
+  it('a write is a named denial, not an error, so a capability flag reads false', async () => {
+    const { projectClosedError } = await import('@/lib/projects/project-status')
+    requireProjectAccess.mockRejectedValue(projectClosedError())
+    const decision = await decide(session(), 'project:documents:write', PROJECT)
+    expect(decision).toMatchObject({ allowed: false, rule: 'project-closed' })
+    expect(await can(session(), 'project:documents:write', PROJECT)).toBe(false)
+    await expect(authorize(session(), 'project:documents:write', PROJECT)).rejects.toBeInstanceOf(NotFoundError)
+  })
+
+  it('names the rule that lets a non-member read a closed project', async () => {
+    requireProjectAccess.mockResolvedValue({ role: 'project-viewer', closed: true, readsBecauseClosed: true })
+    expect(await decide(session(), 'project:view', PROJECT)).toMatchObject({ allowed: true, rule: 'closed-project-open' })
+  })
+})

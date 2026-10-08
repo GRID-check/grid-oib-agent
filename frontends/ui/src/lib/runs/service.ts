@@ -38,6 +38,7 @@ import { BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { projectClosedError } from '@/lib/projects/project-status'
 import { normalizeAgentAnswerMetadata } from '@/lib/conversations/agent-answer-metadata'
 import {
   findMessageInConversation,
@@ -468,6 +469,29 @@ async function runView(run: TaskRun): Promise<RunView> {
 }
 
 /**
+ * Who may act on a run (cancel it, have it write now, hand it a document): its
+ * requester, or a member of the project. Not someone who reads the project
+ * only because it is closed (ADR-0086): reading and chatting about a closed
+ * project is every member's, steering somebody else's run is not. Returns the
+ * run, found in the project.
+ */
+async function requireRunActor(
+  session: AuthorizedSession,
+  projectId: string,
+  runId: string,
+  options: { write?: boolean } = {}
+): Promise<TaskRun> {
+  await requireProjectAccess(session, projectId, 'project:view')
+  const access = await requireProjectAccess(session, projectId, CHAT_PERMISSIONS)
+  // Handing a run a document changes what it files into the project: a write.
+  if (options.write && access.closed) throw projectClosedError()
+  const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
+  if (!run) throw new NotFoundError('Unknown run')
+  if (access.readsBecauseClosed && run.requesterUserId !== session.userId) throw new NotFoundError('Unknown run')
+  return run
+}
+
+/**
  * Stop a run on a person's request: the write door of the run primitive that
  * the block's „Abbrechen" presses (ADR-0055, ADR-0062).
  *
@@ -504,10 +528,7 @@ export async function cancelRun(
   projectId: string,
   runId: string
 ): Promise<RunView> {
-  await requireProjectAccess(session, projectId, 'project:view')
-  await requireProjectAccess(session, projectId, CHAT_PERMISSIONS)
-  const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
-  if (!run) throw new NotFoundError('Unknown run')
+  const run = await requireRunActor(session, projectId, runId)
   if (!isActiveTaskRunStatus(run.status)) throw new ConflictError('This run has already ended')
   if (!run.backendJobId) throw new ConflictError('This run has no backend job to cancel')
 
@@ -536,10 +557,7 @@ export async function addRunDocument(
   runId: string,
   document: PlanDocument
 ): Promise<RunView> {
-  await requireProjectAccess(session, projectId, 'project:view')
-  await requireProjectAccess(session, projectId, CHAT_PERMISSIONS)
-  const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
-  if (!run) throw new NotFoundError('Unknown run')
+  const run = await requireRunActor(session, projectId, runId, { write: true })
   if (!isActiveTaskRunStatus(run.status)) throw new ConflictError('This run has already ended')
   if (!run.backendJobId) throw new ConflictError('This run has no backend job to hand the document to')
 
@@ -565,10 +583,7 @@ export async function writeNowRun(
   projectId: string,
   runId: string
 ): Promise<RunView> {
-  await requireProjectAccess(session, projectId, 'project:view')
-  await requireProjectAccess(session, projectId, CHAT_PERMISSIONS)
-  const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
-  if (!run) throw new NotFoundError('Unknown run')
+  const run = await requireRunActor(session, projectId, runId)
   if (!isActiveTaskRunStatus(run.status)) throw new ConflictError('This run has already ended')
   if (!run.backendJobId) throw new ConflictError('This run has no backend job to write from')
 

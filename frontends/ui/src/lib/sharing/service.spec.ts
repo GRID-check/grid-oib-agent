@@ -583,7 +583,7 @@ describe('the roster says who can no longer read what the chat drew on (ADR-0085
     })
     // One question for the whole roster, asked of the caller's own clearance too.
     expect(peopleWhoMayRead).toHaveBeenCalledTimes(1)
-    expect(peopleWhoMayRead).toHaveBeenCalledWith('org_1', 'conv_1', ['user_owner', 'user_ina', 'user_bob'], expect.any(Map))
+    expect(peopleWhoMayRead).toHaveBeenCalledWith('org_1', 'conv_1', ['user_owner', 'user_ina', 'user_bob'], undefined, expect.anything())
   })
 
   it('reads the roster for a caller who is locked out of the content themselves, and offers them no management', async () => {

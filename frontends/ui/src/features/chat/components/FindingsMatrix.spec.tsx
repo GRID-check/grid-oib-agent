@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { en } from '@/i18n/dictionaries'
 import type { Findings } from '@/lib/conversations/message-findings'
 import { FindingsMatrix } from './FindingsMatrix'
+import { CurrentProjectProvider } from '@/features/projects/lib/current-project'
 
 const findings: Findings = {
   v: 1,
@@ -81,6 +82,16 @@ describe('FindingsMatrix', () => {
     const marks = screen.getAllByTestId('finding-change').map((chip) => chip.textContent)
     expect(marks).toEqual([en.chat.findings.change.changed, en.chat.findings.change.new])
     expect(screen.getByTestId('findings-dropped')).toHaveTextContent('Barrierefreiheit')
+  })
+
+  test('in a closed project says, under the matrix, that open findings get no new research (ADR-0086)', () => {
+    render(
+      <CurrentProjectProvider value={{ id: 'p1', name: 'Seestadt', status: 'closed' as const, closedAt: '2026-10-01T00:00:00Z', readsBecauseClosed: false }}>
+        <FindingsMatrix findings={findings} />
+      </CurrentProjectProvider>
+    )
+    expect(screen.getByTestId('findings-closed-project')).toHaveTextContent(en.chat.findings.clarifyClosed)
+    expect(screen.queryByTestId('finding-commission')).not.toBeInTheDocument()
   })
 
   test('an open finding offers „Klären" and shows the receipt once the run is commissioned', async () => {

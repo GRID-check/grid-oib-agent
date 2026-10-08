@@ -84,7 +84,7 @@ describe('requireProjectAccess', () => {
         PROJECT_ID,
         'project:edit'
       )
-      expect(result).toEqual({ role: 'project-admin' })
+      expect(result).toEqual({ role: 'project-admin', closed: false, readsBecauseClosed: false })
       expect(check).not.toHaveBeenCalled()
     })
 
@@ -94,7 +94,7 @@ describe('requireProjectAccess', () => {
         PROJECT_ID,
         'project:manage'
       )
-      expect(result).toEqual({ role: 'project-admin' })
+      expect(result).toEqual({ role: 'project-admin', closed: false, readsBecauseClosed: false })
       expect(check).not.toHaveBeenCalled()
     })
 
@@ -148,7 +148,7 @@ describe('requireProjectAccess', () => {
       )
       await expect(
         requireProjectAccess(session(), PROJECT_ID, ['project:members:manage', 'project:manage'])
-      ).resolves.toEqual({ role: 'project-admin' })
+      ).resolves.toEqual({ role: 'project-admin', closed: false, readsBecauseClosed: false })
     })
   })
 
@@ -208,7 +208,7 @@ describe('requireProjectAccess', () => {
     it('fail-open: a cache-read outage degrades to live checks and still authorizes', async () => {
       store.failGet = true
       const result = await requireProjectAccess(session(), PROJECT_ID, 'project:edit')
-      expect(result).toEqual({ role: 'project-editor' })
+      expect(result).toEqual({ role: 'project-editor', closed: false, readsBecauseClosed: false })
       expect(check).toHaveBeenCalledTimes(2)
     })
 
@@ -240,6 +240,8 @@ describe('requireProjectAccess', () => {
       // the pre-split code gave a `project:edit` holder.
       await expect(requireProjectAccess(session(), PROJECT_ID, DOC_WRITE)).resolves.toEqual({
         role: 'project-editor',
+        closed: false,
+        readsBecauseClosed: false,
       })
     })
 
@@ -251,6 +253,8 @@ describe('requireProjectAccess', () => {
       )
       await expect(requireProjectAccess(session(), PROJECT_ID, DOC_WRITE)).resolves.toEqual({
         role: 'project-editor',
+        closed: false,
+        readsBecauseClosed: false,
       })
     })
 
@@ -286,10 +290,84 @@ describe('requireProjectAccess', () => {
     // ladder's business.
     await expect(
       requireProjectAccess(session(), PROJECT_ID, 'project:memory:write')
-    ).resolves.toEqual({ role: 'project-editor' })
+    ).resolves.toEqual({ role: 'project-editor', closed: false, readsBecauseClosed: false })
     // The same session must NOT get document writes from a memory grant.
     await expect(
       requireProjectAccess(session(), PROJECT_ID, 'project:documents:write')
     ).rejects.toThrow('Not found')
+  })
+
+  describe('a closed project (ADR-0086)', () => {
+    beforeEach(() => {
+      findProjectTenancy.mockResolvedValue({ organizationId: 'org_1', deletedAt: null, status: 'closed' })
+    })
+
+    const refusal = { status: 403, details: { reason: 'project-closed' } }
+
+    it('refuses every write to an editor, with the reason the UI names', async () => {
+      await expect(requireProjectAccess(session(), PROJECT_ID, 'project:documents:write')).rejects.toMatchObject(refusal)
+      await expect(
+        requireProjectAccess(session(), PROJECT_ID, ['project:memory:write', 'project:edit'])
+      ).rejects.toMatchObject(refusal)
+      await expect(requireProjectAccess(session(), PROJECT_ID, 'project:documents:generate')).rejects.toMatchObject(refusal)
+      await expect(requireProjectAccess(session(), PROJECT_ID, 'project:skills:manage')).rejects.toMatchObject(refusal)
+      await expect(requireProjectAccess(session(), PROJECT_ID, 'project:manage')).rejects.toMatchObject(refusal)
+      // Decided before WorkOS is asked anything.
+      expect(check).not.toHaveBeenCalled()
+    })
+
+    it('refuses a write to an organization admin too: the closed check runs before the bypass', async () => {
+      const admin = session({ role: 'admin', permissions: ['org:projects:administer'] })
+      await expect(requireProjectAccess(admin, PROJECT_ID, 'project:documents:write')).rejects.toMatchObject(refusal)
+      await expect(requireProjectAccess(admin, PROJECT_ID, 'project:view')).resolves.toMatchObject({ closed: true })
+    })
+
+    it('lets a member read and chat, and keeps their role', async () => {
+      await expect(requireProjectAccess(session(), PROJECT_ID, 'project:view')).resolves.toEqual({
+        role: 'project-editor',
+        closed: true,
+        readsBecauseClosed: false,
+      })
+      await expect(requireProjectAccess(session(), PROJECT_ID, ['project:chat', 'project:edit'])).resolves.toMatchObject({
+        closed: true,
+        readsBecauseClosed: false,
+      })
+    })
+
+    it('lets every organization member read and chat, as a viewer who reads only because it is closed', async () => {
+      check.mockResolvedValue({ authorized: false })
+      await expect(requireProjectAccess(session(), PROJECT_ID, 'project:view')).resolves.toEqual({
+        role: 'project-viewer',
+        closed: true,
+        readsBecauseClosed: true,
+      })
+      await expect(requireProjectAccess(session(), PROJECT_ID, ['project:chat', 'project:edit'])).resolves.toMatchObject({
+        readsBecauseClosed: true,
+      })
+      // Managing members stays a grant someone must hold.
+      await expect(requireProjectAccess(session(), PROJECT_ID, 'project:members:manage')).rejects.toMatchObject({
+        status: 404,
+      })
+    })
+
+    it('still hides it from another organization and once it is deleted', async () => {
+      findProjectTenancy.mockResolvedValue({ organizationId: 'org_2', deletedAt: null, status: 'closed' })
+      await expect(requireProjectAccess(session(), PROJECT_ID, 'project:view')).rejects.toMatchObject({ status: 404 })
+      findProjectTenancy.mockResolvedValue({ organizationId: 'org_1', deletedAt: new Date(), status: 'closed' })
+      await expect(requireProjectAccess(session(), PROJECT_ID, 'project:view')).rejects.toMatchObject({ status: 404 })
+    })
+
+    it('asks project:manage as if active only when reopening says so', async () => {
+      check.mockResolvedValue({ authorized: true })
+      await expect(
+        requireProjectAccess(session(), PROJECT_ID, 'project:manage', { evenWhenClosed: true })
+      ).resolves.toMatchObject({ role: 'project-admin', closed: true })
+      // A fresh cache: the grant above is cached for the TTL.
+      setCacheStore(new TestStore())
+      check.mockResolvedValue({ authorized: false })
+      await expect(
+        requireProjectAccess(session(), PROJECT_ID, 'project:manage', { evenWhenClosed: true })
+      ).rejects.toMatchObject({ status: 404 })
+    })
   })
 })

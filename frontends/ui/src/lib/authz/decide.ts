@@ -54,7 +54,8 @@ import {
   type SkillPermission,
 } from './permissions'
 import { hasPlatformPermission } from './platform'
-import { requireProjectAccess } from './projects'
+import { requireProjectAccess, type ProjectAccess } from './projects'
+import { isProjectClosedError } from '@/lib/projects/project-status'
 import { checkResourcePermission } from './resource-check'
 import type { AuthorizedSession } from '@/lib/auth/types'
 
@@ -84,6 +85,10 @@ export type AuthzRule =
   /** A per-resource FGA role grants it. */
   | 'resource-role'
   | 'project-inherited'
+  /** Every organization member reads a closed project and chats about it (ADR-0086). */
+  | 'closed-project-open'
+  /** The project is closed and the permission is a write (ADR-0086). */
+  | 'project-closed'
   /** The resource is not in the caller's organization, or does not exist. */
   | 'tenancy-mismatch'
   /** Nothing granted it. */
@@ -202,9 +207,11 @@ async function decideProjectTier(
 ): Promise<AuthzDecision> {
   const authorized = asAuthorized(session)
   if (!authorized) return deny(permission, 'project', 'no-organization', resource)
+  let access: ProjectAccess
   try {
-    await requireProjectAccess(authorized, resource.id, permission)
+    access = await requireProjectAccess(authorized, resource.id, permission)
   } catch (error) {
+    if (isProjectClosedError(error)) return deny(permission, 'project', 'project-closed', resource)
     if (error instanceof NotFoundError) {
       // `requireProjectAccess` collapses "not in your organization" and "no
       // grant" into the same NotFoundError on purpose — the response must not
@@ -230,9 +237,11 @@ async function decideProjectTier(
     // Which rule allowed it. The bypass is a permission, so ask the permission —
     // asking `session.role === 'admin'` would mislabel a custom org role that
     // legitimately holds `org:projects:administer`.
-    hasPermission(session, ORG_PERMISSIONS.projectsAdminister)
-      ? 'org-admin-bypass'
-      : 'resource-role',
+    access.readsBecauseClosed
+      ? 'closed-project-open'
+      : hasPermission(session, ORG_PERMISSIONS.projectsAdminister)
+        ? 'org-admin-bypass'
+        : 'resource-role',
     resource
   )
 }

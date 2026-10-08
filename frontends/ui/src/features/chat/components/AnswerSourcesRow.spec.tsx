@@ -129,3 +129,36 @@ describe('AnswerSourcesRow lane tints', () => {
     ).toBeInTheDocument()
   })
 })
+
+describe('AnswerSourcesRow in a closed project (ADR-0086)', () => {
+  const projectDoc: CitedDocument = {
+    id: 'doc-plan',
+    title: 'Einreichplan EG',
+    fileName: 'einreichplan-eg.pdf',
+    kind: 'projekt',
+    tint: 'project',
+    loci: [{ key: 'l1', page: 4, number: 1, isCited: true }],
+  }
+
+  test("names the project and that it is closed beside each of its files, and only its files", async () => {
+    const { CurrentProjectProvider } = await import('@/features/projects/lib/current-project')
+    render(
+      <CurrentProjectProvider
+        value={{ id: 'p1', name: 'Seestadt D12', status: 'closed', closedAt: null, readsBecauseClosed: false }}
+      >
+        <AnswerSourcesRow documents={[projectDoc, oibDoc]} anchorPrefix="test-" />
+      </CurrentProjectProvider>
+    )
+    expect(screen.getAllByText(/Seestadt D12 · closed/)).toHaveLength(1)
+  })
+
+  test('says nothing of the kind in an active project', async () => {
+    const { CurrentProjectProvider } = await import('@/features/projects/lib/current-project')
+    render(
+      <CurrentProjectProvider value={{ id: 'p1', name: 'Seestadt D12', status: 'active', closedAt: null, readsBecauseClosed: false }}>
+        <AnswerSourcesRow documents={[projectDoc]} anchorPrefix="test-" />
+      </CurrentProjectProvider>
+    )
+    expect(screen.queryByText(/closed/)).toBeNull()
+  })
+})

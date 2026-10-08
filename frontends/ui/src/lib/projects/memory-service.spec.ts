@@ -1115,8 +1115,8 @@ describe('restricted memory (ADR-0084)', () => {
   })
 
   describe('createProjectMemoryItemForProject', () => {
-    const mockProjectThenWrite = () => {
-      const projectLimit = vi.fn().mockResolvedValue([{ organizationId: 'org-1', collectionName: 'proj_x' }])
+    const mockProjectThenWrite = (status: 'active' | 'closed' = 'active') => {
+      const projectLimit = vi.fn().mockResolvedValue([{ organizationId: 'org-1', collectionName: 'proj_x', status }])
       const writeLimit = vi.fn().mockResolvedValue([])
       let selects = 0
       const select = vi.fn().mockImplementation(() => {
@@ -1156,6 +1156,15 @@ describe('restricted memory (ADR-0084)', () => {
 
       // Stored as its source folder (ADR-0085), never as the collection name.
       expect(values).toHaveBeenCalledWith(expect.objectContaining({ restrictedFolderIds: [RESTRICTED] }))
+    })
+
+    it('refuses the agent a note in a closed project, before anything is written (ADR-0086)', async () => {
+      const { values } = mockProjectThenWrite('closed')
+      await expect(createProjectMemoryItemForProject('proj-1', { kind: 'decision', content: 'x' })).rejects.toMatchObject({
+        status: 403,
+        details: { reason: 'project-closed' },
+      })
+      expect(values).not.toHaveBeenCalled()
     })
 
     it('asks nothing about folders for open memory', async () => {

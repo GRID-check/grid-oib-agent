@@ -77,7 +77,10 @@ vi.mock('@/lib/authz/folder-access-repository', () => ({
   listProjectFolderTree: vi.fn(async () => state.tree),
   projectHasCustomOrBinnedFolders: vi.fn(async () => state.tree.some((folder) => folder.accessMode === 'custom')),
 }))
-vi.mock('@/lib/projects/repository', () => ({ findProjectCollectionName: vi.fn(async () => COLLECTION) }))
+vi.mock('@/lib/projects/repository', () => ({
+  findProjectCollectionName: vi.fn(async () => COLLECTION),
+  findProjectTenancy: vi.fn(async () => ({ organizationId: 'org_1', deletedAt: null, status: 'active' })),
+}))
 vi.mock('@/lib/sharing/directory', () => ({
   loadOrganizationDirectory: vi.fn(async () => new Map([['user_ina', { userId: 'user_ina', email: null, name: 'Ina', profilePictureUrl: null }]])),
 }))

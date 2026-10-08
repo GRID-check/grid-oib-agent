@@ -113,7 +113,7 @@ export async function listProjectFolders(projectId: string, session: AuthorizedS
     listProjectFolderTree(session.organizationId, projectId),
     projectMayWriteDocuments(session, projectId),
   ])
-  const access = computeFolderAccess(tree, await clearanceOf(session), project?.collectionName ?? '')
+  const access = computeFolderAccess(tree, await clearanceOf(session, projectId), project?.collectionName ?? '')
   const byId = new Map(tree.map((folder) => [folder.id, folder]))
   return rows
     .filter((row) => access.isVisible(row.id))
@@ -265,7 +265,7 @@ async function checkMove(
   let accessAfter: AccessFolder[] | null = null
   if (!unchanged) {
     await requireProjectAccess(session, projectId, 'project:manage')
-    if (unreadableFoldersBelow(tree, await clearanceOf(session), folder.id).length > 0) {
+    if (unreadableFoldersBelow(tree, await clearanceOf(session, projectId), folder.id).length > 0) {
       throw folderSubtreeUnreadableError()
     }
     // What now governs the folder itself: its new ancestors' lists, then its own.

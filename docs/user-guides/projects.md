@@ -10,9 +10,9 @@ The **Projects** page (`/app/projects`) is the app's home, and it is ordered by 
 
 **More projects** — everything else follows as a dense list, most recent first. Each row carries the project's initials, its name and brief, the document count and the timestamp, plus the same settings gear. A project with no brief yet simply has no second line. Rows lift onto the card surface as you point at them; on narrow screens the counts and the initials drop away and the timestamp stays, because that is what you choose a row by. Fewer than four projects and there is no list at all — the cards are the whole page.
 
-The list carries no status chip. Every project you can see is **Active** — the data model has no other state — so on a list it would be the same chip on every row, carrying nothing. It stays on the cards, and returns to the list the day a project can genuinely be something else.
+A row carries a status chip only for a **Closed** project; an **Active** chip on every row would carry nothing. Once your office has a closed project, a filter above the list switches between **Active**, **Closed** and **All**, each with its count. The page opens on the active projects (or on all of them, when none is active).
 
-Each card is split into a raised header — project name, an **Active** status chip, and the project summary from the brief — and a footer with the activity time (relative, e.g. "2 hours ago") plus a gear icon that jumps straight to that project's settings page. Clicking anywhere else on a card or row opens the project, resuming the section you last used.
+Each card is split into a raised header — project name, an **Active** or **Closed** status chip, and the project summary from the brief — and a footer with the activity time (relative, e.g. "2 hours ago") plus a gear icon that jumps straight to that project's settings page. Clicking anywhere else on a card or row opens the project, resuming the section you last used.
 
 The header row carries the page title, a search field, and the **New project** button. Searching collapses both sections into a single **Matches** list — with a query on screen, "continue where you left off" is not the question being asked.
 
@@ -161,6 +161,20 @@ appear as *skipped* runs in the history.
 
 Source: `frontends/ui/src/features/jobs/`, service in
 `frontends/ui/src/lib/jobs/`
+
+## Closing a project
+
+When the work on a project is done, close it: **Settings → Project status → Close project**. You need the project's admin role (`project:manage`). Nothing is deleted.
+
+A closed project
+
+- is **read-only**: nobody can upload, move, rename or delete files or folders, change the brief or the project memory, start a deep research or a task. Piloti does not offer deep research in a closed project, because a research run files its report into the project; in a chat, **Clarify** on an open finding and **Update report** on a finished run are replaced by a note saying so. Scheduled tasks are skipped, and resume when the project is reopened. A research run that was already running when the project closed finishes, and its report stays in its conversation. Organization admins are bound by this too.
+- keeps its **Papierkorb** restorable for 14 days: the project's admins can restore a folder from it without reopening the project.
+- stays **searchable**, and you can still **ask about it in chat**.
+- is **readable by everyone in your office**, members of the project or not, so finished work becomes reference for the whole office. Folders with their own access list stay exactly as restricted as before: someone who sees the project only because it is closed sees none of them, whatever role they hold, and the folders open to every member open to them.
+- opens every page with a banner saying it is closed and since when. Its files say „‹Projekt› · abgeschlossen" wherever they appear: the preview, the chat's sources, the download log.
+
+**Reopen project** in the same place makes it editable again, and visible only to its members. You can still delete a closed project. Closing and reopening are recorded in the audit log.
 
 ## Members and permissions
 

@@ -27,6 +27,7 @@ import {
 } from '@/adapters/api/download-log-client'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
+import { ProjectClosedChip } from '@/components/projects/project-status'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -267,6 +268,9 @@ export const DownloadLogView: FC<DownloadLogViewProps> = ({ people }) => {
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {placeLabel(entry)}
+                    {entry.projectStatus === 'closed' && (
+                      <ProjectClosedChip projectName={entry.projectName} className="ml-2" />
+                    )}
                     {entry.ownList && (
                       <Chip variant="warning" size="sm" className="ml-2">
                         {t('downloadLog.place.ownList')}

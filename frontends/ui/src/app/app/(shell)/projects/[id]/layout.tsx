@@ -8,6 +8,8 @@ import { NavigationTrailLabel, ProjectSectionFrame } from '@/components/shell'
 import { PRODUCT_NAME } from '@/lib/brand'
 import { FilePreviewBridge } from '@/features/documents/components/file-preview-host'
 import { ProjectFileDrop } from '@/features/documents/components/project-file-drop'
+import { CurrentProjectProvider } from '@/features/projects/lib/current-project'
+import { ClosedProjectBanner } from '@/features/projects/components/closed-project-banner'
 
 interface ProjectLayoutProps {
   children: React.ReactNode
@@ -73,7 +75,7 @@ export default async function ProjectLayout({
     const { id } = await params
     // View access is enough to enter the project shell; per-section controls
     // (danger zone, member management) are gated inside their own pages.
-    await requireProjectAccess(session, id, 'project:view')
+    const access = await requireProjectAccess(session, id, 'project:view')
 
     // Soft-deleted projects are gone for everyone — including org admins, who
     // bypass the per-project check inside requireProjectAccess. `findProjectInOrg`
@@ -88,14 +90,28 @@ export default async function ProjectLayout({
             "Zurück zu <project>" rather than a path it can only read an id out
             of — including the org-scope rail's own back control. */}
         <NavigationTrailLabel label={current.name} />
-        <FilePreviewBridge>
-          {/* A file dropped on any page of the project lands in its Dateien. */}
-          <ProjectFileDrop projectId={id}>
-            <ProjectSectionFrame projectId={id} projectName={current.name}>
-              {children}
-            </ProjectSectionFrame>
-          </ProjectFileDrop>
-        </FilePreviewBridge>
+        {/* Which project, and whether it is closed (ADR-0086), for every
+            surface below: the banner, file previews, chat source chips. */}
+        <CurrentProjectProvider
+          value={{
+            id,
+            name: current.name,
+            status: current.status,
+            closedAt: current.closedAt?.toISOString() ?? null,
+            readsBecauseClosed: access.readsBecauseClosed,
+          }}
+        >
+          <ClosedProjectBanner />
+          <FilePreviewBridge>
+            {/* A file dropped on any page of the project lands in its Dateien;
+                a closed project takes none. */}
+            <ProjectFileDrop projectId={id} disabled={current.status === 'closed'}>
+              <ProjectSectionFrame projectId={id} projectName={current.name}>
+                {children}
+              </ProjectSectionFrame>
+            </ProjectFileDrop>
+          </FilePreviewBridge>
+        </CurrentProjectProvider>
       </>
     )
   })
