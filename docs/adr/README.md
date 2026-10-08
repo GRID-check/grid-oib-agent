@@ -142,6 +142,8 @@ Consequences, where a reader looks for them.
 | [0081](0081-every-model-call-passes-one-priority-aware-provider-limiter.md) | Every model call passes one priority-aware provider limiter that adapts to 429s | Proposed |
 | [0082](0082-backend-roles-are-split-by-job-and-named-after-it.md) | Backend roles are split by job, and named after it | Proposed |
 | [0083](0083-uploads-are-screened-locally-and-matches-wait-in-quarantine.md) | Uploads are screened locally before any model sees them, and matches wait in quarantine | Accepted |
+| [0084](0084-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md) | Folder access follows WorkOS roles, and a restricted folder is its own retrieval collection (partly superseded by 0085) | Accepted |
+| [0085](0085-folder-access-is-read-write-per-role.md) | Folder access is read/write per role | Accepted |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

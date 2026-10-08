@@ -115,6 +115,21 @@ async function buildCollectionScopeFromRequest(
 
 ---
 
+## Restricted folders (ADR-0084, ADR-0085)
+
+A folder whose own access list does not include every project member
+(`project_folder_grants` without `*`, migration 0109) restricts READING. A
+document under it lives in the collection of its nearest such folder,
+`<project collection>_r<12 hex of the folder id>` (`restrictedCollectionName`
+in `lib/authz/folder-access-rule.ts`). Who may WRITE never moves anything:
+collections key on read. Retrieval keeps the collection out of reach by leaving
+it out of the scope; no Python read path needs to know.
+
+No request scope carries a restricted collection: a chat turn, deep research,
+the `/api/v1` proxy and scheduled or commissioned runs search only the open
+project collection, so a restricted folder's documents are found in the file
+browser by the people who may read them, and not by the agent.
+
 ## WebSocket Scope
 
 **File**: `frontends/ui/server.js` (lines 198–258)

@@ -62,11 +62,12 @@ const userAdmin = (permissions: string[] = []): AuthorizedSession => ({
   organizationId: 'org_1',
   organizationMembershipId: 'om_1',
   role: 'org-user-admin',
+  roles: ['org-user-admin'],
   permissions: ['org:members:manage', 'org:archiv:manage', 'org:projects:create', ...permissions],
   featureFlags: null,
 })
 
-const member = (): AuthorizedSession => ({ ...userAdmin(), role: 'org-plain', permissions: [] })
+const member = (): AuthorizedSession => ({ ...userAdmin(), role: 'org-plain', roles: ['org-plain'], permissions: [] })
 
 const request = (): Request => new Request('http://localhost/api/organization/roles', { method: 'POST' })
 

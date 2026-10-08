@@ -15,7 +15,7 @@
  * (`documents_folder_id_organization_id_scope_fkey`).
  */
 
-import { and, eq, type SQL } from 'drizzle-orm'
+import { and, eq, isNull, type SQL } from 'drizzle-orm'
 import { documents, projectFolders } from '@/lib/db/schema'
 
 export type DocumentShelf = { kind: 'project'; projectId: string } | { kind: 'archiv' }
@@ -70,6 +70,9 @@ export function shelfFolderWhere(shelf: DocumentShelf, organizationId: string): 
   return and(
     eq(projectFolders.organizationId, organizationId),
     eq(projectFolders.scope, shelfScope(shelf)),
+    // A deleted folder's tombstone (migration 0109) is no folder of the shelf:
+    // only the access rule reads it, through its own repository.
+    isNull(projectFolders.deletedAt),
     ...(shelf.kind === 'project' ? [eq(projectFolders.projectId, shelf.projectId)] : []),
   ) as SQL
 }

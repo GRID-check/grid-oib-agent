@@ -17,6 +17,7 @@ vi.mock('@/lib/collection-scope-request', () => ({
 
 vi.mock('@/lib/project-profile/prompt-view', () => ({
   loadProjectPromptView: vi.fn(),
+  loadProjectBundesland: vi.fn().mockResolvedValue(null),
 }))
 
 // Keep the test hermetic: the real digest builder requires a database.

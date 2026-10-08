@@ -14,6 +14,24 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('@/lib/authz/folder-access', async () => ({
+  ...(await import('@/test-utils/folder-access')).openFolderAccessModule(),
+  getProjectFolderAccess: vi.fn(async () => ({
+    hiddenFolderIds: new Set<string>(),
+    isVisible: () => true,
+    collectionFor: () => 'proj_collection',
+    clearedRestrictedCollections: [],
+    levelOf: () => 'write',
+    sourceFolderOf: () => null,
+    anyRestricted: false,
+  })),
+}))
+vi.mock('@/lib/authz/folder-access-repository', () => ({
+  listProjectDocumentCollections: vi.fn(async () => []),
+}))
+vi.mock('./collection-placement', () => ({
+  placeProjectDocuments: vi.fn(async () => ({ moved: 0, failed: [] })),
+}))
 vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
@@ -30,6 +48,8 @@ vi.mock('@/lib/authz/projects', () => ({
 
 import { getDb } from '@/lib/db'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { ForbiddenError } from '@/lib/api/errors'
+import { getProjectFolderAccess, type FolderLevel, type ProjectFolderAccess } from '@/lib/authz/folder-access'
 import { asDb } from '@/test-utils/db-fixtures'
 import { ensureProjectFolderPaths } from './folder-service'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -221,5 +241,157 @@ describe('ensureProjectFolderPaths', () => {
     await expect(
       ensureProjectFolderPaths({ projectId: 'proj-1', parentId: null, paths: ['W'] }, session),
     ).rejects.toThrow('deadlock detected')
+  })
+})
+
+describe('ensureProjectFolderPaths and folders the reader may not see (ADR-0084)', () => {
+  const HIDDEN = 'f-honorare'
+  /** `Honorare` is restricted to a role this session does not hold. */
+  const hiding = (...ids: string[]): ProjectFolderAccess => ({
+    hiddenFolderIds: new Set(ids),
+    isVisible: (id: string | null) => id === null || !ids.includes(id),
+    collectionFor: () => 'proj_collection',
+    clearedRestrictedCollections: [],
+    levelOf: (id: string | null): FolderLevel => (id !== null && ids.includes(id) ? 'none' : 'write'),
+    sourceFolderOf: () => null,
+    anyRestricted: true,
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' } as never)
+    vi.mocked(getProjectFolderAccess).mockResolvedValue(hiding(HIDDEN))
+  })
+
+  it('answers a hidden parent like a missing one', async () => {
+    const fake = fakeDb([row(HIDDEN, 'Honorare', 'Honorare')])
+    vi.mocked(getDb).mockReturnValue(fake.db)
+
+    const result = await ensureProjectFolderPaths(
+      { projectId: 'proj-1', parentId: HIDDEN, paths: ['Neu'] },
+      session,
+    )
+
+    expect(result).toEqual({ ok: false, error: 'Parent folder not found.' })
+    expect(fake.insert).not.toHaveBeenCalled()
+  })
+
+  it('never matches a hidden folder by a looser spelling, nor creates below it', async () => {
+    // `honorare` matched `Honorare` by folderMatchKey, handed back its id and
+    // created `Honorare/Neu` inside it, echoing the hidden name.
+    const fake = fakeDb([row(HIDDEN, 'Honorare', 'Honorare')])
+    vi.mocked(getDb).mockReturnValue(fake.db)
+
+    const result = await ensureProjectFolderPaths(
+      { projectId: 'proj-1', parentId: null, paths: ['honorare', 'honorare/Neu'] },
+      session,
+    )
+
+    if (!result.ok) throw new Error(result.error)
+    expect(Object.values(result.folderIdByPath)).not.toContain(HIDDEN)
+    expect(fake.inserted.map((entry) => entry.path)).toEqual(['honorare', 'honorare/Neu'])
+    expect(fake.inserted.every((entry) => entry.parentId !== HIDDEN)).toBe(true)
+    expect(JSON.stringify(result)).not.toContain('Honorare')
+  })
+
+  it('refuses the exact name a hidden sibling holds, without naming it', async () => {
+    // The unique index would refuse the insert anyway; the answer is the one a
+    // visible sibling gets, and it carries neither the name nor an id.
+    const fake = fakeDb([row(HIDDEN, 'Honorare', 'Honorare')])
+    vi.mocked(getDb).mockReturnValue(fake.db)
+
+    const result = await ensureProjectFolderPaths(
+      { projectId: 'proj-1', parentId: null, paths: ['Honorare/Neu'] },
+      session,
+    )
+
+    expect(result).toEqual({ ok: false, error: 'A folder with this name already exists here.' })
+    expect(fake.insert).not.toHaveBeenCalled()
+  })
+
+  it('does not file into a concurrent writer\u2019s folder the reader may not see', async () => {
+    const winner = row(HIDDEN, 'Statik', 'Statik')
+    const fake = fakeDb([], () => {
+      throw Object.assign(new Error('duplicate key'), { code: '23505' })
+    })
+    vi.mocked(getDb).mockReturnValue(fake.db)
+    // The listing (an awaited `where`) saw nothing; the race recovery (a
+    // `limit`) then finds the winner, which this session may not see.
+    vi.mocked(fake.db.select).mockImplementation(
+      () =>
+        ({
+          from: () => ({
+            where: () => Object.assign(Promise.resolve([]), { limit: async () => [winner] }),
+          }),
+        }) as never,
+    )
+
+    const result = await ensureProjectFolderPaths(
+      { projectId: 'proj-1', parentId: null, paths: ['Statik'] },
+      session,
+    )
+
+    expect(result).toEqual({ ok: false, error: 'A folder with this name already exists here.' })
+  })
+})
+
+describe('ensureProjectFolderPaths and folders the reader may only read (ADR-0085)', () => {
+  const READ_ONLY = 'f-plaene'
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' } as never)
+    vi.mocked(getProjectFolderAccess).mockResolvedValue({
+      hiddenFolderIds: new Set(),
+      isVisible: () => true,
+      collectionFor: () => 'proj_collection',
+      clearedRestrictedCollections: [],
+      levelOf: (id: string | null): FolderLevel => (id === READ_ONLY ? 'read' : 'write'),
+      sourceFolderOf: () => null,
+      anyRestricted: true,
+    })
+  })
+
+  it('matches a read-only folder (the upload into it asks on its own) but creates nothing below it', async () => {
+    const fake = fakeDb([row(READ_ONLY, 'Pläne', 'Pläne')])
+    vi.mocked(getDb).mockReturnValue(fake.db)
+
+    const matched = await ensureProjectFolderPaths({ projectId: 'proj-1', parentId: null, paths: ['Pläne'] }, session)
+    if (!matched.ok) throw new Error(matched.error)
+    expect(matched.folderIdByPath['Pläne']).toBe(READ_ONLY)
+
+    await expect(
+      ensureProjectFolderPaths({ projectId: 'proj-1', parentId: null, paths: ['Pläne/Neu'] }, session)
+    ).rejects.toBeInstanceOf(ForbiddenError)
+    expect(fake.insert).not.toHaveBeenCalled()
+  })
+
+  it('creates a nested new path under a writable folder, though the access read before knows none of the new folders', async () => {
+    // What `computeFolderAccess` answers for an id its tree does not hold:
+    // `none`. Every folder this upload creates is such an id; it inherits the
+    // parent it was created in, which was asked about.
+    vi.mocked(getProjectFolderAccess).mockResolvedValue({
+      hiddenFolderIds: new Set(),
+      isVisible: () => true,
+      collectionFor: () => 'proj_collection',
+      clearedRestrictedCollections: [],
+      levelOf: (id: string | null): FolderLevel => (id === null || id === 'f-statik' ? 'write' : 'none'),
+      sourceFolderOf: () => null,
+      anyRestricted: true,
+    })
+    const fake = fakeDb([row('f-statik', 'Statik', 'Statik')])
+    vi.mocked(getDb).mockReturnValue(fake.db)
+
+    const result = await ensureProjectFolderPaths(
+      { projectId: 'proj-1', parentId: null, paths: ['Statik/Einreichung/Pläne', 'Statik/Einreichung/Berichte'] },
+      session
+    )
+
+    if (!result.ok) throw new Error(result.error)
+    expect(fake.inserted.map((folder) => folder.path)).toEqual([
+      'Statik/Einreichung',
+      'Statik/Einreichung/Pläne',
+      'Statik/Einreichung/Berichte',
+    ])
   })
 })

@@ -384,6 +384,10 @@ const PASS_THROUGH_TABLE_WRITERS = [
   // authorship, so the scan has nothing to find in it — and the day it writes
   // either, this list is what has to be revisited rather than quietly widened.
   'src/lib/projects/folder-service.ts',
+  // Re-points a document at the collection its folder puts it in (ADR-0084):
+  // it writes `collection_name` and `updated_at` and nothing else; the status
+  // that follows is the re-ingest's, authored in `src/lib/documents`.
+  'src/lib/projects/collection-placement.ts',
 ]
 
 function everySourceFile(dir: string, found: string[] = []): string[] {

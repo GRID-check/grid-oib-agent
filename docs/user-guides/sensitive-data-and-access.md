@@ -122,4 +122,5 @@ live in WorkOS, where Piloti's own roles live; you assign them to people on the
 - A role can only carry permissions its editor holds.
 - A role can be deleted once nobody holds it.
 - Until your Piloti installation lets a person hold several roles, everyone
-  holds exactly one.
+  holds exactly one. A role you use for folders must then also carry the
+  permissions its holders work with.

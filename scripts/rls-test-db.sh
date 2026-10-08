@@ -111,6 +111,8 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/documents/document-versions.integration.spec.ts \
     src/lib/documents/list-page.integration.spec.ts \
     src/lib/upload-batches/upload-batches.integration.spec.ts \
+    src/lib/authz/folder-access.integration.spec.ts \
+    src/lib/projects/collection-placement.integration.spec.ts \
     src/lib/documents/shelf-folders.integration.spec.ts \
     src/lib/documents/stuck-processing.integration.spec.ts \
     src/lib/project-profile/profile-bindings.integration.spec.ts \
@@ -363,6 +365,132 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
   npx vitest run src/lib/conversations/herleitung-steps-v2.migration.spec.ts
 
 echo "==> 0097 step rewrite and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0109: on a database of its own.
+#
+# `migrate_until <db> <tag>` creates <db> and applies the journal up to and
+# including <tag>, so every section below starts from exactly the chain it
+# follows and a later migration never changes what an earlier section sees.
+# `check_in` and `refused_in` assert against that database as its owner, which
+# is what runs a migration.
+# ---------------------------------------------------------------------------
+migrate_until() {
+  local db="$1" last="$2"
+  grep -q "\"tag\": \"$last\"" drizzle/meta/_journal.json || {
+    echo "migrate_until: $last is not in the journal" >&2
+    exit 1
+  }
+  $PSQL -q -v ON_ERROR_STOP=1 -c "CREATE DATABASE $db OWNER grid_app_owner;"
+  node -e '
+    const j = require("./drizzle/meta/_journal.json");
+    console.log(j.entries.map((e) => e.tag).join("\n"));
+  ' | while read -r tag; do
+    $PGBIN/psql -h "$WORKDIR" -p "$PORT" -U grid_app_owner -d "$db" -v ON_ERROR_STOP=1 -q -f "drizzle/$tag.sql" >/dev/null || {
+      echo "SETUP OF $db FAILED at $tag — re-run without -q to see the error" >&2
+      exit 1
+    }
+    if [ "$tag" = "$last" ]; then break; fi
+  done
+}
+# Run a migration file (or its down) against <db>, failing loudly.
+apply_in() {
+  $PGBIN/psql -h "$WORKDIR" -p "$PORT" -U grid_app_owner -d "$1" -v ON_ERROR_STOP=1 -q -f "drizzle/$2" >/dev/null || {
+    echo "MIGRATION $2 FAILED on $1 — re-run without -q to see the error" >&2
+    exit 1
+  }
+}
+sql_in() { $PGBIN/psql -h "$WORKDIR" -p "$PORT" -U grid_app_owner -d "$1" -v ON_ERROR_STOP=1 -q >/dev/null; }
+check_in() {
+  local got
+  got=$($PGBIN/psql -h "$WORKDIR" -p "$PORT" -U grid_app_owner -d "$1" -tAc "$2")
+  if [ "$got" != "$3" ]; then
+    echo "MIGRATION ASSERTION FAILED on $1: $4" >&2
+    echo "  query: $2" >&2
+    echo "  got:   $got" >&2
+    echo "  want:  $3" >&2
+    exit 1
+  fi
+}
+# Run SQL that must be REFUSED on <db>, and check the refusal names the rule ($3).
+refused_in() {
+  local out
+  if out=$($PGBIN/psql -h "$WORKDIR" -p "$PORT" -U grid_app_owner -d "$1" -v ON_ERROR_STOP=1 -q 2>&1 <<<"$2"); then
+    echo "MIGRATION ASSERTION FAILED on $1: $4 (the statement was accepted)" >&2
+    exit 1
+  fi
+  if ! grep -q -- "$3" <<<"$out"; then
+    echo "MIGRATION ASSERTION FAILED on $1: $4 (refused for another reason)" >&2
+    echo "  output: $out" >&2
+    exit 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Migration 0109: read/write grants per folder (ADR-0085), and its DOWN.
+#
+# What the database itself holds: a custom list may not be emptied (the
+# deferred trigger), may be REPLACED in one transaction, refuses a level or a
+# slug it does not know, holds at most 20 entries; a folder cannot become
+# custom without a grant; a tombstone keeps its list and frees its name. The
+# down removes the tombstones, the grants table and the columns, and puts
+# develop's non-partial name index back; 0109 then re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0109 grants, their constraints and the down migration on grid_grants"
+migrate_until grid_grants 0109_project_folder_grants
+sql_in grid_grants <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name)
+VALUES ('aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'Grants 0109', 'user_1', 'proj_0106');
+BEGIN;
+INSERT INTO project_folders (id, organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at) VALUES
+  ('a1a1a1a1-a1a1-4000-8000-000000000106', 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Verträge', 'Verträge', 'custom', 'user_1', now()),
+  ('b2b2b2b2-b2b2-4000-8000-000000000106', 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Personal', 'Personal', 'custom', 'user_1', now());
+INSERT INTO project_folders (id, organization_id, project_id, name, path) VALUES
+  ('c3c3c3c3-c3c3-4000-8000-000000000106', 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Pläne', 'Pläne');
+INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) VALUES
+  ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'a1a1a1a1-a1a1-4000-8000-000000000106', 'org-gf', 'write'),
+  ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'b2b2b2b2-b2b2-4000-8000-000000000106', 'org-gf', 'write');
+COMMIT;
+SQL
+check_in grid_grants "SELECT relrowsecurity FROM pg_class WHERE relname = 'project_folder_grants'" "t" "the grants table is inside the tenant boundary"
+check_in grid_grants "SELECT string_agg(name || '=' || access_mode, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Personal=custom,Pläne=inherit,Verträge=custom" "a folder inherits unless it has its own list"
+refused_in grid_grants "DELETE FROM project_folder_grants WHERE folder_id = 'a1a1a1a1-a1a1-4000-8000-000000000106';" "it needs 1 to 20" "a custom list may not be emptied"
+refused_in grid_grants "INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) VALUES ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'a1a1a1a1-a1a1-4000-8000-000000000106', 'org-pl', 'admin');" "project_folder_grants_level_check" "a level is read or write"
+refused_in grid_grants "INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) VALUES ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'a1a1a1a1-a1a1-4000-8000-000000000106', '*org', 'read');" "project_folder_grants_role_check" "a slug never starts with the reserved *"
+refused_in grid_grants "UPDATE project_folders SET access_mode = 'custom', access_changed_by = 'user_1', access_changed_at = now() WHERE id = 'c3c3c3c3-c3c3-4000-8000-000000000106';" "it needs 1 to 20" "a folder cannot become custom without a grant"
+refused_in grid_grants "UPDATE project_folders SET access_changed_by = NULL WHERE id = 'a1a1a1a1-a1a1-4000-8000-000000000106';" "project_folders_access_custom_check" "a custom folder says who set its list"
+sql_in grid_grants <<'SQL'
+BEGIN;
+-- Replacing a list in one transaction: delete, then insert. Deferred, so allowed.
+DELETE FROM project_folder_grants WHERE folder_id = 'a1a1a1a1-a1a1-4000-8000-000000000106';
+INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) VALUES
+  ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'a1a1a1a1-a1a1-4000-8000-000000000106', '*', 'read'),
+  ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'a1a1a1a1-a1a1-4000-8000-000000000106', 'org-gf', 'write');
+-- A new folder with its own list: read for one role, write for another.
+INSERT INTO project_folders (id, organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at) VALUES
+  ('d4d4d4d4-d4d4-4000-8000-000000000106', 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Honorare', 'Honorare', 'custom', 'user_1', now());
+INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) VALUES
+  ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'd4d4d4d4-d4d4-4000-8000-000000000106', 'org-pl', 'read'),
+  ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'd4d4d4d4-d4d4-4000-8000-000000000106', 'org-gf', 'write');
+-- Deleting Personal leaves its tombstone with its list; the name is free again.
+UPDATE project_folders SET deleted_at = now(), deleted_by = 'user_1' WHERE id = 'b2b2b2b2-b2b2-4000-8000-000000000106';
+INSERT INTO project_folders (id, organization_id, project_id, name, path) VALUES
+  ('e5e5e5e5-e5e5-4000-8000-000000000106', 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Personal', 'Personal');
+COMMIT;
+SQL
+check_in grid_grants "SELECT string_agg(role_slug || ':' || level, ',' ORDER BY role_slug) FROM project_folder_grants WHERE folder_id = 'a1a1a1a1-a1a1-4000-8000-000000000106'" "*:read,org-gf:write" "a list was replaced in one transaction"
+check_in grid_grants "SELECT count(*) FROM project_folder_grants WHERE folder_id = 'b2b2b2b2-b2b2-4000-8000-000000000106'" "1" "a tombstone keeps its list"
+refused_in grid_grants "INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) SELECT 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'd4d4d4d4-d4d4-4000-8000-000000000106', 'org-extra-' || n, 'read' FROM generate_series(1, 19) AS n;" "it needs 1 to 20" "a list holds at most 20 entries"
+refused_in grid_grants "INSERT INTO project_folders (organization_id, project_id, name, path) VALUES ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Personal', 'Personal');" "uniq_project_folders_parent_name" "two living folders still cannot share a name"
+apply_in grid_grants 0109_project_folder_grants.down.sql
+check_in grid_grants "SELECT string_agg(name, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare,Personal,Pläne,Verträge" "down removed the tombstone and kept every living folder"
+check_in grid_grants "SELECT to_regclass('public.project_folder_grants') IS NULL" "t" "down dropped the grants table"
+check_in grid_grants "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('access_mode', 'access_changed_by', 'access_changed_at', 'deleted_at', 'deleted_by')" "0" "down dropped the new columns"
+check_in grid_grants "SELECT indexdef LIKE '%WHERE%' FROM pg_indexes WHERE indexname = 'uniq_project_folders_parent_name'" "f" "down put develop's non-partial name index back"
+apply_in grid_grants 0109_project_folder_grants.sql
+check_in grid_grants "SELECT string_agg(name || '=' || access_mode, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare=inherit,Personal=inherit,Pläne=inherit,Verträge=inherit" "0109 re-applies, every folder inheriting"
+
+echo "==> 0109 grants, constraints and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

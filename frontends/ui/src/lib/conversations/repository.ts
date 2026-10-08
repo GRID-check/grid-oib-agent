@@ -298,6 +298,11 @@ export async function conversationIdsExisting(ids: readonly string[]): Promise<S
 export async function findConversationTenancy(
   conversationId: string,
 ): Promise<Pick<Conversation, 'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'deletedAt'> | null> {
+  // No uuid guard here, unlike `findProjectTenancy`: `conversations.id` is TEXT
+  // and every id the app mints is `s_<uuid with underscores>`, which `isUuid`
+  // rejects. The guard that stood here (#813) answered null for every real
+  // conversation, so sharing 404'd and the WebSocket conversation gate passed
+  // everything as "not created yet". A text column cannot throw 22P02.
   const db = getDb()
   const [row] = await db
     .select({

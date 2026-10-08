@@ -13,6 +13,15 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
+// No folder has its own access list (ADR-0085): every write is allowed.
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
+vi.mock('@/lib/authz/folder-access-repository', () => ({
+  listProjectDocumentCollections: vi.fn(async () => []),
+  listProjectFolderTree: vi.fn(async () => []),
+}))
+vi.mock('./collection-placement', () => ({
+  placeProjectDocuments: vi.fn(async () => ({ moved: 0, failed: [] })),
+}))
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn().mockResolvedValue(undefined),
 }))
@@ -54,7 +63,8 @@ vi.mock('@/lib/db', () => {
         from: () => ({
           where: () => ({
             limit: async () => db.folders.filter((f) => f.__match === 'one').map((f) => f.row),
-            then: undefined,
+            // Awaited without `limit`: the folder's child folders, of which there are none.
+            then: (resolve: (value: unknown) => unknown) => Promise.resolve([]).then(resolve),
           }),
         }),
       })
@@ -124,16 +134,19 @@ describe('deleteProjectFolder', () => {
     ]
   })
 
-  it('re-files the documents BEFORE deleting the folder', async () => {
+  it('re-files the documents BEFORE deleting the folder, and keeps the row as a tombstone', async () => {
     const result = await deleteProjectFolder({ projectId: 'proj-1', folderId: 'folder-1' }, SESSION)
 
     expect(result.ok).toBe(true)
-    // The order is the whole assertion. Reverse these two and the cascade
-    // deletes every document in the folder on its way out.
+    // The order is the whole assertion: the documents leave before the folder
+    // is marked deleted, so nothing is ever filed in a folder no listing shows.
     const documentsMoved = db.calls.indexOf('update:documents')
-    const folderDeleted = db.calls.indexOf('delete:folder')
+    const folderDeleted = db.calls.indexOf('update:folders')
     expect(documentsMoved).toBeGreaterThanOrEqual(0)
     expect(folderDeleted).toBeGreaterThan(documentsMoved)
+    // A tombstone, not a delete (ADR-0085): the row keeps its access mode and
+    // grants, so the access rule still answers for content drawn from it.
+    expect(db.calls).not.toContain('delete:folder')
     // And in one transaction, so a failure half-way cannot strand documents in
     // a folder that no longer exists.
     expect(db.calls[0]).toBe('begin')
