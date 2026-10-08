@@ -160,9 +160,10 @@ only.
   browser the composer says what it found (the office's term, or the kind of
   number with a masked sample, never the value) and offers „Maskiert senden"
   (each match replaced by its placeholder) or „Bearbeiten" (back to the editor,
-  text untouched). There is no "send unmasked": the promise is that the model
-  never sees it. A typed answer to Piloti's question is screened like a
-  question.
+  text untouched). There is no "send unmasked": the promise is that the
+  answering model never sees it. A typed answer to Piloti's question is
+  screened like a question. A dictated message is screened the same way, at
+  send; its audio has already been transcribed by then (see "Neutral" below).
 - **Server backstop.** A client that skips the composer (an old tab, a script,
   the API) gets the same result without being asked. The chat socket
   (`aiq_api.chat_socket.ChatSocket._masked`) masks the text of every
@@ -238,8 +239,11 @@ only.
   note or a thumbs-down comment reaches a model or the stored history with a
   checksum-valid IBAN, social-security or card number, or a term the office
   named. That holds for the chat socket, every message the BFF stores, the
-  title model, the memory digest and the embedder. It does not hold for the
-  doors listed under "Neutral" below.
+  title model, the memory digest and the embedder. A dictated message is the
+  exception for one model: its transcript is screened at send like typed text
+  (the composer's hold, then `ChatSocket._masked`), but the audio has already
+  reached the transcription model. It does not hold for the doors listed under
+  "Neutral" below.
 * Good, because the person sees what was found and decides, instead of a
   message silently changing.
 * Bad, because masking a term hides the word, not the figures around it:
@@ -258,8 +262,17 @@ only.
   `/v1/skills/review`), the project profile (`lib/project-profile`, sent to
   `/v1/generate-summary` and `/v1/consistency-check` and into every turn), and
   a reviewer's comment on a refused draft (`buildReviewDecisionsBlock`, which
-  rides the memory channel into the conversation that wrote the draft). The
-  user guide names them.
+  rides the memory channel into the conversation that wrote the draft). Voice
+  dictation is a door of its own: the recording goes to the transcription
+  model (`aiq_api.routes.dictation._post_audio`, `GRID_DICTATION_MODEL` and its
+  fallback) before anything can be screened, because there is no text yet.
+  On the platform's key that call is pinned to zero data retention; an office
+  on its own key (BYOK) gets that provider's retention policy. Only the
+  transcript is screened, at send, like typed text. The transcript is not
+  masked when `/v1/dictation` returns it: that cannot undo what the provider
+  heard, and it would take „Bearbeiten" away from the person. Whether an
+  office with screening on should get the microphone at all is a product
+  decision this amendment leaves open. The user guide names them.
 
 ### Why not NeMo Guardrails' sensitive-data rail
 
@@ -289,7 +302,8 @@ folding.
   (`append_conversation_context`) and a resumed HITL turn receive, and the
   detectors-only fallback.
 * `InputArea.screening.spec.tsx` asserts the notice, both buttons, and that
-  nothing is sent until one is pressed; `lib/conversations/service.spec.ts`
+  nothing is sent until one is pressed, for a dictated transcript as for typed
+  text; `lib/conversations/service.spec.ts`
   asserts the stored copy for every role, the stored HITL answer, and what the
   title model receives, whatever role a turn was given.
 * `lib/projects/memory-service.spec.ts` asserts a new and an edited note are

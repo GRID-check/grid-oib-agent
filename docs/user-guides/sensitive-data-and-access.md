@@ -45,7 +45,7 @@ What Piloti drops on its own: system files a folder carries along, such as
 The **content terms and number checks** apply to what people type into the chat
 as well; the file-name terms do not. When a message contains one, the composer
 does not send it. It says what it found, for example „Enthält eine IBAN
-(Sensible Daten). Piloti sendet sie nicht an das Modell.", and offers two
+(Sensible Daten). Piloti sendet sie nicht an das Antwortmodell.", and offers two
 choices:
 
 - **Maskiert senden** sends the message with each match replaced, so Piloti
@@ -85,6 +85,12 @@ applies to an open chat once the page is reloaded.
   anfordern"), which the chat that wrote the draft reads;
 - the instruction of a **scheduled task**, and a research job started through
   the API;
+- **voice input** (the microphone in the chat): the recording is transcribed by
+  an external speech model before the check can see any text. The transcript
+  is then checked when you send it, like typed text, so the answering model
+  does not see a match, but the speech model has heard it. On Piloti's own key
+  that model keeps no data; an office on its own key gets that provider's
+  retention policy;
 - anything stored before the list applied to it: older chats, notes and
   comments keep the text they were saved with.
 
