@@ -1068,6 +1068,15 @@ export async function setDocumentIngestJob(
 }
 
 /**
+ * The `documents.metadata` key of a row placement purged and re-pointed whose
+ * re-read into its new collection is the `placement_reingest` job's to do
+ * (`lib/projects/collection-placement.ts`, ADR-0086). Only ever set beside
+ * `status = 'processing'`; the job removes it when it takes the row, and every
+ * other writer of `processing` or of an ingest job id drops it.
+ */
+export const PLACEMENT_REINGEST_MARKER = 'placementReingest'
+
+/**
  * Mark a document as being worked on locally, before any backend job exists.
  *
  * The IFC path needs this: extraction happens in THIS process and can take
@@ -1082,7 +1091,9 @@ export async function setDocumentIngestJob(
  * the re-ingest heal) then answered with the OLD job's outcome — a retry of a
  * failed file flipped back to failed while its new conversion was running.
  * Clearing it at the one writer of `processing` fixes both readers at once.
- * The queue job of the previous round goes with it ({@link setDocumentBackgroundJob}).
+ * The queue job of the previous round goes with it ({@link setDocumentBackgroundJob}),
+ * and so does the placement mark ({@link PLACEMENT_REINGEST_MARKER}): a row this
+ * marks is owned by the work that marked it, not waiting for placement's job.
  */
 export async function markDocumentProcessing(
   documentId: string,
@@ -1095,7 +1106,7 @@ export async function markDocumentProcessing(
       .set({
         status: 'processing',
         errorMessage: null,
-        metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId' - 'bffJobId'`,
+        metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId' - 'bffJobId' - ${PLACEMENT_REINGEST_MARKER}::text`,
         updatedAt: new Date(),
       })
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
