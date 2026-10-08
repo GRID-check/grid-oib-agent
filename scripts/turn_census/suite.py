@@ -53,6 +53,7 @@ import statistics
 import sys
 import time
 from collections.abc import Callable
+from collections.abc import Collection
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -386,12 +387,25 @@ def check(question: dict, run: Run, envelope: dict | None) -> dict[str, bool]:
         options = shapes if isinstance(shapes, list) else [shapes]
         cards = (envelope or {}).get("cards") or []
         checks[f"shape:{'|'.join(options)}"] = any(_has_shape(option, run.answer, cards) for option in options)
-    checks.update(precedent_checks(expect, run, answer, question=str(question.get("question") or ""), judge=_judge()))
+    projects = _office_projects(str(question.get("scenario") or "")) if expect.get("lookup") else None
+    checks.update(
+        precedent_checks(
+            expect, run, answer, question=str(question.get("question") or ""), judge=_judge(), projects=projects
+        )
+    )
     return checks
 
 
+def _office_projects(scenario: str) -> list[str]:
+    """The names of the projects the fixture office of this scenario holds, the chat's own included."""
+    from fixture_bff import DEFAULT_SCENARIO
+    from fixture_bff import FixtureOffice
+
+    return FixtureOffice(scenario=scenario or DEFAULT_SCENARIO).project_names()
+
+
 def _judge() -> Judge | None:
-    """The model judge when a key is set (`judge.py`); None offline, which leaves the meaning checks out."""
+    """The model judge when a key is set (`judge.py`); None offline, which records the meaning checks as failed."""
     import judge
 
     return judge.ask if judge.available() else None
@@ -405,17 +419,59 @@ def looked_up(run: Run) -> bool:
 #: A judge of meaning: (check kind, question, answer) → yes, no, or None when it could not answer.
 Judge = Callable[[str, str, str], bool | None]
 
+#: What a run lists in its signals for a meaning check its judge could not answer: ``judge_unavailable:says_none``.
+JUDGE_UNAVAILABLE = "judge_unavailable:"
+#: The checks a model judges (``judge.py``), because they are meanings.
+MEANING_CHECKS = ("says_none", "caveat")
+
+#: One source line of the answer: ``- [1] [KB] file.pdf (Project name), p.2``. The qualifier in
+#: parentheses is the project a cross-project hit came from (``citation_verification``
+#: appends it to the citation key); a Richtlinie or a RIS line has none, and a filename that
+#: has parentheses of its own is not followed by ``, p.N`` or the end of the line.
+_SOURCE_PROJECT = re.compile(
+    r"^\s*(?:[-*]\s*)?\[\d+\]\s*\[KB\]\s+[^\n]*?\(([^()\n]+)\)(?:,\s*p\.\s*\d+)?\s*$", re.MULTILINE
+)
+
+
+def sourced_projects(answer: str) -> list[str]:
+    """The projects the answer's source lines name, in order: what the reader is told the answer rests on."""
+    return [" ".join(name.split()) for name in _SOURCE_PROJECT.findall(answer)]
+
+
+def _cited(options: list[Any], question: str, answer: str) -> bool:
+    """Whether the answer names the project by an option the QUESTION does not already contain.
+
+    An option the question holds is no evidence: an answer that only repeats
+    the question would satisfy it (10 of 23 groups did, on the first review).
+    """
+    asked = _normal(question)
+    return any(_normal(str(option)) in answer for option in options if _normal(str(option)) not in asked)
+
 
 def precedent_checks(
-    expect: dict, run: Run, answer: str, *, question: str = "", judge: Judge | None = None
+    expect: dict,
+    run: Run,
+    answer: str,
+    *,
+    question: str = "",
+    judge: Judge | None = None,
+    projects: Collection[str] | None = None,
 ) -> dict[str, bool]:
     """The precedent eval's checks (`tests/fixtures/precedent/precedent_questions.yaml` says what each means).
 
+    `cites` counts only a name the question does not contain (:func:`_cited`).
+    `real_projects`, given the names of the projects the fixture office holds,
+    is a fact: every project the answer's source lines name exists in it.
+
     `says_none` and `caveat` are meanings and go to the judge (`judge.py`) with
-    the raw answer; without one, or when it cannot answer, they are left out
-    of the run rather than guessed.
+    the raw answer. A judge that cannot answer (no key, a failed call, a reply
+    that is neither yes nor no) is a RECORDED failure of that check, with
+    ``judge_unavailable:<kind>`` in the run's signals: leaving the check out
+    shrank its denominator without a word (`says_none` 9/9 hid a tenth run).
+    An answer that is empty says nothing and fails without asking.
     """
     checks: dict[str, bool] = {}
+    run.signals[:] = [signal for signal in run.signals if not signal.startswith(JUDGE_UNAVAILABLE)]
     lookup = expect.get("lookup")
     if lookup == "required":
         checks["looked_up"] = looked_up(run)
@@ -423,15 +479,19 @@ def precedent_checks(
         checks["no_lookup"] = not looked_up(run)
     for group in expect.get("cites") or []:
         options = group if isinstance(group, list) else [group]
-        checks[f"cites:{options[0]}"] = any(_normal(str(option)) in answer for option in options)
+        checks[f"cites:{options[0]}"] = _cited(options, question, answer)
     for name in expect.get("not_cites") or []:
         checks[f"not_cites:{name}"] = _normal(str(name)) not in answer
-    for kind in ("says_none", "caveat"):
-        if not expect.get(kind) or judge is None:
+    if projects is not None:
+        known = {_normal(" ".join(name.split())) for name in projects}
+        checks["real_projects"] = all(_normal(name) in known for name in sourced_projects(run.answer))
+    for kind in MEANING_CHECKS:
+        if not expect.get(kind):
             continue
-        verdict = judge(kind, question, run.answer)
-        if verdict is not None:
-            checks[kind] = verdict
+        verdict = judge(kind, question, run.answer) if judge is not None and run.answer.strip() else None
+        checks[kind] = bool(verdict)
+        if verdict is None and run.answer.strip():
+            run.signals.append(f"{JUDGE_UNAVAILABLE}{kind}")
     return checks
 
 
@@ -565,7 +625,21 @@ def aggregate_lines(runs: list[Run]) -> list[str]:
     for run in runs:
         for key, value in run.checks.items():
             held.setdefault(key.split(":", 1)[0], []).append(value)
-    return [f"- `{kind}`: {sum(values)}/{len(values)}" for kind, values in sorted(held.items())] or ["None."]
+    lines = [f"- `{kind}`: {sum(values)}/{len(values)}" for kind, values in sorted(held.items())]
+    asked = sum(len(held.get(kind, [])) for kind in MEANING_CHECKS)
+    unavailable = [signal for run in runs for signal in run.signals if signal.startswith(JUDGE_UNAVAILABLE)]
+    if asked:
+        # Each is a failure in the counts above, never a missing run; this says how many were not the answer's fault.
+        by_kind = ", ".join(
+            f"{kind} {unavailable.count(JUDGE_UNAVAILABLE + kind)}"
+            for kind in MEANING_CHECKS
+            if JUDGE_UNAVAILABLE + kind in unavailable
+        )
+        lines.append(
+            f"- judge could not answer: {len(unavailable)} of {asked} meaning checks"
+            + (f" ({by_kind})" if by_kind else "")
+        )
+    return lines or ["None."]
 
 
 # --- Running -----------------------------------------------------------------

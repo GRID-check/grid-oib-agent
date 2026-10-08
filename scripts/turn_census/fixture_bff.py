@@ -19,7 +19,8 @@ from the norm suite only by what this file serves.
 
 Search ranks as production does, by meaning: the deployment's own embedding
 model (``knowledge_layer``'s ``make_embed_model``, the note-embeddings
-route's), fused by reciprocal rank with a token channel, each searched
+route's), fused by reciprocal rank with a token channel (tokens weighted by how rare they are in the
+office's passages, so no list of function words decides), each searched
 project's nearest passages returned whatever their relevance, the decisions
 and the permit records' requirements ranked the same way. No word list and no threshold production does not have:
 on a question nothing answers, the agent is handed the nearest passages and
@@ -37,6 +38,7 @@ import math
 import re
 import threading
 import unicodedata
+from collections import Counter
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer
@@ -99,8 +101,30 @@ def _tokens(text: str) -> set[str]:
     return set(_TOKEN.findall(_fold(text)))
 
 
-def _jaccard(a: set[str], b: set[str]) -> float:
-    return len(a & b) / len(a | b) if a and b else 0.0
+def _idf_weights(documents: list[set[str]]) -> dict[str, float]:
+    """How rare each token is among the documents: BM25's inverse document frequency, always positive.
+
+    Computed from the office's own passages, so „wie", „der" and „bei" weigh
+    little and „Fluchttreppe" much without a list of words that decides which
+    is which. Production's lexical channel prices words the same way
+    (``chunk_text_store``: ``ts_rank_cd`` over a German tsvector on Postgres,
+    summed inverse document frequency on SQLite). Raw overlap let a passage that shared three function words with
+    the question outrank the one that held its only content word.
+    """
+    counts = Counter(token for tokens in documents for token in tokens)
+    return {token: math.log(1 + (len(documents) - n + 0.5) / (n + 0.5)) for token, n in counts.items()}
+
+
+def _overlap(a: set[str], b: set[str], weights: dict[str, float]) -> float:
+    """Jaccard overlap of two token sets, each token weighted by its rarity (a token no passage holds weighs most)."""
+    if not a or not b:
+        return 0.0
+    unseen = max(weights.values(), default=1.0)
+
+    def weight(tokens: set[str]) -> float:
+        return sum(weights.get(token, unseen) for token in tokens)
+
+    return weight(a & b) / weight(a | b)
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -143,10 +167,17 @@ class FixtureOffice:
         office_projects = every if kept is None else [project for project in every if project["id"] in set(kept)]
         self.projects = {project["id"]: project for project in office_projects}
         self.rendered = self._rendered[scenario]
+        self._weights = _idf_weights(
+            [_tokens(_document_text(document)) for p in office_projects for document in p.get("documents") or []]
+        )
         permits = directory / "permits.json"
         self.permits: dict[str, dict[str, Any]] = (
             json.loads(permits.read_text(encoding="utf-8"))["records"] if permits.exists() else {}
         )
+
+    def project_names(self) -> list[str]:
+        """The names of every project this office holds, the chat's own included: what a source may name."""
+        return [self.current["name"], *(project["name"] for project in self.projects.values())]
 
     def turn_context(self) -> dict[str, Any]:
         return {
@@ -203,7 +234,7 @@ class FixtureOffice:
         """(index, display score, fused relevance) per text, best first: as production ranks."""
         dense = self._dense(query, texts)
         asked = _tokens(query)
-        lexical = [_jaccard(asked, _tokens(text)) for text in texts]
+        lexical = [_overlap(asked, _tokens(text), self._weights) for text in texts]
         fused = _fuse(dense, lexical)
         scored = [
             (index, dense[index] if dense[index] is not None else lexical[index], fused[index])
@@ -252,7 +283,6 @@ class FixtureOffice:
             "projectsInScope": len(scope),
             "projectsSearched": len(page),
             "nextOffset": following if following < len(scope) else None,
-            "statusKnown": True,
         }
 
     def _decisions(self, page: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
@@ -330,7 +360,7 @@ class FixtureOffice:
 
         matching = [project for project in [self.current, *self.projects.values()] if found(project)]
         listed = matching[: int(body.get("limit") or 10)]
-        return {"projects": [self._listed(project) for project in listed], "total": len(matching), "statusKnown": True}
+        return {"projects": [self._listed(project) for project in listed], "total": len(matching)}
 
     def brief(self, body: dict[str, Any]) -> dict[str, Any] | None:
         project = self.projects.get(str(body.get("projectId") or ""))

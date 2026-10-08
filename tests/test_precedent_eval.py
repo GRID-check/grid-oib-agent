@@ -75,7 +75,8 @@ class TestTheFixtureBff:
     def test_a_search_walks_the_projects_in_the_similar_order_production_ranks(self, bff):
         _, body = _post(bff, "/api/internal/cross-project/search", {"query": "Bescheid Auflagen"})
 
-        assert body["projectsInScope"] == 7
+        assert body["projectsInScope"] == len(FixtureOffice().projects) > 20
+        assert body["projectsSearched"] == 8
         assert {hit["project"]["name"] for hit in body["hits"]} >= {
             "Holzwohnbau Baden, Wiener Straße",
             "Wohnhausanlage Mödling, Brunner Gasse",
@@ -346,11 +347,52 @@ class TestTheChecks:
             ("caveat", "Hallenbad?", "Ein Hallenbad hatten wir **noch nie**."),
         ]
 
-    def test_a_meaning_no_judge_could_read_is_left_out_never_guessed(self):
-        run = self._run([], "Nichts Vergleichbares.")
+    def test_a_meaning_no_judge_could_read_is_a_recorded_failure_never_a_missing_check(self):
+        """`says_none` 9/9 once hid a tenth run: a judge that could not answer dropped the check from the count."""
+        for judge in (None, lambda *_: None):
+            run = self._run([], "Nichts Vergleichbares.")
 
-        assert suite.precedent_checks({"says_none": True}, run, "", judge=None) == {}
-        assert suite.precedent_checks({"says_none": True}, run, "", judge=lambda *_: None) == {}
+            checks = suite.precedent_checks({"says_none": True}, run, "", judge=judge)
+
+            assert checks == {"says_none": False}
+            assert run.signals == ["judge_unavailable:says_none"]
+
+    def test_a_judge_that_answers_leaves_no_trace_and_a_rerun_clears_the_old_one(self):
+        run = suite.Run(question_id="q", run=1, answer="Nichts Vergleichbares.", signals=["judge_unavailable:caveat"])
+
+        checks = suite.precedent_checks(
+            {"says_none": True, "caveat": True}, run, "", judge=lambda kind, *_: kind == "caveat"
+        )
+
+        assert checks == {"says_none": False, "caveat": True}
+        assert run.signals == []
+
+    def test_an_empty_answer_says_nothing_and_is_not_blamed_on_the_judge(self):
+        asked = []
+        run = self._run([], "")
+
+        checks = suite.precedent_checks({"says_none": True}, run, "", judge=lambda *args: asked.append(args))
+
+        assert checks == {"says_none": False}
+        assert asked == [] and run.signals == []
+
+    def test_the_report_shows_caveat_and_how_many_meaning_checks_the_judge_could_not_answer(self):
+        runs = [
+            suite.Run(question_id="a", run=1, checks={"says_none": True, "looked_up": True}),
+            suite.Run(question_id="b", run=1, checks={"says_none": False}, signals=["judge_unavailable:says_none"]),
+            suite.Run(question_id="c", run=1, checks={"caveat": True}),
+            suite.Run(question_id="d", run=1, checks={"caveat": False}, signals=["judge_unavailable:caveat"]),
+        ]
+
+        assert suite.aggregate_lines(runs) == [
+            "- `caveat`: 1/2",
+            "- `looked_up`: 1/1",
+            "- `says_none`: 1/2",
+            "- judge could not answer: 2 of 4 meaning checks (says_none 1, caveat 1)",
+        ]
+        assert suite.aggregate_lines([suite.Run(question_id="a", run=1, checks={"looked_up": True})]) == [
+            "- `looked_up`: 1/1"
+        ]
 
     def test_the_report_counts_each_kind_of_check_over_every_run(self):
         runs = [
@@ -389,3 +431,201 @@ def test_a_lookup_counts_for_the_run_it_served_however_it_was_asked_for(tmp_path
     assert lookups_served(tmp_path / "requests.jsonl", "suite-1-c-1") == []
     run = suite.Run(question_id="a", run=1, lookups=["search"])
     assert suite.precedent_checks({"lookup": "required"}, run, "") == {"looked_up": True}
+
+
+def _repeating(question: dict) -> tuple[suite.Run, str]:
+    """The run of an answer that says nothing but the question, and that answer as the checks read it."""
+    run = suite.Run(question_id=str(question["id"]), run=1, answer=str(question["question"]))
+    return run, suite._normal(run.answer)
+
+
+class TestCites:
+    def test_an_answer_that_only_repeats_the_question_cites_nothing(self):
+        """8 of 19 groups passed on exactly that: the question names the town, the check looked for the town."""
+        questions = [q for q in suite.load_precedent_questions() if q["expect"].get("cites")]
+        assert questions
+        for question in questions:
+            run, answer = _repeating(question)
+
+            checks = suite.precedent_checks(question["expect"], run, answer, question=question["question"])
+
+            assert not [key for key, held in checks.items() if key.startswith("cites:") and held], question["id"]
+
+    def test_every_group_can_be_met_by_a_name_the_question_does_not_contain(self):
+        for question in suite.load_precedent_questions():
+            asked = suite._normal(question["question"])
+            for group in question["expect"].get("cites") or []:
+                assert any(suite._normal(option) not in asked for option in group), (question["id"], group)
+
+    def test_the_project_by_a_name_the_question_leaves_out_does_count(self):
+        question = next(q for q in suite.load_precedent_questions() if q["id"] == "kapselung-wie-baden")
+        answer = "Das Brandschutzkonzept stammt aus dem Projekt Wiener Straße (2020)."
+        run = suite.Run(question_id="kapselung-wie-baden", run=1, answer=answer)
+
+        checks = suite.precedent_checks(question["expect"], run, suite._normal(answer), question=question["question"])
+
+        assert checks["cites:Wiener Straße"] is True
+
+    def test_a_word_of_the_question_is_no_alternative_even_inside_a_longer_group(self):
+        """`hold-dachgeschoss-auflagen` listed „Dachgeschoßausbau", the word its own question uses."""
+        expect = {"cites": [["Dachgeschoßausbau", "Neubaugasse"]]}
+        question = "Welche Auflagen gab es bei unserem Dachgeschoßausbau?"
+        repeated = suite.Run(question_id="q", run=1, answer=question)
+        named = suite.Run(question_id="q", run=1, answer="Das Projekt Neubaugasse.")
+
+        assert suite.precedent_checks(expect, repeated, suite._normal(question), question=question) == {
+            "cites:Dachgeschoßausbau": False
+        }
+        assert suite.precedent_checks(expect, named, suite._normal(named.answer), question=question) == {
+            "cites:Dachgeschoßausbau": True
+        }
+
+
+SOURCES = (
+    "Text [1] [2] [3].\n\n## Quellen\n"
+    "- [1] [KB] Detail_Traufe_Holzbau.pdf (Holzwohnbau Baden, Wiener Straße), p.2\n"
+    "- [2] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.4\n"
+    "- [3] [RIS] NÖ Bautechnikverordnung 2014, § 3 (Fassung 2015-02-01)\n"
+    "- [4] [KB] Projektgedächtnis (Wohnhausanlage Mödling, Brunner Gasse)\n"
+    "- [5] project_lookup\n"
+)
+
+
+class TestTheProjectsAnAnswerNames:
+    def test_the_projects_the_source_lines_name_are_read_off_the_cross_project_lines_only(self):
+        assert suite.sourced_projects(SOURCES) == [
+            "Holzwohnbau Baden, Wiener Straße",
+            "Wohnhausanlage Mödling, Brunner Gasse",
+        ]
+
+    def test_a_filename_with_parentheses_of_its_own_is_no_project(self):
+        assert suite.sourced_projects("- [1] [KB] Plan (1).pdf, p.3\n- [2] [KB] Plan (Entwurf).pdf") == []
+
+    def test_projects_the_office_holds_pass(self):
+        names = FixtureOffice().project_names()
+        run = suite.Run(question_id="q", run=1, answer=SOURCES)
+
+        checks = suite.precedent_checks({"lookup": "optional"}, run, suite._normal(SOURCES), projects=names)
+
+        assert checks == {"real_projects": True}
+
+    def test_an_invented_project_in_a_source_line_fails_however_real_the_rest_looks(self):
+        invented = SOURCES + "- [6] [KB] Brandschutzkonzept.pdf (Wohnhausanlage Tulln, Hauptstraße), p.3\n"
+        run = suite.Run(question_id="q", run=1, answer=invented)
+
+        checks = suite.precedent_checks(
+            {"lookup": "optional"}, run, suite._normal(invented), projects=FixtureOffice().project_names()
+        )
+
+        assert checks == {"real_projects": False}
+
+    def test_a_real_project_the_scenarios_office_does_not_hold_is_invented_there(self):
+        """The empty office holds no other project: a source naming Baden there came from nowhere."""
+        run = suite.Run(question_id="q", run=1, answer=SOURCES)
+        names = FixtureOffice(scenario="leeres-buero").project_names()
+
+        assert names == ["Wohnhaus Perchtoldsdorf, Hochstraße"]
+        assert suite.precedent_checks({"lookup": "optional"}, run, "", projects=names) == {"real_projects": False}
+
+    def test_a_name_differing_only_in_case_and_spacing_is_the_same_project(self):
+        run = suite.Run(question_id="q", run=1, answer="- [1] [KB] x.pdf (holzwohnbau  baden, wiener straße), p.1")
+
+        assert suite.precedent_checks({}, run, "", projects=FixtureOffice().project_names()) == {"real_projects": True}
+
+    def test_without_a_name_list_the_check_is_not_asked(self):
+        assert suite.precedent_checks({}, suite.Run(question_id="q", run=1, answer=SOURCES), "") == {}
+
+    def test_a_turn_with_a_lookup_expectation_is_checked_against_its_scenarios_office(self, monkeypatch):
+        monkeypatch.setattr(suite, "_judge", lambda: None)
+        question = next(q for q in suite.load_precedent_questions() if q["id"] == "leer-aehnliche")
+        run = suite.Run(question_id="leer-aehnliche", run=1, answer=SOURCES, lookups=["search"])
+
+        checks = suite.check(question, run, {"kind": "answer", "cards": []})
+
+        assert checks["real_projects"] is False
+        norm = next(q for q in suite.load_questions(core_only=False)[0] if not q.get("expect", {}).get("lookup"))
+        assert "real_projects" not in suite.check(norm, suite.Run(question_id=str(norm["id"]), run=1), None)
+
+
+NEEDS_THE_EMBEDDER = {"hold-english-escape-stair"}
+"""An English question shares no content word with a German passage: only the embedder can rank it."""
+
+
+def _with_evidence() -> list[dict]:
+    return [q for q in suite.load_precedent_questions() if q["expect"].get("evidence")]
+
+
+def _searched(question: dict) -> list[str]:
+    """The documents the fixture search hands back for the question as asked: the tool's default scope and limit.
+
+    Token channel only (no embedder): deterministic, and what a CI machine has.
+    """
+    office = FixtureOffice(scenario=question.get("scenario") or "default")
+    return [hit["documentId"] for hit in office.search({"query": question["question"], "scope": "similar"})["hits"]]
+
+
+def _inverted(real):
+    """A ranking that is wrong the other way round: the worst passage first, its score the lowest."""
+
+    def rank(self, query, texts):
+        return [
+            (index, -score, None if rel is None else -rel) for index, score, rel in reversed(real(self, query, texts))
+        ]
+
+    return rank
+
+
+class TestTheFixtureOfficeIsLargeEnoughToTestRanking:
+    def test_the_office_holds_enough_projects_and_passages_that_a_search_must_choose(self):
+        office = FixtureOffice()
+        documents = [d for project in office.projects.values() for d in project["documents"]]
+
+        assert len(office.projects) >= 20 and len(documents) >= 70
+        first_page = office.search({"query": "Auflagen", "scope": "similar"})
+        assert first_page["projectsSearched"] == 8 and first_page["nextOffset"] == 8
+
+    def test_the_first_page_alone_holds_far_more_passages_than_a_search_returns(self):
+        for scenario in ("default", "wien-bestand"):
+            office = FixtureOffice(scenario=scenario)
+            page = [office.projects[pid] for pid in office.rendered["similarOrder"][:8]]
+
+            assert sum(len(project["documents"]) for project in page) >= 3 * 10, scenario
+
+    def test_every_question_with_a_lookup_and_a_project_names_its_evidence(self):
+        needing = {
+            q["id"]
+            for q in suite.load_precedent_questions()
+            if q["expect"].get("lookup") == "required" and q["expect"].get("cites") and not q["expect"].get("evidence")
+        }
+
+        assert needing == NEEDS_THE_EMBEDDER
+
+    def test_the_evidence_is_a_passage_of_the_project_the_question_cites_and_on_its_first_page(self):
+        for question in _with_evidence():
+            office = FixtureOffice(scenario=question.get("scenario") or "default")
+            first_page = office.rendered["similarOrder"][:8]
+            for document_id in question["expect"]["evidence"]:
+                owner = next(
+                    p for p in office.projects.values() if any(d["documentId"] == document_id for d in p["documents"])
+                )
+                cited = [
+                    suite._normal(option) in suite._normal(owner["name"])
+                    for g in question["expect"]["cites"]
+                    for option in g
+                ]
+                assert any(cited), (question["id"], document_id)
+                assert owner["id"] in first_page, (question["id"], document_id)
+
+    def test_the_real_ranking_brings_the_evidence_into_the_hits(self):
+        """Among the 30 and more passages of the first page, ten are returned: the answering one must be among them."""
+        missed = [q["id"] for q in _with_evidence() if not set(q["expect"]["evidence"]) & set(_searched(q))]
+
+        assert missed == []
+
+    def test_an_inverted_ranking_loses_nearly_all_of_it(self, monkeypatch):
+        """The revert-check of the whole fixture: a search that ranks badly must fail where the real one passes."""
+        monkeypatch.setattr(FixtureOffice, "_rank", _inverted(FixtureOffice._rank))
+
+        kept = [q["id"] for q in _with_evidence() if set(q["expect"]["evidence"]) & set(_searched(q))]
+
+        assert len(kept) <= len(_with_evidence()) // 4, kept
