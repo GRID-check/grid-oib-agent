@@ -1116,6 +1116,10 @@
     "de": "Dateien eines abgeschlossenen Projekts sind überall, wo sie erscheinen, als solche gekennzeichnet, und die Projektliste kann aktive, abgeschlossene oder alle Projekte zeigen."
   },
   {
+    "en": "Files uploaded in the project wizard now get the same inbox notice and upload summary as any other upload, and appear in the project's upload history.",
+    "de": "Im Projekt-Assistenten hochgeladene Dateien erhalten jetzt dieselbe Meldung im Postfach und dieselbe Upload-Zusammenfassung wie jeder andere Upload und erscheinen im Upload-Verlauf des Projekts."
+  },
+  {
     "en": "Files you upload start being read right away, even while another office is importing a large folder, and a busy day brings more reading capacity instead of a longer wait.",
     "de": "Dateien, die Sie uploaden, werden sofort eingelesen – auch während ein anderes Büro einen großen Ordner importiert. An stark ausgelasteten Tagen steht mehr Kapazität zum Einlesen zur Verfügung, statt dass sich die Wartezeit verlängert."
   },
@@ -2224,8 +2228,16 @@
     "de": "Die Statuszeile über der Herleitung sagt, wonach Piloti gerade sucht, und sobald die Recherche abgeschlossen ist, dass die Antwort formuliert wird."
   },
   {
+    "en": "The upload history in the project settings now reaches back to a project's first upload: Ältere Uploads laden shows the next older ones.",
+    "de": "Der Upload-Verlauf in den Projekteinstellungen reicht jetzt bis zum ersten Upload eines Projekts zurück: „Ältere Uploads laden“ zeigt die nächstälteren."
+  },
+  {
     "en": "The upload panel no longer retires itself out from under you. A wholly successful batch still clears after a few seconds, but the countdown holds while your pointer is on the panel or your keyboard focus is inside it.",
     "de": "Das Upload-Panel verschwindet nicht mehr, während Sie damit arbeiten. Ein Stapel, bei dem alle Uploads erfolgreich waren, wird weiterhin nach einigen Sekunden ausgeblendet. Der Countdown pausiert jedoch, solange sich der Mauszeiger über dem Panel befindet oder der Tastaturfokus darin liegt."
+  },
+  {
+    "en": "The upload summary now shows which files were a new version of a document already there (Geändert) and which went into a folder with its own access list, the folders marked with a lock (Geschützt), as counts and on each file.",
+    "de": "Die Upload-Zusammenfassung zeigt jetzt, welche Dateien eine neue Fassung eines bereits vorhandenen Dokuments waren (Geändert) und welche in einen Ordner mit eigener Zugriffsliste gingen, also in die mit einem Schloss markierten Ordner (Geschützt) – als Anzahl und bei jeder Datei."
   },
   {
     "en": "The usage overview now includes the model calls Piloti makes to rank passages before it answers, which used to appear on no bill and in no budget.",
