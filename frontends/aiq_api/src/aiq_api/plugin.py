@@ -62,6 +62,7 @@ from .chat_socket import configure_websocket_auth
 from .chat_socket import drain_chat_turns
 from .chat_socket import send_stage
 from .health import install_health_route
+from .inflight import InFlightMiddleware
 from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
 from .roles import WebRole
@@ -391,6 +392,10 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         # full enforcement design (matrix, WebSocket handling, exemptions).
         app.add_middleware(GridContextEnvelopeMiddleware, require_auth=require_auth, validators=validators)
         app.add_middleware(AuthMiddleware, validators=validators, require_auth=require_auth)
+        # Added last, so outermost: it counts every HTTP request this process
+        # takes, the ones auth refuses included, which is the load the scaling
+        # signal must see. See aiq_api.inflight.
+        app.add_middleware(InFlightMiddleware, role=self._role.value)
         if self._role is WebRole.CHAT:
             configure_websocket_auth(validators=validators, require_auth=require_auth)
         logger.info(
