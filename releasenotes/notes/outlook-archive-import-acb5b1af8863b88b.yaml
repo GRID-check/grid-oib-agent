@@ -1,0 +1,16 @@
+---
+features:
+  - >
+    You can import an Outlook archive (.pst or .ost, up to 25 GB) into a
+    project's files, and every email becomes a folder with its attachments and a
+    note holding its sender, recipients, date and text. Piloti can then find and
+    cite your correspondence; your administrator switches the import on.
+fixes:
+  - >
+    Scheduled research reports are filed into the project again in organizations
+    whose features are switched on individually; they had been held back.
+operators:
+  - >
+    The Outlook archive import is off by default: set mailImportEnabled (Pulumi)
+    or GRID_MAIL_IMPORT_ENABLED (Compose), or create the mail-import WorkOS
+    flag under enforcement. The backend gains libpff-python and striprtf.
