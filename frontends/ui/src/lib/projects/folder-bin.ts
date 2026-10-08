@@ -47,6 +47,13 @@
  * delete's own steps; then the folders become permanent tombstones with their
  * grants. Who sees what was derived is decided at read time by the folder
  * rule and the organization's setting.
+ *
+ * The Langfuse traces of the conversations a removal touched are the
+ * purger's to erase, never the BFF's: only the purger and the scheduler hold
+ * Langfuse's credentials and may reach it (`deploy/pulumi`, `config.ts` and
+ * `network-policies.ts`). „Endgültig löschen" therefore runs the purge in the
+ * request and, when there are traces owed, hands the row to the purger, whose
+ * own call finds the folder purged and erases them.
  */
 
 import 'server-only'
@@ -84,6 +91,7 @@ import {
   closeBinEntryRestored,
   claimBinEntryNow,
   findActiveBinEntry,
+  handBinEntryToPurger,
   findFolderByIdInOrg,
   findFolderInOrg,
   listEntryFolderIds,
@@ -113,7 +121,6 @@ import {
   replaceRemovedAnswers,
 } from './folder-derived-repository'
 import { buildFolderPath } from './folders'
-import { createConversationTraceEraser } from '../../../workers/langfuse-traces'
 import { findProjectInOrg } from './repository'
 
 /** The machine-readable reason a delete is refused because the folder holds content the person may not delete. */
@@ -599,36 +606,25 @@ export async function purgeBinnedFolder(organizationId: string, folderId: string
   return { status: 'purged', counts, traceConversationIds }
 }
 
-/** Deletes one conversation's Langfuse traces: the client the purger and the scheduler use. */
-export type TraceEraser = (conversationId: string) => Promise<{ configured: boolean; traces: number }>
-
-/**
- * A fresh client per purge run in a request: such purges are rare, and the
- * configuration is read when it is made, so a deployment that adds Langfuse
- * does not keep a client made without it.
- */
-function conversationTraceEraser(): TraceEraser {
-  return createConversationTraceEraser({ env: process.env })
-}
-
-/** Erase the traces of these conversations; a no-op without Langfuse configured. Throws when Langfuse fails. */
-export async function eraseConversationTraces(conversationIds: readonly string[], eraser: TraceEraser = conversationTraceEraser()): Promise<number> {
-  let traces = 0
-  for (const conversationId of conversationIds) traces += (await eraser(conversationId)).traces
-  return traces
-}
-
 /**
  * Run a claimed bin entry's purge in the request and close its queue row; on
  * any failure the row goes back to `pending` and the purger retries it.
+ *
+ * When the removal touched conversations, their Langfuse traces are still
+ * owed, and this pod cannot erase them (see the file comment): the row goes to
+ * the purger instead of being closed, and the purger records how many traces
+ * it erased. Until then `counts.tracesErased` is 0; the folder is purged
+ * either way and gone from the Papierkorb.
  */
 async function purgeClaimedNow(organizationId: string, folderId: string): Promise<FolderPurgeResult> {
   try {
     const result = await purgeBinnedFolder(organizationId, folderId)
-    const tracesErased = await eraseConversationTraces(result.traceConversationIds)
-    const counts = { ...result.counts, tracesErased }
-    await closeBinEntryPurged(organizationId, folderId, { purged: counts })
-    return { ...result, counts }
+    if (result.traceConversationIds.length > 0) {
+      await handBinEntryToPurger(organizationId, folderId, { purged: result.counts })
+    } else {
+      await closeBinEntryPurged(organizationId, folderId, { purged: result.counts })
+    }
+    return result
   } catch (error) {
     await releaseBinEntry(organizationId, folderId, error instanceof Error ? error.message : String(error)).catch(() => undefined)
     throw error

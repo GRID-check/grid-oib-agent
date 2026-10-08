@@ -23,7 +23,7 @@
 
 import postgres from 'postgres'
 import { sql } from 'drizzle-orm'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { restrictedCollectionName } from '@/lib/authz/folder-access-rule'
 
@@ -60,19 +60,6 @@ vi.mock('@/lib/authz/projects', async () => {
   }
 })
 vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn(async () => null) }))
-// The real Langfuse client, with a fetch that reads the CURRENT global, so a
-// test can stand in for Langfuse after the client was created.
-vi.mock('../../../workers/langfuse-traces', async (importOriginal) => {
-  const actual = await importOriginal<{
-    createConversationTraceEraser: (options: { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch }) => unknown
-  }>()
-  return {
-    ...actual,
-    createConversationTraceEraser: (options: { env?: NodeJS.ProcessEnv }) =>
-      actual.createConversationTraceEraser({ ...options, fetchImpl: (input, init) => globalThis.fetch(input, init) }),
-  }
-})
-
 const url = process.env.GRID_TEST_DATABASE_URL
 const STAMP = Date.now()
 const ORG = `org_bin_${STAMP}`
@@ -837,37 +824,26 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
     })
   })
 
-  describe('„Mit dem Ordner entfernen“ when „Endgültig löschen“ runs: everything derived goes, traces included', () => {
-    const langfuse = { observations: [] as Array<{ traceId: string; sessionId: string }>, deleted: [] as string[][] }
+  describe('„Mit dem Ordner entfernen“ when „Endgültig löschen“ runs: everything derived goes, the traces by the purger', () => {
+    const langfuse = vi.fn(async () => Response.json({ data: [], meta: {} }))
 
     beforeEach(async () => {
       await setting.saveDeletedFolderContentPolicy(admin, 'remove', new Request('http://test'))
-      process.env.LANGFUSE_HOST = 'http://langfuse.test'
-      process.env.LANGFUSE_PUBLIC_KEY = 'pk'
-      process.env.LANGFUSE_SECRET_KEY = 'sk' // pragma: allowlist secret (a stub Langfuse)
-      langfuse.observations = [
-        { traceId: 'trace-1', sessionId: CHAT },
-        { traceId: 'trace-2', sessionId: CHAT },
-      ]
-      langfuse.deleted = []
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async (input: string | URL, init?: RequestInit) => {
-          const target = new URL(String(input))
-          if (target.pathname === '/api/public/v2/observations') {
-            const session = target.searchParams.get('sessionId')
-            return Response.json({ data: langfuse.observations.filter((row) => row.sessionId === session), meta: {} })
-          }
-          if (target.pathname === '/api/public/traces' && init?.method === 'DELETE') {
-            langfuse.deleted.push((JSON.parse(String(init.body)) as { traceIds: string[] }).traceIds)
-            return Response.json({})
-          }
-          return new Response('unexpected', { status: 500 })
-        })
-      )
+      // Even a BFF that somehow held Langfuse's keys must not call it: the
+      // deployment gives it neither the keys nor the network path.
+      vi.stubEnv('LANGFUSE_HOST', 'http://langfuse.test')
+      vi.stubEnv('LANGFUSE_PUBLIC_KEY', 'pk')
+      vi.stubEnv('LANGFUSE_SECRET_KEY', 'sk') // pragma: allowlist secret (a stub Langfuse)
+      langfuse.mockClear()
+      vi.stubGlobal('fetch', langfuse)
     })
 
-    it('deletes the notes, replaces the answers, erases the traces, marks the reports, and records ids without content', async () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      vi.unstubAllGlobals()
+    })
+
+    it('deletes the notes, replaces the answers, marks the reports, records ids without content, and hands the traces to the purger', async () => {
       memory.restricted = await insertNote('aus dem Plan', [folder.plaene], null)
       memory.fromChat = await insertNote('im Chat gelernt', null, CHAT)
       memory.unrelated = await insertNote('anderes Projektwissen', null, null)
@@ -889,7 +865,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
 
       const result = await bin.purgeFolderFromBinNow(manager, { projectId, folderId: folder.plaene }, new Request('http://test'))
 
-      expect(result.counts).toMatchObject({ documents: 2, folders: 2, memoryNotes: 2, answers: 1, conversations: 1, reports: 1, tracesErased: 2 })
+      expect(result.counts).toMatchObject({ documents: 2, folders: 2, memoryNotes: 2, answers: 1, conversations: 1, reports: 1, tracesErased: 0 })
       const notes = await inOrg(() => db.execute<{ id: string }>(sql`SELECT id FROM project_memory WHERE organization_id = ${ORG}`))
       expect(ids(notes)).toEqual([memory.unrelated])
       const [answer] = await inOrg(() =>
@@ -899,36 +875,36 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
       expect(Object.keys(answer.metadata)).toEqual(['sourceRemoved'])
       const [other] = await inOrg(() => db.execute<{ content: string }>(sql`SELECT content FROM messages WHERE id = ${message.other}::uuid`))
       expect(other.content).toBe('Allgemein …')
-      expect(langfuse.deleted).toEqual([['trace-1', 'trace-2']])
+      expect(langfuse).not.toHaveBeenCalled()
       // A filed report stays, marked „Quelle gelöscht am …".
       const [kept] = await inOrg(() =>
         db.execute<{ metadata: Record<string, unknown> }>(sql`SELECT metadata FROM documents WHERE id = ${report}::uuid`)
       )
       expect(kept.metadata.sourceDeleted).toMatchObject({ folderId: folder.plaene })
 
+      // The row is the purger's now, due at once, and the folder is gone from the Papierkorb.
       const [record] = await queueRow(folder.plaene)
-      expect(record.status).toBe('purged')
+      expect(record.status).toBe('pending')
+      expect(await claimable()).toContain(folder.plaene)
+      expect((await bin.listFolderBin(manager, projectId)).entries).toEqual([])
       expect(record.requested_by).toBe('user_pl')
       expect(record.payload.derivedRemoval).toMatchObject({
         conversationIds: [CHAT],
         messageIds: [message.cites],
         reportIds: [report],
       })
-      expect(record.payload.purged).toMatchObject({ tracesErased: 2, memoryNotes: 2 })
+      expect(record.payload.purged).toMatchObject({ tracesErased: 0, memoryNotes: 2 })
       // The record holds no content: no answer text, no passage, no file name.
       const proof = JSON.stringify(record.payload)
       for (const content of ['Herr Muster', 'Plan.pdf', 'Archiv.pdf', 'aus dem Plan']) expect(proof).not.toContain(content)
-    })
 
-    it('leaves the row pending for the purger when Langfuse fails, and the retry still names the traces it owes', async () => {
-      vi.stubGlobal('fetch', vi.fn(async () => new Response('down', { status: 503 })))
-      message.cites = await insertAnswer('Plan …', [{ collection: COLLECTION, file_name: 'Plan.pdf' }])
-      await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
-      await expect(bin.purgeFolderFromBinNow(manager, { projectId, folderId: folder.plaene })).rejects.toThrow(/503/)
-      expect((await queueRow(folder.plaene))[0]?.status).toBe('pending')
-      // The purger's retry: the BFF's steps are done, and what is owed is the traces.
-      const retry = await bin.purgeBinnedFolder(ORG, folder.plaene)
-      expect(retry).toMatchObject({ status: 'already-purged', traceConversationIds: [CHAT] })
+      // What the purger's own call is answered: done, with the counts, and the
+      // conversations whose traces it erases with its credentials.
+      await expect(bin.purgeBinnedFolder(ORG, folder.plaene)).resolves.toMatchObject({
+        status: 'already-purged',
+        counts: { documents: 2, memoryNotes: 2 },
+        traceConversationIds: [CHAT],
+      })
     })
   })
 })

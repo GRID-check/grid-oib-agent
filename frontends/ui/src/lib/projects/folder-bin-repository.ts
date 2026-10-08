@@ -420,6 +420,43 @@ export async function releaseBinEntry(organizationId: string, folderId: string, 
   )
 }
 
+/**
+ * Give a claimed bin entry whose purge is done to the purger, for the one step
+ * the BFF does not take: erasing the Langfuse traces of the conversations the
+ * removal touched. The BFF has neither Langfuse's credentials nor a network
+ * path to it (`deploy/pulumi`); the purger has both. Due now and never claimed
+ * (no backoff, the attempt refunded), so the purger takes it on its next tick:
+ * its purge call finds the folder purged and answers with the conversations
+ * whose traces are owed (`purgeBinnedFolder`), and it closes the row.
+ */
+export async function handBinEntryToPurger(
+  organizationId: string,
+  folderId: string,
+  payload: Partial<FolderBinPayload>
+): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(deletionQueue)
+      .set({
+        status: 'pending',
+        purgeAfter: sql`least(${deletionQueue.purgeAfter}, now())`,
+        claimedAt: null,
+        attempts: sql`greatest(${deletionQueue.attempts} - 1, 0)`,
+        lastError: null,
+        payload: sql`coalesce(${deletionQueue.payload}, '{}'::jsonb) || ${JSON.stringify(payload)}::jsonb`,
+      })
+      .where(
+        and(
+          eq(deletionQueue.entityType, 'folder'),
+          eq(deletionQueue.entityId, folderId),
+          eq(deletionQueue.organizationId, organizationId),
+          eq(deletionQueue.status, 'purging')
+        )
+      )
+  )
+}
+
 /** Merge into a live bin entry's payload (the purge records what it removed as it goes). */
 export async function mergeBinEntryPayload(
   organizationId: string,
