@@ -114,6 +114,15 @@ _SWEEP_LIMIT = 500
 #: so adding them never rewrites or rejects an existing row.
 _ADDED_COLUMNS = {"owner": "VARCHAR", "dispatch_key": "VARCHAR", "collection_name": "VARCHAR"}
 
+#: Fills ``collection_name`` on the rows that predate the column, from the status
+#: they hold. JSON extraction is the one thing the two backings spell differently.
+_BACKFILL_COLLECTION_NAME = {
+    True: "UPDATE ingest_jobs SET collection_name = CAST(status_json AS json) ->> 'collection_name' "
+    "WHERE collection_name IS NULL",
+    False: "UPDATE ingest_jobs SET collection_name = json_extract(status_json, '$.collection_name') "
+    "WHERE collection_name IS NULL",
+}
+
 
 def _db_url() -> str | None:
     url = os.environ.get("AIQ_SUMMARY_DB") or os.environ.get("NAT_JOB_STORE_DB_URL")
@@ -164,6 +173,10 @@ def _add_missing_columns(conn, url: str) -> None:
         # name/column_type come from the module constants above; no user input.
         # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         conn.execute(text(f"ALTER TABLE ingest_jobs ADD COLUMN {guard}{name} {column_type}"))
+    if "collection_name" not in present:
+        # A constant statement picked by dialect; nothing here is user input.
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+        conn.execute(text(_BACKFILL_COLLECTION_NAME[_is_postgres(url)]))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ingest_jobs_dispatch_key ON ingest_jobs (dispatch_key)"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ingest_jobs_collection_name ON ingest_jobs (collection_name)"))
 

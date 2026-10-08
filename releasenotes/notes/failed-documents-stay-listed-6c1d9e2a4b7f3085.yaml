@@ -2,5 +2,5 @@
 fixes:
   - >
     A document that failed to index, or that is still being read, now stays in
-    the project file list with its status. Documents that failed before this
-    update drop off the list.
+    the project file list with its status, so it is no longer mistaken for a
+    file that was never uploaded.
