@@ -9,8 +9,9 @@
  * the work: which kind does what, and the progress a slice leaves behind in the
  * job's payload.
  *
- * WHAT COSTS AN ATTEMPT. Only a clean shutdown is free: a drain, or a claim over
- * its lane's cap, gives the job back WITHOUT spending an attempt. Everything
+ * WHAT COSTS AN ATTEMPT. Only a clean give-back is free: a drain, a claim over
+ * its lane's cap, or a long claim yielding its slot (`runClaim`) gives the job
+ * back WITHOUT spending an attempt. Everything
  * else spends one and the job waits out a backoff before its next: a handler
  * that threw, a slice that timed out, a BFF that answered 5xx or not at all. A
  * job that always times out, or always takes the BFF down, is therefore dead
@@ -51,6 +52,7 @@ const { databaseOutage, describeTransportError, describeFailedResponse, isTransi
  * @property {number} staleSeconds  a claim silent this long is claimed again
  * @property {number} maxAttempts   a job is claimed at most this many times
  * @property {number} perLaneCap    most live claims one organization may hold; 0 is no cap
+ * @property {number} yieldAfterMs  a claim running this long gives its slot back after its next slice; 0 never
  * @property {number} reapEveryMs   how often exhausted claims are marked dead
  * @property {number} transientBackoffMs  wait after the BFF was briefly unavailable
  * @property {number} retryBackoffSeconds  wait before a failed job's next attempt (doubles per attempt)
@@ -74,6 +76,7 @@ const { databaseOutage, describeTransportError, describeFailedResponse, isTransi
  * @property {import('../failure-streak').FailureStreak} streak
  * @property {Pick<Console, 'log' | 'warn' | 'error'>} [log]
  * @property {(ms: number) => Promise<void>} [sleep]
+ * @property {() => number} [now]
  */
 
 /** @param {number} ms */
@@ -119,6 +122,7 @@ function createRunner(config, deps) {
   const { sql, queue, runSlice, streak } = deps
   const log = deps.log ?? console
   const sleep = deps.sleep ?? defaultSleep
+  const now = deps.now ?? Date.now
   const options = { staleSeconds: config.staleSeconds, maxAttempts: config.maxAttempts, perLaneCap: config.perLaneCap }
 
   let stopping = false
@@ -149,13 +153,22 @@ function createRunner(config, deps) {
   }
 
   /**
-   * Run one claimed job to its end, a slice at a time.
+   * Run one claimed job a slice at a time, to its end or until it has held the
+   * slot for `yieldAfterMs`.
+   *
+   * A job that runs for hours (an archive import) would otherwise keep its slot
+   * for all of them, and two such jobs on a replica of two slots would hold
+   * every other organization's work back until they finished. So a long claim
+   * is given back between slices, WITHOUT spending an attempt, exactly as a
+   * drain gives it back, and the fair claim (`../job-queue.js`) decides who
+   * runs next. With nothing else queued, the same job is claimed again at once.
    *
    * @param {Claim} claim
    * @param {string} worker
    */
   async function runClaim(claim, worker) {
     const held = { claim, worker, lost: false }
+    const claimedAt = now()
     inFlight.set(claim.jobId, held)
     const stopHeartbeat = startHeartbeat(held)
     try {
@@ -167,6 +180,9 @@ function createRunner(config, deps) {
         // The slice's progress is what the next worker resumes from, so a
         // claim that cannot save it has been lost and must stop here.
         if (!(await queue.saveProgress(sql, claim.jobId, worker, outcome.payload))) held.lost = true
+        else if (config.yieldAfterMs > 0 && now() - claimedAt >= config.yieldAfterMs) {
+          return await giveBack(held, 'yielding its slot to the queue')
+        }
       }
     } finally {
       stopHeartbeat()

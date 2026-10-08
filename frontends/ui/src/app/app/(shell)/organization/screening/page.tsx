@@ -1,6 +1,6 @@
 /**
  * Organization → sensitive data. The lists every upload is screened against
- * before any model reads it (ADR-0085).
+ * before any model reads it (ADR-0086).
  *
  * The chrome, the back link and the section nav live in the shared `layout.tsx`;
  * this page only names its section and renders it.

@@ -129,7 +129,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'model_config_version' }],
     metadata: { ...MODEL_GROUP_METADATA, reset: 'boolean', rollback: 'boolean' },
   },
-  // Upload screening (ADR-0085). Its own action rather than
+  // Upload screening (ADR-0086). Its own action rather than
   // `org.settings.updated`, because "who widened what may be uploaded" has to
   // be answerable on its own. Counts, not the lists: a term list can name
   // what an office considers sensitive, which is itself sensitive.
@@ -266,13 +266,13 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     metadata: { projectId: 'string', filename: 'string', fileSize: 'number' },
   },
   // A file the name gate would have excluded, uploaded anyway because its
-  // uploader released it in the upload dialog (ADR-0085): the Bauvertrag in a
+  // uploader released it in the upload dialog (ADR-0086): the Bauvertrag in a
   // folder called „Verträge". The terms say which rule was overridden.
   'document.screening_overridden': {
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', terms: 'string' },
   },
-  // A quarantined document a reviewer released for indexing (ADR-0085). The
+  // A quarantined document a reviewer released for indexing (ADR-0086). The
   // reasons are the content gate's verdict as stored on the row.
   'document.quarantine_released': {
     targets: [{ type: 'document' }],
