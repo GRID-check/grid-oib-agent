@@ -47,7 +47,7 @@ describe('RunKillSwitch', () => {
         jobsKilled: 2,
         jobsAlreadyFinished: 1,
         runsClosed: 4,
-        failures: [{ id: 'job-9', error: 'dask unreachable' }],
+        failures: [{ id: 'job-9', error: 'worker unreachable' }],
         truncated: false,
       }),
     )

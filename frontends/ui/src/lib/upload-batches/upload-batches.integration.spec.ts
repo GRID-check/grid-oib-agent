@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * Upload batches and the quarantine release, against a REAL Postgres
- * (ADR-0083, migrations 0107 and 0108), through the restricted runtime role:
+ * (ADR-0085, migrations 0108 and 0109), through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/upload-batches/upload-batches.integration.spec.ts
@@ -12,7 +12,7 @@
  * completes ONCE however often it is settled (the inbox item it triggers must
  * go out once), another organization cannot see it, and a release takes only
  * for the exact bytes the reviewer saw. And the content gate's decisions
- * (migration 0117): a status write lands only on the dispatch it resolved,
+ * (migration 0118): a status write lands only on the dispatch it resolved,
  * records one decision per dispatch, and the decision stays owed to the audit
  * trail, outliving its document, until it is marked once.
  */

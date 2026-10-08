@@ -64,24 +64,24 @@ def _require_admin_token_strict(x_admin_token: str | None = Header(default=None)
 
 
 def _corpus_tarball() -> Path:
-    """Every PDF the sync would ingest, flat under its basename, as a .tar.gz in a temp file.
+    """Every PDF in the corpus, flat under its basename, as a .tar.gz in a temp file.
 
-    ``discover_pdfs`` is the set the agent indexes (the shipped corpus plus
-    uploads, exclusions applied), so a consumer that ingests this tarball
-    indexes what production indexes. PDFs are already compressed; level 1
-    spends no time on a gain that is not there.
+    The corpus table is the set the agent indexes, so a consumer that ingests
+    this tarball indexes what production indexes. Each file is fetched into this
+    replica's cache on the way if it is not there yet. PDFs are already
+    compressed; level 1 spends no time on a gain that is not there.
     """
-    from aiq_agent import oib_sync
+    from aiq_agent import corpus_store
 
     handle = tempfile.NamedTemporaryFile(prefix="oib-corpus-", suffix=".tar.gz", delete=False)
     handle.close()
     path = Path(handle.name)
     try:
-        # `discover_pdfs` keeps a symlink to a PDF (``is_file`` follows it);
-        # the archive must carry the bytes the sync reads, not the link.
-        with tarfile.open(path, "w:gz", compresslevel=1, dereference=True) as archive:
-            for pdf in oib_sync.discover_pdfs():
-                archive.add(pdf, arcname=pdf.name)
+        with tarfile.open(path, "w:gz", compresslevel=1) as archive:
+            for name in sorted(corpus_store.list_files()):
+                pdf = corpus_store.ensure_local(name)
+                if pdf is not None:  # deleted since the listing
+                    archive.add(pdf, arcname=name)
     except BaseException:
         # The response's cleanup is only attached once this returns; a failed
         # build would otherwise leave a partial copy of the corpus on disk.
@@ -105,7 +105,7 @@ class _TemporaryFileResponse(FileResponse):
             Path(self.path).unlink(missing_ok=True)
 
 
-def _run_ingestion() -> tuple[int, int]:
+def _run_ingestion():
     # Import here to avoid heavy imports at module load time.
     from aiq_agent.oib_sync import sync
 
@@ -127,86 +127,21 @@ def _sanitize_pdf_name(raw: str | None) -> str:
     return name
 
 
-def _persist_upload(name: str, content: bytes) -> Path:
-    """Write an uploaded PDF into the writable uploads dir and return its path.
+def _store_upload(name: str, content: bytes, doc_class: str | None) -> None:
+    """Store an uploaded PDF in the shared corpus and queue its ingestion (``oib_sync.store_and_request``).
 
-    Write-then-ingest ordering: the file is durably on disk (under the persistent
-    data volume) BEFORE the route responds, so an upload is never lost even if
-    background ingestion is slow to start or the process restarts — the next
-    ``sync()`` picks it up. A same-named upload overwrites the existing file
-    (the admin's way to replace a document).
+    Write-then-ingest ordering: the file is durably stored BEFORE the route
+    responds, so an upload is never lost even if ingestion is slow to start or the
+    process restarts — the next sync cycle queues it if this call could not. A
+    same-named upload replaces the existing file (the admin's way to replace a
+    document). The ingestion is a job on the ingest queue, run by whoever claims
+    it; nothing is ingested here. A store that refuses the object raises, and
+    the route answers with an error rather than a pending job that would never
+    find its file; so does a queue that cannot take the job.
     """
     from aiq_agent import oib_sync
 
-    oib_sync.OIB_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    target = oib_sync.OIB_UPLOADS_DIR / name
-    target.write_bytes(content)
-    # (Re)uploading a document is an explicit "I want this in the corpus", so lift
-    # any persistent exclusion left behind by a prior delete of the same basename.
-    # Without this, discover_pdfs() and the /v1/oib/status panel keep filtering the
-    # freshly uploaded file out (it stays on the exclusion list), so the upload
-    # succeeds and indexes but never reappears in the UI.
-    oib_sync.unexclude_document(name)
-    return target
-
-
-def _ingest_and_classify(target: Path, doc_class: str) -> None:
-    """Background job: ingest an already-persisted PDF, then persist its doc_class.
-
-    Runs on the shared executor, where it can overlap with another member or a
-    corpus sync; oib_sync's per-basename lock keeps same-file work serialized.
-    Ingestion creates the summary row, so the ``doc_class`` UPDATE is
-    applied only after a SUCCESS terminal state. Fully self-contained: it owns
-    the same failed-file cleanup guarantee the blocking route had — a source that
-    raises before reaching a terminal state is unlinked so no half-ingested file
-    lingers (a terminal FAILED is left on disk for the next sync to retry).
-    """
-    from aiq_agent import oib_sync
-    from aiq_agent.knowledge.factory import set_document_doc_class
-    from aiq_agent.knowledge.schema import FileStatus
-
-    name = target.name
-    try:
-        terminal = oib_sync.ingest_single(target)
-    except Exception:
-        target.unlink(missing_ok=True)
-        logger.exception("Background ingestion crashed for %s; removed the source file", name)
-        return
-
-    if terminal == FileStatus.SUCCESS:
-        try:
-            updated = set_document_doc_class(oib_sync.COLLECTION_NAME, name, doc_class)
-            if not updated:
-                logger.warning("No summary row to stamp doc_class for %s after ingest", name)
-        except Exception:
-            logger.exception("Failed to persist doc_class=%s for %s after ingest", doc_class, name)
-        _seed_display_title(name)
-    elif terminal == FileStatus.FAILED:
-        logger.error("Background ingestion of %s failed; it will be retried by the next sync", name)
-    else:
-        logger.error("Background ingestion of %s timed out; it will be retried by the next sync", name)
-
-
-def _seed_display_title(name: str) -> None:
-    """Stamp the DEFAULT user-facing display title for a freshly ingested doc.
-
-    Derives the name from the OIB filename convention and stores it as the
-    starting value an admin can later override. A filename that yields no
-    confident default (a non-OIB upload) is left without a title, so its own
-    filename remains its name. Never raises — a seed failure is cosmetic.
-    """
-    from aiq_agent import oib_sync
-    from aiq_agent.common.norm_registry import guess_display_title
-    from aiq_agent.knowledge.factory import set_document_display_title
-
-    default_title = guess_display_title(name)
-    if not default_title:
-        return
-    try:
-        if not set_document_display_title(oib_sync.COLLECTION_NAME, name, default_title):
-            logger.warning("No metadata row to seed display_title for %s after ingest", name)
-    except Exception:
-        logger.exception("Failed to seed display_title for %s after ingest", name)
+    oib_sync.store_and_request(name, content, doc_class)
 
 
 def _is_safe_zip_member(member_name: str, base_dir: Path) -> bool:
@@ -281,39 +216,43 @@ def _extract_zip_pdfs(content: bytes) -> tuple[list[tuple[str, bytes]], list[tup
     return accepted, rejected
 
 
-def _remove_document(name: str) -> str | None:
+def _queue_reingest(names: list[str]) -> tuple[list[str], list[str]]:
+    """``(queued, unknown)``: each known name made to need ingestion again, with a job queued for it."""
+    from aiq_agent import oib_sync
+
+    queued: list[str] = []
+    unknown: list[str] = []
+    for name in names:
+        if not oib_sync.mark_for_reingest(name):
+            unknown.append(name)
+            continue
+        oib_sync.request_ingestion(name)
+        queued.append(name)
+    return queued, unknown
+
+
+def _remove_document(name: str) -> bool:
     from aiq_agent import oib_sync
 
     return oib_sync.remove_document(name)
 
 
 def _resolve_corpus_pdf(file_name: str) -> Path | None:
-    """Locate a corpus PDF by basename (uploads take precedence over the repo
-    corpus, mirroring discovery), refusing any path component in the input."""
-    from aiq_agent import oib_sync
+    """The local path of a corpus PDF by name, fetched into this replica's cache if needed.
 
-    name = Path(file_name).name
-    if not name or name != file_name or not name.lower().endswith(".pdf"):
-        return None
-    upload = oib_sync.OIB_UPLOADS_DIR / name
-    if upload.is_file():
-        return upload
-    if oib_sync.OIB_DIR.exists():
-        # rglob because the repo corpus may organize PDFs in subdirectories.
-        for candidate in oib_sync.OIB_DIR.rglob(name):
-            if candidate.is_file():
-                return candidate
-    return None
+    Refuses any path component in the input; ``None`` when the corpus does not
+    list the file. A listed file that cannot be fetched raises ``CorpusStoreError``.
+    """
+    from aiq_agent import corpus_store
+
+    return corpus_store.ensure_local(file_name)
 
 
 def add_oib_routes(router: APIRouter) -> None:
-    # 2 workers so a ZIP upload's blocking per-member polls (ingest_single
-    # waits for the adapter's ingest pool) don't fully serialize: members
-    # overlap by one. The adapter's AIQ_INGEST_MAX_WORKERS pool remains the
-    # real concurrency gate. Overlapping tasks are safe because oib_sync
-    # serializes what must not interleave: a per-basename lock around every
-    # corpus mutation (ingest, delete, exclude, and each file of a sync), a
-    # single-flight lock on sync(), and the registry/exclusion RMW locks.
+    # 2 workers for the admin's blocking calls (a sync cycle, a delete). Ingestion is not
+    # here: it is a job on the ingest queue, claimed by the ingest workers. Overlapping calls
+    # are safe because oib_sync serializes what must not interleave: a per-file lock, across
+    # replicas, around queueing a job and deleting a file, and one sync cycle at a time.
     executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="oib-sync-")
 
     @router.post(
@@ -326,12 +265,15 @@ def add_oib_routes(router: APIRouter) -> None:
         _: None = Depends(_require_admin_token),
     ) -> OibSyncResponse:
         try:
-            added, total = await asyncio.get_event_loop().run_in_executor(executor, _run_ingestion)
+            result = await asyncio.get_event_loop().run_in_executor(executor, _run_ingestion)
             return OibSyncResponse(
                 status="ok",
-                message=f"OIB sync triggered: {added} file(s) added/changed, {total} total tracked",
-                files_added=added,
-                files_total=total,
+                message=(
+                    f"OIB sync finished: {result.enqueued} file(s) queued for ingestion, "
+                    f"{result.ingested_recorded} finished, {result.failed} failed, {result.total} total tracked"
+                ),
+                files_added=result.enqueued,
+                files_total=result.total,
             )
         except Exception as e:
             logger.exception("OIB sync failed")
@@ -345,8 +287,12 @@ def add_oib_routes(router: APIRouter) -> None:
     async def export_oib_corpus(
         _: None = Depends(_require_admin_token_strict),
     ) -> FileResponse:
-        """The corpus a CI run ingests (the answer-suite workflow), built on a
-        worker thread into a temp file that is removed once the response ends."""
+        """The corpus as a tarball, built on a worker thread into a temp file
+        that is removed once the response ends.
+
+        Its only consumer was the answer-suite CI workflow, which has been
+        removed; the export stays until someone decides to delete it.
+        """
         path = await asyncio.to_thread(_corpus_tarball)
         return _TemporaryFileResponse(path, media_type="application/gzip", filename="oib-corpus.tar.gz")
 
@@ -357,11 +303,11 @@ def add_oib_routes(router: APIRouter) -> None:
         summary="Report exactly which OIB documents the knowledge base has indexed",
     )
     async def get_oib_status() -> OibKnowledgeStatus:
-        """Merged per-file view of the OIB corpus (disk vs. registry vs. index).
+        """Merged per-file view of the OIB corpus (corpus table vs. index).
 
         Read-only and unprivileged on purpose: it powers the user-facing
         knowledge-base transparency panel. Runs on a worker thread because it
-        hashes corpus files and queries the vector store.
+        queries the database and the vector store.
         """
         try:
             return await asyncio.to_thread(_compute_status)
@@ -377,9 +323,16 @@ def add_oib_routes(router: APIRouter) -> None:
     async def get_oib_document(file_name: str) -> FileResponse:
         """Serves the original PDF so the UI can show cited sources in a
         viewer. Read-only and unprivileged, like /v1/oib/status. 404s when the
-        deployment ships no sources (pre-baked index seed).
+        corpus does not list the file, 503 when it lists it but the object
+        store cannot serve it right now.
         """
-        path = await asyncio.to_thread(_resolve_corpus_pdf, file_name)
+        from aiq_agent.corpus_store import CorpusStoreError
+
+        try:
+            path = await asyncio.to_thread(_resolve_corpus_pdf, file_name)
+        except CorpusStoreError as e:
+            logger.exception("Could not fetch %s for the PDF viewer", file_name)
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)) from e
         if path is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source PDF not available")
         return FileResponse(
@@ -408,12 +361,12 @@ def add_oib_routes(router: APIRouter) -> None:
         ),
         _: None = Depends(_require_admin_token),
     ) -> OibDocumentUploadResponse:
-        """Platform-admin upload. Persists the file(s) to the writable uploads dir
-        and kicks ingestion on the shared background executor WITHOUT blocking on
-        the terminal state — the route returns promptly (status ``pending``) and
-        the UI tracks progress via ``/v1/oib/status``. Write-then-ingest ordering
-        guarantees a file is durably on disk before the response, so an upload is
-        never lost.
+        """Platform-admin upload. Stores the file(s) in the shared corpus (object
+        store plus table row) and queues each file's ingestion on the durable ingest
+        queue, where the ingest workers claim it — the route returns promptly (status
+        ``pending``) and the UI tracks progress via ``/v1/oib/status``.
+        Write-then-ingest ordering guarantees a file is durably stored before the
+        response, so an upload is never lost.
 
         - A single PDF: ``doc_class`` is validated (400 if off-vocabulary) or
           guessed from the filename, and stamped onto the summary row once
@@ -447,20 +400,17 @@ def add_oib_routes(router: APIRouter) -> None:
         resolved_class = doc_class if doc_class is not None else guess_doc_class(name)
 
         try:
-            target = await asyncio.to_thread(_persist_upload, name, content)
+            await asyncio.to_thread(_store_upload, name, content, resolved_class)
         except Exception as e:
-            logger.exception("Failed to persist OIB upload %s", name)
+            logger.exception("Failed to store or queue OIB upload %s", name)
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
-
-        # Kick ingestion on the shared executor WITHOUT awaiting the terminal state.
-        executor.submit(_ingest_and_classify, target, resolved_class)
 
         return OibDocumentUploadResponse(
             status="pending",
             kind="file",
             file_name=name,
             doc_class=resolved_class,
-            message=f"{name} accepted; ingestion started (poll /v1/oib/status)",
+            message=f"{name} accepted; ingestion queued (poll /v1/oib/status)",
         )
 
     async def _handle_zip_upload(content: bytes) -> OibDocumentUploadResponse:
@@ -477,12 +427,13 @@ def add_oib_routes(router: APIRouter) -> None:
         for base_name, data in accepted:
             member_class = guess_doc_class(base_name)
             try:
-                target = await asyncio.to_thread(_persist_upload, base_name, data)
+                await asyncio.to_thread(_store_upload, base_name, data, member_class)
             except Exception:
-                logger.exception("Failed to persist ZIP member %s", base_name)
-                members.append(OibUploadedMember(file_name=base_name, status="rejected", reason="could not persist"))
+                logger.exception("Failed to store or queue ZIP member %s", base_name)
+                members.append(
+                    OibUploadedMember(file_name=base_name, status="rejected", reason="could not store or queue it")
+                )
                 continue
-            executor.submit(_ingest_and_classify, target, member_class)
             members.append(OibUploadedMember(file_name=base_name, status="pending", doc_class=member_class))
 
         for name, reason in rejected:
@@ -496,39 +447,36 @@ def add_oib_routes(router: APIRouter) -> None:
             accepted=accepted_count,
             rejected=rejected_count,
             members=members,
-            message=f"{accepted_count} PDF(s) accepted; ingestion started. {rejected_count} rejected/skipped.",
+            message=f"{accepted_count} PDF(s) accepted; ingestion queued. {rejected_count} rejected/skipped.",
         )
 
     @router.delete(
         "/v1/admin/oib/documents/{file_name}",
         response_model=OibDocumentDeleteResponse,
         tags=["oib"],
-        summary="Remove any document from the OIB base corpus",
+        summary="Delete a document from the OIB base corpus",
     )
     async def delete_oib_document(
         file_name: str,
         _: None = Depends(_require_admin_token),
     ) -> OibDocumentDeleteResponse:
-        """Removes a base-corpus document from what the RAG grounds on.
-
-        - An admin-uploaded document is deleted outright (source file, registry
-          entry and indexed chunks) → ``mode="deleted"``.
-        - A repo-shipped document (which lives in git and cannot be physically
-          deleted) is removed from the active corpus via a persistent exclusion:
-          its chunks are dropped and a sync never re-ingests it → ``mode="excluded"``.
+        """Deletes a base-corpus document: its indexed chunks, summary registration,
+        corpus row, stored object and this replica's cached copy. A name only the
+        index still knows (chunks a half-finished delete left behind) is cleared
+        the same way.
         """
         try:
-            mode = await asyncio.get_event_loop().run_in_executor(executor, _remove_document, file_name)
+            removed = await asyncio.get_event_loop().run_in_executor(executor, _remove_document, file_name)
         except Exception as e:
             logger.exception("OIB document delete failed")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
 
-        if mode is None:
+        if not removed:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="No base-corpus document with that name",
             )
-        return OibDocumentDeleteResponse(success=True, file_name=Path(file_name).name, mode=mode)
+        return OibDocumentDeleteResponse(success=True, file_name=file_name)
 
     @router.post(
         "/v1/admin/oib/reingest",
@@ -549,29 +497,20 @@ def add_oib_routes(router: APIRouter) -> None:
         ingest. Until now the only remedy was a corpus-wide re-ingest of all 39 PDFs
         including VLM captioning.
 
-        Queued, not awaited, exactly like an upload: each document takes up to ten minutes
-        and the executor runs two at a time. The caller polls `/v1/oib/status`, where a
-        queued document reads PENDING until its chunks are rebuilt.
+        Queued, not awaited, exactly like an upload: each document is a job on the ingest
+        queue, which takes up to ten minutes once a worker claims it. The caller polls
+        `/v1/oib/status`, where a queued document reads PENDING until its chunks are rebuilt.
 
         Unknown names are REPORTED rather than failing the request — a selection of twenty
         documents should not be lost because one was deleted in another tab.
         """
-        from aiq_agent import oib_sync
 
         names = list(dict.fromkeys(request.file_names))
         try:
-            resolved = await asyncio.get_event_loop().run_in_executor(
-                executor, lambda: [(name, oib_sync.mark_for_reingest(name)) for name in names]
-            )
+            queued, unknown = await asyncio.get_event_loop().run_in_executor(executor, _queue_reingest, names)
         except Exception as e:
             logger.exception("OIB re-ingest could not be queued")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
-
-        queued = [name for name, path in resolved if path is not None]
-        unknown = [name for name, path in resolved if path is None]
-        for _name, path in resolved:
-            if path is not None:
-                executor.submit(oib_sync.ingest_single, path)
 
         if not queued:
             return OibReingestResponse(

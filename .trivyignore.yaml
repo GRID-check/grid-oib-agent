@@ -7,16 +7,12 @@
 # `expired_at`, so the gate turns red again instead of silently ignoring a CVE
 # forever if upstream never ships the fix.
 #
-# The Langfuse block below (ADR-0044) is deliberately boxed SHORTER than the
-# first aspire-dashboard entry. That one waits on Microsoft shipping a
-# transitive dependency bump; these wait on Langfuse running `npm update` on a
-# project that publishes several releases a week. If they are still here in
-# October, the assumption behind them was wrong and they deserve re-arguing
-# rather than extending.
-#
-# The SECOND aspire-dashboard entry (CVE-2026-62901) is boxed shorter than all
-# of them, for the opposite reason: it waits on Microsoft rebuilding an image
-# on a runtime that already exists, which is a matter of days.
+# Bump the pin before you box anything. On 2026-10-07 moving Langfuse 4.48.0
+# -> 4.54.0 and aspire-dashboard 13.4.2 -> 13.5.2 cleared 34 of this file's 37
+# vulnerability entries, verified by scanning the new digests with this file
+# empty rather than by reading release notes. Two more went because they had
+# already expired: the ClickHouse (OpenSSL) and err2issue (PCRE2) lines of a
+# one-day staging exception that ran out on 2026-10-05.
 #
 # The OpenTelemetry Collector block is boxed SHORT because contrib ships every
 # ~two weeks, and that is exactly how it emptied: the pin moved 0.157.0 ->
@@ -24,97 +20,6 @@
 # the last (amqp091-go). It is empty now; keep it that way by bumping the pin,
 # not by boxing what a newer tag already fixes.
 vulnerabilities:
-  # Operator-approved, 24-hour risk acceptance to unblock staging for PR #841.
-  # These are known vulnerabilities, not findings assessed as non-exploitable.
-  - id: CVE-2026-84782
-    expired_at: &staging_exception_expiry 2026-10-05T20:44:07Z
-    statement: &staging_exception_statement |
-      Operator requested a one-day exception on 2026-10-04 for the exact
-      findings in PR #841's image scan, run 37232587542, to unblock staging.
-      Risk is explicitly accepted, not resolved or declared non-exploitable.
-      Affected pinned images are ClickHouse (OpenSSL), Langfuse web and worker
-      (axios), Langfuse web (piscina), and err2issue (PCRE2).
-      Upgrade the affected image digests before expiry. Do not renew this
-      exception automatically; Trivy resumes reporting these findings at expiry.
-  - id: CVE-2026-101898
-    expired_at: *staging_exception_expiry
-    statement: *staging_exception_statement
-  - id: CVE-2026-101901
-    expired_at: *staging_exception_expiry
-    statement: *staging_exception_statement
-  - id: CVE-2026-101903
-    expired_at: *staging_exception_expiry
-    statement: *staging_exception_statement
-  - id: CVE-2026-101905
-    expired_at: *staging_exception_expiry
-    statement: *staging_exception_statement
-  - id: CVE-2026-101906
-    expired_at: *staging_exception_expiry
-    statement: *staging_exception_statement
-  - id: CVE-2026-101907
-    expired_at: *staging_exception_expiry
-    statement: *staging_exception_statement
-  - id: CVE-2026-101909
-    expired_at: *staging_exception_expiry
-    statement: *staging_exception_statement
-  - id: CVE-2026-102992
-    expired_at: *staging_exception_expiry
-    statement: *staging_exception_statement
-  - id: CVE-2026-103111
-    expired_at: *staging_exception_expiry
-    statement: *staging_exception_statement
-
-  - id: CVE-2026-49451
-    expired_at: 2026-10-31
-    statement: |
-      Microsoft.OpenApi 3.5.3 is a transitive dependency INSIDE Microsoft's
-      aspire-dashboard image (app/Aspire.Dashboard.deps.json), not a package
-      this repo references. The fix is 3.5.4/2.7.5, which no published
-      aspire-dashboard tag ships yet (13.4.2 is the newest), so no digest bump
-      can currently clear it.
-
-      Not exploitable in this deployment: the CVE is a denial of service while
-      PARSING an OpenAPI document with circular schema references, and the
-      dashboard only PRODUCES its own OpenAPI description; it never parses
-      caller-supplied OpenAPI documents. Its only reachable surfaces are the
-      OIDC claim-gated UI on :18888 and the API-key-gated OTLP + telemetry
-      endpoints, which stay cluster-internal.
-
-      Drop this entry as soon as an aspire-dashboard image ships
-      Microsoft.OpenApi >= 3.5.4, and re-check it on every dashboard bump.
-
-  - id: CVE-2026-62901
-    expired_at: 2026-09-12
-    statement: |
-      System.Net.WebSockets in the .NET 8.0.29 runtime bundled INSIDE Microsoft's
-      aspire-dashboard image — an unchecked loop condition (CWE-606) that lets a
-      network peer exhaust CPU. Fixed in 8.0.30, published 2026-08-11, the same
-      day as the advisory; no aspire-dashboard tag ships it yet, so no digest
-      bump can currently clear it.
-
-      This one is boxed SHORT and its reachability is weaker than the entry
-      above, so read the limit rather than the conclusion. The dashboard UI is
-      Blazor Server, which means it really does terminate WebSockets — this is
-      not an unreachable code path, and it would be dishonest to file it beside
-      the OpenAPI entry as if it were.
-
-      What makes it acceptable for a month is the network position, not the
-      code. CVSS scores it AV:N/PR:N because the runtime defect needs no
-      credentials; reaching the socket in THIS deployment does. The dashboard
-      is cluster-internal, its :18888 UI sits behind the Envoy Gateway's OIDC
-      flow gated on `platform:organizations:view`, and its OTLP receiver takes
-      only otel-collector under a NetworkPolicy. So the attacker has to be an
-      authenticated platform operator or already inside the cluster — and the
-      prize is a denial of service against the observability dashboard, which
-      degrades our ability to WATCH the product rather than the product itself.
-      Availability-only: C:N/I:N.
-
-      Drop this entry the moment an aspire-dashboard image ships a .NET 8.0.30
-      runtime — that is the real fix and it is expected within days, which is
-      why the box is one month and not the usual two. If it is still here in
-      September, the assumption that Microsoft rebuilds promptly was wrong and
-      this deserves re-arguing, not extending.
-
   # ── OpenTelemetry Collector contrib (ADR-0029) ────────────────────────────
   #
   # Thirteen entries used to sit here: the Go 1.26.5 standard library (eight),
@@ -144,162 +49,18 @@ vulnerabilities:
   # CVE-2026-774xx advisories published against 1.12.0 on 2026-09-23. OSV over
   # the full build info shows no module with an advisory 0.160.0 lacked.
 
-  # ── Go stdlib inside `usr/bin/migrate` in the Langfuse images (ADR-0044) ──
-  #
-  # These eight WERE boxed as a property of otelcol-contrib. That was only
-  # ever half true, and deleting them with the collector bump proved it: a
-  # trivy ignore matches on the CVE id across every scanned image, and the
-  # same Go 1.26.5 standard library is compiled into `usr/bin/migrate` — the
-  # golang-migrate binary in the Langfuse web and worker images. The
-  # collector no longer needs them; that binary still does. Restored under
-  # the name of what actually carries them, so the next person who clears
-  # one image does not silently unbox another.
-  #
-  # Shared reachability: `migrate` is a one-shot schema migration, run at
-  # container start against the ClickHouse and Postgres URLs the deployment
-  # configures. It opens no listener, parses no attacker-supplied document,
-  # and is not running while the service serves traffic. Every entry below
-  # is a parser or transport defect reachable only by feeding the process
-  # hostile input, which nothing in this deployment does.
-  #
-  # Drop the whole block when the Langfuse images ship a `migrate` built
-  # with Go >= 1.26.6 — verify with `go version -m usr/bin/migrate` on the
-  # candidate image rather than trusting the tag.
-
-  - id: CVE-2026-33818
-    expired_at: 2026-10-09
-    statement: |
-      encoding/asn1 — denial of service via excessive recursion in Unmarshal.
-      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
-      Langfuse web and worker images; not a package this repo references.
-
-      Not exploitable here: the binary runs schema migrations at startup
-      against our own databases and exits. It accepts no network input and
-      is not alive while the service is.
-
-      Drop as soon as a Langfuse image ships `migrate` built with
-      Go >= 1.26.6.
-
-  - id: CVE-2026-39821
-    expired_at: 2026-10-09
-    statement: |
-      golang.org/x/net/idna — privilege escalation via incorrect Punycode
-      label processing.
-      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
-      Langfuse web and worker images; not a package this repo references.
-
-      Not exploitable here: the binary runs schema migrations at startup
-      against our own databases and exits. It accepts no network input and
-      is not alive while the service is.
-
-      Drop as soon as a Langfuse image ships `migrate` built with
-      Go >= 1.26.6.
-
-  - id: CVE-2026-46600
-    expired_at: 2026-10-09
-    statement: |
-      golang.org/x/net/dns/dnsmessage — denial of service parsing an invalid
-      SVCB or HTTPS record.
-      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
-      Langfuse web and worker images; not a package this repo references.
-
-      Not exploitable here: the binary runs schema migrations at startup
-      against our own databases and exits. It accepts no network input and
-      is not alive while the service is.
-
-      Drop as soon as a Langfuse image ships `migrate` built with
-      Go >= 1.26.6.
-
-  - id: CVE-2026-56853
-    expired_at: 2026-10-09
-    statement: |
-      net/http — ReadHeaderTimeout not applied on the unencrypted HTTP/2
-      check.
-      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
-      Langfuse web and worker images; not a package this repo references.
-
-      Not exploitable here: the binary runs schema migrations at startup
-      against our own databases and exits. It accepts no network input and
-      is not alive while the service is.
-
-      Drop as soon as a Langfuse image ships `migrate` built with
-      Go >= 1.26.6.
-
-  - id: CVE-2026-56858
-    expired_at: 2026-10-09
-    statement: |
-      html/template — incorrect JavaScript regexp context tracking.
-      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
-      Langfuse web and worker images; not a package this repo references.
-
-      Not exploitable here: the binary runs schema migrations at startup
-      against our own databases and exits. It accepts no network input and
-      is not alive while the service is.
-
-      Drop as soon as a Langfuse image ships `migrate` built with
-      Go >= 1.26.6.
-
-  - id: CVE-2026-56859
-    expired_at: 2026-10-09
-    statement: |
-      encoding/xml — denial of service via unbounded recursion during decode.
-      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
-      Langfuse web and worker images; not a package this repo references.
-
-      Not exploitable here: the binary runs schema migrations at startup
-      against our own databases and exits. It accepts no network input and
-      is not alive while the service is.
-
-      Drop as soon as a Langfuse image ships `migrate` built with
-      Go >= 1.26.6.
-
-  - id: CVE-2026-56860
-    expired_at: 2026-10-09
-    statement: |
-      net/url — quadratic complexity in resolvePath.
-      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
-      Langfuse web and worker images; not a package this repo references.
-
-      Not exploitable here: the binary runs schema migrations at startup
-      against our own databases and exits. It accepts no network input and
-      is not alive while the service is.
-
-      Drop as soon as a Langfuse image ships `migrate` built with
-      Go >= 1.26.6.
-
-  - id: CVE-2026-56862
-    expired_at: 2026-10-09
-    statement: |
-      crypto/tls — denial of service via indefinite post-handshake messages.
-      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
-      Langfuse web and worker images; not a package this repo references.
-
-      Not exploitable here: the binary runs schema migrations at startup
-      against our own databases and exits. It accepts no network input and
-      is not alive while the service is.
-
-      Drop as soon as a Langfuse image ships `migrate` built with
-      Go >= 1.26.6.
   # ── Langfuse web/worker images (ADR-0044) ─────────────────────────────────
   #
-  # All seven are npm dependencies bundled INSIDE ghcr.io/langfuse/langfuse, not
-  # packages this repo references — nothing here appears in any lockfile we own.
-  # Every one is marked `fixed` upstream, so `--ignore-unfixed` does not skip
-  # them, and no digest bump can currently clear them. The `3` tag HAS moved
-  # since these were written — it now resolves to 3.225.2 (built 2026-08-11) —
-  # but 3.225.2 ships byte-identical versions of all seven packages
-  # (fast-uri 3.1.4, js-yaml 3.15.0/4.3.0, nanoid 3.3.12, sharp 0.34.5,
-  # undici 7.28.0, deepmerge-ts 7.1.5), so moving the pin buys nothing.
-  # Verified against the registry and against langfuse's own `pnpm-lock.yaml`
-  # at the revision each image is labelled with, not assumed.
+  # An npm dependency bundled INSIDE ghcr.io/langfuse/langfuse and
+  # langfuse-worker, not a package this repo references. Langfuse 4.54.0
+  # cleared the rest of this block (fast-uri, js-yaml, nanoid, sharp, undici,
+  # next, nodemailer, and the Go standard library in `usr/bin/migrate`); the
+  # entry below is the one it did not.
   #
-  # Shared context for every entry below, so it is not repeated seven times:
-  # the Langfuse UI is reachable only through the Envoy Gateway behind an OIDC
-  # flow gated on `platform:organizations:view`, and its OTLP receiver is
-  # cluster-internal with a NetworkPolicy admitting only otel-collector. There
-  # is no unauthenticated surface. The `langfuseEnabled` flag now defaults to
-  # true, but the capability half of the gate still needs the tier's
-  # credentials, so a stack that has not adopted it runs none of this code.
+  # Shared context: the Langfuse UI is reachable only through the Envoy
+  # Gateway behind an OIDC flow gated on `platform:organizations:view`, and its
+  # OTLP receiver is cluster-internal with a NetworkPolicy admitting only
+  # otel-collector. There is no unauthenticated surface.
 
   - id: CVE-2026-40345
     expired_at: 2026-10-09
@@ -332,274 +93,60 @@ vulnerabilities:
 
       Drop as soon as a Langfuse image ships deepmerge-ts >= 8.0.0.
 
-  - id: CVE-2026-18446
-    expired_at: 2026-10-09
-    statement: |
-      fast-uri 3.1.4 — host confusion via a backslash in the URI authority.
-      Bundled inside ghcr.io/langfuse/langfuse as ajv's URI parser (JSON Schema
-      `$ref` and `format: uri` handling).
-
-      Not exploitable here, with the honest limit stated: the defect matters
-      when a parsed URI's authority is then used for a security decision — an
-      allowlist check, an outbound fetch target. Langfuse uses ajv for request
-      and schema validation, not for routing or origin decisions, so there is
-      no path in this deployment from a caller-supplied URI through fast-uri to
-      such a decision. This is "no reachable path found", not "the library is
-      unreachable" — it is on the request path, behind the edge permission gate.
-
-      Drop as soon as a Langfuse image ships fast-uri >= 3.1.6, which also
-      clears the four entries that follow.
-
-  # Four more fast-uri 3.1.4 advisories, published 2026-09-02 (the develop
-  # scan at 16:21Z that day was green; the one at 21:06Z was not, with no
-  # image change between them). Same package, same image, same ajv call
-  # path as CVE-2026-18446 above, and the same honest limit: ajv validates
-  # request bodies and schemas in Langfuse, it does not decide where a
-  # request goes, so the SSRF and host-confusion outcomes these describe
-  # need a URI-to-destination step this deployment does not have. The fix
-  # for all four is fast-uri 3.1.6; the pinned digest ships 3.1.4 and, per
-  # the block comment above, so did every published tag when the pin was
-  # last re-verified. Boxed to the same date so the whole fast-uri question
-  # is re-argued in one pass.
-
-  - id: CVE-2026-75899
-    expired_at: 2026-10-09
-    statement: |
-      fast-uri 3.1.4 — server-side request forgery via repeated hostname
-      percent-decoding. Bundled inside ghcr.io/langfuse/langfuse as ajv's
-      URI parser. Not exploitable here: no caller-supplied URI parsed by ajv
-      becomes an outbound fetch target in Langfuse; see CVE-2026-18446 above.
-
-      Drop as soon as a Langfuse image ships fast-uri >= 3.1.6.
-
-  - id: CVE-2026-75931
-    expired_at: 2026-10-09
-    statement: |
-      fast-uri 3.1.4 — host confusion via skipped IDN canonicalization. Same
-      image, same call path and same limit as CVE-2026-18446 above: the
-      parsed authority is not used for an allowlist or routing decision.
-
-      Drop as soon as a Langfuse image ships fast-uri >= 3.1.6.
-
-  - id: CVE-2026-75975
-    expired_at: 2026-10-09
-    statement: |
-      fast-uri 3.1.4 — server-side request forgery via malformed IPv6
-      normalization. Same image, same call path and same limit as
-      CVE-2026-18446 above.
-
-      Drop as soon as a Langfuse image ships fast-uri >= 3.1.6.
-
-  - id: CVE-2026-76172
-    expired_at: 2026-10-09
-    statement: |
-      fast-uri 3.1.4 — URI parsing flaw enabling server-side request forgery
-      and redirects. Same image, same call path and same limit as
-      CVE-2026-18446 above.
-
-      Drop as soon as a Langfuse image ships fast-uri >= 3.1.6.
-
-  # A fifth fast-uri 3.1.4 advisory, first seen 2026-09-29 on #764 (its
-  # deploy/ changes run the image scan). Fixed only in 3.1.7, so it outlives
-  # the others unless the Langfuse image moves past it; same box date so the
-  # whole fast-uri question is still re-argued in one pass.
-  - id: CVE-2026-84292
-    expired_at: 2026-10-09
-    statement: |
-      fast-uri 3.1.4 — authority injection via an unvalidated port. Same
-      image, same call path and same limit as CVE-2026-18446 above: the
-      parsed authority is not used for a routing or allowlist decision.
-
-      Drop as soon as a Langfuse image ships fast-uri >= 3.1.7.
-
-  - id: GHSA-5p4m-2wfm-xmqj
-    expired_at: 2026-10-09
-    statement: |
-      js-yaml 3.15.0 / 4.3.0 — quadratic CPU consumption resolving `!!omap`
-      (CVE-2026-59870). A denial of service that requires the attacker to
-      supply the YAML being parsed.
-
-      Not exploitable here: nothing on the trace-ingestion path parses YAML.
-      The collector delivers OTLP/protobuf, the public API takes JSON, and the
-      UI submits JSON. js-yaml arrives transitively (config/OpenAPI tooling) and
-      is not fed caller-controlled documents in this deployment.
-
-      Drop as soon as a Langfuse image ships js-yaml >= 4.3.1 / >= 3.15.1.
-
-  - id: CVE-2026-67213
-    expired_at: 2026-10-09
-    statement: |
-      nanoid 3.3.12 — infinite loop in `customAlphabet`.
-
-      Not exploitable here, and this one is structural rather than
-      circumstantial: the loop requires attacker control of the ALPHABET
-      argument, which is a compile-time constant at every call site. A caller
-      cannot reach it by any input, authenticated or not.
-
-      Drop as soon as a Langfuse image ships nanoid >= 3.3.17.
-
-  - id: CVE-2026-67214
-    expired_at: 2026-10-09
-    statement: |
-      nanoid 3.3.12 — second infinite loop in the same `customAlphabet` surface
-      as CVE-2026-67213. Same reasoning: the alphabet is a constant at every
-      call site, so no input reaches the defect.
-
-      Drop as soon as a Langfuse image ships nanoid >= 3.3.16 / >= 5.1.16.
-
-  - id: GHSA-f88m-g3jw-g9cj
-    expired_at: 2026-10-09
-    statement: |
-      sharp 0.34.5 — inherited libvips CVEs (CVE-2026-33327, CVE-2026-33328,
-      CVE-2026-35590, CVE-2026-35591), reached by decoding a malicious image.
-
-      Not exploitable here, and this is the strongest of the six because it
-      rests on our own configuration rather than on upstream's internals:
-      `deploy/pulumi/src/platform/langfuse.ts` deliberately does NOT set
-      `LANGFUSE_S3_MEDIA_UPLOAD_*`, and Langfuse enables media capture only by
-      the presence of that bucket. Nothing in this deployment feeds an image to
-      sharp, because nothing can upload one.
-
-      THIS ENTRY MUST BE RE-ARGUED IF MEDIA UPLOAD IS EVER CONFIGURED. That
-      change would turn an unreachable decoder into a caller-reachable one.
-
-      Drop as soon as a Langfuse image ships sharp >= 0.35.0.
-
-  - id: CVE-2026-13697
-    expired_at: 2026-10-09
-    statement: |
-      undici 7.28.0 — information disclosure and denial of service via
-      malformed `Cache-Control` directives in a RESPONSE.
-
-      Not exploitable here: the defect needs a response from an origin the
-      attacker controls. Langfuse's outbound HTTP in this deployment goes to
-      infrastructure named in its own config (Postgres, ClickHouse, the
-      SeaweedFS S3 endpoint, the WorkOS issuer) — all operator-configured. The
-      one surface that could reach an arbitrary origin is a BYOK model endpoint
-      entered in the playground, which is itself a platform-operator action
-      behind the permission gate.
-
-      Drop as soon as a Langfuse image ships undici >= 7.29.0.
-
-  # ── Langfuse app dependencies, second wave (ADR-0044) ─────────────────────
+  # ── Findings published after the 2026-10-07 bump (scan of PR #853) ────────
   #
-  # Five advisories published after the seven boxed above, in the same two
-  # digest-pinned images. They were red on develop before the branch that boxes
-  # them existed — security.yml only runs on push to develop and weekly, so
-  # develop is green on a scan that predates these.
-  #
-  # No digest bump clears them. Checked the way the block above demands, by
-  # reading the newest release's node_modules rather than its release notes:
-  # langfuse 3.225.7 (newest 3.x tag) still ships next@16.2.11,
-  # js-yaml@3.15.0 + @4.3.0 and nodemailer@9.0.3 — the same versions the pin
-  # carries.
-  #
-  # Two are CRITICAL, and both are structurally inapplicable to THIS image for
-  # reasons read out of the image itself — app/web/.next/required-server-files.json
-  # in ghcr.io/langfuse/langfuse@sha256:a343f64… (3.225.11, linux/amd64; re-read on the bump):
-  #
-  #   images.formats        = ["image/webp"]   -- AVIF is not enabled
-  #   images.domains        = []               -- no remote image source
-  #   images.remotePatterns = []               -- no remote image source
-  #
-  # Standing bound on all five: Langfuse is the LLM-observability plane, not
-  # the product. Losing it costs tracing, not chat — ADR-0044's whole point is
-  # that the agent degrades rather than fails when Langfuse is gone.
+  # These landed in the trivy DB after the last green develop scan and turned
+  # the job red on every PR that touches an image. Boxed SHORT: each one names
+  # a fixed version, so the right exit is a pin bump, not a renewal.
 
-  - id: CVE-2026-75604
-    expired_at: 2026-10-09
+  - id: CVE-2026-84782
+    expired_at: 2026-10-22
     statement: |
-      next 16.2.11 — CRITICAL, unauthenticated RCE via unescaped backslashes in
-      incremental-cache paths. Fixed in 15.5.24 / 16.3.3.
+      OpenSSL 3.0.2 (libssl3/openssl) in clickhouse/clickhouse-server —
+      information disclosure via DTLS handshake retransmission. ClickHouse
+      speaks TLS over TCP only and never negotiates DTLS, and the server is
+      reachable solely by Langfuse inside the cluster. Fixed in Ubuntu's
+      3.0.2-0ubuntu1.30; drop when the ClickHouse pin carries it.
 
-      Not exploitable here, structurally: the defect is Windows-only. It is
-      backslash handling in `escape-path-delimiters.ts` and
-      `file-system-cache.ts`, reached by encoded WINDOWS path separators
-      traversing outside the cache root, and the advisory scopes itself to
-      "Windows-hosted servers". These are linux/amd64 Node images on a Linux
-      Kubernetes cluster, where a backslash is an ordinary filename character
-      and no traversal occurs.
-
-      Drop when a Langfuse image ships next >= 16.3.3.
-
-  - id: GHSA-2xp9-vwfh-vxw4
-    expired_at: 2026-10-09
+  - id: CVE-2026-104850
+    expired_at: 2026-10-22
     statement: |
-      next 16.2.11 — CRITICAL, unauthenticated RCE in the Image Optimization
-      API: libheif (via sharp) can be driven to code execution when an AVIF
-      file is optimized. Fixed in 15.5.24 / 16.3.3.
+      @modelcontextprotocol/sdk 1.29.0 bundled inside langfuse and
+      langfuse-worker — the SDK's OAuth CLIENT can send credentials to an
+      authorization server it should not trust. The defect lives in the
+      client-side OAuth discovery flow; Langfuse here makes no outbound MCP
+      OAuth connections, and its UI sits behind the Envoy Gateway's OIDC flow.
+      Fixed in 1.31.0; drop when a Langfuse image ships it.
 
-      Two independent reasons it cannot fire on this image, both read out of
-      its own build manifest rather than assumed:
-
-      1. AVIF is not enabled. `images.formats` is ["image/webp"]; AVIF
-         optimization is opt-in and this build did not opt in. Upstream Next
-         additionally disabled AVIF optimization outright in response to this
-         advisory ("until a fix has propagated").
-      2. The optimizer has no remote input. `images.domains` and
-         `images.remotePatterns` are both empty, so `/_next/image` optimizes
-         only assets shipped inside the image. An attacker cannot hand it a
-         file at all, hostile AVIF or otherwise.
-
-      Re-verify BOTH when bumping the pin — an upstream build that enables AVIF
-      or adds a remotePattern removes the argument, and neither shows up as a
-      version change:
-        tar -xzOf <layer> app/web/.next/required-server-files.json \
-          | jq .config.images
-
-      Drop when a Langfuse image ships next >= 16.3.3.
-
-  - id: GHSA-rgj7-g3m4-5g8c
-    expired_at: 2026-10-09
-    statement: |
-      sharp 0.34.5 — HIGH, the libheif defects behind the Next advisory above.
-      Fixed in 0.35.4 (libheif 1.23.2). "Those processing untrusted input are
-      affected."
-
-      Not exploitable here for the same verified reason: in this image sharp is
-      reached through Next's image optimizer, which accepts no remote source
-      (`images.domains` and `images.remotePatterns` are both empty) and does
-      not emit AVIF (`images.formats` is ["image/webp"]). Langfuse exposes no
-      other image-processing surface — it ingests JSON traces, not media.
-
-      Drop when a Langfuse image ships sharp >= 0.35.4.
-
-  - id: GHSA-2x7j-588g-ccc2
-    expired_at: 2026-10-09
-    statement: |
-      nodemailer 9.0.3 — HIGH, quadratic time in `addressparser`: a multi-MB
-      address list blocks the event loop for minutes. Availability only
-      (C:N/I:N/A:H). Fixed in 9.1.0.
-
-      Bounded here rather than absent, and worth saying plainly: the parser is
-      reached through Langfuse's own mail paths (project invitations, alert
-      delivery), whose addresses come from a signed-in member of a project. The
-      surface is authenticated, so this is a tenant member able to stall their
-      own Langfuse instance, not an anonymous internet DoS — and the blast
-      radius is the observability plane, which the agent survives without.
-
-      Drop when a Langfuse image ships nodemailer >= 9.1.0.
-
-  - id: CVE-2026-84375
-    expired_at: 2026-10-09
-    statement: |
-      js-yaml 3.15.0 and 4.3.0 — HIGH, `maxTotalMergeKeys` does not count empty
-      merge sources, so a small document can burn CPU. Availability only
-      (C:N/I:N/A:H). Fixed in 3.15.2 / 4.3.2.
-
-      Requires parsing UNTRUSTED YAML. Langfuse's ingestion surface is JSON —
-      the OTLP receiver and the public API take no YAML — and js-yaml arrives
-      here as a transitive dependency of build and config tooling rather than
-      of a request path.
-
-      Stated as the WEAKEST argument in this block: it rests on no request
-      handler reaching a YAML parse, which is a reading of the upstream tree
-      rather than a property of our own configuration, the way the two
-      `images.*` facts above are. If one of these five is to be re-argued
-      rather than renewed, it is this one.
-
-      Drop when a Langfuse image ships js-yaml >= 4.3.2 (and >= 3.15.2 for the
-      3.x copy).
+  # err2issue (debian 12.15 base). Perl and PCRE2 come from the Debian base
+  # image; the Python service never shells out to perl and takes no
+  # attacker-supplied regular expressions. The fix is a rebuild on a current
+  # bookworm base (perl 5.36.0-7+deb12u4, pcre2 10.42-1+deb12u2) and a pin
+  # bump; drop the block then.
+  - id: CVE-2026-103111
+    expired_at: 2026-10-22
+    statement: libpcre2-8-0 in the err2issue base image; see the block note.
+  - id: CVE-2026-13221
+    expired_at: 2026-10-22
+    statement: perl-base in the err2issue base image; see the block note.
+  - id: CVE-2026-42496
+    expired_at: 2026-10-22
+    statement: perl Archive::Tar in the err2issue base image; see the block note.
+  - id: CVE-2026-42497
+    expired_at: 2026-10-22
+    statement: perl Archive::Tar in the err2issue base image; see the block note.
+  - id: CVE-2026-8376
+    expired_at: 2026-10-22
+    statement: perl-base (32-bit builds only) in the err2issue base image; see the block note.
+  - id: CVE-2026-48962
+    expired_at: 2026-10-22
+    statement: perl IO::Compress in the err2issue base image; see the block note.
+  - id: CVE-2026-57432
+    expired_at: 2026-10-22
+    statement: perl pack/unpack in the err2issue base image; see the block note.
+  - id: CVE-2026-57433
+    expired_at: 2026-10-22
+    statement: perl Storable in the err2issue base image; see the block note.
 
 secrets:
   - id: gcp-service-account
@@ -619,9 +166,26 @@ secrets:
       Scoped to `**/web/.next/**` rather than suppressing the rule outright, so
       a genuinely leaked service-account key anywhere else in any scanned image
       still fails the gate. Only the Langfuse web image has that path among the
-      five pinned images.
+      pinned images.
 
       The `expired_at` here is a RE-VERIFICATION date, not a wait-for-a-fix
       date: upstream will never "fix" placeholder text in a form. It is boxed so
       that someone confirms, after a Langfuse bump, that these matches are still
       the template and not something that has become real.
+
+  - id: private-key
+    paths:
+      - "**/ssl-cert-snakeoil.key"
+    expired_at: 2026-11-30
+    statement: |
+      ghcr.io/cloudnative-pg/pgbouncer ships Debian's ssl-cert "snakeoil" key,
+      generated at image build by the ssl-cert package that the PGDG pgbouncer
+      package pulls in. It is a self-signed placeholder, identical for every
+      pull of the digest, and nothing here uses it: the CloudNativePG Pooler
+      mounts its own server and client certificates from the cluster's
+      secrets and points pgbouncer's TLS settings at them.
+
+      Scoped to that one filename so a real private key anywhere else in any
+      scanned image still fails the gate. RE-VERIFICATION date, like the
+      Langfuse entry above: confirm after a pgbouncer bump that the match is
+      still the snakeoil file.

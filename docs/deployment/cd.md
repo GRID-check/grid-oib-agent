@@ -30,6 +30,18 @@ all three images.
   newer push (the concurrency group killed its CI) and the newer tip brings its
   own chain. A merge train used to paint that third case red, which is how a
   real deploy failure stops being noticed.
+- **Reused PR results**: CI and Security still run on every push and still
+  have to conclude `success` for the gate, but a push whose tree a green
+  `pull_request` run already tested skips every job and passes in seconds. A
+  squash merge onto a `develop` that did not move since the PR's last run is
+  exactly that case. The PR run's final gate (`CI OK`, `Security OK`) uploads a
+  marker artifact named `ci-green-<tree>` / `security-green-<tree>` (7 days);
+  on push, `changes` runs
+  [`ci/reuse_green_run.py`](../../ci/reuse_green_run.py), which counts a
+  marker only when its run completed with `success`, was a `pull_request` run
+  of the same workflow from this repository (not a fork), and ran a workflow
+  file identical to the pushed commit's. Anything else, an API error included,
+  runs everything as before. The weekly Security scan never reuses.
 
 ## One-time setup
 
@@ -230,8 +242,9 @@ avoids them looks odd without the reason, so don't "simplify" it back.
   setting `ALLOW_SKIP=1` only hides the missing check.
 
 - **A shallow checkout with `persist-credentials: false` cannot diff a push.**
-  `paths-filter` compares against `github.event.before`; that commit is absent
-  from a depth-1 clone, so the action falls back to `git fetch` — which has no
+  `paths-filter` compares against the diff base (the PR's base on a pull request,
+  `github.event.before` on a push); that commit is absent from a depth-1 clone,
+  so the action falls back to `git fetch` — which has no
   token and dies with `could not read Username for 'https://github.com'`. The
   "Detect changes" job therefore uses `fetch-depth: 0`: the base commit is
   already local, so nothing is fetched and no credential is persisted. Applies

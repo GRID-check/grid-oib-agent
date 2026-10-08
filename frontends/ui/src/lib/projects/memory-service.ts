@@ -49,7 +49,7 @@ export { PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS }
 
 
 /**
- * A restriction in its stored form (ADR-0085, migration 0111): the source
+ * A restriction in its stored form (ADR-0087, migration 0112): the source
  * folder ids, trimmed, lower-cased, de-duplicated, sorted, and null when nothing
  * is left. Two items carry the same restriction exactly when these arrays are
  * equal, which is what consolidation and the unique index key on.
@@ -276,7 +276,7 @@ async function findSemanticNearMatch(
     values.scope === 'organization'
       ? sql`m.scope = 'organization' and m.organization_id = ${values.organizationId} and m.project_id is null`
       : sql`m.scope = 'project' and m.project_id = ${values.projectId as string}`
-  // Same restriction only, as in `consolidationScope` (ADR-0084).
+  // Same restriction only, as in `consolidationScope` (ADR-0086).
   const restriction = canonicalRestriction(values.restrictedFolderIds)
   const restricted = restriction
     ? sql`m.restricted_folder_ids = ${arrayLiteral(restriction)}::uuid[]`
@@ -396,7 +396,7 @@ export async function listProjectMemory(
     organizationId?: string
     sourceConversationId?: string
     /**
-     * Every folder the reader may read now (ADR-0085, `readableFolderIdsFor`).
+     * Every folder the reader may read now (ADR-0087, `readableFolderIdsFor`).
      * Empty — the default — lists open memory only.
      */
     readableFolderIds?: readonly string[]
@@ -430,7 +430,7 @@ export async function listProjectMemory(
     conditions.push(eq(projectMemory.status, 'active'))
   }
   // A restricted item is absent for a reader not cleared for all of it — not
-  // greyed out, not counted (ADR-0084).
+  // greyed out, not counted (ADR-0086).
   conditions.push(memoryVisibleTo(options.readableFolderIds))
   if (options.sourceConversationId) {
     // Used by the chat "Piloti noted N" chip to show only what this turn recorded.
@@ -502,7 +502,7 @@ async function refreshDuplicate(
   return updated ?? duplicate
 }
 
-/** A note's text as it may be stored, embedded and served: masked (ADR-0083). */
+/** A note's text as it may be stored, embedded and served: masked (ADR-0085). */
 async function maskedNote(organizationId: string, content: string): Promise<string> {
   return (await maskChatText(organizationId, content)).text
 }
@@ -520,7 +520,7 @@ export async function createProjectMemoryItem(
     throw new BadRequestError('Restricted memory is project memory')
   }
   // Masked against the office's „Sensible Daten" policy before anything reads
-  // it (ADR-0083): a note rides every turn's digest and goes to the embedder
+  // it (ADR-0085): a note rides every turn's digest and goes to the embedder
   // below, so it must not hold what the chat composer would have removed. Here
   // rather than at each caller, so the memory panel, the organization route,
   // the agent's `remember` tool and reflection are all masked by construction.
@@ -643,7 +643,7 @@ export async function createProjectMemoryItem(
 
 /**
  * The source folders of the restricted collections a writer names (the agent
- * knows collections, the store keeps folders, ADR-0085). A name that is not a
+ * knows collections, the store keeps folders, ADR-0087). A name that is not a
  * CURRENT restricted collection of the project is refused: stored, such an item
  * would be served to nobody; refused, the writer learns the truth. A 400, not a
  * silent open write.
@@ -710,7 +710,7 @@ export async function createProjectMemoryItemForProject(
     .limit(1)
   if (!project) return null
   // The agent's door has no session, so the seam in `requireProjectAccess`
-  // never sees it: a closed project's memory is read-only here too (ADR-0086).
+  // never sees it: a closed project's memory is read-only here too (ADR-0088).
   if (isProjectClosed(project)) throw projectClosedError()
 
   const { restrictedCollections, ...rest } = values
@@ -743,7 +743,7 @@ export async function createProjectMemoryItemForProject(
 export type MemoryOwner =
   | {
       projectId: string
-      /** The project's organization: whose „Sensible Daten" policy masks an edit (ADR-0083). */
+      /** The project's organization: whose „Sensible Daten" policy masks an edit (ADR-0085). */
       organizationId: string
       readableFolderIds: readonly string[]
     }
@@ -800,7 +800,7 @@ export type DigestItem = Pick<
   ProjectMemoryItem,
   'scope' | 'kind' | 'content' | 'confidence' | 'verification'
 > & {
-  /** Set on a restricted item, which the line then marks `restricted` (ADR-0084). */
+  /** Set on a restricted item, which the line then marks `restricted` (ADR-0086). */
   restrictedFolderIds?: readonly string[] | null
 }
 
@@ -875,7 +875,7 @@ export interface MemoryDigestOptions {
    */
   query?: string | null
   /**
-   * The folders the turn's asker may read now (ADR-0085): restricted memory is
+   * The folders the turn's asker may read now (ADR-0087): restricted memory is
    * a candidate only when all of its source folders are among them. Empty —
    * the default, and what deep research, scheduled runs, the handshake and
    * every session-less caller get — serves open memory only.
@@ -1228,7 +1228,7 @@ export async function implicateMemoryFromFeedback(input: {
   projectId: string | null
   comment: string
   /**
-   * Every folder the person who voted may read (ADR-0085), as every other
+   * Every folder the person who voted may read (ADR-0087), as every other
    * reader here takes them: a note they cannot see
    * is not one their complaint can be about, and must not lose salience for
    * people who can. Empty: open notes only.

@@ -1010,7 +1010,7 @@ instead. Next phases: a 3D massing card
   never reaches the report the writer produces — the card lands after the
   report, which is where an unaddressed card goes anyway.
 - Async deep-research answers carry cards (generated post-hoc from the final
-  report in the job runner); synchronous inline deep research (no Dask) does
+  report in the job runner); synchronous inline deep research (`use_async_deep_research` off) does
   not run the post-hoc pass yet, though it inherits the chat turn's registry
   and so does deliver emitted cards.
 - **An async deep-research answer therefore carries no model card**, because

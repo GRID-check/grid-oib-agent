@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Dev preview for Organisation → Personen & Zugriff → Eigene Rollen (ADR-0084).
+ * Dev preview for Organisation → Personen & Zugriff → Eigene Rollen (ADR-0086).
  * Renders the REAL section with fixtures and no backend.
  *
  * The editor is a User Admin: they may manage roles and hold the Archiv and
@@ -13,7 +13,7 @@
  * applies create, edit and delete to an in-memory list, so the round trip can
  * be tried. Deleting „Projektleitung" answers 409 (still assigned).
  *
- * Deleting „Geschäftsführung" (ADR-0085) shows the folders that name it and
+ * Deleting „Geschäftsführung" (ADR-0087) shows the folders that name it and
  * deletes only with the confirmation (`?confirmFolders=1`); `?usage=hidden` is
  * the role manager who may not read those folders, who is told how many.
  *
@@ -174,7 +174,7 @@ function CustomRolesPreview(): JSX.Element {
       <div>
         <h1 className="text-lg font-semibold">Organisation — Eigene Rollen</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          ADR-0084: an office&apos;s own roles in WorkOS, as a User Admin without the models or budgets permission
+          ADR-0086: an office&apos;s own roles in WorkOS, as a User Admin without the models or budgets permission
           sees them.
         </p>
       </div>

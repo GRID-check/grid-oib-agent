@@ -133,7 +133,7 @@ describe('onDocumentsSettled', () => {
     expect(JSON.stringify(emitted)).not.toContain('doc-q')
   })
 
-  it('leaves out a project admin the quarantined document\'s folder is hidden from (ADR-0084)', async () => {
+  it('leaves out a project admin the quarantined document\'s folder is hidden from (ADR-0086)', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(
       makeDocument({ id: 'doc-q', projectId: 'proj-1', folderId: 'f-honorare', createdBy: 'uploader' })
     )

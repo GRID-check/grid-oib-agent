@@ -77,7 +77,7 @@ _opener = urllib.request.build_opener(_NoRedirectHandler)
 class _TurnMemoryLog:
     """The turn's memory ledger: the digest it was shown and what it wrote."""
 
-    #: The project-memory digest the agent was shown this turn (ADR-0084: its
+    #: The project-memory digest the agent was shown this turn (ADR-0086: its
     #: ``restricted`` lines are restricted content in the prompt).
     digest: str | None = None
     writes: list[str] = field(default_factory=list)
@@ -191,7 +191,7 @@ def fetch_memory_digest(
     ``""`` to ask for no review block at all.
 
     ``restricted_collections`` are the restricted-folder collections this
-    interactive chat turn may draw on (ADR-0084, ADR-0085), and ``user_id`` its
+    interactive chat turn may draw on (ADR-0086, ADR-0087), and ``user_id`` its
     signed asker. Their presence makes the turn eligible for restricted memory:
     a note whose source folders the asker may read now is served once the BFF
     has admitted (and recorded) those folders for the conversation against
@@ -328,7 +328,7 @@ def insert_memory_item(
     quote is ignored, and human-curated entries are never retired this way, so
     passing it is always safe — the write still happens either way.
 
-    ``restricted_collections`` makes the item restricted memory (ADR-0084): the
+    ``restricted_collections`` makes the item restricted memory (ADR-0086): the
     restricted-folder collections it depends on, as
     :mod:`aiq_agent.memory.restriction` decided. Project scope only — the BFF
     refuses a restricted organization write, and refuses (400) a collection that

@@ -82,7 +82,7 @@ export async function listProjects(
 
   const visible = await Promise.all(
     projects.map(async (project) => {
-      // Every member reads a closed project (ADR-0086), and so finds it here.
+      // Every member reads a closed project (ADR-0088), and so finds it here.
       if (isProjectClosed(project)) return project
       const allowed = await checkResourcePermission({
         organizationMembershipId: session.organizationMembershipId,
@@ -126,7 +126,7 @@ export async function getProjectsGridData(
   const visible = await listProjects(session, order)
   const visibleIds = visible.map((project) => project.id)
   // A card's number counts what the project's own list shows this viewer, so
-  // the documents in folders they may not read are left out of it (ADR-0085).
+  // the documents in folders they may not read are left out of it (ADR-0087).
   const hiddenFolderIds = (await Promise.all(visibleIds.map((id) => getHiddenFolderIds(session, id)))).flat()
   const [documentCounts, viewerActivity] = await Promise.all([
     countDocumentsByProject(session.organizationId, visibleIds, hiddenFolderIds),
@@ -241,7 +241,7 @@ export async function deleteProject(
   confirmName: string,
   request: Request
 ): Promise<{ purgeAfter: Date }> {
-  // A closed project can still be deleted (ADR-0086): deletion is the GDPR
+  // A closed project can still be deleted (ADR-0088): deletion is the GDPR
   // path, and it is soft, with its grace period, exactly as for an active one.
   await requireProjectAccess(session, projectId, 'project:manage', { evenWhenClosed: true })
 
@@ -285,7 +285,7 @@ export async function deleteProject(
 }
 
 /**
- * Close a project, or reopen it (ADR-0086). `project:manage`, asked as if the
+ * Close a project, or reopen it (ADR-0088). `project:manage`, asked as if the
  * project were active: it is the one write a closed project allows. Closing
  * deletes and purges nothing; it makes the project read-only and opens it to
  * every member of the organization for reading, with every folder that has its
@@ -366,14 +366,14 @@ export type ProjectMemoryItemPatch = Partial<
 >
 
 /**
- * A memory item as the panel receives it. A restricted item (ADR-0084) also
+ * A memory item as the panel receives it. A restricted item (ADR-0086) also
  * names the folders it is restricted to, for the lock; it only reaches a reader
  * already cleared for all of them.
  */
 export type ProjectMemoryListItem = ProjectMemoryItem & {
   restrictedFolderNames?: string[]
   /**
-   * When a folder the note came from was purged (ADR-0085): the panel's
+   * When a folder the note came from was purged (ADR-0087): the panel's
    * „Quelle gelöscht am …". The earliest, when several were.
    */
   sourceDeletedAt?: string
@@ -381,7 +381,7 @@ export type ProjectMemoryListItem = ProjectMemoryItem & {
 
 /**
  * Every folder of the project (tombstones included) this session may read now
- * (ADR-0085): what restricted memory is shown against. A project not found in
+ * (ADR-0087): what restricted memory is shown against. A project not found in
  * the organization reads nothing restricted.
  */
 export async function memoryClearance(
@@ -424,7 +424,7 @@ async function labelRestrictions(
 
 /**
  * List a project's memory items, including the org-wide items that apply to
- * every project in the org. A restricted item (ADR-0085) is listed only for a
+ * every project in the org. A restricted item (ADR-0087) is listed only for a
  * session that may read all of its source folders now; for anyone else it is absent.
  */
 export async function getProjectMemory(

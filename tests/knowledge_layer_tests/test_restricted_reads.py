@@ -1,4 +1,4 @@
-"""The knowledge layer never hands the model a restricted folder's content unadmitted (ADR-0085).
+"""The knowledge layer never hands the model a restricted folder's content unadmitted (ADR-0087).
 
 The product rule: content from a restricted folder reaches the model only in a
 turn whose signed scope holds that collection AND after the admission records

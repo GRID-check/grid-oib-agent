@@ -39,7 +39,7 @@ export const LIVE_REAUTHORIZE_MS = 30_000
  * Prove the caller may watch this conversation. Throws `NotFoundError` when not
  * a party to it (a denial must not confirm the thread exists — same rule as every
  * other conversation read), and `ResourceRightsLostError` (403) for a party who
- * may no longer read a folder it drew on (ADR-0085): the frames are its content,
+ * may no longer read a folder it drew on (ADR-0087): the frames are its content,
  * so the stream is refused, and an open one is closed by
  * {@link stillMayWatchConversation}.
  */

@@ -121,7 +121,7 @@ export async function addResourceAssignment(
     throw new NotFoundError()
   }
   const access = await requireResourceAccess(session, resourceType, resourceId, 'collaborator')
-  // Putting someone on the hook for a document is a change to it (ADR-0085).
+  // Putting someone on the hook for a document is a change to it (ADR-0087).
   await requireResourceWriteAccess(session, resourceType, resourceId)
   if (!subjectUserId.trim()) {
     throw new BadRequestError('A person is required')

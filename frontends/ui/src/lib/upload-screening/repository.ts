@@ -1,6 +1,6 @@
 /**
  * The content gate's quarantine decisions still owed to the audit trail
- * (migration 0117, ADR-0083). Written by `setDocumentReconciledStatus`, in the
+ * (migration 0118, ADR-0085). Written by `setDocumentReconciledStatus`, in the
  * transaction that moves the row; read and marked here.
  */
 

@@ -95,7 +95,7 @@ describe('listProjects', () => {
     expect(JSON.stringify(visible)).not.toContain('Alpha')
   })
 
-  it('lists a closed project for every member, without asking for a grant (ADR-0086)', async () => {
+  it('lists a closed project for every member, without asking for a grant (ADR-0088)', async () => {
     const closed = makeProject({ id: 'proj_closed', name: 'Closed', status: 'closed', closedAt: new Date(), closedBy: 'u' })
     listProjectsInOrg.mockResolvedValue([ALPHA, closed])
     check.mockResolvedValue({ authorized: false })
