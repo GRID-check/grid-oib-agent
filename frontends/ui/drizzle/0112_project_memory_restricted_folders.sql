@@ -1,4 +1,4 @@
--- 0111: a project memory item can be restricted to the folders it was drawn
+-- 0112: a project memory item can be restricted to the folders it was drawn
 -- from (ADR-0086, "Memory from a restricted turn is restricted memory";
 -- ADR-0087).
 --
@@ -7,7 +7,7 @@
 -- row before this migration. Who may be shown a restricted note is decided
 -- when it is read, from each folder's access as it is then
 -- (`effectiveFolderLevel`): a loosened folder opens its notes, a tightened one
--- closes them, a deleted folder's tombstone (0109) keeps answering with the
+-- closes them, a deleted folder's tombstone (0110) keeps answering with the
 -- access it had. Nothing here is rewritten when access changes. Folder ids,
 -- not retrieval collection names, so a note follows its folder's access.
 --

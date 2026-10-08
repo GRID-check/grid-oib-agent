@@ -450,7 +450,7 @@ export async function listOrganizationMemory(
   const conditions = [
     eq(projectMemory.scope, 'organization'),
     eq(projectMemory.organizationId, organizationId),
-    // Organization memory is never restricted (0111 CHECK); said here too, so
+    // Organization memory is never restricted (0112 CHECK); said here too, so
     // this listing stays open-only if that ever changes.
     isNull(projectMemory.restrictedFolderIds),
   ]
@@ -512,7 +512,7 @@ export async function createProjectMemoryItem(
 ): Promise<ProjectMemoryItem> {
   const db = getDb()
   // Stored canonical, so equal restrictions compare equal (consolidation, the
-  // 0111 index). Organization memory reaches every project and is never
+  // 0112 index). Organization memory reaches every project and is never
   // restricted: the caller demotes such a finding to its project first.
   const restrictedFolderIds = canonicalRestriction(input.restrictedFolderIds)
   if (restrictedFolderIds && input.scope !== 'project') {

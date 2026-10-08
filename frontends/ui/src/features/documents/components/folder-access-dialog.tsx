@@ -51,7 +51,7 @@ import type { FolderItem } from './project-file-workspace'
 
 type Mode = 'inherit' | 'custom'
 
-/** At most this many entries; the route and the 0109 trigger hold the same line. */
+/** At most this many entries; the route and the 0110 trigger hold the same line. */
 const MAX_GRANTS = 20
 
 export interface FolderAccessDialogProps {
