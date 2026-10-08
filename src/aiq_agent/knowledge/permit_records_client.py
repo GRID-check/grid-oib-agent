@@ -31,13 +31,16 @@ _HTTP_TIMEOUT_SECONDS = 30.0
 
 def store_permit_record(
     organization_id: str,
-    document_id: str,
+    document_id: str | None,
     collection: str,
     file_name: str,
     model: str,
     record: PermitRecord | None,
 ) -> bool:
     """Replace the document's permit record with ``record``, or delete it when ``None``.
+
+    Without a ``document_id`` the BFF finds the document by ``collection`` and ``file_name``,
+    and the ``documentId`` key is left out of the body rather than sent as null.
 
     True when the BFF answered 200 and, for a record, said it stored it
     (``stored: true``; an unknown document answers ``stored: false``). Deleting
@@ -47,14 +50,16 @@ def store_permit_record(
     token = os.environ.get(_INTERNAL_TOKEN_ENV, "").strip()
     if not base_url or not token:
         return False
+    who = document_id or file_name
     body = {
         "organizationId": organization_id,
-        "documentId": document_id,
         "collection": collection,
         "fileName": file_name,
         "model": model,
         "record": record.to_wire() if record is not None else None,
     }
+    if document_id:
+        body["documentId"] = document_id
     try:
         import httpx
 
@@ -68,7 +73,7 @@ def store_permit_record(
         if response.status_code != 200:
             logger.warning(
                 "permit_records: the BFF refused the record for document %s (HTTP %d)",
-                document_id,
+                who,
                 response.status_code,
             )
             return False
@@ -76,9 +81,9 @@ def store_permit_record(
             return True
         stored = response.json().get("stored")
     except Exception as e:  # noqa: BLE001 - fail-open: an unreachable BFF must not fail an ingest
-        logger.warning("permit_records: could not store the record for document %s (%s)", document_id, type(e).__name__)
+        logger.warning("permit_records: could not store the record for document %s (%s)", who, type(e).__name__)
         return False
     if stored is not True:
-        logger.warning("permit_records: the BFF did not store the record for document %s", document_id)
+        logger.warning("permit_records: the BFF did not store the record for document %s", who)
         return False
     return True

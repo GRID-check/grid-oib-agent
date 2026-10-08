@@ -122,6 +122,16 @@ def test_a_record_is_posted_to_the_contracts_path_with_the_token_and_the_exact_b
     }
 
 
+def test_without_a_document_id_the_body_has_no_documentid_key(bff):
+    stored = store_permit_record("org_1", None, "proj_1", "Baubescheid_Baden_2020.pdf", "fake/model", _record())
+
+    assert stored is True
+    body = json.loads(bff.requests[0]["body"])
+    assert "documentId" not in body
+    assert body["collection"] == "proj_1"
+    assert body["fileName"] == "Baubescheid_Baden_2020.pdf"
+
+
 def test_no_record_posts_null_and_any_200_is_success(bff):
     bff.body = {"stored": False, "requirements": 0}
 

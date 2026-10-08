@@ -302,11 +302,14 @@ def extract_and_store_permit_record(
     llm: Any,
     *,
     organization_id: str,
-    document_id: str,
+    document_id: str | None,
     collection: str,
     file_name: str,
 ) -> bool:
     """Read the document, and hand what it states to the BFF. True when a record landed.
+
+    ``document_id`` is optional: without it the BFF addresses the document by ``collection``
+    and ``file_name`` (see ``permit_records_client.store_permit_record``).
 
     When nothing was extracted the stored record is left alone: ``None`` cannot tell a
     document that is no notice from a model call that failed, and a provider outage
