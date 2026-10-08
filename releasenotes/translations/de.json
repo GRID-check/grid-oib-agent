@@ -1,5 +1,9 @@
 [
   {
+    "en": "A CSV or text file exported from Excel on Windows previews with its €, „ “ and – again.",
+    "de": "Eine unter Windows aus Excel exportierte CSV- oder Textdatei zeigt in der Vorschau €, „ “ und – wieder richtig an."
+  },
+  {
     "en": "A Freigabe ausstehend filter sits beside Unvergeben and Von Piloti and combines with both.",
     "de": "Der Filter „Freigabe ausstehend“ steht neben „Unvergeben“ und „Von Piloti“ und lässt sich mit beiden kombinieren."
   },
