@@ -450,9 +450,12 @@ jobs:
 
   release-note:
     name: Release note
-    # A push has no PR to label, so the job runs on pull requests only. `ci-ok`
-    # treats a skipped job as a pass, and nothing else needs this one.
-    if: github.event_name == 'pull_request'
+    # The note lint runs on every pull request and push, so a push straight to
+    # release/** is still checked; only the require-a-note step reads a PR (its
+    # base and its labels). Skipped like every other job when a push reuses its
+    # pull request's green result for the same tree.
+    needs: changes
+    if: needs.changes.outputs.reused != 'true'
     # Deliberately NOT behind a paths filter, and deliberately not part of the
     # backend tier: this job answers "does this change need a note, and does the
     # note read like something a customer can use?", which is a question about
@@ -480,9 +483,10 @@ jobs:
       # PR. Enforced here rather than trusted, because the note is the first thing
       # that gets dropped under time pressure and the only thing the customer sees.
       # Escape hatch: the `no-release-note` label, for a PR that genuinely changes
-      # nothing a user can observe.
+      # nothing a user can observe. A push has no PR to label, so this step runs
+      # on pull requests only.
       - name: Require a note for user-visible changes
-        if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-release-note') }}
+        if: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'no-release-note') }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}

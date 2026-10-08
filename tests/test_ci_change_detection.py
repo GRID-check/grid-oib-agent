@@ -131,8 +131,22 @@ def test_a_miss_on_push_runs_every_job_the_filter_selects(name, hit):
     outputs = changes_outputs(workflow, event="push", hit=hit, tiers="true")
     skipped = [job for job in checked_jobs(name) if not runs(workflow, job, event="push", outputs=outputs)]
 
-    # Only the PR-only release-note job may skip on push.
-    assert skipped == (["release-note"] if name == "ci.yml" else [])
+    assert skipped == []
+
+
+def test_a_push_lints_its_release_notes_and_only_a_pull_request_must_add_one():
+    # A push straight to release/** has no PR run to have checked its notes, so
+    # the lint steps carry no condition; only the step that reads the PR's base
+    # and labels is limited to pull requests.
+    steps = load("ci.yml")["jobs"]["release-note"]["steps"]
+    lints = [step for step in steps if "lint" in step.get("run", "")]
+    require = next(step for step in steps if "require_release_note.py" in step.get("run", ""))
+
+    assert len(lints) == 2 and all("if" not in step for step in lints)
+    # With no `no-release-note` label, the label check reads False.
+    unlabelled = require["if"].replace("contains(github.event.pull_request.labels.*.name, 'no-release-note')", "False")
+    for event in ("push", "pull_request"):
+        assert bool(evaluate(unlabelled, github={"event_name": event})) is (event == "pull_request")
 
 
 @pytest.mark.parametrize("name", REUSERS)

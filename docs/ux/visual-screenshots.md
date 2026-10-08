@@ -127,7 +127,7 @@ PNG, JPEG, GIF, WebP, SVG, MP4, MOV and WebM all work.
 | `task fe:screenshots` | `agent-browser screenshot` against a running dev server |
 | `visual/registry.mjs` targets | the `/dev/*` routes themselves; no second list to keep in sync |
 | Committed PNGs under `visual/screenshots/` | attachments on the PR |
-| `visual-coverage` workflow | the **Visual evidence** workflow, which reads the PR BODY for the block rather than counting `.png` files in the diff |
+| `visual-coverage` workflow | nothing but a reviewer reading the attachment |
 | `screenshot-preview` workflow and its bot commits | nothing; nobody commits screenshots |
 | `visual/screenshots.manifest.json` staleness gate | nothing. A capture is taken against the branch under review, so it cannot go stale |
 | `task fe:touch-audit` | **nothing.** It imported the registry, so it went with it |

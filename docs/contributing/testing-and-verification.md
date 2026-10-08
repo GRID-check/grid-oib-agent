@@ -314,8 +314,8 @@ its passage; this asks what the reader waited for and what they got.
   the totals), tool calls, reasoning tokens and the largest single-call
   spike (seconds follow reasoning tokens at ~85 tok/s, and the spike is where
   run-to-run variance comes from), `first_text_s` (seconds until the reader
-  saw the answering call's prose), the pipeline's own signals (a flagged quote, a quote patch, the terminal frame
-  replacing the settled text, a gated summary, a dropped mindmap, prose outside
+  saw the answering call's prose), the pipeline's own signals (a flagged
+  quote, a quote patch, the terminal frame replacing the settled text, a gated summary, a dropped mindmap, prose outside
   the envelope, a salvaged envelope, an escalation to deep research), and
   every check. The signals are `_LOG_SIGNALS` in
   [`scripts/turn_census/suite.py`](../../scripts/turn_census/suite.py).
@@ -326,8 +326,8 @@ its passage; this asks what the reader waited for and what they got.
   and re-checks it against the question set as it is now, re-reading each
   run's recording beside it, without paying for the runs again.
 - **Flags:** `--only <id> …` runs the named questions (an unknown id, or
-  one that needs a project, exits 2 and says which). `--runs N` sets runs per question (default 2), `--workers N` how many run
-  at once (default 3). `--override KEY VALUE` sets a config value for every
+  one that needs a project, exits 2 and says which). `--runs N` sets runs per
+  question (default 2), `--workers N` how many run at once (default 3). `--override KEY VALUE` sets a config value for every
   run, in `nat run` dot notation, and repeats. `--all`, `--baseline`,
   `--report` and `--ingest` are described above and below.
 
@@ -352,7 +352,8 @@ It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus in
 first). Every run costs model calls: the core set at two runs is twelve
 turns, about four minutes three at a time.
 
-Run it yourself, before and after, as above, and put the report in the PR. Every run is paid model calls. Its bookkeeping is also covered offline by
+Run it yourself, before and after, as above, and put the report in the PR.
+Its bookkeeping is also covered offline by
 [`tests/test_answer_suite.py`](../../tests/test_answer_suite.py). The
 September 2026 measurements it grew out of are in
 [turns-per-answer-audit-2026-09.md](../architecture/turns-per-answer-audit-2026-09.md).

@@ -42,7 +42,7 @@ installs and runs scripts here and is never the runtime: `--bun` exports
 | Touch `features/a2ui` | Keep the catalog the card types (ADR-0065). It is built from the generated `gridCardSchema`, so a card type is added in `src/aiq_agent/cards/models.py` and reaches the catalog through `npm run generate:cards`; only the frontend's `SURFACE_EXCLUDED_LEAVES` is kept by hand, held to the set `cards/models.py` derives by `test_surface_excluded_parity.py` | `card-schemas` pre-commit hook; a type missing from the catalog is refused by `preflight` and drawn without A2UI |
 | Store a card's answer | On `ChatMessage.cardInteractions` via `useCardDecision` | A reload re-applies the patch; neither endpoint is idempotent |
 | Add user-facing copy | Add the key to every dictionary in `src/i18n/dictionaries` | `key-coverage.spec.ts` |
-| Ship a user-visible surface | A `/dev/<name>` preview route, and a capture of it attached to the PR (`agent-browser` + `before-and-after`). Commit no PNGs | Review; the **Visual evidence** workflow is paused (its check is commented out). [`docs/ux/visual-screenshots.md`](../../docs/ux/visual-screenshots.md) |
+| Ship a user-visible surface | A `/dev/<name>` preview route, and a capture of it attached to the PR (`agent-browser` + `before-and-after`). Commit no PNGs | Review. [`docs/ux/visual-screenshots.md`](../../docs/ux/visual-screenshots.md) |
 
 ## Rules that need more than a row
 
