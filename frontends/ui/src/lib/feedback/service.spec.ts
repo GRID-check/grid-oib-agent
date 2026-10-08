@@ -11,6 +11,7 @@ vi.mock('./repository', () => ({
   upsertAnswerFeedback: vi.fn(),
   deleteAnswerFeedbackForUser: vi.fn(),
   getAnswerFeedbackForUser: vi.fn(async () => null),
+  getAnswerTraceId: vi.fn(async () => null),
   listAnswerFeedbackForConversation: vi.fn(),
   getFeedbackHealth: vi.fn(),
   listFeedbackTurns: vi.fn(),
@@ -24,6 +25,14 @@ vi.mock('@/lib/projects/memory-service', () => ({
 }))
 
 vi.mock('./digest', () => ({ getFeedbackDigest: vi.fn() }))
+
+// The Langfuse client: its own behaviour is pinned in lib/langfuse/*.spec.ts;
+// here only when the service calls it, with what, and that it never waits on it.
+vi.mock('@/lib/langfuse/feedback-score', () => ({
+  feedbackScoringEnabled: vi.fn(() => true),
+  upsertFeedbackScore: vi.fn(async () => true),
+  deleteFeedbackScore: vi.fn(async () => true),
+}))
 
 vi.mock('@/lib/organizations/names', () => ({
   listOrganizationNames: vi.fn(async () => new Map<string, string>()),
@@ -41,6 +50,7 @@ import { PlatformAccessDeniedError, requirePlatformPermission } from '@/lib/auth
 import {
   deleteAnswerFeedbackForUser,
   getAnswerFeedbackForUser,
+  getAnswerTraceId,
   getFeedbackHealth,
   listAnswerFeedbackForConversation,
   listFeedbackTurns,
@@ -49,6 +59,7 @@ import {
 import { implicateMemoryFromFeedback } from '@/lib/projects/memory-service'
 import { getFeedbackDigest } from './digest'
 import { listOrganizationNames } from '@/lib/organizations/names'
+import { deleteFeedbackScore, feedbackScoringEnabled, upsertFeedbackScore } from '@/lib/langfuse/feedback-score'
 import {
   getAnswerFeedbackDigest,
   getAnswerFeedbackExport,
@@ -225,14 +236,90 @@ describe('submitAnswerFeedback', () => {
 
 describe('retractAnswerFeedback', () => {
   it('deletes the vote scoped to the session user + org', async () => {
-    mockDelete.mockResolvedValue(true)
+    mockDelete.mockResolvedValue('fb_1')
     await retractAnswerFeedback(session, 'msg_1')
     expect(mockDelete).toHaveBeenCalledWith('user_1', 'msg_1', 'org_1')
   })
 
   it('is idempotent — retracting a non-existent vote is a success', async () => {
-    mockDelete.mockResolvedValue(false)
+    mockDelete.mockResolvedValue(null)
     await expect(retractAnswerFeedback(session, 'msg_gone')).resolves.toBeUndefined()
+    expect(deleteFeedbackScore).not.toHaveBeenCalled()
+  })
+
+  it("deletes the vote's Langfuse score by the deleted row's id", async () => {
+    mockDelete.mockResolvedValue('fb_1')
+    await retractAnswerFeedback(session, 'msg_1')
+    expect(deleteFeedbackScore).toHaveBeenCalledWith('fb_1')
+  })
+
+  it('does not wait for Langfuse to answer the retraction', async () => {
+    mockDelete.mockResolvedValue('fb_1')
+    vi.mocked(deleteFeedbackScore).mockReturnValueOnce(new Promise(() => {}))
+    await expect(retractAnswerFeedback(session, 'msg_1')).resolves.toBeUndefined()
+  })
+})
+
+/**
+ * Every vote also lands in Langfuse as a score on its answer's trace
+ * (ADR-0044, Amendment 3), after the database write and never in its way.
+ */
+describe('submitAnswerFeedback -> Langfuse score', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it("scores the trace the answer row names, keyed by the feedback row", async () => {
+    vi.mocked(getAnswerTraceId).mockResolvedValueOnce('6135ac80f26d5f7dab0f1633fe313293')
+    mockUpsert.mockResolvedValueOnce({ ...storedRow, verdict: 'down', reason: 'inaccurate', comment: 'R 60, nicht R 90' })
+
+    await submitAnswerFeedback(session, {
+      messageId: 'msg_1',
+      verdict: 'down',
+      reason: 'inaccurate',
+      comment: 'R 60, nicht R 90',
+    })
+    await flush()
+
+    expect(getAnswerTraceId).toHaveBeenCalledWith('msg_1', 'org_1')
+    expect(upsertFeedbackScore).toHaveBeenCalledWith({
+      feedbackId: 'fb_1',
+      traceId: '6135ac80f26d5f7dab0f1633fe313293',
+      verdict: 'down',
+      reason: 'inaccurate',
+      comment: 'R 60, nicht R 90',
+      expectedAnswer: null,
+    })
+  })
+
+  it('sends nothing when the answer row names no trace', async () => {
+    vi.mocked(getAnswerTraceId).mockResolvedValueOnce(null)
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up' })
+    await flush()
+    expect(upsertFeedbackScore).not.toHaveBeenCalled()
+  })
+
+  it('does not even look the trace up when Langfuse is not configured', async () => {
+    vi.mocked(feedbackScoringEnabled).mockReturnValueOnce(false)
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up' })
+    await flush()
+    expect(getAnswerTraceId).not.toHaveBeenCalled()
+    expect(upsertFeedbackScore).not.toHaveBeenCalled()
+  })
+
+  it('returns the vote without waiting for Langfuse, and survives its failure', async () => {
+    vi.mocked(getAnswerTraceId).mockResolvedValueOnce('6135ac80f26d5f7dab0f1633fe313293')
+    vi.mocked(upsertFeedbackScore).mockReturnValueOnce(new Promise(() => {}))
+    await expect(submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up' })).resolves.toMatchObject({
+      verdict: 'up',
+    })
+
+    vi.mocked(getAnswerTraceId).mockRejectedValueOnce(new Error('db down'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await expect(submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'up' })).resolves.toMatchObject({
+      verdict: 'up',
+    })
+    await flush()
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
   })
 })
 
@@ -292,6 +379,42 @@ describe('getAnswerFeedbackHealth', () => {
 
     expect(health.totals).toEqual({ up: 4, down: 1 })
     expect(requirePlatformPermission).toHaveBeenCalledOnce()
+  })
+
+  /** The platform view links each rated turn to its trace, and the project to its scores. */
+  it('links turns to their Langfuse traces when the UI is configured, and not otherwise', async () => {
+    vi.mocked(requirePlatformPermission).mockResolvedValue(undefined)
+    const health = {
+      windowDays: 30,
+      totals: { up: 0, down: 2 },
+      reasons: [],
+      daily: [],
+      organizations: [],
+      topics: [],
+      turns: [
+        { id: 'fb_1', organizationId: 'org_1', messageId: 'm1', traceId: '6135ac80f26d5f7dab0f1633fe313293' },
+        { id: 'fb_2', organizationId: 'org_1', messageId: 'm2', traceId: null },
+      ],
+    }
+    vi.mocked(getFeedbackHealth).mockResolvedValue(health as never)
+
+    vi.stubEnv('LANGFUSE_PUBLIC_URL', 'https://langfuse.example.at/')
+    vi.stubEnv('LANGFUSE_PROJECT_ID', 'grid')
+    try {
+      const linked = await getAnswerFeedbackHealth({} as never)
+      expect(linked.turns.map((turn) => turn.langfuseTraceUrl)).toEqual([
+        'https://langfuse.example.at/project/grid/traces/6135ac80f26d5f7dab0f1633fe313293',
+        null,
+      ])
+      expect(linked.langfuse).toEqual({ projectUrl: 'https://langfuse.example.at/project/grid' })
+
+      vi.stubEnv('LANGFUSE_PROJECT_ID', '')
+      const unlinked = await getAnswerFeedbackHealth({} as never)
+      expect(unlinked.turns.map((turn) => turn.langfuseTraceUrl)).toEqual([null, null])
+      expect(unlinked.langfuse).toBeNull()
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   /** A raw `org_arch_buero` tells the platform owner nothing; the name does. */

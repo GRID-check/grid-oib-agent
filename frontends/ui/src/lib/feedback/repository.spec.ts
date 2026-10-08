@@ -17,6 +17,7 @@ import {
   getFeedbackHealth,
   FEEDBACK_WEEKLY_SUMMARY_LIMIT,
   deleteAnswerFeedbackForUser,
+  getAnswerTraceId,
   getFeedbackWeeklySummary,
   isoWeekStart,
   listAnswerFeedbackForConversation,
@@ -72,16 +73,16 @@ describe('deleteAnswerFeedbackForUser', () => {
     return { where }
   }
 
-  it('returns true when a row was deleted (scoped user + message + org)', async () => {
+  it('returns the deleted row id (scoped user + message + org); its Langfuse score is keyed by it', async () => {
     const { where } = mockDelete([{ id: 'fb_1' }])
-    await expect(deleteAnswerFeedbackForUser('user_1', 'msg_1', 'org_1')).resolves.toBe(true)
+    await expect(deleteAnswerFeedbackForUser('user_1', 'msg_1', 'org_1')).resolves.toBe('fb_1')
     expect(where).toHaveBeenCalledTimes(1)
     expect(where.mock.calls[0]![0]).toBeDefined() // and(user, message, org)
   })
 
-  it('returns false when nothing matched', async () => {
+  it('returns null when nothing matched', async () => {
     mockDelete([])
-    await expect(deleteAnswerFeedbackForUser('user_1', 'msg_gone', 'org_1')).resolves.toBe(false)
+    await expect(deleteAnswerFeedbackForUser('user_1', 'msg_gone', 'org_1')).resolves.toBeNull()
   })
 })
 
@@ -310,5 +311,33 @@ describe('getFeedbackHealth rollups', () => {
       .find((query) => query.sql.includes('unnest(c.tags)'))
     expect(topicQuery?.sql).toMatch(/limit \$\d+\s*$/)
     expect(topicQuery?.params).toContain(FEEDBACK_TOPIC_ROLLUP_LIMIT)
+  })
+})
+
+describe('getAnswerTraceId', () => {
+  const ANSWER = '6135ac80-f26d-5f7d-ab0f-1633fe313293'
+
+  it('reads the trace the answer row names, scoped to the tenant', async () => {
+    const execute = vi.fn().mockResolvedValue([{ trace_id: '6135ac80f26d5f7dab0f1633fe313293' }])
+    mockGetDb.mockReturnValue({ execute } as never)
+
+    await expect(getAnswerTraceId(ANSWER, 'org_1')).resolves.toBe('6135ac80f26d5f7dab0f1633fe313293')
+    const query = new PgDialect().sqlToQuery(execute.mock.calls[0][0])
+    expect(query.sql).toContain("metadata->>'trace_id'")
+    expect(query.params).toEqual(expect.arrayContaining([ANSWER, 'org_1']))
+  })
+
+  it('is null for a row without one, or with something that is not a trace id', async () => {
+    for (const rows of [[], [{ trace_id: null }], [{ trace_id: 'not-a-trace' }]]) {
+      mockGetDb.mockReturnValue({ execute: vi.fn().mockResolvedValue(rows) } as never)
+      await expect(getAnswerTraceId(ANSWER, 'org_1')).resolves.toBeNull()
+    }
+  })
+
+  it('does not query for an id that is not a UUID (the dev page votes on "af-msg")', async () => {
+    const execute = vi.fn()
+    mockGetDb.mockReturnValue({ execute } as never)
+    await expect(getAnswerTraceId('af-msg', 'org_1')).resolves.toBeNull()
+    expect(execute).not.toHaveBeenCalled()
   })
 })

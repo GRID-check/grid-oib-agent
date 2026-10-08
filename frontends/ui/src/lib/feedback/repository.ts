@@ -29,6 +29,7 @@ import { executeRows } from '@/lib/db/execute-rows'
 import { VOTED_TURN_JOINS } from './turn-join'
 import { feedbackWindowStart } from './trend'
 import { likeContains } from '@/lib/text/like-pattern'
+import { isTraceId } from '@/lib/langfuse/config'
 
 /** Hard cap for the per-conversation hydration list. */
 export const CONVERSATION_FEEDBACK_LIST_LIMIT = 200
@@ -90,12 +91,15 @@ export async function upsertAnswerFeedback(values: UpsertAnswerFeedbackValues): 
   return row
 }
 
-/** Toggle-off: delete the caller's vote. Returns whether a row existed. */
+/**
+ * Toggle-off: delete the caller's vote. Returns the deleted row's id, or null
+ * when there was none. The id is what the vote's Langfuse score is keyed by.
+ */
 export async function deleteAnswerFeedbackForUser(
   userId: string,
   messageId: string,
   organizationId: string,
-): Promise<boolean> {
+): Promise<string | null> {
   const db = getDb()
   const rows = await db
     .delete(answerFeedback)
@@ -107,7 +111,37 @@ export async function deleteAnswerFeedbackForUser(
       ),
     )
     .returning({ id: answerFeedback.id })
-  return rows.length > 0
+  return rows[0]?.id ?? null
+}
+
+/** An answer id as the agent mints it: a UUID (`turn.response.answer_message_id`). */
+const ANSWER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The trace the answer was produced in, as its persisted row names it
+ * (`metadata.trace_id`, written by the agent: `observability/turn_trace.py`),
+ * or null. Read, never derived: a row that does not name its trace is one whose
+ * trace nobody recorded, and a guessed id would score or link a trace that may
+ * not exist.
+ *
+ * Tenant-scoped like every other read here. Null for an id that is not a UUID
+ * (`messages.id` is one, and the cast would otherwise throw).
+ */
+export async function getAnswerTraceId(messageId: string, organizationId: string): Promise<string | null> {
+  if (!ANSWER_ID.test(messageId)) return null
+  const db = getDb()
+  const rows = rowsOf(
+    await db.execute(sql`
+      select metadata->>'trace_id' as trace_id
+      from messages
+      where id = ${messageId}::uuid
+        and organization_id = ${organizationId}
+        and role = 'assistant'
+      limit 1
+    `),
+  )
+  const traceId = rows[0]?.trace_id
+  return isTraceId(traceId) ? traceId : null
 }
 
 /** The caller's own votes in one conversation (bounded; newest first). */
@@ -273,6 +307,11 @@ export interface FeedbackTurn {
   conversationTitle: string | null
   /** The conversation's topic tags, when it has a row and was tagged. */
   topics: ConversationTagKey[]
+  /**
+   * The Langfuse trace the answer was produced in, as its row names it
+   * (`metadata.trace_id`); null when the row is missing or predates the field.
+   */
+  traceId: string | null
 }
 
 export interface FeedbackHealth {
@@ -601,7 +640,8 @@ export async function listFeedbackTurns(
       m.content    as answer,
       q.content    as question,
       c.title      as conversation_title,
-      c.tags       as topics
+      c.tags       as topics,
+      m.metadata->>'trace_id' as trace_id
     from answer_feedback f
     ${VOTED_TURN_JOINS}
     left join conversations c on c.id = f.conversation_id
@@ -641,6 +681,7 @@ export async function listFeedbackTurns(
     topics: Array.isArray(row.topics)
       ? (row.topics as unknown[]).map(String).filter(isConversationTagKey)
       : [],
+    traceId: isTraceId(row.trace_id) ? row.trace_id : null,
   }))
 }
 
