@@ -12,8 +12,8 @@
 
 import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
-import { HardDrive } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { PageHeader } from '@/components/ui/page-header'
+import { SectionCard } from '@/features/platform/components/section-card'
 import { PlatformStorageTable } from '../../app/(shell)/platform/storage-table'
 
 const GB = 1e9
@@ -75,6 +75,21 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       const url =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.startsWith('/api/platform/storage')) return Response.json(OVERVIEW)
+      // A quota write: apply it to the fixture so the reload shows it, and
+      // refuse a quota below usage the way the route does.
+      const quota = /^\/api\/platform\/organizations\/([^/]+)\/storage$/.exec(url)
+      if (quota && init?.method === 'PUT') {
+        const { quotaBytes } = JSON.parse(String(init.body)) as { quotaBytes: number | null }
+        const row = OVERVIEW.organizations.find(
+          (org) => org.organizationId === decodeURIComponent(quota[1])
+        )
+        if (!row) return Response.json({ error: 'Organization not found' }, { status: 404 })
+        if (quotaBytes !== null && quotaBytes < row.usedBytes) {
+          return Response.json({ error: 'Quota is below current usage' }, { status: 422 })
+        }
+        Object.assign(row, { quotaBytes, inherited: false })
+        return Response.json({ quotaBytes })
+      }
       return real(input, init)
     }
   }
@@ -86,29 +101,21 @@ export default function PlatformStorageDevPage(): JSX.Element {
   }
 
   return (
-    <main className="mx-auto flex max-w-5xl flex-col gap-6 p-8" data-testid="platform-storage-preview">
-      <div>
-        <h1 className="text-lg font-semibold">Platform — Storage</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Every tenant&apos;s consumption, and the quota that bounds it.
-        </p>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <HardDrive className="text-muted-foreground size-4" aria-hidden />
-            Document storage
-          </CardTitle>
-          <CardDescription>
-            Stored bytes per organization, and the quota that refuses further uploads. Quotas are a
-            platform control — tenants can see their own number but never change it.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <PlatformStorageTable />
-        </CardContent>
-      </Card>
+    <main
+      className="mx-auto flex max-w-5xl flex-col gap-6 p-8"
+      data-testid="platform-storage-preview"
+    >
+      <PageHeader
+        title="Storage"
+        subtitle="Stored bytes per organization, and the quota that bounds each one."
+      />
+      <SectionCard
+        title="Usage by organization"
+        description="Largest first. A quota refuses further uploads once reached. Organizations see their own number but cannot change it."
+        testId="platform-storage-card"
+      >
+        <PlatformStorageTable />
+      </SectionCard>
     </main>
   )
 }
