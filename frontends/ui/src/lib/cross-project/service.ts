@@ -300,6 +300,10 @@ async function searchOneProject(
     return []
   }
   const ref = projectRefOf(project)
+  // `collectionName` on a found hit is the collection the PASSAGE came from:
+  // `joinHitsToFiles` joins a hit only to the row of the hit's own collection,
+  // so this is the hit's collection and not a filename match with a row filed
+  // elsewhere. Restricted or not, and which folder, is decided from it alone.
   // A shared chat searches no restricted folder: not every reader was asked about it.
   const matching = found.hits.filter(
     (hit) => matchesTags(hit.tags ?? [], request) && (reach.restrictedFolders || hit.collectionName === project.collectionName)
