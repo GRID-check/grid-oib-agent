@@ -647,7 +647,7 @@ export const files = {
     screenedOut: '{count} file(s) not uploaded because your office marks them as sensitive: {files}',
     screenedOutFile: '“{name}” ({reason})',
     // The office's list could not be read: without it nothing is sent, not
-    // even against Piloti's suggestion (ADR-0083).
+    // even against Piloti's suggestion (ADR-0085).
     screeningPolicyUnavailable:
       "Your office's list of sensitive data could not be loaded. Nothing was uploaded. Please try again.",
     validation: {
