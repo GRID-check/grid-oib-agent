@@ -247,13 +247,14 @@ async function generateDigest(
   const body = {
     window_days: health.windowDays,
     answers: health.answers,
+    rated_answers: health.ratedAnswers,
     up: health.totals.up,
     down: health.totals.down,
     voters: health.totals.voters,
     down_voters: health.totals.downVoters,
-    reasons: Object.fromEntries(
-      health.reasons.map((entry) => [entry.reason ?? 'other', entry.count]),
-    ),
+    // One row per reason, NULL already folded into `other` in SQL, so keying by
+    // reason no longer overwrites one count with another.
+    reasons: Object.fromEntries(health.reasons.map((entry) => [entry.reason, entry.count])),
     topics: health.topics.map((t) => ({ topic: t.topic, up: t.up, down: t.down })),
     // Identity stripped here, at the boundary, so no later edit to the rollup
     // can widen what leaves the process.
