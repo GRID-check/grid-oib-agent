@@ -762,14 +762,14 @@ echo "==> 0102 backfill, constraints and down migration verified"
 # Migration 0115: project status, its CHECKs, the closed-project insert guard,
 # and its DOWN migration, on the fully migrated database as the owner. The down
 # refuses while a project is closed (an older build would let every write in);
-# once every project is active it goes, and 0114 applies again.
+# once every project is active it goes, and 0115 applies again.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0115 project status and its down migration on grid_app"
 check14() {
   local got
   got=$($MIGRATE -tAc "$1")
   if [ "$got" != "$2" ]; then
-    echo "0114 ASSERTION FAILED: $3" >&2
+    echo "0115 ASSERTION FAILED: $3" >&2
     echo "  query: $1" >&2
     echo "  got:   $got" >&2
     echo "  want:  $2" >&2
@@ -778,12 +778,12 @@ check14() {
 }
 $MIGRATE -v ON_ERROR_STOP=1 -q <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
-VALUES ('aaaaaaaa-0000-4000-8000-000000000114', 'org_0114', 'Status 0114', 'user_1', 'proj_0114');
+VALUES ('aaaaaaaa-0000-4000-8000-000000000114', 'org_0114', 'Status 0115', 'user_1', 'proj_0114');
 SQL
 check14 "SELECT status FROM projects WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'" "active" "a new project is active"
 $MIGRATE -v ON_ERROR_STOP=1 -q -c "UPDATE projects SET status = 'closed', closed_at = now(), closed_by = 'user_1' WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
 if $MIGRATE -q -c "INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id) VALUES ('org_0114', 'user_1', 'x.pdf', 'k/0114/x', 'proj_0114', 'completed', 'project', 'aaaaaaaa-0000-4000-8000-000000000114')" >/dev/null 2>&1; then
-  echo "0114 ASSERTION FAILED: a document was inserted into a closed project" >&2
+  echo "0115 ASSERTION FAILED: a document was inserted into a closed project" >&2
   exit 1
 fi
 if $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_status.down.sql" >/dev/null 2>&1; then
@@ -802,6 +802,6 @@ $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_status.sql" >/dev/null |
   echo "MIGRATION 0115 FAILED when re-applied after its down migration" >&2
   exit 1
 }
-check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "4" "0114 applies again"
+check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "4" "0115 applies again"
 $MIGRATE -v ON_ERROR_STOP=1 -q -c "DELETE FROM projects WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
 echo "==> 0115 project status and down migration verified"

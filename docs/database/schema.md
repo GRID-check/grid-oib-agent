@@ -76,7 +76,7 @@ export const projects = pgTable('projects', {
 
 **Indexes:** `projects_org_deleted_created_idx` on `(organization_id, deleted_at, created_at)` — tenant list queries (migration `0014`). `projects_org_status_idx` on `(organization_id, status) WHERE deleted_at IS NULL` (migration 0115).
 
-**Constraints (0114):** `projects_status_check`, and `projects_closed_state_check`: closed exactly when `closed_at` and `closed_by` are both set.
+**Constraints (0115):** `projects_status_check`, and `projects_closed_state_check`: closed exactly when `closed_at` and `closed_by` are both set.
 
 **The closed-project guard (0115).** `grid_refuse_insert_into_closed_project()` runs `BEFORE INSERT` on `documents`, `project_folders`, `document_versions` and `project_memory`, and raises SQLSTATE `GPC01` when the row names a closed project. It reads the project row `FOR SHARE`, so a close and an insert serialize. Updates are not refused. The down migration refuses while any project is closed.
 
