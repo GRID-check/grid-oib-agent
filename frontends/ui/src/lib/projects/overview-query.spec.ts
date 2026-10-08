@@ -32,7 +32,7 @@ import { getProjectOverviewData } from './overview-query'
 const PROJECT_ID = '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
 const ORG_ID = 'org_1'
 /** A reader who may see every folder. */
-const OPEN = { hiddenFolderIds: [] as string[] }
+const OPEN = { hiddenFolderIds: [] as string[], quarantineReader: undefined }
 const HIDDEN_FOLDER = '9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d'
 
 const projectRow = {
@@ -131,13 +131,27 @@ describe('getProjectOverviewData', () => {
     // fee note is filed: both are the restricted folder's content, read by
     // anyone who can open the project, unless the same exclusion the document
     // list applies is applied here.
-    await getProjectOverviewData(PROJECT_ID, ORG_ID, { hiddenFolderIds: [HIDDEN_FOLDER] })
+    await getProjectOverviewData(PROJECT_ID, ORG_ID, { hiddenFolderIds: [HIDDEN_FOLDER], quarantineReader: undefined })
 
     for (const predicate of [predicates[1], predicates[2]]) {
       const { sql, params } = compile(predicate)
       expect(sql).toContain('"folder_id" is null')
       expect(sql).toContain('"folder_id" not in')
       expect(params).toContain(HIDDEN_FOLDER)
+    }
+    expect(compile(predicates[1])).toEqual(compile(predicates[2]))
+  })
+
+  it("leaves somebody else's quarantined file out of the count, the total size and the recent list", async () => {
+    // ADR-0083. The recent list names the file; for a reader who neither
+    // uploaded it nor reviews the quarantine, it is not there.
+    await getProjectOverviewData(PROJECT_ID, ORG_ID, { hiddenFolderIds: [], quarantineReader: 'user-member' })
+
+    for (const predicate of [predicates[1], predicates[2]]) {
+      const { sql, params } = compile(predicate)
+      expect(sql).toContain('"status" <>')
+      expect(sql).toContain('"created_by" =')
+      expect(params).toEqual(expect.arrayContaining(['quarantined', 'user-member']))
     }
     expect(compile(predicates[1])).toEqual(compile(predicates[2]))
   })

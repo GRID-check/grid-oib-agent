@@ -9,9 +9,10 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNull, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
+import { visibleQuarantineByShelf, type QuarantineReaders } from '@/lib/documents/repository'
 import {
   bimCheckConfirmations,
   bimElements,
@@ -160,6 +161,15 @@ export async function listBimModels(
      * not exist.
      */
     hiddenFolderIds?: readonly string[]
+    /**
+     * A quarantined document's model (ADR-0083) is its uploader's and its
+     * reviewers' only: `quarantineReaders` (each from `quarantineReaderFor`,
+     * one per shelf, since the list spans a project and the Büroablage) keeps
+     * the reader's own, and `withoutQuarantined` keeps none, for the agent,
+     * which has no person to ask and never reads a quarantined file.
+     */
+    quarantineReaders?: QuarantineReaders
+    withoutQuarantined?: boolean
   } = {}
 ): Promise<BimModelHeader[]> {
   const db = getDb()
@@ -182,7 +192,15 @@ export async function listBimModels(
       .select(MODEL_COLUMNS)
       .from(bimModels)
       .innerJoin(documents, eq(documents.id, bimModels.documentId))
-      .where(and(eq(bimModels.organizationId, organizationId), scope, outsideHiddenFolders))
+      .where(
+        and(
+          eq(bimModels.organizationId, organizationId),
+          scope,
+          outsideHiddenFolders,
+          ...(options.withoutQuarantined ? [ne(documents.status, 'quarantined')] : []),
+          ...visibleQuarantineByShelf(options.quarantineReaders),
+        )
+      )
       .orderBy(desc(bimModels.updatedAt))
       .limit(limit)
   )

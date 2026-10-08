@@ -57,6 +57,11 @@ export const uploadBatches = {
       openInArchiv: 'Open in Office filing',
       changedHint: 'A new version of a document that was already here. The previous one stays under Versions.',
       protectedHint: 'Filed in a folder with its own access list. The lock on the folder shows who may open and change it.',
+      requestRelease: 'Ask for release',
+      releaseRequested: 'Release requested',
+      releaseRequestedToast: 'The people who may release “{name}” have been notified.',
+      releaseRequestNobody: 'Nobody but you may release “{name}”. You find it under Organization → Quarantine.',
+      releaseRequestError: 'Could not send the request. Please try again.',
     },
     notFound: {
       title: 'Summary not found',

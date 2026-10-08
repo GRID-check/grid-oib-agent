@@ -111,6 +111,7 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/projects/memory-restricted.integration.spec.ts \
     src/lib/documents/document-versions.integration.spec.ts \
     src/lib/documents/list-page.integration.spec.ts \
+    src/lib/documents/quarantine-listing.integration.spec.ts \
     src/lib/upload-batches/upload-batches.integration.spec.ts \
     src/lib/authz/folder-access.integration.spec.ts \
     src/lib/projects/collection-placement.integration.spec.ts \

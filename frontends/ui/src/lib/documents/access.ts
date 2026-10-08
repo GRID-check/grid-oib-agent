@@ -20,6 +20,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { requireResourceAccess } from '@/lib/sharing/access'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import type { Document } from '@/lib/db/schema'
+import { maySeeQuarantined } from '@/lib/upload-screening/quarantine-reviewers'
 import { findDocumentInOrg } from './repository'
 
 /** Whether the caller intends to read the row or to change it. */
@@ -33,6 +34,11 @@ export type DocumentAccessIntent = 'read' | 'write'
  * plain `text` column, so a row can hold a value no version of this code knows,
  * and defaulting to another shelf's rule is how a private document becomes an
  * org-wide one.
+ *
+ * A quarantined document (ADR-0083) exists only for its uploader and for the
+ * people who may review the quarantine, on top of the shelf's own rule: its
+ * content matched the office's sensitive-data list, and nobody has decided yet
+ * that the project, the Büroablage or the chat may read it.
  */
 export async function getAccessibleDocument(
   session: AuthorizedSession,
@@ -41,6 +47,7 @@ export async function getAccessibleDocument(
 ): Promise<Document> {
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc) throw new NotFoundError()
+  if (doc.status === 'quarantined' && !(await maySeeQuarantined(session, doc))) throw new NotFoundError()
 
   switch (doc.scope) {
     case 'archiv': {

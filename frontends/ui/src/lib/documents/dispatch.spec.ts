@@ -176,6 +176,24 @@ describe('dispatchDocument', () => {
   })
 
   /**
+   * A quarantined row (ADR-0083) is released by a reviewer, who moves it to
+   * `uploaded` first, and by nobody else. A restore from the Papierkorb, a
+   * placement move and a project re-index all re-dispatch whole folders; a
+   * dispatch used to set the row `pending`, which every reader may open, and
+   * screened it again under whatever the rules had become by then.
+   */
+  it.each(['report.pdf', 'haus.ifc'])('leaves a quarantined %s where it is, for a reviewer to decide', async (name) => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ authoredBy: 'user', status: 'quarantined' }))
+
+    await expect(dispatchDocument(input(name))).resolves.toEqual({ jobId: null, status: 'quarantined' })
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(runBimExtraction).not.toHaveBeenCalled()
+    expect(markDocumentProcessing).not.toHaveBeenCalled()
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
+  /**
    * The one clause ADR-0054 added, and everything it deliberately does not
    * cover.
    *

@@ -691,6 +691,8 @@ export const organization = {
     whereSession: 'Chat attachment',
     reasonsLabel: 'Reasons',
     noReason: 'Reason could not be read',
+    open: 'View',
+    openTitle: 'Open “{name}” where it is filed',
     release: 'Release',
     releaseTitle: 'Release “{name}”?',
     releaseDescription:

@@ -118,6 +118,46 @@ German, and explains each verdict.
   `docs/user-guides/ai-act.md`), and the decision records the folder the file
   was filed in, so a file under a folder not every project member may read is
   not named (ADR-0084).
+- **Who sees a quarantined file** (amended 2026-10-06): its uploader and its
+  reviewers, nobody else. `getAccessibleDocument` asks the reviewer rule
+  (`mayReviewQuarantine`, `lib/upload-screening/quarantine-reviewers.ts`) for a
+  quarantined row on every item path, and the listings push the same rule down
+  to their query (`quarantineReader`); everyone else gets the 404 an unknown
+  document gets. Before this, the status was never consulted, so a file held
+  back for its content was downloadable by every project member, and in the
+  Büroablage by every org member. The agent's byte lookups
+  (`/api/internal/document-file`, a chat's subject version) refuse it too, and
+  so do the IFC model surfaces: an IFC is extracted before its digest is
+  screened, so a quarantined one has a ready model, which the viewer, the model
+  list and the agent's `ifc_query` / `ifc_measure` now hold back the same way. A
+  re-upload onto a quarantined file is refused, its uploader's own cleaned copy
+  included: a version is served on the document's current status, so the
+  held-back bytes would become a version anyone could open once the new ones
+  settled. Somebody who may not see the file gets the taken-name 409; its
+  uploader and reviewers get `details.reason = 'quarantined'`.
+- **Holding the hold** (amended 2026-10-07): the rule is asked wherever a
+  quarantined row could reach someone else. `dispatchDocument` dispatches a
+  quarantined row for nobody (a release moves it to `uploaded` first), so a
+  restore from the Papierkorb, a placement move when a folder's access changes
+  and „Projekt neu indizieren" leave it quarantined instead of setting it
+  `pending`. The listings narrow again after their reconcile
+  (`keepVisibleQuarantine`), because the first read after the verdict finds the
+  row `pending` and the reconcile turns it. The project overview, the upload
+  planner's name probes and the IFC model list are narrowed too; the model list
+  spans the project and the Büroablage and asks each shelf its own reviewers
+  (`visibleQuarantineByShelf`).
+- **Before the verdict** the file is an ordinary upload: while it is
+  `uploaded`, `pending` or `processing`, everyone who may read its folder may
+  list and download it. The quarantine starts at the verdict. Holding every
+  upload back until it is screened would make every file unreadable while it
+  is being read; that is a product decision this ADR does not take. A file
+  expected to match belongs in a restricted folder (ADR-0084).
+- **Asking for a release** (amended 2026-10-06): the uploader may ask the
+  reviewers from the upload summary („Freigabe anfragen",
+  `POST /api/documents/{id}/quarantine/request-release`); they get a
+  `document.release_requested` inbox row naming the file. The queue links each
+  project and Büroablage file to where it is filed, so a reviewer looks before
+  deciding.
 - **What is not screened.** Files with no local text (images, scanned pages,
   plans without a text layer) pass on the name gate alone, and the upload
   summary says the content was not checked. The product owner chose this over
@@ -157,6 +197,13 @@ German, and explains each verdict.
   file's name, and nothing but the policy read is sent while the policy cannot be read.
   `upload-screening-policy.spec.ts` asserts the loader rejects rather than falling back and
   re-reads for every upload.
+* `documents/quarantine-access.spec.ts` drives download, preview, text preview, thumbnail and the
+  listing for a member (404, left out), the uploader and a reviewer; `quarantine-listing.integration.spec.ts`
+  proves the listing predicate, the IFC model list and the agent's byte lookup against Postgres;
+  `bim/model-service.quarantine.spec.ts` covers the model viewer and the agent's IFC tools.
+* `documents/dispatch.spec.ts` proves a quarantined row is dispatched for nobody;
+  `quarantine-access.spec.ts`, `archiv/service.spec.ts` and `session-documents/service.spec.ts`
+  that a row the listing's reconcile turns quarantined is narrowed again.
 
 ## Pros and Cons of the Options
 

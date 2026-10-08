@@ -14,6 +14,7 @@ import { listAssignmentsWithoutAccessCheck, type AssignedPerson } from '@/lib/as
 import { encodeDocumentListCursor } from './list-cursor'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
 import type { DocumentListPage, DocumentListRow } from './repository'
+import { keepVisibleQuarantine } from './quarantine-visibility'
 
 /**
  * One row of a document listing.
@@ -25,7 +26,7 @@ import type { DocumentListPage, DocumentListRow } from './repository'
  * anything reading a listing had to re-widen the type to find the faces it
  * renders.
  */
-export type ListedDocument = Omit<DocumentListRow, 'metadata'> &
+export type ListedDocument = Omit<DocumentListRow, 'metadata' | 'createdBy'> &
   DocumentMetadata & {
     assignees: AssignedPerson[]
     /**
@@ -44,20 +45,35 @@ function sourceDeletedAtOf(metadata: unknown): string | null {
   return typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? at : null
 }
 
+/** Who of a shelf's quarantine this listing's reader may see (`quarantineReaderFor`, ADR-0083). */
+export interface ListingReader {
+  /** Required, so a caller states it: `undefined` is a reviewer, who sees every quarantined row. */
+  quarantineReader: string | undefined
+}
+
 /**
  * What a row needs before it leaves the BFF, whichever query found it: the
  * listing page or a by-name lookup. The CALLER has already authorized the shelf
- * every row was read from.
+ * every row was read from, and passes the same reader its query was narrowed by.
  */
 export async function toListedDocuments(
   session: AuthorizedSession,
   rows: DocumentListRow[],
+  { quarantineReader }: ListingReader,
 ): Promise<ListedDocument[]> {
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
-  const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
+  // A row this turns `quarantined` was read as `pending`, so the query let it
+  // through: it is narrowed again here, after the verdict (ADR-0083).
+  const reconciled = keepVisibleQuarantine(
+    await reconcileDocumentStatuses(rows, session.organizationId),
+    quarantineReader,
+  )
 
-  const listed = reconciled.map(({ metadata, ...row }) => ({ ...row, sourceDeletedAt: sourceDeletedAtOf(metadata) }))
+  const listed = reconciled.map(({ metadata, createdBy: _createdBy, ...row }) => ({
+    ...row,
+    sourceDeletedAt: sourceDeletedAtOf(metadata),
+  }))
 
   if (!isCollaborationEnabled(session) || listed.length === 0) {
     return listed.map((row) => ({ ...row, assignees: [] }))
@@ -75,9 +91,10 @@ export async function toListedDocuments(
 export async function toListedPage(
   session: AuthorizedSession,
   page: DocumentListPage,
+  reader: ListingReader,
 ): Promise<{ documents: ListedDocument[]; nextCursor: string | null }> {
   return {
-    documents: await toListedDocuments(session, page.rows),
+    documents: await toListedDocuments(session, page.rows, reader),
     nextCursor: page.nextCursor ? encodeDocumentListCursor(page.nextCursor) : null,
   }
 }

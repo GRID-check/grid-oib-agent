@@ -107,6 +107,8 @@ applies to an open chat once the page is reloaded.
 matched, never the matched text beyond a masked sample. Organization admins,
 the project's admins and, for the Büroablage, its curators can:
 
+- **Look at it** („Ansehen"), which opens it in the project's Dateien or in the
+  Büroablage, where it is filed. A chat attachment has no such view.
 - **Release** it. Piloti then reads it like any other upload. The release
   applies to exactly these bytes: uploading a changed version screens it again.
 - **Delete** it.
@@ -114,6 +116,29 @@ the project's admins and, for the Büroablage, its curators can:
 Reviewers get an inbox notice when files wait for them. It names no file. The
 audit log records both the quarantine, as Piloti's own decision, and a release,
 with the terms and checks that matched but never the matched text.
+
+**Who sees a quarantined file.** Only the person who uploaded it and the people
+above. For everyone else in the project, or in the Büroablage, it is not there:
+it is missing from the file list, the search, the project overview and the
+model list, and its download, preview and thumbnail answer as if it did not
+exist. Piloti's assistant never reads it. Restoring a folder from the
+Papierkorb, changing a folder's access or re-indexing the project leaves it in
+quarantine; only a release takes it out.
+
+**Before the check has finished**, a new file is like any other: everyone who
+may open its folder sees it while it is being read, and can download it. The
+quarantine starts when the check has found something. A file you expect to
+match belongs in a folder that is restricted to the people who may see it.
+
+**Replacing a quarantined file.** A file cannot be uploaded over one that waits
+in quarantine, not even by its uploader: the held-back version would stay in
+the file's history, where everyone could open it. Delete the quarantined file
+first (or have it released), then upload the corrected one.
+
+**Asking for a release.** The uploader can press **Freigabe anfragen** next to
+the file in the upload summary. The people who may release it get an inbox
+notice that names the file and opens the quarantine. Nothing is released until
+one of them decides.
 
 ## What arrived: the upload summary
 

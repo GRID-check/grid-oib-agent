@@ -98,6 +98,13 @@ export interface DocumentListRow {
    * learn that nothing needs uploading.
    */
   contentHash: string | null
+  /**
+   * Who uploaded it. On the LIST row for one reader: a listing reconciles its
+   * rows after the query, and a row the reconcile turns `quarantined` is kept
+   * only for its uploader (`keepVisibleQuarantine` in `./quarantine-visibility`,
+   * ADR-0083). It does not leave the BFF (`toListedDocuments` drops it).
+   */
+  createdBy: string
   createdAt: Date
   updatedAt: Date
   errorMessage: string | null
@@ -152,6 +159,12 @@ export interface ListProjectDocumentsOptions {
    * `getHiddenFolderIds`. Their rows are left out as if they did not exist.
    */
   hiddenFolderIds?: readonly string[]
+  /**
+   * The reader, when they may not review this shelf's quarantine (ADR-0083),
+   * from `quarantineReaderFor`: a quarantined row is kept only if they uploaded
+   * it. Absent for a reviewer, and for a caller that serves no reader.
+   */
+  quarantineReader?: string
 }
 
 /**
@@ -162,6 +175,48 @@ export interface ListProjectDocumentsOptions {
 export function outsideHiddenFolders(hiddenFolderIds: readonly string[] | undefined): SQL[] {
   if (!hiddenFolderIds || hiddenFolderIds.length === 0) return []
   const visible = or(isNull(documents.folderId), notInArray(documents.folderId, [...hiddenFolderIds]))
+  return visible ? [visible] : []
+}
+
+/**
+ * Rows a reader who may not review the quarantine may see: everything that is
+ * not quarantined, and the quarantined rows they uploaded themselves. Nothing
+ * when no reader is named. Exported for the shelves that list with their own
+ * query (a chat's attachments), so "held back from you" has one SQL spelling.
+ */
+export function visibleQuarantineFor(quarantineReader: string | undefined): SQL[] {
+  if (!quarantineReader) return []
+  const visible = or(ne(documents.status, 'quarantined'), eq(documents.createdBy, quarantineReader))
+  return visible ? [visible] : []
+}
+
+/**
+ * Each shelf's reader, for a listing that spans two shelves: the IFC model list
+ * reads a project's models and the Büroablage's together. `undefined` for a
+ * shelf whose quarantine the reader reviews. Both keys are required, so a
+ * caller states the Büroablage's answer rather than borrowing the project's.
+ */
+export interface QuarantineReaders {
+  project: string | undefined
+  archiv: string | undefined
+}
+
+/**
+ * {@link visibleQuarantineFor} asked per row of its own shelf. A project's
+ * admin reviews the project's quarantine and not the Büroablage's, and a
+ * curator of the Büroablage the reverse, so one reader for the whole listing
+ * shows one of them the other's held-back files and hides their own from them.
+ * A quarantined row on any other shelf is left out.
+ */
+export function visibleQuarantineByShelf(readers: QuarantineReaders | undefined): SQL[] {
+  if (!readers) return []
+  const keptOn = (scope: 'project' | 'archiv', reader: string | undefined): SQL | undefined =>
+    and(eq(documents.scope, scope), ...(reader ? [eq(documents.createdBy, reader)] : []))
+  const visible = or(
+    ne(documents.status, 'quarantined'),
+    keptOn('project', readers.project),
+    keptOn('archiv', readers.archiv),
+  )
   return visible ? [visible] : []
 }
 
@@ -184,6 +239,7 @@ export const documentListColumns = {
   folderId: documents.folderId,
   originPath: documents.originPath,
   contentHash: documents.contentHash,
+  createdBy: documents.createdBy,
   createdAt: documents.createdAt,
   updatedAt: documents.updatedAt,
   errorMessage: documents.errorMessage,
@@ -204,13 +260,15 @@ function listingWhere(
     authoredBy,
     includeArchived = false,
     hiddenFolderIds,
-  }: Pick<ListProjectDocumentsOptions, 'authoredBy' | 'includeArchived' | 'hiddenFolderIds'>,
+    quarantineReader,
+  }: Pick<ListProjectDocumentsOptions, 'authoredBy' | 'includeArchived' | 'hiddenFolderIds' | 'quarantineReader'>,
 ): SQL | undefined {
   return and(
     shelfDocumentWhere(shelf, organizationId),
     ...(authoredBy ? [eq(documents.authoredBy, authoredBy)] : []),
     ...(includeArchived ? [] : [eq(documents.lifecycle, 'active')]),
     ...outsideHiddenFolders(hiddenFolderIds),
+    ...visibleQuarantineFor(quarantineReader),
   )
 }
 
@@ -308,6 +366,7 @@ export async function listDocumentPage(
     authoredBy,
     includeArchived = false,
     hiddenFolderIds,
+    quarantineReader,
   }: Omit<ListProjectDocumentsOptions, 'offset'> & { cursor?: DocumentListCursor } = {},
 ): Promise<DocumentListPage> {
   const db = getDb()
@@ -319,7 +378,7 @@ export async function listDocumentPage(
           .from(documents)
           .where(
             and(
-              listingWhere(shelf, organizationId, { authoredBy, includeArchived, hiddenFolderIds }),
+              listingWhere(shelf, organizationId, { authoredBy, includeArchived, hiddenFolderIds, quarantineReader }),
               ...(cursor ? [afterDocumentListCursor(cursor)] : []),
             ),
           )
@@ -377,7 +436,11 @@ export async function findDocumentsByFilenames(
   shelf: DocumentShelf,
   organizationId: string,
   filenames: readonly string[],
-  { includeArchived = false, hiddenFolderIds }: Pick<ListProjectDocumentsOptions, 'includeArchived' | 'hiddenFolderIds'> = {},
+  {
+    includeArchived = false,
+    hiddenFolderIds,
+    quarantineReader,
+  }: Pick<ListProjectDocumentsOptions, 'includeArchived' | 'hiddenFolderIds' | 'quarantineReader'> = {},
 ): Promise<DocumentListRow[]> {
   const byName = filenameLookupWhere(filenames)
   if (!byName) return []
@@ -386,7 +449,7 @@ export async function findDocumentsByFilenames(
     db
       .select(documentListColumns)
       .from(documents)
-      .where(and(listingWhere(shelf, organizationId, { includeArchived, hiddenFolderIds }), byName))
+      .where(and(listingWhere(shelf, organizationId, { includeArchived, hiddenFolderIds, quarantineReader }), byName))
       .orderBy(desc(documents.createdAt), asc(documents.id))
       .limit(DOCUMENT_LIST_LIMIT),
   )
@@ -397,7 +460,7 @@ export function findProjectDocumentsByFilenames(
   projectId: string,
   organizationId: string,
   filenames: readonly string[],
-  options: Pick<ListProjectDocumentsOptions, 'includeArchived' | 'hiddenFolderIds'> = {},
+  options: Pick<ListProjectDocumentsOptions, 'includeArchived' | 'hiddenFolderIds' | 'quarantineReader'> = {},
 ): Promise<DocumentListRow[]> {
   return findDocumentsByFilenames(projectShelf(projectId), organizationId, filenames, options)
 }
@@ -475,7 +538,7 @@ export async function findDocumentsByNames(
   shelf: DocumentShelf,
   organizationId: string,
   names: readonly string[],
-  { hiddenFolderIds }: Pick<ListProjectDocumentsOptions, 'hiddenFolderIds'> = {},
+  { hiddenFolderIds, quarantineReader }: Pick<ListProjectDocumentsOptions, 'hiddenFolderIds' | 'quarantineReader'> = {},
 ): Promise<DocumentNameMatchRow[]> {
   const db = getDb()
   return probeDocumentNames(names, (where, limit) =>
@@ -483,7 +546,16 @@ export async function findDocumentsByNames(
       db
         .select(documentNameMatchColumns)
         .from(documents)
-        .where(and(shelfDocumentWhere(shelf, organizationId), ...outsideHiddenFolders(hiddenFolderIds), where))
+        .where(
+          and(
+            shelfDocumentWhere(shelf, organizationId),
+            ...outsideHiddenFolders(hiddenFolderIds),
+            // The probe answers with the digest: somebody else's quarantined
+            // file would let a member confirm its contents by hash (ADR-0083).
+            ...visibleQuarantineFor(quarantineReader),
+            where,
+          ),
+        )
         .orderBy(desc(documents.createdAt), asc(documents.id))
         .limit(limit),
     ),
@@ -495,7 +567,7 @@ export function findProjectDocumentsByNames(
   projectId: string,
   organizationId: string,
   names: readonly string[],
-  options: Pick<ListProjectDocumentsOptions, 'hiddenFolderIds'> = {},
+  options: Pick<ListProjectDocumentsOptions, 'hiddenFolderIds' | 'quarantineReader'> = {},
 ): Promise<DocumentNameMatchRow[]> {
   return findDocumentsByNames(projectShelf(projectId), organizationId, names, options)
 }
@@ -904,6 +976,9 @@ export async function findStorageKeyByCollectionAndFilename(
             // See the note above: this is a byte-serving path reachable with
             // model-supplied arguments. A machine-authored row must not resolve.
             eq(documents.authoredBy, 'user'),
+            // Nor a quarantined one (ADR-0083): nothing of it reached a model at
+            // ingest, and a file name the model was told must not reach it now.
+            ne(documents.status, 'quarantined'),
             ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),
           ),
         )

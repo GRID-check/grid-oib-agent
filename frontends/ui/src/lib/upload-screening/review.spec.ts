@@ -16,6 +16,8 @@ vi.mock('@/lib/documents/service', () => ({
 vi.mock('@/lib/documents/folder-path', () => ({
   resolveDocumentFolderPath: vi.fn().mockResolvedValue('Verwaltung'),
 }))
+vi.mock('@/lib/upload-batches/settle', () => ({ quarantineReviewersOf: vi.fn() }))
+vi.mock('@/lib/inbox/service', () => ({ emitInboxItems: vi.fn().mockResolvedValue(0) }))
 
 import { recordAuditEvent } from '@/lib/audit/service'
 import { isFolderVisibleTo, requireFolderWrite } from '@/lib/authz/folder-access'
@@ -23,10 +25,12 @@ import { folderReadOnlyError } from '@/lib/authz/folder-access-rule'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findDocumentInOrg, listQuarantinedDocuments, markScreeningReleased } from '@/lib/documents/repository'
 import { dispatchDocument } from '@/lib/documents/service'
-import { NotFoundError } from '@/lib/api/errors'
+import { emitInboxItems } from '@/lib/inbox/service'
+import { quarantineReviewersOf } from '@/lib/upload-batches/settle'
+import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { makeDocument } from '@/test-utils/db-fixtures'
-import { listQuarantineQueue, mayReviewQuarantine, releaseQuarantinedDocument } from './review'
+import { listQuarantineQueue, mayReviewQuarantine, releaseQuarantinedDocument, requestQuarantineRelease } from './review'
 
 const member: AuthorizedSession = {
   userId: 'user-member',
@@ -202,5 +206,60 @@ describe('listQuarantineQueue', () => {
   it('gives a member who reviews nothing an empty queue', async () => {
     vi.mocked(listQuarantinedDocuments).mockResolvedValue([quarantined])
     expect(await listQuarantineQueue(member)).toEqual([])
+  })
+})
+
+describe('requestQuarantineRelease („Freigabe anfragen")', () => {
+  // `makeDocument` is uploaded by `user-1`.
+  const uploader: AuthorizedSession = { ...member, userId: 'user-1' }
+
+  beforeEach(() => {
+    // Every session here may view the project; nobody but its admin manages it.
+    vi.mocked(requireProjectAccess).mockImplementation(async (_s, _projectId, permission) => {
+      if (permission === 'project:manage') throw new NotFoundError('Project not found')
+      return { role: 'project-viewer' } as Awaited<ReturnType<typeof requireProjectAccess>>
+    })
+    vi.mocked(quarantineReviewersOf).mockResolvedValue(['user-admin', 'user-pa'])
+  })
+
+  it("tells the file's reviewers through the inbox, one row per file, naming it", async () => {
+    await expect(requestQuarantineRelease(uploader, 'doc-q')).resolves.toEqual({ id: 'doc-q', notified: 2 })
+
+    expect(quarantineReviewersOf).toHaveBeenCalledWith('org-1', quarantined)
+    const emitted = vi.mocked(emitInboxItems).mock.calls[0]?.[0] ?? []
+    expect(emitted.map((row) => row.recipientUserId)).toEqual(['user-admin', 'user-pa'])
+    expect(emitted[0]).toMatchObject({
+      type: 'document.release_requested',
+      resourceType: 'organization',
+      resourceId: 'org-1',
+      anchorId: 'doc-q',
+      actorUserId: 'user-1',
+      groupKey: 'document.release_requested:organization:org-1:doc-q',
+      payload: { subject: 'Lohnzettel 03.pdf' },
+    })
+    // Asking releases nothing.
+    expect(markScreeningReleased).not.toHaveBeenCalled()
+    expect(dispatchDocument).not.toHaveBeenCalled()
+  })
+
+  it('does not count the uploader among the reviewers it told', async () => {
+    vi.mocked(quarantineReviewersOf).mockResolvedValue(['user-1'])
+    await expect(requestQuarantineRelease(uploader, 'doc-q')).resolves.toEqual({ id: 'doc-q', notified: 0 })
+  })
+
+  it('does not exist for a member who did not upload it', async () => {
+    await expect(requestQuarantineRelease(member, 'doc-q')).rejects.toBeInstanceOf(NotFoundError)
+    expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+
+  it('refuses a reviewer who did not upload it: they release it themselves', async () => {
+    await expect(requestQuarantineRelease(orgAdmin, 'doc-q')).rejects.toBeInstanceOf(ForbiddenError)
+    expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+
+  it('refuses a file that is no longer in quarantine', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...quarantined, status: 'completed', errorMessage: null })
+    await expect(requestQuarantineRelease(uploader, 'doc-q')).rejects.toBeInstanceOf(ConflictError)
+    expect(emitInboxItems).not.toHaveBeenCalled()
   })
 })

@@ -29,8 +29,9 @@ const BIM_WRITE: readonly ProjectPermission[] = ['project:documents:write', 'pro
 import { requireResourceAccess } from '@/lib/sharing/access'
 import { isIfcModelsEnabled } from '@/lib/authz/feature-flags'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
-import { findDocumentInOrg } from '@/lib/documents/repository'
+import { findDocumentInOrg, type QuarantineReaders } from '@/lib/documents/repository'
 import { getAccessibleDocument } from '@/lib/documents/access'
+import { maySeeQuarantined, quarantineReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import type { Document } from '@/lib/db/schema'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -99,6 +100,11 @@ async function assertDocumentReadable(
   document: Document,
   notFoundMessage: string
 ): Promise<void> {
+  // A quarantined file's model is its uploader's and its reviewers' only
+  // (ADR-0083): the header, the query and the presigned source all pass here.
+  if (document.status === 'quarantined' && !(await maySeeQuarantined(session, document))) {
+    throw new NotFoundError(notFoundMessage)
+  }
   switch (document.scope) {
     case 'archiv':
       // Org-wide by design, and `findDocumentInOrg` has already established that
@@ -159,6 +165,19 @@ export async function getModelForDocument(
 }
 
 /**
+ * The model list's reader per shelf (ADR-0083). It reads the project's models
+ * and the Büroablage's together, and each shelf has its own reviewers: the
+ * project's admins for one, the Büroablage's curators for the other.
+ */
+async function modelQuarantineReaders(session: AuthorizedSession, projectId: string): Promise<QuarantineReaders> {
+  const [project, archiv] = await Promise.all([
+    quarantineReaderFor(session, { scope: 'project', projectId }),
+    quarantineReaderFor(session, { scope: 'archiv', projectId: null }),
+  ])
+  return { project, archiv }
+}
+
+/**
  * Models a project can see: its own, plus the org-wide Archiv's.
  *
  * The same scope rule retrieval uses — a chat that can cite an Archiv document
@@ -174,6 +193,7 @@ export async function listAccessibleModels(
     projectId,
     includeArchiv: true,
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+    quarantineReaders: await modelQuarantineReaders(session, projectId),
   })
 }
 
@@ -403,6 +423,7 @@ async function resolveModelByName(
       includeArchiv: true,
       limit: 200,
       hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+      quarantineReaders: await modelQuarantineReaders(session, projectId),
     })
   ).filter((model) => model.status === 'ready')
   const needle = name.trim().toLowerCase()

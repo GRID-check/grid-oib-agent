@@ -127,6 +127,7 @@ vi.mock('@/lib/compliance/repository', () => ({
 vi.mock('./repository', () => ({
   listArchivDocuments: vi.fn(),
   findArchivDocumentsByFilenames: vi.fn(),
+  findArchivDocumentsByNames: vi.fn().mockResolvedValue([]),
   findArchivDocument: vi.fn(),
   deleteArchivDocument: vi.fn().mockResolvedValue(undefined),
 }))
@@ -146,6 +147,7 @@ import {
   listArchivDocuments,
   findArchivDocument,
   findArchivDocumentsByFilenames,
+  findArchivDocumentsByNames,
   deleteArchivDocument as deleteArchivDocumentRow,
 } from './repository'
 import { decodeDocumentListCursor, encodeDocumentListCursor } from '@/lib/documents/list-cursor'
@@ -153,6 +155,7 @@ import {
   listArchiv,
   uploadArchivDocument,
   deleteArchivDocument,
+  probeArchivDocumentNames,
   resolveArchivDocumentsByName,
   searchArchivDocuments,
 } from './service'
@@ -224,6 +227,22 @@ describe('listArchiv', () => {
     expect(decodeDocumentListCursor(result.nextCursor ?? '')).toEqual(next)
   })
 
+  // The query keeps a `pending` row; the reconcile on the way out may turn it
+  // `quarantined`, and then it is the uploader's and the curators' only.
+  it('narrows again after the reconcile turns a row quarantined (ADR-0083)', async () => {
+    const row = (id: string, createdBy: string) =>
+      ({ id, filename: `${id}.pdf`, status: 'pending', createdBy, metadata: null }) as never
+    vi.mocked(listArchivDocuments).mockResolvedValue({ rows: [row('mine', 'user-1'), row('theirs', 'user-2')], nextCursor: null })
+    vi.mocked(reconcileDocumentStatuses).mockImplementation(async (rows) =>
+      rows.map((r) => ({ ...r, status: 'quarantined' }))
+    )
+    vi.mocked(canManageArchiv).mockReturnValue(false)
+
+    const result = await listArchiv(session)
+
+    expect(result.documents.map((doc) => doc.id)).toEqual(['mine'])
+  })
+
   it('strips the internal metadata jsonb from every returned row', async () => {
     vi.mocked(listArchivDocuments).mockResolvedValue({ rows: [], nextCursor: null })
     const reconciled: Array<ReconcilableDocument & DocumentMetadata> = [
@@ -255,10 +274,27 @@ describe('listArchiv', () => {
   it('passes the lifecycle and author filters to the shelf listing', async () => {
     vi.mocked(listArchivDocuments).mockResolvedValue({ rows: [], nextCursor: null })
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
+    vi.mocked(canManageArchiv).mockReturnValue(false)
 
     await listArchiv(session, { includeArchived: true, authoredBy: 'agent' })
 
-    expect(listArchivDocuments).toHaveBeenCalledWith('org-1', { includeArchived: true, authoredBy: 'agent' })
+    // A member who does not curate the Büroablage is listed only the
+    // quarantined files they uploaded (ADR-0083).
+    expect(listArchivDocuments).toHaveBeenCalledWith('org-1', {
+      includeArchived: true,
+      authoredBy: 'agent',
+      quarantineReader: 'user-1',
+    })
+  })
+
+  it('lists every quarantined file to a curator of the Büroablage (ADR-0083)', async () => {
+    vi.mocked(listArchivDocuments).mockResolvedValue({ rows: [], nextCursor: null })
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+
+    await listArchiv(session)
+
+    expect(vi.mocked(listArchivDocuments).mock.calls[0][1]).toEqual({ quarantineReader: undefined })
   })
 
   // Every row carries the fields a project's listing carries, assignees
@@ -317,7 +353,7 @@ describe('searchArchivDocuments', () => {
     expect(fetchSemanticHits).toHaveBeenCalledWith('archiv_org-1', 'fire escape', 20)
     // The join reads the hit names directly, not the paged listing — a hit on
     // a document past the first page must still resolve.
-    expect(findArchivDocumentsByFilenames).toHaveBeenCalledWith('org-1', ['plan.pdf'])
+    expect(findArchivDocumentsByFilenames).toHaveBeenCalledWith('org-1', ['plan.pdf'], { quarantineReader: 'user-1' })
     expect(listArchivDocuments).not.toHaveBeenCalled()
     // Joined against the Archiv's own reconciled rows (not the raw backend hits).
     expect(joinHitsToFiles).toHaveBeenCalledWith(backendHits, expect.arrayContaining([expect.objectContaining({ id: 'd1' })]))
@@ -356,9 +392,10 @@ describe('resolveArchivDocumentsByName', () => {
     vi.mocked(findArchivDocumentsByFilenames).mockResolvedValue([row] as never)
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue([{ ...row, metadata: {} }] as never)
 
+    vi.mocked(canManageArchiv).mockReturnValue(false)
     const documents = await resolveArchivDocumentsByName(session, ['alt.pdf'])
 
-    expect(findArchivDocumentsByFilenames).toHaveBeenCalledWith('org-1', ['alt.pdf'])
+    expect(findArchivDocumentsByFilenames).toHaveBeenCalledWith('org-1', ['alt.pdf'], { quarantineReader: 'user-1' })
     expect(listArchivDocuments).not.toHaveBeenCalled()
     expect(documents.map((doc) => doc.id)).toEqual(['d9'])
     expect(documents[0]).not.toHaveProperty('metadata')
@@ -742,5 +779,19 @@ describe('deleteArchivDocument', () => {
     expect(replaced?.[3]).toBe('archiv-winner')
     // Its own write key under the winner's id — never the winner's own object.
     expect(replaced?.[1]).toMatch(/\/doc\/archiv-winner\/v\d+\/[0-9a-f]{12}\/norm\.pdf$/)
+  })
+})
+
+// The probe answers with id, size and digest: somebody else's quarantined file
+// would let a member confirm its contents by hash (ADR-0083).
+describe('probeArchivDocumentNames and a quarantined file', () => {
+  it("keeps a member to their own, and a curator to every one", async () => {
+    vi.mocked(canManageArchiv).mockReturnValue(false)
+    await probeArchivDocumentNames(session, ['Honorar.pdf'])
+    expect(findArchivDocumentsByNames).toHaveBeenLastCalledWith('org-1', ['Honorar.pdf'], { quarantineReader: 'user-1' })
+
+    vi.mocked(canManageArchiv).mockReturnValue(true)
+    await probeArchivDocumentNames(session, ['Honorar.pdf'])
+    expect(vi.mocked(findArchivDocumentsByNames).mock.lastCall?.[2]).toEqual({ quarantineReader: undefined })
   })
 })

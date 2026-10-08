@@ -109,6 +109,13 @@ export const INBOX_ITEM_TYPES = [
    * counted row per organization, and opening the quarantine queue.
    */
   'document.quarantined',
+  /**
+   * Operational: the uploader of a quarantined file asks for it to be released
+   * (ADR-0083, „Freigabe anfragen"). Addressed to whoever may release it, one
+   * row per file, opening the quarantine queue. It names the file: only the
+   * file's own reviewers receive it.
+   */
+  'document.release_requested',
 ] as const
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
 

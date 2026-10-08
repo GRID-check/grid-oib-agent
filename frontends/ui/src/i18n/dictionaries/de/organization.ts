@@ -702,6 +702,8 @@ export const organization: typeof en.organization = {
     whereSession: 'Chat-Anhang',
     reasonsLabel: 'Gründe',
     noReason: 'Grund nicht lesbar',
+    open: 'Ansehen',
+    openTitle: '„{name}“ dort öffnen, wo sie abgelegt ist',
     release: 'Freigeben',
     releaseTitle: '„{name}“ freigeben?',
     releaseDescription:

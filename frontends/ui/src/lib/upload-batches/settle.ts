@@ -96,7 +96,7 @@ async function completionEmission(batch: UploadBatch): Promise<InboxEmission> {
  * Bounded by the directory's first page, as the storage alert is, and for the
  * same reason (`lib/storage/alerts.ts`): the reviewers are a small set.
  */
-async function reviewersOf(organizationId: string, document: Document): Promise<string[]> {
+export async function quarantineReviewersOf(organizationId: string, document: Document): Promise<string[]> {
   const directory = await loadOrganizationDirectory(organizationId)
   const verdicts = await Promise.all(
     [...directory.keys()].map(async (userId) => {
@@ -142,7 +142,7 @@ async function onQuarantined(organizationId: string, documentIds: readonly strin
 async function notifyQuarantineReviewers(organizationId: string, documents: readonly Document[]): Promise<void> {
   const emissions: InboxEmission[] = []
   for (const document of documents) {
-    for (const reviewer of await reviewersOf(organizationId, document)) {
+    for (const reviewer of await quarantineReviewersOf(organizationId, document)) {
       emissions.push({
         organizationId,
         recipientUserId: reviewer,

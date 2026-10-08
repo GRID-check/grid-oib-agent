@@ -1,4 +1,4 @@
-import { act, render, renderHook, screen, waitFor, within } from '@/test-utils'
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FIXTURE_PROJECT_ID, MIXED_SUMMARY, SETTLED_SUMMARY } from '@/app/dev/_fixtures/upload-batches'
 import { classifyIngestFailure, ingestFailureSentence } from '@/features/documents/lib/ingest-failure'
@@ -11,6 +11,8 @@ import { UploadSummaryDialog, UploadSummaryView } from './upload-summary'
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ back: vi.fn(), push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
 }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), info: vi.fn(), error: vi.fn() } }))
+import { toast } from 'sonner'
 
 const tFiles = createTranslator(en, 'files')
 
@@ -102,6 +104,40 @@ describe('UploadSummaryView', () => {
     }
     expect(within(quarantine).getByText('“Honorar” in the text · pages 1, 4')).toBeInTheDocument()
     expect(within(quarantine).getByText(en.files.ingestFailure.quarantined)).toBeInTheDocument()
+  })
+
+  // T4.2: the uploader of a file held back can ask the people who may release it.
+  describe('„Freigabe anfragen" on a quarantined file', () => {
+    afterEach(() => vi.unstubAllGlobals())
+
+    const stubAsk = (notified: number) =>
+      vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id: 'doc-honorar', notified })))
+
+    it('asks the reviewers through the release-request route and says so', async () => {
+      stubAsk(2)
+      render(<UploadSummaryView summary={MIXED_SUMMARY} />)
+      const button = screen.getByTestId('upload-file-request-release-doc-honorar')
+      expect(button).toHaveTextContent(en.uploadBatches.summary.files.requestRelease)
+
+      fireEvent.click(button)
+
+      await waitFor(() => expect(button).toHaveTextContent(en.uploadBatches.summary.files.releaseRequested))
+      expect(button).toBeDisabled()
+      expect(fetch).toHaveBeenCalledWith('/api/documents/doc-honorar/quarantine/request-release', { method: 'POST' })
+      expect(toast.success).toHaveBeenCalled()
+    })
+
+    it('tells the uploader when nobody but them may release it', async () => {
+      stubAsk(0)
+      render(<UploadSummaryView summary={MIXED_SUMMARY} />)
+      fireEvent.click(screen.getByTestId('upload-file-request-release-doc-honorar'))
+      await waitFor(() => expect(toast.info).toHaveBeenCalled())
+    })
+
+    it('offers it on no file that is not in quarantine', () => {
+      render(<UploadSummaryView summary={MIXED_SUMMARY} />)
+      expect(screen.queryByTestId('upload-file-request-release-doc-grundriss-eg')).not.toBeInTheDocument()
+    })
   })
 
   it('says why a reading failed through the shared failure sentence', () => {

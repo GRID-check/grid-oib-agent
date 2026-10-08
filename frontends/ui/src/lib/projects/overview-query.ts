@@ -3,7 +3,7 @@ import { getDb } from '@/lib/db'
 import { projects, documents } from '@/lib/db/schema'
 import type { ProjectOverviewData } from '@/features/projects/types'
 import { getApplicableStandards } from '@/lib/oib/applicable-standards'
-import { outsideHiddenFolders } from '@/lib/documents/repository'
+import { outsideHiddenFolders, visibleQuarantineFor } from '@/lib/documents/repository'
 
 export interface ProjectOverviewReader {
   /**
@@ -13,6 +13,13 @@ export interface ProjectOverviewReader {
    * folder's documents to everyone who can open the project.
    */
   hiddenFolderIds: readonly string[]
+  /**
+   * The reader when they may not review this project's quarantine (ADR-0083),
+   * from `quarantineReaderFor`; `undefined` for a reviewer. A key that must be
+   * present for the same reason as the one above: a quarantined file is not
+   * there for anyone else, by name or in a number.
+   */
+  quarantineReader: string | undefined
 }
 
 /**
@@ -25,12 +32,13 @@ export interface ProjectOverviewReader {
  *
  * The count, the total size and the recent list leave out the documents of
  * every folder hidden from the reader, as the document list does: a fee note
- * a member may not open must not appear here by name, nor move a number.
+ * a member may not open must not appear here by name, nor move a number. The
+ * same holds for a quarantined file the reader neither uploaded nor reviews.
  */
 export async function getProjectOverviewData(
   projectId: string,
   organizationId: string,
-  { hiddenFolderIds }: ProjectOverviewReader
+  { hiddenFolderIds, quarantineReader }: ProjectOverviewReader
 ): Promise<ProjectOverviewData | null> {
   const db = getDb()
 
@@ -79,7 +87,8 @@ export async function getProjectOverviewData(
         // must be an invariant, not a coincidence — which is why migration 0049
         // also writes it into the table.
         eq(documents.scope, 'project'),
-        ...outsideHiddenFolders(hiddenFolderIds)
+        ...outsideHiddenFolders(hiddenFolderIds),
+        ...visibleQuarantineFor(quarantineReader)
       )
     )
 
@@ -102,7 +111,8 @@ export async function getProjectOverviewData(
         // that could show a row the count above excluded (or the reverse) is a
         // page that contradicts itself.
         eq(documents.scope, 'project'),
-        ...outsideHiddenFolders(hiddenFolderIds)
+        ...outsideHiddenFolders(hiddenFolderIds),
+        ...visibleQuarantineFor(quarantineReader)
       )
     )
     .orderBy(desc(documents.createdAt))

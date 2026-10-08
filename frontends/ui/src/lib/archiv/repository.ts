@@ -45,8 +45,9 @@ export function listArchivDocuments(
 export function findArchivDocumentsByFilenames(
   organizationId: string,
   filenames: readonly string[],
+  options: Parameters<typeof findDocumentsByFilenames>[3] = {},
 ): Promise<DocumentListRow[]> {
-  return findDocumentsByFilenames(ARCHIV_SHELF, organizationId, filenames)
+  return findDocumentsByFilenames(ARCHIV_SHELF, organizationId, filenames, options)
 }
 
 /**
@@ -56,8 +57,9 @@ export function findArchivDocumentsByFilenames(
 export function findArchivDocumentsByNames(
   organizationId: string,
   names: readonly string[],
+  options: Parameters<typeof findDocumentsByNames>[3] = {},
 ): Promise<DocumentNameMatchRow[]> {
-  return findDocumentsByNames(ARCHIV_SHELF, organizationId, names)
+  return findDocumentsByNames(ARCHIV_SHELF, organizationId, names, options)
 }
 
 /** Load one Archiv document by id, scoped to its organization. */

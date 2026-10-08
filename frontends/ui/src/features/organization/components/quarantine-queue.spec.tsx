@@ -92,6 +92,19 @@ describe('QuarantineQueue', () => {
     expect(within(screen.getByTestId('quarantine-row-doc-3')).getByText(/Chat attachment/)).toBeInTheDocument()
   })
 
+  // T4.2: the reviewer looks at the file from where they decide.
+  it('links a project file and a Büroablage file to where they are filed, opened on them', async () => {
+    stubApi()
+    render(<QuarantineQueue />)
+    expect(await screen.findByTestId('quarantine-open-doc-1')).toHaveAttribute(
+      'href',
+      '/app/projects/proj_1/files?doc=doc-1'
+    )
+    expect(screen.getByTestId('quarantine-open-doc-2')).toHaveAttribute('href', '/app/archiv?doc=doc-2')
+    // A chat attachment has no per-file view.
+    expect(screen.queryByTestId('quarantine-open-doc-3')).not.toBeInTheDocument()
+  })
+
   it('release asks first, posts to the release endpoint, and removes the row', async () => {
     stubApi()
     render(<QuarantineQueue />)

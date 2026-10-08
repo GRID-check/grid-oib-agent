@@ -13,14 +13,11 @@
  */
 
 import 'server-only'
-import { ConflictError, NotFoundError } from '@/lib/api/errors'
+import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { filedInOf } from '@/lib/audit/document-names'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { canManageArchiv } from '@/lib/authz/organizations'
-import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
-import { isFolderVisibleTo, requireFolderWrite } from '@/lib/authz/folder-access'
-import { requireProjectAccess } from '@/lib/authz/projects'
+import { requireFolderWrite } from '@/lib/authz/folder-access'
 import type { Document } from '@/lib/db/schema'
 import {
   findDocumentInOrg,
@@ -29,30 +26,20 @@ import {
   QUARANTINE_LIST_LIMIT,
   type QuarantineCursor,
 } from '@/lib/documents/repository'
-import { dispatchDocument } from '@/lib/documents/service'
+import { getAccessibleDocument } from '@/lib/documents/access'
+import { dispatchDocument, type DispatchDocumentResult } from '@/lib/documents/service'
 import { resolveDocumentFolderPath } from '@/lib/documents/folder-path'
+import { inboxGroupKey } from '@/lib/inbox/registry'
+import { emitInboxItems } from '@/lib/inbox/service'
+import { quarantineReviewersOf } from '@/lib/upload-batches/settle'
 import { auditedQuarantineReasons, parseQuarantine, type QuarantineVerdict } from './quarantine'
+import { mayReviewQuarantine } from './quarantine-reviewers'
 
-type ReviewedDocument = Pick<Document, 'scope' | 'projectId' | 'folderId'>
-
-/** Whether this session may release or delete this quarantined document. Never throws. */
-export async function mayReviewQuarantine(session: AuthorizedSession, doc: ReviewedDocument): Promise<boolean> {
-  if (hasPermission(session, ORG_PERMISSIONS.projectsAdminister)) return true
-  if (doc.scope === 'archiv') return canManageArchiv(session)
-  if (doc.scope !== 'project' || !doc.projectId) return false
-  try {
-    await requireProjectAccess(session, doc.projectId, 'project:manage')
-  } catch {
-    return false
-  }
-  // A project admin who is not cleared for the document's folder does not
-  // review it: they could not see it anywhere else either (ADR-0084).
-  return isFolderVisibleTo(session, doc.projectId, doc.folderId).catch(() => false)
-}
+export { mayReviewQuarantine }
 
 export interface ReleaseResult {
   id: string
-  status: 'pending' | 'uploaded' | 'failed' | 'processing'
+  status: DispatchDocumentResult['status']
   jobId: string | null
 }
 
@@ -120,6 +107,53 @@ export async function releaseQuarantinedDocument(
     request,
   })
   return { id: doc.id, status, jobId }
+}
+
+export interface ReleaseRequestResult {
+  id: string
+  /** How many reviewers were told. Zero when the uploader is the only one who could release it. */
+  notified: number
+}
+
+/**
+ * The uploader asks for their quarantined file to be released („Freigabe
+ * anfragen", ADR-0083). It releases nothing: it tells the people who may
+ * release it, through the inbox, that somebody is waiting on their decision.
+ *
+ * Only the uploader asks. Everyone else is told the document does not exist,
+ * exactly as `getAccessibleDocument` tells them on every other path; a reviewer
+ * who is not the uploader is refused (403), since they can release it
+ * themselves. Asking again about the same file folds into the reviewer's
+ * existing row.
+ */
+export async function requestQuarantineRelease(
+  session: AuthorizedSession,
+  documentId: string
+): Promise<ReleaseRequestResult> {
+  const doc = await getAccessibleDocument(session, documentId)
+  if (doc.createdBy !== session.userId) throw new ForbiddenError('Only the uploader asks for a release')
+  if (doc.status !== 'quarantined') {
+    throw new ConflictError('Only a quarantined document can be asked for', { status: doc.status })
+  }
+
+  const reviewers = (await quarantineReviewersOf(session.organizationId, doc)).filter(
+    (userId) => userId !== session.userId
+  )
+  await emitInboxItems(
+    reviewers.map((reviewer) => ({
+      organizationId: session.organizationId,
+      recipientUserId: reviewer,
+      type: 'document.release_requested' as const,
+      resourceType: 'organization' as const,
+      resourceId: session.organizationId,
+      anchorId: doc.id,
+      actorUserId: session.userId,
+      groupKey: inboxGroupKey('document.release_requested', 'organization', session.organizationId, doc.id),
+      // The file's name, which every recipient may already see in their queue.
+      payload: { subject: doc.filename },
+    }))
+  )
+  return { id: doc.id, notified: reviewers.length }
 }
 
 export interface QuarantineQueueItem {

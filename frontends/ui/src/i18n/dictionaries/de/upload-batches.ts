@@ -60,6 +60,11 @@ export const uploadBatches: typeof en.uploadBatches = {
       openInArchiv: 'In der Büroablage öffnen',
       changedHint: 'Neue Fassung eines Dokuments, das schon hier lag. Die bisherige bleibt unter Versionen erhalten.',
       protectedHint: 'Liegt in einem Ordner mit eigenem Zugriff. Wer ihn öffnen und ändern darf, zeigt das Schloss am Ordner.',
+      requestRelease: 'Freigabe anfragen',
+      releaseRequested: 'Freigabe angefragt',
+      releaseRequestedToast: 'Die Personen, die „{name}“ freigeben dürfen, sind benachrichtigt.',
+      releaseRequestNobody: 'Außer Ihnen darf niemand „{name}“ freigeben. Sie finden die Datei unter Organisation → Quarantäne.',
+      releaseRequestError: 'Die Anfrage konnte nicht gesendet werden. Bitte versuchen Sie es erneut.',
     },
     notFound: {
       title: 'Übersicht nicht gefunden',

@@ -34,6 +34,7 @@ import { folderReadOnlyError, getProjectFolderAccess } from '@/lib/authz/folder-
 import { assertIfcMayBeFiledIn } from '@/lib/projects/ifc-folder-guard'
 import { acceptedUploadBatchId } from '@/lib/upload-batches/service'
 import { assertUploadNameAllowed, auditScreeningOverride } from '@/lib/upload-screening/service'
+import { assertMayReplaceQuarantined } from '@/lib/upload-screening/quarantine-reviewers'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
@@ -50,6 +51,7 @@ import { newVersionWriteId, versionWriteKey } from './version-content'
 import { shelfOwner, type DocumentShelf } from './shelf'
 import { requireShelfWrite } from './shelf-authz'
 import { shelfCollectionName } from './shelf-collection'
+import type { DispatchDocumentResult } from './service'
 
 /** What an upload names besides the file, on either shelf. */
 export interface ShelfUploadInput {
@@ -80,7 +82,7 @@ export interface UploadDocumentResult {
    * — reporting the `uploaded` birth status would hide that work behind a
    * terminal "Abgelegt" badge for a model that is about to become openable.
    */
-  status: 'pending' | 'uploaded' | 'failed' | 'processing'
+  status: DispatchDocumentResult['status']
   filename: string
   /**
    * The bytes were already the live document's, so nothing was written and no
@@ -181,6 +183,7 @@ function placeUpload(session: AuthorizedSession, input: PlaceUploadInput): Promi
     // A re-upload is a new version of the document it supersedes, and files it
     // where this upload goes: a write on the folder it is in now, too (ADR-0085).
     if (superseded && !input.mayWriteFolder(superseded.folderId ?? null)) throw folderReadOnlyError()
+    if (superseded) await assertMayReplaceQuarantined(session, superseded, filename)
     const documentId = superseded?.id ?? crypto.randomUUID()
     /*
      * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).

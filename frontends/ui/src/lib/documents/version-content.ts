@@ -524,7 +524,9 @@ export async function readVersionForService(
     throw new NotFoundError('Version not found')
   }
   const document = await findDocumentInOrg(version.documentId, organizationId)
-  if (!document) throw new NotFoundError('Version not found')
+  // A quarantined document (ADR-0083) never reaches a model, not even as the
+  // subject its own uploader opened a chat about.
+  if (!document || document.status === 'quarantined') throw new NotFoundError('Version not found')
   const drewOnRestrictedFolder = await admitSubjectRead(document, organizationId, conversationId, askerUserId)
   return {
     documentId: version.documentId,

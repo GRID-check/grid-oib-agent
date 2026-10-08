@@ -33,6 +33,7 @@ import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
 import { assertNoActiveHold } from '@/lib/compliance/holds'
 import type { DocumentAuthor } from '@/lib/db/schema'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { quarantineReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { archivCollectionName } from './collection'
 import {
   deleteArchivDocument as deleteArchivDocumentRow,
@@ -57,6 +58,11 @@ export interface ArchivListResult {
   canManage: boolean
 }
 
+/** Who of the Büroablage's quarantine this session may see in a listing (`quarantineReaderFor`). */
+function archivQuarantineReader(session: AuthorizedSession): Promise<string | undefined> {
+  return quarantineReaderFor(session, { scope: 'archiv', projectId: null })
+}
+
 /**
  * One page of the org's Archiv (bounded, keyset-paginated), lazily reconciling
  * in-flight ingestion statuses with the backend and merging its read-only
@@ -71,9 +77,11 @@ export async function listArchiv(
   session: AuthorizedSession,
   options: { authoredBy?: DocumentAuthor; includeArchived?: boolean; cursor?: DocumentListCursor } = {},
 ): Promise<ArchivListResult> {
-  const page = await listArchivDocumentRows(session.organizationId, options)
+  // A file in quarantine is listed for its uploader and the curators only (ADR-0083).
+  const quarantineReader = await archivQuarantineReader(session)
+  const page = await listArchivDocumentRows(session.organizationId, { ...options, quarantineReader })
   return {
-    ...(await toListedPage(session, page)),
+    ...(await toListedPage(session, page, { quarantineReader })),
     collectionName: archivCollectionName(session.organizationId),
     canManage: canManageArchiv(session),
   }
@@ -97,11 +105,13 @@ export async function searchArchivDocuments(
 ): Promise<{ hits: Array<SearchedDocument<ListedDocument>> }> {
   const hits = await fetchSemanticHits(archivCollectionName(session.organizationId), query, topK)
   if (hits.length === 0) return { hits: [] }
+  const quarantineReader = await archivQuarantineReader(session)
   const rows = await findArchivDocumentsByFilenames(
     session.organizationId,
     hits.map((hit) => hit.file_name),
+    { quarantineReader },
   )
-  return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows)) }
+  return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows, { quarantineReader })) }
 }
 
 /**
@@ -116,8 +126,9 @@ export async function resolveArchivDocumentsByName(
   session: AuthorizedSession,
   filenames: readonly string[],
 ): Promise<ListedDocument[]> {
-  const rows = await findArchivDocumentsByFilenames(session.organizationId, filenames)
-  return toListedDocuments(session, rows)
+  const quarantineReader = await archivQuarantineReader(session)
+  const rows = await findArchivDocumentsByFilenames(session.organizationId, filenames, { quarantineReader })
+  return toListedDocuments(session, rows, { quarantineReader })
 }
 
 /**
@@ -129,7 +140,10 @@ export async function probeArchivDocumentNames(
   session: AuthorizedSession,
   names: readonly string[],
 ): Promise<DocumentNameMatchRow[]> {
-  return findArchivDocumentsByNames(session.organizationId, names)
+  // Not somebody else's quarantined file: the probe answers with its digest (ADR-0083).
+  return findArchivDocumentsByNames(session.organizationId, names, {
+    quarantineReader: await archivQuarantineReader(session),
+  })
 }
 
 export type UploadArchivDocumentResult = UploadDocumentResult

@@ -5,6 +5,7 @@
  *   - policy  → `GET|PUT /api/organization/upload-screening`
  *   - queue   → `GET     /api/quarantine`
  *   - release → `POST    /api/documents/[id]/quarantine/release`
+ *   - ask     → `POST    /api/documents/[id]/quarantine/request-release`
  *   - delete  → each shelf's own delete route (project, Archiv, chat)
  *
  * The queue's server type lives in `lib/upload-screening/review.ts`, which is
@@ -95,6 +96,20 @@ export async function releaseQuarantinedDocument(documentId: string): Promise<vo
     method: 'POST',
   })
   if (!response.ok) throw await requestError(response, 'Failed to release the document')
+}
+
+const ReleaseRequestSchema = z.object({ id: z.string(), notified: z.number().int().nonnegative() })
+
+/**
+ * Ask the people who may release one of your quarantined files to look at it.
+ * Resolves to how many were told; zero means nobody but the uploader may.
+ */
+export async function requestQuarantineRelease(documentId: string): Promise<{ notified: number }> {
+  const response = await fetch(`/api/documents/${encodeURIComponent(documentId)}/quarantine/request-release`, {
+    method: 'POST',
+  })
+  if (!response.ok) throw await requestError(response, 'Failed to ask for the release')
+  return ReleaseRequestSchema.parse(await response.json())
 }
 
 /** Where each shelf deletes one of its documents. */

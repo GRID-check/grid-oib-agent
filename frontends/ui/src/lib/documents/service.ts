@@ -114,6 +114,7 @@ import {
   type ReingestFailedPayload,
 } from '@/lib/jobs-queue/types'
 import { getAccessibleDocument } from './access'
+import { quarantineReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { recordDocumentAccess } from '@/lib/download-log/service'
 import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
@@ -555,15 +556,18 @@ export async function listDocumentsPage(
 
   // `limit` is deliberately not passed: the repository's own default is the
   // page size, and a second copy of it here could drift from the real one.
+  // A file in quarantine is listed for its uploader and its reviewers only (ADR-0083).
+  const quarantineReader = await quarantineReaderFor(session, { scope: 'project', projectId })
   const page = await listProjectDocumentPage(projectId, session.organizationId, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+    quarantineReader,
     authoredBy: options.authoredBy,
     // Archived documents have LEFT the working set, so they are absent unless
     // the caller says otherwise (ADR-0054).
     includeArchived: options.includeArchived,
     cursor: options.cursor,
   })
-  return toListedPage(session, page)
+  return toListedPage(session, page, { quarantineReader })
 }
 
 /**
@@ -582,10 +586,12 @@ export async function resolveProjectDocumentsByName(
   filenames: readonly string[]
 ): Promise<ListedDocument[]> {
   await requireProjectAccess(session, projectId, 'project:view')
+  const quarantineReader = await quarantineReaderFor(session, { scope: 'project', projectId })
   const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+    quarantineReader,
   })
-  return toListedDocuments(session, rows)
+  return toListedDocuments(session, rows, { quarantineReader })
 }
 
 /**
@@ -617,9 +623,12 @@ export async function probeProjectDocumentNames(
 ): Promise<DocumentNameMatchRow[]> {
   await requireProjectAccess(session, projectId, 'project:view')
   // A name taken in a hidden folder is not reported: the upload refuses it
-  // without saying where (`assertNameFreeInProject`).
+  // without saying where (`assertNameFreeInProject`). Nor is one held by
+  // somebody else's quarantined file (ADR-0083): the upload refuses it as a
+  // taken name (`assertMayReplaceQuarantined`).
   return findProjectDocumentsByNames(projectId, session.organizationId, names, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+    quarantineReader: await quarantineReaderFor(session, { scope: 'project', projectId }),
   })
 }
 
@@ -809,13 +818,14 @@ export async function searchProjectDocuments(
   if (hits.length === 0) return { hits: [] }
   // The canonical rows, hydrated exactly as the listing hydrates them, so a
   // semantic result is always a real, visible document with its live status.
+  const quarantineReader = await quarantineReaderFor(session, { scope: 'project', projectId })
   const rows = await findProjectDocumentsByFilenames(
     projectId,
     session.organizationId,
     hits.map((hit) => hit.file_name),
-    { hiddenFolderIds: [...access.hiddenFolderIds] }
+    { hiddenFolderIds: [...access.hiddenFolderIds], quarantineReader }
   )
-  return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows)) }
+  return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows, { quarantineReader })) }
 }
 
 export interface UploadDocumentInput {
@@ -984,8 +994,10 @@ export interface DispatchDocumentResult {
   /**
    * `processing` is a detached path: an IFC model ({@link beginModelExtraction})
    * or an office file converting first ({@link beginRenditionIngest}).
+   * `quarantined` is a row nothing was dispatched for: it waits on a reviewer
+   * (ADR-0083), and only a release sends it on.
    */
-  status: 'pending' | 'uploaded' | 'failed' | 'processing'
+  status: 'pending' | 'uploaded' | 'failed' | 'processing' | 'quarantined'
 }
 
 /**
@@ -1077,6 +1089,15 @@ export async function dispatchDocument(
   if (!row || !mayBeIndexed(row, input.versionId ?? null)) {
     throw new AgentAuthoredDocumentNotIndexableError(input.documentId)
   }
+  // A quarantined row (ADR-0083) reaches the index through a reviewer's release
+  // and no other way: the release moves it to `uploaded` before it dispatches
+  // (`markScreeningReleased`). Every other caller re-reads a whole folder or
+  // project — a restore from the Papierkorb, a placement move when a folder's
+  // access changes, „Projekt neu indizieren" — and a dispatch sets the row
+  // `pending`, which lifted the hold for every reader and screened the bytes
+  // again under whatever the rules had become. Asked of the row here, so the
+  // next such caller cannot forget it.
+  if (row.status === 'quarantined') return { jobId: null, status: 'quarantined' }
 
   if (isIfcFilename(input.filename)) {
     return beginModelExtraction(input)
@@ -1224,9 +1245,7 @@ async function queueDocumentWork(
  * A restart no longer strands the model at `extracting`: the claim goes back to
  * the queue and the next worker parses it again.
  */
-export async function beginModelExtraction(
-  input: BeginModelExtractionInput
-): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' | 'processing' }> {
+export async function beginModelExtraction(input: BeginModelExtractionInput): Promise<DispatchDocumentResult> {
   await markDocumentProcessing(input.documentId, input.organizationId)
   return queueDocumentWork('bim_extract', input, documentWorkPayload(input))
 }
@@ -1462,7 +1481,7 @@ async function signedRenditionRef(input: DispatchDocumentInput, fileName: string
 
 export interface ReingestDocumentResult {
   id: string
-  status: 'pending' | 'uploaded' | 'failed' | 'processing'
+  status: DispatchDocumentResult['status']
   jobId: string | null
 }
 
@@ -1719,7 +1738,9 @@ async function redispatchForReindex(
   const doc = await getAccessibleDocument(session, row.id, 'write')
   // Mid-flight rows are skipped: a second dispatch would double the work of
   // one that is running. Every in-flight spelling, not just two of them.
-  if (!doc.storageKey || IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status)) return 'skipped'
+  // So is a quarantined one: it waits on a reviewer, and `dispatchDocument`
+  // would leave it alone anyway (ADR-0083).
+  if (!doc.storageKey || IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status) || doc.status === 'quarantined') return 'skipped'
 
   // Belt to the query's braces. The listing already asks for `'user'` only, so
   // this is never null in practice; a row that somehow arrives here

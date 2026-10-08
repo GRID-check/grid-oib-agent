@@ -5,7 +5,7 @@ import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
-import { getHiddenFolderIds } from '@/lib/authz/folder-access'
+import { projectOverviewReader } from '@/lib/projects/service'
 import { listFoldersWithoutValidRole } from '@/lib/projects/folder-access-settings'
 import { ProjectSettings } from '@/features/projects/components/project-settings'
 import { getSteckbrief } from '@/lib/projects/steckbrief-service'
@@ -37,9 +37,8 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
 
     const { role, closed } = await requireProjectAccess(session, id, 'project:view')
 
-    const data = await getProjectOverviewData(id, session.organizationId, {
-      hiddenFolderIds: await getHiddenFolderIds(session, id),
-    })
+    // The same reader the overview route uses: hidden folders and quarantine (ADR-0084, ADR-0083).
+    const data = await getProjectOverviewData(id, session.organizationId, await projectOverviewReader(session, id))
     if (!data) {
       notFound()
     }

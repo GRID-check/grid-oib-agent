@@ -445,6 +445,10 @@ export const collaboration = {
         titleNone: 'Files in quarantine',
         body: 'No model has read them. Release or delete them.',
       },
+      documentReleaseRequested: {
+        title: '{actor} asks you to release “{subject}”',
+        body: 'The file is in quarantine. Look at it, then release or delete it.',
+      },
       jobCompleted: {
         title: '"{subject}" is done',
         body: 'Piloti ran the job. The result is in the project under Automation.',

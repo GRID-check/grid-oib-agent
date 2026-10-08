@@ -114,6 +114,7 @@ export interface InboxTargetDescriptor {
 const ORGANIZATION_DESTINATIONS: Partial<Record<InboxItemType, string>> = {
   'storage.quota_warning': '/app/organization/storage',
   'document.quarantined': '/app/organization/quarantine',
+  'document.release_requested': '/app/organization/quarantine',
 }
 
 function shareableTarget(type: ShareableResourceType): InboxTargetDescriptor {

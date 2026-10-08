@@ -23,6 +23,7 @@
  */
 
 import { assertUploadNameAllowed, auditScreeningOverride } from '@/lib/upload-screening/service'
+import { assertMayReplaceQuarantined, quarantineReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { acceptedUploadBatchId } from '@/lib/upload-batches/service'
 import 'server-only'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
@@ -38,6 +39,7 @@ import {
   assertFileSizeAllowed,
   assertUploadTypeAllowed,
   dispatchDocument,
+  type DispatchDocumentResult,
 } from '@/lib/documents/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
@@ -45,6 +47,7 @@ import { contentDigest } from '@/lib/documents/content-digest'
 import { documentNameKey } from '@/lib/documents/name-match'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findLiveDocumentByFilename, type DocumentListRow } from '@/lib/documents/repository'
+import { keepVisibleQuarantine } from '@/lib/documents/quarantine-visibility'
 import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
 import {
   nextVersionNumber,
@@ -60,10 +63,11 @@ import {
   deleteSessionDocument as deleteSessionDocumentRow,
   findSessionDocument,
   listSessionDocuments as listSessionDocumentRows,
+  SESSION_DOCUMENT_LIST_LIMIT,
 } from './repository'
 
 export interface SessionDocumentListResult {
-  documents: Array<Omit<DocumentListRow, 'metadata'> & DocumentMetadata>
+  documents: Array<Omit<DocumentListRow, 'metadata' | 'createdBy'> & DocumentMetadata>
   collectionName: string
 }
 
@@ -81,11 +85,23 @@ export async function listSessionDocuments(
 ): Promise<SessionDocumentListResult> {
   await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
 
-  const rows = await listSessionDocumentRows(conversationId, session.organizationId)
-  const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
+  // A file in quarantine is listed for its uploader and the organization's admins only (ADR-0083).
+  const quarantineReader = await quarantineReaderFor(session, { scope: 'session', projectId: null })
+  const rows = await listSessionDocumentRows(
+    conversationId,
+    session.organizationId,
+    SESSION_DOCUMENT_LIST_LIMIT,
+    quarantineReader
+  )
+  // Narrowed again after the reconcile: a row it turns `quarantined` was read
+  // as `pending`, which the query let through.
+  const reconciled = keepVisibleQuarantine(
+    await reconcileDocumentStatuses(rows, session.organizationId),
+    quarantineReader
+  )
 
   return {
-    documents: reconciled.map(({ metadata: _metadata, ...row }) => row),
+    documents: reconciled.map(({ metadata: _metadata, createdBy: _createdBy, ...row }) => row),
     collectionName: sessionCollectionName(conversationId),
   }
 }
@@ -110,7 +126,7 @@ export interface UploadSessionDocumentResult {
   documentId: string
   jobId: string | null
   /** `processing` is the IFC path — see `UploadDocumentResult`. */
-  status: 'pending' | 'uploaded' | 'failed' | 'processing'
+  status: DispatchDocumentResult['status']
   filename: string
   collectionName: string
 }
@@ -190,6 +206,7 @@ export async function uploadSessionDocument(
   // and the admission discarded its object.
   const { documentId, storageKey, replaced } = await retryRacedUpload(async () => {
     const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
+    if (superseded) await assertMayReplaceQuarantined(session, superseded, filename)
     const documentId = superseded?.id ?? crypto.randomUUID()
     // A re-upload ALWAYS writes under a fresh `v<n>/<write id>/` key
     // (`versionWriteKey`), never the version-1 plain key. The number is a hint

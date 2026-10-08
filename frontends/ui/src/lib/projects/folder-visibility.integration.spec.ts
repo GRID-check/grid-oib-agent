@@ -129,13 +129,13 @@ describe.skipIf(!url)('restricted folders in the overview and the role bindings'
 
   it('leaves a hidden folder out of the overview count, size and recent list', async () => {
     const hiddenFolderIds = await access.getRestrictedFolderIds(ORG, projectId)
-    const data = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds }))
+    const data = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds, quarantineReader: undefined }))
 
     expect(data?.documentCount).toBe(2)
     expect(data?.totalFileSize).toBe(300)
     expect(data?.recentDocuments.map((row) => row.filename).sort()).toEqual(['Lageplan.pdf', 'Protokoll.pdf'])
 
-    const everything = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds: [] }))
+    const everything = await inTenant(() => overview.getProjectOverviewData(projectId, ORG, { hiddenFolderIds: [], quarantineReader: undefined }))
     expect(everything?.documentCount).toBe(3)
     expect(everything?.totalFileSize).toBe(4300)
   })

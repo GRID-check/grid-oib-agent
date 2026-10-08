@@ -284,6 +284,12 @@ export const collaboration: typeof en.collaboration = {
         titleNone: 'Dateien in der Quarantäne',
         body: 'Kein Modell hat sie gelesen. Geben Sie sie frei oder löschen Sie sie.',
       },
+      // ADR-0083: wer eine Datei hochgeladen hat, die in der Quarantäne liegt,
+      // bittet um Freigabe. {subject} ist der Dateiname.
+      documentReleaseRequested: {
+        title: '{actor} bittet um Freigabe von „{subject}"',
+        body: 'Die Datei liegt in der Quarantäne. Sehen Sie sie an und geben Sie sie frei oder löschen Sie sie.',
+      },
       jobCompleted: {
         title: '„{subject}" ist fertig',
         body: 'Piloti hat den Auftrag ausgeführt. Das Ergebnis liegt im Projekt unter Automatisierung.',

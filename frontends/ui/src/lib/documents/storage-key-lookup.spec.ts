@@ -64,6 +64,15 @@ const columnsIn = (node: unknown, seen = new Set<unknown>()): string[] => {
   return [...here, ...Object.values(node).flatMap((child) => columnsIn(child, seen))]
 }
 
+/** Literal values bound into a drizzle condition tree, walked like {@link columnsIn}. */
+const valuesIn = (node: unknown, seen = new Set<unknown>()): unknown[] => {
+  if (node === null || typeof node !== 'object' || seen.has(node)) return []
+  seen.add(node)
+  const value = (node as { value?: unknown }).value
+  const here = typeof value === 'string' ? [value] : []
+  return [...here, ...Object.values(node).flatMap((child) => valuesIn(child, seen))]
+}
+
 describe('findStorageKeyByCollectionAndFilename', () => {
   beforeEach(() => whereArg.mockReset())
 
@@ -77,6 +86,14 @@ describe('findStorageKeyByCollectionAndFilename', () => {
     // where clause is rebuilt and the new one is quietly dropped.
     expect(columns).toContain('collection_name')
     expect(columns).toContain('filename')
+  })
+
+  it('never resolves a quarantined document, whose bytes no model may read (ADR-0083)', async () => {
+    await findStorageKeyByCollectionAndFilename('proj_abc', 'konten.pdf')
+
+    // The bound values, not the column names: every column reaches the tree
+    // through its table, so only the literal proves the predicate is there.
+    expect(valuesIn(whereArg.mock.calls[0][0])).toContain('quarantined')
   })
 
   it('still narrows by organization when the caller can supply one', async () => {

@@ -28,8 +28,9 @@ import type {
   ProjectMemoryItem,
   ProjectMemoryKind,
 } from '@/lib/db/schema'
-import { getProjectOverviewData } from './overview-query'
+import { getProjectOverviewData, type ProjectOverviewReader } from './overview-query'
 import { isProjectClosed, type ProjectStatus } from './project-status'
+import { quarantineReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import {
   clearanceOf,
   customFolderNames,
@@ -351,11 +352,26 @@ export async function restoreProject(
   })
 }
 
+/**
+ * What the overview's count, size and recent list leave out for this session:
+ * the folders hidden from it (ADR-0084) and the quarantined files it neither
+ * uploaded nor reviews (ADR-0083). One answer for every page that renders the
+ * overview data, so a second reader dimension cannot reach one and miss the other.
+ */
+export async function projectOverviewReader(
+  session: AuthorizedSession,
+  projectId: string
+): Promise<ProjectOverviewReader> {
+  return {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+    quarantineReader: await quarantineReaderFor(session, { scope: 'project', projectId }),
+  }
+}
+
 export async function getProjectOverview(session: AuthorizedSession, projectId: string) {
   await requireProjectAccess(session, projectId, 'project:view')
-  const data = await getProjectOverviewData(projectId, session.organizationId, {
-    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
-  })
+  const reader = await projectOverviewReader(session, projectId)
+  const data = await getProjectOverviewData(projectId, session.organizationId, reader)
   if (!data) throw new NotFoundError('Project not found')
   return data
 }

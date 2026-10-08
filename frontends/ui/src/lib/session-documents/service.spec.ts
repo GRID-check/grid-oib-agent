@@ -111,6 +111,7 @@ vi.mock('./repository', () => ({
   deleteSessionDocument: vi.fn(),
   findSessionDocument: vi.fn(),
   listSessionDocuments: vi.fn(),
+  SESSION_DOCUMENT_LIST_LIMIT: 100,
 }))
 
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -126,8 +127,10 @@ import { purgeCollectionChunks } from './cleanup'
 import {
   deleteSessionDocument as deleteSessionDocumentRow,
   findSessionDocument,
+  listSessionDocuments as listSessionDocumentRows,
 } from './repository'
-import { deleteSessionDocument, uploadSessionDocument } from './service'
+import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
+import { deleteSessionDocument, listSessionDocuments, uploadSessionDocument } from './service'
 import { LiveFilenameTakenError, ReplacedDocumentGoneError } from '@/lib/documents/unique-conflicts'
 import { nextVersionNumber } from '@/lib/documents/version-repository'
 
@@ -204,6 +207,28 @@ describe('uploadSessionDocument, a file already attached under that name', () =>
     const event = vi.mocked(recordAuditEvent).mock.calls.at(-1)?.[0]
     expect(event?.targetId).toBe('doc-existing')
     expect(event?.metadata).toMatchObject({ replaced: true })
+  })
+})
+
+// A re-upload keeps the replaced bytes as an earlier version (ADR-0054), so
+// replacing somebody else's quarantined attachment would hand its held-back
+// bytes to the whole chat (ADR-0083).
+describe("uploadSessionDocument onto somebody else's quarantined attachment", () => {
+  it('is refused like a taken name, and nothing is admitted', async () => {
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue({ ...existing, status: 'quarantined' })
+    const { makeDocument } = await import('@/test-utils/db-fixtures')
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(
+      makeDocument({ id: 'doc-existing', scope: 'session', projectId: null, createdBy: 'user-other', status: 'quarantined' }),
+    )
+
+    await expect(
+      uploadSessionDocument(
+        { ...session, permissions: [] } as unknown as AuthorizedSession,
+        { conversationId: CONVERSATION_ID, file: file() },
+        new Request('http://x'),
+      ),
+    ).rejects.toBeInstanceOf(ConflictError)
+    expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
   })
 })
 
@@ -424,5 +449,41 @@ describe('deleteSessionDocument purges the chunks again after the row', () => {
     expect(purgeCollectionChunks).toHaveBeenCalledTimes(1)
     expect(deleteSessionDocumentRow).not.toHaveBeenCalled()
     error.mockRestore()
+  })
+})
+
+describe('listSessionDocuments and a quarantined attachment (ADR-0083)', () => {
+  beforeEach(() => {
+    vi.mocked(listSessionDocumentRows).mockResolvedValue([])
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
+  })
+
+  it("keeps a participant to the quarantined files they attached: only the organization's admins review a chat's", async () => {
+    const participant = { ...session, permissions: [] } as unknown as AuthorizedSession
+    await listSessionDocuments(participant, 'conv_1')
+    expect(listSessionDocumentRows).toHaveBeenCalledWith('conv_1', ORG_ID, 100, USER_ID)
+  })
+
+  // The first read after the verdict finds the row `pending`, which the query
+  // keeps; the reconcile turns it `quarantined` on the way out.
+  it('narrows again after the reconcile turns a row quarantined', async () => {
+    const row = (id: string, createdBy: string) =>
+      ({ id, filename: `${id}.pdf`, status: 'pending', createdBy, metadata: null }) as never
+    vi.mocked(listSessionDocumentRows).mockResolvedValue([row('mine', USER_ID), row('theirs', 'user-other')])
+    vi.mocked(reconcileDocumentStatuses).mockImplementation(async (rows) =>
+      rows.map((r) => ({ ...r, status: 'quarantined' }))
+    )
+    const participant = { ...session, permissions: [] } as unknown as AuthorizedSession
+
+    const { documents } = await listSessionDocuments(participant, 'conv_1')
+
+    expect(documents.map((doc) => doc.id)).toEqual(['mine'])
+    expect(documents[0]).not.toHaveProperty('createdBy')
+  })
+
+  it("lists every attachment to an organization's admin", async () => {
+    const admin = { ...session, permissions: ['org:projects:administer'] } as unknown as AuthorizedSession
+    await listSessionDocuments(admin, 'conv_1')
+    expect(listSessionDocumentRows).toHaveBeenCalledWith('conv_1', ORG_ID, 100, undefined)
   })
 })

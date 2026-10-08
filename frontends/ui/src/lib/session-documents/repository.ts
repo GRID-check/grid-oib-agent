@@ -20,7 +20,7 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
 import { documents, type Document } from '@/lib/db/schema'
-import { DOCUMENT_LIST_LIMIT, type DocumentListRow } from '@/lib/documents/repository'
+import { DOCUMENT_LIST_LIMIT, visibleQuarantineFor, type DocumentListRow } from '@/lib/documents/repository'
 
 /**
  * Bound for one conversation's attachments. Far below the project/Archiv cap:
@@ -34,6 +34,8 @@ export async function listSessionDocuments(
   conversationId: string,
   organizationId: string,
   limit = SESSION_DOCUMENT_LIST_LIMIT,
+  /** See `ListProjectDocumentsOptions.quarantineReader`. */
+  quarantineReader?: string,
 ): Promise<DocumentListRow[]> {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), DOCUMENT_LIST_LIMIT)
   const db = getDb()
@@ -48,6 +50,7 @@ export async function listSessionDocuments(
         fileSize: documents.fileSize,
         contentType: documents.contentType,
         contentHash: documents.contentHash,
+        createdBy: documents.createdBy,
         status: documents.status,
         authoredBy: documents.authoredBy,
         publishedVersionId: documents.publishedVersionId,
@@ -66,6 +69,7 @@ export async function listSessionDocuments(
           eq(documents.organizationId, organizationId),
           eq(documents.scope, 'session'),
           eq(documents.conversationId, conversationId),
+          ...visibleQuarantineFor(quarantineReader),
         ),
       )
       .orderBy(desc(documents.createdAt))

@@ -14,10 +14,16 @@
  * Release sends the file to the models like any other upload, so it asks
  * first. Delete goes through the shelf's own delete route. A row leaves the
  * list only once the server said yes.
+ *
+ * „Ansehen" opens the file where it is filed, in the Files view or the
+ * Büroablage, on its preview: a reviewer may open a quarantined file there
+ * (`getAccessibleDocument`), and should see it before deciding. A chat
+ * attachment has no per-file view, so its row offers none.
  */
 
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react'
-import { FileWarning, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react'
+import Link from 'next/link'
+import { Eye, FileWarning, ShieldCheck, ShieldOff, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ApiRequestError } from '@/adapters/api/api-error'
@@ -42,6 +48,7 @@ import {
 } from '@/components/ui/item'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TimeAgo } from '@/components/ui/time-ago'
+import { documentHref } from '@/features/uploads/lib/upload-summary'
 import { useLocale, useTranslations } from '@/i18n'
 import { describeQuarantineReason } from '@/lib/upload-screening/quarantine'
 
@@ -220,6 +227,7 @@ const QuarantineRow: FC<{
         : projectName
           ? t('quarantine.whereProject', { name: projectName })
           : t('quarantine.whereProjectUnknown')
+  const href = documentHref(item, item.id)
 
   return (
     <Item as="li" className="flex-wrap items-start hover:bg-transparent" data-testid={`quarantine-row-${item.id}`}>
@@ -250,6 +258,18 @@ const QuarantineRow: FC<{
         )}
       </ItemContent>
       <ItemActions className="w-full justify-end sm:w-auto">
+        {href && (
+          <Button variant="ghost" size="sm" asChild>
+            <Link
+              href={href}
+              title={t('quarantine.openTitle', { name: item.filename })}
+              data-testid={`quarantine-open-${item.id}`}
+            >
+              <Eye className="size-4" aria-hidden />
+              {t('quarantine.open')}
+            </Link>
+          </Button>
+        )}
         <Button variant="outline" size="sm" onClick={onRelease} data-testid={`quarantine-release-${item.id}`}>
           {t('quarantine.release')}
         </Button>

@@ -805,6 +805,7 @@ describe('listDocuments', () => {
         publishedVersionId: null,
         originPath: null,
         contentHash: null,
+        createdBy: 'user-1',
         fileSize: 1024,
         contentType: 'application/pdf',
         status: 'completed',
@@ -2241,6 +2242,7 @@ describe('the authorship gate on the (collection, filename) join', () => {
           publishedVersionId: null,
           originPath: null,
           contentHash: null,
+          createdBy: 'user-1',
           fileSize: 1024,
           contentType: 'application/pdf',
           status: 'stored',
@@ -2336,6 +2338,7 @@ describe('runReindexSlice', () => {
     publishedVersionId: null,
     originPath: null,
     contentHash: null,
+    createdBy: 'user-1',
     fileSize: 1024,
     contentType: 'application/pdf',
     status: 'completed',
@@ -2408,6 +2411,27 @@ describe('runReindexSlice', () => {
 
     expect(result.payload.counts).toEqual({ queued: 0, skipped: 1, failed: 0, failedNames: [] })
     expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  // A quarantined file waits on a reviewer (ADR-0083); a re-index is not a
+  // release, even when the person pressing it could release it.
+  it('skips a quarantined document it may see, and reports it as skipped, not queued', async () => {
+    vi.mocked(listProjectDocumentPage).mockResolvedValueOnce({ rows: [listRow('doc-1', 'plan.pdf')], nextCursor: null })
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({
+        id: 'doc-1',
+        filename: 'plan.pdf',
+        status: 'quarantined',
+        storageKey: 'k/plan.pdf',
+        createdBy: session.userId,
+      })
+    )
+
+    const result = await runReindexSlice(session, sliceState())
+
+    expect(result.payload.counts).toEqual({ queued: 0, skipped: 1, failed: 0, failedNames: [] })
+    expect(mockFetch).not.toHaveBeenCalled()
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
   })
 
   /**
@@ -2742,6 +2766,46 @@ describe('re-uploading a filename this collection already holds', () => {
 
   afterEach(() => {
     vi.mocked(findLiveDocumentByFilename).mockResolvedValue(null)
+  })
+
+  /*
+   * A re-upload keeps the replaced bytes as an earlier version (ADR-0054), and a
+   * version is served on the document's current status. Onto a quarantined file
+   * it would turn the held-back bytes into a version every member can open once
+   * the new bytes settle (ADR-0083): refused like a taken name for somebody who
+   * may not see the file, and with the reason for its uploader.
+   */
+  describe('onto a quarantined file', () => {
+    beforeEach(() => {
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({ ...existing, status: 'quarantined' })
+      // The uploader may view the project; nobody here manages it.
+      vi.mocked(requireProjectAccess).mockImplementation(async (_s, _projectId, permission) => {
+        if (permission === 'project:manage') throw new NotFoundError('Project not found')
+        return { role: 'project-viewer', closed: false, readsBecauseClosed: false }
+      })
+    })
+
+    it("refuses to replace somebody else's", async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(
+        makeDocument({ id: 'doc-existing', createdBy: 'user-other', status: 'quarantined' })
+      )
+
+      await expect(
+        uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+      ).rejects.toBeInstanceOf(ConflictError)
+      expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
+    })
+
+    it('refuses its uploader too, saying it waits in quarantine', async () => {
+      vi.mocked(findDocumentInOrg).mockResolvedValue(
+        makeDocument({ id: 'doc-existing', createdBy: 'user-1', status: 'quarantined' })
+      )
+
+      const refusal = uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
+      await expect(refusal).rejects.toBeInstanceOf(ConflictError)
+      await expect(refusal).rejects.toMatchObject({ details: { reason: 'quarantined' } })
+      expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
+    })
   })
 
   it('keeps the document id, so nothing that referenced it breaks', async () => {

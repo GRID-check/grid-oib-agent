@@ -513,6 +513,17 @@ describe('readVersionForService — the conversation is part of the predicate', 
     })
   })
 
+  it('answers 404 for a quarantined subject, so its bytes never reach a model (ADR-0083)', async () => {
+    vi.mocked(findConversationInOrg).mockResolvedValue({
+      subjectResourceType: 'document',
+      subjectResourceId: 'doc_1',
+    } as never)
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...agentDocument, status: 'quarantined' })
+
+    await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).rejects.toMatchObject({ status: 404 })
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
   it('answers 404 for an ordinary chat, which is about nothing', async () => {
     vi.mocked(findConversationInOrg).mockResolvedValue({
       subjectResourceType: null,
