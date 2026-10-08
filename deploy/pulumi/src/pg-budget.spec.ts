@@ -82,6 +82,13 @@ describe("pgConnectionBudget", () => {
     expect(three.pgConnectionBudget(three.cfg).pooled).toBe(3 * (3 * 10 + 1));
   });
 
+  it("does not grow with the api tier: its pods spread the SSE streams, they add none", async () => {
+    const small = await load({ "grid-oib:apiMinReplicas": "2", "grid-oib:apiMaxReplicas": "4" });
+    const large = await load({ "grid-oib:apiMinReplicas": "6", "grid-oib:apiMaxReplicas": "20" });
+
+    expect(large.pgConnectionBudget(large.cfg)).toEqual(small.pgConnectionBudget(small.cfg));
+  });
+
   it("counts what is deployed and nothing that is not", async () => {
     const full = await load({ "grid-oib:langfuseEnabled": "false", "grid-oib:seaweedfsTopology": "single" });
     const withFiler = await load({

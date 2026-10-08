@@ -521,7 +521,9 @@ export const POSTGRES_DIRECT_RESERVE = {
   cnpg: 6,
   /**
    * `AIQ_LISTEN_DB_URL`: one asyncpg connection per open job SSE stream, held for
-   * as long as the job runs. Running jobs are bounded by the research tier
+   * as long as the job runs, by the `api` role (the chat role serves no job
+   * stream, ADR-0082). So the bound is the jobs and their viewers, not the number
+   * of api pods: scaling `aiq-api` out spreads the streams, it adds none. Running jobs are bounded by the research tier
    * (`agentWorkerMaxReplicas` x `agentWorkerConcurrency`, 3 in prod) and each has a
    * handful of viewers. Nothing in the code caps the streams themselves, so this
    * is an allowance, not a limit.
@@ -529,7 +531,7 @@ export const POSTGRES_DIRECT_RESERVE = {
   sseListen: 20,
   /**
    * Session advisory locks (`AIQ_LOCK_DB_URL`) that are not tied to ingest
-   * volume: the ghost-job reaper, the collection TTL cleanup, and a web
+   * volume: the ghost-job reaper, the collection TTL cleanup, and an api
    * replica's own re-ingest. One connection each, held for the length of a cycle.
    * The ingest tier adds one `keyed_lock` per job in flight, counted separately.
    */
