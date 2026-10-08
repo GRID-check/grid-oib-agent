@@ -318,10 +318,10 @@ recorded folders.
 * `lib/authz/folder-access.integration.spec.ts` (real Postgres): listings per level, RLS on the
   grants, the deferred trigger refusing an emptied list, the level and role CHECKs, the
   tombstone that frees its name and still answers.
-* `scripts/rls-test-db.sh`: 0109's constraints (empty and 21-entry lists refused, an unknown
+* `scripts/rls-test-db.sh`: 0110's constraints (empty and 21-entry lists refused, an unknown
   level and a `*`-prefixed slug refused, no custom folder without grants), a list replaced in one
   transaction, a tombstone keeping its list and freeing its name, the down (tombstones, the grants
-  table and the columns removed) and re-apply; 0110's order CHECK, down and re-apply; 0111's index
+  table and the columns removed) and re-apply; 0111's order CHECK, down and re-apply; 0112's index
   (an open and a restricted note with one text both live), its CHECK, and a down that deletes
   restricted notes rather than opening them.
 * `projects/folder-access-settings.spec.ts`: validation (empty, over 20, a role twice, an unknown
