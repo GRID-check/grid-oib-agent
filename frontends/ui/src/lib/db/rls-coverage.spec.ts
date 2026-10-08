@@ -99,13 +99,13 @@ const BOUNDARY_MIGRATIONS = [
   // (ADR-0086). Keyed directly by its organization.
   '0110_upload_batches.sql',
   // Adds project_folder_grants — a folder's own access list, one row per role
-  // and level (ADR-0087). Keyed directly by its organization.
-  '0110_project_folder_grants.sql',
+  // and level (ADR-0088). Keyed directly by its organization.
+  '0111_project_folder_grants.sql',
   // Adds conversation_restricted_folders — the source folders not every member
   // may read that a conversation actually drew on, one row per folder id,
-  // judged against the current grants when read (ADR-0086, ADR-0087). Keyed
+  // judged against the current grants when read (ADR-0087, ADR-0088). Keyed
   // directly by its organization: the conversation row may not exist yet.
-  '0111_conversation_restricted_folders.sql',
+  '0112_conversation_restricted_folders.sql',
   // Adds mail_imports (ADR-0085), an Outlook archive a member is filing into a
   // project. Keyed by the organization, secured like product_feedback; the
   // stale-upload sweep reads across tenants under the platform role.

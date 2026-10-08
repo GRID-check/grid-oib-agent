@@ -137,7 +137,7 @@ export interface ShareableDescriptor {
   readonly listIdsInProject: (projectId: string, organizationId: string) => Promise<string[]>
   /**
    * Refuse a widening of the resource's audience that its content forbids,
-   * before anything is written or a rate limit spent (ADR-0086). Absent: the
+   * before anything is written or a rate limit spent (ADR-0087). Absent: the
    * type has no such content and may be shared as its roles allow.
    */
   readonly assertMayWiden?: (session: AuthorizedSession, resourceId: string, widening: AudienceWidening) => Promise<void>
@@ -197,7 +197,7 @@ const conversationDescriptor: ShareableDescriptor = {
   },
   exists: (ids) => conversationIdsExisting(ids),
   listIdsInProject: (projectId, organizationId) => listConversationIdsForProject(projectId, organizationId),
-  // A conversation that drew on a restricted folder (ADR-0086) may reach only
+  // A conversation that drew on a restricted folder (ADR-0087) may reach only
   // people cleared for every folder it drew on, and never the whole project.
   // The record of what it drew on is written when a turn admits restricted
   // content, under the lock the widening's write takes here, so a share and a

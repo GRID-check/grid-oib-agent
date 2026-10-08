@@ -14,7 +14,7 @@ All BFF (Backend-for-Frontend) routes are under `frontends/ui/src/app/api/`. The
 > route file is the source of truth; absence here means undocumented, never
 > non-existent.
 
-## Refusals for a conversation that drew on a restricted folder (ADR-0086, ADR-0087)
+## Refusals for a conversation that drew on a restricted folder (ADR-0087, ADR-0088)
 
 Every door that writes something the whole project reads answers
 **`403 CONVERSATION_CONFINED`** with `details.action` (`deepResearch`, `task`,
@@ -41,7 +41,7 @@ member through the run's plan, its job stream and the report's „Nicht gelesene
 Unterlagen" (ADR-0084). Refused before a run row exists or the backend hears of
 the document.
 
-## Writes in a read-only folder (ADR-0087)
+## Writes in a read-only folder (ADR-0088)
 
 Every route that writes in a folder (upload, new folder, rename, move, delete,
 a document's rename, tags, re-read, move, delete, every lifecycle transition,

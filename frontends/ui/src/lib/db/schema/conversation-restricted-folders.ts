@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm'
 
 /**
  * `conversation_restricted_folders` — a folder not every project member can
- * read, whose content this conversation drew on (ADR-0087, migration 0111):
+ * read, whose content this conversation drew on (ADR-0088, migration 0112):
  * content from it entered the model's context in some turn (a retrieval hit,
  * an opened document). Listing is not use.
  *

@@ -116,9 +116,9 @@ access rule still answers for a deleted folder's id.
 **What is derived from restricted content records SOURCE FOLDER IDS** and is
 judged against the current grants when it is read:
 
-* a conversation's use, per person (`conversation_restricted_folders`, migration 0111): the
+* a conversation's use, per person (`conversation_restricted_folders`, migration 0112): the
   source folders a conversation drew on. Sharing allows a person who may read every recorded
-  folder now. This replaces ADR-0086's per-socket confinement check and its `4412` close.
+  folder now. This replaces ADR-0087's per-socket confinement check and its `4412` close.
 
 **The cached prompt view is dropped by placement.** The `documents:` block of
 the project prompt view (`lib/project-profile/prompt-view.ts`, cached 5 min, one
@@ -148,7 +148,7 @@ recorded folders.
   shape (level CHECK, role CHECK, 1–20 entries by a deferred constraint trigger, RLS).
 * Good, because a change of a folder's list takes effect for conversations derived from it at
   the next read, with no revocation job.
-* Bad, because the 0110 down migration drops every access list: an older build knows no folder
+* Bad, because the 0111 down migration drops every access list: an older build knows no folder
   access, so every folder has to inherit again in the product first, or the documents filed in a
   `_r…` collection leave everybody's scope.
 * Bad, because roles are looked up in WorkOS per person and organization at most once a minute;
@@ -243,7 +243,7 @@ recorded folders.
 
 * Supersedes the parts of [ADR-0087](0087-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md)
   that decided who may see a folder (roles on `restricted_roles`), the per-conversation mark and
-  the per-socket confinement check. ADR-0086's retrieval collection per restricted folder, its
+  the per-socket confinement check. ADR-0087's retrieval collection per restricted folder, its
   egress refusals, its memory rule and its IFC rule stand.
 * User guide: [`sensitive-data-and-access.md`](../user-guides/sensitive-data-and-access.md#who-may-read-and-edit-a-folder).
 * Where a later lifecycle feature would attach (participant notices, an organization setting for

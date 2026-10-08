@@ -131,7 +131,7 @@ export interface FileDiagramInput extends DiagramSubmission {
   /**
    * The conversation the diagram was drawn in, when the surface knows it. A
    * thread that drew on a restricted folder files only into a folder restricted
-   * at least as narrowly (ADR-0086); both halves are judged by the one check in
+   * at least as narrowly (ADR-0087); both halves are judged by the one check in
    * `fileGeneratedDocument`.
    */
   origin?: ConversationOrigin
