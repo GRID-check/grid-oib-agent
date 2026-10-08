@@ -351,10 +351,11 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         log_boot_line()
         logger.info("Web role: %s", self._role.value)
 
-        # A web process on Postgres needs both direct DSNs (LISTEN for the job
-        # SSE streams, session advisory locks): fail the boot, not every request
-        # (ADR-0083).
-        require_direct_dsns(listen=True)
+        # A web process on Postgres needs the direct lock DSN (session advisory
+        # locks), and the api role also the direct LISTEN DSN, because it serves
+        # the job SSE streams. The chat role serves none: its stream is the
+        # socket, over Dragonfly. Fail the boot, not every request (ADR-0083).
+        require_direct_dsns(listen=self._role is WebRole.API)
 
         app = super().build_app()
 
@@ -472,7 +473,7 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         # from here, and the meter provider exists to take the boot readings.
         from aiq_agent.observability import boot_timing
 
-        boot_timing.BootClock("web").ready()
+        boot_timing.BootClock(self._role.value).ready()
         boot_timing.flush()
 
     async def _create_chat_session_manager(self, builder: WorkflowBuilder) -> SessionManager:

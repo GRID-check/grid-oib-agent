@@ -195,9 +195,14 @@ def test_each_role_serves_what_its_deployment_is_there_for(route_sets):
         ("POST", "/v1/jobs/async/submit"),
         ("GET", "/v1/jobs/async/job/{job_id}/stream"),
         ("POST", "/v1/maintenance/housekeeping/ghost-jobs"),
+        # The base corpus (ADR-0082 step A2): its upload, sync and status routes, and the
+        # housekeeping cycle that queues one ingest-queue job per file.
+        ("POST", "/v1/admin/oib/sync"),
+        ("GET", "/v1/oib/status"),
+        ("POST", "/v1/maintenance/housekeeping/base-corpus"),
         ("GET", "/debug"),
     } <= api
-    assert not any(path.startswith("/v1/jobs") or path.startswith("/v1/ingest") for _, path in chat)
+    assert not any(path.startswith(("/v1/jobs", "/v1/ingest", "/v1/oib", "/v1/admin/oib")) for _, path in chat)
     assert not any(path in (plugin.CHAT_SOCKET_PATH, CHAT_OCCUPANCY_PATH, "/generate") for _, path in api)
 
 
