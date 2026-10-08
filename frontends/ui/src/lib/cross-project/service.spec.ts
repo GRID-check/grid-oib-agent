@@ -31,6 +31,9 @@ const state = vi.hoisted(() => ({
   /** What the decisions repository answers, and the scopes it was asked with. */
   decisions: [] as Array<Record<string, unknown>>,
   decisionScopes: [] as Array<{ projectId: string; readableFolderIds: readonly string[] }>,
+  /** What the permit repository answers, and the scopes it was asked with. */
+  permits: [] as Array<Record<string, unknown>>,
+  permitScopes: [] as Array<{ projectId: string; readableFolderIds: readonly string[] }>,
   /** Per project, the folders the asker may read (solo chat only). */
   readable: new Map<string, string[]>(),
   /** Restricted collection → source folder, for the project whose folder tree is asked. */
@@ -59,6 +62,12 @@ vi.mock('./decisions-repository', () => ({
   searchProjectDecisions: vi.fn(async (_org: string, scopes: Array<{ projectId: string; readableFolderIds: readonly string[] }>) => {
     state.decisionScopes.push(...scopes)
     return state.decisions
+  }),
+}))
+vi.mock('@/lib/permits/repository', () => ({
+  searchPermitRequirements: vi.fn(async (_org: string, scopes: Array<{ projectId: string; readableFolderIds: readonly string[] }>) => {
+    state.permitScopes.push(...scopes)
+    return state.permits
   }),
 }))
 vi.mock('@/lib/projects/repository', () => ({
@@ -148,6 +157,8 @@ beforeEach(() => {
   state.recordedFor = []
   state.decisions = []
   state.decisionScopes = []
+  state.permits = []
+  state.permitScopes = []
   state.readable = new Map()
   state.folders = new Map()
   state.inFlight = 0
@@ -391,6 +402,94 @@ describe('the decisions other projects recorded', () => {
     state.restrictedFolders = false
     await searchAcrossProjects(caller(), search({}))
     expect(state.decisionScopes.every((scope) => scope.readableFolderIds.length === 0)).toBe(true)
+  })
+})
+
+describe('the permit records other projects went through', () => {
+  const permit = (projectId: string, extra: Record<string, unknown> = {}) => ({
+    projectId,
+    collectionName: 'proj_1',
+    fileName: 'Baubescheid_Baden_2020.pdf',
+    kind: 'nachforderung',
+    authority: 'Stadtgemeinde Baden',
+    municipality: 'Baden',
+    bundesland: 'niederoesterreich',
+    issuedOn: '2020-03-12',
+    reference: 'BA-123/2020',
+    requirements: [
+      { kind: 'nachforderung', content: 'Ein Brandschutzgutachten ist vorzulegen.', evidence: 'Gutachten', legalBasis: '§ 13 Abs. 3 AVG', page: 2 },
+    ],
+    restrictedFolderIds: null,
+    ...extra,
+  })
+
+  it('are named by their project, shaped as the contract says, and recorded with their project and folders', async () => {
+    const [one, two] = state.reachable
+    state.permits = [permit(one.id), permit(two.id, { collectionName: 'proj_2__vertrag', restrictedFolderIds: ['folder-vertrag'] })]
+
+    const result = await searchAcrossProjects(caller(), search({}))
+
+    expect(result.permits).toEqual([
+      {
+        project: { id: one.id, name: 'Projekt 1', status: 'active', bundesland: null },
+        collection: 'proj_1',
+        fileName: 'Baubescheid_Baden_2020.pdf',
+        kind: 'nachforderung',
+        authority: 'Stadtgemeinde Baden',
+        municipality: 'Baden',
+        issuedOn: '2020-03-12',
+        reference: 'BA-123/2020',
+        requirements: [
+          { kind: 'nachforderung', content: 'Ein Brandschutzgutachten ist vorzulegen.', evidence: 'Gutachten', legalBasis: '§ 13 Abs. 3 AVG', page: 2 },
+        ],
+        restricted: false,
+      },
+      expect.objectContaining({ collection: 'proj_2__vertrag', restricted: true }),
+    ])
+    expect(state.recorded).toEqual([{ projectIds: [one.id, two.id], folderIds: ['folder-vertrag'] }])
+  })
+
+  it('record a running project and a restricted folder even when nothing else was found', async () => {
+    const [one] = state.reachable
+    state.permits = [permit(one.id, { restrictedFolderIds: ['folder-a', 'folder-b'] })]
+
+    await searchAcrossProjects(caller(), search({}))
+
+    expect(state.recorded).toEqual([{ projectIds: [one.id], folderIds: ['folder-a', 'folder-b'] }])
+    expect(state.recordedFor).toEqual(['audience-key'])
+  })
+
+  it('are searched over the decisions’ scopes: the page of projects searched, never the conversation’s own', async () => {
+    const [one, two, three] = state.reachable
+    state.readable.set(one.id, ['folder-vertrag'])
+
+    await searchAcrossProjects(caller(two.id), search({}))
+
+    expect(state.permitScopes).toEqual([
+      { projectId: one.id, readableFolderIds: ['folder-vertrag'] },
+      { projectId: three.id, readableFolderIds: [] },
+    ])
+    expect(state.permitScopes).toEqual(state.decisionScopes)
+  })
+
+  it('leave a restricted folder to a solo chat: a shared chat asks with no clearance', async () => {
+    const [one] = state.reachable
+    state.readable.set(one.id, ['folder-vertrag'])
+    state.restrictedFolders = false
+
+    await searchAcrossProjects(caller(), search({}))
+
+    expect(state.permitScopes.length).toBeGreaterThan(0)
+    expect(state.permitScopes.every((scope) => scope.readableFolderIds.length === 0)).toBe(true)
+  })
+
+  it('leave out a record of a project outside the page, as a decision of one is left out', async () => {
+    state.permits = [permit(project(9).id)]
+
+    const result = await searchAcrossProjects(caller(), search({}))
+
+    expect(result.permits).toEqual([])
+    expect(state.recorded).toEqual([{ projectIds: [], folderIds: [] }])
   })
 })
 

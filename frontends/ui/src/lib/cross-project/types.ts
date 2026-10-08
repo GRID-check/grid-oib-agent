@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod'
+import { PERMIT_RECORD_KINDS, PERMIT_REQUIREMENT_KINDS } from '@/lib/db/schema/permit-records'
 import { DISCIPLINE_TAGS, DOCUMENT_TYPE_TAGS } from '@/lib/documents/tag-vocabulary'
 
 /**
@@ -23,6 +24,10 @@ export const CROSS_PROJECT_MAX_NAMED = 20
 export const CROSS_PROJECT_MAX_HITS = 20
 /** How many projects one listing returns at most. */
 export const CROSS_PROJECT_MAX_LISTED = 30
+/** How many permit records one search returns at most, across every project it searched. */
+export const CROSS_PROJECT_MAX_PERMITS = 8
+/** How many of one permit record's requirements a search returns: the ones that matched. */
+export const CROSS_PROJECT_MAX_PERMIT_REQUIREMENTS = 6
 
 /** A project's life stage (ADR-0082). */
 export const PROJECT_STATUSES = ['active', 'closed'] as const
@@ -119,9 +124,49 @@ export const crossProjectDecisionSchema = z.object({
 })
 export type CrossProjectDecision = z.infer<typeof crossProjectDecisionSchema>
 
+/** One thing a Bescheid demands or points out (permitting memory, docs/design/permitting-memory.md). */
+export const crossProjectPermitRequirementSchema = z.object({
+  kind: z.enum(PERMIT_REQUIREMENT_KINDS),
+  /** The requirement, close to the document's words. */
+  content: z.string(),
+  /** What it asks as proof (a Gutachten, a Nachweis, a plan). */
+  evidence: z.string().nullable(),
+  /** The provision the document cites for it, as written. */
+  legalBasis: z.string().nullable(),
+  page: z.number().int().nullable(),
+})
+export type CrossProjectPermitRequirement = z.infer<typeof crossProjectPermitRequirementSchema>
+
+/**
+ * A Bescheid another project went through, read once at ingest: who issued it,
+ * where, when, and the requirements of it that match the question. The agent
+ * cites the DOCUMENT (file name and collection), so the record is a source like
+ * a passage, retrieved before passages beside the decisions.
+ */
+export const crossProjectPermitSchema = z.object({
+  project: crossProjectRefSchema,
+  /** The document's retrieval collection: the project's own, or a restricted folder's. */
+  collection: z.string(),
+  fileName: z.string(),
+  kind: z.enum(PERMIT_RECORD_KINDS),
+  authority: z.string(),
+  /** The Gemeinde the procedure ran in, as the document writes it. */
+  municipality: z.string().nullable(),
+  issuedOn: isoDay.nullable(),
+  /** Geschäftszahl or Aktenzahl. */
+  reference: z.string().nullable(),
+  /** Only the requirements that matched, best first. */
+  requirements: z.array(crossProjectPermitRequirementSchema).max(CROSS_PROJECT_MAX_PERMIT_REQUIREMENTS),
+  /** It came from a folder with its own access list: it narrows who may read the chat, as such a passage does. */
+  restricted: z.boolean(),
+})
+export type CrossProjectPermit = z.infer<typeof crossProjectPermitSchema>
+
 export const crossProjectSearchResponseSchema = z.object({
   /** Recorded decisions of the searched projects that match the question, best first; at most 6. */
   decisions: z.array(crossProjectDecisionSchema),
+  /** Bescheide of the searched projects whose requirements match the question, best first; at most {@link CROSS_PROJECT_MAX_PERMITS}. */
+  permits: z.array(crossProjectPermitSchema).max(CROSS_PROJECT_MAX_PERMITS),
   hits: z.array(crossProjectHitSchema),
   /** The projects in the scope the reader may open, the conversation's own left out. */
   projectsInScope: z.number().int(),
@@ -187,6 +232,7 @@ export type CrossProjectBriefResponse = z.infer<typeof crossProjectBriefResponse
 export const CROSS_PROJECT_WIRE_SCHEMAS = {
   CrossProjectSearchRequest: crossProjectSearchRequestSchema,
   CrossProjectSearchResponse: crossProjectSearchResponseSchema,
+  CrossProjectPermit: crossProjectPermitSchema,
   CrossProjectListRequest: crossProjectListRequestSchema,
   CrossProjectListResponse: crossProjectListResponseSchema,
   CrossProjectBriefRequest: crossProjectBriefRequestSchema,

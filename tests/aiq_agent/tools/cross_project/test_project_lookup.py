@@ -64,6 +64,7 @@ def _hit(filename: str, collection: str = OTHER_COLLECTION, **extra: Any) -> dic
 
 SEARCH_BODY = {
     "decisions": [],
+    "permits": [],
     "hits": [_hit("Detail Traufe.pdf"), _hit("Honorar.pdf", HONORARE)],
     "projectsInScope": 12,
     "projectsSearched": 8,
@@ -291,6 +292,138 @@ def _decision(content: str, *, status: str = "closed", restricted: bool = False,
         "restricted": restricted,
         **extra,
     }
+
+
+def _permit(*, status: str = "closed", restricted: bool = False, **extra: Any) -> dict[str, Any]:
+    return {
+        "project": {"id": OTHER, "name": "Wohnbau Graz", "status": status, "bundesland": "steiermark"},
+        "collection": OTHER_COLLECTION,
+        "fileName": "Baubescheid_Baden_2020.pdf",
+        "kind": "nachforderung",
+        "authority": "Stadtgemeinde Baden",
+        "municipality": "Baden",
+        "issuedOn": "2020-03-12",
+        "reference": "BA-123/2020",
+        "requirements": [
+            {
+                "kind": "nachforderung",
+                "content": "Ein Brandschutzgutachten ist vorzulegen.",
+                "evidence": "Gutachten eines Sachverständigen",
+                "legalBasis": "§ 13 Abs. 3 AVG",
+                "page": 2,
+            },
+            {
+                "kind": "hinweis",
+                "content": "Die Frist beträgt vier Wochen.",
+                "evidence": None,
+                "legalBasis": None,
+                "page": None,
+            },
+        ],
+        "restricted": restricted,
+        **extra,
+    }
+
+
+class TestThePermitRecords:
+    async def test_each_is_one_citable_source_on_the_document_between_decisions_and_passages(
+        self, monkeypatch, calls, turn, schema
+    ) -> None:
+        body = {**SEARCH_BODY, "decisions": [_decision("Stiegenhaus in Stahlbeton.")], "permits": [_permit()]}
+        _validator(schema, "CrossProjectSearchResponse").validate(body)
+        _answering(monkeypatch, calls, body)
+
+        result = await lookup.run_project_lookup("search", query="Brandschutzgutachten")
+        sources = extract_sources_from_tool_result("project_lookup", result)
+
+        assert [s.citation_key for s in sources[:3]] == [
+            "Projektgedächtnis (Wohnbau Graz)",
+            "Baubescheid_Baden_2020.pdf (Wohnbau Graz), p.2",
+            "Detail Traufe.pdf (Wohnbau Graz), p.3",
+        ]
+        permit = sources[1]
+        assert (permit.project_id, permit.project_name, permit.project_status) == (OTHER, "Wohnbau Graz", "closed")
+        assert permit.collection == OTHER_COLLECTION
+        assert "Source: Nachforderung – Stadtgemeinde Baden, 12.03.2020" in result
+        assert "Projekt: Wohnbau Graz — abgeschlossen" in result
+        assert "Bundesland: Steiermark" in result
+        assert "Verfahren: Gemeinde Baden, Geschäftszahl BA-123/2020" in result
+        assert (
+            "Nachforderung (S. 2): Ein Brandschutzgutachten ist vorzulegen. "
+            "Nachweis: Gutachten eines Sachverständigen Rechtsgrundlage: § 13 Abs. 3 AVG"
+        ) in result
+        assert "Hinweis: Die Frist beträgt vier Wochen." in result
+        assert "1 Bescheid(e)" in result
+
+    async def test_the_text_reader_reads_the_permit_back_as_the_record_does(self, monkeypatch, calls, turn) -> None:
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "permits": [_permit()]})
+        result = await lookup.run_project_lookup("search", query="Brandschutzgutachten")
+
+        replayed = _parse_knowledge_layer(result, "project_lookup")
+
+        assert [(e.citation_key, e.project_id, e.project_status) for e in replayed] == [
+            ("Baubescheid_Baden_2020.pdf (Wohnbau Graz), p.2", OTHER, "closed")
+        ]
+
+    async def test_a_record_without_a_page_is_cited_by_its_file_alone(self, monkeypatch, calls, turn) -> None:
+        unpaged = _permit(
+            requirements=[{"kind": "auflage", "content": "x", "evidence": None, "legalBasis": None, "page": None}]
+        )
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "permits": [unpaged]})
+
+        result = await lookup.run_project_lookup("search", query="x")
+
+        assert [s.citation_key for s in extract_sources_from_tool_result("project_lookup", result)] == [
+            "Baubescheid_Baden_2020.pdf (Wohnbau Graz)"
+        ]
+
+    async def test_permits_alone_are_still_a_source_so_the_answer_is_not_replaced(
+        self, monkeypatch, calls, turn
+    ) -> None:
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "permits": [_permit()]})
+
+        result = await lookup.run_project_lookup("search", query="Brandschutzgutachten")
+
+        assert "Keine passenden" not in result
+        assert len(extract_sources_from_tool_result("project_lookup", result)) == 1
+        assert turn.admitted == {OTHER_COLLECTION}
+
+    async def test_nothing_found_says_so_for_permits_too(self, monkeypatch, calls, turn) -> None:
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": []})
+
+        result = await lookup.run_project_lookup("search", query="x")
+
+        assert "Keine passenden Dokumente, Entscheidungen oder Bescheide" in result
+
+    async def test_a_closed_projects_open_permit_shuts_no_door(self, monkeypatch, calls, turn) -> None:
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "permits": [_permit()]})
+
+        result = await lookup.run_project_lookup("search", query="x")
+
+        assert not turn.drew_on_others
+        assert "laufende andere Projekte" not in result
+
+    @pytest.mark.parametrize(
+        "permit",
+        [{"status": "active"}, {"restricted": True}, {"collection": HONORARE}],
+        ids=["running project", "restricted folder flag", "restricted folder collection"],
+    )
+    async def test_a_running_projects_or_a_restricted_permit_shuts_the_doors(
+        self, monkeypatch, calls, turn, permit
+    ) -> None:
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "permits": [_permit(**permit)]})
+
+        result = await lookup.run_project_lookup("search", query="x")
+
+        assert turn.drew_on_others
+        assert "laufende andere Projekte" in result
+
+    async def test_a_record_missing_what_a_citation_needs_is_dropped(self, monkeypatch, calls, turn) -> None:
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "permits": [_permit(fileName="")]})
+
+        result = await lookup.run_project_lookup("search", query="x")
+
+        assert "Keine passenden" in result
 
 
 class TestTheRecordedDecisions:

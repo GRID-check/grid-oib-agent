@@ -160,6 +160,172 @@
             "additionalProperties": true
           }
         },
+        "permits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "project": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "closed"
+                    ]
+                  },
+                  "bundesland": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "status",
+                  "bundesland"
+                ],
+                "additionalProperties": true
+              },
+              "collection": {
+                "type": "string"
+              },
+              "fileName": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "bewilligung",
+                  "nachforderung",
+                  "ablehnung",
+                  "sonstiges"
+                ]
+              },
+              "authority": {
+                "type": "string"
+              },
+              "municipality": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "issuedOn": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reference": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "requirements": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "auflage",
+                        "nachforderung",
+                        "hinweis"
+                      ]
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "evidence": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "legalBasis": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "page": {
+                      "anyOf": [
+                        {
+                          "type": "integer"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "content",
+                    "evidence",
+                    "legalBasis",
+                    "page"
+                  ],
+                  "additionalProperties": true
+                },
+                "maxItems": 6
+              },
+              "restricted": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "project",
+              "collection",
+              "fileName",
+              "kind",
+              "authority",
+              "municipality",
+              "issuedOn",
+              "reference",
+              "requirements",
+              "restricted"
+            ],
+            "additionalProperties": true
+          },
+          "maxItems": 8
+        },
         "hits": {
           "type": "array",
           "items": {
@@ -282,11 +448,174 @@
       },
       "required": [
         "decisions",
+        "permits",
         "hits",
         "projectsInScope",
         "projectsSearched",
         "nextOffset",
         "statusKnown"
+      ],
+      "additionalProperties": true
+    },
+    "CrossProjectPermit": {
+      "type": "object",
+      "properties": {
+        "project": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "closed"
+              ]
+            },
+            "bundesland": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "status",
+            "bundesland"
+          ],
+          "additionalProperties": true
+        },
+        "collection": {
+          "type": "string"
+        },
+        "fileName": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "bewilligung",
+            "nachforderung",
+            "ablehnung",
+            "sonstiges"
+          ]
+        },
+        "authority": {
+          "type": "string"
+        },
+        "municipality": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "issuedOn": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "auflage",
+                  "nachforderung",
+                  "hinweis"
+                ]
+              },
+              "content": {
+                "type": "string"
+              },
+              "evidence": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "legalBasis": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "page": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "content",
+              "evidence",
+              "legalBasis",
+              "page"
+            ],
+            "additionalProperties": true
+          },
+          "maxItems": 6
+        },
+        "restricted": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "project",
+        "collection",
+        "fileName",
+        "kind",
+        "authority",
+        "municipality",
+        "issuedOn",
+        "reference",
+        "requirements",
+        "restricted"
       ],
       "additionalProperties": true
     },

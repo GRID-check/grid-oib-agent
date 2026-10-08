@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import date
 from typing import Annotated
 from typing import Any
 from typing import Literal
@@ -124,6 +125,8 @@ _DESCRIPTION = (
     "`named` = nur `project_ids`; optional `document_types`, `disciplines`, "
     "`period_from`/`period_to` als JJJJ-MM-TT für den Projektzeitraum). Ein Aufruf durchsucht "
     "höchstens 8 Projekte; nennt das Ergebnis eine nächste Seite, mit `offset` weiter. "
+    "Die Suche liefert auch Bescheide früherer Verfahren (Auflagen, Nachforderungen mit Behörde, Gemeinde "
+    "und Datum): zitiere sie wie ein Dokument und nenne Behörde und Jahr. "
     "`find` listet Projekte mit Status, Zeitraum und Adresse (`query` sucht in Name und Adresse). "
     "`brief` liest die bestätigten Eckdaten und die Zusammenfassung eines Projekts (`project_id` aus "
     "`<referenzprojekte>`, `find` oder einem Treffer). "
@@ -302,17 +305,20 @@ def _hit(raw: dict[str, Any]) -> GroundingHit | None:
     )
 
 
-def _search_preamble(body: dict[str, Any], hits: tuple[GroundingHit, ...]) -> list[str]:
-    projects = len({hit.project.id for hit in hits if hit.project})
+def _search_preamble(
+    body: dict[str, Any], passages: tuple[GroundingHit, ...], permits: list[GroundingHit]
+) -> list[str]:
+    projects = len({hit.project.id for hit in (*passages, *permits) if hit.project})
     searched, in_scope = body.get("projectsSearched", 0), body.get("projectsInScope", 0)
+    found = f"{len(passages)} Passage(n)" + (f", {len(permits)} Bescheid(e)" if permits else "")
     lines = [
-        f"Treffer aus anderen Projekten: {len(hits)} Passage(n) aus {projects} Projekt(en); "
+        f"Treffer aus anderen Projekten: {found} aus {projects} Projekt(en); "
         f"{searched} von {in_scope} Projekten durchsucht."
     ]
     next_offset = body.get("nextOffset")
     if isinstance(next_offset, int):
         lines.append(f"[Weitere Projekte nicht durchsucht: dieselbe Suche mit offset={next_offset} setzt fort.]")
-    if any(_restricts(hit.project.status if hit.project else None, hit.collection) for hit in hits):
+    if any(_restricts(hit.project.status if hit.project else None, hit.collection) for hit in passages):
         lines.append(_CLOSED_DOORS)
     return lines
 
@@ -373,29 +379,132 @@ def _decision_hits(decisions: list[dict[str, Any]]) -> list[GroundingHit]:
     return hits
 
 
-def _decisions_restrict(decisions: list[dict[str, Any]]) -> bool:
-    """Whether a decision narrows the chat's readers: a running project's, or one from a restricted folder."""
-    return any(str(item["project"].get("status")) != "closed" or item.get("restricted") for item in decisions)
+#: How a record's kind reads in a permit source: labels for the closed enums the BFF stores, not a reading of any text.
+_PERMIT_KIND = {
+    "bewilligung": "Bewilligung",
+    "nachforderung": "Nachforderung",
+    "ablehnung": "Ablehnung",
+    "sonstiges": "Bescheid",
+}
+_PERMIT_REQUIREMENT_KIND = {"auflage": "Auflage", "nachforderung": "Nachforderung", "hinweis": "Hinweis"}
+
+
+def _permits(body: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = body.get("permits") if isinstance(body.get("permits"), list) else []
+    usable = (item for item in raw if isinstance(item, dict) and isinstance(item.get("project"), dict))
+    return [item for item in usable if item.get("fileName") and item.get("collection")]
+
+
+def _german_day(value: object) -> str:
+    """``2020-03-12`` as ``12.03.2020``; anything else as it came."""
+    try:
+        return date.fromisoformat(str(value)).strftime("%d.%m.%Y")
+    except ValueError:
+        return _text(value)
+
+
+def _requirement_line(item: dict[str, Any]) -> str:
+    label = _PERMIT_REQUIREMENT_KIND.get(str(item.get("kind")), _text(item.get("kind")) or "Auflage")
+    page = item.get("page")
+    line = f"{label}{f' (S. {page})' if isinstance(page, int) and page > 0 else ''}: {_text(item.get('content'))}"
+    if evidence := _text(item.get("evidence")):
+        line += f" Nachweis: {evidence}"
+    if basis := _text(item.get("legalBasis")):
+        line += f" Rechtsgrundlage: {basis}"
+    return line
+
+
+def _permit_title(item: dict[str, Any]) -> str:
+    kind = _PERMIT_KIND.get(str(item.get("kind")), "Bescheid")
+    title = f"{kind} – {_text(item.get('authority'))}" if _text(item.get("authority")) else kind
+    return f"{title}, {_german_day(item['issuedOn'])}" if item.get("issuedOn") else title
+
+
+def _permit_body(item: dict[str, Any]) -> str:
+    procedure = ", ".join(
+        part
+        for part in (
+            f"Gemeinde {_text(item.get('municipality'))}" if _text(item.get("municipality")) else "",
+            f"Geschäftszahl {_text(item.get('reference'))}" if _text(item.get("reference")) else "",
+        )
+        if part
+    )
+    requirements = [
+        _requirement_line(requirement)
+        for requirement in item.get("requirements") or []
+        if isinstance(requirement, dict)
+    ]
+    return "\n".join(([f"Verfahren: {procedure}"] if procedure else []) + requirements)
+
+
+def _permit_hits(permits: list[dict[str, Any]]) -> list[GroundingHit]:
+    """One citable source per permit record: the DOCUMENT it was read from, with what it demands.
+
+    Cited like a passage (file, collection, the first requirement's page), so
+    the same Bescheid found as a passage too is one source, not two.
+    """
+    hits = []
+    for item in permits:
+        project = item["project"]
+        name = _text(project.get("name")) or "Projekt"
+        first = next((r for r in item.get("requirements") or [] if isinstance(r, dict)), {})
+        page = first.get("page") if isinstance(first.get("page"), int) and first.get("page") > 0 else None
+        key = f"{item['fileName']} ({name})"
+        hits.append(
+            GroundingHit(
+                citation_key=f"{key}, p.{page}" if page is not None else key,
+                file_name=str(item["fileName"]),
+                page=page,
+                shelf=Shelf.PROJECT,
+                collection=str(item["collection"]),
+                doc_class=None,
+                display_title=_permit_title(item),
+                folder_path=None,
+                punkt=None,
+                score=1.0,
+                content_type="text",
+                provenance=None,
+                stored_image_index=None,
+                status_note=None,
+                body=_permit_body(item),
+                body_truncated=False,
+                project=_source_project(project, name),
+            )
+        )
+    return hits
+
+
+def _records_restrict(records: list[dict[str, Any]]) -> bool:
+    """Whether a decision or permit record narrows the chat's readers: a running project's or a restricted folder's."""
+    return any(
+        str(item["project"].get("status")) != "closed"
+        or item.get("restricted")
+        or is_restricted_collection(item["collection"] if isinstance(item.get("collection"), str) else None)
+        for item in records
+    )
 
 
 def _render_search(body: dict[str, Any]) -> str:
     raw_hits = body.get("hits") if isinstance(body.get("hits"), list) else []
     passages = tuple(hit for hit in (_hit(raw) for raw in raw_hits if isinstance(raw, dict)) if hit is not None)
-    decisions = _decisions(body)
-    # The decisions first: short, comparable, and they say why.
-    hits = (*_decision_hits(decisions), *passages)
-    preamble = _search_preamble(body, passages)
-    if decisions and _decisions_restrict(decisions) and _CLOSED_DOORS not in preamble:
+    decisions, permits = _decisions(body), _permits(body)
+    permit_hits = _permit_hits(permits)
+    # The decisions first: short, comparable, and they say why. Then what the
+    # authorities demanded of past procedures, then the passages.
+    hits = (*_decision_hits(decisions), *permit_hits, *passages)
+    preamble = _search_preamble(body, passages, permit_hits)
+    recorded = [*decisions, *permits]
+    if recorded and _records_restrict(recorded) and _CLOSED_DOORS not in preamble:
         preamble.append(_CLOSED_DOORS)
     if not hits:
-        return "\n".join([*preamble, "Keine passenden Dokumente oder Entscheidungen in diesen Projekten."])
+        return "\n".join([*preamble, "Keine passenden Dokumente, Entscheidungen oder Bescheide in diesen Projekten."])
     from knowledge_layer.register import _trace_lanes_for_hits
 
     # Handed out by the BFF, which recorded every one before it answered: what
     # the admission lets through for this turn, and what shuts its doors.
     note_cross_project_hand_out(
         (hit.collection for hit in hits),
-        restricting=_decisions_restrict(decisions)
+        restricting=_records_restrict(recorded)
         or any(_restricts(hit.project.status if hit.project else None, hit.collection) for hit in passages),
     )
     return render_grounding_block(
