@@ -36,7 +36,7 @@ from aiq_api.jobs.access import signed_job_scope
 from aiq_api.jobs.event_store import EventStore
 from aiq_api.routes import jobs as jobs_routes
 
-SECRET = "internal-test-token"  # noqa: S105 - test fixture value, not a real credential
+SECRET = "internal-test-token"  # noqa: S105  # pragma: allowlist secret
 
 OWNER = Principal(type="jwt", sub="user-owner")
 TEAMMATE = Principal(type="jwt", sub="user-teammate")

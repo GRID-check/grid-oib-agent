@@ -1467,11 +1467,14 @@ emitted somewhere it can read; see §10.
   backend tier (`aiq-agent`, `aiq-api`, `agent-worker`, `ingest-worker`) gets
   `REQUIRE_AUTH` and `WORKOS_CLIENT_ID` from the same values as the frontend
   (`backendEnv` in `src/app/config.ts`). With it on, the backend enforces job
-  ownership and the signed-envelope rule (see `docs/deployment/security-config.md`).
+  access control (owner, or the project or conversation the BFF signed;
+  ADR-0084) and the signed-envelope rule (see `docs/deployment/security-config.md`).
   The backend refuses to boot without a WorkOS client id while auth is required.
   Jobs a user submitted directly before this change were recorded under the
-  generic caller type, not the user, so they are not returned to anyone once the
-  flag is on. Scheduled and commissioned runs keep their owner.
+  generic caller type, not the user, so no one reaches them as their owner once
+  the flag is on. Those that recorded their organization and project are still
+  reachable by the project's members; those that did not are reachable by no
+  one. Scheduled and commissioned runs keep their owner.
 - **Image pull policy** resolves to `Always` for the moving `latest` tag (so a
   rescheduled pod never silently runs a stale image) and `IfNotPresent` for a
   pinned SHA. Pin `imageTag` to a SHA in prod for reproducible deploys — the

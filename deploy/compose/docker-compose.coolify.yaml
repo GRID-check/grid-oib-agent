@@ -149,7 +149,8 @@ services:
       - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:?set GRID_ADMIN_TOKEN}
       # Default ON for this production compose; kept consistent with the frontend.
       # REQUIRE_AUTH gates the token check only for EXTERNAL requests (Host in
-      # AIQ_EXTERNAL_HOSTNAMES). It also turns on job ownership and the signed-envelope
+      # AIQ_EXTERNAL_HOSTNAMES). It also turns on job access control (owner, or the
+      # project/conversation the BFF signed; ADR-0084) and the signed-envelope
       # rule for WorkOS callers, for every request. In-cluster BFF calls carry the
       # user's token and envelope, or the internal token, so they keep working.
       - REQUIRE_AUTH=${REQUIRE_AUTH:-true}

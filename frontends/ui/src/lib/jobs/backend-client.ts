@@ -203,7 +203,7 @@ export async function submitJob(
  *
  * The two statuses a caller decides on: 400 is the backend's verdict that the
  * job is already terminal (`Job not cancellable: <id> (status: …)`), and 404 is
- * an unknown job or one the caller does not own — the backend answers both the
+ * an unknown job or one the caller may not reach (ADR-0084) — the backend answers both the
  * same way on purpose. Everything else is the backend being unreachable.
  */
 export class JobCancelError extends Error {

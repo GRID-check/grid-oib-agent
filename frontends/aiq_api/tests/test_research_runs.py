@@ -306,7 +306,7 @@ async def test_list_research_runs_honours_the_signed_project(research_runs_app, 
     """The route reads the envelope off the request: a teammate sees the project's runs, not another org's."""
     import aiq_api.routes.jobs as jobs_routes
 
-    secret = "listing-test-secret"  # noqa: S105 - test fixture value
+    secret = "listing-test-secret"  # noqa: S105  # pragma: allowlist secret
     monkeypatch.setenv("REQUIRE_AUTH", "true")
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", secret)
     monkeypatch.setenv("OIB_COLLECTION_NAME", "oib_knowledge")

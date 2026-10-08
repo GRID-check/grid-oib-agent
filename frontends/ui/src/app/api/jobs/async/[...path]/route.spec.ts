@@ -810,7 +810,7 @@ describe('/api/jobs/async/[...path] proxy — every method carries the signed en
   // The backend lets a job's owner through on the bearer alone and anyone else
   // only inside the project or conversation this envelope signs, so a teammate's
   // stream, status, report and cancel are refused without it.
-  const SECRET = 'test-secret'
+  const SECRET = 'test-secret' // pragma: allowlist secret
   let fetchSpy: ReturnType<typeof vi.spyOn>
 
   const session = {
