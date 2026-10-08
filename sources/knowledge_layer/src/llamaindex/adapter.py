@@ -4322,19 +4322,24 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     ) -> None:
         """Hand a Bescheid's permit record to the BFF (permitting memory), fail-open and bounded.
 
-        Runs once the tags are known, and only when the tag decision typed the document a
-        Bescheid and the job names the BFF row it was dispatched for. The extraction is a
-        second model call over the whole document, so it gets its own deadline: a slow
-        model costs the record, never the ingest. A document that is no longer a Bescheid
-        keeps its old record until a follow-up drops it (docs/design/permitting-memory.md).
+        Runs once the tags are known, and only when the job names the BFF row it was
+        dispatched for. A Bescheid is read: the extraction is a second model call over the
+        whole document, so it gets its own deadline, and a slow model costs the record,
+        never the ingest. A document the tag decision no longer calls a Bescheid has its
+        record dropped (one internal call, no model), so a re-typed document stops answering
+        as a permit (docs/design/permitting-memory.md).
         """
         from aiq_agent.knowledge.permit_extraction import extract_and_store_permit_record
         from aiq_agent.knowledge.permit_extraction import is_bescheid
+        from aiq_agent.knowledge.permit_records_client import store_permit_record
 
         organization_id, document_id = config.get("organization_id"), config.get("document_id")
-        if not (self.generate_summary_enabled and self.summary_llm and organization_id and document_id):
+        if not (organization_id and document_id):
             return
         if not is_bescheid(tags):
+            store_permit_record(str(organization_id), str(document_id), collection_name, file_name, "", None)
+            return
+        if not (self.generate_summary_enabled and self.summary_llm):
             return
         from aiq_agent.common.cost_tracking import submit_in_context
 
