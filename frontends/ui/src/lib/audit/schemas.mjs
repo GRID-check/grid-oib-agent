@@ -379,20 +379,20 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   },
   // `nameWithheld` (every action in `DOCUMENT_NAME_ACTIONS`, `service.ts`):
   // the document is filed under a folder not every project member may read,
-  // so its name keys were left out (ADR-0086). The target id still says which.
+  // so its name keys were left out (ADR-0087). The target id still says which.
   'document.uploaded': {
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', fileSize: 'number', nameWithheld: 'boolean' },
   },
   // A file the name gate would have excluded, uploaded anyway because its
-  // uploader released it in the upload dialog (ADR-0085): the Bauvertrag in a
+  // uploader released it in the upload dialog (ADR-0086): the Bauvertrag in a
   // folder called „Verträge". The terms say which rule was overridden; they
   // matched a piece of the name, so they are withheld with it.
   'document.screening_overridden': {
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', terms: 'string', nameWithheld: 'boolean' },
   },
-  // A quarantined document a reviewer released for indexing (ADR-0085). The
+  // A quarantined document a reviewer released for indexing (ADR-0086). The
   // reasons are the kinds of the content gate's verdict as stored on the row;
   // the terms are the office's words it found in the text, which say what the
   // document holds, so they are withheld with the name.

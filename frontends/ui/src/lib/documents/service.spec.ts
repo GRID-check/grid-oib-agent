@@ -1897,7 +1897,7 @@ describe('renameDocument', () => {
         action: 'document.renamed',
         targetType: 'document',
         targetId: 'doc-1',
-        // Where it is filed, so the emitter withholds the names under a restricted folder (ADR-0086).
+        // Where it is filed, so the emitter withholds the names under a restricted folder (ADR-0087).
         filedIn: { projectId: projectDoc.projectId, folderId: projectDoc.folderId },
         metadata: expect.objectContaining({
           filename: 'plan.pdf',

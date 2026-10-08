@@ -139,7 +139,7 @@ async function uploadAuditEvent(
     action: shelf.kind === 'project' ? 'document.uploaded' : 'archiv.document.uploaded',
     targetType: 'document',
     targetId: event.documentId,
-    // A file put under a folder not every member may read is not named (ADR-0086).
+    // A file put under a folder not every member may read is not named (ADR-0087).
     filedIn: shelf.kind === 'project' ? { projectId: shelf.projectId, folderId: event.folderId } : null,
     // Filename is user-controlled — cap it before it reaches the trail.
     // `replaced` distinguishes a new document from new bytes under an existing

@@ -298,7 +298,7 @@ async function folderReadableBy(
     !trees.has(row.projectId) && row.folderPath === null && row.ownList
   const undecided = new Set(rows.flatMap((row) => (filed(row) && gone(row) ? [row.projectId] : [])))
   if (trees.size === 0 && undecided.size === 0) return () => true
-  // A clearance is one project's (ADR-0088: a closed project clears someone
+  // A clearance is one project's (ADR-0089: a closed project clears someone
   // who reads it only because it is closed as a member with no role).
   const clearances = new Map<string, FolderClearance>()
   for (const projectId of new Set([...trees.keys(), ...undecided])) {
