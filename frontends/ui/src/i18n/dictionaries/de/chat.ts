@@ -1248,7 +1248,7 @@ export const chat: typeof en.chat = {
    */
   screening: {
     title: 'Enthält {items} (Sensible Daten).',
-    body: 'Piloti sendet sie nicht an das Modell.',
+    body: 'Piloti sendet sie nicht an das Antwortmodell.',
     preview: 'Das Modell sieht: „{text}“',
     iban: '{count, plural, one {eine IBAN} other {# IBANs}}',
     at_svnr: '{count, plural, one {eine Sozialversicherungsnummer} other {# Sozialversicherungsnummern}}',

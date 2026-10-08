@@ -78,7 +78,7 @@ import {
   renderVersionBytes,
   writeVersionContent,
 } from './version-content'
-import type { AgentDocumentProvenance } from './service'
+import type { AgentDocumentProvenance, DispatchDocumentResult, IngestPriority } from './service'
 import {
   DOCUMENT_VERSION_TRANSITIONS,
   findDocumentVersionTransition,
@@ -616,6 +616,43 @@ async function agentProvenance(
     approved_at: version.approvedAt?.toISOString() ?? null,
     producer: document.authoredByProducer,
   }
+}
+
+/**
+ * Read a machine's published document into the index again, as its published
+ * version: what a Papierkorb restore owes a Piloti document whose chunks went
+ * when its folder was deleted (`projects/folder-bin-jobs.ts`).
+ *
+ * The same dispatch `ingestPublished` makes, with the version and provenance it
+ * names, because `dispatchDocument` indexes a machine's row only for its
+ * published version. Without either half (no published version, a name outside
+ * the `piloti/` namespace) it refuses the way the dispatcher does, so a caller
+ * cannot mistake "not indexable" for a backend failure. No purge first: the
+ * chunks this replaces are already gone.
+ */
+export async function redispatchPublishedVersion(
+  organizationId: string,
+  document: Document,
+  priority: IngestPriority,
+): Promise<DispatchDocumentResult> {
+  const { dispatchDocument, AgentAuthoredDocumentNotIndexableError } = await import('./service')
+  const version = await findPublishedVersion(document.id, organizationId)
+  if (!version || !isAgentDocumentFilename(document.filename)) {
+    throw new AgentAuthoredDocumentNotIndexableError(document.id)
+  }
+  return dispatchDocument({
+    organizationId,
+    projectId: document.projectId,
+    documentId: document.id,
+    filename: document.filename,
+    storageKey: version.storageKey,
+    storageBucket: version.storageBucket,
+    collectionName: document.collectionName,
+    folderPath: await resolveDocumentFolderPath(document, organizationId),
+    versionId: version.id,
+    provenance: await agentProvenance(organizationId, document, version),
+    priority,
+  })
 }
 
 /** Every effect a transition names, in order. */

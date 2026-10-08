@@ -50,5 +50,7 @@ export const errors: typeof en.errors = {
       'Diese Unterhaltung stützt sich auf einen Ordner mit eingeschränktem Zugriff, deshalb lässt sich aus ihr nichts dorthin ablegen: Der Ablageort ist auch für Personen sichtbar, die für den eingeschränkten Ordner nicht freigegeben sind. Ablegen geht nur in einen Ordner, der mindestens so eng eingeschränkt ist.',
     revision:
       'Dieses Dokument liegt in einem Ordner mit eingeschränktem Zugriff, deshalb kann Piloti es nicht überarbeiten: Der Auftrag dafür wäre für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind. Fordern Sie die Änderungen ohne Piloti an.',
+    planDocument:
+      'Eine genannte Unterlage liegt in einem Ordner mit eingeschränktem Zugriff, deshalb lässt sie sich einer Recherche nicht als Unterlage mitgeben: Unterlagen und Bericht einer Recherche sind für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind.',
   },
 }

@@ -51,7 +51,11 @@ import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING } from './reingest-codes'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
-import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
+import {
+  buildDocumentImageUrl,
+  DOCUMENT_IMAGE_CACHE_CONTROL,
+  verifyDocumentImageUrl,
+} from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import {
   FEATURE_FLAGS,
@@ -103,7 +107,7 @@ import { findOpenJobId } from '@/lib/jobs-queue/repository'
 import {
   BFF_JOB_PRIORITY,
   emptyCounts,
-  FAILED_NAMES_KEPT,
+  recordJobFailure,
   requesterOf,
   type BffJobPriority,
   type BimExtractPayload,
@@ -1646,12 +1650,6 @@ async function forEachBounded<T>(
   await Promise.all(workers)
 }
 
-/** Keep the names of the first few failures for the log; the count stays exact. */
-function recordFailure(counts: JobCounts, name: string): void {
-  counts.failed += 1
-  if (counts.failedNames.length < FAILED_NAMES_KEPT) counts.failedNames.push(name)
-}
-
 /**
  * Rebuild every document's chunks in one project: authorize, then hand the walk
  * to a job.
@@ -1815,7 +1813,7 @@ export async function runReindexSlice(
         return
       }
       // One document's failure must not abandon the rest of the project.
-      recordFailure(counts, documentDisplayName(row))
+      recordJobFailure(counts, documentDisplayName(row))
     }
   })
 
@@ -1941,7 +1939,7 @@ export async function runReingestFailedSlice(
   const counts: JobCounts = { ...payload.counts, failedNames: [...payload.counts.failedNames] }
   await forEachBounded(ids, REINDEX_CONCURRENCY, async (id) => {
     const outcome = await retryFailedDocument(session, id)
-    if (outcome === 'failed') recordFailure(counts, id)
+    if (outcome === 'failed') recordJobFailure(counts, id)
     else counts[outcome] += 1
   })
 
@@ -2805,9 +2803,10 @@ export async function streamDocumentImage(
     headers: {
       'Content-Type': contentType,
       'Content-Disposition': 'inline',
-      // Private: the bytes are tenant data, and the optimizer keeps its own
-      // server-side cache regardless. Bounded by the signature's own lifetime.
-      'Cache-Control': 'private, max-age=3600',
+      // One token window. The optimizer keeps no copy (`next.config.ts`) but
+      // forwards this max-age to the browser, so it bounds how long a picture
+      // stays visible without this check running again.
+      'Cache-Control': DOCUMENT_IMAGE_CACHE_CONTROL,
       'X-Content-Type-Options': 'nosniff',
     },
   })
