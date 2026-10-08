@@ -1,5 +1,5 @@
 /**
- * Organization roles client (ADR-0086): the office's roles and its own custom
+ * Organization roles client (ADR-0087): the office's roles and its own custom
  * roles, through their first-party BFF routes.
  *
  *   - list   → `GET    /api/organization/roles`

@@ -76,7 +76,7 @@ Body `{ visibility }`. Requires `owner`. Rejects a visibility the registry does
 not permit for the type (`400`, `details.allowed`). A no-op save is a no-op: no
 audit event, no events published. Widening a conversation whose answers drew on
 a restricted folder is refused with `409`, `details.reason = 'restricted-content'`
-(ADR-0086); narrowing back to `private` is always allowed.
+(ADR-0087); narrowing back to `private` is always allowed.
 
 Narrowing publishes `resource.access.changed` to the **previous** audience as well
 as the new one, so losing sight of a thread is never silent.

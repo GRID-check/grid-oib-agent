@@ -431,14 +431,14 @@ export const collaboration = {
         title: '{actor} assigned {subject} to you',
         body: 'You are responsible for this file.',
       },
-      // ADR-0085: everything an upload brought in has been read. {subject}
+      // ADR-0086: everything an upload brought in has been read. {subject}
       // is where it went (a project name, "Büroablage" or "Chat").
       uploadCompleted: {
         title: 'Your upload has been read',
         body: '{subject}: open the summary to see what arrived.',
         bodyNoSubject: 'Open the summary to see what arrived.',
       },
-      // ADR-0085: the content check held files back.
+      // ADR-0086: the content check held files back.
       documentQuarantined: {
         titleOne: '1 file is waiting in quarantine',
         titleMany: '{count} files are waiting in quarantine',
@@ -448,6 +448,15 @@ export const collaboration = {
       jobCompleted: {
         title: '"{subject}" is done',
         body: 'Piloti ran the job. The result is in the project under Automation.',
+      },
+      // An Outlook archive was imported. {subject} is the archive's file name.
+      mailImportCompleted: {
+        title: '“{subject}” has been imported',
+        body: 'Piloti filed the emails and their attachments in the project under E-Mail-Import.',
+      },
+      mailImportFailed: {
+        title: 'The import of “{subject}” stopped',
+        body: 'What was imported until then stays in the project. The import list under Files gives the reason.',
       },
       jobFailed: {
         title: '"{subject}" failed',

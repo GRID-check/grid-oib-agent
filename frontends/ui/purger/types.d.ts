@@ -75,6 +75,12 @@ export interface PurgeDeps {
    * the queue row's attempts and backoff are the retry. Idempotent.
    */
   eraseConversationTraces: (conversationId: string) => Promise<unknown>;
+  /**
+   * Abort every multipart upload still open under `prefix`. Its parts are not
+   * objects, so the prefix sweep cannot see them: an Outlook archive half-sent
+   * into a project (ADR-0085) would outlive the project's erasure.
+   */
+  abortMultipartUploads: (bucket: string, prefix: string) => Promise<number>;
   /** Overridden in specs; defaults to global `fetch`. */
   fetchImpl?: typeof fetch;
 }

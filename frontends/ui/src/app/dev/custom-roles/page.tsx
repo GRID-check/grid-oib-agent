@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Dev preview for Organisation → Personen & Zugriff → Eigene Rollen (ADR-0086).
+ * Dev preview for Organisation → Personen & Zugriff → Eigene Rollen (ADR-0087).
  * Renders the REAL section with fixtures and no backend.
  *
  * The editor is a User Admin: they may manage roles and hold the Archiv and
@@ -174,7 +174,7 @@ function CustomRolesPreview(): JSX.Element {
       <div>
         <h1 className="text-lg font-semibold">Organisation — Eigene Rollen</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          ADR-0086: an office&apos;s own roles in WorkOS, as a User Admin without the models or budgets permission
+          ADR-0087: an office&apos;s own roles in WorkOS, as a User Admin without the models or budgets permission
           sees them.
         </p>
       </div>

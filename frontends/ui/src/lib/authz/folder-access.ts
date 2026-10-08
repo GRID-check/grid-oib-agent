@@ -1,6 +1,6 @@
 /**
- * Who may read and who may write which folders of a project (ADR-0086,
- * ADR-0087) — the one place that decides.
+ * Who may read and who may write which folders of a project (ADR-0087,
+ * ADR-0088) — the one place that decides.
  *
  * A folder either inherits its parent's access (`accessMode: 'inherit'`; a root
  * folder inherits the project) or has its own access list (`'custom'`): grants
@@ -20,7 +20,7 @@
  * of its NEAREST such folder. Only a session that may read that folder gets the
  * collection in its signed scope. Write never affects retrieval.
  *
- * Deleted folders stay in the tree as tombstones (migration 0110): they are
+ * Deleted folders stay in the tree as tombstones (migration 0111): they are
  * hidden from every listing and from placement, and {@link effectiveFolderLevel}
  * still answers for them, because content derived from a deleted folder is
  * judged by the access it had.

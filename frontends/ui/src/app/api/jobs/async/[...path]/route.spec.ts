@@ -991,7 +991,7 @@ describe('/api/jobs/async/[...path] proxy — a cancel the backend refuses becau
   })
 })
 
-describe('/api/jobs/async/[...path] proxy — a run’s documents have one door (ADR-0055, ADR-0086)', () => {
+describe('/api/jobs/async/[...path] proxy — a run’s documents have one door (ADR-0055, ADR-0087)', () => {
   // `addRunDocument` checks a document against the project's restricted
   // folders before the backend hears of it; the proxy would forward the same
   // control with a signed project and no such check, so it does not serve it.

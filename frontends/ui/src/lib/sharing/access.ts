@@ -128,7 +128,7 @@ export async function resolveResourceAccess(
   if (probe.container.kind === 'project' && probe.container.id) {
     const { role } = await requireProjectAccess(session, probe.container.id, 'project:view')
     projectRole = role
-    // Inside the project, a restricted folder narrows further (ADR-0086). It
+    // Inside the project, a restricted folder narrows further (ADR-0087). It
     // outranks every grant and the creator's ownership: a hidden folder's
     // documents do not exist for this session, in the inbox or a share link.
     if (probe.folderId && !(await isFolderVisibleTo(session, probe.container.id, probe.folderId))) {

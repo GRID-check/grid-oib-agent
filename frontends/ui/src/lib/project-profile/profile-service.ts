@@ -163,7 +163,7 @@ export async function patchProjectProfile(
   if (origin) {
     // The profile is read by every project member and every chat in the
     // project, so a patch proposed in a thread that drew on a restricted folder
-    // is refused (ADR-0086). The thread is authorized first, so the refusal
+    // is refused (ADR-0087). The thread is authorized first, so the refusal
     // says nothing about a conversation the caller cannot read.
     await requireResourceAccess(session, 'conversation', origin.conversationId, 'viewer')
     await requireMayLeaveConversation(

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Organisation → Personen & Zugriff → Eigene Rollen (ADR-0086).
+ * Organisation → Personen & Zugriff → Eigene Rollen (ADR-0087).
  *
  * The office's own roles, kept in WorkOS, beside the platform's. Custom roles
  * are created, edited and deleted here; the platform's are listed read-only,

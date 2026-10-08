@@ -271,7 +271,7 @@ describe('isShared', () => {
   })
 })
 
-describe('resolveResourceAccess — a document in a restricted folder (ADR-0086)', () => {
+describe('resolveResourceAccess — a document in a restricted folder (ADR-0087)', () => {
   function stubDocument(folderId: string | null): void {
     vi.mocked(findDocumentTenancy).mockResolvedValue({
       organizationId: 'org_1',

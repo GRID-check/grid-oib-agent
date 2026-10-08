@@ -210,7 +210,7 @@ export async function admitReplacementWithinQuota(
     contentHash: string | null
     folderId: string | null
     createdBy: string
-    /** The upload gesture these bytes came in with (migration 0109), or null. */
+    /** The upload gesture these bytes came in with (migration 0110), or null. */
     uploadBatchId?: string | null
   },
 ): Promise<void> {

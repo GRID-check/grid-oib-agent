@@ -58,7 +58,7 @@ export class OrgMemoryDisabledError extends ApiError {
 
 /**
  * 403 — a conversation that drew on a folder with restricted access may not
- * carry its content to where others read it (ADR-0086): a deep-research run, a
+ * carry its content to where others read it (ADR-0087): a deep-research run, a
  * task, the project profile, or a folder not restricted at least as narrowly.
  * The same refusal answers a run's Unterlagen naming a document from such a
  * folder (`planDocument`): the run's Grundlage is read by the whole project.
