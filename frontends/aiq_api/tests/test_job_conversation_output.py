@@ -537,3 +537,23 @@ class TestTransparencyMetadataFilter:
             "skills_hidden",
             "stages",
         )
+
+
+async def test_the_report_row_names_the_trace_the_run_ran_in():
+    """A vote on the report is scored on this trace; a run with no trace writes no key."""
+    with mock.patch(
+        "aiq_api.jobs.conversation_output.post_internal_run_report", new=mock.AsyncMock(return_value="run-msg")
+    ) as report:
+        await write_job_turn(
+            conversation_id="s_abc",
+            job_id="job-1",
+            usage_context=USAGE,
+            prompt="q",
+            answer="a",
+            trace_id="0f0f0f0f000040008000000000000001",
+        )
+        await write_job_turn(conversation_id="s_abc", job_id="job-2", usage_context=USAGE, prompt="q", answer="a")
+
+    first, second = (call.kwargs["metadata"] for call in report.await_args_list)
+    assert first["trace_id"] == "0f0f0f0f000040008000000000000001"
+    assert "trace_id" not in second
