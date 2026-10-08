@@ -440,13 +440,13 @@ refused_in() {
 # slug it does not know, holds at most 20 entries; a folder cannot become
 # custom without a grant; a tombstone keeps its list and frees its name. The
 # down removes the tombstones, the grants table and the columns, and puts
-# develop's non-partial name index back; 0109 then re-applies.
+# develop's non-partial name index back; 0110 then re-applies.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0110 grants, their constraints and the down migration on grid_grants"
 migrate_until grid_grants 0110_project_folder_grants
 sql_in grid_grants <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
-VALUES ('aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'Grants 0109', 'user_1', 'proj_0106');
+VALUES ('aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'Grants 0110', 'user_1', 'proj_0106');
 BEGIN;
 INSERT INTO project_folders (id, organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at) VALUES
   ('a1a1a1a1-a1a1-4000-8000-000000000106', 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Verträge', 'Verträge', 'custom', 'user_1', now()),
@@ -494,7 +494,7 @@ check_in grid_grants "SELECT to_regclass('public.project_folder_grants') IS NULL
 check_in grid_grants "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('access_mode', 'access_changed_by', 'access_changed_at', 'deleted_at', 'deleted_by')" "0" "down dropped the new columns"
 check_in grid_grants "SELECT indexdef LIKE '%WHERE%' FROM pg_indexes WHERE indexname = 'uniq_project_folders_parent_name'" "f" "down put develop's non-partial name index back"
 apply_in grid_grants 0110_project_folder_grants.sql
-check_in grid_grants "SELECT string_agg(name || '=' || access_mode, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare=inherit,Personal=inherit,Pläne=inherit,Verträge=inherit" "0109 re-applies, every folder inheriting"
+check_in grid_grants "SELECT string_agg(name || '=' || access_mode, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare=inherit,Personal=inherit,Pläne=inherit,Verträge=inherit" "0110 re-applies, every folder inheriting"
 
 echo "==> 0110 grants, constraints and down migration verified"
 
@@ -502,7 +502,7 @@ echo "==> 0110 grants, constraints and down migration verified"
 # Migration 0111: the per-folder chat record, and its DOWN.
 #
 # One row per (conversation, source folder): inside the tenant boundary, and
-# `last_at` never before `first_at`. The down drops the table; 0110 re-applies.
+# `last_at` never before `first_at`. The down drops the table; 0111 re-applies.
 # The admission and read paths are proved against the real chain by
 # restricted-use.integration.spec.ts above.
 # ---------------------------------------------------------------------------
@@ -518,24 +518,24 @@ check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders
 apply_in grid_chat_folders 0111_conversation_restricted_folders.down.sql
 check_in grid_chat_folders "SELECT to_regclass('public.conversation_restricted_folders') IS NULL" "t" "down dropped the table"
 apply_in grid_chat_folders 0111_conversation_restricted_folders.sql
-check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders" "0" "0110 re-applies, empty"
+check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders" "0" "0111 re-applies, empty"
 
 echo "==> 0111 chat record and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0112: restricted memory by folder, and its DOWN.
 #
-# An open and a restricted note with the same text can both be live (the 0111
+# An open and a restricted note with the same text can both be live (the 0112
 # index); an empty folder list and a restricted organization note are refused
-# (the 0111 CHECK). The down is lossy on purpose and in the safe direction:
+# (the 0112 CHECK). The down is lossy on purpose and in the safe direction:
 # restricted notes are DELETED, because dropping the column alone would serve
-# them to everyone. It restores develop's dedup index; 0111 then re-applies.
+# them to everyone. It restores develop's dedup index; 0112 then re-applies.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0112 restricted memory and its down migration on grid_memory"
 migrate_until grid_memory 0112_project_memory_restricted_folders
 sql_in grid_memory <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
-VALUES ('aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'Memory 0111', 'user_1', 'proj_0108');
+VALUES ('aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'Memory 0112', 'user_1', 'proj_0108');
 INSERT INTO project_memory (scope, project_id, organization_id, kind, content, restricted_folder_ids) VALUES
   ('project', 'aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'decision', 'Honorar pauschal', NULL),
   ('project', 'aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'decision', 'Honorar pauschal', ARRAY['d4d4d4d4-d4d4-4000-8000-000000000108'::uuid]);
@@ -549,7 +549,7 @@ check_in grid_memory "SELECT count(*) FROM project_memory WHERE organization_id 
 check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "0" "down dropped the column"
 check_in grid_memory "SELECT indexdef LIKE '%coalesce%' FROM pg_indexes WHERE indexname = 'uniq_project_memory_project_content_active'" "f" "down restored develop's dedup index"
 apply_in grid_memory 0112_project_memory_restricted_folders.sql
-check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "1" "0111 re-applies"
+check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "1" "0112 re-applies"
 
 echo "==> 0112 restricted memory and down migration verified"
 
@@ -558,7 +558,7 @@ echo "==> 0112 restricted memory and down migration verified"
 #
 # The table is inside the tenant boundary, the database refuses an open outside
 # an own list, a shelf that disagrees with its project and any UPDATE, and the
-# down drops the table and its guard function; 0112 then re-applies. The
+# down drops the table and its guard function; 0113 then re-applies. The
 # platform role's delete and the retention sweep are proved against the real
 # chain by download-log.integration.spec.ts above.
 # ---------------------------------------------------------------------------
@@ -575,14 +575,14 @@ apply_in grid_download_log 0113_document_access_log.down.sql
 check_in grid_download_log "SELECT to_regclass('public.document_access_log') IS NULL" "t" "down dropped the download log"
 check_in grid_download_log "SELECT to_regprocedure('grid_document_access_log_guard()') IS NULL" "t" "down dropped the guard function"
 apply_in grid_download_log 0113_document_access_log.sql
-check_in grid_download_log "SELECT count(*) FROM document_access_log" "0" "0112 re-applies, empty"
+check_in grid_download_log "SELECT count(*) FROM document_access_log" "0" "0113 re-applies, empty"
 
 echo "==> 0113 download log and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0114: the Papierkorb, and its DOWN.
 #
-# Seeded before 0113 runs: a tombstone the old delete left behind is
+# Seeded before 0114 runs: a tombstone the old delete left behind is
 # backfilled as PURGED (its contents had been moved out), a living folder is
 # not; the trigger refuses a document filed into a deleted folder and a folder
 # created under one, and lets an Archiv folder (no project, no bin lock) take a
@@ -590,25 +590,25 @@ echo "==> 0113 download log and down migration verified"
 # Papierkorb; the hold predicate covers a folder through a document in it. The
 # down refuses while a folder is in the bin, runs once the bin is empty
 # (columns, triggers and functions gone, the 0093 predicate back, which does not
-# know folders), and 0113 re-applies.
+# know folders), and 0114 re-applies.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0114 Papierkorb backfill, triggers and down migration on grid_bin"
 migrate_until grid_bin 0113_document_access_log
 sql_in grid_bin <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
-VALUES ('aaaaaaaa-0000-4000-8000-000000000110', 'org_0110', 'Papierkorb 0113', 'user_1', 'proj_0110');
+VALUES ('aaaaaaaa-0000-4000-8000-000000000110', 'org_0110', 'Papierkorb 0114', 'user_1', 'proj_0110');
 INSERT INTO project_folders (id, organization_id, project_id, name, path, deleted_at, deleted_by) VALUES
-  ('e1e1e1e1-e1e1-4000-8000-000000000110', 'org_0110', 'aaaaaaaa-0000-4000-8000-000000000110', 'Ablage 0113', 'Ablage 0113', '2026-10-01T08:00:00Z', 'user_1');
+  ('e1e1e1e1-e1e1-4000-8000-000000000110', 'org_0110', 'aaaaaaaa-0000-4000-8000-000000000110', 'Ablage 0114', 'Ablage 0114', '2026-10-01T08:00:00Z', 'user_1');
 INSERT INTO project_folders (id, organization_id, project_id, name, path) VALUES
-  ('e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110', 'aaaaaaaa-0000-4000-8000-000000000110', 'Plaene 0113', 'Plaene 0113');
+  ('e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110', 'aaaaaaaa-0000-4000-8000-000000000110', 'Plaene 0114', 'Plaene 0114');
 INSERT INTO project_folders (id, organization_id, scope, name, path) VALUES
-  ('e3e3e3e3-e3e3-4000-8000-000000000110', 'org_0110', 'archiv', 'Normen 0113', 'Normen 0113');
+  ('e3e3e3e3-e3e3-4000-8000-000000000110', 'org_0110', 'archiv', 'Normen 0114', 'Normen 0114');
 SQL
 apply_in grid_bin 0114_folder_bin.sql
 check_in grid_bin "SELECT (purged_at = deleted_at)::text || ',' || coalesce(bin_root_id::text, 'none') FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000110'" "true,none" "an older tombstone is backfilled as purged, with no bin entry"
 check_in grid_bin "SELECT count(*) FROM project_folders WHERE id IN ('e2e2e2e2-e2e2-4000-8000-000000000110', 'e3e3e3e3-e3e3-4000-8000-000000000110') AND purged_at IS NULL AND deleted_at IS NULL" "2" "a living project folder and an Archiv folder are untouched"
 refused_in grid_bin "INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id) VALUES ('org_0110', 'user_1', 'spaet.pdf', 'k/spaet', 'proj_0110', 'completed', 'project', 'aaaaaaaa-0000-4000-8000-000000000110', 'e1e1e1e1-e1e1-4000-8000-000000000110');" "is deleted; nothing may be filed into it" "a document cannot be filed into a deleted folder"
-refused_in grid_bin "INSERT INTO project_folders (organization_id, project_id, parent_id, name, path) VALUES ('org_0110', 'aaaaaaaa-0000-4000-8000-000000000110', 'e1e1e1e1-e1e1-4000-8000-000000000110', 'Neu', 'Ablage 0113/Neu');" "is deleted; nothing may be filed into it" "a folder cannot be created under a deleted folder"
+refused_in grid_bin "INSERT INTO project_folders (organization_id, project_id, parent_id, name, path) VALUES ('org_0110', 'aaaaaaaa-0000-4000-8000-000000000110', 'e1e1e1e1-e1e1-4000-8000-000000000110', 'Neu', 'Ablage 0114/Neu');" "is deleted; nothing may be filed into it" "a folder cannot be created under a deleted folder"
 refused_in grid_bin "UPDATE project_folders SET purged_at = now() WHERE id = 'e2e2e2e2-e2e2-4000-8000-000000000110';" "project_folders_bin_state_check" "a living folder cannot be purged"
 refused_in grid_bin "UPDATE project_folders SET deleted_at = now(), deleted_by = 'user_1' WHERE id = 'e3e3e3e3-e3e3-4000-8000-000000000110';" "project_folders_bin_state_check" "an Archiv folder has no Papierkorb and no tombstone"
 sql_in grid_bin <<<"INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, folder_id) VALUES ('org_0110', 'user_1', 'norm.pdf', 'k/norm', 'archiv_org_0110', 'completed', 'archiv', 'e3e3e3e3-e3e3-4000-8000-000000000110');"
@@ -632,7 +632,7 @@ check_in grid_bin "SELECT count(*) FROM project_folders WHERE id = 'e1e1e1e1-e1e
 sql_in grid_bin <<<"INSERT INTO legal_holds (entity_type, entity_id, organization_id, reason, created_by) VALUES ('document', 'd1d1d1d1-d1d1-4000-8000-000000000110', 'org_0110', 'rls test 2', 'user_1');"
 check_in grid_bin "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110')::text" "false" "the 0093 predicate is back: it does not know folders"
 apply_in grid_bin 0114_folder_bin.sql
-check_in grid_bin "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110')::text || ',' || (SELECT (purged_at IS NOT NULL)::text FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000110')" "true,true" "0113 re-applies"
+check_in grid_bin "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110')::text || ',' || (SELECT (purged_at IS NOT NULL)::text FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000110')" "true,true" "0114 re-applies"
 
 echo "==> 0114 backfill, triggers and down migration verified"
 
