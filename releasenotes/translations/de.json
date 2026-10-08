@@ -2436,6 +2436,10 @@
     "de": "Wenn Sie eine neue Frage senden, während Piloti noch die vorherige beantwortet, wird die frühere Antwort vollständig beendet, bevor die neue beginnt. So können sich die beiden nicht mehr in einer Unterhaltung vermischen. Falls die frühere Antwort ausnahmsweise nicht innerhalb weniger Sekunden stoppt, teilt Piloti Ihnen mit, dass sie noch abgeschlossen wird, und bittet Sie, die Frage erneut zu senden."
   },
   {
+    "en": "When your office checks chat messages for sensitive data, Piloti now says plainly that a dictated message is first transcribed by an external speech model; only the text is checked before it is sent.",
+    "de": "Wenn Ihr Büro Chatnachrichten auf sensible Daten prüft, sagt Piloti jetzt klar, dass eine diktierte Nachricht zuerst von einem externen Spracherkennungsmodell transkribiert wird; geprüft wird nur der Text, bevor er gesendet wird."
+  },
+  {
     "en": "Whether Piloti may file the documents it writes into a project is now a permission of its own, File agent-authored documents. Members without it can still upload, rename and delete their own files.",
     "de": "Ob Piloti seine Dokumente in einem Projekt ablegen darf, ist jetzt eine eigene Berechtigung, „File agent-authored documents“. Wer sie nicht hat, kann eigene Dateien weiterhin hochladen, umbenennen und löschen."
   },
@@ -2502,6 +2506,10 @@
   {
     "en": "Your office now decides what must not be uploaded, under Organisation → Sensible Daten: terms for file and folder names, terms for the content, and checks for IBANs, Austrian social security numbers and card numbers. Piloti starts you on a suggested list you can keep, change or switch off.",
     "de": "Ihr Büro legt jetzt unter Organisation → Sensible Daten fest, was nicht hochgeladen werden darf: Begriffe für Datei- und Ordnernamen, Begriffe für den Inhalt sowie Prüfungen auf IBANs, österreichische Sozialversicherungsnummern und Kartennummern. Piloti beginnt mit einer vorgeschlagenen Liste, die Sie übernehmen, ändern oder abschalten können."
+  },
+  {
+    "en": "Your office's content terms and number checks now also cover what you type into the chat: before a message with an IBAN or a listed term goes out, Piloti shows what it found and sends it only masked, or lets you edit it first.",
+    "de": "Die Inhaltsbegriffe und Nummernprüfungen Ihres Büros gelten jetzt auch für das, was Sie in den Chat schreiben: Bevor eine Nachricht mit einer IBAN oder einem gelisteten Begriff hinausgeht, zeigt Piloti, was es gefunden hat, und sendet sie nur maskiert – oder Sie bearbeiten sie zuerst."
   },
   {
     "en": "Your organization can now give Piloti standing instructions under Organisation, Anweisungen, such as result first, then reasons, or assume Vienna when no province is named. They apply to every question from everyone in the office.",
