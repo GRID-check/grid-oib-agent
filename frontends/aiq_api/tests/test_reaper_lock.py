@@ -52,7 +52,7 @@ async def test_the_reaper_locks_on_the_direct_dsn_not_the_job_store_url(monkeypa
     cycle = AsyncMock(return_value=["job-1"])
     monkeypatch.setattr(jobs_routes, "_do_reap_cycle", cycle)
 
-    reaped = await jobs_routes._reap_stale_jobs_once(MagicMock(), POOLED, None)
+    reaped = await jobs_routes._reap_stale_jobs_once(MagicMock(), POOLED)
 
     assert reaped == ["job-1"]
     assert seen_urls == [DIRECT]
@@ -70,7 +70,7 @@ async def test_a_replica_that_loses_the_election_skips_the_cycle(monkeypatch):
     cycle = AsyncMock(return_value=["job-1"])
     monkeypatch.setattr(jobs_routes, "_do_reap_cycle", cycle)
 
-    assert await jobs_routes._reap_stale_jobs_once(MagicMock(), POOLED, None) == []
+    assert await jobs_routes._reap_stale_jobs_once(MagicMock(), POOLED) == []
 
     cycle.assert_not_awaited()
     conn.close.assert_called_once()
@@ -82,7 +82,7 @@ async def test_the_lock_is_released_when_the_cycle_raises(monkeypatch):
     monkeypatch.setattr(jobs_routes, "_do_reap_cycle", AsyncMock(side_effect=RuntimeError("cycle failed")))
 
     with pytest.raises(RuntimeError, match="cycle failed"):
-        await jobs_routes._reap_stale_jobs_once(MagicMock(), POOLED, None)
+        await jobs_routes._reap_stale_jobs_once(MagicMock(), POOLED)
 
     (unlock_sql, _), _ = conn.execute.call_args_list[-1]
     assert "pg_advisory_unlock" in str(unlock_sql)
@@ -105,7 +105,7 @@ async def test_a_lock_that_cannot_be_taken_skips_the_cycle_and_the_next_tick_ret
     monkeypatch.setattr(jobs_routes, "_do_reap_cycle", cycle)
 
     with caplog.at_level("WARNING"):
-        assert await jobs_routes._reap_stale_jobs_once(MagicMock(), POOLED, None) == []
+        assert await jobs_routes._reap_stale_jobs_once(MagicMock(), POOLED) == []
 
     cycle.assert_not_awaited()
     assert "skipping this cycle" in caplog.text

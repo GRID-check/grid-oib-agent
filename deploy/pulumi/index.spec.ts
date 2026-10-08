@@ -121,7 +121,8 @@ describe("the program constructs in the split topology", () => {
     for (const job of housekeeping) {
       const container = job.inputs.spec?.jobTemplate?.spec.template.spec.containers[0];
       const url = container?.env?.find((e) => e.name === "SWEEP_URL")?.value;
-      expect(url).toBe(`http://aiq-agent:8000/v1/maintenance/housekeeping/${job.name.replace("housekeeping-", "")}`);
+      // The api role serves them (ADR-0082 step B), not the chat tier.
+      expect(url).toBe(`http://aiq-api:8000/v1/maintenance/housekeeping/${job.name.replace("housekeeping-", "")}`);
       expect(job.inputs.spec?.concurrencyPolicy).toBe("Forbid");
     }
   });
@@ -146,6 +147,61 @@ describe("the program constructs in the split topology", () => {
       }
     }
     expect(spec?.template?.spec.volumes ?? []).toEqual([]);
+  });
+
+  it("runs the backend as two roles: the chat StatefulSet and the api Deployment, Service and HPA", () => {
+    // ADR-0082 step B. Each role is its own workload because each rolls, scales
+    // and fails on its own signal; a missing api tier is every BFF HTTP call
+    // failing behind a green `pulumi up`.
+    expect(named("kubernetes:apps/v1:StatefulSet")).toContain("aiq-agent");
+    expect(named("kubernetes:apps/v1:Deployment")).toContain("aiq-api");
+    expect(named("kubernetes:core/v1:Service")).toEqual(expect.arrayContaining(["aiq-agent", "aiq-api"]));
+    expect(named("kubernetes:autoscaling/v2:HorizontalPodAutoscaler")).toContain("aiq-api");
+
+    const role = (type: string, name: string) => {
+      const spec = RESOURCES.find((r) => r.type === type && r.name === name)?.inputs.spec;
+      const env = spec?.template?.spec.containers[0].env as Array<{ name: string; value?: string }> | undefined;
+      return env?.filter((e) => e.name === "GRID_ROLE").map((e) => e.value);
+    };
+    expect(role("kubernetes:apps/v1:StatefulSet", "aiq-agent")).toEqual(["chat"]);
+    expect(role("kubernetes:apps/v1:Deployment", "aiq-api")).toEqual(["api"]);
+  });
+
+  it("gives every backend tier the frontend's WorkOS posture, with a client id to validate against", () => {
+    // The backend once had neither REQUIRE_AUTH nor WORKOS_CLIENT_ID, so it ran
+    // with job ownership off while the frontend required login. Each tier must
+    // carry the frontend's value, and the client id must be non-empty: without
+    // it the backend has no validator, and with auth required it refuses to boot.
+    const envOf = (type: string, name: string) => {
+      const spec = RESOURCES.find((r) => r.type === type && r.name === name)?.inputs.spec;
+      return (spec?.template?.spec.containers[0].env ?? []) as Array<{ name: string; value?: string }>;
+    };
+    const valueIn = (env: Array<{ name: string; value?: string }>, name: string) =>
+      env.find((e) => e.name === name)?.value;
+
+    const frontend = envOf("kubernetes:apps/v1:Deployment", "frontend");
+    // The stack default (`requireAuth`, true): the posture the tiers must match.
+    expect(valueIn(frontend, "REQUIRE_AUTH")).toBe("true");
+    const tiers = {
+      chat: envOf("kubernetes:apps/v1:StatefulSet", "aiq-agent"),
+      api: envOf("kubernetes:apps/v1:Deployment", "aiq-api"),
+      "agent-worker": envOf("kubernetes:apps/v1:Deployment", "agent-worker"),
+      "ingest-worker": envOf("kubernetes:apps/v1:Deployment", "ingest-worker"),
+    };
+    for (const [tier, env] of Object.entries(tiers)) {
+      expect(valueIn(env, "REQUIRE_AUTH"), `${tier} REQUIRE_AUTH`).toBe(valueIn(frontend, "REQUIRE_AUTH"));
+      expect(valueIn(env, "WORKOS_CLIENT_ID"), `${tier} WORKOS_CLIENT_ID`).toBe(valueIn(frontend, "WORKOS_CLIENT_ID"));
+      expect(valueIn(env, "WORKOS_CLIENT_ID"), `${tier} WORKOS_CLIENT_ID`).toBeTruthy();
+    }
+  });
+
+  it("gives the frontend the api URL for HTTP and the chat URL for the socket", () => {
+    const frontend = RESOURCES.find((r) => r.type === "kubernetes:apps/v1:Deployment" && r.name === "frontend");
+    const env = frontend?.inputs.spec?.template?.spec.containers[0].env as Array<{ name: string; value?: string }>;
+    const value = (name: string) => env.find((e) => e.name === name)?.value;
+
+    expect(value("BACKEND_URL")).toBe("http://aiq-api:8000");
+    expect(value("BACKEND_CHAT_URL")).toBe("http://aiq-agent:8000");
   });
 
   it("creates the scheduler even with Agent Skills off, because it is the run reconciler's clock", () => {

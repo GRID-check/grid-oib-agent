@@ -267,19 +267,13 @@ usable for general research requests.
 
 ## Execution paths
 
-- **Synchronous (in-process)**: the chat researcher's `deep_research_node`
+- **Synchronous (in-process)**, when `use_async_deep_research` is off: the chat researcher's `deep_research_node`
   builds `DeepResearchAgentState` directly and awaits the agent.
-- **Asynchronous (submitted job)**: with `use_async_deep_research: true` and
-  *either* backend configured — `NAT_DASK_SCHEDULER_ADDRESS` for a Dask
-  cluster, or `GRID_JOB_EXECUTION=db` for DB-claimed workers (ADR-0021), which
-  need no address at all — the chat workflow submits the job via
+- **Asynchronous (submitted job)**: with `use_async_deep_research: true`, the chat
+  workflow submits the job via
   `aiq_api.jobs.submit.submit_agent_job` and immediately returns the job
-  id. That is the same condition `submit_agent_job` itself enforces; the chat
-  gate imports the same predicate (`aiq_api.jobs.submit.async_job_dispatch`)
-  rather than mirroring it, so a deployment whose submit path would
-  accept the job never silently researches inline instead. With neither
-  configured the synchronous path above runs. The worker
-  (`aiq_api.jobs.runner`, replayed identically by the Dask worker and by
+  id, on the research queue (ADR-0021). The worker
+  (`aiq_api.jobs.runner`, replayed identically by the research worker and by
   `aiq_api.jobs.worker`) rebuilds the agent from the NAT config and forwards
   `user_info`, `clarifier_result`, `project_context`, `available_documents`,
   and `data_sources` onto the state so both paths render identical prompts.

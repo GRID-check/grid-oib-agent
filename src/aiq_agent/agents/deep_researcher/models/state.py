@@ -88,7 +88,7 @@ class DeepResearchAgentState(BaseModel):
     degraded_reasons: list[str] | None = None
     # The tenant whose skills this run resolves (``x-grid-organization-id`` on
     # the synchronous path). Carried on the STATE rather than read from the
-    # request context because deep research runs in a Dask worker, where no
+    # request context because deep research runs in a research worker, where no
     # request headers exist: the job runner captured the identity at submit time
     # and injects it here, the same way it injects ``project_context``. None
     # means anonymous — the run then resolves no

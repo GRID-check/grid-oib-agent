@@ -59,6 +59,8 @@ from sqlalchemy import bindparam
 from sqlalchemy import inspect
 from sqlalchemy import text
 
+from aiq_agent.common.db_utils import lock_schema
+
 logger = logging.getLogger(__name__)
 
 QUEUED = "queued"
@@ -231,9 +233,8 @@ class ClaimQueue:
         ts = "TIMESTAMP WITH TIME ZONE" if postgres else "DATETIME"
         now = "NOW()" if postgres else "CURRENT_TIMESTAMP"
         t = self.table
-        if postgres:
-            # Replicas start together; concurrent CREATE INDEX IF NOT EXISTS can still collide.
-            conn.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"claim-queue-ddl:{t}"})
+        # Replicas start together: the lock holds until the caller's commit.
+        lock_schema(conn, t)
         statements = [
             f"CREATE TABLE IF NOT EXISTS {t} ("
             "  job_id VARCHAR PRIMARY KEY,"

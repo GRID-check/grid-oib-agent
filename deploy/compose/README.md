@@ -1,7 +1,7 @@
 # NVIDIA AI-Q Blueprint - Docker Compose
 
 Use this guide to deploy the AI-Q blueprint with Docker Compose. The deployment
-starts a FastAPI backend, PostgreSQL for async jobs and checkpoints, and an embedded Dask scheduler and worker for background work.
+starts a FastAPI backend, PostgreSQL for async jobs and checkpoints, and a database-claimed research worker for background work.
 
 ## Prerequisites
 
@@ -122,7 +122,8 @@ Services started:
 The compose files pass these variables into the UI container:
 
 - `REQUIRE_AUTH`: Set to `true` to require WorkOS AuthKit login, or `false` (default) for anonymous access.
-- `BACKEND_URL`: Backend API URL for the UI container (default uses the backend service name).
+- `BACKEND_URL`: The backend's `api` role for the UI container: every HTTP call (default `http://aiq-api:8000`).
+- `BACKEND_CHAT_URL`: The backend's `chat` role, which the UI container's gateway dials for the WebSocket alone (default `http://aiq-agent:8000`). Required, with no fallback to `BACKEND_URL`.
 - `WORKOS_CLIENT_ID`: WorkOS client ID (required when `REQUIRE_AUTH=true`).
 - `WORKOS_API_KEY`: WorkOS API key (required when `REQUIRE_AUTH=true`).
 - `WORKOS_REDIRECT_URI`: AuthKit callback URL, e.g. `http://localhost:3000/api/auth/callback` (required when `REQUIRE_AUTH=true`).

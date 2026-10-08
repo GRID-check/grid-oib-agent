@@ -34,7 +34,6 @@ const pulumiDir = join(__dirname, "..");
 async function load(config: Record<string, string> = {}) {
   pulumi.runtime.setAllConfig({
     ...baseStackConfig(),
-    "grid-oib:jobExecution": "db",
     "grid-oib:allowPlaintextJobPayloads": "true",
     "grid-oib:observabilityEnabled": "false",
     ...config,
@@ -60,7 +59,6 @@ describe("pgConnectionBudget", () => {
     const { cfg, pgConnectionBudget } = await load({
       "grid-oib:pgPoolerInstances": "2",
       "grid-oib:pgPoolerPoolSize": "16",
-      "grid-oib:ingestWorkerEnabled": "true",
       "grid-oib:ingestWorkerMaxReplicas": "5",
       "grid-oib:ingestWorkerConcurrency": "3",
     });
@@ -83,6 +81,13 @@ describe("pgConnectionBudget", () => {
     expect(three.pgConnectionBudget(three.cfg).pooled).toBe(3 * (3 * 10 + 1));
   });
 
+  it("does not grow with the api tier: its pods spread the SSE streams, they add none", async () => {
+    const small = await load({ "grid-oib:apiMinReplicas": "2", "grid-oib:apiMaxReplicas": "4" });
+    const large = await load({ "grid-oib:apiMinReplicas": "6", "grid-oib:apiMaxReplicas": "20" });
+
+    expect(large.pgConnectionBudget(large.cfg)).toEqual(small.pgConnectionBudget(small.cfg));
+  });
+
   it("counts what is deployed and nothing that is not", async () => {
     const full = await load({ "grid-oib:langfuseEnabled": "false", "grid-oib:seaweedfsTopology": "single" });
     const withFiler = await load({
@@ -91,12 +96,10 @@ describe("pgConnectionBudget", () => {
       "grid-oib:seaweedfsFilerStore": "postgres",
       "grid-oib:seaweedfsFilerReplicas": "2",
     });
-    const noQueues = await load({ "grid-oib:jobExecution": "dask", "grid-oib:bffJobsEnabled": "false" });
 
     expect(part(full.pgConnectionBudget(full.cfg), /Langfuse/)).toBe(0);
     expect(part(full.pgConnectionBudget(full.cfg), /filer/)).toBe(0);
     expect(part(withFiler.pgConnectionBudget(withFiler.cfg), /filer/)).toBe(2 * 40);
-    expect(part(noQueues.pgConnectionBudget(noQueues.cfg), /KEDA/)).toBe(0);
     expect(part(full.pgConnectionBudget(full.cfg), /KEDA/)).toBe(8);
   });
 });

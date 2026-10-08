@@ -9,6 +9,7 @@ const read = (...parts: string[]) => readFileSync(join(repoRoot, ...parts), "utf
 const jobsRoutes = read("frontends", "aiq_api", "src", "aiq_api", "routes", "jobs.py");
 const workers = read("deploy", "pulumi", "src", "app", "workers.ts");
 const composeClock = read("frontends", "ui", "workers", "housekeeping-clock.js");
+const appConfig = read("deploy", "pulumi", "src", "app", "config.ts");
 
 const names = (source: string, pattern: RegExp): string[] => [...source.matchAll(pattern)].map((m) => m[1]).sort();
 
@@ -24,6 +25,13 @@ describe("the backend housekeeping CronJobs", () => {
     const scheduled = names(workers, /route: "([a-z-]+)"/g);
     expect(registered.length).toBe(4);
     expect(scheduled).toEqual(registered);
+  });
+
+  it("call the api role, which is the one that registers the routes", () => {
+    // The routes are `add_*` on the api role's router (ADR-0082 step B); the
+    // chat tier does not mount them, so a CronJob aimed at it gets a 404.
+    expect(workers).toContain("`${BACKEND_URL}/v1/maintenance/housekeeping/${route}`");
+    expect(appConfig).toContain("export const BACKEND_URL = `http://aiq-api:${PORT.backend}`;");
   });
 
   it("are matched by the Compose clock, which calls the same routes where there are no CronJobs", () => {

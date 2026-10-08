@@ -125,7 +125,7 @@ export function buildScalerSecret(w: AppWiring): k8s.core.v1.Secret {
     {
       metadata: { name: SCALER_SECRET_NAME, namespace: w.namespace },
       stringData: {
-        ...(w.cfg.jobExecution === "db" ? { [JOBS_QUEUE_DSN_KEY]: dsn("aiq_jobs") } : {}),
+        [JOBS_QUEUE_DSN_KEY]: dsn("aiq_jobs"),
         ...(w.cfg.bffJobs.enabled ? { [BFF_QUEUE_DSN_KEY]: dsn("grid_app") } : {}),
       },
     },
@@ -230,13 +230,26 @@ function srefAs(name: string, key: string): EnvVar {
 }
 
 /**
- * Backend (aiq-agent) environment. Postgres DSNs everywhere (never SQLite) —
- * the hard precondition for durability and any future replica. The Dask
- * worker/thread knobs and admission caps are the agent's VERTICAL scaling
- * levers (see docs/architecture/scaling-review-2026-07.md §4, §6).
+ * The `api` role's Service (`aiq-api`, ADR-0082 step B): every backend HTTP call
+ * of the BFF, the internal CronJobs and the workers. The chat socket is the one
+ * exception, and it has its own URL.
  */
-/** The backend web tier's Service, as the BFF and the internal CronJobs reach it. */
-export const BACKEND_URL = `http://aiq-agent:${PORT.backend}`;
+export const BACKEND_URL = `http://aiq-api:${PORT.backend}`;
+
+/**
+ * The `chat` role's Service (`aiq-agent`): the frontend's WebSocket proxy
+ * (`server.js`) and nothing else. With chat affinity on the proxy dials the
+ * per-pod address (`BACKEND_POD_WS_TEMPLATE`) and only falls back to this.
+ */
+export const BACKEND_CHAT_URL = `http://aiq-agent:${PORT.backend}`;
+
+/**
+ * Backend environment shared by every role of the image. Postgres DSNs
+ * everywhere (never SQLite) — the hard precondition for durability and any
+ * future replica. The admission caps are the
+ * backend's VERTICAL scaling levers (see docs/architecture/scaling-review-2026-07.md
+ * §4, §6). `chatEnv`, `apiEnv` and the worker envs add `GRID_ROLE`.
+ */
 
 export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): EnvVar[] {
   const { cfg } = w;
@@ -247,8 +260,6 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "PORT", value: String(PORT.backend) },
     { name: "CONFIG_FILE", value: cfg.backend.configFile },
     { name: "COLLECTION_NAME", value: "oib_knowledge" },
-    // Research execution backend (dask = per-pod; db = DB-claimed workers).
-    { name: "GRID_JOB_EXECUTION", value: cfg.jobExecution },
     // Encrypts DB-claimed job payloads at rest (empty = plaintext, dev only).
     sref("GRID_JOB_PAYLOAD_KEK"),
     { name: "GRID_NORMS_DIR", value: "configs/norms" },
@@ -277,6 +288,13 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "FRONTEND_INTERNAL_URL", value: `http://frontend:${PORT.frontend}` },
     sref("GRID_INTERNAL_API_TOKEN"),
     sref("GRID_ADMIN_TOKEN"),
+    // WorkOS, the same two values the frontend gets (frontendEnv). With
+    // REQUIRE_AUTH=true the backend enforces job ownership and the signed-envelope
+    // rule for JWT callers, and it refuses to boot without a validator, which
+    // needs the client id (aiq_api/plugin.py). Left unset, every tier ran with
+    // ownership off while the frontend required login.
+    { name: "REQUIRE_AUTH", value: String(cfg.auth.requireAuth) },
+    { name: "WORKOS_CLIENT_ID", value: cfg.auth.workosClientId },
     // OTLP tracing via the cluster collector (ADR-0029 amendment). Producers
     // send plain OTLP in-cluster — the collector alone holds the Aspire API
     // key. HTTP/protobuf to :4318 — the full /v1/traces path is required: the
@@ -300,17 +318,10 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     ...(cfg.langfuse.enabled
       ? [{ name: "GRID_TRACE_IDENTITY_ATTRIBUTES", value: "true" }]
       : []),
-    // Dask (in-process research execution) — vertical scaling knobs.
-    { name: "DASK_NWORKERS", value: String(cfg.backend.daskWorkers) },
-    { name: "DASK_NTHREADS", value: String(cfg.backend.daskThreads) },
     // Admission control (bounds concurrent heavy work — §4.2).
-    { name: "GRID_MAX_ACTIVE_JOBS", value: String(cfg.backend.maxActiveJobs) },
     { name: "GRID_MAX_ACTIVE_JOBS_PER_ORG", value: String(cfg.backend.maxActiveJobsPerOrg) },
     { name: "GRID_MAX_QUEUED_JOBS_PER_ORG", value: String(cfg.backend.maxQueuedJobsPerOrg) },
     { name: "AIQ_INGEST_MAX_WORKERS", value: String(cfg.backend.ingestMaxWorkers) },
-    // With the ingest tier running, the chat pods take no queued ingestion
-    // (ADR-0076); their pool still runs the jobs with local files.
-    { name: "GRID_INGEST_QUEUE_CLAIM", value: String(!cfg.ingestWorker.enabled) },
     { name: "GRID_INGEST_MAX_PER_ORG", value: String(cfg.ingestWorker.maxPerOrg) },
     // No env for the base corpus: it lives in SeaweedFS and the knowledge
     // database (ADR-0082 step A2), and the per-replica cache defaults to
@@ -357,10 +368,32 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
 }
 
 /**
+ * What only the `chat` role reads: its drain, the affinity flag it fences turns
+ * by, and the conversation bus. The `api` role runs none of them.
+ */
+const CHAT_ONLY_ENV = new Set(["GRID_CHAT_DRAIN_SECONDS", "GRID_CHAT_AFFINITY", "GRID_CONVERSATION_BUS"]);
+
+/** The chat tier's (`aiq-agent` StatefulSet) environment: the backend env and `GRID_ROLE=chat`. */
+export function chatEnv(w: AppWiring): EnvVar[] {
+  return [...backendEnv(w), { name: "GRID_ROLE", value: "chat" }];
+}
+
+/**
+ * The api tier's (`aiq-api` Deployment) environment: the backend env without
+ * what only chat reads, as its own service in traces, and `GRID_ROLE=api`.
+ */
+export function apiEnv(w: AppWiring): EnvVar[] {
+  return [
+    ...backendEnv(w, "grid-aiq-api").filter((e) => !(typeof e.name === "string" && CHAT_ONLY_ENV.has(e.name))),
+    { name: "GRID_ROLE", value: "api" },
+  ];
+}
+
+/**
  * Research worker (ADR-0021) environment: the full backend env (DB DSNs, shared
  * Chroma, LLM keys, object storage — the worker runs the same `run_agent_job`)
  * plus the worker role + per-process concurrency. `GRID_ROLE=worker` makes the
- * entrypoint run `python -m aiq_api.jobs.worker` with no web server or Dask.
+ * entrypoint run `python -m aiq_api.jobs.worker` with no web server.
  */
 export function workerEnv(w: AppWiring): EnvVar[] {
   return [
@@ -376,15 +409,14 @@ export function workerEnv(w: AppWiring): EnvVar[] {
 /**
  * Ingest worker (ADR-0076) environment: the full backend env (it builds the same
  * ingestor: summary model, shared Chroma, object store, DSNs) plus the role, its
- * per-process concurrency and the claim switch forced on.
+ * per-process concurrency.
  */
 export function ingestWorkerEnv(w: AppWiring, livenessFile: string): EnvVar[] {
-  const overridden = new Set(["AIQ_INGEST_MAX_WORKERS", "GRID_INGEST_QUEUE_CLAIM"]);
+  const overridden = new Set(["AIQ_INGEST_MAX_WORKERS"]);
   return [
     ...backendEnv(w, "grid-ingest-worker").filter((e) => !(typeof e.name === "string" && overridden.has(e.name))),
     { name: "GRID_ROLE", value: "ingest-worker" },
     { name: "AIQ_INGEST_MAX_WORKERS", value: String(w.cfg.ingestWorker.concurrency) },
-    { name: "GRID_INGEST_QUEUE_CLAIM", value: "true" },
     { name: "GRID_INGEST_WORKER_DRAIN_SECONDS", value: String(w.cfg.ingestWorker.drainSeconds) },
     { name: "GRID_WORKER_LIVENESS_FILE", value: livenessFile },
   ];
@@ -397,12 +429,15 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     { name: "APP_ENV", value: "production" },
     { name: "REQUIRE_AUTH", value: String(cfg.auth.requireAuth) },
     { name: "GRID_LANDING_URL", value: `https://${cfg.ingress.webDomain}` },
+    // Every backend HTTP call goes to the api role; only the WebSocket proxy
+    // goes to chat, and it has no fallback to the api URL (ADR-0082 step B).
     { name: "BACKEND_URL", value: BACKEND_URL },
+    { name: "BACKEND_CHAT_URL", value: BACKEND_CHAT_URL },
     // Conversation affinity for horizontal aiq-agent scaling (ADR-0028): the
     // WS proxy pins a conversation to `aiq-agent-<hash>.aiq-agent-headless` so
     // its in-process WS/HITL/task state is always on the same replica. With 1
-    // replica the proxy falls back to the load-balanced BACKEND_URL.
-    { name: "BACKEND_REPLICAS", value: String(cfg.jobExecution === "db" ? cfg.backend.replicas : 1) },
+    // replica the proxy falls back to the load-balanced BACKEND_CHAT_URL.
+    { name: "BACKEND_REPLICAS", value: String(cfg.backend.replicas) },
     // ADR-0080: "0" hands every socket to the load-balanced Service and lets the
     // conversation bus decide per turn which replica runs it, so the backend can
     // autoscale (backend-scaling.ts). "1" is the hash above, byte for byte.

@@ -69,7 +69,6 @@ describe("the agent-worker tier", () => {
   beforeAll(async () => {
     pulumi.runtime.setAllConfig({
       ...baseStackConfig(),
-      "grid-oib:jobExecution": "db",
       "grid-oib:allowPlaintextJobPayloads": "true",
       "grid-oib:observabilityEnabled": "false",
     });

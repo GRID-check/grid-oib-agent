@@ -711,31 +711,18 @@ export interface GridConfig {
   };
 
   /**
-   * The agent (backend) is a hard singleton today (embedded Chroma + private
-   * Dask + in-process job state — see docs/architecture/scaling-review-2026-07.md).
-   * It scales VERTICALLY: give it CPU/memory and Dask workers/threads here, and
-   * bound concurrent work with the admission knobs. Horizontal scaling is a
-   * documented follow-up (retire local Dask for DB-claimed workers).
+   * The chat tier (`aiq-agent`, `GRID_ROLE=chat`): CPU/memory here, replicas and
+   * their scaling below, and the admission knobs that bound concurrent work.
    */
   backend: {
     resources: ResourceSpec;
-    daskWorkers: number;
-    daskThreads: number;
     /**
-     * Global cap on non-terminal async research jobs (0 disables). Dask only:
-     * with `jobExecution: db` a full cluster makes a job wait in the queue
-     * (ADR-0079), so nothing reads it.
-     */
-    maxActiveJobs: number;
-    /**
-     * Research jobs one organization runs at once (0 disables). With
-     * `jobExecution: db` it is the workers' per-organization claim cap and a job
-     * over it waits; with Dask it refuses the submit.
+     * Research jobs one organization runs at once (0 disables). It is the
+     * workers' per-organization claim cap: a job over it waits.
      */
     maxActiveJobsPerOrg: number;
     /**
-     * Research jobs one organization may have WAITING (`jobExecution: db`; 0
-     * disables). Abuse protection and the only 429 left: capacity makes a job
+     * Research jobs one organization may have WAITING (0 disables). Abuse protection and the only 429 left: capacity makes a job
      * wait, never fail.
      */
     maxQueuedJobsPerOrg: number;
@@ -744,10 +731,9 @@ export interface GridConfig {
     /** Backend web config file (baked into the image under /app/configs). */
     configFile: string;
     /**
-     * Web/chat replica count. Only applied when jobExecution="db" (in "dask"
-     * mode the agent is a hard singleton and this is forced to 1). The
-     * chat/retrieval path is replica-safe via shared Chroma + Postgres + cache;
-     * see the base-corpus-upload caveat in docs/deployment/kubernetes.md §6.4.
+     * Chat replica count. The chat/retrieval path is replica-safe via shared
+     * Chroma + Postgres + cache; see the base-corpus-upload caveat in
+     * docs/deployment/kubernetes.md §6.4.
      */
     replicas: number;
     /**
@@ -777,6 +763,22 @@ export interface GridConfig {
     chatAffinity: boolean;
   };
 
+  /**
+   * The api tier (ADR-0082 step B): `GRID_ROLE=api`, every backend HTTP route
+   * except the chat socket (knowledge, jobs and SSE, LLM utilities, admin,
+   * housekeeping). A Deployment of the backend image behind the `aiq-api`
+   * Service, which is what `BACKEND_URL` names. HPA-owned, like the frontend:
+   * the work is request-bound, so CPU is the signal, where the chat tier's
+   * (`backend`) is running turns.
+   */
+  api: {
+    resources: ResourceSpec;
+    minReplicas: number;
+    maxReplicas: number;
+    /** HPA target average CPU utilisation (%). */
+    hpaCpuTargetPercent: number;
+  };
+
   frontend: {
     resources: ResourceSpec;
     minReplicas: number;
@@ -794,13 +796,6 @@ export interface GridConfig {
     hpaCpuTargetPercent: number;
   };
 
-  /**
-   * Research execution backend (ADR-0021). "dask" = per-pod cluster (the agent
-   * is a singleton). "db" = DB-claimed workers: the web tier runs no Dask and
-   * dedicated agent-worker replicas execute jobs, so both tiers scale
-   * horizontally.
-   */
-  jobExecution: "dask" | "db";
   /**
    * Enable the Dragonfly pub/sub conversation bus (ADR-0028) so the chat tier is
    * fully stateless — any replica serves any conversation's WebSocket. ON by
@@ -840,11 +835,10 @@ export interface GridConfig {
   /**
    * The ingestion tier (ADR-0076): dedicated replicas that claim jobs from the
    * durable, fair ingest queue (`ingest_job_queue`), scaled by KEDA on its
-   * depth. When enabled the web tier stops claiming (`GRID_INGEST_QUEUE_CLAIM
-   * =false`), so ingestion no longer shares the chat pods' CPU and GIL.
+   * depth. The chat and api roles only put jobs in the queue and never claim
+   * them, so ingestion shares neither their CPU nor their GIL. Always deployed.
    */
   ingestWorker: {
-    enabled: boolean;
     resources: ResourceSpec;
     /** Floor; 0 lets the tier scale to nothing while no job waits. */
     minReplicas: number;
@@ -977,7 +971,7 @@ export interface GridConfig {
     /**
      * 32-byte base64 KEK encrypting DB-claimed job payloads at rest (they carry
      * the user auth token). Empty = plaintext (dev only). Strongly recommended
-     * whenever jobExecution="db". Generate: `openssl rand -base64 32`.
+     * Generate: `openssl rand -base64 32`.
      */
     jobPayloadKek: pulumi.Output<string>;
   };
@@ -1522,7 +1516,6 @@ export function loadConfig(): GridConfig {
     );
   }
 
-  const jobExecution: "dask" | "db" = (cfg.get("jobExecution") ?? "dask") === "db" ? "db" : "dask";
   const conversationBus = bool(cfg, "conversationBus", true);
 
   // ── Chat tier scale-out (ADR-0080) ────────────────────────────────────────
@@ -1533,6 +1526,15 @@ export function loadConfig(): GridConfig {
     throw new Error(
       `grid-oib:backendMaxReplicas (${backendMaxReplicas}) must be >= backendReplicas ` +
         `(${backendReplicas}), the floor the chat tier scales between.`,
+    );
+  }
+  // The api tier's floor and ceiling, the bounds its HPA moves between.
+  const apiMinReplicas = Math.max(1, num(cfg, "apiMinReplicas", 2));
+  const apiMaxReplicas = Math.max(1, num(cfg, "apiMaxReplicas", 4));
+  if (apiMaxReplicas < apiMinReplicas) {
+    throw new Error(
+      `grid-oib:apiMaxReplicas (${apiMaxReplicas}) must be >= apiMinReplicas ` +
+        `(${apiMinReplicas}), the floor the api tier's HPA scales between.`,
     );
   }
   // Affinity off hands every socket to the Service and leans on the bus to keep
@@ -1962,7 +1964,7 @@ export function loadConfig(): GridConfig {
   // into for dev. Guards against the silent plaintext-token-at-rest default.
   // Fail closed: the shared Chroma server is REQUIRED. The backend keeps no
   // volume (ADR-0082), so an embedded per-pod store would be wiped at every
-  // restart, and in db mode every web replica and worker would also open a
+  // restart, and every web replica and worker would also open a
   // store of its own — workers ingest into stores no web replica can read
   // (retrieval silently empty). The deploy would report success and be
   // functionally broken.
@@ -1976,9 +1978,9 @@ export function loadConfig(): GridConfig {
 
   const jobPayloadKek = cfg.getSecret("jobPayloadKek");
   const allowPlaintextJobPayloads = bool(cfg, "allowPlaintextJobPayloads", false);
-  if (jobExecution === "db" && jobPayloadKek === undefined && !allowPlaintextJobPayloads) {
+  if (jobPayloadKek === undefined && !allowPlaintextJobPayloads) {
     throw new Error(
-      "jobExecution=db persists research-job payloads (which carry the user auth token) in Postgres, " +
+      "The DB-claimed research queue persists job payloads (which carry the user auth token) in Postgres, " +
         "so they must be encrypted at rest. Set a 32-byte base64 KEK:\n" +
         "  pulumi config set --secret grid-oib:jobPayloadKek $(openssl rand -base64 32)\n" +
         "To deliberately run with PLAINTEXT payloads (dev/single-node only), set:\n" +
@@ -2569,9 +2571,6 @@ export function loadConfig(): GridConfig {
         limitsCpu: cfg.get("backendLimitsCpu") ?? "4",
         limitsMemory: cfg.get("backendLimitsMemory") ?? "8Gi",
       },
-      daskWorkers: num(cfg, "backendDaskWorkers", 1),
-      daskThreads: num(cfg, "backendDaskThreads", 4),
-      maxActiveJobs: num(cfg, "backendMaxActiveJobs", 8),
       maxActiveJobsPerOrg: num(cfg, "backendMaxActiveJobsPerOrg", 3),
       maxQueuedJobsPerOrg: num(cfg, "backendMaxQueuedJobsPerOrg", 50),
       ingestMaxWorkers: num(cfg, "backendIngestMaxWorkers", 2),
@@ -2590,6 +2589,22 @@ export function loadConfig(): GridConfig {
       // fits the 90 s grace period the tier has always had stays the default.
       drainSeconds: Math.max(10, num(cfg, "backendDrainSeconds", chatAffinity ? 20 : 2730)),
       chatAffinity,
+    },
+
+    api: {
+      // Request-bound LLM utilities, knowledge routes and SSE streams: CPU is
+      // modest per pod, memory carries the workflow the process builds at boot
+      // (the same one the chat tier builds). `requests` is what the HPA divides
+      // by, so it stays near steady state (see `frontend`).
+      resources: {
+        requestsCpu: cfg.get("apiRequestsCpu") ?? "500m",
+        requestsMemory: cfg.get("apiRequestsMemory") ?? "1536Mi",
+        limitsCpu: cfg.get("apiLimitsCpu") ?? "2",
+        limitsMemory: cfg.get("apiLimitsMemory") ?? "6Gi",
+      },
+      minReplicas: apiMinReplicas,
+      maxReplicas: apiMaxReplicas,
+      hpaCpuTargetPercent: num(cfg, "apiHpaCpuTargetPercent", 70),
     },
 
     frontend: {
@@ -2642,7 +2657,6 @@ export function loadConfig(): GridConfig {
       hpaCpuTargetPercent: num(cfg, "webHpaCpuTargetPercent", 70),
     },
 
-    jobExecution,
     conversationBus,
     agentWorker: {
       resources: {
@@ -2665,9 +2679,6 @@ export function loadConfig(): GridConfig {
     },
 
     ingestWorker: {
-      // Needs the durable queue's shared Postgres and a shared vector store,
-      // which is what `db` execution already requires (Chroma server mode).
-      enabled: jobExecution === "db" && cfg.getBoolean("ingestWorkerEnabled") !== false,
       resources: {
         requestsCpu: cfg.get("ingestWorkerRequestsCpu") ?? "500m",
         requestsMemory: cfg.get("ingestWorkerRequestsMemory") ?? "1536Mi",
@@ -2905,7 +2916,7 @@ export function loadConfig(): GridConfig {
  * `backendReplicas` says, and the stack's own `replicas` field owns it.
  */
 export function backendAutoscaled(c: GridConfig): boolean {
-  return c.jobExecution === "db" && !c.backend.chatAffinity && c.backend.maxReplicas > c.backend.replicas;
+  return !c.backend.chatAffinity && c.backend.maxReplicas > c.backend.replicas;
 }
 
 /** Resolve the concrete backend image reference. */
@@ -3177,7 +3188,7 @@ export interface PgConnectionBudget {
   total: number;
 }
 
-type PgBudgetInputs = Pick<GridConfig, "postgres" | "ingestWorker" | "langfuse" | "seaweedfs" | "jobExecution" | "bffJobs">;
+type PgBudgetInputs = Pick<GridConfig, "postgres" | "ingestWorker" | "langfuse" | "seaweedfs" | "bffJobs">;
 
 /**
  * The most connections the primary can be asked for, in `max_connections` slots
@@ -3190,7 +3201,7 @@ export function pgConnectionBudget(cfg: PgBudgetInputs): PgConnectionBudget {
   const { instances, poolSize } = cfg.postgres.pooler;
   const pooled = instances * (POOLED_POOLS.length * poolSize + POSTGRES_POOLER.authConnections);
   const filerOnPostgres = cfg.seaweedfs.topology === "split" && cfg.seaweedfs.filerStore === "postgres";
-  const ingestJobsInFlight = cfg.ingestWorker.enabled ? cfg.ingestWorker.maxReplicas * cfg.ingestWorker.concurrency : 0;
+  const ingestJobsInFlight = cfg.ingestWorker.maxReplicas * cfg.ingestWorker.concurrency;
   const reserve = [
     { name: "superuser_reserved_connections", connections: POSTGRES_DIRECT_RESERVE.superuser },
     { name: "CloudNativePG (instance manager, exporter, backup)", connections: POSTGRES_DIRECT_RESERVE.cnpg },
@@ -3200,7 +3211,7 @@ export function pgConnectionBudget(cfg: PgBudgetInputs): PgConnectionBudget {
       connections: ingestJobsInFlight + POSTGRES_DIRECT_RESERVE.sessionLocksBackground,
     },
     { name: "migration and bootstrap Jobs", connections: POSTGRES_DIRECT_RESERVE.bootstrapJobs },
-    { name: "KEDA scaler login", connections: queueScalerEnabled(cfg) ? KEDA_SCALER_CONNECTION_LIMIT : 0 },
+    { name: "KEDA scaler login", connections: KEDA_SCALER_CONNECTION_LIMIT },
     { name: "Langfuse (Prisma)", connections: cfg.langfuse.enabled ? POSTGRES_DIRECT_RESERVE.langfuse : 0 },
     {
       name: "SeaweedFS filer store",
@@ -3232,13 +3243,4 @@ export function assertPgConnectionBudget(cfg: PgBudgetInputs): void {
       `and the direct connections need ${budget.reserveTotal} (${parts.join(", ")}). ` +
       "Lower pgPoolerPoolSize or pgPoolerInstances, or raise POSTGRES_TUNING.maxConnections (and the primary's memory with it).",
   );
-}
-
-/**
- * Whether anything in the stack counts a queue table through KEDA's `postgresql`
- * scaler, i.e. whether the read-only scaler login and its grants are needed:
- * the research and ingest tiers (`jobExecution: db`) and the bff-jobs pool.
- */
-export function queueScalerEnabled(c: Pick<GridConfig, "jobExecution" | "bffJobs">): boolean {
-  return c.jobExecution === "db" || c.bffJobs.enabled;
 }

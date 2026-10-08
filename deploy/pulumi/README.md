@@ -63,7 +63,7 @@ pulumi config set --secret grid-oib:openrouterApiKey     "sk-or-..."
 pulumi config set --secret grid-oib:tavilyApiKey         "tvly-..."
 pulumi config set --secret grid-oib:workosApiKey         "sk_live_..."
 pulumi config set --secret grid-oib:workosCookiePassword "$(openssl rand -hex 32)"
-# REQUIRED with the template's jobExecution=db (deploy fails closed without it):
+# REQUIRED (deploy fails closed without it):
 pulumi config set --secret grid-oib:jobPayloadKek      "$(openssl rand -base64 32)"
 # REQUIRED: Dragonfly `requirepass` on both instances. Deploy fails closed
 # without them (opt out deliberately with allowUnauthenticatedRedis=true). The
@@ -210,19 +210,17 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `seaweedfsTenantAdminAccessKey` / 🔒 `seaweedfsTenantAdminSecretKey` | `grid-tenant-admin` / — | The one identity scoped `Admin:<prefix>*`, i.e. the only one that can create or drop a tenant bucket. Separate from the object credential because SeaweedFS's `Admin:<bucket>` authorises CreateBucket and DeleteBucket together and cannot express one without the other — a distinct key is the only way to keep "drop a tenant" off the request path, and it is why the purger never receives it. The secret is REQUIRED when `seaweedfsPerOrgBuckets` is `true` |
 | **Agent (backend web tier)** | | |
 | `backendRequestsCpu/Memory`, `backendLimitsCpu/Memory` | 1 / 2Gi / 4 / 8Gi | Vertical scaling |
-| `backendDaskWorkers` / `backendDaskThreads` | 1 / 4 | In-process research parallelism (dask mode) |
-| `backendMaxActiveJobs` / `backendMaxActiveJobsPerOrg` | 8 / 3 | Admission caps (0 = off). `db` execution: the global one does nothing (a full cluster waits, ADR-0079) and the per-org one is the workers' claim cap, jobs running at once; Dask: both refuse with 429 |
+| `backendMaxActiveJobsPerOrg` | 3 | Research jobs one organization runs at once (0 = off). It is the workers' claim cap: a job over it waits in the queue (ADR-0079), it is not refused |
 | `backendMaxQueuedJobsPerOrg` | `50` | `db` execution: research jobs one organisation may have waiting (`GRID_MAX_QUEUED_JOBS_PER_ORG`), the only 429 left. 0 = off |
 | `backendIngestMaxWorkers` | `2` | Concurrent ingestion bound |
 | `backendConfigFile` | `config_oib_openrouter.yml` | Baked backend config path |
-| `backendReplicas` | `2` | Web replicas (db mode only; dask forces 1). The floor once the chat tier autoscales |
+| `backendReplicas` | `2` | Chat replicas. The floor once the chat tier autoscales |
 | `chatAffinity` | `true` | `GRID_CHAT_AFFINITY` (ADR-0080): the gateway pins a conversation to a replica by hash (the replica count is then static). `false` sends sockets to the `aiq-agent` Service and lets the conversation bus decide per turn; needs `conversationBus`. Prod keeps `true` until the cross-replica path is validated on dev |
-| `backendMaxReplicas` | `3` | Ceiling KEDA scales the chat tier to. Used only with `chatAffinity: false`, `jobExecution: db` and a ceiling above `backendReplicas`; prod pins `1` |
+| `backendMaxReplicas` | `3` | Ceiling KEDA scales the chat tier to. Used only with `chatAffinity: false` and a ceiling above `backendReplicas`; prod pins `1` |
 | `backendTurnsPerReplica` | `8` | Fleet-wide running chat turns per replica that the KEDA `metrics-api` trigger aims for (`GET /v1/internal/chat-occupancy`) |
 | `backendCpuTargetPercent` | `70` | CPU utilisation (% of requests) of the KEDA `cpu` trigger beside it |
 | `backendDrainSeconds` | `20` with `chatAffinity: true`, `2730` with it off | `GRID_CHAT_DRAIN_SECONDS`: how long a terminating replica waits for its turns. The pod grace period is this plus 10 s of endpoint drain and 60 s of slack, so the autoscaled value covers the longest chat turn (`GRID_CHAT_TURN_DEADLINE_SECONDS`, 2700). Floor 10 |
 | **Research execution** | | |
-| `jobExecution` | `dask` (both templates: `db`) | `db` = DB-claimed worker tier, horizontal |
 | `conversationBus` | `true` | Dragonfly pub/sub chat bus (ADR-0028) |
 | 🔒 `jobPayloadKek` | — | REQUIRED for db mode (encrypts job payloads at rest) |
 | `allowPlaintextJobPayloads` | `false` | Dev-only escape hatch for the KEK requirement |
@@ -230,9 +228,12 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `agentWorkerMinReplicas` / `agentWorkerMaxReplicas` | 1 / 8 | KEDA bounds for the worker tier, which scales on `research_job_queue` depth (not CPU). 0 lets it idle while nothing waits; dev sets 0 |
 | `agentWorkerConcurrency` | `1` | Jobs per worker process; KEDA asks for one replica per this many open jobs |
 | `agentWorkerDrainSeconds` | `600` | Seconds a terminating worker may spend finishing already-claimed research jobs (`GRID_RESEARCH_WORKER_DRAIN_SECONDS`); the grace period is this plus 30 s. A job still running when it ends is requeued without costing an attempt and started over by another worker, so the budget decides how much work a deploy repeats. Costs deploy latency — workers roll one at a time. Floor 30 |
+| **The api tier** (ADR-0082): `aiq-api`, every backend HTTP route but the chat socket, which `BACKEND_URL` names | | |
+| `apiMinReplicas` / `apiMaxReplicas` | 2 / 4 (prod 1 / 3, dev 1 / 2) | Bounds of its CPU HPA. A ceiling below the floor fails the plan |
+| `apiHpaCpuTargetPercent` | `70` | HPA target average CPU, as a percentage of requests (`apiRequestsCpu`) |
+| `apiRequestsCpu/Memory`, `apiLimitsCpu/Memory` | 500m / 1536Mi / 2 / 6Gi | Sizing |
 | **Ingestion tier, BFF pool and KEDA** (ADR-0076, ADR-0079) | | |
 | `ingestWorkerMinReplicas` / `ingestWorkerMaxReplicas` | 1 / 5 | KEDA bounds for the ingest tier, which scales on `ingest_job_queue` depth. The ceiling is held to the provider budget below: the deploy fails when it is more than 2x `vlmFleetConcurrency` |
-| `ingestWorkerEnabled` | `true` | Run the ingestion tier. Needs `jobExecution: db`; with it off the web tier claims ingestion itself again |
 | `ingestWorkerRequestsCpu/Memory`, `ingestWorkerLimitsCpu/Memory` | 500m / 1536Mi / 2 / 6Gi | Sizing |
 | `ingestWorkerConcurrency` / `ingestWorkerDrainSeconds` | 3 / 600 | Jobs per worker (also KEDA's jobs-per-replica target) / SIGTERM budget; the grace period is the drain plus 30 s |
 | `ingestMaxPerOrg` | `0` | Most ingest jobs one organisation may run fleet-wide at once; 0 = no cap (the claim is fair regardless) |

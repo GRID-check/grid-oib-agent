@@ -1,7 +1,7 @@
 """How long a process takes to become useful, by phase (ADR-0082: cold start).
 
 Every role's scale-out is bounded by its cold start: a KEDA replica is only
-capacity once it can claim, and a web replica once it serves. This measures the
+capacity once it can claim, and a ``chat`` or ``api`` replica once it serves. This measures the
 phases that cost the time, so the role-scoped boot is decided on readings from
 the cluster rather than a laptop:
 
@@ -13,7 +13,9 @@ the cluster rather than a laptop:
   research worker builds a workflow for every job it runs, not once per process.
 
 Each reading is one ``grid.boot.phase_seconds`` histogram point with ``role`` and
-``phase`` attributes, and one ``[boot-timing]`` log line. A reading taken before
+``phase`` attributes (``chat`` and ``api`` are ``GRID_ROLE``'s two web values,
+``research-worker`` and ``ingest-worker`` the workers; ``research-job`` is below),
+and one ``[boot-timing]`` log line. A reading taken before
 the meter provider exists (it is installed while the workflow builds) would go
 to a no-op instrument, so readings wait in the process until ``flush``, which a
 role calls once a workflow is built. The research worker is ready before its

@@ -864,7 +864,7 @@ def _read_budget_header_from_context() -> str | None:
 
 
 def capture_usage_context() -> dict[str, Any] | None:
-    """Snapshot identity + raw budget header for handoff to async Dask workers.
+    """Snapshot identity + raw budget header for handoff to async research workers.
 
     Workers have no live request headers, so the submitting request captures
     both while its context is alive; the runner feeds them back into

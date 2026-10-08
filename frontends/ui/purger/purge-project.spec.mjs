@@ -126,6 +126,20 @@ describe('purgeProject', () => {
     expect(deletes.at(-1).text).toContain('FROM projects')
   })
 
+  it('purges everything but the FGA resource in a deployment without WorkOS', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc', name: 'Alpha' },
+      conversationRows: [],
+    })
+    const deps = makeDeps({ workos: null })
+
+    await purgeProject(tx, entry, deps)
+
+    expect(deps.fetchImpl).toHaveBeenCalled()
+    expect(deps.deleteStoragePrefix).toHaveBeenCalledWith('grid-documents', 'org/org1/project/p1/')
+    expect(executed.filter((q) => q.text.startsWith('DELETE')).at(-1).text).toContain('FROM projects')
+  })
+
   it('falls back to payload pointers when the project row is already gone', async () => {
     const { tx } = makeTx({ projectRow: null, conversationRows: [] })
     const deps = makeDeps()

@@ -96,7 +96,8 @@ Option 2 was rejected: it multiplies builds, scans and cached layers for a size
 saving nobody has measured. Role-scoped boot (each role builds only what it
 uses) is the lever for cold start, to be pulled once cold start is measured.
 `grid.boot.phase_seconds{role,phase}` measures it
-(`aiq_agent.observability.boot_timing`): each role's `load_config`,
+(`aiq_agent.observability.boot_timing`; `role` is `chat`, `api`, `research-worker`
+or `ingest-worker`): each role's `load_config`,
 `workflow_build` and `ready` (process age when it can work), and the research
 worker's per-job build under `role="research-job"`, which every job pays.
 
@@ -133,6 +134,11 @@ Deployment when that routing is gone.
   to one replica's disk.
 * Good, because a tier's name says what it does.
 * Bad, because the BFF routes to two backend services instead of one.
+* Bad, because Dask is no longer deployable: the api role cannot cancel or
+  stream a job that lives on a chat container's Dask cluster. Step B also
+  removed the Python Dask path (ADR-0021, amendment): research runs on the
+  database queue only, and neither the Pulumi program nor the Compose files
+  carry an execution setting.
 * Neutral: one more Deployment of the same image.
 
 ### Confirmation
@@ -149,7 +155,23 @@ Each step adds its own gate as it lands:
   registers, `base-corpus` among them. `index-legacy-corpus.spec.ts` asserts that the import Job mounts
   the named claim read-only and runs the importer on it, and `tests/test_legacy_corpus_import.py` that it
   honours the old exclusions, lets an upload win and stores nothing on a rerun.
-- B: a spec that the `chat` and `api` Deployments mount disjoint route sets.
+- B: `frontends/aiq_api/tests/test_roles.py` builds the real app for each
+  `GRID_ROLE` and asserts that the two route sets overlap only in `/health` and
+  FastAPI's documentation routes, and that their union equals a baseline mounted
+  the way the single process did it: every `add_*_routes` / `register_*_routes`
+  function found under `aiq_api/routes/`, NAT's own routes, the chat socket and the
+  debug console. A router assigned to both roles, or to none, or a route added
+  outside the two lists, fails it. `deploy/pulumi/src/app/api.spec.ts` holds the
+  `aiq-api` Deployment, Service and HPA, `GRID_ROLE` on each workload, the
+  frontend's two URLs and the CronJobs' target; `compose-roles.spec.ts` holds both
+  Compose files to the same four roles and URLs, and to the entrypoint's list.
+  `GRID_ROLE` has no default, so a process with no role stops at start
+  (`tests/test_entrypoint_roles.py`, `test_roles.py`). B assumes
+  the research queue: the chat role submits research jobs and the api role
+  streams and cancels them, which a per-process Dask cluster cannot do across two
+  processes. B also
+  removes in-process ingestion claiming: the `ingest-worker` tier is the only
+  claimer, and both Compose files and the Pulumi program always run it.
 
 ## More Information
 

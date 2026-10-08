@@ -1,4 +1,4 @@
-"""Tests for DB-execution submit wiring (ADR-0021, jobs/submit.py).
+"""Tests for the research-queue submit payload (ADR-0021, jobs/submit.py).
 
 The critical correctness property: the payload a worker replays must carry
 exactly ``run_agent_job``'s parameters (so a signature change can't silently
@@ -13,21 +13,12 @@ from types import SimpleNamespace
 
 from aiq_api.jobs.runner import run_agent_job
 from aiq_api.jobs.submit import _build_run_agent_payload
-from aiq_api.jobs.submit import job_execution_mode
-
-
-def test_execution_mode_env(monkeypatch):
-    monkeypatch.delenv("GRID_JOB_EXECUTION", raising=False)
-    assert job_execution_mode() == "dask"
-    monkeypatch.setenv("GRID_JOB_EXECUTION", "DB")
-    assert job_execution_mode() == "db"
 
 
 def _sample_payload():
     return _build_run_agent_payload(
         configure_logging=True,
         log_level=20,
-        scheduler_address="",
         db_url="postgresql://x/y",
         config_path="/app/configs/c.yml",
         job_id="job-1",

@@ -74,8 +74,8 @@ from sqlalchemy.dialects import sqlite
 from sqlalchemy.schema import CreateTable
 
 from aiq_agent.common import seaweed_s3
+from aiq_agent.common.db_utils import ensure_schema
 from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
-from aiq_agent.knowledge.leader_lock import keyed_lock
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,6 @@ _INTERNAL_TOKEN_ENV = "GRID_INTERNAL_API_TOKEN"
 _BFF_TIMEOUT_SECONDS = 15.0
 _PUT_TIMEOUT_SECONDS = 300.0
 _CHUNK_BYTES = 1024 * 1024
-_SCHEMA_LOCK_KEY = "oib-corpus-schema"
 
 _metadata = MetaData()
 _files = Table(
@@ -202,8 +201,8 @@ def _ensure_table(url: str) -> None:
         if url in _initialized:
             return
         # Replicas that first touch the table together would race the CREATE.
-        with keyed_lock(_SCHEMA_LOCK_KEY), DocumentMetadataStore._get_or_create_sync_engine(url).begin() as conn:
-            conn.execute(CreateTable(_files, if_not_exists=True))
+        engine = DocumentMetadataStore._get_or_create_sync_engine(url)
+        ensure_schema(engine, _files.name, lambda conn: conn.execute(CreateTable(_files, if_not_exists=True)))
         _initialized.add(url)
 
 

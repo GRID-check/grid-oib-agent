@@ -20,9 +20,11 @@ NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma`,
 | Service | Role | Exposed publicly? |
 |---|---|---|
 | `frontend` | Next.js UI + BFF gateway (auth, `grid_app` DB, WS proxy) — port 3000 | **Yes** (your domain) |
-| `aiq-agent` | Python FastAPI backend (LLM orchestration) — port 8000 | No (internal) |
+| `aiq-agent` | Python FastAPI backend, **`chat` role** (`GRID_ROLE=chat`): the chat WebSocket and NAT's own routes — port 8000. The frontend dials it with `BACKEND_CHAT_URL` | No (internal) |
+| `aiq-api` | Python FastAPI backend, **`api` role** (`GRID_ROLE=api`): every other HTTP route (knowledge, jobs and SSE, LLM utilities, admin) — port 8000. The frontend, `purger` and `housekeeping` call it with `BACKEND_URL`. Mirrors the K8s `aiq-api` Deployment | No (internal) |
 | `agent-worker` | Deep-research worker (`GRID_ROLE=worker`): claims jobs from Postgres and runs them off the web tier. Mirrors the K8s worker Deployment | No (internal) |
-| `chroma` | Shared ChromaDB vector server — port 8000. One store every `aiq-agent` and `agent-worker` queries over HTTP. Mirrors the K8s Chroma StatefulSet | No (internal) |
+| `ingest-worker` | Ingestion tier (`GRID_ROLE=ingest-worker`): the one process that claims the durable ingest queue `POST /v1/ingest` fills (ADR-0076). Without it uploads sit pending. Mirrors the K8s ingest-worker Deployment | No (internal) |
+| `chroma` | Shared ChromaDB vector server — port 8000. One store every backend role (`aiq-agent`, `aiq-api`, `agent-worker`, `ingest-worker`) queries over HTTP. Mirrors the K8s Chroma StatefulSet | No (internal) |
 | `seaweedfs` | S3-compatible object storage — port 8333 | **Yes** (presigned PDF URLs) |
 | `postgres` | Three logical DBs: `aiq_jobs`, `aiq_checkpoints`, `grid_app` | No (internal) |
 | `dragonfly` | Redis-protocol shared cache + conversation bus (ADR-0020/0028) | No (internal) |
@@ -32,14 +34,14 @@ NVIDIA base-image removal — see §2, apart from the stock `chromadb/chroma`,
 | `bff-jobs` | The BFF's background pool (ADR-0079): runs the jobs in `bff_job_queue`: project reindex, failed-ingestion rescan, IFC model extraction (`bim_extract`), Office-to-PDF rendition through `gotenberg` (`office_rendition`) and the filing of a finished research report (`file_research_report`). `extends` the `frontend` service, so it shares its environment (`GOTENBERG_URL` included); publishes nothing. Without it none of those run: an uploaded IFC model never gets its structure, a Word or Excel file is never indexed from its PDF, a finished report is never filed, and a reindex or rescan stays queued | No (internal) |
 | `seaweedfs-init` | One-shot: creates the `grid-documents` bucket | No |
 
-> **Deep-research runs on its own worker (`GRID_JOB_EXECUTION=db`, the default).**
-> This compose mirrors the Kubernetes topology: `aiq-agent` enqueues research
-> jobs to Postgres and the `agent-worker` service claims and executes them
-> (`FOR UPDATE SKIP LOCKED`), so token-heavy runs scale and crash independently
-> of the chat/web tier, and both tiers read/write the shared `chroma` server. Set
-> `GRID_JOB_EXECUTION=dask` to fall back to the legacy in-process executor (no
-> worker needed) — kept only as a dev escape hatch. See §7 for the one-time
-> re-ingestion this implies on an existing embedded-Chroma deployment.
+> **Deep-research runs on its own worker.**
+> This compose mirrors the Kubernetes topology: the `aiq-agent` chat role enqueues
+> research jobs to Postgres and the `agent-worker` service claims and executes
+> them (`FOR UPDATE SKIP LOCKED`), so token-heavy runs scale and crash
+> independently of the chat tier, and every backend role reads and writes the
+> shared `chroma` server. The value is fixed: a job submitted by the chat role is
+> streamed and cancelled by the `aiq-api` role (ADR-0082). See §7 for the one-time re-ingestion this implies on
+> an existing embedded-Chroma deployment.
 
 Only **frontend** and **seaweedfs** get a public domain. Everything else talks over
 the internal Coolify network.
@@ -260,11 +262,14 @@ frontend cannot complete a login.
 > anonymous "Default User" (no WorkOS setup), set `REQUIRE_AUTH=false`
 > explicitly in that environment's variables and leave the WorkOS keys empty.
 > Do **not** do this for a production/staging environment — it disables login
-> and the backend's job-ownership checks.
+> and the backend's job access checks.
 
-`REQUIRE_AUTH` only gates *external* requests. Internal frontend→backend calls
-over the Coolify network are always classified internal, so setting it `true`
-never breaks in-cluster traffic. `AIQ_EXTERNAL_HOSTNAMES` is wired to the
+`REQUIRE_AUTH` gates the token check only for *external* requests. It also turns
+on job access control (a job's owner, or a caller whose signed envelope places the
+job in their project or conversation, ADR-0084) and the signed-envelope rule for
+WorkOS callers, for every request, so it is not only an external switch. In-cluster frontend→backend calls
+are classified internal and carry the user's token and envelope (or the internal
+token), so setting it `true` does not break them. `AIQ_EXTERNAL_HOSTNAMES` is wired to the
 frontend FQDN as defense-in-depth: should the backend's port 8000 ever be
 exposed under that domain, requests would be forced through the path allowlist
 and auth instead of being trusted as internal.
@@ -445,7 +450,7 @@ docker compose -f docker-compose.coolify.yaml up -d
 | Concern | Dev compose | Coolify compose |
 |---|---|---|
 | Container names | fixed (`aiq-agent`, …) | none (Coolify namespaces) |
-| Deep-research execution | in-process (`dask`), embedded Chroma | `db` mode: dedicated `agent-worker` + shared `chroma` server (mirrors K8s) |
+| Deep-research execution | dedicated `agent-worker` + shared `chroma` server (mirrors K8s) |
 | Docker network | custom `aiq-network` (bridge) | none declared — Coolify's managed per-stack network (avoids dual-homed 504/DNS failures) |
 | Host ports | published (3000, 8000, 5432, 8333/8888) | none — proxy + FQDN vars |
 | Secrets | `deploy/.env` literals | Coolify UI (`${VAR:?}`) + generated passwords; `OPENROUTER_API_KEY`, `TAVILY_API_KEY`, `GRID_ADMIN_TOKEN` all required |
