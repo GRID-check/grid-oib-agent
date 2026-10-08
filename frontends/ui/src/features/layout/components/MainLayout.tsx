@@ -55,8 +55,6 @@ interface MainLayoutProps {
    * SessionsPanel. Defaults to false so existing callers/specs are unaffected.
    */
   showResearchInHistory?: boolean
-  /** Qdrant collection scoping the Deep Research section's job fetch (FB-10). */
-  projectCollection?: string | null
   /** Active project name — thread-header breadcrumb + composer scope chip. */
   projectName?: string | null
   /**
@@ -84,7 +82,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
   showResearchInHistory = false,
   canCollaborate = false,
   canChatInProject = true,
-  projectCollection = null,
   projectName = null,
 }) => {
   // Only what the layout shows, never the conversation objects themselves:
@@ -325,7 +322,6 @@ export const MainLayout: FC<MainLayoutProps> = ({
         onRenameSession={updateConversationTitle}
         showDeepResearchSection={showResearchInHistory}
         projectId={projectId ?? undefined}
-        projectCollection={projectCollection ?? undefined}
       />
     </div>
   )
