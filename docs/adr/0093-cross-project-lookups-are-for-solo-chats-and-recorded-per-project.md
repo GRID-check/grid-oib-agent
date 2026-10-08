@@ -104,6 +104,20 @@ dropped rather than handed out unrecorded. A listing and a brief record their
 projects too: a project's name and address are use of it. If the chat stopped
 being solo, nothing is recorded and nothing is returned.
 
+In the same transaction the answer the turn is writing (`answerMessageId`, the
+agent's `answer_message_id(conversation, turn)`) is marked in
+`message_restricted_use` when the conversation now drew on a restricted folder
+(ADR-0092), as the admission marks it for the conversation's own project. Open
+content of another project is not restricted use: `conversation_source_projects`
+stays outside `grid_conversation_restricted_use`, so a hand-out of projects
+alone marks nothing.
+
+The passages are joined to screened rows only (`searchProjectDocuments` with
+`forModel`, the `SCREENED_ONLY` reader, ADR-0086): they go to a model, so the
+asker's own held uploads in that project, and what they review in its
+quarantine, stay out, although the asker's own listing of the project shows
+them.
+
 The agent's per-round admission still gates what the model reads:
 `admit_tool_results` withholds any result carrying a restricted collection the
 turn did not admit, and the tool admits exactly the collections the BFF returned
@@ -194,9 +208,10 @@ was created in Piloti and is open. The follow-up is `projectStatusOf`,
   filters, one project failing, the listing (recorded, the own project not) and
   the brief (chat permission, recorded).
 * `lib/conversations/cross-project-use.spec.ts`: the solo rule, the record
-  under the lock, the refusal that records nothing, the memory refusal;
-  `cross-project-use.integration.spec.ts` the record against Postgres with the
-  read-time judges, sharing, erasure and RLS.
+  under the lock, the answer's mark in the same transaction, the refusal that
+  records nothing, the memory refusal; `cross-project-use.integration.spec.ts`
+  the record against Postgres with the read-time judges, the mark (a restricted
+  folder marks the answer, open content does not), sharing, erasure and RLS.
 * `lib/conversations/restricted-use.spec.ts`: the foreign folder judged in its
   own tree, project-gated readers, locked lists, share refusals, the re-check
   under the lock, and the per-person short-circuit.
@@ -204,8 +219,8 @@ was created in Piloti and is open. The follow-up is `projectStatusOf`,
 * `app/api/internal/cross-project/routes.spec.ts`: identity, conversation and
   project from the envelope; `app/api/internal/memory/route.spec.ts`: the 409;
   `app/api/internal/turn-context/route.spec.ts`: `drewOnOtherProjects`.
-* `lib/projects/service.spec.ts` and `lib/documents/service.spec.ts`: chat reach
-  and the snippet length; `frontends/aiq_api/tests/test_document_search.py`: the
+* `lib/projects/service.spec.ts` and `lib/documents/service.spec.ts`: chat reach,
+  the snippet length and the screened-only join for a model; `frontends/aiq_api/tests/test_document_search.py`: the
   backend's bound on it.
 * `lib/cross-project/cross-project-schema.spec.ts` keeps the JSON Schema the
   agent's tool is tested against in step with zod.

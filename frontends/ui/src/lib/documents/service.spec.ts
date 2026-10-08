@@ -1169,6 +1169,39 @@ describe('searchProjectDocuments', () => {
     expect(listProjectDocumentPage).not.toHaveBeenCalled()
   })
 
+  it('joins only screened rows when the hits go to a model, even for a reviewer (ADR-0086)', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          hits: [
+            { file_name: 'permit.pdf', score: 0.91, snippet: 'permit snippet', page_number: 2, collection: 'proj_abc' },
+            { file_name: 'plan.pdf', score: 0.44, snippet: 'plan snippet', page_number: null, collection: 'proj_abc' },
+          ],
+        }),
+    })
+    // plan.pdf is held: the query let it through on an earlier pass, the reconcile quarantined it.
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue(
+      fileRows.map((r) => ({
+        ...r,
+        ...(r.id === 'doc-a' ? { status: 'quarantined' } : {}),
+        createdBy: 'user-1',
+        metadata: { ingestJobId: 'j' },
+      }))
+    )
+
+    const forPerson = await searchProjectDocuments(session, 'proj-1', 'fire escape', 20)
+    const forModel = await searchProjectDocuments(session, 'proj-1', 'fire escape', 20, { forModel: true })
+
+    expect(forPerson.hits.map((h) => h.id)).toEqual(['doc-b', 'doc-a'])
+    expect(forModel.hits.map((h) => h.id)).toEqual(['doc-b'])
+    expect(vi.mocked(findProjectDocumentsByFilenames).mock.calls[1][3]).toEqual({
+      hiddenFolderIds: [],
+      reader: { kind: 'screened-only' },
+    })
+  })
+
   it('asks for no rows when the search found nothing', async () => {
     mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ hits: [] }) })
 

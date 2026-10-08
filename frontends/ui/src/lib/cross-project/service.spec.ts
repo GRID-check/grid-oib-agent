@@ -22,7 +22,7 @@ const state = vi.hoisted(() => ({
   reachable: [] as Project[],
   hits: new Map<string, Array<Record<string, unknown>>>(),
   failing: new Set<string>(),
-  searched: [] as Array<{ projectId: string; topK: number; snippetMaxChars?: number }>,
+  searched: [] as Array<{ projectId: string; topK: number; snippetMaxChars?: number; forModel?: boolean }>,
   recorded: [] as Array<{ projectIds: readonly string[]; folderIds: readonly string[] }>,
   /** Restricted collection → source folder, for the project whose folder tree is asked. */
   folders: new Map<string, string>(),
@@ -55,8 +55,8 @@ vi.mock('@/lib/authz/projects', () => ({
 }))
 vi.mock('@/lib/documents/service', () => ({
   searchProjectDocuments: vi.fn(
-    async (_session: unknown, projectId: string, _query: string, topK: number, options: { snippetMaxChars?: number }) => {
-    state.searched.push({ projectId, topK, snippetMaxChars: options.snippetMaxChars })
+    async (_session: unknown, projectId: string, _query: string, topK: number, options: { snippetMaxChars?: number; forModel?: boolean }) => {
+    state.searched.push({ projectId, topK, snippetMaxChars: options.snippetMaxChars, forModel: options.forModel })
     state.inFlight += 1
     state.peak = Math.max(state.peak, state.inFlight)
     await Promise.resolve()
@@ -224,6 +224,13 @@ describe('searchAcrossProjects', () => {
     await searchAcrossProjects(caller(), search({}))
 
     expect(state.searched.every((call) => call.snippetMaxChars === CROSS_PROJECT_SNIPPET_CHARS)).toBe(true)
+  })
+
+  it('searches every project as a model reads it: screened documents only, never the asker’s held uploads', async () => {
+    await searchAcrossProjects(caller(), search({}))
+
+    expect(state.searched.length).toBeGreaterThan(0)
+    expect(state.searched.every((call) => call.forModel === true)).toBe(true)
   })
 
   it('searches one bounded page of projects, a bounded number at a time, and says where the next starts', async () => {

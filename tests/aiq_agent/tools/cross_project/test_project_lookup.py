@@ -35,6 +35,7 @@ from aiq_agent.knowledge.restricted_use import reset_cross_project_turn
 from aiq_agent.tools.cross_project import register as lookup
 from aiq_agent.tools.cross_project.client import CrossProjectLookupError
 from aiq_agent.tools.documents.filing import SignedEnvelope
+from aiq_agent.turn.response import answer_message_id
 
 SCHEMA_PATH = (
     Path(__file__).resolve().parents[4] / "frontends" / "ui" / "tests" / "fixtures" / "cross-project.schema.json"
@@ -148,6 +149,31 @@ class TestWhatItSends:
         _validator(schema, "CrossProjectListRequest").validate(by_path["/api/internal/cross-project/projects"])
         _validator(schema, "CrossProjectBriefRequest").validate(by_path["/api/internal/cross-project/brief"])
         assert by_path["/api/internal/cross-project/search"]["from"] == "2019-01-01"
+
+    async def test_every_body_names_the_answer_this_turn_writes(self, monkeypatch, calls, turn, schema) -> None:
+        # The BFF marks that answer with the hand-out (ADR-0092); the id is the
+        # one the turn streams and persists the answer under.
+        monkeypatch.setattr(project_context, "get_conversation_id_from_context", lambda: "s_conv_1")
+        monkeypatch.setattr(project_context, "get_user_message_id_from_context", lambda: "m_user_7")
+        _answering(monkeypatch, calls, SEARCH_BODY)
+        await lookup.run_project_lookup("search", query="Dachdetail")
+        _answering(monkeypatch, calls, {"projects": [], "total": 0, "statusKnown": False})
+        await lookup.run_project_lookup("find", query="Graz")
+        _answering(monkeypatch, calls, {"project": {}, "summary": None, "facts": ""})
+        await lookup.run_project_lookup("brief", project_id=OTHER)
+
+        expected = answer_message_id("s_conv_1", "m_user_7")
+        assert [payload.get("answerMessageId") for _, payload, _ in calls] == [expected] * 3
+        by_path = {path: payload for path, payload, _ in calls}
+        _validator(schema, "CrossProjectSearchRequest").validate(by_path["/api/internal/cross-project/search"])
+
+    async def test_a_run_with_no_conversation_names_no_answer(self, monkeypatch, calls, turn) -> None:
+        monkeypatch.setattr(project_context, "get_conversation_id_from_context", lambda: None)
+        _answering(monkeypatch, calls, SEARCH_BODY)
+
+        await lookup.run_project_lookup("search", query="Dachdetail")
+
+        assert "answerMessageId" not in calls[0][1]
 
     async def test_it_asks_for_what_it_needs_before_calling(self, monkeypatch, calls, turn) -> None:
         _answering(monkeypatch, calls, SEARCH_BODY)

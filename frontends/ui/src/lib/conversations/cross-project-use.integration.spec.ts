@@ -20,10 +20,13 @@
  *   - a share reaches only a person who may open the project and read the
  *     folder; the project-wide visibility is refused;
  *   - a chat shared before the hand-out is refused and records nothing;
+ *   - the answer a hand-out with a restricted folder goes to is marked in
+ *     `message_restricted_use` (ADR-0092); one of open content only is not;
  *   - no memory may be written from such a chat;
  *   - the erasure takes both records, and another organization sees neither.
  */
 
+import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -124,13 +127,19 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
       { organizationId: ORG, resourceType: 'conversation', resourceId: conversationId, subjectUserId, role: 'collaborator', grantedBy: OWNER },
       executor
     )
-  const admit = (conversationId: string, folders: readonly string[] = [folderId]) =>
+  const admit = (conversationId: string, folders: readonly string[] = [folderId], answerMessageId?: string) =>
     inOrg(ORG, () =>
       crossUse.recordCrossProjectHandOut(
-        { organizationId: ORG, userId: OWNER, conversationId },
+        { organizationId: ORG, userId: OWNER, conversationId, answerMessageId },
         { projectIds: [ids.other], folderIds: folders }
       )
     )
+  const marks = async (messageId: string) => {
+    const rows = await inOrg(ORG, () =>
+      db.execute<{ n: number }>(sql`select count(*)::int as n from message_restricted_use where message_id = ${messageId}`)
+    )
+    return Number(Array.from(rows)[0]?.n)
+  }
   const shareWith = (conversationId: string, userId: string) =>
     inOrg(ORG, () =>
       use.widenConversationAudience(session(), conversationId, { kind: 'person', userId, self: false }, (executor) =>
@@ -232,6 +241,21 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
     expect(await reasonOf(admit(id))).toBe('CROSS_PROJECT_SHARED_CHAT')
     expect(await count(ORG, 'conversation_source_projects', id)).toBe(0)
     expect(await count(ORG, 'conversation_restricted_folders', id)).toBe(0)
+  })
+
+  it('marks the answer a restricted folder is handed to, and not one that got open content only (ADR-0092)', async () => {
+    const restricted = await chat()
+    const open = await chat()
+    const restrictedAnswer = randomUUID()
+    const openAnswer = randomUUID()
+
+    await admit(restricted, [folderId], restrictedAnswer)
+    await admit(open, [], openAnswer)
+
+    expect(await marks(restrictedAnswer)).toBe(1)
+    // Another project's open content is not restricted use: the project record
+    // stays outside `grid_conversation_restricted_use`.
+    expect(await marks(openAnswer)).toBe(0)
   })
 
   it('refuses a memory from the chat once it drew on the other project', async () => {

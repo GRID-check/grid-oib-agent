@@ -14,7 +14,7 @@ import { listAssignmentsWithoutAccessCheck, type AssignedPerson } from '@/lib/as
 import { encodeDocumentListCursor } from './list-cursor'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
 import type { DocumentListPage, DocumentListRow } from './repository'
-import { keepReadable, type ShelfReader } from './document-reader'
+import { keepReadable, type ListingReader, type ShelfReader } from './document-reader'
 
 /**
  * One row of a document listing.
@@ -53,8 +53,8 @@ function sourceDeletedAtOf(metadata: unknown): string | null {
 export async function toListedDocuments(
   session: AuthorizedSession,
   rows: DocumentListRow[],
-  /** The reader the rows' query was narrowed by (`shelfReaderFor`, ADR-0086). */
-  reader: ShelfReader,
+  /** The reader the rows' query was narrowed by (`shelfReaderFor`, or `SCREENED_ONLY` for a model, ADR-0086). */
+  reader: ListingReader,
 ): Promise<ListedDocument[]> {
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).

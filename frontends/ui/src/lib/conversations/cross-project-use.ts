@@ -16,7 +16,15 @@
  *   * each project the answer says anything about is recorded in
  *     `conversation_source_projects` (migration 0125);
  *   * each restricted folder a passage came from is recorded by id in
- *     `conversation_restricted_folders`, beside the conversation's own folders.
+ *     `conversation_restricted_folders`, beside the conversation's own folders;
+ *   * the answer the turn is writing (`answerMessageId`, the agent's
+ *     `answer_message_id(conversation, turn)`) is marked in
+ *     `message_restricted_use` when the conversation now drew on a restricted
+ *     folder (ADR-0092), as `admitSourceFolders` marks it for the
+ *     conversation's own project. Open content of another project is not
+ *     restricted use: `conversation_source_projects` stays outside
+ *     `grid_conversation_restricted_use`, so a hand-out of projects alone marks
+ *     nothing.
  *
  * The record therefore exists before the content can reach the model, whatever
  * the agent does with it, and without depending on a tool reporting what it
@@ -38,6 +46,7 @@ import { AGENT_REFUSAL_LOCALE } from './restricted-egress'
 import {
   listRecordedSourceProjects,
   lockConversationAudience,
+  markAnswerRestrictedUse,
   readConversationAudience,
   recordSourceFolders,
   recordSourceProjects,
@@ -60,11 +69,13 @@ export function sharedChatRefusal(): CrossProjectSharedChatError {
   return new CrossProjectSharedChatError(getDictionary(AGENT_REFUSAL_LOCALE).errors.crossProject.sharedChat)
 }
 
-/** Who hands content out, into which conversation. */
+/** Who hands content out, into which conversation, for which answer. */
 export interface HandOutParty {
   organizationId: string
   userId: string
   conversationId: string
+  /** The answer the turn is writing, a uuid the agent derives; absent off the chat path, which marks nothing. */
+  answerMessageId?: string | null
 }
 
 /** What an answer says about other projects: the projects, and the restricted folders its passages came from. */
@@ -86,6 +97,9 @@ export async function recordCrossProjectHandOut(party: HandOutParty, handOut: Cr
     if (!isSoloAudience(audience, party.userId)) return false
     await recordSourceProjects(tx, organizationId, conversationId, [...new Set(handOut.projectIds)])
     await recordSourceFolders(tx, organizationId, conversationId, [...new Set(handOut.folderIds)])
+    if (party.answerMessageId) {
+      await markAnswerRestrictedUse(tx, organizationId, conversationId, party.answerMessageId)
+    }
     return true
   })
   if (!solo) throw sharedChatRefusal()

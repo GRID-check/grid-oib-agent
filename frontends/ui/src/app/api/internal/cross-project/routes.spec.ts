@@ -81,7 +81,7 @@ describe('the lookups act as the envelope’s person, in the envelope’s conver
 
     expect(response.status).toBe(200)
     expect(vi.mocked(searchAcrossProjects)).toHaveBeenCalledWith(
-      { session, conversationId: CONV, currentProjectId: PROJECT },
+      { session, conversationId: CONV, currentProjectId: PROJECT, answerMessageId: null },
       expect.objectContaining({ query: 'Dachdetail', scope: 'all' })
     )
     expect(vi.mocked(withTenant)).toHaveBeenCalledWith({ organizationId: 'org_1' }, expect.any(Function))
@@ -94,6 +94,19 @@ describe('the lookups act as the envelope’s person, in the envelope’s conver
     const outside = envelopeHeaders({ projectId: null })
     expect((await brief(request('/api/internal/cross-project/brief', { projectId: PROJECT }, outside))).status).toBe(200)
     expect(vi.mocked(readProjectBrief).mock.calls[0][0]).toMatchObject({ currentProjectId: null })
+  })
+
+  it('carries the answer the turn is writing to the hand-out record, and nothing that is not a uuid', async () => {
+    const answer = '5a5a5a5a-0000-4000-8000-000000000001'
+    await search(request('/api/internal/cross-project/search', { query: 'Dachdetail', answerMessageId: answer }))
+    await projects(request('/api/internal/cross-project/projects', { answerMessageId: answer }))
+    await brief(request('/api/internal/cross-project/brief', { projectId: PROJECT, answerMessageId: answer }))
+
+    expect(vi.mocked(searchAcrossProjects).mock.calls[0][0]).toMatchObject({ answerMessageId: answer })
+    expect(vi.mocked(listLookupProjects).mock.calls[0][0]).toMatchObject({ answerMessageId: answer })
+    expect(vi.mocked(readProjectBrief).mock.calls[0][0]).toMatchObject({ answerMessageId: answer })
+    const bad = { query: 'Dach', answerMessageId: 'not-a-uuid' }
+    expect((await search(request('/api/internal/cross-project/search', bad))).status).toBe(400)
   })
 
   it('refuses a request with no envelope, and one whose turn has no conversation', async () => {

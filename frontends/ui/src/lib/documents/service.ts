@@ -806,13 +806,18 @@ export function joinHitsToFiles<
  * The rows are looked up BY THE HIT NAMES, as `searchArchivDocuments` does,
  * never read from the listing: the listing is paged, and a hit on a document
  * past its first page used to be dropped as if the search had not found it.
+ *
+ * `forModel`: the hits go to a model, not to this person (the cross-project
+ * lookups hand them to the agent). They are joined to screened rows only
+ * (`SCREENED_ONLY`, ADR-0086): the person's own held uploads, and a reviewer's
+ * view of the quarantine, stay with the person.
  */
 export async function searchProjectDocuments(
   session: AuthorizedSession,
   projectId: string,
   query: string,
   topK = 20,
-  options: { snippetMaxChars?: number } = {}
+  options: { snippetMaxChars?: number; forModel?: boolean } = {}
 ): Promise<{ hits: Array<SearchedDocument<ListedDocument>> }> {
   await requireProjectAccess(session, projectId, 'project:view')
 
@@ -834,7 +839,7 @@ export async function searchProjectDocuments(
   if (hits.length === 0) return { hits: [] }
   // The canonical rows, hydrated exactly as the listing hydrates them, so a
   // semantic result is always a real, visible document with its live status.
-  const reader = await shelfReaderFor(session, { scope: 'project', projectId })
+  const reader = options.forModel ? SCREENED_ONLY : await shelfReaderFor(session, { scope: 'project', projectId })
   const rows = await findProjectDocumentsByFilenames(
     projectId,
     session.organizationId,

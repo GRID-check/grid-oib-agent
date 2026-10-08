@@ -48,6 +48,7 @@ from aiq_agent.common.grounding_block import render_grounding_block
 from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.knowledge.restricted_use import note_collections_read
 from aiq_agent.knowledge.restricted_use import note_cross_project_hand_out
+from aiq_agent.turn.response import turn_answer_message_id
 from nat.plugin_api import Builder
 from nat.plugin_api import FunctionBaseConfig
 from nat.plugin_api import FunctionInfo
@@ -156,11 +157,26 @@ def _envelope() -> SignedEnvelope:
     return SignedEnvelope(header=header, signature=signature)
 
 
+def _with_answer(payload: dict[str, Any]) -> dict[str, Any]:
+    """The body, naming the answer this turn writes (ADR-0092).
+
+    The BFF marks that answer in the transaction that records what the lookup
+    hands out, when the conversation then drew on a restricted folder, as the
+    restricted-use admission does: a vote on it is judged by the server's record
+    whether or not the answer is ever persisted. Without a conversation there is
+    no answer to name.
+    """
+    conversation_id = project_context.get_conversation_id_from_context()
+    if not conversation_id:
+        return payload
+    return {**payload, "answerMessageId": turn_answer_message_id(conversation_id)}
+
+
 async def _call(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     """One lookup, off the event loop, with every refusal worded for the model."""
     envelope = _envelope()
     try:
-        return await asyncio.to_thread(post_lookup, path, payload, envelope)
+        return await asyncio.to_thread(post_lookup, path, _with_answer(payload), envelope)
     except CrossProjectLookupError as exc:
         if exc.code == "CROSS_PROJECT_SHARED_CHAT":
             # The BFF's own sentence, in German: relayed to the reader as it is.

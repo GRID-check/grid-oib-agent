@@ -20,6 +20,7 @@ const CONV = 's_conv_1'
 const OWNER = 'user_owner'
 const OTHER = '22222222-0000-4000-8000-000000000002'
 const HONORARE_ID = 'abcdef01-2345-4678-89ab-cdef01234567'
+const ANSWER = '5a5a5a5a-0000-4000-8000-000000000001'
 
 const state = vi.hoisted(() => ({
   audiences: [] as ConversationAudienceRow[],
@@ -43,6 +44,9 @@ vi.mock('./restricted-use-repository', () => ({
   }),
   recordSourceFolders: vi.fn(async (_tx: unknown, _org: string, _id: string, ids: string[]) => {
     state.steps.push(`folders:${ids.join(',')}`)
+  }),
+  markAnswerRestrictedUse: vi.fn(async (tx: unknown, _org: string, _id: string, messageId: string) => {
+    state.steps.push(`mark:${messageId}:${JSON.stringify(tx)}`)
   }),
   listRecordedSourceProjects: vi.fn(async () => [...state.recordedProjects]),
 }))
@@ -78,6 +82,30 @@ describe('recordCrossProjectHandOut', () => {
     await recordCrossProjectHandOut(party, { projectIds: [OTHER, OTHER], folderIds: [HONORARE_ID, HONORARE_ID] })
 
     expect(state.steps).toEqual(['lock', 'audience', `projects:${OTHER}`, `folders:${HONORARE_ID}`])
+  })
+
+  it('marks the answer the turn is writing in the same transaction, after the record (ADR-0092)', async () => {
+    await recordCrossProjectHandOut({ ...party, answerMessageId: ANSWER }, { projectIds: [OTHER], folderIds: [HONORARE_ID] })
+
+    // In the transaction (`{ tx: true }`), after the folder: the database marks
+    // it only when the conversation now holds a restricted-use record, so open
+    // content of another project marks nothing (cross-project-use.integration.spec.ts).
+    expect(state.steps).toEqual([
+      'lock',
+      'audience',
+      `projects:${OTHER}`,
+      `folders:${HONORARE_ID}`,
+      `mark:${ANSWER}:{"tx":true}`,
+    ])
+  })
+
+  it('marks nothing without an answer id, and nothing when the chat is refused', async () => {
+    await recordCrossProjectHandOut(party, { projectIds: [OTHER], folderIds: [HONORARE_ID] })
+    state.audiences = [{ ...solo, grantees: ['user_ina'] }]
+    const refused = recordCrossProjectHandOut({ ...party, answerMessageId: ANSWER }, { projectIds: [OTHER], folderIds: [] })
+    await refused.catch(() => undefined)
+
+    expect(state.steps.filter((step) => step.startsWith('mark:'))).toEqual([])
   })
 
   it('refuses with the typed 409 and records nothing once the chat is shared, as read under the lock', async () => {

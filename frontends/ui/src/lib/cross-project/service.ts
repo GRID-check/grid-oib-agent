@@ -78,6 +78,8 @@ export interface CrossProjectCaller {
   session: AuthorizedSession
   conversationId: string
   currentProjectId: string | null
+  /** The answer the turn is writing, from the request body; marked with the hand-out (ADR-0092). */
+  answerMessageId?: string | null
 }
 
 /**
@@ -87,10 +89,16 @@ export interface CrossProjectCaller {
  */
 export function crossProjectCaller(
   context: Pick<VerifiedGridRequestContext, 'conversationId' | 'projectId'>,
-  session: AuthorizedSession
+  session: AuthorizedSession,
+  answerMessageId?: string | null
 ): CrossProjectCaller {
   if (!context.conversationId) throw new BadRequestError('A cross-project lookup needs the conversation it was asked in')
-  return { session, conversationId: context.conversationId, currentProjectId: context.projectId ?? null }
+  return {
+    session,
+    conversationId: context.conversationId,
+    currentProjectId: context.projectId ?? null,
+    answerMessageId: answerMessageId ?? null,
+  }
 }
 
 function party(caller: CrossProjectCaller): HandOutParty {
@@ -98,6 +106,7 @@ function party(caller: CrossProjectCaller): HandOutParty {
     organizationId: caller.session.organizationId,
     userId: caller.session.userId,
     conversationId: caller.conversationId,
+    answerMessageId: caller.answerMessageId,
   }
 }
 
@@ -266,8 +275,11 @@ async function searchOneProject(
 ): Promise<FoundHit[]> {
   let found: Awaited<ReturnType<typeof searchProjectDocuments>>
   try {
+    // Every hit goes to the model: screened rows only, never the asker's own
+    // held uploads in that project nor what they review in its quarantine.
     found = await searchProjectDocuments(session, project.id, request.query, perProjectTopK(request), {
       snippetMaxChars: CROSS_PROJECT_SNIPPET_CHARS,
+      forModel: true,
     })
   } catch {
     // Access withdrawn between the listing and the search, or the project went: nothing from it.

@@ -175,7 +175,7 @@ export type DocumentReader =
 
 export const memberReader = (userId: string): ShelfReader => ({ kind: 'member', userId })
 export const REVIEWER_READER: ShelfReader = { kind: 'reviewer' }
-export const SCREENED_ONLY: DocumentReader = { kind: 'screened-only' }
+export const SCREENED_ONLY = { kind: 'screened-only' } as const satisfies DocumentReader
 export const internalRead = (why: InternalDocumentRead): DocumentReader => ({ kind: 'internal', why })
 
 /** The row facts {@link mayReadDocument} reads. */
@@ -215,11 +215,22 @@ export function mayReadDocument(row: ReadableFacts, reader: DocumentReader): boo
 }
 
 /**
+ * Who reads one shelf's listing: a person ({@link ShelfReader}), or a model,
+ * which reads only screened rows ({@link SCREENED_ONLY}).
+ */
+export type ListingReader = ShelfReader | typeof SCREENED_ONLY
+
+/**
  * The rows of ONE shelf's listing this reader may still read, after a reconcile
  * changed some of them: the first read after a file's verdict can find it in
  * flight with an earlier pass on record (a re-index), and the reconcile turns
  * it `quarantined`.
  */
-export function keepReadable<T extends ScreeningFacts & { createdBy: string }>(rows: T[], reader: ShelfReader): T[] {
-  return rows.filter((row) => reader.kind === 'reviewer' || hasPassedScreening(row) || row.createdBy === reader.userId)
+export function keepReadable<T extends ScreeningFacts & { createdBy: string }>(rows: T[], reader: ListingReader): T[] {
+  return rows.filter(
+    (row) =>
+      reader.kind === 'reviewer' ||
+      hasPassedScreening(row) ||
+      (reader.kind === 'member' && row.createdBy === reader.userId)
+  )
 }

@@ -25,7 +25,7 @@ export const POST = internalApiRoute(
     const context = requireVerifiedContext(request)
     const body = await parseJsonBody(request, crossProjectSearchRequestSchema)
     const session = await requirePinnedSession(context)
-    const caller = crossProjectCaller(context, session)
+    const caller = crossProjectCaller(context, session, body.answerMessageId)
     return withTenant({ organizationId: context.organizationId }, () => searchAcrossProjects(caller, body))
   },
   { tenancy: { fromPayload: 'the signed request-context envelope' } }

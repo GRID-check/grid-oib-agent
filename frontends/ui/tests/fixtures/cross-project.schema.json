@@ -74,6 +74,17 @@
         },
         "limit": {
           "type": "integer"
+        },
+        "answerMessageId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -224,6 +235,17 @@
         },
         "limit": {
           "type": "integer"
+        },
+        "answerMessageId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": true
@@ -321,6 +343,17 @@
         "projectId": {
           "type": "string",
           "format": "uuid"
+        },
+        "answerMessageId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [

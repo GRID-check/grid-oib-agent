@@ -44,6 +44,14 @@ const isoDay = z
     message: 'Not a calendar day',
   })
 
+/**
+ * The answer the turn is writing (`answer_message_id(conversation, turn)`, a
+ * uuid the agent derives, streams and persists the answer under). The BFF marks
+ * it in `message_restricted_use` (ADR-0092), in the transaction that records
+ * what the lookup hands out, when the conversation drew on a restricted folder.
+ */
+const answerMessageId = z.string().uuid().nullish()
+
 export const crossProjectSearchRequestSchema = z.object({
   query: z.string().trim().min(2).max(500),
   scope: z.enum(CROSS_PROJECT_SCOPES).default('all'),
@@ -63,6 +71,7 @@ export const crossProjectSearchRequestSchema = z.object({
   /** Where in the scope's project list this page starts; the previous answer's `nextOffset`. */
   offset: z.number().int().min(0).max(10_000).default(0),
   limit: z.number().int().min(1).max(CROSS_PROJECT_MAX_HITS).default(10),
+  answerMessageId,
 })
 export type CrossProjectSearchRequest = z.infer<typeof crossProjectSearchRequestSchema>
 
@@ -115,6 +124,7 @@ export const crossProjectListRequestSchema = z.object({
   to: isoDay.optional(),
   /** Every project listed is recorded on the conversation, so the default stays small. */
   limit: z.number().int().min(1).max(CROSS_PROJECT_MAX_LISTED).default(10),
+  answerMessageId,
 })
 export type CrossProjectListRequest = z.infer<typeof crossProjectListRequestSchema>
 
@@ -143,6 +153,7 @@ export type CrossProjectListResponse = z.infer<typeof crossProjectListResponseSc
 
 export const crossProjectBriefRequestSchema = z.object({
   projectId: z.string().uuid(),
+  answerMessageId,
 })
 export type CrossProjectBriefRequest = z.infer<typeof crossProjectBriefRequestSchema>
 
