@@ -25,7 +25,7 @@ finding poisons every project in the org, and no human saw this one.
 every failure restricts to all of the scope's restricted collections. A
 restricted finding is project memory (never organization) and never a
 `memory_proposal` card, because accepting a card writes open memory
-(ADR-0086, `docs/architecture/project-memory-design.md` §3.6). Its evidence
+(ADR-0087, `docs/architecture/project-memory-design.md` §3.6). Its evidence
 includes the restricted digest lines EARLIER turns were shown
 (`shown_notes.py`, recorded per conversation by `turn/registries.py`): a new
 reader of restricted evidence reads that record too, or a note that left the

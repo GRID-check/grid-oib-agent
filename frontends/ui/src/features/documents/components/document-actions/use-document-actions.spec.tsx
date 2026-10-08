@@ -109,7 +109,7 @@ describe('useDocumentActions — reingest refusals', () => {
 })
 
 describe('useDocumentActions — move refusals', () => {
-  it('says why an IFC model cannot go into a restricted folder, instead of "try again" (ADR-0086)', async () => {
+  it('says why an IFC model cannot go into a restricted folder, instead of "try again" (ADR-0087)', async () => {
     server.use(
       http.patch('/api/documents/doc-1/folder', () =>
         HttpResponse.json({ error: 'IFC models cannot be filed in a restricted folder yet', code: 'CONFLICT' }, { status: 409 })

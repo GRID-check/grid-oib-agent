@@ -173,6 +173,11 @@ export const FEATURE_FLAGS = {
    *  and the scheduler container's start gate. Jobs ride this one flag: they
    *  ship as one feature, so a second flag could only let them disagree. */
   skills: 'skills',
+  /** Outlook archive (.pst/.ost) import into a project (ADR-0085). Dark-launched:
+   *  the WorkOS flag when enforcement is on, else the GRID_MAIL_IMPORT_ENABLED env
+   *  opt-in (default off). It files the correspondence of everyone who wrote to
+   *  the office, so an operator switches it on per organization, deliberately. */
+  mailImport: 'mail-import',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -208,6 +213,21 @@ export function isProjectKnowledgePageEnabled(session: Pick<GridSession, 'featur
     return isFeatureEnabled(session, FEATURE_FLAGS.projectKnowledgePage)
   }
   return (process.env.GRID_PROJECT_KNOWLEDGE_PAGE_ENABLED ?? '').toLowerCase() === 'true'
+}
+
+/**
+ * Default-OFF gate for the Outlook archive import (ADR-0085), the
+ * `isProjectKnowledgePageEnabled` shape: the per-org flag under enforcement,
+ * otherwise an explicit deployment opt-in via `GRID_MAIL_IMPORT_ENABLED=true`.
+ * Checked when an import is started and when its upload completes; the job that
+ * files it does not re-check, so switching the flag off stops new imports and
+ * lets a running one finish.
+ */
+export function isMailImportEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.mailImport)
+  }
+  return (process.env.GRID_MAIL_IMPORT_ENABLED ?? '').toLowerCase() === 'true'
 }
 
 /**

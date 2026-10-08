@@ -49,7 +49,7 @@ class TestTurnRegistries:
         assert persisted == ["conv-1"]
 
     async def test_the_registrys_collections_are_read_back_at_exit(self, persisted):
-        """ADR-0086: the memory restriction decision reads what the conversation read."""
+        """ADR-0087: the memory restriction decision reads what the conversation read."""
         from aiq_agent.common.citation_verification import SourceEntry
 
         session = SourceRegistry()

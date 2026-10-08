@@ -87,7 +87,7 @@ describe('ProjectSettings', () => {
     expect(screen.getByTestId('project-members-form')).toHaveAttribute('data-can-manage', 'true')
   })
 
-  test('flags folders whose roles were deleted, with a link to each, only when there are any (ADR-0087)', () => {
+  test('flags folders whose roles were deleted, with a link to each, only when there are any (ADR-0088)', () => {
     const { rerender } = render(<ProjectSettings data={data} canManageProject />)
     expect(screen.queryByTestId('folders-without-role')).not.toBeInTheDocument()
 

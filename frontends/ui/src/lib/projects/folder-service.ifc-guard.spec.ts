@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Moving a folder asks the IFC guard before anything is written (ADR-0086):
+ * Moving a folder asks the IFC guard before anything is written (ADR-0087):
  * restricted folders do not hold IFC models, so a folder holding one may not be
  * moved under a restriction. The guard's own rule is pinned in
  * `ifc-folder-guard.spec.ts`; this file pins that the move asks it, and stops.

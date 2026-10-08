@@ -17,7 +17,7 @@ const patchProfileSchema = z.object({
   /**
    * The conversation a `project_profile_patch` card was proposed in. A thread
    * that drew on a restricted folder may not write the project-wide profile
-   * (ADR-0086). Absent for the brief's own editor.
+   * (ADR-0087). Absent for the brief's own editor.
    */
   conversationId: z.string().min(1).max(128).optional(),
 })
