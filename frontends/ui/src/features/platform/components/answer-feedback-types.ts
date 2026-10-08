@@ -58,6 +58,14 @@ export interface FeedbackOrgRow {
 export interface FeedbackHealthResponse {
   windowDays: number
   answers: number
+  /** Distinct answers that carry a vote (server, when present). */
+  ratedAnswers?: number
+  /**
+   * Share of answers rated, 0–1, or null when the window has no answers. The
+   * server counts answers produced in the window PLUS answers voted on in it,
+   * so this never exceeds 1; prefer it over dividing votes by answers here.
+   */
+  coverage?: number | null
   totals: { up: number; down: number; voters: number; downVoters: number }
   reasons: { reason: FeedbackReason | null; count: number }[]
   daily: { day: string; up: number; down: number }[]

@@ -383,14 +383,6 @@ async function getOrCreateChild(
 }
 
 /**
- * A folder's descendants, by path prefix.
- *
- * `path` is materialised on every row (`Plans/Fire Safety/Escape routes`), so a
- * rename or a move has to rewrite every row underneath the one that changed.
- * The prefix query is what finds them; `escapeLikePattern` keeps a folder
- * called `100 % Plans` from matching half the shelf.
- */
-/**
  * Rewrite `path` for a subtree that has just moved or been renamed.
  *
  * Done as one statement per subtree rather than a walk: the descendants all
@@ -420,6 +412,10 @@ async function rewriteDescendantPaths(
     .where(
       and(
         shelfFolderWhere(shelf, organizationId),
+        // The descendants, by path prefix. Escaped, so a folder called
+        // `100 % Plans` cannot match half the shelf.
+        // The descendants, by path prefix. Escaped, so a folder called
+        // `100 % Plans` cannot match half the shelf.
         like(projectFolders.path, `${escapeLikePattern(oldPath)}/%`),
       ),
     )

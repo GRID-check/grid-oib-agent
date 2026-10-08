@@ -441,11 +441,31 @@ deployment that wants prompt management injects them from that Secret.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `LANGFUSE_PROMPTS_ENABLED` | No | unset (off) | When truthy (`1`/`true`/`yes`/`on`), the agent serves the platform prompt from Langfuse instead of the bundled file. Off by default: it decides whether a remote store may be the authority for the text the fleet reasons with, which is a product decision rather than a performance knob. With it off, no client is built and no request is made. Before turning it on for an environment, publish the committed prompt to the label it serves (`task prompts:push -- --label <label> --apply`), and again with every deploy that changes `piloti_static.md`: the fleet renders what the label holds, not what the image carries. Backend (aiq-agent) and agent-worker services. |
-| `LANGFUSE_PUBLIC_KEY` | No | unset | Langfuse project public key. Half of the capability: without both keys the store logs once and serves the bundled prompt. Also read by `task prompts:pull` and `task prompts:push`. |
+| `LANGFUSE_PUBLIC_KEY` | No | unset | Langfuse project public key. Half of the capability: without both keys the store logs once and serves the bundled prompt. Also read by `task prompts:pull` and `task prompts:push`, and by the frontend (BFF) for answer-feedback scores, see below. |
 | `LANGFUSE_SECRET_KEY` | No | unset | Langfuse project secret key. See above. |
-| `LANGFUSE_HOST` | No | `https://cloud.langfuse.com` | Base URL of the Langfuse API. Self-hosted deployments set this to their own Langfuse web tier; the SDK's default is Langfuse Cloud, which is not where a self-hosted stack's prompts are. |
+| `LANGFUSE_HOST` | No | `https://cloud.langfuse.com` (agent); none (frontend) | Base URL of the Langfuse API. Self-hosted deployments set this to their own Langfuse web tier; the Python SDK's default is Langfuse Cloud, which is not where a self-hosted stack's prompts are. The frontend has NO default: without it, answer-feedback scoring is off, so keys alone can never send votes to Langfuse Cloud. |
 | `LANGFUSE_PROMPT_LABEL` | No | `production` | Which Langfuse label the fleet serves. `production` is what runs; other labels exist for experiments, and pointing a deployment at one is how an experiment is run without touching what everyone else gets. |
 | `LANGFUSE_PROMPT_CACHE_TTL_SECONDS` | No | `60` | How long a fetched version is served before the SDK refreshes it in the background (stale-while-revalidate: the turn is served immediately from cache either way). Also the window for which a FAILED fetch is not retried, which is what keeps a Langfuse outage from costing a network attempt on every turn. A change in Langfuse therefore reaches the fleet within this many seconds, not instantly. |
+
+## Answer feedback scores (Langfuse)
+
+Every thumbs-up or thumbs-down a user leaves on an answer is also written to
+Langfuse, by the frontend (BFF) server side, as a `user-feedback` score on the
+trace that produced the answer (ADR-0044, Amendment 3;
+`frontends/ui/src/lib/langfuse/`). A retracted vote deletes its score. The
+platform answer-feedback view links each rated turn to its trace.
+
+Capability only, read per call, and a silent no-op when anything is missing.
+Pulumi injects all five into the frontend only where the Langfuse tier is
+deployed (`frontendLangfuseEnv` in `deploy/pulumi/src/platform/langfuse.ts`),
+the keys by reference to the `langfuse-secrets` Secret; Compose sets none.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | No | unset | The same project keys the trace exporter uses (rows above). Both, plus `LANGFUSE_HOST`, turn scoring on. Frontend. |
+| `LANGFUSE_HOST` | No | unset | The Langfuse API the BFF writes scores to: the in-cluster web Service (`http://langfuse-web:3000`), which the `allow-frontend-to-langfuse` NetworkPolicy opens to the frontend pods. Not the public host: that one sits behind the edge's OIDC gate. Frontend. |
+| `LANGFUSE_PUBLIC_URL` | No | unset | Browser-facing origin of the Langfuse UI (`https://langfuse.<domain>`), for the trace and project links in the platform answer-feedback view (`turns[].langfuseTraceUrl`, `langfuse.projectUrl`). Without it, or without `LANGFUSE_PROJECT_ID`, both are null. Frontend. |
+| `LANGFUSE_PROJECT_ID` | No | unset | The Langfuse project id the traces and scores live in; Pulumi passes `langfuseProjectId` (default `grid-oib`), the id headless initialisation created. Frontend. |
 
 ## Data-tier authentication (Kubernetes/Pulumi-injected)
 

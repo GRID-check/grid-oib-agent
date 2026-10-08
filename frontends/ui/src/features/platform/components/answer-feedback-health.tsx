@@ -435,7 +435,17 @@ function KpiRow({
   const helpfulRate = total > 0 ? (data.totals.up / total) * 100 : 0
   // Votes over persisted answers. Persistence is best-effort, so answers is an
   // undercount and the ratio can pass 100%: clamp rather than print 140%.
-  const coverage = data.answers > 0 ? Math.min(100, (total / data.answers) * 100) : null
+  // The server's figure when it sends one (rated answers over answers in or
+  // voted on in the window); the local division is the fallback for an older
+  // response, clamped because votes can rate answers older than the window.
+  const coverage =
+    data.coverage !== undefined
+      ? data.coverage === null
+        ? null
+        : Math.min(100, data.coverage * 100)
+      : data.answers > 0
+        ? Math.min(100, (total / data.answers) * 100)
+        : null
   const percent = (value: number, decimals: number): string =>
     t('answerFeedback.percent', { value: formatCount(value, locale, decimals) })
 
