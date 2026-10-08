@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   createDeepResearchClient,
   getJobReport,
@@ -91,6 +91,95 @@ describe('deep research SSE client', () => {
       client.connect()
       const resumed = FakeEventSource.instances[FakeEventSource.instances.length - 1]
       expect(resumed.url).toBe('/api/jobs/async/job/job-1/stream/17')
+    })
+  })
+
+  describe('reopening a stream the browser closed', () => {
+    // The browser closes for good on any non-200, which is what the proxy
+    // answers while an api replica is replaced (ADR-0082 step B).
+    const closeLikeTheBrowser = (source: FakeEventSource) => {
+      source.readyState = FakeEventSource.CLOSED
+      source.onerror?.()
+    }
+    const latest = () => FakeEventSource.instances[FakeEventSource.instances.length - 1]
+
+    beforeEach(() => vi.useFakeTimers())
+    afterEach(() => vi.useRealTimers())
+
+    test('reopens from the last event id instead of reporting the stream lost', () => {
+      const onDisconnect = vi.fn()
+      const onReconnecting = vi.fn()
+      const { source } = connectWithFakeEventSource({ onDisconnect, onReconnecting })
+      source.emit('tool.start', { name: 'web_search' }, '17')
+
+      closeLikeTheBrowser(source)
+      expect(onReconnecting).toHaveBeenCalledWith(1)
+      vi.advanceTimersByTime(1_000)
+
+      expect(latest()).not.toBe(source)
+      expect(latest().url).toBe('/api/jobs/async/job/job-1/stream/17')
+      expect(onDisconnect).not.toHaveBeenCalled()
+    })
+
+    test('backs off between failed reopens and starts over once one opens', () => {
+      const { source } = connectWithFakeEventSource()
+      closeLikeTheBrowser(source)
+      vi.advanceTimersByTime(1_000)
+      closeLikeTheBrowser(latest())
+      vi.advanceTimersByTime(1_999)
+      const beforeSecondWait = FakeEventSource.instances.length
+      vi.advanceTimersByTime(1)
+      expect(FakeEventSource.instances.length).toBe(beforeSecondWait + 1)
+
+      latest().onopen?.()
+      closeLikeTheBrowser(latest())
+      const beforeReset = FakeEventSource.instances.length
+      vi.advanceTimersByTime(1_000)
+      expect(FakeEventSource.instances.length).toBe(beforeReset + 1)
+    })
+
+    test('reopens at once when the server says it is shutting down', () => {
+      const { source } = connectWithFakeEventSource()
+      source.emit('tool.start', { name: 'web_search' }, '30')
+
+      source.emit('job.shutdown', { message: 'Server shutting down' }, '30')
+      vi.advanceTimersByTime(250)
+
+      expect(latest()).not.toBe(source)
+      expect(latest().url).toBe('/api/jobs/async/job/job-1/stream/30')
+    })
+
+    test('reports the stream lost only after reopens have failed for two minutes', () => {
+      const onDisconnect = vi.fn()
+      connectWithFakeEventSource({ onDisconnect })
+      for (let elapsed = 0; elapsed < 125_000; elapsed += 1_000) {
+        if (latest().readyState !== FakeEventSource.CLOSED) closeLikeTheBrowser(latest())
+        vi.advanceTimersByTime(1_000)
+      }
+      expect(onDisconnect).toHaveBeenCalledTimes(1)
+    })
+
+    test('does not reopen a run that has finished', () => {
+      const onComplete = vi.fn()
+      const { source } = connectWithFakeEventSource({ onComplete })
+      source.emit('job.status', { status: 'success' })
+      const opened = FakeEventSource.instances.length
+
+      closeLikeTheBrowser(source)
+      vi.advanceTimersByTime(20_000)
+
+      expect(FakeEventSource.instances.length).toBe(opened)
+    })
+
+    test('a disconnect cancels a pending reopen', () => {
+      const { client, source } = connectWithFakeEventSource()
+      closeLikeTheBrowser(source)
+      const opened = FakeEventSource.instances.length
+
+      client.disconnect()
+      vi.advanceTimersByTime(20_000)
+
+      expect(FakeEventSource.instances.length).toBe(opened)
     })
   })
 
