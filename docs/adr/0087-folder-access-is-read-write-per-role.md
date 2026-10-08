@@ -416,11 +416,12 @@ recorded folders.
   clash; the purge keeping tombstones with grants and marking derived answers; idempotent
   purges; the hold coverage table and the 409s; each setting's read-time effect on a folder, a
   note and a conversation; „Mit dem Ordner entfernen" through „Endgültig löschen" (notes,
-  answers, reports marked, the content-free record, no call to Langfuse from the BFF, and the
+  answers, reports marked, the content-free record, no trace deletion from the BFF, and the
   row handed to the purger with the conversations whose traces it owes).
-* `deploy/pulumi/src/app/langfuse-api-callers.spec.ts`: Langfuse's API keys only in the purger's
-  and the scheduler's environments, never the BFF's or the bff-jobs pool's, and no BFF module
-  importing the trace client.
+* `deploy/pulumi/src/app/langfuse-api-callers.spec.ts`: Langfuse's API keys in the purger's and
+  the scheduler's environments, which delete traces, and in the frontend's, which only writes
+  vote scores (ADR-0044, Amendment 3); never the bff-jobs pool's; and no BFF module importing
+  the trace client.
 * `authz/folder-access.spec.ts`: the four settings on a purged folder, the bin hidden even
   without own lists. `purger/purge-folder.spec.mjs`: the purger's folder step.
 * `scripts/rls-test-db.sh`: 0114's backfill, its down refusing while the bin holds a folder, the
