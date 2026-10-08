@@ -95,6 +95,8 @@ const SEES_EVERY_ROW: Record<string, string> = {
   'lib/upload-batches/repository.ts#batchIdsOfDocuments': 'The settle hook: which batches the rows a reconcile moved belong to. Ids only.',
   'lib/upload-batches/repository.ts#listInFlightBatchDocuments': 'The upload sweep reconciles in-flight rows, held by definition.',
   'lib/upload-batches/repository.ts#completeSettledBatches': 'Closes batches whose rows all came to rest. No row leaves.',
+  'lib/upload-batches/repository.ts#latestBatchDocumentAt':
+    'The upload sweep: when the last row came into an unsealed batch, held or not. A timestamp only.',
 }
 
 /**

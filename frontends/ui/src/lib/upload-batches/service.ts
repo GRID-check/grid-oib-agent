@@ -156,11 +156,15 @@ export async function findJobUploadBatch(
   if (!batch) return { status: 'missing' }
   if (batch.createdBy !== createdBy) return { status: 'foreign' }
   if (batch.sealedAt) return { status: 'sealed' }
-  return { status: 'open', documents: await countUploadBatchDocuments(organizationId, batchId) }
+  return { status: 'open', documents: await countUploadBatchDocuments(organizationId, batchId, createdBy) }
 }
 
-async function countUploadBatchDocuments(organizationId: string, batchId: string): Promise<number> {
-  const counts = await countBatchDocumentsByStatus(organizationId, [batchId])
+/**
+ * Every document in the job's batch, held ones included: the job files as the
+ * person who opened it, so their own reader sees all of it (ADR-0086).
+ */
+async function countUploadBatchDocuments(organizationId: string, batchId: string, createdBy: string): Promise<number> {
+  const counts = await countBatchDocumentsByStatus(organizationId, [batchId], { reader: memberReader(createdBy) })
   return counts.reduce((sum, row) => sum + row.count, 0)
 }
 
