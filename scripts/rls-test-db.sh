@@ -12,7 +12,16 @@
 set -euo pipefail
 
 UI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../frontends/ui" && pwd)"
-PORT="${RLS_TEST_PORT:-55433}"
+# A port nobody holds, unless the caller names one. Parallel runs in one
+# container (two agents, two worktrees) each get their own: a fixed default made
+# the second die at `pg_ctl: could not start server` before any migration ran.
+# TCP on 127.0.0.1 rather than the unix socket alone, because the vitest suites
+# below connect to 127.0.0.1:$PORT. The OS picks an ephemeral port and the
+# probe releases it; the window before `pg_ctl` binds it again is milliseconds.
+PORT="${RLS_TEST_PORT:-$(node -e '
+  const server = require("net").createServer();
+  server.listen(0, "127.0.0.1", () => { console.log(server.address().port); server.close(); });
+')}"
 # `|| true` matters: under `set -e` a glob that matches nothing makes the
 # substitution non-zero and kills the script here, so the friendly "install
 # postgresql, or set PGBIN" message below would never be the thing an operator

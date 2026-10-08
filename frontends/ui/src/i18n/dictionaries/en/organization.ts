@@ -627,7 +627,7 @@ export const organization = {
     nameExceptionsHint: 'Words that contain a term but mean something else: “Berechnung” contains “Rechnung”.',
     contentTitle: 'After upload: content',
     contentHint:
-      'Piloti reads the text on its own server and checks it before any model sees it. Matches wait in quarantine until someone releases or deletes them. The same terms and numbers apply to chat messages: before sending, Piloti shows what it found and sends the message to the model only masked.',
+      'Piloti reads the text on its own server and checks it before any model sees it. Matches wait in quarantine until someone releases or deletes them. The same terms and numbers apply to chat messages: before sending, Piloti shows what it found and sends the message to the answering model only masked. A dictated message is first heard by an external speech model, which transcribes it.',
     contentTerms: 'Content terms',
     contentTermsHint: 'Matches words that start with the term: “Honorar” finds “Honorarnote”.',
     detectors: 'Detect numbers',
