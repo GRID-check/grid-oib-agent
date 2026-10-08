@@ -532,6 +532,10 @@
     "de": "Ein OIB-Dokument einer anderen Ausgabe als Mai 2023 trägt jetzt den richtigen Ausgabevermerk im Titel."
   },
   {
+    "en": "An Outlook archive import ends with the same summary, once everything it filed has been read.",
+    "de": "Ein Outlook-Archivimport endet mit derselben Zusammenfassung, sobald alles gelesen ist, was er abgelegt hat."
+  },
+  {
     "en": "An answer being written no longer stalls while someone in the office loads the document list, deletes files or starts a research with a follow-up question.",
     "de": "Eine entstehende Antwort stockt nicht mehr, während im Büro jemand die Dokumentliste lädt, Dateien löscht oder eine Recherche mit Rückfrage beginnt."
   },
