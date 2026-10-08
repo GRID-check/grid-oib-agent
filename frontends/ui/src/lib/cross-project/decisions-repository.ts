@@ -22,7 +22,7 @@
 import 'server-only'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { contentTokens, jaccardSimilarity } from '@/lib/knowledge/consolidation'
+import { contentTokens, jaccardSimilarity, normalizeContentGerman } from '@/lib/knowledge/consolidation'
 import { cosineSimilaritySql, embedNote } from '@/lib/knowledge/embeddings'
 import { fuseHybridRelevance } from '@/lib/knowledge/recall-scoring'
 import { projectMemory, type ProjectMemoryKind } from '@/lib/db/schema'
@@ -100,8 +100,10 @@ export async function searchProjectDecisions(
   const dense = rows.map((row) =>
     embedded && row.embeddingModel === embedded.fingerprint && row.relevance !== null ? Number(row.relevance) : null
   )
-  const asked = contentTokens(question)
-  const lexical = rows.map((row) => jaccardSimilarity(asked, contentTokens(row.content)))
+  // German-preserving: the ASCII fold splits „Mödling" into „m" and „dling", and names
+  // are what this channel exists for. Both sides are tokenized here, so no index binds it.
+  const asked = contentTokens(question, normalizeContentGerman)
+  const lexical = rows.map((row) => jaccardSimilarity(asked, contentTokens(row.content, normalizeContentGerman)))
   const fused = fuseHybridRelevance(dense, lexical)
 
   // Raw values are not runtime-validated: coerced at the boundary.

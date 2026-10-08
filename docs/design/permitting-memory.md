@@ -101,7 +101,7 @@ Request:
 ```json
 {
   "organizationId": "org_…",
-  "documentId": "uuid",
+  "documentId": "uuid" (optional),
   "collection": "proj_…",
   "fileName": "Baubescheid_Baden_2020.pdf",
   "model": "…",
@@ -118,9 +118,14 @@ Request:
 ```
 
 - The BFF finds the document by `documentId` AND `collection` in that
-  organization (as `document-exists`); unknown → `{ stored: false }`, 200.
-- `record: null` deletes the document's record (the document is no longer a
-  Bescheid, or nothing was extracted).
+  organization (as `document-exists`), or, without an id, by `collection` AND
+  `fileName` among live documents (a live name is unique per collection: the
+  backfill only knows the name); unknown, binned or project-less →
+  `{ stored: false }`, 200.
+- `record: null` deletes the document's record (the model judged it no
+  notice) and answers `{ stored: false }`. The pen never sends null for a
+  FAILED extraction: an outage must not erase a stored record. A document
+  re-typed away from Bescheid keeps its record until a follow-up drops it.
 - Otherwise it replaces the document's record and requirements in one
   transaction, sets `restricted_folder_ids` from the collection
   (`sourceFoldersOfCollections`), and embeds the requirements with
@@ -137,7 +142,9 @@ channel over `content`, `evidence`, the record's `authority` and
 `municipality`), over the same scopes as decisions: the searched page's
 projects, filtered by the reader's folder clearance exactly as
 `memoryVisibleTo` filters memory (open, or `restricted_folder_ids <@
-readable`). Records are returned with only their matching requirements (≤ 6
+readable`). The token channel keeps German letters (`normalizeContentGerman`):
+folded to ASCII, „Mödling" became „m" + „dling" and matched every
+requirement in metres. Records are returned with only their matching requirements (≤ 6
 each), best first.
 
 ```json
