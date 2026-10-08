@@ -24,9 +24,14 @@ browser                     BFF (frontend)                     object store     
 ```
 
 - **Upload.** `lib/mail-import/client.ts` sends the parts the server does not
-  hold yet, three at a time, retrying a failed part; a send that broke off is
-  resumed by choosing the same file again (`GET …/[importId]` lists the held
-  parts). Closing the dialog does not stop a send; leaving the page does.
+  hold yet, three at a time. A failed part is retried for fifteen minutes,
+  waiting while the browser is offline, so a Wi-Fi roam or a closed lid does
+  not end a send of hours. The send is held by the tab, not the dialog
+  (`features/documents/lib/mail-import-send.ts`): the person can go on working
+  in Piloti, and only closing the tab stops it, after the browser asks. A send
+  that broke off is resumed by choosing the same file again (`GET …/[importId]`
+  lists the held parts); a file whose modification time changed since is
+  refused, because its parts would not fit the ones already sent.
 - **Reading.** `aiq_api.mail_archive` opens the staged object through
   `RangeFile`, a file object over presigned range GETs with a 64 MiB block cache.
   Items are numbered depth-first over the mail tree, so a position is a cursor.
@@ -40,6 +45,9 @@ browser                     BFF (frontend)                     object store     
 - **Retries.** A passing failure hands the import to a fresh job that waits 1,
   5, 15, 30, 60, then 120 minutes; filing a mail resets the streak. The
   background-work sweep gives an import whose job vanished a new one.
+- **Sharing the job pool.** An import runs for hours, so its claim yields its
+  slot every ten minutes between slices (`workers/jobs/runner.js`), and the
+  fair claim lets other organizations' work in before it continues.
 
 ## What a mail becomes
 

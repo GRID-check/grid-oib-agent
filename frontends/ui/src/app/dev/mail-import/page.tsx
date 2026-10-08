@@ -112,6 +112,8 @@ function state(variant: string): UseMailImports {
     loadError: false,
     sending: null,
     sendError: null,
+    cancelError: false,
+    dismissErrors: () => {},
     start: noop,
     resume: noop,
     cancel: async () => true,
@@ -136,10 +138,17 @@ function state(variant: string): UseMailImports {
     return {
       ...base,
       list: { ...base.list!, imports: [uploading, broken, ...HISTORY.slice(1, 3)] },
-      sending: { importId: 'imp-sending', filename: uploading.filename, sentBytes: 3_960_000_000, totalBytes: uploading.sizeBytes },
+      sending: {
+        projectId: PROJECT,
+        importId: 'imp-sending',
+        filename: uploading.filename,
+        sentBytes: 3_960_000_000,
+        totalBytes: uploading.sizeBytes,
+        phase: 'sending',
+      },
     }
   }
-  if (variant === 'error') return { ...base, sendError: 'A part of the archive could not be sent.' }
+  if (variant === 'error') return { ...base, sendError: 'connection' }
   return base
 }
 

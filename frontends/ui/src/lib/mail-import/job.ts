@@ -335,10 +335,11 @@ export interface MailImportSweepResult {
 
 /**
  * Settle imports nothing will move on: abort an upload nobody finished within
- * two days, and give a queued or running import that has made no progress for
- * half an hour and has no live job a new one (the streak decides when to stop). And delete the staged archive of an import that ended
- * while its deletion failed. Discovery under the platform bypass; each
- * settling inside its own organization. Bounded, like every housekeeping step.
+ * two days; give a queued or running import that has made no progress for half
+ * an hour and has no live job a new one (the streak decides when to stop); and
+ * delete the staged archive of an import that ended while its deletion failed.
+ * Discovery under the platform bypass, each settling inside its own
+ * organization. Bounded, like every housekeeping step.
  */
 export async function sweepStaleMailImports(now: Date = new Date(), batch = 50): Promise<MailImportSweepResult> {
   const uploadsBefore = new Date(now.getTime() - STALE_UPLOAD_HOURS * 3_600_000)

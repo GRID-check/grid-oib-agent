@@ -40,7 +40,8 @@ describe('sendMailArchive', () => {
     const parts = calls.filter((call) => call.url.includes('/parts/'))
     expect(parts.map((call) => [call.url.split('/').pop(), call.size]).sort()).toEqual([['1', 4], ['2', 4], ['3', 2]])
     expect(calls.at(-1)?.url).toBe('/api/projects/p1/mail-imports/imp_1/complete')
-    expect(progress).toHaveBeenLastCalledWith({ sentBytes: 10, totalBytes: 10 })
+    expect(progress).toHaveBeenCalledWith({ sentBytes: 10, totalBytes: 10, phase: 'sending' })
+    expect(progress).toHaveBeenLastCalledWith({ sentBytes: 10, totalBytes: 10, phase: 'joining' })
     expect(view).toMatchObject({ status: 'queued' })
   })
 
@@ -51,7 +52,7 @@ describe('sendMailArchive', () => {
     await sendMailArchive('p1', plan({ uploadedParts: [1, 3] }), file, progress)
 
     expect(calls.filter((call) => call.url.includes('/parts/')).map((call) => call.url.split('/').pop())).toEqual(['2'])
-    expect(progress).toHaveBeenNthCalledWith(1, { sentBytes: 6, totalBytes: 10 })
+    expect(progress).toHaveBeenNthCalledWith(1, { sentBytes: 6, totalBytes: 10, phase: 'sending' })
   })
 
   it('sends a part again after a server error', async () => {
@@ -67,6 +68,28 @@ describe('sendMailArchive', () => {
     await vi.runAllTimersAsync()
     await sending
     expect(calls.filter((call) => call.url.endsWith('/parts/2'))).toHaveLength(2)
+    vi.useRealTimers()
+  })
+
+  it('keeps a part going through an outage of minutes, and gives up only after its budget', async () => {
+    vi.useFakeTimers()
+    let failures = 12 // about five minutes of refused connections at the capped backoff
+    const calls = stubFetch((url) => {
+      if (url.endsWith('/complete')) return Response.json({})
+      if (url.endsWith('/parts/1') && failures-- > 0) throw new TypeError('Failed to fetch')
+      return new Response(null, { status: 200 })
+    })
+
+    const sending = sendMailArchive('p1', plan(), file, () => {})
+    await vi.runAllTimersAsync()
+    await sending
+    expect(calls.filter((call) => call.url.endsWith('/parts/1'))).toHaveLength(13)
+
+    stubFetch((url) => (url.endsWith('/parts/1') ? new Response(null, { status: 503 }) : new Response(null, { status: 200 })))
+    const failing = sendMailArchive('p1', plan(), file, () => {})
+    const settled = expect(failing).rejects.toMatchObject({ code: 'PART_FAILED', status: 503 })
+    await vi.runAllTimersAsync()
+    await settled
     vi.useRealTimers()
   })
 

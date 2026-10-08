@@ -11,12 +11,13 @@
  */
 
 import type { JSX } from 'react'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { AlertTriangle, CheckCircle2, FolderOpen, Loader2, Mail, Upload, XCircle } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,7 @@ import { formatBytes } from '@/lib/format'
 import { MAIL_ARCHIVE_EXTENSIONS } from '@/lib/mail-import/config'
 import type { MailImportView } from '@/lib/mail-import/types'
 import { useMailImports, type UseMailImports } from '../hooks/use-mail-imports'
+import { isSameMailImportFile } from '../lib/mail-import-send'
 
 type Translate = ReturnType<typeof useTranslations>
 
@@ -73,11 +75,20 @@ export function MailImportDialogView({
   const inputRef = useRef<HTMLInputElement>(null)
   const [resumeTarget, setResumeTarget] = useState<MailImportView | null>(null)
   const [pickError, setPickError] = useState<string | null>(null)
+  const [cancelTarget, setCancelTarget] = useState<MailImportView | null>(null)
+  const sendingRef = useRef<HTMLDivElement>(null)
   const maxSize = state.list?.maxSizeBytes ?? null
+  const isSending = state.sending !== null
+
+  // The button that started the send is gone once it runs; keep focus in the dialog.
+  useEffect(() => {
+    if (isSending) sendingRef.current?.focus()
+  }, [isSending])
 
   const choose = (target: MailImportView | null) => {
     setResumeTarget(target)
     setPickError(null)
+    state.dismissErrors()
     inputRef.current?.click()
   }
 
@@ -119,15 +130,25 @@ export function MailImportDialogView({
         </Alert>
 
         {state.sending ? (
-          <div className="space-y-2" data-testid="mail-import-sending">
+          <div ref={sendingRef} tabIndex={-1} className="space-y-2 outline-none" data-testid="mail-import-sending">
             <p className="text-sm font-medium">{state.sending.filename}</p>
-            <Progress value={(state.sending.sentBytes / Math.max(1, state.sending.totalBytes)) * 100} />
-            <p className="text-sm text-muted-foreground">
-              {t('mailImport.sending', {
-                sent: formatBytes(state.sending.sentBytes, locale),
-                total: formatBytes(state.sending.totalBytes, locale),
-              })}{' '}
-              {t('mailImport.sendingHint')}
+            <Progress
+              value={(state.sending.sentBytes / Math.max(1, state.sending.totalBytes)) * 100}
+              aria-label={t('mailImport.sendingLabel', { name: state.sending.filename })}
+            />
+            {/* Announced once per phase, not once per part. */}
+            <span className="sr-only" aria-live="polite">
+              {state.sending.phase === 'joining'
+                ? t('mailImport.joining')
+                : t('mailImport.sendingLabel', { name: state.sending.filename })}
+            </span>
+            <p className="text-sm text-muted-foreground" data-testid="mail-import-sending-status">
+              {state.sending.phase === 'joining'
+                ? t('mailImport.joining')
+                : `${t('mailImport.sending', {
+                    sent: formatBytes(state.sending.sentBytes, locale),
+                    total: formatBytes(state.sending.totalBytes, locale),
+                  })} ${t('mailImport.sendingHint')}`}
             </p>
           </div>
         ) : (
@@ -144,11 +165,12 @@ export function MailImportDialogView({
           </div>
         )}
 
-        {(pickError || state.sendError) && (
+        {(pickError || state.sendError || state.cancelError) && (
           <Alert variant="destructive" data-testid="mail-import-error">
             <AlertTriangle aria-hidden />
             <AlertDescription>
-              {pickError ?? t('mailImport.sendError', { reason: state.sendError ?? '' })}
+              {pickError ??
+                (state.sendError ? t(`mailImport.sendErrors.${state.sendError}`) : t('mailImport.cancelError'))}
             </AlertDescription>
           </Alert>
         )}
@@ -159,10 +181,26 @@ export function MailImportDialogView({
             projectId={projectId}
             state={state}
             onResume={(row) => choose(row)}
+            onCancel={setCancelTarget}
             t={t}
             locale={locale}
           />
         </section>
+
+        <ConfirmDialog
+          open={cancelTarget !== null}
+          onOpenChange={(next) => !next && setCancelTarget(null)}
+          title={t('mailImport.cancelConfirm.title')}
+          description={t('mailImport.cancelConfirm.description', { name: cancelTarget?.filename ?? '' })}
+          confirmLabel={t('mailImport.cancelConfirm.confirm')}
+          cancelLabel={t('mailImport.cancelConfirm.keep')}
+          tone="destructive"
+          confirmTestId="mail-import-cancel-confirm"
+          onConfirm={async () => {
+            if (cancelTarget) await state.cancel(cancelTarget)
+            setCancelTarget(null)
+          }}
+        />
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -178,12 +216,14 @@ function ImportList({
   projectId,
   state,
   onResume,
+  onCancel,
   t,
   locale,
 }: {
   projectId: string
   state: UseMailImports
   onResume: (row: MailImportView) => void
+  onCancel: (row: MailImportView) => void
   t: Translate
   locale: string
 }): JSX.Element {
@@ -205,7 +245,7 @@ function ImportList({
           row={row}
           sendingThis={state.sending?.importId === row.id}
           onResume={() => onResume(row)}
-          onCancel={() => void state.cancel(row)}
+          onCancel={() => onCancel(row)}
           t={t}
           locale={locale}
         />
@@ -254,7 +294,11 @@ function ImportRow({
           {!row.ownedByViewer && row.startedBy.email && ` · ${t('mailImport.startedBy', { email: row.startedBy.email })}`}
         </ItemDescription>
         {row.status === 'importing' && total ? (
-          <Progress className="mt-2" value={(row.processedItems / total) * 100} />
+          <Progress
+            className="mt-2"
+            value={(row.processedItems / total) * 100}
+            aria-label={t('mailImport.importingLabel', { name: row.filename })}
+          />
         ) : null}
         {row.errorCode && (
           <p className="mt-1 text-xs break-words text-destructive">
@@ -268,19 +312,34 @@ function ImportRow({
       <ItemActions>
         {row.folderId && (
           <Button asChild size="sm" variant="ghost" className="gap-1.5">
-            <Link href={`/app/projects/${projectId}/files?folder=${encodeURIComponent(row.folderId)}`}>
+            <Link
+              href={`/app/projects/${projectId}/files?folder=${encodeURIComponent(row.folderId)}`}
+              aria-label={t('mailImport.openFolderNamed', { name: row.filename })}
+            >
               <FolderOpen className="size-3.5" aria-hidden />
               {t('mailImport.openFolder')}
             </Link>
           </Button>
         )}
         {resumable && (
-          <Button size="sm" variant="outline" onClick={onResume} data-testid="mail-import-resume">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onResume}
+            aria-label={t('mailImport.resumeNamed', { name: row.filename })}
+            data-testid="mail-import-resume"
+          >
             {t('mailImport.resume')}
           </Button>
         )}
         {row.cancellable && (
-          <Button size="sm" variant="ghost" onClick={onCancel} data-testid="mail-import-cancel">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onCancel}
+            aria-label={t('mailImport.cancelNamed', { name: row.filename })}
+            data-testid="mail-import-cancel"
+          >
             {t('mailImport.cancel')}
           </Button>
         )}
@@ -328,6 +387,9 @@ function pickRefusal(
       name: resumeTarget.filename,
       size: formatBytes(resumeTarget.sizeBytes, locale),
     })
+  }
+  if (resumeTarget && !isSameMailImportFile(resumeTarget.id, file)) {
+    return t('mailImport.resumeChanged', { name: resumeTarget.filename })
   }
   const lower = file.name.toLowerCase()
   if (!MAIL_ARCHIVE_EXTENSIONS.some((extension) => lower.endsWith(extension))) {

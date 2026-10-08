@@ -19,6 +19,7 @@ import {
   type MailImportStatus,
   type NewMailImport,
 } from '@/lib/db/schema'
+import { isUuid } from '@/lib/ids'
 
 /** One project's imports shown at once. Newest first; older ones are history. */
 export const MAIL_IMPORT_LIST_LIMIT = 20
@@ -34,6 +35,8 @@ export async function insertMailImport(values: NewMailImport): Promise<MailImpor
 }
 
 export async function findMailImport(organizationId: string, projectId: string, id: string): Promise<MailImport | null> {
+  // A malformed id names no import; asked as is, Postgres refuses the cast and the route answers 500.
+  if (!isUuid(id)) return null
   const [row] = await withTenant({ organizationId }, () =>
     getDb()
       .select()
