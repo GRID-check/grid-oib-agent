@@ -273,6 +273,13 @@ def list_data_sources() -> dict[str, Any]:
     return _api_request("GET", "/v1/data_sources")
 
 
+def _tls_context() -> ssl.SSLContext:
+    """The platform's verifying TLS context, refusing anything older than TLS 1.2."""
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
 class _ChatSocket:
     """A minimal RFC 6455 client: JSON text messages in and out, which is all the chat socket carries."""
 
@@ -281,7 +288,7 @@ class _ChatSocket:
         secure = parsed.scheme == "https"
         port = parsed.port or (_HTTPS_PORT if secure else _HTTP_PORT)
         raw = socket.create_connection((parsed.hostname, port), timeout)
-        self._sock = ssl.create_default_context().wrap_socket(raw, server_hostname=parsed.hostname) if secure else raw
+        self._sock = _tls_context().wrap_socket(raw, server_hostname=parsed.hostname) if secure else raw
         key = base64.b64encode(os.urandom(_WS_KEY_BYTES)).decode("ascii")
         target = f"{parsed.path}?{parsed.query}" if parsed.query else parsed.path
         self._sock.sendall(

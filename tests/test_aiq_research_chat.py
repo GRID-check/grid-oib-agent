@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import ssl
 import sys
 import threading
 from collections.abc import Callable
@@ -147,3 +148,11 @@ def test_a_server_that_does_not_speak_wire_v2_is_named(monkeypatch):
 
     with _chat_role(handler, monkeypatch), pytest.raises(RuntimeError, match="wire v2 hello"):
         aiq.chat_request("?")
+
+
+def test_a_secure_socket_refuses_tls_older_than_1_2():
+    context = aiq._tls_context()
+
+    assert context.minimum_version == ssl.TLSVersion.TLSv1_2
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname
