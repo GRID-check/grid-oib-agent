@@ -85,8 +85,7 @@ import { findProjectIdByCollectionName } from '@/lib/projects/repository'
  * authorizes a job by the scope it signs (`aiq_api/jobs/access.py`). It lets the
  * owner through on the bearer alone and anyone else only inside the project or
  * conversation this tier checked, so a teammate's stream, status, report and
- * cancel all need it. Without it the backend's enforcement middleware refuses
- * a job route outright for an authenticated caller (REQUIRE_AUTH=true).
+ * cancel all need it. Without it the caller reaches only the jobs it owns.
  *
  * Built by `signJobRequestContext` (`@/lib/jobs/request-envelope`), the one
  * builder every job request uses. Always returns at least the envelope headers

@@ -392,7 +392,7 @@ def test_job_routes_under_auth_through_the_middleware_chain(db_url, auth_on, mon
     The owner reaches the job with their envelope; a project teammate reads and
     steers it with an envelope signed for the project; a conversation viewer
     reads it but cannot steer it; another project's member gets 404. A JWT call
-    with no envelope is refused at the middleware. A caller with no user token
+    with no envelope reaches only what its caller owns. A caller with no user token
     and no envelope reaches an internal route when it sends the internal token,
     and is refused without it.
     """
@@ -426,7 +426,10 @@ def test_job_routes_under_auth_through_the_middleware_chain(db_url, auth_on, mon
     assert call("GET", "/v1/jobs/async/job/job-1", TEAMMATE, conversation_envelope) == 200
     assert call("POST", "/v1/jobs/async/job/job-1/write-now", TEAMMATE, conversation_envelope) == 404
     assert call("GET", "/v1/jobs/async/job/job-1", TEAMMATE, other_project_envelope) == 404
-    assert call("GET", "/v1/jobs/async/job/job-1", OWNER, None) == 403
+    # No envelope, as from a frontend before ADR-0084: the owner still reaches
+    # its job on the bearer alone, and nobody else does.
+    assert call("GET", "/v1/jobs/async/job/job-1", OWNER, None) == 200
+    assert call("GET", "/v1/jobs/async/job/job-1", TEAMMATE, None) == 404
 
     internal = client.get(
         "/v1/internal/jobs/job-missing/outcome",

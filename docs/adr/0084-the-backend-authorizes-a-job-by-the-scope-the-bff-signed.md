@@ -93,9 +93,12 @@ The BFF sends the envelope on every job request, built by
 `signJobRequestContext` (`frontends/ui/src/lib/jobs/request-envelope.ts`). The
 async-job proxy sends it on GET, POST and DELETE, the run controls in
 `lib/runs/service.ts` send it, and the research-runs listing names its project
-by `projectId` so the proxy checks it before signing. Because the job routes
-now decide on the envelope, they left the envelope middleware's exempt list:
-a WorkOS-authenticated call without one is refused. The internal-token routes
+by `projectId` so the proxy checks it before signing. The job routes stay on
+the envelope middleware's exempt list, because they authorize by themselves:
+a call without an envelope reaches only what its caller owns, which is what it
+reached before. That is also what makes the upgrade order-free: a frontend from
+before this decision signs POST only, and while a rollout runs it beside the
+new backend its users keep reaching their own runs. The internal-token routes
 are unchanged. With `REQUIRE_AUTH` off nothing is enforced, as before.
 
 **Why a conversation viewer may read and not steer.** `viewer` on a thread is
@@ -141,8 +144,9 @@ thread grant is not that permission.
   which reads the TypeScript constant.
 * `frontends/aiq_api/tests/test_research_runs.py`: the listing returns own plus
   project or conversation runs and never another organization's.
-* `frontends/aiq_api/tests/test_context_envelope.py`: no job read or control is
-  exempt from the envelope.
+* `frontends/aiq_api/tests/test_context_envelope.py`: the job reads and controls
+  are exempt from the presence check, and `test_job_access.py`'s middleware-chain
+  test that a call without an envelope reaches its owner's job and nobody else's.
 * `frontends/ui/src/app/api/jobs/async/[...path]/route.spec.ts`: every method
   sends an envelope that `verifyGridRequestContextEnvelope` accepts and that
   names the checked project, and the listing forwards only the signed project.

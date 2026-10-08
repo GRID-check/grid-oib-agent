@@ -92,10 +92,11 @@ class TestPathMatching:
     def test_job_submit_is_not_covered_by_the_agent_listing(self):
         assert not _path_matches("/v1/jobs/async/submit", ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES)
 
-    def test_no_job_read_or_control_is_exempt(self):
-        # They authorize a job by the scope the envelope signs (ADR-0084).
+    def test_job_reads_and_controls_authorize_by_themselves(self):
+        # Without an envelope they let a caller reach only its own jobs (ADR-0084),
+        # so a frontend from before it keeps working while a rollout runs both.
         for path in ("/v1/jobs/async/jobs", "/v1/jobs/async/job/abc", "/v1/jobs/async/job/abc/cancel"):
-            assert not _path_matches(path, ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES), path
+            assert _path_matches(path, ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES), path
 
     def test_websocket_has_no_exemption(self):
         assert not _path_matches("/websocket", ENVELOPE_EXEMPT_WEBSOCKET_PATH_PREFIXES)
@@ -168,11 +169,6 @@ class TestDenyByDefault:
             "/generate/stream",
             "/v1/jobs/async/submit",
             "/v1/internal/skills/submit",
-            # The job routes decide on the envelope's scope (ADR-0084).
-            "/v1/jobs/async/jobs",
-            "/v1/jobs/async/job/job-1",
-            "/v1/jobs/async/job/job-1/stream",
-            "/v1/jobs/async/job/job-1/cancel",
             # A path a future release adds is closed until someone decides.
             "/v1/some/new/workflow",
             "/v1/admin/oib/sync",

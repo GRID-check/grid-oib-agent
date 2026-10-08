@@ -120,16 +120,20 @@ logger = logging.getLogger(__name__)
 #   - /v1/drafts                       the draft preview (`draft-preview.ts`).
 #
 # The job reads and controls (`/v1/jobs/async/job/...`) and the run listing
-# (`/v1/jobs/async/jobs`) used to be here. They are not any more: their
-# routes authorize a job by the scope the envelope signs (ADR-0084), and the
-# BFF sends one on every method, so a JWT call without one is a caller this
-# tier cannot place.
+# (`/v1/jobs/async/jobs`) are here for a different reason: they authorize by
+# themselves (ADR-0084). Without an envelope a caller reaches only the jobs it
+# owns; the envelope can only widen that to a signed project or conversation.
+# So the presence check adds nothing on them, and requiring it would break a
+# frontend from before ADR-0084, which signs POST only, for as long as a
+# rollout runs the two side by side.
 ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES: tuple[str, ...] = (
     "/health",
     "/v1/collections",
     "/v1/documents",
     "/v1/data_sources",
     "/v1/jobs/async/agents",
+    "/v1/jobs/async/job",
+    "/v1/jobs/async/jobs",
     "/v1/drafts",
 )
 # The chat socket is the only WebSocket, and it runs agent turns: no exemption.
