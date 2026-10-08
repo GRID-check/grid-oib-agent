@@ -83,7 +83,7 @@ async function anyRoleAdministers(organizationId: string, roles: readonly string
  * long. Only when WorkOS cannot be asked is the token's claim the answer, as it
  * is for the roles.
  *
- * Someone who reads a CLOSED project only because it is closed (ADR-0088: every
+ * Someone who reads a CLOSED project only because it is closed (ADR-0089: every
  * organization member may) clears what a member holding no role clears: the
  * folders open to everyone, and no folder with its own role list. Their roles
  * were never matched against this project's grants before it closed, and

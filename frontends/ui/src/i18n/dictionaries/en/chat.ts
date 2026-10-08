@@ -228,7 +228,7 @@ export const chat = {
     },
     grounding: { belegt: 'sourced', abgeleitet: 'derived', offen: 'unsourced' },
     clarify: 'Clarify',
-    /** Under the matrix in a closed project, where „Clarify“ would be (ADR-0088). */
+    /** Under the matrix in a closed project, where „Clarify“ would be (ADR-0089). */
     clarifyClosed: 'Closed project: no new research to clarify open findings.',
     commissioned: 'Run commissioned',
     change: {

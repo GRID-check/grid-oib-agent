@@ -706,7 +706,7 @@ export async function createProjectMemoryItemForProject(
     .limit(1)
   if (!project) return null
   // The agent's door has no session, so the seam in `requireProjectAccess`
-  // never sees it: a closed project's memory is read-only here too (ADR-0088).
+  // never sees it: a closed project's memory is read-only here too (ADR-0089).
   if (isProjectClosed(project)) throw projectClosedError()
 
   const { restrictedCollections, ...rest } = values

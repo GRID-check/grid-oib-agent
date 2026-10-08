@@ -2,7 +2,7 @@
 
 /**
  * The project a page is inside, as every surface below the project layout may
- * need it: its name and whether it is closed (ADR-0088). Provided once by the
+ * need it: its name and whether it is closed (ADR-0089). Provided once by the
  * project layout, from the server's own read, so a file list, a preview or a
  * chat source chip can say „abgeschlossen" without asking again.
  *

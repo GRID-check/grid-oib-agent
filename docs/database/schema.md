@@ -68,17 +68,17 @@ export const projects = pgTable('projects', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID of creator |
 | `collection_name` | `text` | NOT NULL | Milvus collection name for this project's knowledge base |
 | `workos_resource_id` | `text` | UNIQUE | Optional WorkOS FGA resource ID |
-| `status` | `text` | NOT NULL, default `active`, CHECK `IN ('active','closed')` | ADR-0088, migration 0115. A closed project is read-only for files, folders, versions, the profile and project memory, and every organization member may read it |
+| `status` | `text` | NOT NULL, default `active`, CHECK `IN ('active','closed')` | ADR-0089, migration 0116. A closed project is read-only for files, folders, versions, the profile and project memory, and every organization member may read it |
 | `closed_at` | `timestamptz` | set exactly when `status = 'closed'` | When it was closed; cleared on reopen |
 | `closed_by` | `text` | set exactly when `status = 'closed'` | WorkOS user id of whoever closed it |
 | `deleted_at` | `timestamptz` | | Soft delete (ADR-0011) |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
-**Indexes:** `projects_org_deleted_created_idx` on `(organization_id, deleted_at, created_at)` — tenant list queries (migration `0014`). `projects_org_status_idx` on `(organization_id, status) WHERE deleted_at IS NULL` (migration 0115).
+**Indexes:** `projects_org_deleted_created_idx` on `(organization_id, deleted_at, created_at)` — tenant list queries (migration `0014`). `projects_org_status_idx` on `(organization_id, status) WHERE deleted_at IS NULL` (migration 0116).
 
 **Constraints (0115):** `projects_status_check`, and `projects_closed_state_check`: closed exactly when `closed_at` and `closed_by` are both set.
 
-**The closed-project guard (0115).** `grid_refuse_insert_into_closed_project()` runs `BEFORE INSERT` on `documents`, `project_folders`, `document_versions` and `project_memory`, and raises SQLSTATE `GPC01` when the row names a closed project. It reads the project row `FOR SHARE`, so a close and an insert serialize. Updates are not refused. The down migration refuses while any project is closed.
+**The closed-project guard (0116).** `grid_refuse_insert_into_closed_project()` runs `BEFORE INSERT` on `documents`, `project_folders`, `document_versions` and `project_memory`, and raises SQLSTATE `GPC01` when the row names a closed project. It reads the project row `FOR SHARE`, so a close and an insert serialize. Updates are not refused. The down migration refuses while any project is closed.
 
 ---
 

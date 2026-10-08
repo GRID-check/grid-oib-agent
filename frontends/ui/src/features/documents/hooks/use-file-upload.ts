@@ -71,7 +71,7 @@ const failureMessage = (error: unknown, fallback: string, projectClosed?: string
   if (error instanceof XhrUploadError) {
     try {
       const body: unknown = JSON.parse(error.responseText)
-      // A closed project (ADR-0088) is named in the reader's language: the
+      // A closed project (ADR-0089) is named in the reader's language: the
       // project closed while this tab was open.
       if (projectClosed && isProjectClosedBody(body)) return projectClosed
       const message = (body as { error?: unknown })?.error
