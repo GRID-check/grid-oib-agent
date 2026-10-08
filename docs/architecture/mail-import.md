@@ -64,10 +64,16 @@ The subject is in the note, never in a name. A filename is unique per project,
 so a name that is still taken is numbered (`… – Plan (2).pdf`).
 
 **Not filed, and named in the import's list:** attached mails (a forward's
-original), files the upload path refuses (type, size), and messages or
-attachments damaged in the archive. Counted but not named: items that are not
-mail (appointments, contacts, tasks). Not counted: a mail's inline pictures
-(signature logos).
+original), files the upload path refuses (type, size, and the office's name
+screening,
+[ADR-0086](../adr/0086-uploads-are-screened-locally-and-matches-wait-in-quarantine.md),
+which reads the Outlook folder path as part of the name), and messages or
+attachments damaged in the archive. The import never releases a screened file:
+that release is a person's per-file decision in the upload dialog, and a job has
+no person to ask. Every such refusal is a skip, never a failed slice: a refusal
+left to throw is retried until the import ends `stopped`. Counted but not
+named: items that are not mail (appointments, contacts, tasks). Not counted: a
+mail's inline pictures (signature logos).
 
 ## Endings
 

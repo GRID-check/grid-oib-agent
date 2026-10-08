@@ -34,6 +34,7 @@ import { findLiveDocumentByFilename } from '@/lib/documents/repository'
 import { assertFileSizeAllowed, assertUploadTypeAllowed, uploadDocument } from '@/lib/documents/service'
 import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
 import { createProjectFolder, ensureProjectFolderPaths } from '@/lib/projects/folder-service'
+import { ScreenedUploadError } from '@/lib/upload-screening/service'
 import { AttachmentUnreadableError, readArchiveAttachment, type ArchiveMail } from './archive-client'
 import {
   fileMail,
@@ -174,6 +175,35 @@ describe('fileMail', () => {
     await fileMail(await context({ inflightPosition: 7, inflightFolderId: 'folder_earlier' }), twins)
     expect(uploadedNames()).toEqual([`${LEAF} – scan.pdf`, `${LEAF} – scan (2).pdf`, `${LEAF}.md`])
     vi.mocked(findLiveDocumentByFilename).mockReset()
+  })
+
+  it('skips a file the office’s name screening holds back and carries on with the next one', async () => {
+    const two: ArchiveMail = {
+      ...mail,
+      attachments: [
+        { index: 0, filename: 'Vertrag.pdf', content_type: 'application/pdf', size: 3, inline: false, embedded_message: false },
+        { index: 1, filename: 'Plan.pdf', content_type: 'application/pdf', size: 3, inline: false, embedded_message: false },
+      ],
+    }
+    vi.mocked(uploadDocument).mockRejectedValueOnce(
+      new ScreenedUploadError([{ term: 'Vertrag', segment: `${LEAF} – Vertrag.pdf`, kind: 'file' }]),
+    )
+
+    const result = await fileMail(await context(), two)
+    expect(result).toMatchObject({
+      filesFiled: 1,
+      filesSkipped: 1,
+      skipped: [{ mail: LEAF, file: 'Vertrag.pdf', reason: 'screened' }],
+    })
+    expect(uploadedNames()).toEqual([`${LEAF} – Vertrag.pdf`, `${LEAF} – Plan.pdf`, `${LEAF}.md`])
+  })
+
+  it('never releases a screened name on the person’s behalf', async () => {
+    await fileMail(await context(), mail)
+    expect(uploadDocument).toHaveBeenCalled()
+    for (const [, input] of vi.mocked(uploadDocument).mock.calls) {
+      expect(input).not.toHaveProperty('screeningRelease')
+    }
   })
 
   it('skips a damaged attachment and files the rest', async () => {
