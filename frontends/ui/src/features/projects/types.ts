@@ -15,7 +15,7 @@ export interface ProjectOverviewData {
   id: string
   name: string
   collectionName: string
-  /** `active` or `closed` (ADR-0086). */
+  /** `active` or `closed` (ADR-0088). */
   status: ProjectStatus
   /** ISO timestamp; set when closed. */
   closedAt: string | null
@@ -37,7 +37,7 @@ export interface ProjectOverviewData {
   recentDocuments: OverviewDocument[]
 }
 
-/** A folder whose own access list names only roles that no longer exist (ADR-0085). */
+/** A folder whose own access list names only roles that no longer exist (ADR-0087). */
 export interface FolderWithoutRole {
   id: string
   name: string

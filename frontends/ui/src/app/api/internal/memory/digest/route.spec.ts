@@ -251,7 +251,7 @@ describe('what a person decided about the drafts this conversation filed', () =>
 })
 
 /**
- * ADR-0084, ADR-0085: restricted memory names its source folders and is judged
+ * ADR-0086, ADR-0087: restricted memory names its source folders and is judged
  * at read time. An interactive chat turn (one that sends the restricted
  * collections it may draw on) is served the notes whose folders its ASKER may
  * read now, each admitted for the conversation before it is printed; any other

@@ -92,7 +92,7 @@ const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
   if (url === '/api/knowledge-base') {
     return Promise.resolve(
       jsonResponse({
-        files: [{ fileName: 'oib-rl_2.pdf', state: 'ingested', origin: 'corpus' }],
+        files: [{ fileName: 'oib-rl_2.pdf', state: 'ingested' }],
       })
     )
   }

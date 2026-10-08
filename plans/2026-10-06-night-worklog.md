@@ -1,6 +1,6 @@
 # Night of 6–7 Oct 2026: from one PR to a reviewed stack
 
-> **Numbers as written.** This branch's migrations 0104–0110 are 0107–0113 since develop took 0104–0106 (#847), and its ADR-0079, 0080, 0081 are ADR-0083, 0084, 0085. Older numbers here (0106–0113) are those before the stack's collapse; [`database/schema.md`](../docs/database/schema.md) has the numbers as shipped.
+> **Numbers as written.** This branch's migrations 0104–0111 are 0108–0114 since develop took 0104–0106 (#847), and its ADR-0079, 0080, 0081 are ADR-0085, 0086, 0087. Older numbers here (0106–0114) are those before the stack's collapse; [`database/schema.md`](../docs/database/schema.md) has the numbers as shipped.
 
 The product owner's request (1 Oct, restated 6 Oct 18:00), verbatim in
 [`2026-10-01-upload-governance-worklog.md`](2026-10-01-upload-governance-worklog.md)
@@ -28,7 +28,7 @@ make sure everything is addressed".
 - PR #838 head `8bb2200d3`: develop merged twice today, CI fully green (first full
   run since 2 Oct: a conflict with develop had kept `pull_request` workflows off).
 - Papierkorb: finished on the old structure, being ported onto the merged code
-  (an agent; the folder-bin migration becomes 0113).
+  (an agent; the folder-bin migration becomes 0114).
 - Open from the last verifier round: card provenance, the revision task's
   `sourceText`, runs and tasks refused instead of inheriting a restriction,
   `shown_notes` keyed by collection, `requireProjectAccess` reading the admin bit
@@ -51,5 +51,5 @@ make sure everything is addressed".
 | 19:10 | Launched: workflow `leak-and-gap-fixes-wave-a` (6 fix groups, each adversarially verified, repaired if refuted); cloud session for ticket 1 (4 stacked slices); cloud session for ticket 3 (cross-project tools) | `wf_52c08b78-221`, `session_01VE6X4R4NUqQFxgqPCPDMhK`, `session_01JQBjCfCWbQEqJzaLTSs1RR` |
 | 19:40 | Answer suite, before (develop `45c4feb0d`) and after (`8bb2200d3`), 6 core questions × 3 runs, public OIB 2023 corpus (the production corpus is not in the container; same corpus both sides): no regression. Median wall 25.6 s → 27.7 s, reasoning tokens 1309 → 1324.5, all ranges overlap; the one wobble (treppenhaus 4/6 checks) re-ran 6× per side at 6/6 both | `scratchpad/suite/{before,after}/report.md` |
 | 19:45 | Ratchet from the suite run: from a worktree the venv's editable `aiq_api` loaded the main checkout's code and every turn died as a 0.0 s run. `census.source_packages` now links and checks the frontend NAT plugins too; the new test fails without it (1/42) | `fix(eval)` commit |
-| 20:05 | Split designed: 18 PRs (00 eval fix, 01 cp1252, 02 chat-upgrade line (conditional), 03 Langfuse, 04 ingest screening, 05 upload screening + quarantine, 06 batches + inbox summary, 07 chat screening, 08 custom roles, 09–10 folder access (dormant model, then the switch), 11–12 restricted chats (dormant refusals, then agent admission), 13 restricted memory, 14 lifecycle, 15 download log, 16 docs, 17 Papierkorb), each under 100 paths. Migrations collapse to the final design (0104–0110), proved by a schema-dump oracle against the old chain. Method: one cut tree, then peel PRs off the top so every PR is one commit whose tree is exactly its tip, and the bottom equals develop. CI on stacked PRs: `"claude/**"` added to the CI and Security triggers as the bottom PR of the stack (the workflow is read from each PR's merge commit) | `scratchpad/split/split-plan.md` |
+| 20:05 | Split designed: 18 PRs (00 eval fix, 01 cp1252, 02 chat-upgrade line (conditional), 03 Langfuse, 04 ingest screening, 05 upload screening + quarantine, 06 batches + inbox summary, 07 chat screening, 08 custom roles, 09–10 folder access (dormant model, then the switch), 11–12 restricted chats (dormant refusals, then agent admission), 13 restricted memory, 14 lifecycle, 15 download log, 16 docs, 17 Papierkorb), each under 100 paths. Migrations collapse to the final design (0104–0111), proved by a schema-dump oracle against the old chain. Method: one cut tree, then peel PRs off the top so every PR is one commit whose tree is exactly its tip, and the bottom equals develop. CI on stacked PRs: `"claude/**"` added to the CI and Security triggers as the bottom PR of the stack (the workflow is read from each PR's merge commit) | `scratchpad/split/split-plan.md` |
 | 20:05 | develop merged again (#850, ZIP uploads): ZIPs are unpacked in the browser and now go through the upload screening; a spec builds a real archive and proves a payslip folder and a fee note inside are excluded before anything is sent. Shared node_modules had fflate 0.4.9 where develop requires ^0.8.3; reinstalled from the lockfile | `7c0ebfa16` |

@@ -63,8 +63,26 @@ def test_the_default_reader_exports_to_the_collector_over_otlp_http():
         assert type(reader._exporter).__name__ == "OTLPMetricExporter"
         assert reader._exporter._endpoint == "http://otel-collector:4318/v1/metrics"
     finally:
-        grid_metrics.shutdown_meter_provider()
+        provider.shutdown()
 
 
-def test_shutdown_without_a_provider_is_a_no_op():
-    grid_metrics.shutdown_meter_provider()
+async def test_the_provider_outlives_the_workflows_that_install_it():
+    # The research worker builds a workflow, and so enters the logging method,
+    # once per job. A provider stopped when the first job's workflow closed
+    # could not be replaced (the global is set once), so every later job
+    # measured into a dead one.
+    from aiq_agent.observability.otlp_logging_method import OtlpLoggingMethodConfig
+    from aiq_agent.observability.otlp_logging_method import otlp_logging_method
+
+    endpoint = "http://otel-collector:4318/v1/traces"
+    reader = InMemoryMetricReader()
+    provider = grid_metrics.install_meter_provider(endpoint, reader=reader)
+    try:
+        for _job in range(2):
+            async with otlp_logging_method(OtlpLoggingMethodConfig(endpoint=endpoint), None):
+                pass
+        provider.get_meter("test").create_counter("grid.test").add(1)
+
+        assert reader.get_metrics_data() is not None
+    finally:
+        provider.shutdown()

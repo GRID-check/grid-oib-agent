@@ -245,7 +245,7 @@ describe('AccessOverview — the named exceptions', () => {
   })
 })
 
-describe('AccessOverview — someone who can no longer read what the chat drew on (ADR-0085)', () => {
+describe('AccessOverview — someone who can no longer read what the chat drew on (ADR-0087)', () => {
   test('says so on that person’s row, and on nobody else’s', () => {
     const lost = state().entries.map((candidate) =>
       candidate.person.userId === 'u-anna' ? { ...candidate, lostAccess: true } : { ...candidate, lostAccess: false },

@@ -1,4 +1,4 @@
-"""A tool round's restricted content is admitted before the model reads it (ADR-0084, ADR-0085).
+"""A tool round's restricted content is admitted before the model reads it (ADR-0086, ADR-0087).
 
 Through the compiled graph, because the admission sits in the tools node between
 the tool and every reader of its result: the source capture, the transcript the

@@ -701,7 +701,7 @@ describe('fireScheduledJob', () => {
     expect(vi.mocked(repository.insertRun).mock.calls[0][0]).toMatchObject({ status: 'skipped' })
   })
 
-  it('skips a schedule whose project is closed, visibly, and submits nothing (ADR-0086)', async () => {
+  it('skips a schedule whose project is closed, visibly, and submits nothing (ADR-0088)', async () => {
     vi.mocked(findProjectInOrg).mockResolvedValueOnce({ collectionName: 'proj_x', status: 'closed' } as never)
 
     const result = await fireScheduledJob(definitionRow({ trigger: 'schedule', scheduleCron: '0 8 * * 1' }))
@@ -769,7 +769,7 @@ describe('submitAgentRun', () => {
     expect(submitted).not.toHaveProperty('documents')
   })
 
-  it('never searches a restricted folder: its report is filed for the whole project (ADR-0084)', async () => {
+  it('never searches a restricted folder: its report is filed for the whole project (ADR-0086)', async () => {
     // The real scope assembly, so the names on the wire are the ones checked.
     const actual = await vi.importActual<typeof import('@/lib/collection-scope')>('@/lib/collection-scope')
     vi.mocked(computeCollectionScope).mockImplementation(actual.computeCollectionScope)

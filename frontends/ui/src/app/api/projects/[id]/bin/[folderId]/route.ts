@@ -1,6 +1,6 @@
 /**
  * „Endgültig löschen": purge a folder from the Papierkorb now, with its
- * subfolders and documents (ADR-0085). Project admins. A legal hold refuses
+ * subfolders and documents (ADR-0087). Project admins. A legal hold refuses
  * it with 409 and never names the hold.
  */
 

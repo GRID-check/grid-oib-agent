@@ -7,7 +7,7 @@ vi.mock('@/lib/conversations/repository', () => ({
   listRecentMessagesWithCardDecisions: vi.fn(),
 }))
 
-// The office's chat screening (ADR-0083): the REAL matcher over Piloti's
+// The office's chat screening (ADR-0085): the REAL matcher over Piloti's
 // suggested list, no database. What the matcher does has its own spec.
 vi.mock('@/lib/upload-screening/service', async () => {
   const { chatScreeningRules, maskText } = await import('@/lib/upload-screening/content-screen')

@@ -790,7 +790,8 @@ async function resolveAll(
  * The resolved skill set for a RUN: the platform builtins merged with the org's
  * enabled rows and the offers it took up, filtered by `grid-agents` when an
  * agent is named (absent = all agents). No session — the internal resolve route
- * serves the backend's /v1/chat/skills.
+ * (GET /api/internal/skills/resolve, called by `src/aiq_agent/skills/resolver.py`)
+ * serves it.
  *
  * Every entry is a skill the model MAY load, never one it must: nothing in this
  * payload forces a skill onto the run since migration 0088 retired the

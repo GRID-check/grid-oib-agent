@@ -26,6 +26,22 @@ vi.mock('@/lib/conversations/repository', () => ({
   writeMessageContent: vi.fn(),
 }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+// The scope a run control signs: the project the service just authorized, as
+// the scope builder resolves it (its own checks are its spec's to pin).
+vi.mock('@/lib/collection-scope-request', () => ({
+  buildCollectionScopeFromRequest: vi.fn(async (_session: unknown, context: { projectId?: string }) => ({
+    headerValue: 'scope',
+    scope: ['oib_knowledge', `proj_col_${context.projectId}`],
+    scopedCollections: [
+      { collection: 'oib_knowledge', shelf: 'base' },
+      { collection: `proj_col_${context.projectId}`, shelf: 'project' },
+    ],
+    projectId: context.projectId,
+    projectCollectionName: `proj_col_${context.projectId}`,
+    conversationId: undefined,
+    verifiedConversationId: undefined,
+  })),
+}))
 vi.mock('@/lib/inbox/service', () => ({ emitInboxItems: vi.fn(), resolveInboxItemsFor: vi.fn() }))
 // Partial: the real slot helpers are what a route opens, and replacing the
 // module wholesale would test a service the app does not run.
@@ -53,7 +69,13 @@ import {
 } from '@/lib/conversations/repository'
 import type { Message, TaskRun } from '@/lib/db/schema'
 import { withTenant } from '@/lib/db/tenant-context'
-import { addDocumentToBackendJob, cancelBackendJob, JobCancelError } from '@/lib/jobs/backend-client'
+import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
+import {
+  addDocumentToBackendJob,
+  cancelBackendJob,
+  JobCancelError,
+  type JobControlCaller,
+} from '@/lib/jobs/backend-client'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import * as taskRepository from '@/lib/tasks/repository'
 import { emptyRunLedger, failRun, finishRun, openPhase } from './run-ledger'
@@ -110,6 +132,24 @@ const session = {
   permissions: [],
   accessToken: 'wos-token',
 } as unknown as AuthorizedSession
+
+/** The envelope a run control carried, decoded the way the backend reads it. */
+const signedPayload = (caller: JobControlCaller): Record<string, unknown> =>
+  JSON.parse(Buffer.from(caller.contextHeaders['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+
+/** ADR-0084: the project the service authorized travels signed, so a teammate may steer the run. */
+const expectSignedProject = (caller: JobControlCaller): void => {
+  expect(caller.accessToken).toBe('wos-token')
+  expect(buildCollectionScopeFromRequest).toHaveBeenCalledWith(session, { projectId: 'project-1' })
+  const payload = signedPayload(caller)
+  expect(payload).toMatchObject({
+    organizationId: 'org_1',
+    userId: 'user_1',
+    projectId: 'project-1',
+    issuedAt: expect.any(Number),
+  })
+  expect(payload.collectionScope).toContainEqual({ collection: 'proj_col_project-1', shelf: 'project' })
+}
 
 const step = {
   id: 'batch-1',
@@ -491,7 +531,8 @@ describe('cancelRun', () => {
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'project-1', 'project:view')
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'project-1', CHAT_PERMISSIONS)
     expect(taskRepository.findRunInProject).toHaveBeenCalledWith(RUN, 'project-1', 'org_1')
-    expect(cancelBackendJob).toHaveBeenCalledWith('job-9', 'wos-token')
+    expect(cancelBackendJob).toHaveBeenCalledWith('job-9', expect.anything())
+    expectSignedProject(vi.mocked(cancelBackendJob).mock.calls[0][1])
     expect(mergeMessageMetadata).not.toHaveBeenCalled()
     expect(writeMessageContent).not.toHaveBeenCalled()
   })
@@ -634,7 +675,7 @@ describe('findRunMessageByBackendJobId', () => {
  * run's own stream once the worker has taken it.
  */
 /**
- * A closed project (ADR-0086): every member reads it and may chat about it, but
+ * A closed project (ADR-0088): every member reads it and may chat about it, but
  * someone who reads it only because it is closed does not steer another
  * person's run, and nobody hands a run a document, which files into it.
  */
@@ -678,7 +719,8 @@ describe('addRunDocument', () => {
 
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'project-1', 'project:view')
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'project-1', CHAT_PERMISSIONS)
-    expect(addDocumentToBackendJob).toHaveBeenCalledWith('job-9', doc, 'wos-token')
+    expect(addDocumentToBackendJob).toHaveBeenCalledWith('job-9', doc, expect.anything())
+    expectSignedProject(vi.mocked(addDocumentToBackendJob).mock.calls[0][2])
     expect(mergeMessageMetadata).not.toHaveBeenCalled()
     expect(writeMessageContent).not.toHaveBeenCalled()
   })

@@ -142,7 +142,7 @@ describe.each([
   })
 })
 
-/** A project's shelf has a Papierkorb (ADR-0085): a delete moves the folder there, with its contents. */
+/** A project's shelf has a Papierkorb (ADR-0087): a delete moves the folder there, with its contents. */
 describe('useFolderTree over a shelf with a Papierkorb', () => {
   const foldersUrl = '/api/projects/proj-1/folders'
   const binHref = '/app/projects/proj-1/files/bin'

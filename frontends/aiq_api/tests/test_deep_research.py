@@ -34,9 +34,8 @@ Test coverage:
         - Response with the run's cards attached
 
     TestRegisterRoutes:
-        - Routes not registered when Dask unavailable
-        - Routes not registered without job_store
-        - Routes registered when infrastructure available
+        - Routes registered with no scheduler (the research queue is the only path)
+        - No job routes without a config file
 """
 
 from unittest.mock import MagicMock
@@ -212,61 +211,41 @@ class TestRegisterRoutes:
     """Tests for the register_routes function."""
 
     @pytest.mark.asyncio
-    async def test_routes_not_registered_without_dask(self):
-        """Test that routes are not registered when Dask is not available."""
+    async def test_routes_registered_without_any_scheduler(self, tmp_path, monkeypatch):
+        """The research queue is the only execution path, so no scheduler gates the routes."""
         from aiq_api.routes.jobs import register_job_routes
 
+        monkeypatch.delenv("NAT_CONFIG_FILE", raising=False)
         mock_app = MagicMock()
         mock_builder = MagicMock()
         mock_builder.get_function_config.side_effect = KeyError("Not found")
         mock_worker = MagicMock()
-        mock_worker._dask_available = False
-        mock_worker._job_store = None
-
-        await register_job_routes(mock_app, mock_builder, mock_worker)
-
-        mock_app.post.assert_not_called()
-        assert mock_app.get.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_routes_not_registered_without_job_store(self):
-        """Test that routes are not registered without job store."""
-        from aiq_api.routes.jobs import register_job_routes
-
-        mock_app = MagicMock()
-        mock_builder = MagicMock()
-        mock_builder.get_function_config.side_effect = KeyError("Not found")
-        mock_worker = MagicMock()
-        mock_worker._dask_available = True
-        mock_worker._job_store = None
-
-        await register_job_routes(mock_app, mock_builder, mock_worker)
-
-        mock_app.post.assert_not_called()
-        assert mock_app.get.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_routes_registered_with_dask(self):
-        """Test that routes are registered when Dask is available."""
-        from aiq_api.routes.jobs import register_job_routes
-
-        mock_app = MagicMock()
-        mock_builder = MagicMock()
-        mock_builder.get_function_config.side_effect = KeyError("Not found")
-        mock_worker = MagicMock()
-        mock_worker._dask_available = True
-        mock_worker._job_store = MagicMock()
-        mock_worker._scheduler_address = "tcp://localhost:8786"
-        mock_worker._db_url = "sqlite:///./test.db"
+        mock_worker._db_url = f"sqlite+aiosqlite:///{tmp_path / 'test.db'}"
         mock_worker._config_file_path = "/path/to/config.yml"
-        mock_worker._log_level = 20
-        mock_worker._use_dask_threads = False
         mock_worker._front_end_config = MagicMock(expiry_seconds=86400)
 
         await register_job_routes(mock_app, mock_builder, mock_worker)
 
         assert mock_app.post.call_count >= 2
         assert mock_app.get.call_count >= 6
+
+    @pytest.mark.asyncio
+    async def test_no_config_file_registers_no_job_routes(self, monkeypatch):
+        """Without a config file the worker cannot run a job, so only the data routes are mounted."""
+        from aiq_api.routes.jobs import register_job_routes
+
+        monkeypatch.delenv("NAT_CONFIG_FILE", raising=False)
+        mock_app = MagicMock()
+        mock_builder = MagicMock()
+        mock_builder.get_function_config.side_effect = KeyError("Not found")
+        mock_worker = MagicMock()
+        mock_worker._db_url = "sqlite+aiosqlite:///unused.db"
+        mock_worker._config_file_path = None
+
+        await register_job_routes(mock_app, mock_builder, mock_worker)
+
+        mock_app.post.assert_not_called()
+        assert mock_app.get.call_count == 2
 
 
 class TestArtifactHelpers:

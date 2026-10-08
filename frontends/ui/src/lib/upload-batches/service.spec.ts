@@ -207,7 +207,7 @@ describe('getUploadSummary', () => {
     expect(summary.documents[3]?.errorMessage).toContain('pdf_pages_unreadable')
   })
 
-  it('leaves out what was filed in a folder the uploader may no longer see (ADR-0084)', async () => {
+  it('leaves out what was filed in a folder the uploader may no longer see (ADR-0086)', async () => {
     vi.mocked(listBatchDocuments).mockResolvedValue([
       makeDocument({ id: 'open', filename: 'EG.pdf', folderId: 'f-open' }),
       makeDocument({ id: 'hidden', filename: 'Honorar.pdf', folderId: 'f-hidden' }),

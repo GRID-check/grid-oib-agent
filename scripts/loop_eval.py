@@ -35,9 +35,12 @@ exercise decorative.
 
 USAGE
 -----
-    GRID_LOOP_EVAL_URL=http://localhost:8000 python scripts/loop_eval.py --out before.csv
+`GRID_LOOP_EVAL_URL` is the backend's chat role (`GRID_ROLE=chat`): `/generate/stream`
+is one of NAT's own routes, which only that role mounts (ADR-0082).
+
+    GRID_LOOP_EVAL_URL=http://localhost:8001 python scripts/loop_eval.py --out before.csv
     # …change the loop, redeploy…
-    GRID_LOOP_EVAL_URL=http://localhost:8000 python scripts/loop_eval.py --out after.csv
+    GRID_LOOP_EVAL_URL=http://localhost:8001 python scripts/loop_eval.py --out after.csv
     python scripts/loop_eval.py --compare before.csv after.csv
 
 `task be:eval:loop` is the same thing with the paths defaulted.

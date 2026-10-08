@@ -13,7 +13,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
-// No folder has its own access list (ADR-0085): every write is allowed.
+// No folder has its own access list (ADR-0087): every write is allowed.
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('@/lib/authz/folder-access-repository', () => ({
   listProjectDocumentCollections: vi.fn(async () => []),

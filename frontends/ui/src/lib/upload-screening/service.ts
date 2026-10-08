@@ -1,5 +1,5 @@
 /**
- * The organization's upload-screening policy, read and written (ADR-0083), and
+ * The organization's upload-screening policy, read and written (ADR-0085), and
  * the server-side repeat of the name gate.
  *
  * The policy lives in `organizations.settings.uploadScreening`. Its one writer

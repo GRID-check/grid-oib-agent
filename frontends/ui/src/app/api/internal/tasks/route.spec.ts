@@ -371,7 +371,7 @@ describe('the research op — an escalated question becomes a run', () => {
   })
 })
 
-describe('a turn whose scope could draw on a restricted folder (ADR-0084, ADR-0085)', () => {
+describe('a turn whose scope could draw on a restricted folder (ADR-0086, ADR-0087)', () => {
   const RESTRICTED = 'proj_3333_r0123456789ab'
   const restrictedTurn = () => envelopeHeaders({ collectionScope: ['oib_knowledge', 'proj_3333', RESTRICTED] })
   const RESEARCH = { op: 'research', projectId: PROJECT, question: 'Welches Honorar gilt für LP 5?' }
