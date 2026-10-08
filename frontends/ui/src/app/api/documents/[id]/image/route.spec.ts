@@ -50,7 +50,7 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
 
 import { GET } from './route'
 import { s3Client } from '@/lib/s3'
-import { buildDocumentImageUrl } from '@/lib/images/signed-image-url'
+import { buildDocumentImageUrl, DOCUMENT_IMAGE_CACHE_CONTROL } from '@/lib/images/signed-image-url'
 import type { getDb as getDbType } from '@/lib/db'
 
 const ORG = 'org-1'
@@ -122,6 +122,9 @@ describe('GET /api/documents/[id]/image', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Type')).toBe('image/png')
     expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    // The optimizer forwards this max-age to the browser; `optimizer-cache.spec.ts`
+    // holds the constant to one token window.
+    expect(response.headers.get('Cache-Control')).toBe(DOCUMENT_IMAGE_CACHE_CONTROL)
   })
 
   it('asks again whether the person the URL names may still read the folder', async () => {

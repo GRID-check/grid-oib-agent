@@ -1232,7 +1232,7 @@ export const chat = {
    */
   screening: {
     title: 'Contains {items} (Sensitive data).',
-    body: 'Piloti does not send this to the model.',
+    body: 'Piloti does not send this to the answering model.',
     preview: 'The model sees: “{text}”',
     iban: '{count, plural, one {an IBAN} other {# IBANs}}',
     at_svnr: '{count, plural, one {a social security number} other {# social security numbers}}',

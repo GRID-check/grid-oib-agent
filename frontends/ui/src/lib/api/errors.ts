@@ -61,13 +61,15 @@ export class OrgMemoryDisabledError extends ApiError {
  * task, the project profile, or a folder not restricted at least as narrowly.
  * `revision` is the same refusal for a document rather than a conversation: a
  * draft in such a folder is not quoted into a project-wide revision task.
+ * The same refusal answers a run's Unterlagen naming a document from such a
+ * folder (`planDocument`): the run's Grundlage is read by the whole project.
  * Its own code, so a caller (the agent's tools, a card) can tell this refusal
  * from a missing permission; `details.action` says which door refused. The
  * message is already the reader's sentence (`lib/conversations/restricted-egress.ts`).
  */
 export class ConversationConfinedError extends ApiError {
   constructor(
-    readonly action: 'deepResearch' | 'task' | 'profilePatch' | 'filing' | 'revision',
+    readonly action: 'deepResearch' | 'task' | 'profilePatch' | 'filing' | 'revision' | 'planDocument',
     message: string
   ) {
     super(403, 'CONVERSATION_CONFINED', message, { action })

@@ -13,8 +13,11 @@
  * contributes the claim, the backoff, the legal-hold guard and `failed` after
  * MAX_ATTEMPTS, and asks: `POST /api/internal/folders/<id>/purge`.
  *
- * What it adds is the store the BFF does not reach on this path: the Langfuse
- * traces of the conversations whose derived content was removed. Then it
+ * What it adds is the store the BFF never reaches: the Langfuse traces of the
+ * conversations whose derived content was removed. Only this pod and the
+ * scheduler hold Langfuse's keys and may reach it, so „Endgültig löschen",
+ * which purges in the BFF's request, hands its row here when traces are owed;
+ * the BFF then answers `already-purged` with those conversations. Then it
  * merges the counts into the queue row's payload, the record of the purge.
  */
 
