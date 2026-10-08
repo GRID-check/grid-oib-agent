@@ -18,6 +18,7 @@ vi.mock('@/lib/documents/folder-path', () => ({
 }))
 
 import { recordAuditEvent } from '@/lib/audit/service'
+import { DOCUMENT_NAME_KEYS } from '@/lib/audit/document-names'
 import { isFolderVisibleTo, requireFolderWrite } from '@/lib/authz/folder-access'
 import { folderReadOnlyError } from '@/lib/authz/folder-access-rule'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -108,8 +109,26 @@ describe('releaseQuarantinedDocument', () => {
     )
     expect(dispatchDocument).toHaveBeenCalledWith(expect.objectContaining({ documentId: 'doc-q', folderPath: 'Verwaltung' }))
     const audit = vi.mocked(recordAuditEvent).mock.calls[0]?.[0]
-    expect(audit).toMatchObject({ action: 'document.quarantine_released', metadata: { reasons: 'term:Lohnzettel,iban' } })
+    expect(audit).toMatchObject({
+      action: 'document.quarantine_released',
+      metadata: { reasons: 'term,iban', terms: 'Lohnzettel' },
+    })
     expect(JSON.stringify(audit)).not.toContain('AT61')
+  })
+
+  it('keeps the words found in the text under a key withheld with the name (ADR-0086)', async () => {
+    const inFolder = { ...quarantined, scope: 'project' as const, projectId: 'proj-1', folderId: 'f-lohn' }
+    vi.mocked(findDocumentInOrg).mockResolvedValue(inFolder)
+
+    await releaseQuarantinedDocument(orgAdmin, 'doc-q', new Request('http://x'))
+
+    const audit = vi.mocked(recordAuditEvent).mock.calls[0]?.[0]
+    expect(audit?.filedIn).toEqual({ projectId: 'proj-1', folderId: 'f-lohn' })
+    // What the trail keeps of the event when the folder is restricted (`wireMetadata`, audit/service.ts).
+    const kept = Object.entries(audit?.metadata ?? {}).filter(
+      ([key]) => !(DOCUMENT_NAME_KEYS as readonly string[]).includes(key)
+    )
+    expect(JSON.stringify(kept)).not.toMatch(/Lohnzettel/i)
   })
 
   it('asks for a write in the document\'s folder, and a reviewer who may only read it cannot release (ADR-0087)', async () => {
