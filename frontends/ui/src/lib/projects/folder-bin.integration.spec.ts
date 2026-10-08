@@ -825,15 +825,24 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
   describe('a binned document is not handed to anyone (the download log’s readers all ask the folder rule first)', () => {
     it('refuses every reader, admins included, and a capability URL’s re-check, as not found', async () => {
       const documents = inTenant(await import('@/lib/documents/access'))
+      // Screened, with a verdict about the bytes it holds (ADR-0085).
+      await inOrg(() => db.execute(sql`UPDATE documents SET screening_outcome = 'clean' WHERE id = ${doc.archiv}::uuid`))
       await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
       for (const session of [pl, gf, manager, admin]) {
         await expect(documents.getAccessibleDocument(session, doc.archiv)).rejects.toMatchObject({ status: 404 })
         await expect(documents.getAccessibleDocument(session, doc.plan, 'write')).rejects.toMatchObject({ status: 404 })
       }
       expect(await access.isFolderVisibleToMember(ORG, projectId, folder.archiv, 'user_admin')).toBe(false)
-      // Restored, it is handed over again.
+      // Restored, it is handed over again: at once when a verdict on record
+      // judged its bytes, though the restore reads it again.
       await bin.restoreFolderFromBin(pl, { projectId, folderId: folder.plaene })
       await expect(documents.getAccessibleDocument(pl, doc.archiv)).resolves.toMatchObject({ id: doc.archiv })
+      // One with no verdict passes the hold only at rest (ADR-0085), so it is
+      // its uploader's and its reviewers' while it is read again, and everyone's after.
+      await expect(documents.getAccessibleDocument(pl, doc.plan)).rejects.toMatchObject({ status: 404 })
+      await expect(documents.getAccessibleDocument(manager, doc.plan)).resolves.toMatchObject({ id: doc.plan })
+      await inOrg(() => db.execute(sql`UPDATE documents SET status = 'completed' WHERE id = ${doc.plan}::uuid`))
+      await expect(documents.getAccessibleDocument(pl, doc.plan)).resolves.toMatchObject({ id: doc.plan })
     })
   })
 
