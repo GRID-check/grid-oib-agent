@@ -136,6 +136,7 @@ describe('/api/jobs/async/[...path]', () => {
         projectId: 'proj-1',
         conversationId: 'conv-1',
         projectCollectionName: undefined,
+        verifiedConversationId: undefined,
       })
       vi.mocked(findProjectTenancy).mockResolvedValueOnce({ organizationId: 'org_1', deletedAt: null, status: 'closed' })
       const fetchMock = vi.fn()

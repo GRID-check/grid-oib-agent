@@ -32,6 +32,14 @@ export interface AuthorizedJobScope {
   scopedCollections: ScopedCollection[]
   /** A conversation that exists and the caller may view. */
   verifiedConversationId: string | undefined
+  /**
+   * The caller reads the project only because it is closed (ADR-0088). Such a
+   * caller steers no run but their own, so the project is not signed: the
+   * backend then lets them reach the jobs they own and, through a conversation
+   * they may view, read the others. Absent on a scope built before the project
+   * was checked, which signs as before.
+   */
+  projectReadOnly?: boolean
 }
 
 /**
@@ -54,11 +62,17 @@ export function signJobRequestContext(
   submit: JobSubmitContext = {},
   now: number = Date.now()
 ): Record<string, string> {
+  // The backend reads the project a scope grants from its project-shelf
+  // collections (`derive_project_collection`), so withholding the project means
+  // withholding those too, not only the id.
+  const signsProject = !scope.projectReadOnly
   const input: GridRequestContextInput = {
     organizationId: session?.organizationId ?? null,
     userId: session?.userId ?? null,
-    projectId: scope.projectId ?? null,
-    collectionScope: scope.scopedCollections,
+    projectId: signsProject ? (scope.projectId ?? null) : null,
+    collectionScope: signsProject
+      ? scope.scopedCollections
+      : scope.scopedCollections.filter((entry) => entry.shelf !== 'project'),
     conversationId: scope.verifiedConversationId ?? null,
     issuedAt: now,
     ...submit,

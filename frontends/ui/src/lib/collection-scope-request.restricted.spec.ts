@@ -14,7 +14,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/db', () => ({ getDb: vi.fn() }))
-vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+vi.mock('@/lib/authz/projects', () => ({
+  requireProjectAccess: vi.fn(async () => ({ role: 'project-editor', closed: false, readsBecauseClosed: false })),
+}))
 vi.mock('@/lib/conversations/repository', () => ({ findConversationTenancy: vi.fn() }))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectCollectionName: vi.fn(),

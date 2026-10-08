@@ -65,7 +65,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   process.env.REQUIRE_AUTH = 'true'
   stubDb()
-  vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' } as never)
+  vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor', closed: false, readsBecauseClosed: false })
   vi.mocked(findGrantForSubject).mockResolvedValue(null)
 })
 
@@ -161,5 +161,28 @@ describe('a conversationId on the WS upgrade is authorized (F2)', () => {
     await buildCollectionScopeFromRequest(session, { projectId: PROJECT_ID })
 
     expect(findConversationTenancy).not.toHaveBeenCalled()
+  })
+})
+
+describe('a caller who reads a closed project only because it is closed (ADR-0088)', () => {
+  it('is reported as read-only, so the job envelope signs them no project', async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({
+      role: 'project-viewer',
+      closed: true,
+      readsBecauseClosed: true,
+    })
+
+    const result = await buildCollectionScopeFromRequest(session, { projectId: PROJECT_ID })
+
+    expect(result.projectId).toBe(PROJECT_ID)
+    expect(result.projectReadOnly).toBe(true)
+  })
+
+  it('a member of the closed project is not', async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor', closed: true, readsBecauseClosed: false })
+
+    const result = await buildCollectionScopeFromRequest(session, { projectId: PROJECT_ID })
+
+    expect(result.projectReadOnly).toBe(false)
   })
 })

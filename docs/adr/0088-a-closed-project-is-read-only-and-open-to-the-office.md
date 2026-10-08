@@ -102,6 +102,16 @@ every permission asked is `project:view` or `project:chat`
 lists every closed project without asking WorkOS. `userHoldsProjectPermission`,
 the third-party form, mirrors both rules.
 
+**Reading is not steering.** ADR-0084 lets a caller read and control every job
+in the project the BFF signs into a job request. Someone who reads a closed
+project only because it is closed may follow and steer their own runs, not a
+colleague's, so `buildCollectionScopeFromRequest` reports `projectReadOnly` and
+`signJobRequestContext` then signs neither the project nor its project-shelf
+collections. The backend lets that caller reach the jobs they own, and read
+others through a conversation they may view. The run controls in
+`lib/runs/service.ts` apply the same rule before they call the backend
+(`requireRunActor`).
+
 **Closing opens no restricted folder.** The folder rule (ADR-0087) assumes the
 caller is a member of the project: grants name organization roles, so a person
 holding the Geschäftsführung role in a project they never belonged to would
