@@ -3,7 +3,7 @@
  * from the documents repository so the decision point owns its own SQL.
  *
  * The tree includes deleted folders (migration 0110): in the Papierkorb, and
- * purged tombstones (0113). Content derived from a deleted folder is still
+ * purged tombstones (0114). Content derived from a deleted folder is still
  * judged by the access it had, and once it is purged by the organization's
  * „Inhalte aus gelöschten Ordnern" setting, which the tree carries on each
  * purged folder. Every other read here — names, the sweep — is of living

@@ -9,7 +9,7 @@
  *
  * What only the database can prove: that closing and reopening never open a
  * folder with its own role list (the real tree, the real rule, the real listing
- * SQL), that the status CHECKs hold, and that the 0114 trigger refuses an insert
+ * SQL), that the status CHECKs hold, and that the 0115 trigger refuses an insert
  * into a closed project while an update still goes through. WorkOS is the only
  * thing stubbed: who holds which organization role, and who holds a grant on
  * the project.
