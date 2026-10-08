@@ -248,7 +248,7 @@ interface BinOptions {
   /**
    * Bin the folder only when it holds exactly these documents, checked under
    * the bin lock, which every insert or move into a folder also takes: a
-   * caller that filled the folder itself („Ausmisten", ADR-0090) never bins a
+   * caller that filled the folder itself („Ausmisten", ADR-0091) never bins a
    * file someone else put there meanwhile. Otherwise 409, and nothing moves.
    */
   onlyDocuments?: readonly string[]

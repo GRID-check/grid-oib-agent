@@ -352,7 +352,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'project' }],
     metadata: { personId: 'string' },
   },
-  // „Ausmisten" at a close (ADR-0090): what the person confirmed into the
+  // „Ausmisten" at a close (ADR-0091): what the person confirmed into the
   // Papierkorb, and how far they went against Piloti's proposal.
   'project.cleanup.confirmed': {
     targets: [{ type: 'project' }],

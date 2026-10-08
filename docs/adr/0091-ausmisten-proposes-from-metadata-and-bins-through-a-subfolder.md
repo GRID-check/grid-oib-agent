@@ -23,7 +23,7 @@ model call falls back to rules, and the decision is audited.
 
 Two facts of the code shaped the answer. A model is reached only through the
 Python backend (`/v1/generate-summary` is the pattern). And the Papierkorb holds
-FOLDERS (ADR-0087, migration 0114): deleting a single document is immediate and
+FOLDERS (ADR-0088, migration 0115): deleting a single document is immediate and
 final, with no bin.
 
 ## Decision Drivers
@@ -46,7 +46,7 @@ needs document write on the project, so a closed project has none. It is a POST
 because it starts a paid model call, which a prefetch or a retried navigation
 must never trigger. It considers the documents whose folder the session may
 read and WRITE (`getProjectFolderAccess`, `levelOf === 'write'`), at most 2,000,
-leaving out every document the content gate holds in quarantine (ADR-0085): it
+leaving out every document the content gate holds in quarantine (ADR-0086): it
 waits for a reviewer, not for a clean-out. For each it takes what the index already
 holds: name, folder path, type, the tags and the one-line summary ingestion
 wrote (as every file listing reads them), the editorial state, the author, the
@@ -134,7 +134,7 @@ into it; the error naming the folders when the undo stops short), `cleanup-rules
 ### A document-level Papierkorb
 
 * Good, because a document would come back exactly where it was.
-* Bad, because every read path — listings, search, the agent's retrieval — would have to learn a second hidden state, the risk ADR-0087 avoided by purging chunks instead.
+* Bad, because every read path — listings, search, the agent's retrieval — would have to learn a second hidden state, the risk ADR-0088 avoided by purging chunks instead.
 * Bad, because it duplicates the bin, its purge, its holds and its restore.
 
 ### Delete outright
@@ -143,5 +143,5 @@ into it; the error naming the folders when the undo stops short), `cleanup-rules
 
 ## More Information
 
-* [ADR-0088](0088-a-closed-project-is-read-only-and-open-to-the-office.md) (closing), [ADR-0087](0087-folder-access-is-read-write-per-role.md) (folders, the Papierkorb).
+* [ADR-0089](0089-a-closed-project-is-read-only-and-open-to-the-office.md) (closing), [ADR-0088](0088-folder-access-is-read-write-per-role.md) (folders, the Papierkorb).
 * User guide: [`user-guides/projects.md`](../user-guides/projects.md#closing-a-project).
