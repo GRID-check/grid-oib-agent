@@ -3024,10 +3024,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         # _run_ingestion re-reads these from the config; keep it aligned too.
         job_config["original_filenames"] = aligned_filenames
         job_config["file_ids"] = aligned_file_ids
-        if "extraction_paths" in job_config:
-            from knowledge_layer.renditions import align_extraction_paths
+        from knowledge_layer.renditions import align_extraction_paths
 
-            align_extraction_paths(job_config, kept_indices)
+        align_extraction_paths(job_config, kept_indices)
 
         if not validated_paths:
             # Create failed job immediately
@@ -4038,6 +4037,20 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         items.sort(key=lambda it: (it["page"], it["content_type"], it["segment"]))
         return items
 
+    def _thumbnail_after_screen(self, thumbnail_upload_url: str | None, image_path: str | None) -> None:
+        """Draw the file card's thumbnail, called only once the file's screening passed.
+
+        Upload screening (ADR-0083) holds a file back until its content gate
+        passes, and a thumbnail is a derivative of that content: a first-page
+        render of a fee agreement shows the fee. It used to be drawn first, for
+        speed, so a quarantined file had one before its verdict, and the route
+        drew a spreadsheet's from its rendition before the job had read a
+        word. Every call site sits after the screen: a PDF's (or a rendition's)
+        text screen, an image's name-only pass, an office file's extracted text.
+        """
+        if thumbnail_upload_url and image_path:
+            self._generate_and_upload_thumbnail(image_path, thumbnail_upload_url)
+
     @staticmethod
     def _generate_and_upload_thumbnail(
         file_path: str,
@@ -4359,6 +4372,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         from knowledge_layer.renditions import delete_quietly
         from knowledge_layer.renditions import handed_rendition_paths
         from knowledge_layer.renditions import requires_rendition
+        from knowledge_layer.renditions import resolve_preview
         from knowledge_layer.renditions import resolve_rendition
 
         # Originals and renditions this job downloaded itself: always its own
@@ -4557,17 +4571,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             job.file_details[i].status = FileStatus.INGESTING
                             job.file_details[i].progress_percent = (i / len(file_paths)) * 100
 
-                    # The card's thumbnail, first: the one thing a person sees
-                    # of this file before it is indexed, and a page-1 render is
-                    # the quickest step there is. The route downloads nothing
-                    # (knowledge_layer.deferred_files), so this is the first
-                    # moment anything has the bytes; drawn from the rendition
-                    # when there is one, so that one download serves both. An
-                    # office original indexed from itself (a spreadsheet) gets
-                    # its thumbnail from the route's `preview_ref` render.
+                    # The card's thumbnail is drawn once the file's screening
+                    # has passed, never before (ADR-0083): a thumbnail is a
+                    # derivative of the content, and a quarantined file has
+                    # none. See `_thumbnail_after_screen`.
                     thumbnail_upload_url = config.get("thumbnail_upload_url")
-                    if thumbnail_upload_url and (is_pdf or is_image):
-                        self._generate_and_upload_thumbnail(source_path, thumbnail_upload_url)
 
                     # Collect all documents for this file
                     all_documents = []
@@ -4616,6 +4624,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         )
                         if route_kwargs is None:
                             continue
+                        self._thumbnail_after_screen(thumbnail_upload_url, source_path)
                         page_routes = _transcription.route_pdf_pages(
                             source_path,
                             text_pages,
@@ -4643,8 +4652,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # file with a specific, machine-readable reason the
                         # failed-doc UX can surface for retry. The key is the
                         # org-aware resolved one (BYOK), not the deployment key.
-                        # Nothing of an image is readable here, so it is not screened.
+                        # Nothing of an image is readable here, so it is not screened:
+                        # it passes on its name, and its thumbnail may be drawn.
                         self._record_screening(job, i, screening_rules, "unchecked")
+                        self._thumbnail_after_screen(thumbnail_upload_url, source_path)
                         if not vlm_api_key:
                             self._update_file_status(
                                 job,
@@ -4729,6 +4740,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         checked = "partial" if over_cap or cut else "full"
                         if self._screen_or_quarantine(job, i, screening_rules, document_pages(text_documents), checked):
                             continue
+                        # An office original indexed from its own bytes has a
+                        # thumbnail only through its rendition (`preview_paths`).
+                        if thumbnail_upload_url:
+                            self._thumbnail_after_screen(thumbnail_upload_url, resolve_preview(config, i, downloaded))
 
                     all_documents.extend(text_documents)
                     logger.info(f"  Text extraction: {len(text_documents)} documents")

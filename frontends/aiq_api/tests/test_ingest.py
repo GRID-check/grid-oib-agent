@@ -414,20 +414,6 @@ def test_infer_suffix_office_types():
 # --- Renditions and thumbnails (ADR-0070/0071) ---
 
 
-def _tiny_pdf_bytes() -> bytes:
-    """A one-page blank PDF, built with the renderer the route itself uses."""
-    import io
-
-    import pypdfium2 as pdfium
-
-    doc = pdfium.PdfDocument.new()
-    doc.new_page(200, 300)
-    buf = io.BytesIO()
-    doc.save(buf)
-    doc.close()
-    return buf.getvalue()
-
-
 _THUMB_URL = "http://seaweedfs.test/bucket/doc/_thumb.jpg?X-Amz-Signature=put"
 _PREVIEW_REF = "http://seaweedfs.test/bucket/doc/_render.pdf?X-Amz-Signature=get"
 _EXTRACTION_REF = "http://seaweedfs.test/bucket/doc/_render.pdf?X-Amz-Signature=secret-extract"
@@ -440,9 +426,9 @@ def _office_body(**extra) -> dict:
 
 @pytest.mark.asyncio
 async def test_ingest_rejects_non_object_store_preview_ref(app, mock_ingestor):
-    """preview_ref is fetched by a background task, so a URL off the object
-    store is the same SSRF primitive as a foreign file_ref: 400, before
-    anything is submitted."""
+    """preview_ref is downloaded by the job, so a URL off the object store is
+    the same SSRF primitive as a foreign file_ref: 400, before anything is
+    submitted."""
     response = await _post_json(app, _office_body(preview_ref="http://169.254.169.254/latest/meta-data"))
     assert response.status_code == 400
     assert "preview_ref" in response.json()["detail"]
@@ -450,35 +436,32 @@ async def test_ingest_rejects_non_object_store_preview_ref(app, mock_ingestor):
 
 
 @pytest.mark.asyncio
-async def test_a_spreadsheet_thumbnail_is_drawn_from_preview_ref_after_submitting(app, mock_ingestor):
+async def test_a_spreadsheet_preview_is_left_to_the_job_which_draws_it_after_the_screen(app, mock_ingestor, no_network):
     """An office original indexed from its own bytes (a workbook) has a
-    thumbnail only through its rendition, which the job never downloads; a
-    background task draws it once the job is in. The rendition is fetched
-    without redirects and stays out of the job config."""
-    order: list[str] = []
-    mock_ingestor.submit_job.side_effect = lambda *a, **k: order.append("submit") or "job_test_123"
-    with (
-        patch("httpx.get", return_value=_download(_tiny_pdf_bytes(), "application/pdf")) as rendition_get,
-        patch("httpx.put") as put,
-    ):
-        put.side_effect = lambda *a, **k: order.append("thumbnail") or MagicMock(raise_for_status=MagicMock())
-        response = await _post_json(
-            app,
-            {
-                "file_ref": "http://seaweedfs.test/bucket/doc/Raumliste.xlsx",
-                "collection": "proj_test123",
-                "thumbnail_upload_url": _THUMB_URL,
-                "preview_ref": _PREVIEW_REF,
-            },
-        )
+    thumbnail only through its rendition. The route used to draw it in a
+    background task, before the job had read a word of the file, so a workbook
+    the content gate quarantined already had a thumbnail (ADR-0083). Now the
+    route fetches and PUTs nothing: the rendition is the job's deferred
+    download (``preview_paths``), drawn only once the screen passes. The URL
+    stays out of the config's repr."""
+    response = await _post_json(
+        app,
+        {
+            "file_ref": "http://seaweedfs.test/bucket/doc/Raumliste.xlsx",
+            "collection": "proj_test123",
+            "thumbnail_upload_url": _THUMB_URL,
+            "preview_ref": _PREVIEW_REF,
+        },
+    )
 
     assert response.status_code == 202
-    assert order == ["submit", "thumbnail"]
-    assert rendition_get.call_args[0][0] == _PREVIEW_REF
-    assert rendition_get.call_args[1]["follow_redirects"] is False
-    assert put.call_args[0][0] == _THUMB_URL
-    assert put.call_args[1]["content"][:2] == b"\xff\xd8"  # a JPEG
-    assert _PREVIEW_REF not in repr(mock_ingestor.submit_job.call_args)
+    no_network["get"].assert_not_called()
+    no_network["put"].assert_not_called()
+    config = mock_ingestor.submit_job.call_args[1]["config"]
+    [deferred] = config["preview_paths"]
+    assert isinstance(deferred, DeferredObjectDownload)
+    assert "extraction_paths" not in config
+    assert _PREVIEW_REF not in repr(config)
 
 
 @pytest.mark.asyncio

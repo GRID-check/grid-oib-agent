@@ -1013,17 +1013,17 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
    `_thumb.jpg`) and generates a presigned **PUT** URL for it.
 2. The PUT URL is passed to the backend's `/v1/ingest` as
    `thumbnail_upload_url`.
-3. The ingest job draws the thumbnail right after it downloads its input and
-   before any extraction: page 0 of a PDF, or the image itself, via
-   `pypdfium2`/PIL → 400px JPEG. For a Word or presentation file, `.xls` or
-   `.ods`, that input is the PDF rendition from `extraction_ref`
+3. The ingest job draws the thumbnail once the file's upload screen has
+   passed, never before (ADR-0083): page 0 of a PDF after its text screen, or
+   an image itself once it passes on its name, via `pypdfium2`/PIL → 400px
+   JPEG. A quarantined file gets none. For a Word or presentation file,
+   `.xls` or `.ods`, the PDF is the rendition from `extraction_ref`
    (ADR-0071), so the thumbnail comes from the same file the job extracts.
-4. The route itself no longer has the bytes: the job downloads them, so there
-   is no quick render from the original. It draws a thumbnail only for an
-   office original the job cannot rasterise, which in practice means
-   `.xlsx`/`.xlsm`: `preview_ref` present and `extraction_ref` absent. Then a
-   FastAPI background task, run once the 202 is out, downloads the rendition
-   into a temp `.pdf`, renders page 0 at 200px and deletes the file.
+4. The route draws nothing. An office original the job cannot rasterise
+   (in practice `.xlsx`/`.xlsm`: `preview_ref` present and `extraction_ref`
+   absent) gets its rendition as a second deferred download
+   (`preview_paths`), which the job fetches and renders only after the
+   workbook's extracted text passed the screen, then deletes.
 5. Either way the JPEG is PUT to SeaweedFS via the presigned URL. The full
    contract is in [`python-endpoints.md`](../api/python-endpoints.md).
 

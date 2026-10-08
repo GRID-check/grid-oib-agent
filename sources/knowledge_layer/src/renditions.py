@@ -54,17 +54,30 @@ def requires_rendition(file_name: str, file_path: str) -> bool:
     return (Path(file_name).suffix or Path(file_path).suffix).lower() in RENDITION_INDEXED_EXTENSIONS
 
 
+#: The per-file rendition lists a job config may carry, positional like
+#: ``original_filenames``: the one a document is READ from (``extraction_paths``,
+#: ADR-0071) and the one only its thumbnail is drawn from (``preview_paths``, an
+#: office original indexed from its own bytes, a spreadsheet).
+RENDITION_CONFIG_LISTS = ("extraction_paths", "preview_paths")
+
+
 def align_extraction_paths(job_config: dict[str, Any], kept_indices: list[int]) -> None:
     """Filter the per-file renditions in lockstep with the files ``submit_job`` kept.
 
-    ``extraction_paths`` is positional like ``original_filenames``: a skipped
-    original must not hand its rendition to the next file. A local rendition
-    whose original was skipped has no job to clean it up, so it goes here when
-    the caller handed cleanup over; a deferred download that never ran left
+    Both lists are positional like ``original_filenames``: a skipped original
+    must not hand its rendition to the next file. A local rendition whose
+    original was skipped has no job to clean it up, so it goes here when the
+    caller handed cleanup over; a deferred download that never ran left
     nothing on disk.
     """
-    renditions = job_config.get("extraction_paths") or []
-    job_config["extraction_paths"] = [renditions[i] if i < len(renditions) else None for i in kept_indices]
+    for key in RENDITION_CONFIG_LISTS:
+        if key in job_config:
+            _align(job_config, key, kept_indices)
+
+
+def _align(job_config: dict[str, Any], key: str, kept_indices: list[int]) -> None:
+    renditions = job_config.get(key) or []
+    job_config[key] = [renditions[i] if i < len(renditions) else None for i in kept_indices]
     if not job_config.get("cleanup_files"):
         return
     kept = set(kept_indices)
@@ -76,7 +89,7 @@ def align_extraction_paths(job_config: dict[str, Any], kept_indices: list[int]) 
 
 def handed_rendition_paths(config: dict[str, Any]) -> list[str]:
     """The local renditions the caller handed over, for a job that owns cleanup."""
-    return [path for path in config.get("extraction_paths") or [] if isinstance(path, str)]
+    return [path for key in RENDITION_CONFIG_LISTS for path in config.get(key) or [] if isinstance(path, str)]
 
 
 def resolve_rendition(config: dict[str, Any], index: int, downloaded: list[str]) -> str | None:
@@ -90,7 +103,22 @@ def resolve_rendition(config: dict[str, Any], index: int, downloaded: list[str])
     format indexed only from its rendition the caller then fails the file with
     ``OFFICE_RENDITION_REQUIRED``.
     """
-    entries = config.get("extraction_paths") or []
+    return _resolve(config, "extraction_paths", index, downloaded)
+
+
+def resolve_preview(config: dict[str, Any], index: int, downloaded: list[str]) -> str | None:
+    """The PDF rendition file ``index``'s thumbnail is drawn from, or ``None``.
+
+    Sent for an office original indexed from its own bytes (a spreadsheet),
+    whose pages the job cannot rasterise. Downloaded only once the file's
+    screening has passed (ADR-0083): the route used to draw it in the request,
+    before the job had read a word of the file.
+    """
+    return _resolve(config, "preview_paths", index, downloaded)
+
+
+def _resolve(config: dict[str, Any], key: str, index: int, downloaded: list[str]) -> str | None:
+    entries = config.get(key) or []
     entry = entries[index] if index < len(entries) else None
     if is_deferred(entry):
         path = run_deferred_download(entry, "PDF rendition")

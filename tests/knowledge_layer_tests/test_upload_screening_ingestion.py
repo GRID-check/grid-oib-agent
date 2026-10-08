@@ -433,3 +433,103 @@ class TestTablesAndCapsAreScreened:
 
         assert detail.status == FileStatus.SUCCESS
         assert detail.screening == "clean"
+
+
+# =============================================================================
+# No derivative before the verdict (ADR-0083, 2026-10-08)
+# =============================================================================
+
+
+@pytest.fixture
+def thumbnails(monkeypatch, calls):
+    """Every thumbnail the job draws, by source path, in order with the screen."""
+    from knowledge_layer.llamaindex import screening
+
+    events: list[str] = []
+    screen = screening.screen_pages
+
+    def _screen(*args, **kwargs):
+        events.append("screen")
+        return screen(*args, **kwargs)
+
+    monkeypatch.setattr(screening, "screen_pages", _screen)
+    monkeypatch.setattr(
+        LlamaIndexIngestor,
+        "_generate_and_upload_thumbnail",
+        staticmethod(lambda path, url: events.append(f"thumbnail:{path}")),
+    )
+    return events
+
+
+_THUMB = {"thumbnail_upload_url": "http://seaweed/put/thumb"}
+
+
+class TestNoThumbnailBeforeTheVerdict:
+    def test_a_quarantined_pdf_gets_no_thumbnail(self, tmp_path, calls, thumbnails):
+        detail = _ingest(calls, _pdf(tmp_path, *_PAYSLIP), "Abrechnung.pdf", _TERMS, **_THUMB)
+
+        assert detail.screening == "quarantined"
+        assert thumbnails == ["screen"]
+
+    def test_a_clean_pdf_gets_its_thumbnail_after_the_screen(self, tmp_path, calls, thumbnails):
+        path = _pdf(tmp_path, "Brandschutzkonzept", "Fluchtweglaenge 40 m")
+
+        detail = _ingest(calls, path, "BSK.pdf", _TERMS, **_THUMB)
+
+        assert detail.screening == "clean"
+        assert thumbnails == ["screen", f"thumbnail:{path}"]
+
+    def test_an_unscreened_pdf_gets_its_thumbnail(self, tmp_path, calls, thumbnails):
+        path = _pdf(tmp_path, *_PAYSLIP)
+
+        _ingest(calls, path, "Abrechnung.pdf", None, **_THUMB)
+
+        assert thumbnails == [f"thumbnail:{path}"]
+
+    def test_an_image_passes_on_its_name_and_gets_its_thumbnail(self, tmp_path, calls, thumbnails):
+        path = tmp_path / "foto.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 64)
+
+        detail = _ingest(calls, path, "foto.png", _TERMS, **_THUMB)
+
+        assert detail.screening == "unchecked"
+        assert thumbnails == [f"thumbnail:{path}"]
+
+    def test_a_quarantined_spreadsheet_never_downloads_its_preview(self, tmp_path, calls, thumbnails):
+        openpyxl = pytest.importorskip("openpyxl")
+        workbook = openpyxl.Workbook()
+        workbook.active.append(["Gehaltsabrechnung", "4200"])
+        path = tmp_path / "lohn.xlsx"
+        workbook.save(path)
+        downloads: list[str] = []
+
+        def _preview():
+            downloads.append("preview")
+            return str(_pdf(tmp_path, "Gehaltsabrechnung"))
+
+        detail = _ingest(calls, path, "Lohn.xlsx", _TERMS, preview_paths=[_preview], **_THUMB)
+
+        assert detail.screening == "quarantined"
+        assert downloads == []
+        assert thumbnails == ["screen"]
+
+    def test_a_clean_spreadsheet_draws_its_thumbnail_from_the_preview_after_the_screen(
+        self, tmp_path, calls, thumbnails
+    ):
+        openpyxl = pytest.importorskip("openpyxl")
+        workbook = openpyxl.Workbook()
+        workbook.active.append(["Raum", "Flaeche"])
+        path = tmp_path / "raumliste.xlsx"
+        workbook.save(path)
+        preview = tmp_path / "preview.pdf"
+
+        def _preview():
+            preview.write_bytes(_pdf(tmp_path, "Raumliste").read_bytes())
+            return str(preview)
+
+        detail = _ingest(calls, path, "Raumliste.xlsx", _TERMS, preview_paths=[_preview], **_THUMB)
+
+        assert detail.screening == "clean"
+        assert thumbnails == ["screen", f"thumbnail:{preview}"]
+        # Downloaded by the job, so deleted by it.
+        assert not preview.exists()

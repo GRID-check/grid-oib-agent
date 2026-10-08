@@ -1,7 +1,8 @@
 """PDFium is entered by one thread at a time.
 
 PDFium is not thread-safe, and this process calls it from the ingest pool's
-workers and from the ingest route's background thumbnail. Every call site goes
+workers (the route no longer renders a thumbnail itself: the job draws it after
+the file's screening, ADR-0083). Every call site goes
 through ``knowledge_layer.llamaindex.pdfium_lock``; these tests run the call
 sites concurrently over a fake PDFium that records how many threads are inside
 it at once.
@@ -102,14 +103,11 @@ def _install_fake_pdfium(monkeypatch, occupancy: _Occupancy) -> None:
 
 
 def _every_call_site():
-    from aiq_api.routes import ingest as ingest_route
-
     return [
         lambda: processing.render_pdf_pages("a.pdf", [1, 2, 3], max_dim=256),
         lambda: processing.render_visual_pages_no_vlm("b.pdf", max_dim=256, only_pages={1, 2, 3}),
         lambda: adapter._extract_images_from_pdf("c.pdf", min_width=10, min_height=10),
         lambda: adapter._render_first_pdf_page("d.pdf", scale=2),
-        lambda: ingest_route._render_pdf_thumbnail("e.pdf"),
     ]
 
 
@@ -151,7 +149,7 @@ def test_the_fake_does_see_overlap_without_the_lock(monkeypatch):
     for module in (processing, adapter):
         monkeypatch.setattr(module, "pdfium_lock", contextlib.nullcontext)
 
-    _run_concurrently(_every_call_site()[:4])
+    _run_concurrently(_every_call_site())
 
     assert occupancy.peak > 1
 
