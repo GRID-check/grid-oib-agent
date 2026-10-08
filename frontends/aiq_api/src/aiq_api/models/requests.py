@@ -218,7 +218,7 @@ class GenerateSummaryResponse(BaseModel):
 
 
 class CleanupDocumentFacts(BaseModel):
-    """What the index already holds about one document, and nothing more (ADR-0088).
+    """What the index already holds about one document, and nothing more (ADR-0090).
 
     No document content: the name, where it is filed, its type and tags, the
     summary ingestion already wrote, and its editorial state.

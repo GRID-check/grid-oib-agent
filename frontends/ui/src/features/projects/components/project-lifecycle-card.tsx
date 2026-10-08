@@ -77,7 +77,7 @@ export function ProjectLifecycleCard({ projectId, status, closedAt }: ProjectLif
           {closed ? <LockOpen className="size-4" aria-hidden /> : <Lock className="size-4" aria-hidden />}
           {closed ? t('lifecycle.card.reopen') : t('lifecycle.card.close')}
         </Button>
-        {/* Closing goes through „Ausmisten" first (ADR-0088); reopening asks once. */}
+        {/* Closing goes through „Ausmisten" first (ADR-0090); reopening asks once. */}
         {!closed && <CloseProjectDialog projectId={projectId} open={open} onOpenChange={setOpen} onClose={submit} />}
         <ConfirmDialog
           open={closed && open}
