@@ -104,7 +104,7 @@ optional account link, and nothing else. Never read into the agent's prompt
 | `created_by` | `text` | NOT NULL | |
 | `created_at`, `updated_at` | `timestamptz` | NOT NULL | |
 
-Deleted outright, never soft-deleted: the delete is the erasure. The 0114 trigger
+Deleted outright, never soft-deleted: the delete is the erasure. The 0115 trigger
 (`project_people_closed_project_guard`) refuses a new row in a closed project; a delete is
 always possible. Index `project_people_project_idx` on `(organization_id, project_id, name)`.
 The down migration drops the table and its rows.

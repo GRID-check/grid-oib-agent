@@ -818,7 +818,7 @@ echo "==> 0115 project status and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0116: the Steckbrief's period and people, and its DOWN migration
-# (lossy on purpose: the people go with the table), then 0115 again.
+# (lossy on purpose: the people go with the table), then 0116 again.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0116 Steckbrief down migration on grid_app"
 $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0116_project_steckbrief.down.sql" >/dev/null || {
@@ -831,5 +831,5 @@ $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0116_project_steckbrief.sql" >/dev/nu
   echo "MIGRATION 0115 FAILED when re-applied after its down migration" >&2
   exit 1
 }
-check14 "SELECT relrowsecurity FROM pg_class WHERE relname = 'project_people'" "t" "0115 applies again, with row-level security"
+check14 "SELECT relrowsecurity FROM pg_class WHERE relname = 'project_people'" "t" "0116 applies again, with row-level security"
 echo "==> 0116 Steckbrief and down migration verified"
