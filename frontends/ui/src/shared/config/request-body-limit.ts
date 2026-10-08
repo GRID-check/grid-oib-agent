@@ -67,14 +67,28 @@ export function maxIfcBytesFrom(env: Record<string, string | undefined>): number
 }
 
 /**
+ * The deployment's per-file limit for every upload that is not a model:
+ * `FILE_UPLOAD_MAX_SIZE_MB` in bytes, or 100 MB.
+ *
+ * The DEFAULT, not the answer for a given organization: platform staff may
+ * override it per organization (`maxUploadFileBytes`, `@/lib/storage/upload-limit`)
+ * anywhere between 1 MB and {@link requestBodyLimitBytes}.
+ */
+export function maxDocumentBytesFrom(env: Record<string, string | undefined>): number {
+  const megabytes = positive(env.FILE_UPLOAD_MAX_SIZE_MB)
+  return megabytes === null ? DEFAULT_MAX_DOCUMENT_BYTES : megabytes * BYTES_PER_MB
+}
+
+/**
  * The transport ceiling: `next.config.ts` turns this into
  * `proxyClientMaxBodySize` and the server-action body limit.
+ *
+ * Fixed at boot, which is why it is also the upper bound on a per-organization
+ * upload limit: bytes past it are cut off in front of the handler, so a higher
+ * organization limit would promise an upload the server can never receive.
  */
 export function requestBodyLimitBytes(
   env: Record<string, string | undefined> = process.env
 ): number {
-  const documentLimit = positive(env.FILE_UPLOAD_MAX_SIZE_MB)
-    ? (positive(env.FILE_UPLOAD_MAX_SIZE_MB) as number) * BYTES_PER_MB
-    : DEFAULT_MAX_DOCUMENT_BYTES
-  return Math.max(documentLimit, maxIfcBytesFrom(env))
+  return Math.max(maxDocumentBytesFrom(env), maxIfcBytesFrom(env))
 }

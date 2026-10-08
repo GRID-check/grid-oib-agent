@@ -25,11 +25,13 @@
  * fact". That guard was written for that one form; this module is where the
  * lesson goes so the next numeric field inherits it.
  *
- * Client-safe by construction: no `server-only`, no db, no imports beyond zod —
- * because the whole point is that the browser and the route read the same file.
+ * Client-safe by construction: no `server-only`, no db, no imports beyond zod and
+ * the import-free byte constants — because the whole point is that the browser
+ * and the route read the same file.
  */
 
 import { z } from 'zod'
+import { BYTES_PER_MB } from '@/shared/config/request-body-limit'
 
 /** Quotas are entered in GB; bytes are the wire unit, never a UI one. */
 export const BYTES_PER_GB = 1e9
@@ -123,4 +125,64 @@ export function parseQuotaDraft(raw: string): QuotaDraft {
  */
 export function formatQuotaDraft(quotaBytes: number): string {
   return String(quotaBytes / BYTES_PER_GB)
+}
+
+// ---------------------------------------------------------------------------
+// Per-organization upload limit
+// ---------------------------------------------------------------------------
+
+/** Upload limits are entered in MB; the megabyte `next.config.ts` counts in. */
+export { BYTES_PER_MB }
+
+/**
+ * The smallest per-file limit an organization can be given: 1 MB.
+ *
+ * Below it an ordinary scanned page is refused, which is an outage nobody asked
+ * for rather than a limit. A static floor, so the schema owns it (a 400); the
+ * ceiling is a fact about the deployment and the service judges it (a 422).
+ */
+export const MIN_UPLOAD_LIMIT_BYTES = BYTES_PER_MB
+
+/**
+ * The PUT body for a platform upload-limit write.
+ *
+ * `null` clears the organization's own value, so it gets the deployment default
+ * again. Nullable rather than optional for the reason the quota is: clearing is
+ * a decision, and an absent field is a malformed request.
+ */
+export const uploadLimitPutSchema = z.object({
+  maxUploadFileBytes: z.number().int().min(MIN_UPLOAD_LIMIT_BYTES).max(MAX_QUOTA_BYTES).nullable(),
+})
+
+export type UploadLimitPut = z.infer<typeof uploadLimitPutSchema>
+
+/** Why a typed upload limit was refused, for the caller to turn into a message. */
+export type UploadLimitRejection = 'notANumber' | 'outOfRange'
+
+export type UploadLimitDraft =
+  | { ok: true; maxUploadFileBytes: number | null }
+  | { ok: false; reason: UploadLimitRejection }
+
+/**
+ * Judge an upload limit, in MB, against the floor and the deployment's transport
+ * ceiling, and turn it into the bytes the API takes.
+ *
+ * `null` is the blank field: back to the deployment default. The browser and the
+ * service both call this — the browser with the ceiling the overview reported,
+ * the service with its own — so "acceptable" is one rule on both sides.
+ */
+export function judgeUploadLimitMegabytes(
+  megabytes: number | null,
+  ceilingBytes: number
+): UploadLimitDraft {
+  if (megabytes === null) return { ok: true, maxUploadFileBytes: null }
+  if (!Number.isFinite(megabytes)) return { ok: false, reason: 'notANumber' }
+  return judgeUploadLimitBytes(Math.round(megabytes * BYTES_PER_MB), ceilingBytes)
+}
+
+/** {@link judgeUploadLimitMegabytes} for a value already in bytes. */
+export function judgeUploadLimitBytes(bytes: number, ceilingBytes: number): UploadLimitDraft {
+  const inSchema = uploadLimitPutSchema.safeParse({ maxUploadFileBytes: bytes }).success
+  if (!inSchema || bytes > ceilingBytes) return { ok: false, reason: 'outOfRange' }
+  return { ok: true, maxUploadFileBytes: bytes }
 }

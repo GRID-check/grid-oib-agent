@@ -8,7 +8,14 @@ vi.mock('@/lib/db', () => ({
 }))
 
 import { getDb } from '@/lib/db'
-import { listProfiledConversations } from './repository'
+import { PgDialect } from 'drizzle-orm/pg-core'
+import type { SQL } from 'drizzle-orm'
+import {
+  getSpansForConversation,
+  listProfiledConversations,
+  TIMELINE_SPAN_CAP,
+  TIMELINE_TURN_CAP,
+} from './repository'
 
 const mockGetDb = vi.mocked(getDb)
 
@@ -23,12 +30,33 @@ function mockSelect(driverRows: unknown[]) {
   const limit = vi.fn().mockResolvedValue(driverRows)
   const orderBy = vi.fn(() => ({ limit }))
   const groupBy = vi.fn(() => ({ orderBy }))
-  const where = vi.fn(() => ({ groupBy }))
+  const where = vi.fn((_condition?: SQL) => ({ groupBy }))
   const leftJoin = vi.fn(() => ({ where }))
   const from = vi.fn(() => ({ leftJoin }))
   mockGetDb.mockReturnValue({ select: vi.fn(() => ({ from })) } as never)
-  return { limit }
+  return { limit, where }
 }
+
+/**
+ * The timeline issues two selects: the newest turn ids (`…groupBy().orderBy().limit()`)
+ * and then their spans (`…where().orderBy().limit()`). Each resolves to the
+ * next queued result.
+ */
+function mockTimelineSelects(turnRows: unknown[], spanRows: unknown[]) {
+  const results = [turnRows, spanRows]
+  const limits: ReturnType<typeof vi.fn>[] = []
+  const select = vi.fn(() => {
+    const limit = vi.fn().mockResolvedValue(results[limits.length])
+    limits.push(limit)
+    const orderBy = vi.fn(() => ({ limit }))
+    const where = vi.fn(() => ({ groupBy: vi.fn(() => ({ orderBy })), orderBy }))
+    return { from: vi.fn(() => ({ where })) }
+  })
+  mockGetDb.mockReturnValue({ select } as never)
+  return { select, limits }
+}
+
+const spanRow = (index: number) => ({ spanId: `span_${index}`, turnId: 'turn_1' })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -87,5 +115,68 @@ describe('listProfiledConversations', () => {
     // Capped back down to 200, and every retained row is still coerced.
     expect(rows).toHaveLength(200)
     expect(rows.every((r) => r.lastActiveAt instanceof Date)).toBe(true)
+  })
+})
+
+describe('listProfiledConversations search', () => {
+  it("escapes LIKE wildcards in the operator's query", async () => {
+    // Regression: `100%` or `a_b` were used as raw patterns, so `%` matched
+    // every conversation and `_` matched any character.
+    const { where } = mockSelect([])
+    await listProfiledConversations('100%_x')
+
+    const condition = where.mock.calls[0][0] as SQL
+    const { params } = new PgDialect().sqlToQuery(condition)
+    expect(params).toContain('%100\\%\\_x%')
+  })
+})
+
+describe('getSpansForConversation', () => {
+  it('loads the newest turns only, and says when older ones exist', async () => {
+    const turnRows = Array.from({ length: TIMELINE_TURN_CAP }, (_, index) => ({
+      turnId: `t${index}`,
+      totalTurns: '80',
+    }))
+    const { limits } = mockTimelineSelects(turnRows, [spanRow(1)])
+
+    const result = await getSpansForConversation('conv_1')
+
+    expect(limits[0]).toHaveBeenCalledWith(TIMELINE_TURN_CAP)
+    expect(result).toMatchObject({ totalTurns: 80, capped: true })
+  })
+
+  it('is not capped when every turn fits', async () => {
+    mockTimelineSelects([{ turnId: 't1', totalTurns: '1' }], [spanRow(1), spanRow(2)])
+
+    const result = await getSpansForConversation('conv_1')
+    expect(result).toMatchObject({ totalTurns: 1, capped: false })
+    expect(result.spans).toHaveLength(2)
+  })
+
+  it('caps the spans, keeps the newest, and returns them oldest first', async () => {
+    // The span query reads newest first with one row over the ceiling.
+    const newestFirst = Array.from({ length: TIMELINE_SPAN_CAP + 1 }, (_, index) =>
+      spanRow(TIMELINE_SPAN_CAP - index)
+    )
+    const { limits } = mockTimelineSelects([{ turnId: 't1', totalTurns: '1' }], newestFirst)
+
+    const result = await getSpansForConversation('conv_1')
+
+    expect(limits[1]).toHaveBeenCalledWith(TIMELINE_SPAN_CAP + 1)
+    expect(result.capped).toBe(true)
+    expect(result.spans).toHaveLength(TIMELINE_SPAN_CAP)
+    expect(result.spans[0].spanId).toBe('span_1')
+    expect(result.spans.at(-1)?.spanId).toBe(`span_${TIMELINE_SPAN_CAP}`)
+  })
+
+  it('makes no span query for a conversation with no turns', async () => {
+    const { select } = mockTimelineSelects([], [])
+
+    expect(await getSpansForConversation('conv_none')).toEqual({
+      spans: [],
+      totalTurns: 0,
+      capped: false,
+    })
+    expect(select).toHaveBeenCalledTimes(1)
   })
 })
