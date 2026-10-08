@@ -40,7 +40,10 @@ permissions:
 
 concurrency:
   group: docker-build-${{ github.ref }}
-  cancel-in-progress: true
+  # Same rule as ci.yml: a PR's newer push may cancel its older build, because
+  # the PR's own diff covers what the cancelled one was for. A push to develop
+  # or release/** runs to the end.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Which images this PR can actually affect. Without it every PR built all
@@ -76,7 +79,7 @@ jobs:
         with:
           filters: .github/filters.yml
           token: ''
-          base: ${{ github.event.action == 'synchronize' && github.event.before || github.event.pull_request.base.sha || github.event.before }}
+          base: ${{ github.event.pull_request.base.sha || github.event.before }}
 
   backend:
     name: Build backend image

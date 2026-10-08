@@ -11,14 +11,16 @@ a package under `sources/` is covered the day it lands — the glob picks it up
 with no list to update.
 
 ```bash
-task be:test:sources          # what CI runs
-PYTHONPATH=src pytest sources/<package>/tests -q   # one package
+task be:test:sources                          # what CI runs: every package, one run
+.venv/bin/pytest sources/<package>/tests -q   # one package
 ```
 
-`pytest sources` as a single run does NOT work: every package ships a
-`tests/__init__.py`, so pytest derives the module name `tests.conftest` for each
-of them and the second one aborts collection with "Plugin already registered
-under a different name". That is why the task runs one pytest per package.
+No package here carries a `tests/__init__.py`. With one, pytest names its
+conftest `tests.conftest`, the same name as the repo's own `tests/` suite, and a
+run over both aborts with "Plugin already registered under a different name".
+Keep it that way: a helper a test needs from another file is imported by its path
+(`from sources.ris_adapter.tests.conftest import LookupHarness`), never as
+`tests.conftest`.
 
 This suite went uncovered for a long time — only the `stages: [push]` pre-commit
 hook touched it, and CI's repo-lint job skips that. A package here once carried

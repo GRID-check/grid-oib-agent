@@ -172,6 +172,14 @@ repos:
         pass_filenames: false
         files: ^docs/adr/.*\.md$|^scripts/check_adrs\.py$
 
+      - id: hidden-unicode
+        name: no invisible or bidi-control characters in committed text
+        # A zero-width space or a bidi override renders as nothing, so a grep
+        # or a lookup misses it with no error. The house spelling is the escape.
+        entry: python3 scripts/check_hidden_unicode.py
+        language: system
+        types: [text]
+
       - id: doc-paths
         name: the concept index points at files that exist
         # docs/architecture/where-is-what.md is only worth reading while its

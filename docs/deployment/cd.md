@@ -230,8 +230,9 @@ avoids them looks odd without the reason, so don't "simplify" it back.
   setting `ALLOW_SKIP=1` only hides the missing check.
 
 - **A shallow checkout with `persist-credentials: false` cannot diff a push.**
-  `paths-filter` compares against `github.event.before`; that commit is absent
-  from a depth-1 clone, so the action falls back to `git fetch` — which has no
+  `paths-filter` compares against the diff base (the PR's base on a pull request,
+  `github.event.before` on a push); that commit is absent from a depth-1 clone,
+  so the action falls back to `git fetch` — which has no
   token and dies with `could not read Username for 'https://github.com'`. The
   "Detect changes" job therefore uses `fetch-depth: 0`: the base commit is
   already local, so nothing is fetched and no credential is persisted. Applies

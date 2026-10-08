@@ -34,13 +34,16 @@ permissions:
 
 concurrency:
   group: security-${{ github.ref }}
-  cancel-in-progress: true
+  # Same rule as ci.yml: a PR's newer push may cancel its older run, because
+  # every PR run diffs the whole PR. Pushes to develop and release/** are not
+  # cancelled, so each push's scan runs to the end.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Same last-push contract as ci.yml / docker-build.yml: opened diffs the
-  # whole PR, synchronize diffs this push only. Job-level `if` so a skipped
-  # check still posts (branch protection) instead of a filtered-out workflow
-  # that never appears.
+  # Same diff base as ci.yml and docker-build.yml: a PR diffs the whole PR on
+  # every push, a push diffs itself. Job-level `if` so a skipped check still
+  # posts (branch protection) instead of a filtered-out workflow that never
+  # appears.
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
@@ -59,7 +62,7 @@ jobs:
         with:
           filters: .github/filters.yml
           token: ''
-          base: ${{ github.event.action == 'synchronize' && github.event.before || github.event.pull_request.base.sha || github.event.before }}
+          base: ${{ github.event.pull_request.base.sha || github.event.before }}
 
   semgrep:
     name: SAST (Semgrep)

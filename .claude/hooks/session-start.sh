@@ -39,8 +39,23 @@ step() { echo "[session-start] $*"; }
 # (docs/contributing/gotchas.md), and the Taskfile and Dockerfile do the same.
 export UV_LINK_MODE=copy
 
+# go-task, pinned where CI pins it (.github/actions/setup-task). Nothing in a
+# fresh container installs it, and every doc names the `task` commands. Not
+# fatal: the installers below do not need it, so a failed npm install must not
+# stop them.
+TASK_VERSION="$(awk -F'"' '/default:/ {print $2; exit}' .github/actions/setup-task/action.yml)"
+if ! command -v task >/dev/null 2>&1; then
+  step "go-task ${TASK_VERSION} (npm, as CI installs it)"
+  npm i -g "@go-task/cli@${TASK_VERSION}" || step "go-task install failed; \`task\` is unavailable this session"
+fi
+
 step "backend venv (uv sync --group dev)"
-uv venv .venv
+# `uv venv` refuses an existing directory, and a resumed container has one: under
+# `set -e` that aborted the whole hook before any later step ran. Create it only
+# when it is missing; `uv sync` below would create it anyway.
+if [ ! -x .venv/bin/python ]; then
+  uv venv .venv
+fi
 uv sync --group dev
 
 # The container's uv (0.8.x) knows no 3.14 newer than 3.14.0rc2, and pydantic
@@ -80,12 +95,19 @@ step "agent skills (apm install --frozen)"
 # lockfile is out of sync, which is what makes this reproducible.
 uvx --from "apm-cli==${APM_VERSION}" apm install --frozen
 
-# `PYTHONPATH=src` is mandatory for pytest and the Taskfile sets it. A session
-# that calls pytest directly — which is exactly what an agent without `task`
-# does — otherwise tests whatever the venv installed, possibly another
-# worktree, while everything passes. tests/AGENTS.md calls this "the trap".
+# pytest puts this checkout's `src/` first itself (pyproject `pythonpath`), so
+# a bare pytest tests this tree. The export still covers everything else that
+# imports `aiq_agent` by name: `nat run`, ad-hoc scripts and the census.
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   echo 'export PYTHONPATH="src"' >> "$CLAUDE_ENV_FILE"
+fi
+
+# The agent reads OPENROUTER_API_KEY, and this environment is configured with
+# OPENROUTER_KEY. census and the answer suite accept either, but a bare `nat run`
+# reads only the first, so alias it for the session. `%q` shell-quotes the value,
+# which is written to the env file and never printed.
+if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -z "${OPENROUTER_API_KEY:-}" ] && [ -n "${OPENROUTER_KEY:-}" ]; then
+  printf 'export OPENROUTER_API_KEY=%q\n' "$OPENROUTER_KEY" >> "$CLAUDE_ENV_FILE"
 fi
 
 step "done"

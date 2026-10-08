@@ -17,7 +17,11 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A newer push cancels a PR's older run, and loses nothing: every PR run diffs
+  # the whole PR (`changes` below). A push to develop or release/** is never
+  # cancelled, because its run is the only check that push gets. A cancelled one
+  # left tiers unrun that no later push would ever re-run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
@@ -34,9 +38,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-          # synchronize diffs the PR head against event.before. The default
-          # PR checkout is a merge commit; using that as HEAD would mix
-          # develop into a last-push diff.
+          # synchronize checks out the PR head. The default PR checkout is a
+          # merge commit, which would mix develop into the diff.
           ref: ${{ github.event.action == 'synchronize' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
       - uses: dorny/paths-filter@v4
         id: filter
@@ -45,10 +48,13 @@ jobs:
           # family means, and why the image scopes are separate: .github/filters.yml
           filters: .github/filters.yml
           # Empty token → git diff, so `base` is honoured on pull_request.
-          # synchronize: this push only. opened/reopened: the PR vs its base.
+          # pull_request: the whole PR against its base, on every push. Diffing
+          # only the last push skipped any tier an earlier, cancelled run owed,
+          # and a skipped tier counts as passed. security.yml and docker-build.yml
+          # carry the same expression.
           # push: this push vs event.before.
           token: ''
-          base: ${{ github.event.action == 'synchronize' && github.event.before || github.event.pull_request.base.sha || github.event.before }}
+          base: ${{ github.event.pull_request.base.sha || github.event.before }}
 
   backend-lint:
     name: Backend lint

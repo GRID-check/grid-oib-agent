@@ -52,10 +52,10 @@ on a developer's machine. Each of those files also carries a
 `GRID_RLS_SUITE_REQUIRED` guard so the CI job fails if the database goes
 missing instead of skipping green.
 
-**Backend tests need `PYTHONPATH=src`.** Without it pytest resolves `aiq_agent`
-from whatever the venv has installed, possibly another worktree, and validates
-the wrong code while appearing to pass. `Taskfile.yml` sets it. Call `pytest`
-directly and you own it again.
+**Backend tests run against this checkout's `src/`.** Without a guard, pytest
+resolves `aiq_agent` from whatever the venv has installed, possibly another
+worktree, and validates the wrong code while appearing to pass. `pyproject.toml`'s
+`pythonpath` puts `src/` first, so a bare `pytest` is safe as well as the Taskfile.
 
 **Static green is not runtime green.** Typecheck, lint and unit tests are the
 bar for most changes. Behaviour that only exists at runtime, WebSocket flows,
