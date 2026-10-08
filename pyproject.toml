@@ -139,7 +139,7 @@ testpaths = ["tests", "sources/**/tests"]
 addopts = "--import-mode=importlib"
 # Makes `from tests.conftest import ...` (the shared provider-contract double)
 # resolve the same way under every invocation — `python -m pytest`, the bare
-# `pytest` console script the pre-push hook uses, and an IDE runner — instead of
+# `pytest` console script, and an IDE runner — instead of
 # depending on which of those happens to put the repo root on sys.path.
 #
 # `src` is the same guard for `aiq_agent`. The venv installs it editable from

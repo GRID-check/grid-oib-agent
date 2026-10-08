@@ -80,8 +80,7 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
   unaffected by the switch (it does NOT support the binary `bun.lockb`, which
   this repo does not use).
 - **CI controls:** Semgrep SAST (py+ts/js+actions) + weekly; OSV-Scanner lockfile
-  CVEs over all eight lockfiles in the tree; gitleaks full history; detect-secrets
-  baseline; Dependabot fix PRs. (GitHub dependency-review dropped: it needs GitHub
+  CVEs over all eight lockfiles in the tree; gitleaks full history; Dependabot fix PRs. (GitHub dependency-review dropped: it needs GitHub
   Advanced Security on this private repo; OSV-Scanner + Dependabot cover
   new-dependency CVEs instead. The separate pip-audit / `bun audit` / `npm audit`
   job was dropped in Sep 2026: it covered three of those eight lockfiles against

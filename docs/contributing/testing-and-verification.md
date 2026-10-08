@@ -249,9 +249,7 @@ mode and the dev-indicator badge that lands in your shot:
 There is no coverage workflow and no committed gallery. Both were removed: the
 gallery was 348 MB of git history that nothing ever compared, and the workflow
 only checked that a PNG file had appeared, never what was in it. A reviewer
-looking at an attachment is the check. The **Visual evidence** workflow that
-asked for the block in the PR body is paused (its check step is commented out
-in `.github/workflows/visual-evidence.yml`).
+looking at an attachment is the check.
 
 ## Mobile evidence
 
@@ -337,23 +335,7 @@ It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus in
 first). Every run costs model calls: the core set at two runs is twelve
 turns, about four minutes three at a time.
 
-**The CI run is paused.** `.github/workflows/answer-suite.yml` is commented
-out behind a stub that only runs by hand, so the `answer-suite` label no longer
-starts anything: run the suite yourself, before and after, as above, and put
-the report in the PR. What the workflow did, for when it is restored (the
-header of that file says how):
-
-On a PR, the `answer-suite` label made CI run it: the base and the head, the head's
-report with its baseline deltas as one sticky comment, re-run on every push
-while the label stays on. It needs the repository secrets `OPENROUTER_API_KEY`
-and `OIB_CORPUS_URL`, and fails fast without them. The corpus is the
-operator's and never committed; the deployment serves it for exactly this at
-`https://<app domain>/api/internal/oib-corpus` (the PDFs production ingests,
-as one .tar.gz), with the deployment's `GRID_CORPUS_EXPORT_TOKEN` in the
-`OIB_CORPUS_TOKEN` secret. The ingest is cached on the corpus version (`OIB_CORPUS_VERSION`, a
-repository variable to bump when the corpus changes) and the ingestion code.
-Opt-in rather than on every PR because every run is paid model calls. Its
-bookkeeping is also covered offline by
+Run it yourself, before and after, as above, and put the report in the PR. Every run is paid model calls. Its bookkeeping is also covered offline by
 [`tests/test_answer_suite.py`](../../tests/test_answer_suite.py). The
 September 2026 measurements it grew out of are in
 [turns-per-answer-audit-2026-09.md](../architecture/turns-per-answer-audit-2026-09.md).

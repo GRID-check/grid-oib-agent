@@ -416,7 +416,7 @@ tasks:
       - '{{.PY}} -X faulthandler -m pytest tests/ -q'
 
   be:test:sources:
-    desc: The sources/ package suites, which no CI job used to run
+    desc: The sources/ package suites
     cmds:
       # One run over every package. No package carries a `tests/__init__.py`, so
       # no two conftests claim the module name `tests.conftest`, and a new
@@ -584,9 +584,7 @@ tasks:
       - task: be:lint
       - task: be:test:ci
       - task: be:test:api:ci
-      # sources/ used to be covered only by the push-stage pre-commit hook,
-      # which CI's repo-lint job skips — a stale test there stayed green
-      # through every gate. Now it is part of the tier.
+      # sources/ is part of the tier, and CI's backend-test job runs it too.
       - task: be:test:sources
 
   # ── infra (deploy/pulumi) ───────────────────────────────────────────────────

@@ -145,25 +145,6 @@ Both skills carry their own instructions and fire on their own. Read them rather
 than this file for command detail; this page is the repo's policy, they are the
 tools' manuals.
 
-**Paused.** The check step in `.github/workflows/visual-evidence.yml` is
-commented out: the job runs and passes, and the capture is a reviewer's ask
-rather than a gate. Restoring the two commented lines re-enables what follows.
-
-When enforced, a PR touching `components/`, `features/`, `app/` or a
-stylesheet fails the **Visual evidence** workflow unless its body carries a
-non-empty `before-and-after` block. That workflow also wakes on a description
-edit, so adding the block clears the check without needing another commit —
-which is the whole reason it is not a step inside `ci.yml`. If the change really moves no
-pixels, say so where the reviewer reads it — the reason is required:
-
-```
-<!-- no-visual-evidence: renamed a prop, no rendered output changes -->
-```
-
-Exempt without asking: specs, mocks, fixtures, `.d.ts`, `/dev/*` previews (they
-are the capture target), and `app/api/**` and `route.ts` handlers, which live
-under `app/` but return JSON.
-
 The one rule that is this repo's and not theirs: **do not commit image files as
 evidence.** If a capture belongs anywhere permanent, it belongs in a doc that
 explains it, and that is a deliberate decision to argue for in review — not the

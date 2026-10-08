@@ -1,6 +1,6 @@
 /**
- * The OIB base corpus as one .tar.gz, for CI: the answer-suite workflow
- * (`.github/workflows/answer-suite.yml`) ingests it to run the reference
+ * The OIB base corpus as one .tar.gz, for CI: the answer-suite run
+ * (`task be:eval:answer-suite`) ingests it to run the reference
  * questions against the corpus production indexes.
  *
  * Guarded by its OWN secret, `GRID_CORPUS_EXPORT_TOKEN`, in the
