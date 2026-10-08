@@ -37,6 +37,7 @@ describe('cross-project JSON Schema', () => {
       disciplines: [],
       offset: 0,
       limit: 10,
+      openFoldersOnly: false,
     })
     expect(crossProjectSearchRequestSchema.safeParse({ query: 'Dach', from: '2026-02-30' }).success).toBe(false)
     expect(crossProjectSearchRequestSchema.safeParse({ query: 'Dach', documentTypes: ['Dach'] }).success).toBe(false)

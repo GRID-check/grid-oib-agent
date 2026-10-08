@@ -379,10 +379,12 @@ export async function searchAcrossProjects(
   caller: CrossProjectCaller,
   request: CrossProjectSearchRequest
 ): Promise<CrossProjectSearchResponse> {
-  const [reach, current] = await Promise.all([
+  const [audience, current] = await Promise.all([
     audienceReach(caller.session, caller.conversationId),
     request.scope === 'similar' ? currentProjectOf(caller) : Promise.resolve(null),
   ])
+  // `openFoldersOnly` searches as a shared chat would: no restricted folder, so nothing that narrows the readers.
+  const reach = request.openFoldersOnly ? { ...audience, restrictedFolders: false } : audience
   const scope = projectsInScope(
     reach.projects,
     request,

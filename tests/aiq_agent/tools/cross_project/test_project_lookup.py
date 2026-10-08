@@ -151,6 +151,19 @@ class TestWhatItSends:
         _validator(schema, "CrossProjectBriefRequest").validate(by_path["/api/internal/cross-project/brief"])
         assert by_path["/api/internal/cross-project/search"]["from"] == "2019-01-01"
 
+    async def test_open_folders_only_reaches_the_body_the_bffs_own_schema_accepts(
+        self, monkeypatch, calls, turn, schema
+    ) -> None:
+        _answering(monkeypatch, calls, SEARCH_BODY)
+
+        await lookup.run_project_lookup("search", query="Traufe", scope="closed", open_folders_only=True)
+        await lookup.run_project_lookup("search", query="Traufe", scope="closed")
+
+        (_, narrowed, _), (_, plain, _) = calls
+        assert narrowed["openFoldersOnly"] is True
+        assert "openFoldersOnly" not in plain
+        _validator(schema, "CrossProjectSearchRequest").validate(narrowed)
+
     async def test_it_asks_for_what_it_needs_before_calling(self, monkeypatch, calls, turn) -> None:
         _answering(monkeypatch, calls, SEARCH_BODY)
 

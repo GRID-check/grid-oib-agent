@@ -134,6 +134,11 @@ project's would. Taking that step stays the model's. The threshold (0.6)
 is a first setting. The precedent eval (`suite.py --set precedent`) is what
 moves it (`agents/piloti/decisions.py`, `PRECEDENT_THRESHOLD`).
 
+*Amended 2026-10-08:* the step searches closed projects' open folders only
+(`open_folders_only`). In a solo chat the lookup also reaches the asker's cleared
+restricted folders, and recording one narrows the chat on a search nobody asked
+for; a restricted folder stays a call the model makes itself.
+
 **Use 2 — the judge's yes/no** (`knowledge_layer/decisions.py`,
 `requery_decider: jev`). One noul per passage of the fused head — "does this
 passage state the governing statement the question needs" — beside the

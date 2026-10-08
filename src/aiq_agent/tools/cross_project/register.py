@@ -125,6 +125,8 @@ _DESCRIPTION = (
     "`named` = nur `project_ids`; optional `document_types`, `disciplines`, "
     "`period_from`/`period_to` als JJJJ-MM-TT für den Projektzeitraum). Ein Aufruf durchsucht "
     "höchstens 8 Projekte; nennt das Ergebnis eine nächste Seite, mit `offset` weiter. "
+    "`open_folders_only` lässt Ordner mit eigener Zugriffsliste weg (Standard: aus; lass es weg, außer du "
+    "willst bewusst nichts, was diesen Chat einschränkt). "
     "Die Suche liefert auch Bescheide früherer Verfahren (Auflagen, Nachforderungen mit Behörde, Gemeinde "
     "und Datum): zitiere sie wie ein Dokument und nenne Behörde und Jahr. "
     "`find` listet Projekte mit Status, Zeitraum und Adresse (`query` sucht in Name und Adresse). "
@@ -251,6 +253,7 @@ def search_payload(
     period_from: str,
     period_to: str,
     offset: int,
+    open_folders_only: bool = False,
 ) -> dict[str, Any]:
     """The ``CrossProjectSearchRequest`` body; empty optional arguments are left out."""
     payload: dict[str, Any] = {"query": query.strip(), "scope": scope, "offset": max(0, int(offset))}
@@ -264,6 +267,8 @@ def search_payload(
         payload["from"] = period_from.strip()
     if period_to.strip():
         payload["to"] = period_to.strip()
+    if open_folders_only:
+        payload["openFoldersOnly"] = True
     return payload
 
 
@@ -611,6 +616,7 @@ async def _lookup(
     period_to: str,
     offset: int,
     project_id: str,
+    open_folders_only: bool,
 ) -> str:
     if action == "search":
         if not query.strip():
@@ -626,6 +632,7 @@ async def _lookup(
             period_from=period_from,
             period_to=period_to,
             offset=offset,
+            open_folders_only=open_folders_only,
         )
         return _render_search(await _call(SEARCH_PATH, payload))
     if action == "find":
@@ -653,6 +660,7 @@ async def run_project_lookup(
     period_to: str = "",
     offset: int = 0,
     project_id: str = "",
+    open_folders_only: bool = False,
 ) -> str:
     """Look across the office's other projects. Module-level so the refusals are reachable without NAT."""
     try:
@@ -667,6 +675,7 @@ async def run_project_lookup(
             period_to or "",
             offset or 0,
             project_id or "",
+            bool(open_folders_only),
         )
     except _Refused as refused:
         return refused.message

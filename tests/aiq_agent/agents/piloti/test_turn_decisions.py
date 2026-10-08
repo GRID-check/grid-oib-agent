@@ -115,7 +115,12 @@ class TestTheReferenceProjects:
         assert calls[0] == {"name": "knowledge_search", "args": {"query": "Brauchen wir ein Gutachten?"}}
         assert calls[-1] == {
             "name": "project_lookup",
-            "args": {"action": "search", "query": "Brauchen wir ein Gutachten?", "scope": "closed"},
+            "args": {
+                "action": "search",
+                "query": "Brauchen wir ein Gutachten?",
+                "scope": "closed",
+                "open_folders_only": True,
+            },
         }
 
     def test_the_reference_corpus_alone_prefetches_only_the_closed_projects_search(self):
@@ -125,7 +130,12 @@ class TestTheReferenceProjects:
         assert calls == [
             {
                 "name": "project_lookup",
-                "args": {"action": "search", "query": "Wie haben wir die Traufe gelöst?", "scope": "closed"},
+                "args": {
+                    "action": "search",
+                    "query": "Wie haben wir die Traufe gelöst?",
+                    "scope": "closed",
+                    "open_folders_only": True,
+                },
             }
         ]
 
@@ -140,6 +150,13 @@ class TestTheReferenceProjects:
         for corpus, precedent in (("referenz", None), ("baurecht", 0.95), ("projekt", 0.95)):
             calls = prefetch_calls(self._decided(corpus, precedent), "Wie war das?", reference_projects=3)
             assert [call["args"]["scope"] for call in calls if call["name"] == "project_lookup"] == ["closed"]
+
+    def test_the_automatic_search_never_reaches_a_restricted_folder(self):
+        """A solo chat's lookup also reaches cleared restricted folders; recording one narrows the chat unasked."""
+        for corpus, precedent in (("referenz", None), ("baurecht", 0.95)):
+            calls = prefetch_calls(self._decided(corpus, precedent), "Wie war das?", reference_projects=3)
+            lookups = [call["args"] for call in calls if call["name"] == "project_lookup"]
+            assert lookups and all(args.get("open_folders_only") is True for args in lookups)
 
     async def test_the_precedent_answer_is_read_back(self):
         decision = Decision(

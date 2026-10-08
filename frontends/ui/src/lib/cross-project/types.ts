@@ -69,6 +69,13 @@ export const crossProjectSearchRequestSchema = z.object({
   /** Where in the scope's project list this page starts; the previous answer's `nextOffset`. */
   offset: z.number().int().min(0).max(10_000).default(0),
   limit: z.number().int().min(1).max(CROSS_PROJECT_MAX_HITS).default(10),
+  /**
+   * Search only what narrows nobody: no restricted folder's passage, decision or
+   * permit, even in a chat whose reach includes the asker's cleared folders. The
+   * turn's automatic first step asks this (ADR-0064's amendment); a restricted
+   * folder stays a step the model takes with its own call.
+   */
+  openFoldersOnly: z.boolean().default(false),
 })
 export type CrossProjectSearchRequest = z.infer<typeof crossProjectSearchRequestSchema>
 
