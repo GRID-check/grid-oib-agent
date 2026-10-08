@@ -24,21 +24,25 @@
  * in the platform prompt; what a tenant wants applied belongs in that tenant's
  * own instruction block. Publishing a skill offers it, and an organization
  * decides.
+ *
+ * Publishing is still fleet-wide (every organization's Skills tab shows it at
+ * once), so turning the switch ON asks first. Turning it OFF does not: a
+ * withdrawal is the safe direction and is undone by the same switch.
  */
 
 import type { JSX } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Plus, Sparkles } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Lock, Pencil, Plus, Sparkles, Tags, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
-import { EmptyState } from '@/components/ui/empty-state'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
+import { SectionCard } from '@/features/platform/components/section-card'
+import { usePlatformCan } from '@/features/platform/platform-access'
 import { useTranslations } from '@/i18n'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { cn } from '@/lib/utils'
 import {
   createPlatformSkillCategory,
@@ -57,11 +61,13 @@ import { SkillCategoryManager } from '@/features/skills/components/skill-categor
 export function PlatformSkillCatalog(): JSX.Element {
   const t = useTranslations('platform')
   const tSkills = useTranslations('skills')
+  const canManage = usePlatformCan(PLATFORM_PERMISSIONS.settingsManage)
   const [skills, setSkills] = useState<PlatformSkillItem[] | null>(null)
   const [categories, setCategories] = useState<SkillCategoryListItem[]>([])
   /** A failed category read degrades the catalogue rather than failing it (see load). */
   const [categoriesFailed, setCategoriesFailed] = useState(false)
   const [error, setError] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<PlatformSkillItem | null>(null)
   /** Fresh mount per open — the editor seeds its fields in state initialisers. */
@@ -77,9 +83,15 @@ export function PlatformSkillCatalog(): JSX.Element {
    * step and the plainer word.
    */
   const [confirmDelete, setConfirmDelete] = useState<PlatformSkillItem | null>(null)
+  /** The draft a fleet-wide publish is waiting on the owner's yes for. */
+  const [confirmPublish, setConfirmPublish] = useState<PlatformSkillItem | null>(null)
+  const loaded = useRef(false)
 
   const load = useCallback(() => {
-    setSkills(null)
+    // The first load has nothing to keep; every later one (after a save, a
+    // category change, a retry) refreshes the rows in place instead of
+    // dropping them for skeletons.
+    if (loaded.current) setRefreshing(true)
     setCategoriesFailed(false)
     setError(false)
     // The categories are arrangement, not the catalogue: a category read that
@@ -89,12 +101,17 @@ export function PlatformSkillCatalog(): JSX.Element {
     listPlatformSkills()
       .then((rows) => {
         setSkills(rows)
+        loaded.current = true
         listPlatformSkillCategories()
           .then(setCategories)
           .catch(() => setCategoriesFailed(true))
       })
-      .catch(() => setError(true))
-  }, [])
+      .catch(() => {
+        if (loaded.current) toast.error(t('skills.loadError'))
+        else setError(true)
+      })
+      .finally(() => setRefreshing(false))
+  }, [t])
 
   useEffect(() => {
     load()
@@ -111,15 +128,19 @@ export function PlatformSkillCatalog(): JSX.Element {
    * treatment the org-side switch gets, for the same reason: it is cheap to
    * undo, and a control that waits for a round trip is one you press twice.
    */
-  const togglePublished = async (skill: PlatformSkillItem, published: boolean) => {
+  const setPublished = async (skill: PlatformSkillItem, published: boolean) => {
     setPending((current) => [...current, skill.id])
-    setSkills((prev) => prev?.map((row) => (row.id === skill.id ? { ...row, published } : row)) ?? prev)
+    setSkills(
+      (prev) => prev?.map((row) => (row.id === skill.id ? { ...row, published } : row)) ?? prev
+    )
     try {
       await updatePlatformSkill(skill.id, { published })
+      if (published) toast.success(t('skills.published', { name: skill.name }))
     } catch {
       setSkills(
         (prev) =>
-          prev?.map((row) => (row.id === skill.id ? { ...row, published: !published } : row)) ?? prev,
+          prev?.map((row) => (row.id === skill.id ? { ...row, published: !published } : row)) ??
+          prev
       )
       toast.error(t('skills.saveError'))
     } finally {
@@ -127,15 +148,21 @@ export function PlatformSkillCatalog(): JSX.Element {
     }
   }
 
+  const onSwitch = (skill: PlatformSkillItem, next: boolean) => {
+    if (next) setConfirmPublish(skill)
+    else void setPublished(skill, false)
+  }
+
+  /** Delete, keeping the confirm open (and pending) until the server answers. */
   const remove = async (skill: PlatformSkillItem) => {
-    setConfirmDelete(null)
     setPending((current) => [...current, skill.id])
     try {
       await deletePlatformSkill(skill.id)
       setSkills((prev) => prev?.filter((row) => row.id !== skill.id) ?? prev)
+      setConfirmDelete(null)
       toast.success(t('skills.deleted', { name: skill.name }))
     } catch {
-      toast.error(t('skills.saveError'))
+      toast.error(t('skills.deleteError'))
     } finally {
       setPending((current) => current.filter((id) => id !== skill.id))
     }
@@ -144,7 +171,7 @@ export function PlatformSkillCatalog(): JSX.Element {
   const categoryName = useCallback(
     (id: string | null): string | null =>
       id ? (categories.find((category) => category.id === id)?.name ?? null) : null,
-    [categories],
+    [categories]
   )
 
   const categoryCounts = useMemo(() => {
@@ -155,119 +182,143 @@ export function PlatformSkillCatalog(): JSX.Element {
     return counts
   }, [skills])
 
+  const newButton = (
+    <Button size="sm" onClick={() => openEditor(null)}>
+      <Plus aria-hidden />
+      {t('skills.new')}
+    </Button>
+  )
+
+  const headerActions = canManage ? (
+    <div className="flex flex-wrap items-center gap-2">
+      {!categoriesFailed ? (
+        <Button size="sm" variant="outline" onClick={() => setCategoriesOpen(true)}>
+          <Tags aria-hidden />
+          {tSkills('toolbox.categories.button')}
+        </Button>
+      ) : null}
+      {newButton}
+    </div>
+  ) : undefined
+
+  const publishedCount = skills?.filter((skill) => skill.published).length ?? 0
+
   return (
-    <section className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-muted-foreground max-w-3xl text-sm">{t('skills.hint')}</p>
-        <div className="flex items-center gap-2">
-          {!categoriesFailed && (
-            <Button size="sm" variant="outline" onClick={() => setCategoriesOpen(true)}>
-              {tSkills('toolbox.categories.button')}
-            </Button>
-          )}
-          <Button size="sm" onClick={() => openEditor(null)}>
-            <Plus className="size-4" aria-hidden />
-            {t('skills.new')}
-          </Button>
-        </div>
-      </div>
-
-      {skills === null && !error && (
-        <div className="flex flex-col gap-3" data-testid="platform-skills-loading">
-          <Skeleton className="h-24 w-full rounded-xl" />
-          <Skeleton className="h-24 w-full rounded-xl" />
-        </div>
-      )}
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="size-4" aria-hidden />
-          <AlertTitle>{t('skills.loadError')}</AlertTitle>
-          <AlertDescription>
-            <Button variant="outline" size="sm" onClick={load}>
-              {t('skills.tryAgain')}
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {skills !== null && !error && skills.length === 0 && (
-        <EmptyState
-          icon={Sparkles}
-          title={t('skills.empty.title')}
-          description={t('skills.empty.description')}
-          action={
-            <Button onClick={() => openEditor(null)}>
-              <Plus className="size-4" aria-hidden />
-              {t('skills.new')}
-            </Button>
-          }
-        />
-      )}
-
-      {skills !== null && !error && skills.length > 0 && (
-        <ul className="flex flex-col gap-3">
-          {skills.map((skill) => (
-            <li key={skill.id}>
-              <Card>
-                <CardContent className="flex flex-col gap-3 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div
-                      className={cn(
-                        'min-w-0 space-y-1 transition-opacity duration-quick ease-out motion-reduce:transition-none',
-                        !skill.published && 'opacity-60',
-                      )}
-                    >
-                      <p className="text-foreground truncate font-mono text-sm font-semibold">
-                        <span aria-hidden className="text-muted-foreground">
-                          /
-                        </span>
-                        {skill.name}
-                      </p>
-                      <p className="text-muted-foreground line-clamp-2 text-sm">
-                        {skill.description}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      {/* Said only while it is true. A "Published" badge on the
-                          published ones would repeat the switch beside it; a
-                          draft is the state worth naming, because it is the one
-                          where nobody else can see what you are looking at. */}
-                      {!skill.published && <Badge variant="outline">{t('skills.draft')}</Badge>}
-                      {/* The category, and only when there is one: most rows
-                          start unsorted, and a badge every row carries tells
-                          you nothing anyway. */}
-                      {categoryName(skill.categoryId) && (
-                        <Badge variant="outline">{categoryName(skill.categoryId)}</Badge>
-                      )}
-                      <Switch
-                        checked={skill.published}
-                        disabled={pending.includes(skill.id)}
-                        onCheckedChange={(next) => void togglePublished(skill, next)}
-                        aria-label={t('skills.publishAria', { name: skill.name })}
-                      />
-                    </div>
+    <>
+      <SectionCard
+        title={t('skills.catalogTitle')}
+        description={
+          skills && skills.length > 0
+            ? t('skills.catalogCount', { total: skills.length, published: publishedCount })
+            : undefined
+        }
+        action={headerActions}
+        loading={skills === null && !error}
+        refreshing={refreshing}
+        skeletonRows={3}
+        error={error}
+        errorMessage={t('skills.loadError')}
+        onRetry={load}
+        empty={skills !== null && skills.length === 0}
+        emptyIcon={Sparkles}
+        emptyTitle={t('skills.empty.title')}
+        emptyDescription={t('skills.empty.description')}
+        emptyAction={canManage ? newButton : undefined}
+        testId="platform-skill-catalog"
+      >
+        {!canManage ? (
+          <Alert className="mb-2">
+            <Lock aria-hidden />
+            <AlertDescription>{t('skills.readOnly')}</AlertDescription>
+          </Alert>
+        ) : null}
+        <ul className="flex flex-col divide-y" data-testid="platform-skill-list">
+          {(skills ?? []).map((skill) => {
+            const busy = pending.includes(skill.id)
+            const category = categoryName(skill.categoryId)
+            return (
+              <li
+                key={skill.id}
+                className="flex flex-col gap-3 py-4 first:pt-1 sm:flex-row sm:items-start sm:gap-6"
+                data-testid={`platform-skill-${skill.name}`}
+              >
+                <div
+                  className={cn(
+                    'duration-quick min-w-0 flex-1 space-y-1 transition-opacity ease-out motion-reduce:transition-none',
+                    !skill.published && 'opacity-70'
+                  )}
+                >
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <p className="text-foreground min-w-0 truncate font-mono text-sm font-semibold">
+                      <span aria-hidden className="text-muted-foreground">
+                        /
+                      </span>
+                      {skill.name}
+                    </p>
+                    {/* The category, and only when there is one: most rows
+                        start unsorted, and a badge every row carries tells
+                        you nothing anyway. */}
+                    {category ? <Badge variant="secondary">{category}</Badge> : null}
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button size="sm" variant="outline" onClick={() => openEditor(skill)}>
-                      {t('skills.edit')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
-                      disabled={pending.includes(skill.id)}
-                      onClick={() => setConfirmDelete(skill)}
-                    >
-                      {t('skills.delete')}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </li>
-          ))}
+                  <p className="text-muted-foreground line-clamp-2 text-sm">{skill.description}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Switch
+                    checked={skill.published}
+                    disabled={busy || !canManage}
+                    onCheckedChange={(next) => onSwitch(skill, next)}
+                    aria-label={t('skills.publishAria', { name: skill.name })}
+                  />
+                  {/* The switch's state in words, so a draft is named without
+                      a second badge repeating it on the title line. */}
+                  <span className="text-muted-foreground ml-2 mr-2 w-24 text-xs" aria-hidden>
+                    {skill.published ? t('skills.publishLabel') : t('skills.draft')}
+                  </span>
+                  {canManage ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => openEditor(skill)}
+                        aria-label={t('skills.editAria', { name: skill.name })}
+                      >
+                        <Pencil aria-hidden />
+                        {t('skills.edit')}
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        disabled={busy}
+                        onClick={() => setConfirmDelete(skill)}
+                        aria-label={t('skills.deleteAria', { name: skill.name })}
+                        title={t('skills.delete')}
+                      >
+                        <Trash2 aria-hidden />
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+              </li>
+            )
+          })}
         </ul>
-      )}
+      </SectionCard>
+
+      <ConfirmDialog
+        open={confirmPublish !== null}
+        onOpenChange={(open) => !open && setConfirmPublish(null)}
+        tone="default"
+        title={t('skills.publishConfirmTitle')}
+        description={t('skills.publishConfirmDescription', { name: confirmPublish?.name ?? '' })}
+        confirmLabel={t('skills.publishConfirm')}
+        cancelLabel={t('skills.cancel')}
+        onConfirm={() => {
+          const skill = confirmPublish
+          setConfirmPublish(null)
+          if (skill) void setPublished(skill, true)
+        }}
+      />
 
       <ConfirmDialog
         open={confirmDelete !== null}
@@ -278,8 +329,8 @@ export function PlatformSkillCatalog(): JSX.Element {
         confirmLabel={t('skills.deleteConfirm')}
         cancelLabel={t('skills.cancel')}
         pending={confirmDelete !== null && pending.includes(confirmDelete.id)}
-        onConfirm={() => {
-          if (confirmDelete) void remove(confirmDelete)
+        onConfirm={async () => {
+          if (confirmDelete) await remove(confirmDelete)
         }}
       />
 
@@ -305,6 +356,6 @@ export function PlatformSkillCatalog(): JSX.Element {
         onDelete={async (id) => deletePlatformSkillCategory(id)}
         onChanged={load}
       />
-    </section>
+    </>
   )
 }
