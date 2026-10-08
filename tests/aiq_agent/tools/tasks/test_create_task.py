@@ -179,6 +179,14 @@ class TestWhatIsHandedOver:
         assert "nichts angelegt" in answer
         assert calls == []
 
+    async def test_a_conversation_attachment_is_named_as_one_not_as_missing(self, monkeypatch, calls) -> None:
+        """The reader sees the file; the run cannot read it. „Nicht gefunden" would be a lie."""
+        responder(monkeypatch, ACCEPTED, calls)
+        answer = await task_tools.run_create_task("protokoll", "Protokoll", documents="anhang.pdf")
+        assert "hängt nur an dieser Unterhaltung" in answer
+        assert "Nicht gefunden" not in answer
+        assert calls == []
+
     async def test_an_ambiguous_name_comes_back_as_a_question(self, monkeypatch, calls) -> None:
         responder(monkeypatch, ACCEPTED, calls)
         answer = await task_tools.run_create_task("document", "Schreib das", documents="Notizen JF")

@@ -61,6 +61,7 @@ from nat.plugin_api import register_function
 
 from ..documents.filing import SignedEnvelope
 from ..files.resolve import Refusal
+from ..files.resolve import is_conversation_attachment
 from ..files.resolve import resolve_document
 from .cards import emit_task_card
 from .client import DelegationError
@@ -168,6 +169,16 @@ def _cadence_or_refuse(cadence: str) -> str:
     return text
 
 
+#: A file attached to this conversation is visible here and unreadable to the
+#: run, whose collection scope is the project's. Saying „not found" would send
+#: the model after a spelling that was right; this says what is the matter.
+_ATTACHMENT = (
+    "Fehler: „{name}“ hängt nur an dieser Unterhaltung und ist kein Projektdokument; ein Auftrag kann es "
+    "nicht lesen. Es wurde nichts angelegt. Bitte die Nutzerin, die Datei im Projekt abzulegen oder den Text "
+    "hier einzufügen, und lege den Auftrag dann an."
+)
+
+
 def _documents_or_refuse(documents: str) -> dict[str, Any] | None:
     """The named files as the wire's ``documents.grundlage``, each resolved against this turn's inventory.
 
@@ -184,6 +195,8 @@ def _documents_or_refuse(documents: str) -> dict[str, Any] | None:
         )
     resolved: list[str] = []
     for name in names:
+        if is_conversation_attachment(name):
+            raise _Refused(_ATTACHMENT.format(name=name))
         found = resolve_document(name)
         if isinstance(found, Refusal):
             raise _Refused(f"{found.message} Es wurde nichts angelegt.")

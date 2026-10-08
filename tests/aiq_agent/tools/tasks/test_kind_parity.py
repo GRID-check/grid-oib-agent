@@ -43,7 +43,9 @@ def _ts_delegatable_kinds() -> tuple[str, ...]:
 def _ts_engines() -> dict[str, str]:
     """Each ``TASK_ENGINES`` row's source text, by kind."""
     source = TS_DELEGATION.read_text(encoding="utf-8")
-    match = re.search(r"const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = \{\n(.*?)\n\}\n", source, re.DOTALL)
+    match = re.search(
+        r"const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = \{\n(.*?)\n\}\n", source, re.DOTALL
+    )
     assert match, f"TASK_ENGINES not found in {TS_DELEGATION}"
     parts = re.split(r"^  (\w+): \{$", match.group(1), flags=re.MULTILINE)
     return dict(zip(parts[1::2], parts[2::2], strict=True))

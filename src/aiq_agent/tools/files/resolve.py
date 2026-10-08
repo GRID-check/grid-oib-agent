@@ -157,6 +157,26 @@ def resolve_document(name: str) -> ResolvedDocument | Refusal:
     )
 
 
+def is_conversation_attachment(name: str) -> bool:
+    """Whether ``name`` is one of this conversation's own attachments (the ``session`` shelf).
+
+    :func:`resolve_document` never offers one, and rightly: it is no project
+    document, and a delegated run cannot read it either, because a run's
+    collection scope is the project's and never the conversation's. But the
+    reader can SEE the file, so a caller that answers „not found" for it sends
+    the model hunting for a spelling that was right all along. This is how the
+    caller tells the two apart and says what is actually the matter.
+    """
+    wanted = _key(name)
+    for row in get_turn_documents():
+        if parse_shelf(_attr(row, "shelf")) is not Shelf.SESSION:
+            continue
+        file_name = _key(str(_attr(row, "file_name") or ""))
+        if wanted in (file_name, file_name.rsplit(".", 1)[0]):
+            return True
+    return False
+
+
 def known_folders() -> list[str]:
     """Every folder path the turn can see, ancestors included, sorted.
 
