@@ -147,6 +147,13 @@ export const FEEDBACK_HEALTH_WINDOW_DAYS = 30
 export const FEEDBACK_HEALTH_RECENT_LIMIT = 50
 
 /**
+ * Ceiling on the CSV export's rows. The export is the analysis that does not fit
+ * on a page, so it cannot share the page's 50, but it is still a list and still
+ * bounded; the service reports when it was reached instead of truncating quietly.
+ */
+export const FEEDBACK_EXPORT_ROW_CAP = 5000
+
+/**
  * **Deliberately NOT organization-scoped** — the one read in this file that
  * crosses tenants.
  *
@@ -510,8 +517,12 @@ export async function listFeedbackTurns(
     organizationId = null,
     topic = null,
     query = null,
-    limit: recentLimit = FEEDBACK_HEALTH_RECENT_LIMIT,
+    limit = FEEDBACK_HEALTH_RECENT_LIMIT,
   } = filters
+  // The caller picks the size, the repository owns the bound: one row over the
+  // export cap is the most anyone may ask for (that row is how "exactly full"
+  // is told apart from "truncated").
+  const recentLimit = Math.max(0, Math.min(limit, FEEDBACK_EXPORT_ROW_CAP + 1))
   const db = getDb()
   const since = windowStart(windowDays)
 

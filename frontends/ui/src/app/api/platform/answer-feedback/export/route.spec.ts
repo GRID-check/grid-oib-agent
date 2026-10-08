@@ -25,10 +25,12 @@ vi.mock('@/lib/authz/platform', () => {
 })
 
 vi.mock('@/lib/feedback/service', () => ({
-  getAnswerFeedbackHealth: vi.fn().mockImplementation(async (session: unknown) => {
+  getAnswerFeedbackExport: vi.fn().mockImplementation(async (session: unknown) => {
     const { requirePlatformPermission } = await import('@/lib/authz/platform')
     await requirePlatformPermission(session as never, 'platform:organizations:view')
     return {
+      truncated: false,
+      cap: 5000,
       turns: [
         {
           createdAt: new Date('2026-07-30T09:00:00.000Z'),
@@ -56,7 +58,7 @@ vi.mock('@/lib/feedback/service', () => ({
 }))
 
 import { GET } from './route'
-import { getAnswerFeedbackHealth, getAnswerFeedbackWeeklySummary } from '@/lib/feedback/service'
+import { getAnswerFeedbackExport, getAnswerFeedbackWeeklySummary } from '@/lib/feedback/service'
 
 const request = (query = ''): Request =>
   new Request(`http://localhost/api/platform/answer-feedback/export${query}`)
@@ -77,7 +79,7 @@ describe('GET /api/platform/answer-feedback/export', () => {
 
     // An export that quietly disagreed with the view it was taken from would be
     // worse than no export.
-    expect(getAnswerFeedbackHealth).toHaveBeenCalledWith(
+    expect(getAnswerFeedbackExport).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         windowDays: 7,
@@ -139,7 +141,9 @@ describe('GET /api/platform/answer-feedback/export', () => {
   /** A complaint is user text; a spreadsheet must open it as text, not run it. */
   it('neutralises a cell that would open as a formula', async () => {
     isOwner.value = true
-    vi.mocked(getAnswerFeedbackHealth).mockResolvedValueOnce({
+    vi.mocked(getAnswerFeedbackExport).mockResolvedValueOnce({
+      truncated: false,
+      cap: 5000,
       turns: [
         {
           createdAt: new Date('2026-07-30T09:00:00.000Z'),
@@ -163,6 +167,24 @@ describe('GET /api/platform/answer-feedback/export', () => {
     expect(body).toContain(`"'@SUM(A1)"`)
   })
 
+  /** The page shows 50; the export used to stop there too, and said nothing. */
+  it('says so, in a header and the filename, when the export hit its row cap', async () => {
+    isOwner.value = true
+    vi.mocked(getAnswerFeedbackExport).mockResolvedValueOnce({ turns: [], truncated: true, cap: 5000 })
+    const res = await GET(request())
+
+    expect(res.headers.get('X-Grid-Export-Truncated')).toBe('5000')
+    expect(res.headers.get('Content-Disposition')).toMatch(/-first-5000\.csv"$/)
+  })
+
+  it('sends no truncation header when the window fit', async () => {
+    isOwner.value = true
+    const res = await GET(request())
+
+    expect(res.headers.get('X-Grid-Export-Truncated')).toBeNull()
+    expect(res.headers.get('Content-Disposition')).not.toContain('first-')
+  })
+
   describe('?summary=weekly', () => {
     it('refuses a non-owner with 403', async () => {
       expect((await GET(request('?summary=weekly'))).status).toBe(403)
@@ -180,7 +202,7 @@ describe('GET /api/platform/answer-feedback/export', () => {
         expect.anything(),
         expect.objectContaining({ windowDays: 90, organizationId: 'org_2' })
       )
-      expect(getAnswerFeedbackHealth).not.toHaveBeenCalled()
+      expect(getAnswerFeedbackExport).not.toHaveBeenCalled()
     })
   })
 })

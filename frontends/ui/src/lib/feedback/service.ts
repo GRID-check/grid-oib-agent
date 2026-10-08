@@ -32,6 +32,8 @@ import {
   getFeedbackHealth,
   getFeedbackWeeklySummary,
   listAnswerFeedbackForConversation,
+  listFeedbackTurns,
+  FEEDBACK_EXPORT_ROW_CAP,
   upsertAnswerFeedback,
   type FeedbackHealth,
   type FeedbackOrgRollup,
@@ -235,6 +237,36 @@ export async function getAnswerFeedbackDigest(
     () => getFeedbackHealth({ ...filters, limit: 0 })
   )
   return getFeedbackDigest(health, filters, options)
+}
+
+/** The drill-in as the CSV export serves it: every row up to the cap, and whether the cap cut it. */
+export interface AnswerFeedbackExport {
+  turns: FeedbackTurn[]
+  /** True when the window held more rows than `FEEDBACK_EXPORT_ROW_CAP`. */
+  truncated: boolean
+  cap: number
+}
+
+/**
+ * The drill-in, in full, for the export. Same gate, same filters and same query
+ * as the page's list, but not the page's 50-row ceiling: an export that quietly
+ * stopped at the first page would claim a complete window it does not hold.
+ * Reads one row over the cap so a full export is told apart from a cut one.
+ */
+export async function getAnswerFeedbackExport(
+  session: GridSession | null,
+  filters: FeedbackHealthFilters = {}
+): Promise<AnswerFeedbackExport> {
+  await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
+  const rows = await withPlatformAccess('answer feedback export: cross-organization drill-in', () =>
+    listFeedbackTurns({ ...filters, limit: FEEDBACK_EXPORT_ROW_CAP + 1 })
+  )
+  const truncated = rows.length > FEEDBACK_EXPORT_ROW_CAP
+  return {
+    turns: truncated ? rows.slice(0, FEEDBACK_EXPORT_ROW_CAP) : rows,
+    truncated,
+    cap: FEEDBACK_EXPORT_ROW_CAP,
+  }
 }
 
 /**

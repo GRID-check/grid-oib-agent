@@ -7,20 +7,23 @@
  * browser, so the download costs the bundle nothing and is reachable as a plain
  * link — the same shape as the citation-health export beside it.
  *
- * It reads through `getAnswerFeedbackHealth` with the SAME parser as the page, so
+ * It reads through `getAnswerFeedbackExport` with the SAME parser as the page, so
  * it carries the same gate and the same filters. An export that quietly disagreed
- * with the view it was taken from would be worse than no export.
+ * with the view it was taken from would be worse than no export. It is NOT
+ * limited to the page's 50 rows: up to `FEEDBACK_EXPORT_ROW_CAP`, and a cut
+ * export says so (`X-Grid-Export-Truncated`, and `-first-<cap>` in the filename).
  */
 
 import { NextResponse } from 'next/server'
 import { ForbiddenError } from '@/lib/api/errors'
 import { apiRoute } from '@/lib/api/handler'
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
-import { getAnswerFeedbackHealth, getAnswerFeedbackWeeklySummary } from '@/lib/feedback/service'
+import { getAnswerFeedbackExport, getAnswerFeedbackWeeklySummary } from '@/lib/feedback/service'
 import { parseFeedbackFilters } from '@/lib/feedback/query'
 // Quoted per RFC 4180 AND formula-neutralised: questions, comments and answers
 // are user and model text, and a spreadsheet evaluates `=...` even inside quotes.
 import { csvCell } from '@/lib/text/csv-cell'
+import { EXPORT_TRUNCATED_HEADER } from '@/lib/feedback/types'
 
 const COLUMNS = [
   'created_at',
@@ -46,7 +49,12 @@ const COLUMNS = [
 /** The weekly summary's columns: the numerator and denominator of a failure rate. */
 const WEEKLY_COLUMNS = ['organization_id', 'iso_week', 'week_start', 'answers', 'up', 'down'] as const
 
-function csvResponse(rows: string[], columns: readonly string[], filename: string): NextResponse {
+function csvResponse(
+  rows: string[],
+  columns: readonly string[],
+  filename: string,
+  extraHeaders: Record<string, string> = {}
+): NextResponse {
   // A BOM so Excel opens UTF-8 correctly. These answers are German and full of
   // umlauts; a mojibake export is one nobody trusts a second time.
   const body = `\uFEFF${columns.join(',')}\n${rows.join('\n')}\n`
@@ -56,6 +64,7 @@ function csvResponse(rows: string[], columns: readonly string[], filename: strin
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="${filename}"`,
       'Cache-Control': 'no-store',
+      ...extraHeaders,
     },
   })
 }
@@ -81,9 +90,9 @@ export const GET = apiRoute(
           `answer-feedback-weekly-${stamp}.csv`
         )
       }
-      const health = await getAnswerFeedbackHealth(session, filters)
+      const exported = await getAnswerFeedbackExport(session, filters)
 
-      const rows = health.turns.map((turn) =>
+      const rows = exported.turns.map((turn) =>
         [
           turn.createdAt instanceof Date ? turn.createdAt.toISOString() : turn.createdAt,
           turn.organizationId,
@@ -105,10 +114,14 @@ export const GET = apiRoute(
 
       // The verdict is in the FILENAME as well as the column, because the two
       // exports are otherwise one download folder away from being the same file.
+      // A cut export says so twice: in a header for a script, and in the
+      // filename for the person who will open it in a spreadsheet.
+      const cut = exported.truncated ? `-first-${exported.cap}` : ''
       return csvResponse(
         rows,
         COLUMNS,
-        `answer-feedback-${filters.verdict ?? 'down'}-${stamp}.csv`
+        `answer-feedback-${filters.verdict ?? 'down'}-${stamp}${cut}.csv`,
+        exported.truncated ? { [EXPORT_TRUNCATED_HEADER]: String(exported.cap) } : {}
       )
     } catch (error) {
       if (error instanceof PlatformAccessDeniedError) throw new ForbiddenError()
@@ -117,7 +130,8 @@ export const GET = apiRoute(
   },
   {
     authz: {
-      enforcedBy: 'getAnswerFeedbackHealth (requirePlatformPermission platform:organizations:view)',
+      enforcedBy:
+        'getAnswerFeedbackExport / getAnswerFeedbackWeeklySummary (requirePlatformPermission platform:organizations:view)',
     },
   }
 )

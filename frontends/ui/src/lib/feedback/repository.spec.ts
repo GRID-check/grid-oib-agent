@@ -11,6 +11,7 @@ vi.mock('@/lib/db', () => ({
 import { getDb } from '@/lib/db'
 import {
   CONVERSATION_FEEDBACK_LIST_LIMIT,
+  FEEDBACK_EXPORT_ROW_CAP,
   FEEDBACK_WEEKLY_SUMMARY_LIMIT,
   deleteAnswerFeedbackForUser,
   getFeedbackWeeklySummary,
@@ -141,6 +142,12 @@ describe('listFeedbackTurns', () => {
    * nothing and read as "nobody liked anything" — a wrong answer that looks
    * like a real one.
    */
+  it('never reads more than one row past the export cap, whatever it is asked for', async () => {
+    const execute = capture()
+    await listFeedbackTurns({ limit: 1_000_000 })
+    expect(params(execute.mock.calls[0][0])).toContain(FEEDBACK_EXPORT_ROW_CAP + 1)
+  })
+
   it('drops a reason filter on the praised list', async () => {
     const execute = capture()
     await listFeedbackTurns({ verdict: 'up', reason: 'inaccurate' })

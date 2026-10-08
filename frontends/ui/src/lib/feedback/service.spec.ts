@@ -14,6 +14,7 @@ vi.mock('./repository', () => ({
   listAnswerFeedbackForConversation: vi.fn(),
   getFeedbackHealth: vi.fn(),
   listFeedbackTurns: vi.fn(),
+  FEEDBACK_EXPORT_ROW_CAP: 3,
 }))
 
 // The memory-implication trigger: mocked wholesale — its own behavior is
@@ -42,6 +43,7 @@ import {
   getAnswerFeedbackForUser,
   getFeedbackHealth,
   listAnswerFeedbackForConversation,
+  listFeedbackTurns,
   upsertAnswerFeedback,
 } from './repository'
 import { implicateMemoryFromFeedback } from '@/lib/projects/memory-service'
@@ -49,6 +51,7 @@ import { getFeedbackDigest } from './digest'
 import { listOrganizationNames } from '@/lib/organizations/names'
 import {
   getAnswerFeedbackDigest,
+  getAnswerFeedbackExport,
   getAnswerFeedbackHealth,
   getOwnConversationFeedback,
   retractAnswerFeedback,
@@ -353,5 +356,44 @@ describe('getAnswerFeedbackDigest', () => {
     expect(getFeedbackHealth).toHaveBeenCalledWith({ windowDays: 7, limit: 0 })
     expect(getFeedbackDigest).toHaveBeenCalledWith(health, { windowDays: 7 }, { locale: 'en' })
     expect(result).toEqual({ digest: null, error: 'too_few_votes' })
+  })
+})
+
+/**
+ * The export used to read through the health view and so stopped at the page's
+ * 50 rows without a word. It has its own bound now, and reports hitting it.
+ */
+describe('getAnswerFeedbackExport', () => {
+  beforeEach(() => {
+    vi.mocked(requirePlatformPermission).mockReset()
+    vi.mocked(listFeedbackTurns).mockReset()
+  })
+
+  it('refuses anyone who is not a platform owner, and does not read first', async () => {
+    vi.mocked(requirePlatformPermission).mockRejectedValue(new PlatformAccessDeniedError())
+
+    await expect(getAnswerFeedbackExport({} as never)).rejects.toBeInstanceOf(PlatformAccessDeniedError)
+    expect(listFeedbackTurns).not.toHaveBeenCalled()
+  })
+
+  it('reads one row past the cap, keeps the filters, and reports a cut', async () => {
+    vi.mocked(requirePlatformPermission).mockResolvedValue(undefined)
+    vi.mocked(listFeedbackTurns).mockResolvedValue([{ id: '1' }, { id: '2' }, { id: '3' }, { id: '4' }] as never)
+
+    const exported = await getAnswerFeedbackExport({} as never, { windowDays: 90, verdict: 'up' })
+
+    expect(listFeedbackTurns).toHaveBeenCalledWith({ windowDays: 90, verdict: 'up', limit: 4 })
+    expect(exported.turns).toHaveLength(3)
+    expect(exported).toMatchObject({ truncated: true, cap: 3 })
+  })
+
+  it('does not report a cut when the window fit exactly', async () => {
+    vi.mocked(requirePlatformPermission).mockResolvedValue(undefined)
+    vi.mocked(listFeedbackTurns).mockResolvedValue([{ id: '1' }, { id: '2' }, { id: '3' }] as never)
+
+    const exported = await getAnswerFeedbackExport({} as never)
+
+    expect(exported.turns).toHaveLength(3)
+    expect(exported.truncated).toBe(false)
   })
 })
