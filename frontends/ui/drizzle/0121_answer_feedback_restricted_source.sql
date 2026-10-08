@@ -1,5 +1,5 @@
 -- 0120: a vote keeps knowing that its conversation drew on a restricted folder,
--- after the conversation is gone (ADR-0086, ADR-0087).
+-- after the conversation is gone (ADR-0087, ADR-0088).
 --
 -- `OUTSIDE_RESTRICTED_USE` (lib/feedback/repository.ts) leaves a vote out of
 -- every cross-tenant reader (the platform drill-in, its CSV export, the

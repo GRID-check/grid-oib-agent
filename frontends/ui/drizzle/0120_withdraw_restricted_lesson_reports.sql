@@ -1,5 +1,5 @@
 -- 0119: withdraw what the lessons pipeline already took from a conversation
--- that drew on a folder with restricted access (ADR-0086, ADR-0087).
+-- that drew on a folder with restricted access (ADR-0087, ADR-0088).
 --
 -- Since `OUTSIDE_RESTRICTED_USE` (lib/feedback/repository.ts) the sweep never
 -- reads a down-vote on a conversation with a `conversation_restricted_folders`
@@ -52,7 +52,7 @@ WITH "restricted" AS (
       "content" = 'Zurückgezogen: aus einem Chat gelernt, der einen Ordner mit eingeschränktem Zugriff verwendet hat.',
       "held_reason" = NULL,
       "retired_at" = CASE WHEN x."was_live" THEN now() ELSE l."retired_at" END,
-      "retired_by" = CASE WHEN x."was_live" THEN 'system:migration-0119' ELSE l."retired_by" END,
+      "retired_by" = CASE WHEN x."was_live" THEN 'system:migration-0120' ELSE l."retired_by" END,
       "retired_reason" = CASE WHEN x."was_live" THEN 'restricted_source' ELSE l."retired_reason" END,
       "updated_at" = now()
   FROM "lessons" x
@@ -60,6 +60,6 @@ WITH "restricted" AS (
   RETURNING l."id"
 )
 INSERT INTO "platform_lesson_events" ("lesson_id", "action", "actor", "detail")
-SELECT x."id", 'retired', 'system:migration-0119', '{"reason": "restricted_source", "automatic": true}'::jsonb
+SELECT x."id", 'retired', 'system:migration-0120', '{"reason": "restricted_source", "automatic": true}'::jsonb
 FROM "lessons" x
 WHERE x."was_live";

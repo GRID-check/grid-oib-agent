@@ -392,7 +392,7 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
 echo "==> 0097 step rewrite and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migrations 0110 to 0114 and 0117 to 0120: each on a database of its own.
+# Migrations 0111 to 0115 and 0118 to 0121: each on a database of its own.
 #
 # `migrate_until <db> <tag>` creates <db> and applies the journal up to and
 # including <tag>, so every section below starts from exactly the chain it
@@ -700,7 +700,7 @@ check_in grid_quarantine "SELECT count(*) FROM document_quarantine_decisions" "0
 echo "==> 0119 quarantine decisions and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0119: what the lessons pipeline took from a restricted
+# Migration 0120: what the lessons pipeline took from a restricted
 # conversation before OUTSIDE_RESTRICTED_USE, withdrawn, and its DOWN.
 #
 # On a database of its own (grid_lessons), migrated through 0118 and seeded
@@ -714,8 +714,8 @@ echo "==> 0119 quarantine decisions and down migration verified"
 # the open lesson stays active. The down changes nothing, and 0119 re-applies
 # without a second event.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0119 lesson withdrawal and its down migration on grid_lessons"
-migrate_until grid_lessons 0118_document_quarantine_decisions
+echo "==> verifying the 0120 lesson withdrawal and its down migration on grid_lessons"
+migrate_until grid_lessons 0119_document_quarantine_decisions
 sql_in grid_lessons <<'SQL'
 INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id) VALUES
   ('org_0107', 's_0118_restricted', 'a1a1a1a1-a1a1-4000-8000-000000000107');
@@ -736,21 +736,21 @@ INSERT INTO platform_lesson_reports (feedback_id, lesson_id, outcome, skip_reaso
   ('f4f4f4f4-0000-4000-8000-000000000118', '22222222-0000-4000-8000-000000000118', 'created', NULL, 'hash_0118', 'Brüstungshöhe falsch genannt'),
   ('f5f5f5f5-0000-4000-8000-000000000118', '33333333-0000-4000-8000-000000000118', 'created', NULL, 'hash_0118', 'Angebotssumme gerundet');
 SQL
-apply_in grid_lessons 0119_withdraw_restricted_lesson_reports.sql
+apply_in grid_lessons 0120_withdraw_restricted_lesson_reports.sql
 check_in grid_lessons "SELECT string_agg(feedback_id::text, ',' ORDER BY feedback_id) FROM platform_lesson_reports WHERE org_hash = 'hash_0118' AND canonical_summary IS NOT NULL" "f4f4f4f4-0000-4000-8000-000000000118" "only the open report keeps its summary, whatever the outcome"
-check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || retired_by || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '11111111-0000-4000-8000-000000000118'" "retired,restricted_source,system:migration-0119,true" "a live lesson created from a restricted report is retired, its text replaced"
+check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || retired_by || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '11111111-0000-4000-8000-000000000118'" "retired,restricted_source,system:migration-0120,true" "a live lesson created from a restricted report is retired, its text replaced"
 check_in grid_lessons "SELECT status || ',' || content FROM platform_lessons WHERE id = '22222222-0000-4000-8000-000000000118'" "active,Brüstungshöhen nach OIB-RL 4 prüfen 0119" "a lesson only LINKED to a restricted report stays as it was"
 check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '33333333-0000-4000-8000-000000000118'" "retired,evicted_capacity,true" "an already retired one loses its text and keeps its retirement"
-check_in grid_lessons "SELECT string_agg(lesson_id::text || ':' || action || ':' || (detail->>'reason'), ',') FROM platform_lesson_events WHERE actor = 'system:migration-0119'" "11111111-0000-4000-8000-000000000118:retired:restricted_source" "one retirement event, for the lesson that was live"
-apply_in grid_lessons 0119_withdraw_restricted_lesson_reports.down.sql
+check_in grid_lessons "SELECT string_agg(lesson_id::text || ':' || action || ':' || (detail->>'reason'), ',') FROM platform_lesson_events WHERE actor = 'system:migration-0120'" "11111111-0000-4000-8000-000000000118:retired:restricted_source" "one retirement event, for the lesson that was live"
+apply_in grid_lessons 0120_withdraw_restricted_lesson_reports.down.sql
 check_in grid_lessons "SELECT status FROM platform_lessons WHERE id = '11111111-0000-4000-8000-000000000118'" "retired" "the down changes nothing"
-apply_in grid_lessons 0119_withdraw_restricted_lesson_reports.sql
-check_in grid_lessons "SELECT count(*) FROM platform_lesson_events WHERE actor = 'system:migration-0119'" "1" "0119 re-applies without a second event"
+apply_in grid_lessons 0120_withdraw_restricted_lesson_reports.sql
+check_in grid_lessons "SELECT count(*) FROM platform_lesson_events WHERE actor = 'system:migration-0120'" "1" "0120 re-applies without a second event"
 
-echo "==> 0119 lesson withdrawal and down migration verified"
+echo "==> 0120 lesson withdrawal and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0120: a vote keeps its conversation's restricted use after the
+# Migration 0121: a vote keeps its conversation's restricted use after the
 # record goes, and its DOWN.
 #
 # On grid_lessons, after 0119: the backfill marks the votes on the 0119
@@ -759,8 +759,8 @@ echo "==> 0119 lesson withdrawal and down migration verified"
 # trigger, and a vote on another conversation is not. The down drops the
 # column, the trigger and the function; 0120 re-applies.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0120 feedback marker, its trigger and its down migration on grid_lessons"
-apply_in grid_lessons 0120_answer_feedback_restricted_source.sql
+echo "==> verifying the 0121 feedback marker, its trigger and its down migration on grid_lessons"
+apply_in grid_lessons 0121_answer_feedback_restricted_source.sql
 check_in grid_lessons "SELECT string_agg(conversation_id || ':' || restricted_source::text, ',' ORDER BY conversation_id) FROM (SELECT DISTINCT conversation_id, restricted_source FROM answer_feedback WHERE message_id LIKE 'm_0118_%') v" "s_0118_open:false,s_0118_restricted:true" "the backfill marks the votes on a recorded conversation only"
 sql_in grid_lessons <<'SQL'
 INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id) VALUES
@@ -772,12 +772,12 @@ SQL
 check_in grid_lessons "SELECT string_agg(restricted_source::text, ',' ORDER BY message_id) FROM answer_feedback WHERE message_id LIKE 'm_0119_%'" "false,false" "a new vote starts unmarked; the record holds it back while it exists"
 sql_in grid_lessons <<<"DELETE FROM conversation_restricted_folders WHERE conversation_id = 's_0119_deleted';"
 check_in grid_lessons "SELECT string_agg(conversation_id || ':' || restricted_source::text, ',' ORDER BY message_id) FROM answer_feedback WHERE message_id LIKE 'm_0119_%'" "s_0119_deleted:true,s_0119_other:false" "deleting the record marks the votes on that conversation, and only those"
-apply_in grid_lessons 0120_answer_feedback_restricted_source.down.sql
+apply_in grid_lessons 0121_answer_feedback_restricted_source.down.sql
 check_in grid_lessons "SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name = 'answer_feedback' AND column_name = 'restricted_source') + (SELECT count(*) FROM pg_trigger WHERE tgname = 'conversation_restricted_folders_mark_feedback') + (SELECT count(*) FROM pg_proc WHERE proname = 'grid_feedback_keeps_restricted_source')" "0" "down dropped the column, the trigger and the function"
-apply_in grid_lessons 0120_answer_feedback_restricted_source.sql
+apply_in grid_lessons 0121_answer_feedback_restricted_source.sql
 check_in grid_lessons "SELECT count(*) FILTER (WHERE restricted_source) FROM answer_feedback WHERE message_id LIKE 'm_0118_%' OR message_id LIKE 'm_0119_%'" "4" "0120 re-applies; the marker set by a delete before the down is gone with its column"
 
-echo "==> 0120 feedback marker, trigger and down migration verified"
+echo "==> 0121 feedback marker, trigger and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

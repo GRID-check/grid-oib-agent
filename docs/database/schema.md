@@ -794,7 +794,7 @@ conversation and a narrowed one confines it to fewer people.
 
 `deleteConversationInOrg` deletes the rows with the conversation. Deleting a
 row marks the votes on that conversation `answer_feedback.restricted_source`
-(trigger, migration 0120), so they stay out of the cross-tenant feedback
+(trigger, migration 0121), so they stay out of the cross-tenant feedback
 readers once the record is gone.
 Repository: `lib/conversations/restricted-use-repository.ts`; proven against
 Postgres in `restricted-use.integration.spec.ts`; its CHECK and down in
@@ -1331,7 +1331,7 @@ declares it. `grid_tenant_isolation` is untouched.
 
 ---
 
-## answer_feedback (migrations 0020, 0120)
+## answer_feedback (migrations 0020, 0121)
 
 Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
 `answer-feedback`). One row per (user, assistant answer).
@@ -1352,7 +1352,7 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   platform-lessons experiment this turn was in; NULL when the holdout is off,
   which is the default, so those votes are excluded from the comparison rather
   than counted as treated),
-  `restricted_source` (boolean, NOT NULL, default `false`, migration 0120 —
+  `restricted_source` (boolean, NOT NULL, default `false`, migration 0121 —
   the conversation drew on a folder with restricted access; see below),
   `created_at`/`updated_at`.
 - `restricted_source` keeps a vote out of every cross-tenant reader
@@ -1654,7 +1654,7 @@ project-ownership `EXISTS`.
 
 ---
 
-## platform_lessons / platform_lesson_reports / platform_lesson_events (migrations 0068, 0069, 0070, 0119)
+## platform_lessons / platform_lesson_reports / platform_lesson_events (migrations 0068, 0069, 0070, 0120)
 
 The fleet-wide lesson register distilled from answer feedback
 (`docs/architecture/platform-failure-learning.md`). **Global — no
@@ -1679,7 +1679,7 @@ reaches every tenant) and the anonymization boundary.
   carries **no FK** — a user retracting their vote must not erase the
   provenance of a lesson already distilled from it. `org_hash` is sha256 of
   the WorkOS org id: enough to count distinct organizations, nothing more.
-- Migration 0119 changes rows only. It withdraws what a sweep took from a vote
+- Migration 0120 changes rows only. It withdraws what a sweep took from a vote
   on a conversation with a `conversation_restricted_folders` row before the
   sweep stopped reading those (`OUTSIDE_RESTRICTED_USE`): such a report keeps
   its row without its `canonical_summary`, and a lesson CREATED from one gets
