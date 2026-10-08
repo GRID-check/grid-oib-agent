@@ -79,7 +79,7 @@ export const projects = pgTable('projects', {
 
 **Indexes:** `projects_org_deleted_created_idx` on `(organization_id, deleted_at, created_at)` — tenant list queries (migration `0014`). `projects_org_status_idx` on `(organization_id, status) WHERE deleted_at IS NULL` (migration 0115).
 
-**Constraints (0114):** `projects_status_check`, and `projects_closed_state_check`: closed exactly when `closed_at` and `closed_by` are both set.
+**Constraints (0115):** `projects_status_check`, and `projects_closed_state_check`: closed exactly when `closed_at` and `closed_by` are both set.
 
 **The closed-project guard (0115).** `grid_refuse_insert_into_closed_project()` runs `BEFORE INSERT` on `documents`, `project_folders`, `document_versions` and `project_memory`, and raises SQLSTATE `GPC01` when the row names a closed project. It reads the project row `FOR SHARE`, so a close and an insert serialize. Updates are not refused. The down migration refuses while any project is closed.
 
@@ -105,7 +105,7 @@ optional account link, and nothing else. Never read into the agent's prompt
 | `created_by` | `text` | NOT NULL | |
 | `created_at`, `updated_at` | `timestamptz` | NOT NULL | |
 
-Deleted outright, never soft-deleted: the delete is the erasure. The 0114 trigger
+Deleted outright, never soft-deleted: the delete is the erasure. The 0115 trigger
 (`project_people_closed_project_guard`) refuses a new row in a closed project; a delete is
 always possible. Index `project_people_project_idx` on `(organization_id, project_id, name)`.
 The down migration drops the table and its rows.
@@ -789,7 +789,7 @@ conversation and a narrowed one confines it to fewer people.
 |--------|------|-------------|-------|
 | `organization_id` | `text` | NOT NULL, PK | RLS: `organization_id = grid_current_org()` |
 | `conversation_id` | `text` | NOT NULL, PK | No FK: the first turn of a new chat runs before its row exists |
-| `folder_id` | `uuid` | NOT NULL, PK | No FK: a deleted folder's tombstone (0109) keeps answering, and an unknown id is treated as unreadable |
+| `folder_id` | `uuid` | NOT NULL, PK | No FK: a deleted folder's tombstone (0110) keeps answering, and an unknown id is treated as unreadable |
 | `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | |
 
 `deleteConversationInOrg` deletes the rows with the conversation.
@@ -897,7 +897,7 @@ not yet audited.
 
 The table itself is described in
 [`project-memory-design.md`](../architecture/project-memory-design.md) §2; this
-is the column 0111 adds.
+is the column 0112 adds.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
@@ -907,7 +907,7 @@ is the column 0111 adds.
 Index: `uniq_project_memory_project_content_active` keys on
 `(project_id, coalesce(restricted_folder_ids, '{}'), normalized content)`, so an
 open and a restricted note with the same text can both be live; consolidation
-never crosses a restriction. The 0111 down DELETES restricted notes rather than
+never crosses a restriction. The 0112 down DELETES restricted notes rather than
 opening them. Proven against Postgres in `memory-restricted.integration.spec.ts`;
 the index, the CHECK and the down in `scripts/rls-test-db.sh`.
 The 0116 down drops `restriction_judge` and its CHECK; the verdicts stay in the

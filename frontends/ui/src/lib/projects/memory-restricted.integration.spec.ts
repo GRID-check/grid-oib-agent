@@ -11,7 +11,7 @@
  *   - the column's CHECK refuses an empty, oversized, NULL-holding or
  *     organization-scoped restriction;
  *   - an open and a restricted note saying the same thing can both be live
- *     (the 0111 index), and consolidation never merges, supersedes or retires
+ *     (the 0112 index), and consolidation never merges, supersedes or retires
  *     across a restriction;
  *   - every read path serves a restricted note only to a reader who may read
  *     all of its source folders NOW: loosening a folder opens its notes,
@@ -90,7 +90,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       folderIds.push(
         firstId(
           await inTenant(() =>
-            // One statement: the 0109 trigger wants the list in the same commit.
+            // One statement: the 0110 trigger wants the list in the same commit.
             db.execute<{ id: string }>(sql`
               with folder as (
                 insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
