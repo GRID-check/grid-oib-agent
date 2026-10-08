@@ -29,8 +29,9 @@
  *     folder of it still refuses memory;
  *   - a restricted FOLDER of a closed project still shuts the chat's doors
  *     (`drewOnOtherProjects`, memory) while the project itself restricts
- *     nobody, a binned folder's tombstone included; the conversation's own
- *     project's folders and another organization's rows never count there;
+ *     nobody, a binned folder's tombstone included, until the folder's own
+ *     access list is removed; the conversation's own project's folders and
+ *     another organization's rows never count there;
  *   - the erasure takes both records, and another organization sees neither.
  */
 
@@ -381,6 +382,22 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
       expect(await reasonOf(inOrg(ORG, () => crossUse.requireMayRememberFrom(id, ORG)))).toBe('CROSS_PROJECT_MEMORY')
     })
 
+
+    it('stops counting once the folder’s own access list is removed, as the egress judge holds', async () => {
+      const id = await chat()
+      const { projectId, folderId: folder } = await closedProjectWithRestrictedFolder(`Gehälter ${chatSeq}`)
+      await admit(id, [folder], projectId)
+      expect(await inOrg(ORG, () => crossUse.drewOnOtherProjects(id, ORG))).toBe(true)
+
+      await inOrg(ORG, async () => {
+        await db.execute(sql`update project_folders set access_mode = 'inherit' where id = ${folder}::uuid`)
+        await db.execute(sql`delete from project_folder_grants where folder_id = ${folder}::uuid`)
+      })
+
+      expect(await inOrg(ORG, () => use.recordedRestrictedFolders(id, ORG))).toEqual([])
+      expect(await inOrg(ORG, () => crossUse.drewOnOtherProjects(id, ORG))).toBe(false)
+      await expect(inOrg(ORG, () => crossUse.requireMayRememberFrom(id, ORG))).resolves.toBeUndefined()
+    })
 
     it('keeps counting when the folder is in the Papierkorb: a tombstone keeps the access it had', async () => {
       const id = await chat()

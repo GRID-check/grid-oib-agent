@@ -301,6 +301,34 @@ export async function recordedRestrictedFolders(conversationId: string, organiza
 }
 
 /**
+ * The recorded restricted folders of projects OTHER than the conversation's own
+ * (ADR-0093), each with the project that holds it, or null when none does now;
+ * judged as {@link recordedRestrictedFolders} judges them: not readable by every
+ * member of its project now, a binned folder's tombstone as restricted as it
+ * was, an unknown id included. The folders of the conversation's own project are
+ * left out; the per-folder memory rules (ADR-0087, ADR-0088) govern those.
+ *
+ * What a lookup into a CLOSED project's restricted folder leaves behind: the
+ * project restricts nobody ({@link recordedSourceProjects}), the folder still
+ * does, until its own access list is removed. A conversation that has no
+ * project row yet has no own project, so every recorded folder is another's.
+ */
+export async function recordedForeignRestrictedFolders(
+  conversationId: string,
+  organizationId: string
+): Promise<Map<string, string | null>> {
+  const recorded = await listRecordedSourceFolders(getDb(), organizationId, conversationId)
+  if (recorded.length === 0) return new Map()
+  const audience = await readConversationAudience(getDb(), organizationId, conversationId)
+  const view = await recordView(organizationId, audience.projectId, recorded)
+  return new Map(
+    stillRestricting(view.tree, recorded)
+      .filter((folderId) => view.ownerOf.get(folderId) !== audience.projectId)
+      .map((folderId) => [folderId, view.ownerOf.get(folderId) ?? null])
+  )
+}
+
+/**
  * Mark the answer a turn is writing when its conversation already drew on a
  * folder with restricted access, by the database's rule
  * (`grid_conversation_restricted_use`, ADR-0092). Asked at turn start, before

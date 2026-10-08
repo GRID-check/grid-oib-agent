@@ -42,16 +42,14 @@ import 'server-only'
 import { CrossProjectAudienceChangedError, CrossProjectMemoryError } from '@/lib/api/errors'
 import { getDictionary } from '@/i18n/dictionaries'
 import { getDb } from '@/lib/db'
-import type { DbExecutor } from '@/lib/db/executor'
 import { AGENT_REFUSAL_LOCALE } from './restricted-egress'
 import { isUuid } from '@/lib/ids'
+import { recordedForeignRestrictedFolders } from './restricted-use'
 import {
   listProjectNames,
-  listRecordedSourceFolders,
   listRestrictingSourceProjects,
   lockConversationAudience,
   markAnswerRestrictedUse,
-  projectsOfFolders,
   readConversationAudience,
   recordSourceFolders,
   recordSourceProjects,
@@ -131,39 +129,18 @@ export async function recordCrossProjectHandOut(
  * Whether this conversation drew on another project that still restricts its
  * readers (ADR-0093): an active one, or a restricted folder of one. What a turn
  * reads to know its doors are shut. A closed project's open folders do not
- * count; its restricted folders do, because closing a project leaves them shut
- * (ADR-0089), and nothing else on the memory path knows a folder of another
+ * count; its restricted folders do while they still restrict
+ * (`recordedForeignRestrictedFolders`), because closing a project leaves them
+ * shut (ADR-0089), and nothing else on the memory path knows a folder of another
  * project: the agent's restriction evidence is this project's scope.
  */
 export async function drewOnOtherProjects(conversationId: string, organizationId: string): Promise<boolean> {
   const db = getDb()
   const [projects, folders] = await Promise.all([
     listRestrictingSourceProjects(db, organizationId, conversationId),
-    foreignRecordedFolders(db, organizationId, conversationId),
+    recordedForeignRestrictedFolders(conversationId, organizationId),
   ])
   return projects.length > 0 || folders.size > 0
-}
-
-/**
- * The recorded restricted folders of projects other than the conversation's
- * own, each with the project that holds it now, or null when none does. A
- * folder of the conversation's own project is the restricted-use record's
- * (ADR-0088); any other, a gone one included, is another project's.
- */
-async function foreignRecordedFolders(
-  db: DbExecutor,
-  organizationId: string,
-  conversationId: string
-): Promise<Map<string, string | null>> {
-  const folders = await listRecordedSourceFolders(db, organizationId, conversationId)
-  if (folders.length === 0) return new Map()
-  const [audience, owners] = await Promise.all([
-    readConversationAudience(db, organizationId, conversationId),
-    projectsOfFolders(db, organizationId, folders),
-  ])
-  return new Map(
-    folders.filter((folderId) => owners.get(folderId) !== audience.projectId).map((folderId) => [folderId, owners.get(folderId) ?? null])
-  )
 }
 
 /** An other project that restricts a conversation now; `name` is null when the project is deleted or gone. */
@@ -188,7 +165,7 @@ export async function restrictingOtherProjects(
   const db = getDb()
   const [recorded, folders] = await Promise.all([
     listRestrictingSourceProjects(db, organizationId, conversationId),
-    foreignRecordedFolders(db, organizationId, conversationId),
+    recordedForeignRestrictedFolders(conversationId, organizationId),
   ])
   // A folder no project holds any more stands in as its own id: it still restricts, and no project row carries it.
   const owners = [...folders].map(([folderId, owner]) => owner ?? folderId)
