@@ -265,4 +265,3 @@ export async function clearanceOfMember(organizationId: string, userId: string):
   if (!roles || roles.length === 0) return { roles: [], seesEverything: false }
   return { roles, seesEverything: await anyRoleAdministers(organizationId, roles) }
 }
-
