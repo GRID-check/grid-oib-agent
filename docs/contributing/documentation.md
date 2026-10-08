@@ -35,9 +35,9 @@ everyone, one at a time.
 ## Link hygiene
 
 `markdown-link-check` runs in CI, so links must resolve on disk, and
-`scripts/check_agent_docs.py` additionally resolves every link in an `AGENTS.md`
-against `git ls-files`. A link into `.claude/`, `.agents/` or `node_modules/`
-resolves on your machine and for nobody else. Use
+`scripts/check_agent_docs.py` additionally resolves every relative link in every
+tracked Markdown file against `git ls-files`. A link into `.claude/`, `.agents/`
+or `node_modules/` resolves on your machine and for nobody else. Use
 repo-relative paths rather than guessed ones, and match GitHub's heading slugs
 (lowercase, spaces to hyphens). Details in
 [`../../CONTRIBUTING.md`](../../CONTRIBUTING.md).

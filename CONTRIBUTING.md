@@ -24,12 +24,12 @@ pre-commit install
 
 **Why it matters:** CI runs `pre-commit run --all-files` — it lints **every file
 in the repo**, not just your diff. So pre-existing drift in files you never
-touched (trailing whitespace, missing final newlines, a stale detect-secrets
-baseline, dead markdown links) will block your PR the moment your change triggers
-the lint job. Keeping the hooks installed keeps the tree clean and stops that
-debt from accumulating one untouched file at a time. If the whole-repo run flags
-pre-existing issues, fix them in your PR (they are cheap and mechanical) rather
-than leaving the next person to trip over them.
+touched (trailing whitespace, missing final newlines, dead markdown links) will
+block your PR the moment your change triggers the lint job. Keeping the hooks
+installed keeps the tree clean and stops that debt from accumulating one
+untouched file at a time. If the whole-repo run flags pre-existing issues, fix
+them in your PR (they are cheap and mechanical) rather than leaving the next
+person to trip over them.
 
 ## Branching
 
@@ -81,7 +81,7 @@ tasks, so there is no second copy to drift:
   same per-tier groups CI runs (`be:verify` with its coverage gate, `fe:verify`,
   `infra:types`). `task verify:fast` omits only the production build.
 - Repo-wide hooks: `task lint:repo` (`pre-commit run --all-files`) — ruff,
-  detect-secrets, markdown-link-check and more, configured in
+  markdown-link-check and more, configured in
   [`.pre-commit-config.yaml`](.pre-commit-config.yaml).
 
 `task --list` shows everything with descriptions.
@@ -115,18 +115,20 @@ just the commits.
 
 ## Secret scanning
 
-`detect-secrets` (pre-commit + CI) guards against committed credentials, using
-[`.secrets.baseline`](.secrets.baseline) as the allowlist of acknowledged
-non-secrets (test fixtures, `.env.example` placeholders, doc examples).
+Gitleaks scans full history on every PR and push, plus a weekly run
+([`.github/workflows/security.yml`](.github/workflows/security.yml)). Its
+allowlist is [`.gitleaks.toml`](.gitleaks.toml): test, doc, mock and fixture
+paths, lockfiles and `.env.example`, one regex for placeholder words (`example`,
+`dummy`, `changeme` and the like), and one exact literal, Pulumi's public secret
+sentinel.
 
-- Mark a one-off false positive inline: append `pragma: allowlist secret` as a
-  comment on the flagged line.
-- After adding legitimate secret-shaped test data, refresh the baseline:
-  `detect-secrets scan --baseline .secrets.baseline` (preserves audited entries),
-  then `git add .secrets.baseline`.
-- Lockfiles (`pnpm-lock.yaml`) and skill signatures are excluded in
-  [`.pre-commit-config.yaml`](.pre-commit-config.yaml) — their integrity hashes
-  are not secrets and would otherwise flood the baseline.
+- Mark a one-off false positive inline with a `gitleaks:allow` comment on the
+  flagged line, in the same commit that adds the line. The scan reads every
+  commit, so a marker added later leaves the original commit flagged.
+- For a finding already pushed, copy the `Fingerprint:` line from the job log
+  into `.gitleaksignore` at the repo root.
+- For fixtures that are re-recorded, add a path entry to `.gitleaks.toml`. Add a
+  real exception there rather than weakening the scan globally.
 
 ## Documentation hygiene
 

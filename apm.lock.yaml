@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-10-08T06:12:27.776532+00:00'
+generated_at: '2026-10-08T12:55:57.992670+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-add-data-source
@@ -82,8 +82,8 @@ dependencies:
   - .claude/skills/aiq-definition-of-done
   - .claude/skills/aiq-definition-of-done/SKILL.md
   deployed_file_hashes:
-    .agents/skills/aiq-definition-of-done/SKILL.md: sha256:ba0131e5aeae980f927f88d6133e2c1a0f7e22027a0dccf831608f24f21d317b
-    .claude/skills/aiq-definition-of-done/SKILL.md: sha256:ba0131e5aeae980f927f88d6133e2c1a0f7e22027a0dccf831608f24f21d317b
+    .agents/skills/aiq-definition-of-done/SKILL.md: sha256:cf0dc007d169ca21e9ee578cb12d83b36279391a4a327dbdff29e6807d23e19b
+    .claude/skills/aiq-definition-of-done/SKILL.md: sha256:cf0dc007d169ca21e9ee578cb12d83b36279391a4a327dbdff29e6807d23e19b
   source: local
   local_path: ./skills/aiq-definition-of-done
 - repo_url: _local/aiq-deploy
@@ -171,19 +171,15 @@ dependencies:
   deployed_files:
   - .agents/skills/aiq-maintain-ci
   - .agents/skills/aiq-maintain-ci/SKILL.md
-  - .agents/skills/aiq-maintain-ci/references/skill-eval-harness.md
   - .agents/skills/aiq-maintain-ci/references/workflows-and-hooks.md
   - .claude/skills/aiq-maintain-ci
   - .claude/skills/aiq-maintain-ci/SKILL.md
-  - .claude/skills/aiq-maintain-ci/references/skill-eval-harness.md
   - .claude/skills/aiq-maintain-ci/references/workflows-and-hooks.md
   deployed_file_hashes:
-    .agents/skills/aiq-maintain-ci/SKILL.md: sha256:f5a42cfac7acad3ab46d5b2b408d0f1968c4a53f2d48ac9ff2d1b4707fad6256
-    .agents/skills/aiq-maintain-ci/references/skill-eval-harness.md: sha256:c645d57829bf72ee531d339741f40ae51f8455693f003724fbf5ece890509f26
-    .agents/skills/aiq-maintain-ci/references/workflows-and-hooks.md: sha256:c6e14524c0cca62dd761e34295f4dea272a5d85cedfcd14a9af757e314bbb772
-    .claude/skills/aiq-maintain-ci/SKILL.md: sha256:f5a42cfac7acad3ab46d5b2b408d0f1968c4a53f2d48ac9ff2d1b4707fad6256
-    .claude/skills/aiq-maintain-ci/references/skill-eval-harness.md: sha256:c645d57829bf72ee531d339741f40ae51f8455693f003724fbf5ece890509f26
-    .claude/skills/aiq-maintain-ci/references/workflows-and-hooks.md: sha256:c6e14524c0cca62dd761e34295f4dea272a5d85cedfcd14a9af757e314bbb772
+    .agents/skills/aiq-maintain-ci/SKILL.md: sha256:de84e8742e964be348dfbd21a17e4a4de0009ac3abe32097dd15db0f00e29518
+    .agents/skills/aiq-maintain-ci/references/workflows-and-hooks.md: sha256:0f310454432750d92486b52a0c14bef96f5a805bd4a77ace29b7bacc55cea5ca
+    .claude/skills/aiq-maintain-ci/SKILL.md: sha256:de84e8742e964be348dfbd21a17e4a4de0009ac3abe32097dd15db0f00e29518
+    .claude/skills/aiq-maintain-ci/references/workflows-and-hooks.md: sha256:0f310454432750d92486b52a0c14bef96f5a805bd4a77ace29b7bacc55cea5ca
   source: local
   local_path: ./skills/aiq-maintain-ci
 - repo_url: _local/aiq-piloti-riso
@@ -829,7 +825,7 @@ deployments:
   owners:
   - ./skills/aiq-definition-of-done
   active_owner: ./skills/aiq-definition-of-done
-  content_hash: sha256:ba0131e5aeae980f927f88d6133e2c1a0f7e22027a0dccf831608f24f21d317b
+  content_hash: sha256:cf0dc007d169ca21e9ee578cb12d83b36279391a4a327dbdff29e6807d23e19b
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-deploy
@@ -1009,16 +1005,7 @@ deployments:
   owners:
   - ./skills/aiq-maintain-ci
   active_owner: ./skills/aiq-maintain-ci
-  content_hash: sha256:f5a42cfac7acad3ab46d5b2b408d0f1968c4a53f2d48ac9ff2d1b4707fad6256
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-maintain-ci/references/skill-eval-harness.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-maintain-ci
-  active_owner: ./skills/aiq-maintain-ci
-  content_hash: sha256:c645d57829bf72ee531d339741f40ae51f8455693f003724fbf5ece890509f26
+  content_hash: sha256:de84e8742e964be348dfbd21a17e4a4de0009ac3abe32097dd15db0f00e29518
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-maintain-ci/references/workflows-and-hooks.md
@@ -1027,7 +1014,7 @@ deployments:
   owners:
   - ./skills/aiq-maintain-ci
   active_owner: ./skills/aiq-maintain-ci
-  content_hash: sha256:c6e14524c0cca62dd761e34295f4dea272a5d85cedfcd14a9af757e314bbb772
+  content_hash: sha256:0f310454432750d92486b52a0c14bef96f5a805bd4a77ace29b7bacc55cea5ca
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-piloti-riso
@@ -1873,7 +1860,7 @@ deployments:
   owners:
   - ./skills/aiq-definition-of-done
   active_owner: ./skills/aiq-definition-of-done
-  content_hash: sha256:ba0131e5aeae980f927f88d6133e2c1a0f7e22027a0dccf831608f24f21d317b
+  content_hash: sha256:cf0dc007d169ca21e9ee578cb12d83b36279391a4a327dbdff29e6807d23e19b
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-deploy
@@ -2053,16 +2040,7 @@ deployments:
   owners:
   - ./skills/aiq-maintain-ci
   active_owner: ./skills/aiq-maintain-ci
-  content_hash: sha256:f5a42cfac7acad3ab46d5b2b408d0f1968c4a53f2d48ac9ff2d1b4707fad6256
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-maintain-ci/references/skill-eval-harness.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-maintain-ci
-  active_owner: ./skills/aiq-maintain-ci
-  content_hash: sha256:c645d57829bf72ee531d339741f40ae51f8455693f003724fbf5ece890509f26
+  content_hash: sha256:de84e8742e964be348dfbd21a17e4a4de0009ac3abe32097dd15db0f00e29518
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-maintain-ci/references/workflows-and-hooks.md
@@ -2071,7 +2049,7 @@ deployments:
   owners:
   - ./skills/aiq-maintain-ci
   active_owner: ./skills/aiq-maintain-ci
-  content_hash: sha256:c6e14524c0cca62dd761e34295f4dea272a5d85cedfcd14a9af757e314bbb772
+  content_hash: sha256:0f310454432750d92486b52a0c14bef96f5a805bd4a77ace29b7bacc55cea5ca
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-piloti-riso

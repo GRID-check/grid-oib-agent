@@ -24,9 +24,10 @@
  * `workerSrc` URL or a directory of binary font data. `public/pdfjs/` is
  * generated and gitignored, exactly like `public/mockServiceWorker.js`.
  *
- * Wired into `dev` and `build` rather than a postinstall hook: the Docker build
- * installs with `--ignore-scripts` (see `deploy/Dockerfile`), so a postinstall
- * would silently not run and the deployed viewer would fail to start its worker.
+ * Run on `postinstall`, so any server started after an install has them, a
+ * bare `next dev` or `next start` included. Also run by `dev` and `build`: the
+ * Docker build installs with `--ignore-scripts` (see `deploy/Dockerfile`), so
+ * there the postinstall does not run and `build` is what stages them.
  */
 
 import { cp, mkdir, rm, stat } from 'node:fs/promises'

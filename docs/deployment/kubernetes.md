@@ -1322,9 +1322,16 @@ ingestion in the web process. See [`oib-sync.md`](../technical-reference/oib-syn
 `volumeClaimTemplates`, an immutable field, so the first `pulumi up` plans a
 **replace** of `aiq-agent` (delete-before-replace: a short outage of the chat
 tier). The old `data-aiq-agent-*` claims are retained by Kubernetes and nothing
-uses them; delete them once the new pods are healthy. The files on them are not
-carried over: base-corpus PDFs uploaded before this release must be uploaded
-again in the admin UI (the release note says so).
+the new pods mount them. The `legacy-corpus-import` Job carries the corpus off
+`data-aiq-agent-0` instead: once the new StatefulSet and the frontend are up, it
+mounts the claim read-only and stores every operator PDF (minus the exclusions)
+and admin upload through the same path an admin upload takes
+(`aiq_agent.legacy_corpus_import`); the next `housekeeping-base-corpus` run
+queues their ingestion. It runs where the stack names the claim
+(`grid-oib:legacyCorpusClaim`, set in `Pulumi.prod.yaml` and `Pulumi.dev.yaml`;
+a fresh stack has none) and stores nothing on a rerun. Delete the old claims
+once the knowledge view lists the corpus; then remove the key, the Job and the
+importer.
 
 ### 6.4b Chat scale-out: affinity off, KEDA on running turns (ADR-0080)
 

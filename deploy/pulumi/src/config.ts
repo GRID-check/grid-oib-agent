@@ -100,6 +100,15 @@ export interface GridConfig {
      * § Encryption posture.
      */
     className: string;
+    /**
+     * The data volume of the pre-A2 backend (`data-aiq-agent-0`) whose base
+     * corpus the one-shot import Job carries into the corpus store (ADR-0082
+     * A2, `aiq_agent.legacy_corpus_import`). Set only on stacks that ran the
+     * backend before A2; a fresh stack has no such claim, and a Job mounting a
+     * missing claim would never schedule. Remove with the importer once every
+     * stack has run it.
+     */
+    legacyCorpusClaim?: string;
   };
 
   ingress: {
@@ -961,9 +970,11 @@ export interface GridConfig {
     apiToken: pulumi.Output<string>;
     adminToken: pulumi.Output<string>;
     /**
-     * Token for `/api/internal/oib-corpus`, the corpus tarball the answer-suite
-     * CI workflow ingests. Its own secret, because it lives outside the cluster
-     * (a repository secret). Empty = the export is disabled (503).
+     * Token for `/api/internal/oib-corpus`, the corpus tarball. Its only
+     * consumer was the answer-suite CI workflow, which has been removed; the
+     * export stays until someone decides to delete it. Its own secret, because
+     * it lived outside the cluster (a repository secret). Empty = the export is
+     * disabled (503).
      */
     corpusExportToken: pulumi.Output<string>;
     /**
@@ -2376,6 +2387,7 @@ export function loadConfig(): GridConfig {
 
     storage: {
       className: cfg.require("storageClass"),
+      legacyCorpusClaim: cfg.get("legacyCorpusClaim"),
     },
 
     ingress: {
