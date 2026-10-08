@@ -1,6 +1,6 @@
 /**
  * INTERNAL service endpoint — which restricted folders a chat turn may draw on,
- * and the admission that records it did (ADR-0084).
+ * and the admission that records it did (ADR-0086).
  *
  * A conversation is restricted by what it USES: a restricted collection is used
  * when content from it enters the model's context. The agent asks here twice:

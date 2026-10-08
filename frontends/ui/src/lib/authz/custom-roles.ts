@@ -1,5 +1,5 @@
 /**
- * An office's own roles, kept in WorkOS (ADR-0084).
+ * An office's own roles, kept in WorkOS (ADR-0086).
  *
  * WorkOS has organization-scoped custom roles: roles that exist only inside one
  * organization, with a slug that starts `org-`, a name, and permissions from
@@ -256,7 +256,7 @@ export interface CustomRoleUsage {
 
 /**
  * The folders that name a custom role: what the deletion confirmation lists
- * (ADR-0085). A role manager reads the count; naming the folders needs
+ * (ADR-0087). A role manager reads the count; naming the folders needs
  * `org:projects:administer`.
  */
 export async function getCustomRoleUsage(session: AuthorizedSession, slug: string): Promise<CustomRoleUsage> {
@@ -274,7 +274,7 @@ export interface DeleteCustomRoleOptions {
 /**
  * Delete a custom role. Two things refuse it.
  *
- * Folders that name it (ADR-0085): after the deletion their grants match
+ * Folders that name it (ADR-0087): after the deletion their grants match
  * nobody, and a folder whose own list names no role that exists is readable by
  * organization admins only. That is not done out from under an office without
  * the caller having seen which folders, so the request must say it did

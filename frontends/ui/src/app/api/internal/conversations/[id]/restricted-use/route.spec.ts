@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The agent's two questions about restricted folders (ADR-0084, ADR-0085):
+ * The agent's two questions about restricted folders (ADR-0086, ADR-0087):
  * which candidates a turn may draw on, and the admission that records a use.
  * The rule itself is `restricted-use.spec.ts` and, against Postgres,
  * `restricted-use.integration.spec.ts`; here, that the route asks it in the

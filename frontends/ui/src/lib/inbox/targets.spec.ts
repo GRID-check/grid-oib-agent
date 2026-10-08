@@ -135,7 +135,7 @@ describe('the conversation target', () => {
     expect(await conversationTarget.resolve(makeSession(), 'conv_1')).toBeNull()
   })
 
-  it('is unreachable — so the row renders redacted, title and all — when the reader may no longer read what the chat drew on (ADR-0085)', async () => {
+  it('is unreachable — so the row renders redacted, title and all — when the reader may no longer read what the chat drew on (ADR-0087)', async () => {
     // A mention or an activity row carries the thread's TITLE, which is written
     // from the conversation's content: restricted folders included.
     vi.mocked(resolveResourceAccess).mockResolvedValue({

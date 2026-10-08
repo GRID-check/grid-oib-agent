@@ -1,7 +1,6 @@
 """The research queue: ``research_job_queue`` on the claim substrate (ADR-0021, ADR-0079).
 
-When ``GRID_JOB_EXECUTION=db`` the submit path persists a deep-research job as a
-row here instead of dispatching it to a per-pod Dask cluster. Dedicated worker
+The submit path persists a deep-research job as a row here. Dedicated worker
 containers claim rows, run the job in-process, and heartbeat the row so a crashed
 worker's job is reclaimed. This is what lets research execution scale
 horizontally across worker replicas.
@@ -109,9 +108,8 @@ _PG_REAP_EXHAUSTED_LOCK_ID = 0x41495152_58485300
 # @default 3
 # @required false
 # Research jobs one organization may RUN at once, fleet-wide, so one tenant cannot
-# occupy every worker. With ``GRID_JOB_EXECUTION=db`` it is the claim's per-lane
-# cap: a job over it waits in the queue instead of being refused. With Dask,
-# which has no queue, it still refuses the submit (429). 0 or negative disables it.
+# occupy every worker. It is the claim's per-lane cap: a job over it waits in the
+# queue instead of being refused. 0 or negative disables it.
 _MAX_ACTIVE_PER_ORG_ENV = "GRID_MAX_ACTIVE_JOBS_PER_ORG"
 _DEFAULT_MAX_ACTIVE_PER_ORG = 3
 

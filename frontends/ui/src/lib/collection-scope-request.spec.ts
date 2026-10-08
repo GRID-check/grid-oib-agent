@@ -22,7 +22,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/db', () => ({ getDb: vi.fn() }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 // Which people may read what a conversation recorded is `restricted-use.spec.ts`'s
-// subject (ADR-0085); here nothing it recorded restricts anybody.
+// subject (ADR-0087); here nothing it recorded restricts anybody.
 vi.mock('@/lib/conversations/restricted-use', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/conversations/restricted-use')>()),
   peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),
@@ -117,6 +117,9 @@ describe('a conversationId on the WS upgrade is authorized (F2)', () => {
 
     expect(result.conversationId).toBe('conv_brand_new')
     expect(result.scope).toContain('s_conv_brand_new')
+    // Nobody checked a row that does not exist, so it is never signed as one a
+    // reader may reach a run through (ADR-0084).
+    expect(result.verifiedConversationId).toBeUndefined()
   })
 
   it('allows a conversation the caller created', async () => {
@@ -134,6 +137,7 @@ describe('a conversationId on the WS upgrade is authorized (F2)', () => {
     })
 
     expect(result.conversationId).toBe(CONVERSATION_ID)
+    expect(result.verifiedConversationId).toBe(CONVERSATION_ID)
   })
 
   it('allows a thread shared with the caller by an explicit grant', async () => {

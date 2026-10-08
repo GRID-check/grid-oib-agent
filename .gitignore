@@ -1,5 +1,4 @@
-# OIB source data and registry
-/data/oib_registry.json
+# OIB source data
 /data/*.zip
 
 # Local environment and job stores
@@ -160,5 +159,5 @@ report-api.xml
 report-aiqapi.xml
 coverage-aiqapi.xml
 
-# The OIB corpus is operator-provided; see data/oib/README.md
+# A local copy of the OIB corpus for the evals and tests; see data/oib/README.md
 data/oib/*.pdf

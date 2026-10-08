@@ -64,7 +64,7 @@ _background_tasks: set[asyncio.Task] = set()
 _handler_tasks: set[asyncio.Task] = set()
 
 #: Semaphores are loop-bound; keyed weakly per loop, because the chat process
-#: and the Dask workers run separate event loops.
+#: and the research workers run separate event loops.
 _semaphores: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = weakref.WeakKeyDictionary()
 
 #: Bounded LRU of ``(conversation_id, ws_parent_id, stage_id)`` keys already

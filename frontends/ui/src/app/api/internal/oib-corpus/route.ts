@@ -1,7 +1,8 @@
 /**
- * The OIB base corpus as one .tar.gz, for CI: the answer-suite workflow
- * (`.github/workflows/answer-suite.yml`) ingests it to run the reference
- * questions against the corpus production indexes.
+ * The OIB base corpus as one .tar.gz. Its only consumer was the answer-suite
+ * CI workflow, which has been removed; `task be:eval:answer-suite` ingests
+ * data/oib from disk and never calls this route. It stays until someone decides
+ * to delete the export path.
  *
  * Guarded by its OWN secret, `GRID_CORPUS_EXPORT_TOKEN`, in the
  * `x-grid-internal-token` header, not the shared service token: this one lives

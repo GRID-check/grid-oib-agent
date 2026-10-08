@@ -47,7 +47,7 @@ import { useLocale, useTranslations } from '@/i18n'
 interface ProjectSettingsProps {
   data: ProjectOverviewData
   /**
-   * Folders whose roles were deleted since (ADR-0085), for a project manager;
+   * Folders whose roles were deleted since (ADR-0087), for a project manager;
    * empty or omitted shows nothing.
    */
   foldersWithoutRole?: readonly FolderWithoutRole[]
@@ -207,7 +207,7 @@ export function ProjectSettings({
       </StaggerItem>
 
       {/* Uploads — who brought how many files in when, and how they ended
-          (ADR-0083, ticket „Verlauf/Protokoll"). Read-only reference beside
+          (ADR-0085, ticket „Verlauf/Protokoll"). Read-only reference beside
           the roster; each uploader's own rows open their summary. */}
       <StaggerItem>
         <section aria-label={tUploads('history.title')} className="space-y-4">

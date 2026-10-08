@@ -1,5 +1,5 @@
 /**
- * Upload batches client (ADR-0083): what one upload brought in, and a
+ * Upload batches client (ADR-0085): what one upload brought in, and a
  * project's uploads over time.
  *
  *   - summary → `GET /api/upload-batches/[id]`       (the uploader's only; 404 for anyone else)

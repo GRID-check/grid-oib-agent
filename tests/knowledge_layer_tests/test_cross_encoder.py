@@ -382,6 +382,10 @@ async def test_an_org_with_no_key_of_its_own_still_reranks(monkeypatch, tracker)
     """A BYOK lookup that resolves nothing must not take reranking down."""
     from aiq_agent.common import credential_resolution
 
+    # The platform key is the one the reranker was built with; a key in the
+    # environment (a cloud dev session carries a real one) must not stand in.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_KEY", raising=False)
     seen = _serve(monkeypatch, _ranked)
     monkeypatch.setattr(ce, "_organization_id_in_scope", lambda: "org_plain")
     monkeypatch.setattr(

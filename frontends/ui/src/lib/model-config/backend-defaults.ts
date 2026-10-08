@@ -44,7 +44,7 @@ interface LlmDefaults {
  * HTTPS always qualifies. Plain HTTP qualifies only for destinations that cannot
  * leave the deployment's own network: loopback, an RFC1918/link-local/CGNAT
  * address, `.internal`/`.local`, or a single-label hostname — which is what a
- * compose service name (`aiq-agent`) or a Kubernetes short name looks like.
+ * compose service name (`aiq-api`) or a Kubernetes short name looks like.
  * Anything else is a public host over cleartext and does not get the secret.
  */
 export function isTokenSafeDestination(baseUrl: string): boolean {
@@ -90,7 +90,7 @@ async function fetchLlmDefaults(): Promise<LlmDefaults> {
   const token = process.env.GRID_INTERNAL_API_TOKEN
   // The shared internal token is a bearer secret. Plain HTTP is the NORMAL and
   // intended transport here — the backend is a sibling service on the compose or
-  // cluster network (`http://aiq-agent:8000`), which is isolated and has no TLS
+  // cluster network (`http://aiq-api:8000`), which is isolated and has no TLS
   // terminator — so HTTP is not by itself a reason to withhold it. What must not
   // happen is sending it somewhere that is neither TLS-protected nor demonstrably
   // on that internal network, so an operator who points BACKEND_URL at a public

@@ -47,8 +47,8 @@ const digestQuerySchema = z
      */
     conversationId: z.string().trim().max(200).optional(),
     /**
-     * The restricted-folder collections this turn may draw on (ADR-0084,
-     * ADR-0085), comma-separated: the agent sends them only for an interactive
+     * The restricted-folder collections this turn may draw on (ADR-0086,
+     * ADR-0087), comma-separated: the agent sends them only for an interactive
      * chat turn, the one scope the BFF ever puts them in, and their presence is
      * what makes the turn eligible for restricted memory at all. A restricted
      * note is then served when its asker (`userId`) may read every one of its
@@ -146,7 +146,7 @@ export const GET = internalApiRoute(
         ? await buildReviewDecisionsBlock(conversationId, tenant).catch(() => null)
         : null
       // Which restricted folders the served notes drew on: the agent counts them
-      // as this turn's use (memory restriction, ADR-0084); ids, opaque to it.
+      // as this turn's use (memory restriction, ADR-0086); ids, opaque to it.
       return { digest: composeMemoryContext(digest, decisions, reviewDecisions), restrictedFoldersServed }
     })
   },

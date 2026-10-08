@@ -532,7 +532,7 @@ describe('sweepUploads (the upload sweep’s clock, ADR-0083)', () => {
   })
 })
 
-describe('sweepPlacement (retries a restriction an outage interrupted, ADR-0084)', () => {
+describe('sweepPlacement (retries a restriction an outage interrupted, ADR-0086)', () => {
   const config = { frontendUrl: 'http://frontend:3000', internalToken: 'tok', pollMs: 30000 }
   const streak = () => ({ failed: vi.fn(), succeeded: vi.fn() })
 
