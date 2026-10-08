@@ -184,6 +184,28 @@ describe('reconcileDocumentStatuses', () => {
     expect(db.update).not.toHaveBeenCalled()
   })
 
+  it('carries how many of the office\'s uploads wait ahead of a queued job', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(
+      batchResponse({ 'job-1': { status: 'pending', file_details: [], metadata: { queue_ahead: 3 } } })
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    expect(result.queueAhead).toBe(3)
+  })
+
+  it('says null once the job is no longer waiting, so a count shown before clears', async () => {
+    makeDbMock()
+    mockFetch.mockResolvedValue(
+      batchResponse({ 'job-1': { status: 'processing', file_details: [], metadata: { queue_ahead: null } } })
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow()], 'org-1')
+
+    expect(result.queueAhead).toBeNull()
+  })
+
   it('falls back to the collection file list when the job is unknown', async () => {
     const db = makeDbMock()
     mockFetch

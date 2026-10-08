@@ -1,0 +1,8 @@
+---
+improvements:
+  - >
+    IFC models, Word and presentation files and finished research reports are
+    now processed in the background and survive a restart: a model no longer
+    stays at "extracting" and a file no longer stays at "processing". A folder
+    of hundreds of office files no longer slows other offices down, and a
+    report whose PDF failed is retried instead of lost.

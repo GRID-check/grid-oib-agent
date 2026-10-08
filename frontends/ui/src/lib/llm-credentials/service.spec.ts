@@ -36,8 +36,8 @@ vi.mock('@/lib/audit/service', () => ({
   recordAuditEvent: vi.fn().mockResolvedValue(undefined),
 }))
 
-import { resolveActiveCredentialForBackend } from './service'
-import { getActiveCredential } from './repository'
+import { getActiveCredentialProvider, resolveActiveCredentialForBackend } from './service'
+import { getActiveCredential, markUsed } from './repository'
 import { revealSecret } from './secret-store'
 import { getOrgSettings } from '@/lib/organizations/service'
 
@@ -93,5 +93,32 @@ describe('resolveActiveCredentialForBackend', () => {
     vi.mocked(getActiveCredential).mockResolvedValue(ROW as never)
     vi.mocked(revealSecret).mockRejectedValue(new Error('vault down'))
     expect(await resolveActiveCredentialForBackend('org-1')).toBeNull()
+  })
+})
+
+describe('getActiveCredentialProvider', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    delete process.env.GRID_ENFORCE_FEATURE_FLAGS
+    vi.mocked(getOrgSettings).mockResolvedValue({ displayName: null, defaultLocale: 'en', settings: {} })
+  })
+
+  it('names the BYOK provider without revealing the key or marking it used', async () => {
+    vi.mocked(getActiveCredential).mockResolvedValue({ ...ROW, provider: 'openai', lastUsedAt: null } as never)
+    expect(await getActiveCredentialProvider('org-1')).toBe('openai')
+    expect(revealSecret).not.toHaveBeenCalled()
+    expect(markUsed).not.toHaveBeenCalled()
+  })
+
+  it('is null on the platform key: no credential, or platform mode', async () => {
+    vi.mocked(getActiveCredential).mockResolvedValue(null)
+    expect(await getActiveCredentialProvider('org-1')).toBeNull()
+    vi.mocked(getActiveCredential).mockResolvedValue(ROW as never)
+    vi.mocked(getOrgSettings).mockResolvedValue({
+      displayName: null,
+      defaultLocale: 'en',
+      settings: { llmProviderMode: 'platform' },
+    })
+    expect(await getActiveCredentialProvider('org-1')).toBeNull()
   })
 })

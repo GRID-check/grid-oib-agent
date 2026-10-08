@@ -70,8 +70,9 @@ function find(type: string, name: string) {
 }
 
 /**
- * Every MergeTree-backed system log table the pinned 25.8 image creates,
- * verified live by SHOW TABLES FROM system LIKE '%log', minus
+ * Every MergeTree-backed system log table the pinned image creates (25.8's
+ * verified live by SHOW TABLES FROM system LIKE '%log', plus 26.8's
+ * background_schedule_pool_log from its config.xml), minus
  * opentelemetry_span_log (custom `<engine>` in the image: a standalone
  * `<ttl>` there fails the server at startup - asserted below). Exact, not
  * aspirational: a name here that the image does not configure fails the
@@ -80,6 +81,7 @@ function find(type: string, name: string) {
 const SYSTEM_LOG_TABLES = [
   "asynchronous_insert_log",
   "asynchronous_metric_log",
+  "background_schedule_pool_log",
   "error_log",
   "metric_log",
   "part_log",

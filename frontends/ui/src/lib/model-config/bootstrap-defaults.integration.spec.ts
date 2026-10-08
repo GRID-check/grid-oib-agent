@@ -36,8 +36,8 @@ const defaultModel = async (): Promise<string> =>
 
 vi.mock('./openrouter', () => ({
   fetchModelCatalog: async (): Promise<unknown[]> => [{ id: await defaultModel() }],
-  fetchZdrModelIds: async (): Promise<Set<string>> => new Set([await defaultModel()]),
-  baseModelId: (id: string): string => id.split(':')[0],
+  fetchZdrEndpoints: async (): Promise<Map<string, unknown[]>> =>
+    new Map([[await defaultModel(), [{ modelId: await defaultModel(), supportedParameters: ['tools'], contextLength: 1048576 }]]]),
   validateOverrides: (_catalog: unknown, defaults: Record<string, string>) => ({
     ok: true,
     errors: {},
@@ -91,8 +91,7 @@ describe.skipIf(!url)('platform default bootstrap against live Postgres', () => 
     expect(Object.keys(defaults).sort()).toEqual(AGENT_GROUPS.map((group) => group.id).sort())
     expect(new Set(Object.values(defaults))).toEqual(new Set([await defaultModel()]))
 
-    // The ZDR signal survives the round trip — a NULL snapshot would silently
-    // disable the warning ZDR tenants depend on.
+    // The validated catalog snapshot survives the round trip (audit).
     const rows = Array.from(
       await getDb().execute<{ agent_group: string; updated_by: string; model_snapshot: unknown }>(
         sql`SELECT agent_group, updated_by, model_snapshot FROM platform_model_defaults ORDER BY agent_group`,
@@ -100,9 +99,7 @@ describe.skipIf(!url)('platform default bootstrap against live Postgres', () => 
     )
     expect(rows).toHaveLength(AGENT_GROUPS.length)
     expect(rows.every((row) => row.updated_by === 'system:bootstrap')).toBe(true)
-    expect(
-      (rows[0].model_snapshot as { _zdr?: { safe?: boolean | null } } | null)?._zdr?.safe,
-    ).toBe(true)
+    expect(rows[0].model_snapshot).toMatchObject({ id: await defaultModel() })
 
     // A leaked advisory lock would silently disable every later boot, so prove
     // the session holds none before asserting the second run is a no-op.

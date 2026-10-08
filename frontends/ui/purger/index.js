@@ -9,7 +9,7 @@
  *
  * Environment:
  *   GRID_APP_DATABASE_URL   - grid_app Postgres DSN
- *   BACKEND_URL             - aiq-agent base URL (Python-side purge endpoint)
+ *   BACKEND_URL             - aiq-api base URL (Python-side purge endpoint)
  *   FRONTEND_INTERNAL_URL   - BFF base URL (chat erasure retries; default http://frontend:3000)
  *   GRID_INTERNAL_API_TOKEN - shared token for the internal endpoint
  *   SEAWEED_ENDPOINT / SEAWEED_ACCESS_KEY / SEAWEED_SECRET_KEY / SEAWEED_BUCKET
@@ -27,7 +27,7 @@ const {
   reapStranded,
   releaseHeld,
 } = require('./db')
-const { createS3Client, deleteStoragePrefix } = require('./storage')
+const { abortMultipartUploads, createS3Client, deleteStoragePrefix } = require('./storage')
 const { LEGAL_HOLD_CODE, purgeProject } = require('./purge-project')
 const { PERMANENT_FAILURE_CODE, purgeConversation } = require('./purge-conversation')
 const { initOtelLogs } = require('../observability/otel-logs')
@@ -45,7 +45,10 @@ const purgers = {
   project: purgeProject,
   // The retry of a chat erasure its delete request could not finish.
   conversation: purgeConversation,
-  // document / organization / user: later phases
+  // document / organization / user: later phases. The organization purge must call
+  // `eraseLane` (`workers/job-queue.js`) for the organization's background jobs,
+  // as the project purge calls `eraseProject`: their payloads hold its content and
+  // nothing cascades to them.
 }
 
 /**
@@ -183,7 +186,7 @@ function main() {
 
   /** @type {PurgeDeps} */
   const deps = {
-    backendUrl: (process.env.BACKEND_URL || 'http://aiq-agent:8000').replace(/\/$/, ''),
+    backendUrl: (process.env.BACKEND_URL || 'http://aiq-api:8000').replace(/\/$/, ''),
     // A chat's erasure runs in the BFF; the purger only retries it
     // (`purge-conversation.js`).
     frontendUrl: (process.env.FRONTEND_INTERNAL_URL || 'http://frontend:3000').replace(/\/$/, ''),
@@ -193,9 +196,14 @@ function main() {
     // the organization id — see the note in `purge-project.js` step 2. That is
     // why this process needs no bucket-naming rule and no feature flag.
     bucket: sharedBucket,
-    workos: new WorkOS(process.env.WORKOS_API_KEY),
+    // The SDK throws at construction without a key, which crash-looped the purger
+    // in every stack without WorkOS. Such a stack never created an FGA resource
+    // (the BFF needs the key for that too), so there is nothing to delete.
+    workos: process.env.WORKOS_API_KEY ? new WorkOS(process.env.WORKOS_API_KEY) : null,
     deleteStoragePrefix: (/** @type {string} */ bucket, /** @type {string} */ prefix) =>
       deleteStoragePrefix(s3, bucket, prefix),
+    abortMultipartUploads: (/** @type {string} */ bucket, /** @type {string} */ prefix) =>
+      abortMultipartUploads(s3, bucket, prefix),
   }
 
   const { tick } = createPurger({

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-07-16
 - **Deciders:** Grid engineering
-- **Related:** ADR-0004 (tenancy), ADR-0016 (permission registry), ADR-0017 (BFF repository/service architecture), the OIB base-corpus / platform base-knowledge manager, `docs/architecture/backend-deep-dive.md` (Knowledge systems)
+- **Related:** ADR-0078 (the Archiv gains folders; amends the flat layout this record started with), ADR-0004 (tenancy), ADR-0016 (permission registry), ADR-0017 (BFF repository/service architecture), the OIB base-corpus / platform base-knowledge manager, `docs/architecture/backend-deep-dive.md` (Knowledge systems)
 
 ## Context
 

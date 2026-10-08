@@ -7,9 +7,17 @@ each ``IngestionJobStatus`` (a Pydantic model → JSON) to Postgres so every
 replica serves the same answer. It reuses the DocumentMetadataStore engine cache and the
 summaries database (``AIQ_SUMMARY_DB``, falling back to ``NAT_JOB_STORE_DB_URL``).
 
-Best-effort / fail-open: with no DB configured (local dev) every call is a
-no-op and the adapter falls back to its in-process dict — single-node behaviour
-is unchanged.
+Best-effort / fail-open: with no DB configured (local dev) every write is a
+no-op and every read comes back empty. The adapter keeps the jobs of its own
+process in memory to run them; nothing it keeps there answers another process.
+
+THE FILES OF A COLLECTION ARE READ FROM HERE, NOT FROM THE PROCESS THAT RAN THEM.
+A job row carries one ``file_details`` entry per file, and the row is the only
+record of a file that failed or is still being read: it has no chunks in Chroma.
+The ``api`` process lists, looks up and deletes files, the ``ingest-worker``
+indexes them (ADR-0076, ADR-0082), so what a file's status is must be asked of
+the store (``collection_jobs``) and a failed file's record removed from it
+(``forget_file``). ``collection_name`` is a column for that reason.
 
 A LIVE ROW IS A CLAIM SOMEBODY HAS TO KEEP MAKING. The job itself runs in one
 process's thread pool, so a restart ends it without a word, and the row used to
@@ -41,6 +49,14 @@ a retry in the meantime dispatches again and finds the revived job through
 the owner's ``heartbeat`` refreshes fewer rows than it asked for, which is how
 the adapter learns to re-write its jobs within one beat rather than at its next
 status change.
+
+A JOB THE DURABLE QUEUE HOLDS IS WAITING, NOT LOST. A job queued in
+``ingest_job_queue`` is written PENDING by the replica that accepted it and
+then vouched for by nobody until a worker claims it, possibly long after that
+replica is gone. While its queue row exists (queued, claimed, or waiting to be
+claimed again) the row is never stale (``_stale_predicate``); the queue drops
+the row when the job finishes or has failed every attempt, and only then can
+the job read as interrupted.
 """
 
 from __future__ import annotations
@@ -57,6 +73,9 @@ from sqlalchemy import bindparam
 from sqlalchemy import inspect
 from sqlalchemy import text
 
+from aiq_agent.common.db_utils import ensure_schema
+
+from . import ingest_queue
 from .document_metadata_store import DocumentMetadataStore
 from .schema import FileStatus
 from .schema import IngestionJobStatus
@@ -93,7 +112,16 @@ _SWEEP_LIMIT = 500
 
 #: Columns added after the table first shipped. Nullable and without defaults,
 #: so adding them never rewrites or rejects an existing row.
-_ADDED_COLUMNS = {"owner": "VARCHAR", "dispatch_key": "VARCHAR"}
+_ADDED_COLUMNS = {"owner": "VARCHAR", "dispatch_key": "VARCHAR", "collection_name": "VARCHAR"}
+
+#: Fills ``collection_name`` on the rows that predate the column, from the status
+#: they hold. JSON extraction is the one thing the two backings spell differently.
+_BACKFILL_COLLECTION_NAME = {
+    True: "UPDATE ingest_jobs SET collection_name = CAST(status_json AS json) ->> 'collection_name' "
+    "WHERE collection_name IS NULL",
+    False: "UPDATE ingest_jobs SET collection_name = json_extract(status_json, '$.collection_name') "
+    "WHERE collection_name IS NULL",
+}
 
 
 def _db_url() -> str | None:
@@ -110,7 +138,8 @@ def _ensure_table(url: str) -> None:
         return
     engine = DocumentMetadataStore._get_or_create_sync_engine(url)
     ts = "TIMESTAMP WITH TIME ZONE DEFAULT NOW()" if _is_postgres(url) else "DATETIME DEFAULT CURRENT_TIMESTAMP"
-    with engine.connect() as conn:
+
+    def create(conn) -> None:
         conn.execute(
             # ts is a dialect-chosen column-type literal; no user input.
             # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
@@ -123,12 +152,17 @@ def _ensure_table(url: str) -> None:
             )
         )
         _add_missing_columns(conn, url)
-        conn.commit()
+        # `_stale_predicate` reads the queue table, so it must exist too.
+        ingest_queue.ensure_table(url, conn)
+
+    # The processes of a boot all reach this at once (see `lock_schema`).
+    ensure_schema(engine, "ingest_jobs", create)
+    ingest_queue.mark_ensured(url)
     _initialized.add(url)
 
 
 def _add_missing_columns(conn, url: str) -> None:
-    """Additive migration: owner, heartbeat_at and dispatch_key, then their index."""
+    """Additive migration: owner, heartbeat_at, dispatch_key and collection_name, then their indexes."""
     heartbeat_type = "TIMESTAMP WITH TIME ZONE" if _is_postgres(url) else "DATETIME"
     columns = {**_ADDED_COLUMNS, "heartbeat_at": heartbeat_type}
     present = {column["name"] for column in inspect(conn).get_columns("ingest_jobs")}
@@ -139,7 +173,12 @@ def _add_missing_columns(conn, url: str) -> None:
         # name/column_type come from the module constants above; no user input.
         # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
         conn.execute(text(f"ALTER TABLE ingest_jobs ADD COLUMN {guard}{name} {column_type}"))
+    if "collection_name" not in present:
+        # A constant statement picked by dialect; nothing here is user input.
+        # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+        conn.execute(text(_BACKFILL_COLLECTION_NAME[_is_postgres(url)]))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ingest_jobs_dispatch_key ON ingest_jobs (dispatch_key)"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ingest_jobs_collection_name ON ingest_jobs (collection_name)"))
 
 
 def _now(url: str) -> str:
@@ -153,8 +192,11 @@ def _ago(url: str, seconds: int) -> str:
 def _stale_predicate(url: str) -> str:
     """SQL: this row's owner has stopped vouching for it. Built from constants only."""
     return (
-        f"((heartbeat_at IS NOT NULL AND heartbeat_at < {_ago(url, STALE_AFTER_SECONDS)}) "
-        f"OR (heartbeat_at IS NULL AND updated_at < {_ago(url, _LEGACY_STALE_AFTER_SECONDS)}))"
+        f"(((heartbeat_at IS NOT NULL AND heartbeat_at < {_ago(url, STALE_AFTER_SECONDS)}) "
+        f"OR (heartbeat_at IS NULL AND updated_at < {_ago(url, _LEGACY_STALE_AFTER_SECONDS)})) "
+        # A dead row is the trace of a job the queue gave up on: it holds nothing.
+        f"AND NOT EXISTS (SELECT 1 FROM {ingest_queue.TABLE} q "
+        f"WHERE q.job_id = ingest_jobs.job_id AND q.status <> '{ingest_queue.DEAD}'))"
     )
 
 
@@ -238,12 +280,14 @@ def put(status: IngestionJobStatus) -> bool:
                 # now is a dialect-chosen literal; every value is bound.
                 # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                 text(
-                    "INSERT INTO ingest_jobs (job_id, status_json, updated_at, owner, heartbeat_at, dispatch_key) "
-                    f"VALUES (:job_id, :status_json, {now}, :owner, {now}, :dispatch_key) "
+                    "INSERT INTO ingest_jobs "
+                    "(job_id, status_json, updated_at, owner, heartbeat_at, dispatch_key, collection_name) "
+                    f"VALUES (:job_id, :status_json, {now}, :owner, {now}, :dispatch_key, :collection_name) "
                     "ON CONFLICT (job_id) DO UPDATE SET "
                     f"status_json = EXCLUDED.status_json, updated_at = {now}, "
                     f"owner = EXCLUDED.owner, heartbeat_at = {now}, "
-                    "dispatch_key = COALESCE(EXCLUDED.dispatch_key, ingest_jobs.dispatch_key)"
+                    "dispatch_key = COALESCE(EXCLUDED.dispatch_key, ingest_jobs.dispatch_key), "
+                    "collection_name = EXCLUDED.collection_name"
                 ),
                 # warnings=False: the adapter deliberately stores completed_at as
                 # an ISO string (bypassing Pydantic coercion); silence the
@@ -253,6 +297,7 @@ def put(status: IngestionJobStatus) -> bool:
                     "status_json": status.model_dump_json(warnings=False),
                     "owner": OWNER,
                     "dispatch_key": status.metadata.get("dispatch_key"),
+                    "collection_name": status.collection_name,
                 },
             )
             conn.commit()
@@ -313,15 +358,21 @@ def get(job_id: str) -> IngestionJobStatus | None:
                 text(f"SELECT status_json, {_stale_predicate(url)} AS stale FROM ingest_jobs WHERE job_id = :job_id"),
                 {"job_id": job_id},
             ).first()
-            if row is None:
-                return None
-            status = IngestionJobStatus.model_validate_json(row[0])
-            if not (row[1] and _is_live(status)):
-                return status
-            return _settle_interrupted(conn, url, status) or _read(conn, job_id)
+            return _as_read(conn, url, row[0], row[1]) if row is not None else None
     except Exception:
         logger.warning("Failed to read ingest status for %s", job_id, exc_info=True)
         return None
+
+
+def _as_read(conn, url: str, status_json: str, stale: bool) -> IngestionJobStatus | None:
+    """A stored row as a reader sees it: a live row whose owner is gone is settled as interrupted first.
+
+    None only when the row vanished between the read and the settling write.
+    """
+    status = IngestionJobStatus.model_validate_json(status_json)
+    if not (stale and _is_live(status)):
+        return status
+    return _settle_interrupted(conn, url, status) or _read(conn, status.job_id)
 
 
 def find_live(dispatch_key: str) -> IngestionJobStatus | None:
@@ -485,6 +536,138 @@ def in_flight_files(collections: Iterable[str]) -> dict[str, list[str]]:
             if name not in bucket:
                 bucket.append(name)
     return pending
+
+
+def _submitted(status: IngestionJobStatus) -> datetime:
+    """When the job was submitted, as the naive UTC the adapter writes it (a zone is dropped, not converted)."""
+    return status.submitted_at.replace(tzinfo=None)
+
+
+def collection_jobs(collection_name: str, within_seconds: int) -> list[IngestionJobStatus]:
+    """Every job of ``collection_name`` written in the last ``within_seconds``, oldest submission first.
+
+    What a process that did not run the jobs reads to say which files of a
+    collection failed or are still being read (see the module docstring). A
+    live row whose owner is gone comes back settled as interrupted, as in
+    ``get``. With no database configured nothing is stored and the answer is
+    empty. A database error raises: a file listing built without these rows
+    would omit the files nobody else can tell about, and say nothing of it.
+    """
+    url = _db_url()
+    if not url:
+        return []
+    _ensure_table(url)
+    engine = DocumentMetadataStore._get_or_create_sync_engine(url)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            # The predicate and the window are built from constants and an int;
+            # the collection is bound.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            text(
+                f"SELECT status_json, {_stale_predicate(url)} AS stale FROM ingest_jobs "
+                f"WHERE collection_name = :collection_name AND updated_at > {_ago(url, int(within_seconds))}"
+            ),
+            {"collection_name": collection_name},
+        ).all()
+        seen = [_as_read(conn, url, status_json, stale) for status_json, stale in rows]
+    return sorted((status for status in seen if status is not None), key=lambda s: (_submitted(s), s.job_id))
+
+
+def forget_file(collection_name: str, file_name: str) -> int:
+    """Remove ``file_name`` from the finished jobs of ``collection_name``; how many jobs named it.
+
+    A file that failed has no chunks, so its job row is the only record of it
+    and a delete has nothing else to remove. A job left with no file is deleted
+    with its row. A job still running keeps its files: its worker owns that
+    record, and a file deleted while it is read is the ingest's business
+    (``document_presence``). Raises on a database error, so a delete that
+    could not forget the file does not report that it did.
+    """
+    url = _db_url()
+    if not url:
+        return 0
+    _ensure_table(url)
+    engine = DocumentMetadataStore._get_or_create_sync_engine(url)
+    forgotten = 0
+    with engine.connect() as conn:
+        rows = conn.execute(
+            # The predicate is built from module constants; the collection is bound.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            text(
+                f"SELECT status_json, {_stale_predicate(url)} AS stale FROM ingest_jobs "
+                "WHERE collection_name = :collection_name"
+            ),
+            {"collection_name": collection_name},
+        ).all()
+        for status_json, stale in rows:
+            status = _as_read(conn, url, status_json, stale)
+            if status is None or _is_live(status):
+                continue
+            kept = [detail for detail in status.file_details if detail.file_name != file_name]
+            if len(kept) == len(status.file_details):
+                continue
+            if kept:
+                status.file_details = kept
+                conn.execute(
+                    text("UPDATE ingest_jobs SET status_json = :status_json WHERE job_id = :job_id"),
+                    {"job_id": status.job_id, "status_json": status.model_dump_json(warnings=False)},
+                )
+            else:
+                conn.execute(text("DELETE FROM ingest_jobs WHERE job_id = :job_id"), {"job_id": status.job_id})
+            forgotten += 1
+        conn.commit()
+    return forgotten
+
+
+def forget_collection(collection_name: str) -> None:
+    """Remove every job row of a deleted collection (best-effort).
+
+    A name that is used again would otherwise list the files of the collection
+    that held it before.
+    """
+    url = _db_url()
+    if not url:
+        return
+    try:
+        _ensure_table(url)
+        engine = DocumentMetadataStore._get_or_create_sync_engine(url)
+        with engine.connect() as conn:
+            conn.execute(
+                text("DELETE FROM ingest_jobs WHERE collection_name = :collection_name"),
+                {"collection_name": collection_name},
+            )
+            conn.commit()
+    except Exception:
+        logger.warning("Failed to forget the ingest jobs of collection %s", collection_name, exc_info=True)
+
+
+def prune_expired(older_than_seconds: int) -> int:
+    """Delete rows nobody vouches for that were last written over ``older_than_seconds`` ago; how many. Never raises.
+
+    What bounds the table, and how long a failed file stays listed: a finished
+    job's row is its last record. A row a worker could still claim is never
+    deleted (``_stale_predicate``).
+    """
+    url = _db_url()
+    if not url:
+        return 0
+    try:
+        _ensure_table(url)
+        engine = DocumentMetadataStore._get_or_create_sync_engine(url)
+        with engine.connect() as conn:
+            deleted = conn.execute(
+                # Built from module constants and an int; nothing here is user input.
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                text(
+                    f"DELETE FROM ingest_jobs WHERE updated_at < {_ago(url, int(older_than_seconds))} "
+                    f"AND {_stale_predicate(url)}"
+                )
+            ).rowcount
+            conn.commit()
+    except Exception:
+        logger.warning("Could not prune expired ingest jobs (continuing)", exc_info=True)
+        return 0
+    return deleted
 
 
 def delete(job_id: str) -> None:

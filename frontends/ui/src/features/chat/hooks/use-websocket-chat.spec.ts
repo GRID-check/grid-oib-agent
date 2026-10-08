@@ -73,6 +73,8 @@ const client = vi.hoisted(() => ({
 vi.mock('@/adapters/api/conversations-client', () => ({ conversationsClient: client }))
 
 import { useChatStore } from '../store'
+import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
+import type { FileItem } from '@/features/documents/components/project-file-workspace'
 import { ACK_TIMEOUT_MS, DELTA_FLUSH_MS, useWebSocketChat } from './use-websocket-chat'
 import type { ChatMessage, Conversation } from '../types'
 
@@ -179,6 +181,19 @@ describe('a question', () => {
     status('reconnecting')
     status('open')
     expect(sentOf('user_message')).toHaveLength(2)
+  })
+
+  it("does not make a file that is merely open in a peek the turn's focus", () => {
+    const file = { id: 'doc-1', filename: 'Museum-Grundriss.pdf', displayName: null, fileSize: 1, contentType: 'application/pdf', status: 'ready', folderId: null, createdAt: '2026-01-01T00:00:00.000Z', errorMessage: null, summary: null, pageCount: null, chunkCount: null } as unknown as FileItem
+    act(() => useFilePreviewStore.getState().open(file, 'peek'))
+    const { result } = open(conversationOf(CONVERSATION))
+
+    act(() => void result.current.sendMessage('Welche Absturzhöhe bei den Brüstungen?'))
+    expect(sentOf('user_message')[0]).toMatchObject({ focus_file_name: null })
+
+    act(() => useChatStore.setState({ composerSubject: { resourceId: 'doc-1', filename: 'Museum-Grundriss.pdf', shelf: 'project' } as never }))
+    act(() => void result.current.sendMessage('Fass zusammen'))
+    expect(sentOf('user_message')[1]).toMatchObject({ focus_file_name: 'Museum-Grundriss.pdf' })
   })
 
   it('is followed rather than asked again when the server already has it', () => {

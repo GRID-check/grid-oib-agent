@@ -2,8 +2,13 @@ import { render, screen, waitFor } from '@/test-utils'
 import { fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { toast } from 'sonner'
 import { BaseKnowledge } from './base-knowledge'
 import type { KnowledgeBaseStatus } from '@/lib/knowledge/service'
+import { PlatformAccessProvider } from '@/features/platform/platform-access'
+import { platform as dePlatform } from '@/i18n/dictionaries/de/platform'
+import { DOC_CLASS_LABELS } from '@/lib/knowledge/doc-class'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 
 /**
  * The manager was rebuilt on the shared admin primitives (SectionCard +
@@ -14,7 +19,7 @@ import type { KnowledgeBaseStatus } from '@/lib/knowledge/service'
  */
 
 vi.mock('sonner', () => ({
-  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
+  toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }))
 
 // The in-app PDF viewer pulls in an iframe/dialog we don't exercise here.
@@ -22,11 +27,12 @@ vi.mock('@/features/knowledge/components/pdf-viewer-dialog', () => ({
   PdfViewerDialog: () => <div data-testid="pdf-viewer" />,
 }))
 
-function file(overrides: Partial<KnowledgeBaseStatus['files'][number]>): KnowledgeBaseStatus['files'][number] {
+function file(
+  overrides: Partial<KnowledgeBaseStatus['files'][number]>
+): KnowledgeBaseStatus['files'][number] {
   return {
     fileName: 'doc.pdf',
     state: 'ingested',
-    origin: 'corpus',
     sizeBytes: 1024,
     chunkCount: 4,
     ingestedSha256: null,
@@ -49,7 +55,7 @@ const STATUS: KnowledgeBaseStatus = {
     ingested: 3,
     stale: 0,
     pending: 0,
-    snapshot: 0,
+    failed: 0,
     removed: 0,
     inconsistent: 0,
     totalChunks: 12,
@@ -57,7 +63,7 @@ const STATUS: KnowledgeBaseStatus = {
   files: [
     file({ fileName: 'oib-richtlinie-2.pdf', docClass: 'oib_richtlinie' }),
     file({ fileName: 'oenorm-b-1600.pdf', docClass: 'norm_extern' }),
-    file({ fileName: 'sonstiges-notiz.pdf', docClass: 'sonstiges', origin: 'uploaded' }),
+    file({ fileName: 'sonstiges-notiz.pdf', docClass: 'sonstiges' }),
   ],
 }
 
@@ -69,7 +75,7 @@ const MANY: KnowledgeBaseStatus = {
     file({
       fileName: `base-${String(index + 1).padStart(2, '0')}.pdf`,
       docClass: index === 0 ? 'oib_richtlinie' : 'sonstiges',
-    }),
+    })
   ),
 }
 
@@ -83,9 +89,26 @@ async function openDetail(user: ReturnType<typeof userEvent.setup>, name: string
   return screen.getByTestId('knowledge-detail')
 }
 
+/** Open the overflow menu and pick an entry. */
+async function pickMenu(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+  await user.click(screen.getByRole('button', { name: 'More actions' }))
+  await user.click(await screen.findByRole('menuitem', { name }))
+}
+
+const requestsTo = (spy: ReturnType<typeof vi.fn>, match: string, method?: string) =>
+  spy.mock.calls.filter(
+    ([url, init]) =>
+      typeof url === 'string' &&
+      url.includes(match) &&
+      (method === undefined || (init as RequestInit | undefined)?.method === method)
+  )
+
 describe('BaseKnowledge', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
+    vi.mocked(toast.error).mockClear()
+    vi.mocked(toast.info).mockClear()
+    vi.mocked(toast.success).mockClear()
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -100,31 +123,33 @@ describe('BaseKnowledge', () => {
     // invisible before the rebuild.
     const summary = await screen.findByTestId('knowledge-summary')
     expect(within(summary).getByText('Documents')).toBeInTheDocument()
-    expect(within(summary).getByText('Indexed sections')).toBeInTheDocument()
+    expect(within(summary).getByText('Sections')).toBeInTheDocument()
     expect(within(summary).getByText('12')).toBeInTheDocument()
+    expect(within(summary).getByText('Issues')).toBeInTheDocument()
 
     expect(screen.getByText('oib-richtlinie-2.pdf')).toBeInTheDocument()
     expect(screen.getByText('oenorm-b-1600.pdf')).toBeInTheDocument()
     expect(screen.getByText('sonstiges-notiz.pdf')).toBeInTheDocument()
-    // Dokumentart label surfaces per row (via SourceSignalChip).
-    expect(screen.getAllByText(/OIB-Richtlinie \(verbindlich\)/).length).toBeGreaterThan(0)
+    // The Dokumentart label surfaces per row, translated (it used to be German in every locale).
+    expect(screen.getAllByText(/OIB directive \(binding\)/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/OIB-Richtlinie \(verbindlich\)/)).not.toBeInTheDocument()
   })
 
-  test('the binding-vs-other distinction survives as a scope filter and a row badge', async () => {
+  test('the binding-vs-other distinction survives in the type filter and the detail sheet', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(STATUS)))
     const user = userEvent.setup()
 
     render(<BaseKnowledge />)
     await screen.findByText('oib-richtlinie-2.pdf')
 
-    // The binding OIB document is marked as such in its row.
-    expect(screen.getByText('Binding')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('combobox', { name: 'Scope' }))
+    await user.click(screen.getByRole('combobox', { name: 'Document type' }))
     await user.click(screen.getByRole('option', { name: 'Binding OIB foundations' }))
 
     await waitFor(() => expect(screen.queryByText('oenorm-b-1600.pdf')).not.toBeInTheDocument())
     expect(screen.getByText('oib-richtlinie-2.pdf')).toBeInTheDocument()
+
+    const sheet = await openDetail(user, 'oib-richtlinie-2.pdf')
+    expect(within(sheet).getByText('Binding')).toBeInTheDocument()
   })
 
   test('the search box filters the list down', async () => {
@@ -149,11 +174,13 @@ describe('BaseKnowledge', () => {
     const sheet = await openDetail(user, 'oenorm-b-1600.pdf')
 
     // The sheet's dropdown is pre-filled with the current class label.
-    const trigger = within(sheet).getByRole('combobox', { name: /Document type for oenorm-b-1600\.pdf/i })
-    expect(trigger).toHaveTextContent('Norm (ÖNORM u.a.)')
+    const trigger = within(sheet).getByRole('combobox', {
+      name: /Document type for oenorm-b-1600\.pdf/i,
+    })
+    expect(trigger).toHaveTextContent('Standard (ÖNORM etc.)')
 
     await user.click(trigger)
-    await user.click(screen.getByRole('option', { name: 'Gesetz / Bauordnung' }))
+    await user.click(screen.getByRole('option', { name: 'Law / building code' }))
 
     await waitFor(() => {
       expect(
@@ -161,8 +188,8 @@ describe('BaseKnowledge', () => {
           ([url, init]) =>
             typeof url === 'string' &&
             url.includes('/api/platform/knowledge/documents/oenorm-b-1600.pdf/doc-class') &&
-            (init as RequestInit | undefined)?.method === 'PATCH',
-        ),
+            (init as RequestInit | undefined)?.method === 'PATCH'
+        )
       ).toBe(true)
     })
 
@@ -170,14 +197,22 @@ describe('BaseKnowledge', () => {
       ([url, init]) =>
         typeof url === 'string' &&
         url.includes('/doc-class') &&
-        (init as RequestInit | undefined)?.method === 'PATCH',
+        (init as RequestInit | undefined)?.method === 'PATCH'
     )
-    expect(JSON.parse((patchCall![1] as RequestInit).body as string)).toEqual({ doc_class: 'gesetz' })
+    expect(JSON.parse((patchCall![1] as RequestInit).body as string)).toEqual({
+      doc_class: 'gesetz',
+    })
   })
 
   test('a Dokumentart read from the text is offered, and accepting it is the same PATCH', async () => {
-    const suggested = file({ fileName: 'BO_Wien_konsolidiert.pdf', docClass: 'sonstiges', docClassSuggestion: 'gesetz' })
-    const fetchSpy = vi.fn().mockResolvedValue(jsonResponse({ ...STATUS, files: [...STATUS.files, suggested] }))
+    const suggested = file({
+      fileName: 'BO_Wien_konsolidiert.pdf',
+      docClass: 'sonstiges',
+      docClassSuggestion: 'gesetz',
+    })
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ ...STATUS, files: [...STATUS.files, suggested] }))
     vi.stubGlobal('fetch', fetchSpy)
     const user = userEvent.setup()
 
@@ -185,11 +220,13 @@ describe('BaseKnowledge', () => {
     const sheet = await openDetail(user, 'BO_Wien_konsolidiert.pdf')
 
     // Offered beside the picker, never applied: the picker still shows the stored class.
-    expect(within(sheet).getByText('Read from the text: Gesetz / Bauordnung')).toBeInTheDocument()
-    expect(within(sheet).getByRole('combobox', { name: /Document type for BO_Wien/i })).toHaveTextContent(
-      'Sonstiges Basisdokument',
-    )
-    expect(fetchSpy.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')).toBe(false)
+    expect(within(sheet).getByText('Read from the text: Law / building code')).toBeInTheDocument()
+    expect(
+      within(sheet).getByRole('combobox', { name: /Document type for BO_Wien/i })
+    ).toHaveTextContent('Other base document')
+    expect(
+      fetchSpy.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')
+    ).toBe(false)
 
     await user.click(within(sheet).getByRole('button', { name: 'Accept' }))
 
@@ -198,15 +235,24 @@ describe('BaseKnowledge', () => {
         ([url, init]) =>
           typeof url === 'string' &&
           url.includes('/BO_Wien_konsolidiert.pdf/doc-class') &&
-          (init as RequestInit | undefined)?.method === 'PATCH',
+          (init as RequestInit | undefined)?.method === 'PATCH'
       )
-      expect(patch && JSON.parse((patch[1] as RequestInit).body as string)).toEqual({ doc_class: 'gesetz' })
+      expect(patch && JSON.parse((patch[1] as RequestInit).body as string)).toEqual({
+        doc_class: 'gesetz',
+      })
     })
   })
 
   test('a suggestion equal to the stored class offers nothing', async () => {
-    const same = file({ fileName: 'b1600.pdf', docClass: 'norm_extern', docClassSuggestion: 'norm_extern' })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ ...STATUS, files: [...STATUS.files, same] })))
+    const same = file({
+      fileName: 'b1600.pdf',
+      docClass: 'norm_extern',
+      docClassSuggestion: 'norm_extern',
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ ...STATUS, files: [...STATUS.files, same] }))
+    )
     const user = userEvent.setup()
 
     render(<BaseKnowledge />)
@@ -222,7 +268,9 @@ describe('BaseKnowledge', () => {
     render(<BaseKnowledge />)
     const sheet = await openDetail(user, 'oib-richtlinie-2.pdf')
 
-    const input = within(sheet).getByRole('textbox', { name: 'Display name for oib-richtlinie-2.pdf' })
+    const input = within(sheet).getByRole('textbox', {
+      name: 'Display name for oib-richtlinie-2.pdf',
+    })
     await user.clear(input)
     await user.type(input, 'OIB-Richtlinie 2, Ausgabe Mai 2023')
     await user.click(within(sheet).getByRole('button', { name: 'Save name' }))
@@ -232,7 +280,7 @@ describe('BaseKnowledge', () => {
         ([url, init]) =>
           typeof url === 'string' &&
           url.includes('/api/platform/knowledge/documents/oib-richtlinie-2.pdf/display-title') &&
-          (init as RequestInit | undefined)?.method === 'PATCH',
+          (init as RequestInit | undefined)?.method === 'PATCH'
       )
       expect(patchCall).toBeDefined()
       expect(JSON.parse((patchCall![1] as RequestInit).body as string)).toEqual({
@@ -241,10 +289,14 @@ describe('BaseKnowledge', () => {
     })
   })
 
-  test('a repo-shipped (corpus) row deletes with corpus wording after confirmation', async () => {
+  test('a row deletes after confirmation, and the dialog says what is deleted', async () => {
     const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
-      if (typeof url === 'string' && url.includes('/api/platform/knowledge/documents/') && init?.method === 'DELETE') {
-        return Promise.resolve(jsonResponse({ success: true, fileName: 'oib-richtlinie-2.pdf', mode: 'excluded' }))
+      if (
+        typeof url === 'string' &&
+        url.includes('/api/platform/knowledge/documents/') &&
+        init?.method === 'DELETE'
+      ) {
+        return Promise.resolve(jsonResponse({ success: true, fileName: 'oib-richtlinie-2.pdf' }))
       }
       return Promise.resolve(jsonResponse(STATUS))
     })
@@ -254,13 +306,15 @@ describe('BaseKnowledge', () => {
     render(<BaseKnowledge />)
     const sheet = await openDetail(user, 'oib-richtlinie-2.pdf')
 
-    // The corpus row (origin: 'corpus') offers "Remove from corpus", not "Remove".
-    await user.click(within(sheet).getByRole('button', { name: 'Remove from corpus' }))
-
-    // The confirm dialog repeats the corpus-specific wording; confirm it.
+    // One kind of removal for every row: it deletes.
+    expect(
+      within(sheet).queryByRole('button', { name: 'Remove from corpus' })
+    ).not.toBeInTheDocument()
+    await user.click(within(sheet).getByRole('button', { name: 'Remove' }))
     const dialog = await screen.findByRole('dialog')
-    expect(dialog).toHaveTextContent('Remove oib-richtlinie-2.pdf from the corpus?')
-    await user.click(within(dialog).getByRole('button', { name: 'Remove from corpus' }))
+    expect(dialog).toHaveTextContent('Remove oib-richtlinie-2.pdf?')
+    expect(dialog).toHaveTextContent('This deletes the PDF and all of its indexed content')
+    await user.click(within(dialog).getByRole('button', { name: 'Remove document' }))
 
     await waitFor(() => {
       expect(
@@ -268,23 +322,25 @@ describe('BaseKnowledge', () => {
           ([url, init]) =>
             typeof url === 'string' &&
             url.includes('/api/platform/knowledge/documents/oib-richtlinie-2.pdf') &&
-            (init as RequestInit | undefined)?.method === 'DELETE',
-        ),
+            (init as RequestInit | undefined)?.method === 'DELETE'
+        )
       ).toBe(true)
     })
   })
 
-  test('an uploaded row deletes with the uploaded wording', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(STATUS)))
+  test('an indexed file the corpus no longer lists can be deleted but not viewed', async () => {
+    const orphaned: KnowledgeBaseStatus = {
+      ...STATUS,
+      files: [...STATUS.files, file({ fileName: 'orphan.pdf', state: 'removed', sizeBytes: null })],
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(orphaned)))
     const user = userEvent.setup()
 
     render(<BaseKnowledge />)
-    const sheet = await openDetail(user, 'sonstiges-notiz.pdf')
+    const sheet = await openDetail(user, 'orphan.pdf')
 
-    await user.click(within(sheet).getByRole('button', { name: 'Remove' }))
-    const dialog = await screen.findByRole('dialog')
-    expect(dialog).toHaveTextContent('Remove sonstiges-notiz.pdf?')
-    expect(dialog).toHaveTextContent('This deletes the uploaded PDF')
+    expect(within(sheet).queryByRole('button', { name: 'View PDF' })).not.toBeInTheDocument()
+    expect(within(sheet).getByRole('button', { name: 'Remove' })).toBeInTheDocument()
   })
 
   test('the detail sheet opens the in-app PDF viewer', async () => {
@@ -323,9 +379,13 @@ describe('BaseKnowledge', () => {
 
   test('dropping a PDF on the revealed dropzone uploads it', async () => {
     const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
-      if (typeof url === 'string' && url === '/api/platform/knowledge/documents' && init?.method === 'POST') {
+      if (
+        typeof url === 'string' &&
+        url === '/api/platform/knowledge/documents' &&
+        init?.method === 'POST'
+      ) {
         return Promise.resolve(
-          jsonResponse({ status: 'pending', kind: 'file', fileName: 'dropped.pdf', members: null }),
+          jsonResponse({ status: 'pending', kind: 'file', fileName: 'dropped.pdf', members: null })
         )
       }
       return Promise.resolve(jsonResponse(STATUS))
@@ -346,8 +406,8 @@ describe('BaseKnowledge', () => {
           ([url, init]) =>
             typeof url === 'string' &&
             url === '/api/platform/knowledge/documents' &&
-            (init as RequestInit | undefined)?.method === 'POST',
-        ),
+            (init as RequestInit | undefined)?.method === 'POST'
+        )
       ).toBe(true)
     })
   })
@@ -365,7 +425,7 @@ describe('BaseKnowledge', () => {
             accepted: 1,
             rejected: 0,
             members: null,
-          }),
+          })
         )
       }
       return Promise.resolve(jsonResponse(STATUS))
@@ -386,8 +446,8 @@ describe('BaseKnowledge', () => {
           ([url, init]) =>
             typeof url === 'string' &&
             url === '/api/platform/knowledge/documents' &&
-            (init as RequestInit | undefined)?.method === 'POST',
-        ),
+            (init as RequestInit | undefined)?.method === 'POST'
+        )
       ).toBe(true)
     })
   })
@@ -409,10 +469,14 @@ describe('BaseKnowledge', () => {
     // Status snapshot where a.pdf has finished indexing but b.pdf hasn't appeared yet.
     const statusWithA: KnowledgeBaseStatus = {
       ...STATUS,
-      files: [...STATUS.files, file({ fileName: 'a.pdf', origin: 'uploaded', docClass: 'sonstiges' })],
+      files: [...STATUS.files, file({ fileName: 'a.pdf', docClass: 'sonstiges' })],
     }
     const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
-      if (typeof url === 'string' && url.includes('/api/platform/knowledge/documents') && init?.method === 'POST') {
+      if (
+        typeof url === 'string' &&
+        url.includes('/api/platform/knowledge/documents') &&
+        init?.method === 'POST'
+      ) {
         return Promise.resolve(jsonResponse(zipBody))
       }
       return Promise.resolve(jsonResponse(statusWithA))
@@ -450,7 +514,14 @@ describe('BaseKnowledge', () => {
     render(<BaseKnowledge />)
     await screen.findByText('oib-richtlinie-2.pdf')
 
-    await user.click(screen.getByRole('button', { name: /Sync corpus/ }))
+    await pickMenu(user, /Sync corpus/)
+
+    // Sync costs model calls on every new PDF, so it asks first and says so.
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Sync the corpus?')
+    expect(dialog).toHaveTextContent(/costs model calls/)
+    expect(requestsTo(fetchSpy, '/sync')).toHaveLength(0)
+    await user.click(within(dialog).getByRole('button', { name: 'Sync' }))
 
     await waitFor(() => {
       expect(
@@ -458,8 +529,8 @@ describe('BaseKnowledge', () => {
           ([url, init]) =>
             typeof url === 'string' &&
             url === '/api/platform/knowledge/sync' &&
-            (init as RequestInit | undefined)?.method === 'POST',
-        ),
+            (init as RequestInit | undefined)?.method === 'POST'
+        )
       ).toBe(true)
     })
   })
@@ -480,7 +551,7 @@ describe('BaseKnowledge', () => {
     expect(selectionBar).toHaveTextContent('2 selected')
 
     await user.click(within(selectionBar).getByRole('combobox', { name: 'Change document type' }))
-    await user.click(screen.getByRole('option', { name: 'Gesetz / Bauordnung' }))
+    await user.click(screen.getByRole('option', { name: 'Law / building code' }))
 
     await waitFor(() => {
       const patched = fetchSpy.mock.calls
@@ -488,7 +559,7 @@ describe('BaseKnowledge', () => {
           ([url, init]) =>
             typeof url === 'string' &&
             url.includes('/doc-class') &&
-            (init as RequestInit | undefined)?.method === 'PATCH',
+            (init as RequestInit | undefined)?.method === 'PATCH'
         )
         .map(([url]) => url as string)
       expect(patched).toHaveLength(2)
@@ -504,7 +575,12 @@ describe('BaseKnowledge', () => {
     const fetchSpy = vi.fn((url: string, _init?: RequestInit) => {
       if (url.includes('/reingest')) {
         return Promise.resolve(
-          jsonResponse({ status: 'pending', queued: ['oib-richtlinie-2.pdf'], unknown: [], message: 'ok' }),
+          jsonResponse({
+            status: 'pending',
+            queued: ['oib-richtlinie-2.pdf'],
+            unknown: [],
+            message: 'ok',
+          })
         )
       }
       return Promise.resolve(jsonResponse(STATUS))
@@ -519,19 +595,35 @@ describe('BaseKnowledge', () => {
     const selectionBar = await screen.findByTestId('data-toolbar-selection')
     await user.click(within(selectionBar).getByRole('button', { name: /Re-index/i }))
 
+    // Re-indexing re-runs OCR, captioning and embedding: confirm, with the scope named.
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Re-index 1 document?')
+    expect(within(dialog).getByTestId('confirm-name-list')).toHaveTextContent(
+      'oib-richtlinie-2.pdf'
+    )
+    expect(dialog).toHaveTextContent(/costs model calls/)
+    expect(requestsTo(fetchSpy, '/reingest')).toHaveLength(0)
+    await user.click(within(dialog).getByRole('button', { name: 'Re-index 1 document' }))
+
     await waitFor(() => {
-      const calls = fetchSpy.mock.calls.filter(([url]) => typeof url === 'string' && url.includes('/reingest'))
+      const calls = fetchSpy.mock.calls.filter(
+        ([url]) => typeof url === 'string' && url.includes('/reingest')
+      )
       expect(calls).toHaveLength(1)
       const [, init] = calls[0]
       expect((init as RequestInit).method).toBe('POST')
-      expect(JSON.parse((init as RequestInit).body as string)).toEqual({ fileNames: ['oib-richtlinie-2.pdf'] })
+      expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+        fileNames: ['oib-richtlinie-2.pdf'],
+      })
     })
   })
 
   test('re-indexing nothing the corpus still has reports it instead of claiming success', async () => {
     const fetchSpy = vi.fn((url: string, _init?: RequestInit) => {
       if (url.includes('/reingest')) {
-        return Promise.resolve(jsonResponse({ status: 'noop', queued: [], unknown: ['gone.pdf'], message: '' }))
+        return Promise.resolve(
+          jsonResponse({ status: 'noop', queued: [], unknown: ['gone.pdf'], message: '' })
+        )
       }
       return Promise.resolve(jsonResponse(STATUS))
     })
@@ -544,6 +636,8 @@ describe('BaseKnowledge', () => {
     await user.click(screen.getByRole('checkbox', { name: 'Select oib-richtlinie-2.pdf' }))
     const selectionBar = await screen.findByTestId('data-toolbar-selection')
     await user.click(within(selectionBar).getByRole('button', { name: /Re-index/i }))
+    await user.click(await screen.findByTestId('knowledge-reingest-confirm'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
 
     // The selection survives, because nothing was started and the admin may want to retry.
     await waitFor(() => {
@@ -577,7 +671,7 @@ describe('BaseKnowledge', () => {
 
     await waitFor(() => {
       const deleted = fetchSpy.mock.calls.filter(
-        ([, init]) => (init as RequestInit | undefined)?.method === 'DELETE',
+        ([, init]) => (init as RequestInit | undefined)?.method === 'DELETE'
       )
       expect(deleted).toHaveLength(2)
     })
@@ -649,5 +743,234 @@ describe('BaseKnowledge', () => {
     // The empty state must not lock the owner out of the upload affordance.
     await user.click(screen.getByRole('button', { name: /Add documents/ }))
     expect(screen.getByTestId('knowledge-dropzone')).toBeInTheDocument()
+  })
+
+  test('the German document-type labels equal the backend vocabulary', () => {
+    // The UI reads the dictionary, the parity test pins DOC_CLASS_LABELS to the
+    // Python file; this keeps the two German spellings from drifting apart.
+    expect(dePlatform.knowledge.docClasses).toEqual(DOC_CLASS_LABELS)
+  })
+
+  test('the delete dialog keeps its targets while the request is in flight', async () => {
+    // Regression: the rows are removed optimistically, and the dialog used to
+    // derive its targets from the live list, so mid-request the title read
+    // " entfernen?" and a bulk delete flipped to the single-file copy.
+    const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') return new Promise<Response>(() => {})
+      return Promise.resolve(jsonResponse(STATUS))
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    await screen.findByText('oib-richtlinie-2.pdf')
+    await user.click(screen.getByRole('checkbox', { name: 'Select oib-richtlinie-2.pdf' }))
+    await user.click(screen.getByRole('checkbox', { name: 'Select sonstiges-notiz.pdf' }))
+    await user.click(
+      within(await screen.findByTestId('data-toolbar-selection')).getByRole('button', {
+        name: 'Remove',
+      })
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Remove 2 documents' }))
+
+    await waitFor(() => expect(requestsTo(fetchSpy, '/documents/', 'DELETE')).toHaveLength(2))
+    // The rows are gone from the table, the dialog still names what it deletes.
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Open details for sonstiges/ })).toBeNull()
+    )
+    expect(screen.getByRole('dialog')).toHaveTextContent('Remove 2 documents?')
+    expect(screen.getByRole('dialog')).toHaveTextContent('sonstiges-notiz.pdf')
+  })
+
+  test('a failed refresh keeps the loaded table and says so in a toast', async () => {
+    // Regression: any failed load set the status to null, so a transient error
+    // after a reclassify replaced the whole table with an error card.
+    let loads = 0
+    const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') return Promise.resolve(jsonResponse({ ok: true }))
+      loads += 1
+      return Promise.resolve(
+        loads === 1 ? jsonResponse(STATUS) : jsonResponse({ error: 'flaky' }, false, 502)
+      )
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    const sheet = await openDetail(user, 'oenorm-b-1600.pdf')
+    await user.click(within(sheet).getByRole('combobox', { name: /Document type for oenorm/ }))
+    await user.click(screen.getByRole('option', { name: 'Law / building code' }))
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'The list could not be refreshed. Showing the last loaded state.'
+      )
+    )
+    expect(screen.queryByText('The knowledge base could not be loaded.')).not.toBeInTheDocument()
+    // `hidden`: the open sheet aria-hides the page; the row is still rendered behind it.
+    expect(
+      screen.getByRole('button', { name: 'Open details for oib-richtlinie-2.pdf', hidden: true })
+    ).toBeInTheDocument()
+  })
+
+  test('cancelling the sync or re-index confirm sends nothing', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(jsonResponse(STATUS))
+    vi.stubGlobal('fetch', fetchSpy)
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    await screen.findByText('oib-richtlinie-2.pdf')
+
+    await pickMenu(user, /Sync corpus/)
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' })
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select oenorm-b-1600.pdf' }))
+    await user.click(
+      within(screen.getByTestId('data-toolbar-selection')).getByRole('button', { name: /Re-index/ })
+    )
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' })
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+
+    expect(requestsTo(fetchSpy, '/sync')).toHaveLength(0)
+    expect(requestsTo(fetchSpy, '/reingest')).toHaveLength(0)
+  })
+
+  test('documents with issues can be re-indexed together from the overflow menu', async () => {
+    const withIssues: KnowledgeBaseStatus = {
+      ...STATUS,
+      summary: { ...STATUS.summary, totalFiles: 5, ingested: 3, failed: 1, stale: 1 },
+      files: [
+        ...STATUS.files,
+        file({ fileName: 'broken.pdf', state: 'failed', chunkCount: 0 }),
+        file({ fileName: 'old.pdf', state: 'stale' }),
+      ],
+    }
+    const fetchSpy = vi.fn((url: string, _init?: RequestInit) => {
+      if (url.includes('/reingest')) {
+        return Promise.resolve(
+          jsonResponse({ status: 'pending', queued: ['broken.pdf', 'old.pdf'], unknown: [] })
+        )
+      }
+      return Promise.resolve(jsonResponse(withIssues))
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    expect(
+      within(await screen.findByTestId('knowledge-summary-issues')).getByText('2')
+    ).toBeInTheDocument()
+
+    await pickMenu(user, /Re-index issues \(2\)/)
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('Re-index 2 documents?')
+    await user.click(within(dialog).getByRole('button', { name: 'Re-index 2 documents' }))
+
+    await waitFor(() => {
+      const [call] = requestsTo(fetchSpy, '/reingest', 'POST')
+      expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({
+        fileNames: ['broken.pdf', 'old.pdf'],
+      })
+    })
+  })
+
+  test('the status filter narrows the table to documents that need attention', async () => {
+    const withIssue: KnowledgeBaseStatus = {
+      ...STATUS,
+      files: [...STATUS.files, file({ fileName: 'broken.pdf', state: 'failed', chunkCount: 0 })],
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(withIssue)))
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    await screen.findByText('broken.pdf')
+    await user.click(screen.getByRole('combobox', { name: 'Status' }))
+    await user.click(screen.getByRole('option', { name: 'Has issues' }))
+
+    await waitFor(() => expect(screen.queryByText('oib-richtlinie-2.pdf')).not.toBeInTheDocument())
+    expect(screen.getByText('broken.pdf')).toBeInTheDocument()
+  })
+
+  test('the detail sheet states what a status means in visible text', async () => {
+    const withIssue: KnowledgeBaseStatus = {
+      ...STATUS,
+      files: [...STATUS.files, file({ fileName: 'broken.pdf', state: 'failed', chunkCount: 0 })],
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(withIssue)))
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    const sheet = await openDetail(user, 'broken.pdf')
+    expect(within(sheet).getByTestId('knowledge-detail-state-hint')).toHaveTextContent(
+      /Processing did not finish/
+    )
+  })
+
+  test('the dropzone is a keyboard-reachable button', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(STATUS)))
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    await screen.findByText('oib-richtlinie-2.pdf')
+    await user.click(screen.getByRole('button', { name: /Add documents/ }))
+
+    const zone = screen.getByTestId('knowledge-dropzone')
+    expect(zone.tagName).toBe('BUTTON')
+    expect(zone).toHaveAttribute('type', 'button')
+  })
+
+  test('a drop while an upload is running is refused with a reason, not ignored', async () => {
+    const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
+      if (url === '/api/platform/knowledge/documents' && init?.method === 'POST')
+        return new Promise<Response>(() => {})
+      return Promise.resolve(jsonResponse(STATUS))
+    })
+    vi.stubGlobal('fetch', fetchSpy as unknown as typeof fetch)
+    const user = userEvent.setup()
+
+    render(<BaseKnowledge />)
+    await screen.findByText('oib-richtlinie-2.pdf')
+    await user.click(screen.getByRole('button', { name: /Add documents/ }))
+
+    const first = new File(['%PDF-1.4'], 'first.pdf', { type: 'application/pdf' })
+    const second = new File(['%PDF-1.4'], 'second.pdf', { type: 'application/pdf' })
+    fireEvent.drop(screen.getByTestId('knowledge-dropzone'), { dataTransfer: { files: [first] } })
+    await waitFor(() =>
+      expect(requestsTo(fetchSpy, '/api/platform/knowledge/documents', 'POST')).toHaveLength(1)
+    )
+
+    fireEvent.drop(screen.getByTestId('knowledge-dropzone'), { dataTransfer: { files: [second] } })
+    expect(toast.info).toHaveBeenCalledWith('Wait for the current upload or sync to finish.')
+    expect(requestsTo(fetchSpy, '/api/platform/knowledge/documents', 'POST')).toHaveLength(1)
+  })
+
+  test('read-only platform staff see the corpus without any write control', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(STATUS)))
+    const user = userEvent.setup()
+
+    render(
+      <PlatformAccessProvider permissions={[PLATFORM_PERMISSIONS.settingsView]}>
+        <BaseKnowledge />
+      </PlatformAccessProvider>
+    )
+    await screen.findByText('oib-richtlinie-2.pdf')
+
+    expect(screen.getByTestId('knowledge-read-only')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Add documents/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+
+    const sheet = await openDetail(user, 'oib-richtlinie-2.pdf')
+    expect(within(sheet).getByRole('button', { name: 'View PDF' })).toBeInTheDocument()
+    expect(within(sheet).queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument()
+    expect(within(sheet).queryByRole('textbox')).not.toBeInTheDocument()
+    expect(within(sheet).queryByRole('combobox')).not.toBeInTheDocument()
   })
 })

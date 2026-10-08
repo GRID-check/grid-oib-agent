@@ -32,6 +32,7 @@ from aiq_agent.common import get_checkpointer
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import validate_tool_availability
 from aiq_agent.common.agent_tools import load_agent_tools
+from aiq_agent.common.fenced_checkpointer import FencedCheckpointer
 from aiq_agent.common.profiler import flush_after_answer
 from aiq_agent.common.profiler import track_agent_profile
 from aiq_agent.common.turn_status import documents_loading_step
@@ -230,7 +231,7 @@ async def _build_agent(config: ChatDeepResearcherConfig, builder: Builder) -> Co
         clarifier_fn=await _build_clarifier(config, builder),
         max_history_tokens=config.max_history_tokens,
         commission_run_fn=build_run_commissioner(config),
-        checkpointer=await get_checkpointer(config.checkpoint_db),
+        checkpointer=FencedCheckpointer(await get_checkpointer(config.checkpoint_db)),
         validate_deep_research_tools_fn=_tool_validator(await _deep_research_tools(builder)),
     )
 

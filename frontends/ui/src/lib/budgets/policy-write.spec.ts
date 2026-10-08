@@ -47,18 +47,20 @@ vi.mock('@/lib/pricing/service', () => ({
   priceUsage: () => ({}),
 }))
 
+const invalidateCached = vi.fn(async (_key: string) => {})
 vi.mock('@/lib/cache', () => ({
   getCached: async (_key: string, _ttl: number, loader: () => Promise<unknown>) => loader(),
-  invalidateCached: async () => {},
+  invalidateCached: (key: string) => invalidateCached(key),
   invalidateCachedPrefix: async () => {},
 }))
 
 const insertPolicySuperseding = vi.fn()
 const supersedeActivePolicy = vi.fn(async () => true)
-const findActivePolicy = vi.fn(async () => null)
+const findActivePolicy = vi.fn<(...args: unknown[]) => Promise<BudgetPolicy | null>>()
+const sumRollupTotals = vi.fn()
 
 vi.mock('./repository', () => ({
-  findActivePolicy: (...args: unknown[]) => findActivePolicy(...(args as [])),
+  findActivePolicy: (...args: unknown[]) => findActivePolicy(...args),
   insertPolicySuperseding: (values: unknown) => insertPolicySuperseding(values),
   supersedeActivePolicy: (...args: unknown[]) => supersedeActivePolicy(...(args as [])),
   listActivePolicies: async () => [],
@@ -67,6 +69,7 @@ vi.mock('./repository', () => ({
   utcMonthStart: () => new Date(0),
   sumSpendWindows: () => ({}),
   EMPTY_SPEND_WINDOW: {},
+  sumRollupTotals: (...args: unknown[]) => sumRollupTotals(...args),
 }))
 
 const session: AuthorizedSession = {
@@ -85,6 +88,64 @@ beforeEach(() => {
   supersedeActivePolicy.mockResolvedValue(true)
   findActivePolicy.mockResolvedValue(null)
   resolveSubjectMembership.mockReset()
+  sumRollupTotals.mockResolvedValue({ day: { credits: 25, tokens: 1000 }, month: { credits: 10000, tokens: 20000 } })
+})
+
+describe('setBudgetPolicy, expected unit', () => {
+  it('refuses a stale unit before superseding or inserting a policy', async () => {
+    const { setBudgetPolicy } = await import('./service')
+    const { ConflictError } = await import('@/lib/api/errors')
+    await expect(setBudgetPolicy({
+      organizationId: 'org_1',
+      scope: 'organization',
+      subjectId: null,
+      dailyLimit: 1000,
+      monthlyLimit: 20000,
+      actorUserId: 'user_admin',
+      expectedUnit: 'token',
+    })).rejects.toBeInstanceOf(ConflictError)
+    expect(insertPolicySuperseding).not.toHaveBeenCalled()
+  })
+
+  it('uses the existing append-only policy writer for a matching credit allowance', async () => {
+    const { setBudgetPolicy } = await import('./service')
+    await setBudgetPolicy({
+      organizationId: 'org_1',
+      scope: 'organization',
+      subjectId: null,
+      dailyLimit: null,
+      monthlyLimit: 20000,
+      actorUserId: 'user_admin',
+      expectedUnit: 'credit',
+    })
+    expect(insertPolicySuperseding).toHaveBeenCalledWith({
+      organizationId: 'org_1', scope: 'organization', subjectId: null, unit: 'credit',
+      dailyLimit: null, monthlyLimit: '20000.0000', createdBy: 'user_admin', note: null,
+    })
+    expect(invalidateCached).toHaveBeenCalledWith('budgetlimits:org_1:credit:organization:')
+    expect(invalidateCached).toHaveBeenCalledWith('budgetlimits:org_1:token:organization:')
+  })
+
+  it.each([
+    { allowance: 0, remaining: 0, blocked: true },
+    { allowance: 10000, remaining: 0, blocked: true },
+    { allowance: 20000, remaining: 10000, blocked: false },
+  ])('enforces the saved monthly allowance $allowance against current credit usage', async ({ allowance, remaining, blocked }) => {
+    const { getBudgetStatus, setBudgetPolicy } = await import('./service')
+    insertPolicySuperseding.mockImplementationOnce(async (values: { monthlyLimit: string }) => {
+      const policy = { ...storedPolicy, dailyLimit: null, monthlyLimit: values.monthlyLimit }
+      findActivePolicy.mockResolvedValue(policy)
+      return policy
+    })
+    await setBudgetPolicy({
+      organizationId: 'org_1', scope: 'organization', subjectId: null,
+      dailyLimit: null, monthlyLimit: allowance, actorUserId: 'user_admin', expectedUnit: 'credit',
+    })
+    expect(await getBudgetStatus('org_1', null, null)).toMatchObject({
+      unit: 'credit', remainingOrg: remaining, blocked,
+      blockedScope: blocked ? 'organization' : null,
+    })
+  })
 })
 
 describe('saveBudgetPolicy, member scope', () => {

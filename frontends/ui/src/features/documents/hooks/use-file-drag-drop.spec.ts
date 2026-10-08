@@ -95,6 +95,22 @@ describe('useFileDragDrop', () => {
     expect(mockEvent.stopPropagation).toHaveBeenCalled()
   })
 
+  test('asks whether a zip counts only when the surface unpacks them', () => {
+    vi.mocked(checkDraggedFilesSupported).mockClear()
+    const zip = createMockDragEvent(
+      [new File(['z'], 'a.zip')],
+      [{ kind: 'file', type: 'application/zip' } as DataTransferItem]
+    )
+
+    const chat = renderHook(() => useFileDragDrop({ onDrop: vi.fn() }))
+    act(() => chat.result.current.dragHandlers.onDragEnter(zip))
+    const shelf = renderHook(() => useFileDragDrop({ onDrop: vi.fn(), acceptZip: true }))
+    act(() => shelf.result.current.dragHandlers.onDragEnter(zip))
+
+    const options = vi.mocked(checkDraggedFilesSupported).mock.calls.map((call) => call[2])
+    expect(options).toEqual([{ allowZip: false }, { allowZip: true }])
+  })
+
   test('sets isUnsupportedDrag when files are unsupported', () => {
     vi.mocked(checkDraggedFilesSupported).mockReturnValue(false)
 
@@ -356,5 +372,53 @@ describe('useFileDragDrop — an in-app drag is not an upload', () => {
     expect(result.current.isDragging).toBe(true)
     act(() => result.current.dragHandlers.onDragLeave(createMockDragEvent([new File(['x'], 'a.pdf')])))
     expect(result.current.isDragging).toBe(false)
+  })
+})
+
+/**
+ * THE FILE LIST IS ONLY READABLE DURING THE DROP EVENT.
+ *
+ * The browser empties `dataTransfer.files` once the event has been dispatched.
+ * The handler read it as a fallback AFTER the entries traversal had awaited, so
+ * an entry whose `file()` fails — an Outlook attachment, a OneDrive file that
+ * is only in the cloud — ended in an empty list and a drop that did nothing.
+ */
+describe('useFileDragDrop — a drop the entries API cannot read', () => {
+  function transferThatEmptiesAfterTheEvent(files: File[]): React.DragEvent {
+    let dispatching = true
+    queueMicrotask(() => {
+      dispatching = false
+    })
+    const failingEntry = {
+      isFile: true,
+      isDirectory: false,
+      name: files[0]?.name ?? '',
+      file: (_ok: (file: File) => void, fail: (error: unknown) => void) =>
+        setTimeout(() => fail(new Error('NotFoundError')), 0),
+    }
+    return {
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      dataTransfer: {
+        types: ['Files'],
+        get files() {
+          return dispatching ? files : []
+        },
+        items: files.map(() => ({ kind: 'file', type: 'application/pdf', webkitGetAsEntry: () => failingEntry })),
+      },
+    } as unknown as React.DragEvent
+  }
+
+  test('still uploads the files the event carried', async () => {
+    const onDrop = vi.fn()
+    const { result } = renderHook(() => useFileDragDrop({ onDrop }))
+    const files = [new File(['x'], 'Anhang aus Outlook.pdf', { type: 'application/pdf' })]
+
+    await act(async () => {
+      result.current.dragHandlers.onDrop(transferThatEmptiesAfterTheEvent(files))
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    })
+
+    expect(onDrop).toHaveBeenCalledWith(files)
   })
 })

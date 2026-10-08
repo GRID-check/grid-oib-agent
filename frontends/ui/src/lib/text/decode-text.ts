@@ -72,5 +72,29 @@ export function decodeTextBytes(bytes: Uint8Array, { truncated = false }: { trun
   const body = truncated ? bytes.subarray(0, bytes.length - incompleteUtf8Tail(bytes)) : bytes
   const utf8 = strictUtf8(body)
   if (utf8 !== null) return { text: utf8, encoding: 'utf-8' }
-  return { text: new TextDecoder('windows-1252').decode(bytes), encoding: 'windows-1252' }
+  return { text: decodeWindows1252(bytes), encoding: 'windows-1252' }
+}
+
+/**
+ * What cp1252 puts at 0x80–0x9F, from the WHATWG `windows-1252` index. The five
+ * holes (0x81, 0x8D, 0x8F, 0x90, 0x9D) stay the C1 control of the same number.
+ */
+const CP1252_HIGH = [
+  0x20ac, 0x81, 0x201a, 0x192, 0x201e, 0x2026, 0x2020, 0x2021, 0x2c6, 0x2030, 0x160, 0x2039, 0x152, 0x8d, 0x17d,
+  0x8f, 0x90, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x2dc, 0x2122, 0x161, 0x203a, 0x153, 0x9d,
+  0x17e, 0x178,
+]
+
+/**
+ * `TextDecoder('windows-1252')`, with 0x80–0x9F mapped as the standard says.
+ *
+ * Node 22.22.0's decoder reads that range as Latin-1 (0x80 comes back as U+0080,
+ * not „€"), and the `node:22-slim` image the BFF runs on floats onto it. A
+ * conforming decoder never emits U+0080–U+009F except for the five holes, which
+ * map to themselves here, so the remap is a no-op wherever the runtime is right.
+ */
+function decodeWindows1252(bytes: Uint8Array): string {
+  return new TextDecoder('windows-1252')
+    .decode(bytes)
+    .replace(/[\u0080-\u009f]/g, (c) => String.fromCharCode(CP1252_HIGH[c.charCodeAt(0) - 0x80]!))
 }

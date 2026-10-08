@@ -31,10 +31,16 @@ tolerance. Never raises and never answers non-200: every failure comes back as
 ``error`` so the BFF can defer the report and retry on a later sweep.
 """
 
+import asyncio
 import logging
 
 import httpx
 from fastapi import APIRouter
+
+from aiq_agent.common import provider_limiter
+from aiq_agent.common.credential_resolution import ResolvedCredential
+from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
+from aiq_agent.common.openrouter import limited_async_http_client
 
 from ..models.requests import LessonDistillRequest
 from ..models.requests import LessonDistillResponse
@@ -176,27 +182,27 @@ def _build_report_block(request: LessonDistillRequest) -> str:
 
 async def _chat_json(
     client: httpx.AsyncClient,
-    base_url: str,
-    api_key: str,
-    model: str,
+    cred: ResolvedCredential,
     system_prompt: str,
     user_content: str,
     max_tokens: int,
 ) -> dict:
     """One JSON-mode chat completion; raises ValueError on an unusable reply."""
     response = await client.post(
-        f"{base_url}/chat/completions",
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
-        json={
-            "model": model,
-            "temperature": 0.2,
-            "max_tokens": max_tokens,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-        },
+        f"{cred.base_url}/chat/completions",
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {cred.api_key}"},
+        json=cred.request_body(
+            {
+                "model": cred.model,
+                "temperature": 0.2,
+                "max_tokens": max_tokens,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+            }
+        ),
     )
     response.raise_for_status()
     raw, _finish = message_content(response.json())
@@ -220,16 +226,18 @@ def add_lesson_distill_routes(router: APIRouter) -> None:
     async def lesson_distill(request: LessonDistillRequest) -> LessonDistillResponse:
         """Distill one report, or say why it could not be distilled."""
         # No org header on purpose: the pipeline is platform-scoped and must
-        # not resolve one tenant's BYOK credential for cross-tenant work.
-        model, api_key, base_url = _llm_settings(None)
-        if not api_key:
+        # not resolve one tenant's BYOK credential for cross-tenant work. The
+        # report is one tenant's text that we cannot attribute here, so it is
+        # pinned as if that tenant had ZDR on.
+        cred = await asyncio.to_thread(_llm_settings, None, data_policy=ZERO_DATA_RETENTION)
+        if not cred.api_key:
             return LessonDistillResponse(error="llm_not_configured")
 
         report_block = _build_report_block(request)
 
         try:
-            async with httpx.AsyncClient(timeout=45.0) as client:
-                distilled = await _chat_json(client, base_url, api_key, model, DISTILL_SYSTEM_PROMPT, report_block, 600)
+            async with limited_async_http_client(cls=provider_limiter.BULK, timeout=45.0) as client:
+                distilled = await _chat_json(client, cred, DISTILL_SYSTEM_PROMPT, report_block, 600)
 
                 match_id = distilled.get("match_lesson_id")
                 known_ids = {entry.id for entry in request.existing_lessons}
@@ -263,7 +271,7 @@ def add_lesson_distill_routes(router: APIRouter) -> None:
                 # report — so injected report text cannot lobby its own screen.
                 audit_input = f"Candidate lesson: {lesson}\nCanonical summary: {canonical_summary or '—'}"
                 try:
-                    audit = await _chat_json(client, base_url, api_key, model, AUDIT_SYSTEM_PROMPT, audit_input, 200)
+                    audit = await _chat_json(client, cred, AUDIT_SYSTEM_PROMPT, audit_input, 200)
                     audit_passed = audit.get("passed") is True
                     if not audit_passed:
                         logger.info("Lesson audit flagged a candidate: %s", audit.get("reason"))

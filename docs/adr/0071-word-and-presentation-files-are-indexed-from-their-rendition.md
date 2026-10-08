@@ -79,16 +79,19 @@ What that means in practice:
   with `python-pptx` and adds one unit per slide that has them, labelled with
   the slide's page in the rendition. LibreOffice leaves hidden slides out of the
   PDF, so the label counts visible slides only.
-* **Convert, then ingest, detached.** An office upload no longer races the
-  conversion against a 20-second wait. `beginRenditionIngest` in
-  `lib/documents/service.ts` marks the row `processing`, returns, and in the
-  background runs `ensureRendition` with its full 120-second timeout, then
+* **Convert, then ingest, in the background.** An office upload no longer races
+  the conversion against a 20-second wait. `beginRenditionIngest` in
+  `lib/documents/service.ts` marks the row `processing`, queues an
+  `office_rendition` job (ADR-0079; it was a detached promise in the upload's
+  process when this was decided) and returns. The job, on a `bff-jobs` pod,
+  runs `ensureRendition` with its full 120-second timeout, then
   `dispatchIngest` with `preview_ref` (thumbnail) and, for the listed formats,
   `extraction_ref`. The upload response says `processing`. Re-ingest takes the
-  same path. Background conversions are bounded per BFF process
+  same path. Conversions are bounded per BFF process
   (`GOTENBERG_MAX_CONCURRENCY`, default 2) behind any reader waiting for a
   preview, and time spent queued for a slot does not count against the 120
-  seconds. A folder upload of hundreds of office files used to start them all
+  seconds; the background ones are bounded fleet-wide by the `bff-jobs` pool's
+  size (ADR-0079). A folder upload of hundreds of office files used to start them all
   at once and time most of them out in Gotenberg's own queue.
 * **The rendition is the only source; there is no fallback reader.** The
   docx2txt Word reader and the python-pptx slide-text reader are deleted, and
@@ -129,9 +132,10 @@ What that means in practice:
   same bytes again does not: an identical upload is skipped as „Unverändert“.
   A Word citation from the old chunks carries `"1"` and opens at page 1, which
   is where it opened before.
-* Bad, because a process restart during a conversion leaves the row at
-  `processing` with no job. This is the tradeoff the IFC path already makes: the
-  re-ingest action reads the backend state as `absent` and retries it.
+* Bad, because a process restart during a conversion left the row at
+  `processing` with no job. ADR-0079 closed this: the conversion is a queued
+  job, a restart gives the claim back, and a sweep
+  (`lib/documents/stuck-processing.ts`) recovers rows from before the job.
 * Bad, because Gotenberg is now required, not optional. Without it, or while
   it restarts mid-conversion, a Word or presentation upload fails retryably.
   Its rollout drains a conversion in flight for up to 120 s, and its flags
@@ -157,7 +161,7 @@ What that means in practice:
   indexed from the rendition, that `.xlsx` and `.xlsm` are not, and that the list
   is a subset of the formats that have a rendition.
 * `frontends/ui/src/lib/documents/dispatch.spec.ts`: an office upload is
-  detached and marked `processing`; `extraction_ref` is sent for a listed
+  queued as a job and marked `processing`; `extraction_ref` is sent for a listed
   format and not for a spreadsheet; a failed or unconfigured conversion fails a
   Word file and still ingests a workbook.
 * `frontends/ui/src/features/chat/lib/citations/open-at.spec.ts`: a Word,
@@ -212,5 +216,5 @@ decks becomes material enough to cap captions per document.
 
 How office files are viewed: [ADR-0070](0070-office-files-are-viewed-through-a-pdf-rendition.md).
 The pipeline stages: [`visual-ingestion.md`](../architecture/visual-ingestion.md).
-The ingest request and the detached dispatch:
+The ingest request and the dispatch:
 [`document-ingestion.md`](../technical-reference/document-ingestion.md).

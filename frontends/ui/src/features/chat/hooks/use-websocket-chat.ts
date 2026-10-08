@@ -48,17 +48,18 @@ import { checkBackendHealthCached, invalidateHealthCache } from '@/shared/hooks/
 import { useThreadSharing } from '@/shared/collaboration/thread-sharing'
 import type { AddresseeSet } from '@/lib/mentions/types'
 import { useChatStore } from '../store'
-import { isFilePeekVisible, useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { registerStopStreamingHandler, runningTurnIn } from '../stores/messages-store'
 import { useConnectionRecovery } from './use-connection-recovery'
 import { useEffortStore } from '../stores/effort-store'
+import type { ChatEffort } from '@/lib/reasoning-settings/catalog'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
 import { fetchRunMessage } from '../lib/commissioned-run'
 import { STAGE_COUNT } from '../lib/turn-projection'
+import { runErrorCard } from '../lib/run-error'
 import type { TurnView } from '../lib/turn-fold'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
-import type { ChatMessage, Conversation, ErrorCode, PendingInteraction } from '../types'
+import type { ChatMessage, Conversation, PendingInteraction } from '../types'
 
 /** A mention as the composer holds it: the structured target plus its text token. */
 export interface SendMessageMention {
@@ -85,6 +86,12 @@ export interface SendMessageOptions {
    * so a stale read costs a round trip and nothing else.
    */
   awaitingHuman?: boolean
+  /**
+   * Run THIS turn at a level other than the chat's Aufwand dial, without
+   * touching the dial (`effort-store.ts`): the "answer again, more thoroughly"
+   * retry under a down-voted answer.
+   */
+  reasoningEffort?: ChatEffort
 }
 
 /** A refusal the composer can localise from `details.reason`. */
@@ -235,13 +242,6 @@ const ACK_MISSES_BEFORE_GIVING_UP = 2
  */
 const SILENT_DROPS_BEFORE_GIVING_UP = 2
 
-/** A turn that failed, as the reader is told about it. */
-const RUN_ERROR_CODES: Record<NonNullable<TurnView['error']>['code'], ErrorCode> = {
-  workflow_error: 'agent.workflow_error',
-  auth_error: 'auth.session_expired',
-  interaction_expired: 'agent.response_interrupted',
-}
-
 type Rejection = Extract<WireEvent, { type: 'CUSTOM'; name: 'rejected' }>
 /** A `user_message` as the client builds it (its `type` has a default, so it is optional here). */
 type UserMessage = Extract<ClientMessage, { message_id: string }>
@@ -298,8 +298,8 @@ const endFailedTurn = (view: TurnView): void => {
     ._recoverInterruptedAssistantMessage(view.conversationId, view.turnId)
     .then((outcome) => {
       if (outcome !== 'nothing' || store().currentConversation?.id !== view.conversationId) return
-      const code = view.error ? RUN_ERROR_CODES[view.error.code] : 'agent.response_failed'
-      store().addErrorCard(code, view.error?.message)
+      const card = runErrorCard(view.error)
+      store().addErrorCard(card.code, card.message, card.details)
     })
 }
 
@@ -969,19 +969,24 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * cancelled.
    */
   const openAgentTurn = useCallback(
-    (messageId: string, content: string, dataSourcesForMessage: string[], conversationId: string | undefined): boolean => {
+    (
+      messageId: string,
+      content: string,
+      dataSourcesForMessage: string[],
+      conversationId: string | undefined,
+      reasoningEffort?: ChatEffort
+    ): boolean => {
       if (!conversationId) {
         addErrorCard('system.unknown', 'No active conversation')
         return false
       }
-      // Retrieval follows the composer bar ("Asking about this file"). A
-      // visible peek is the fallback when there is no bar yet. A version id
-      // only ever comes from the SUBJECT: it says what this turn is about, and
-      // a file that merely happens to be visible beside the chat does not.
-      const preview = useFilePreviewStore.getState()
+      // Retrieval follows the composer bar ("Asking about this file") and
+      // nothing else. A file that merely happens to be open in a peek is
+      // context, not scope: sending it as the focus told the agent every bare
+      // question was about that file, and a norm question ("Absturzhoehe bei
+      // Bruestungen") came back empty because the search was pinned to it.
       const subject = useChatStore.getState().composerSubject
       const subjectName = subject?.filename?.trim() || subject?.title?.trim() || undefined
-      const peekName = isFilePeekVisible(preview) ? preview.file?.filename.trim() || undefined : undefined
       useChatStore.getState().beginTurn(conversationId, messageId)
       ensureDriver(conversationId).ask({
         type: 'user_message',
@@ -989,7 +994,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         message_id: messageId,
         text: content,
         data_sources: dataSourcesForMessage,
-        focus_file_name: subjectName || peekName || null,
+        focus_file_name: subjectName || null,
         focus_shelf: subject?.shelf ?? null,
         focus_document_id: subject?.resourceId ?? null,
         focus_version_id: subject?.versionId ?? null,
@@ -997,7 +1002,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         source_preset: useLayoutStore.getState().activeSourcePreset ?? null,
         // The composer's Aufwand dial. Always stated, so the level the chat
         // shows is the level the turn runs at (`effort-store.ts`).
-        reasoning_effort: useEffortStore.getState().levelForSend(conversationId),
+        // A per-turn override wins and is never remembered.
+        reasoning_effort: reasoningEffort ?? useEffortStore.getState().levelForSend(conversationId),
       })
       return true
     },
@@ -1100,7 +1106,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         return { ok: true, addressees: ruling }
       }
 
-      const started = openAgentTurn(messageId, content, dataSourcesForMessage, conversationId)
+      const started = openAgentTurn(messageId, content, dataSourcesForMessage, conversationId, options.reasoningEffort)
       return { ok: started, addressees: ruling }
     },
     [addErrorCard, collectSendMetadata, deliverAsContext, openAgentTurn]
@@ -1128,7 +1134,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       const message = addUserMessage(content, { enabledDataSources: dataSourcesForMessage, messageFiles })
       // The conversation may have just been created inside addUserMessage.
       const conversationId = useChatStore.getState().currentConversation?.id
-      return openAgentTurn(message.id, content, dataSourcesForMessage, conversationId)
+      return openAgentTurn(message.id, content, dataSourcesForMessage, conversationId, options?.reasoningEffort)
     },
     [addUserMessage, collectSendMetadata, openAgentTurn, sendRuledMessage]
   )

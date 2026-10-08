@@ -117,10 +117,8 @@ async def _read_zdr_only() -> bool:
     except Exception:  # noqa: BLE001 - fails CLOSED, unlike its three siblings
         # A missing override costs the org its model choice; a missing ZDR bit
         # sends the org's prompts to endpoints that may retain them, which is
-        # the ADR-0014 control itself. This is NOT the "BFF is down" path --
-        # `resolve_org_zdr_only` already answers False for that, deliberately.
-        # Reaching here means the lookup itself broke unexpectedly, so it logs
-        # at error rather than debug: a privacy control that switches itself
-        # off must never do it quietly.
+        # the ADR-0014 control itself. The "BFF is down" path already answers
+        # True inside `resolve_org_zdr_only`; reaching here means the lookup
+        # itself broke unexpectedly, so it logs at error rather than debug.
         logger.error("ZDR lookup failed; pinning ZDR routing for this turn", exc_info=True)
         return True

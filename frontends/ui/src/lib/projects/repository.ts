@@ -19,8 +19,10 @@ import 'server-only'
 import { and, asc, desc, eq, isNull } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { isUuid } from '@/lib/ids'
+import { salvageProjectProfile } from '@/lib/project-profile/salvage'
 import { withOptionalTenant, withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { deletionQueue, projects, type Project } from '@/lib/db/schema'
+import type { DbTransaction } from '@/lib/storage/repository'
 
 /** Hard cap for unpaginated org-wide lists. */
 export const PROJECT_LIST_LIMIT = 500
@@ -253,24 +255,55 @@ export async function updateProjectProfileIfVersion(
   projectId: string,
   organizationId: string,
   expectedVersion: number,
-  values: ProjectProfileState
+  values: ProjectProfileState,
+  /**
+   * More of the same write, committed with the profile or not at all. The
+   * updated row stays locked until it returns, so a concurrent writer that
+   * locks the project (`lockProjectProfile`) sees this profile, never the one
+   * before it.
+   */
+  inTransaction?: (tx: DbTransaction, saved: ProjectProfileState) => Promise<void>
 ): Promise<ProjectProfileState | null> {
   const db = getDb()
-  const [row] = await withTenant({ organizationId }, () =>
-    db
-      .update(projects)
-      .set(values)
-      .where(
-        and(
-          eq(projects.id, projectId),
-          eq(projects.organizationId, organizationId),
-          isNull(projects.deletedAt),
-          eq(projects.profileVersion, expectedVersion)
+  return withTenant({ organizationId }, () =>
+    db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(projects)
+        .set(values)
+        .where(
+          and(
+            eq(projects.id, projectId),
+            eq(projects.organizationId, organizationId),
+            isNull(projects.deletedAt),
+            eq(projects.profileVersion, expectedVersion)
+          )
         )
-      )
-      .returning(profileColumns)
+        .returning(profileColumns)
+      if (!row) return null
+      if (inTransaction) await inTransaction(tx, row)
+      return row
+    })
   )
-  return row ?? null
+}
+
+/**
+ * A project's profile, read under a row lock that holds until `tx` ends.
+ *
+ * For a write that depends on the profile (binding a document to one of its
+ * buildings): a profile save in flight finishes first, and the read sees what
+ * it wrote. Null when the project is gone.
+ */
+export async function lockProjectProfile(
+  tx: DbTransaction,
+  projectId: string
+): Promise<Project['profile'] | null> {
+  const [row] = await tx
+    .select({ profile: projects.profile })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
+    .limit(1)
+    .for('update')
+  return row ? salvageProjectProfile(row.profile).profile : null
 }
 
 /**
@@ -396,7 +429,17 @@ export async function findProjectPromptView(
   return row?.profilePromptView ?? null
 }
 
-/** The stored structured profile for a project. Same nullable-org rules as above. */
+/**
+ * The stored structured profile for a project, normalized. Same nullable-org
+ * rules as above.
+ *
+ * The column is `jsonb NOT NULL DEFAULT '{}'`, so a project whose intake was
+ * never saved stores `{}`, not null. Handing that out as a `ProjectProfile`
+ * let `answersFromProfile` call `Object.keys(profile.facts)` on undefined:
+ * binding a Bestandsplan to a building answered 500 for every first intake.
+ * The salvage parse fills the empty parts and drops malformed entries, so no
+ * reader has to remember to.
+ */
 export async function findProjectProfile(
   projectId: string,
   organizationId: string | null | undefined
@@ -414,7 +457,7 @@ export async function findProjectProfile(
         .where(and(...conditions))
         .limit(1)
   )
-  return row?.profile ?? null
+  return row ? salvageProjectProfile(row.profile).profile : null
 }
 
 /** A project's Qdrant/Chroma collection name, scoped to its organization. */

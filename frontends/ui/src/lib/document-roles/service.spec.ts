@@ -17,19 +17,26 @@ vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn().mockResolvedValue(undefined),
 }))
 
+function emptyProfile(): ProjectProfile {
+  return { facts: {}, goals: {}, unknowns: [], assumptions: {} }
+}
+
 const repo = vi.hoisted(() => ({
   bindings: [] as DocumentRoleBinding[],
   inserted: [] as Record<string, unknown>[],
   deleted: [] as string[],
   confirmed: [] as Array<{ bindingId: string; confidence: string; source: string }>,
   documentInProject: true,
-  // `null` means "no profile saved yet", where the implicit first building
-  // (`bw1`) is the only one that exists.
-  profile: null as ProjectProfile | null,
+  // A project whose intake was never saved: the column holds `{}`, which
+  // `findProjectProfile` hands out as this empty profile (never `null` for an
+  // existing project). The implicit first building (`bw1`) is the only one.
+  // Modelling it as `null` here is how the 500 on the real value went unseen.
+  profile: emptyProfile() as ProjectProfile | null,
 }))
 
 vi.mock('@/lib/projects/repository', () => ({
-  findProjectProfile: vi.fn(async () => repo.profile),
+  // Read under the project's row lock, inside the binding's own transaction.
+  lockProjectProfile: vi.fn(async () => repo.profile),
 }))
 
 vi.mock('./repository', () => ({
@@ -41,7 +48,14 @@ vi.mock('./repository', () => ({
   // insert failed. The double bookkeeping here mirrors that both still happen,
   // inside one transaction.
   replaceSlotBinding: vi.fn(
-    async (input: Record<string, unknown>, displacedIds: readonly string[]) => {
+    async (
+      input: Record<string, unknown>,
+      displacedIds: readonly string[],
+      guard?: (tx: never) => Promise<void>
+    ) => {
+      // The real one runs the guard first in its transaction; a refusal there
+      // writes nothing.
+      if (guard) await guard(undefined as never)
       const matched = repo.bindings.filter((b) => displacedIds.includes(b.id)).map((b) => b.id)
       repo.deleted.push(...matched)
       repo.bindings = repo.bindings.filter((b) => !displacedIds.includes(b.id))
@@ -82,7 +96,7 @@ vi.mock('./repository', () => ({
   }),
 }))
 
-const { declareDocumentRole, revokeDocumentRole } = await import('./service')
+const { bauwerkIds, declareDocumentRole, revokeDocumentRole } = await import('./service')
 const { requireProjectAccess } = await import('@/lib/authz/projects')
 
 function binding(overrides: Partial<DocumentRoleBinding> = {}): DocumentRoleBinding {
@@ -296,7 +310,7 @@ describe('declareDocumentRole — the Bauwerk has to exist', () => {
     repo.deleted = []
     repo.confirmed = []
     repo.documentInProject = true
-    repo.profile = null
+    repo.profile = emptyProfile()
     vi.clearAllMocks()
   })
 
@@ -354,5 +368,32 @@ describe('declareDocumentRole — the Bauwerk has to exist', () => {
       session
     )
     expect(repo.inserted).toHaveLength(1)
+  })
+})
+
+
+describe('bauwerkIds', () => {
+  const fact = (value: string) => ({
+    value,
+    confidence: 'confirmed' as const,
+    source: 'onboarding' as const,
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  })
+
+  it('names exactly the buildings the profile has', () => {
+    // Bauwerk 1 was removed in the wizard; 2 and 3 remain.
+    const saved: ProjectProfile = {
+      facts: { 'bauwerk_name@bw2': fact('Hoftrakt'), 'bauwerk_name@bw3': fact('Garage') },
+      goals: {},
+      unknowns: [],
+      assumptions: {},
+    }
+
+    expect(bauwerkIds(saved)).toEqual(['bw2', 'bw3'])
+  })
+
+  it('names the implicit first building of a profile that names none, or of no profile', () => {
+    expect(bauwerkIds(emptyProfile())).toEqual(['bw1'])
+    expect(bauwerkIds(null)).toEqual(['bw1'])
   })
 })

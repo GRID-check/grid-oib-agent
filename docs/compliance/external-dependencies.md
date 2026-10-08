@@ -71,6 +71,10 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
 - **Python:** uv workspace, `uv.lock` + `uv sync --frozen` in image (fully pinned).
   Core: `nvidia-nat*==1.9.0`, `deepagents`, `langgraph-checkpoint-*`, `chromadb`,
   `llama-index`, `langchain-tavily`, `langchain-modal==0.0.5` (pre-alpha maturity).
+  Outlook archives (ADR-0085): `libpff-python==20260926` (libyal, LGPL-3.0-or-later,
+  a native extension used unmodified as a library from its manylinux wheel; the
+  maintainer labels it alpha, and this is its first release with cp314 wheels)
+  and `striprtf==0.0.33` (BSD-3, pure Python) for RTF bodies.
   Deliberate CVE floors + `override-dependencies` block (`pyproject.toml:214-227`).
 - **Node:** `bun.lock` + `bun install --frozen-lockfile`; Next 16, `@workos-inc/*`,
   `@aws-sdk/client-s3`, `http-proxy` (old but latest), drizzle; security `overrides`
@@ -80,11 +84,11 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
   unaffected by the switch (it does NOT support the binary `bun.lockb`, which
   this repo does not use).
 - **CI controls:** Semgrep SAST (py+ts/js+actions) + weekly; OSV-Scanner lockfile
-  CVEs over all eight lockfiles in the tree; gitleaks full history; detect-secrets
-  baseline; Dependabot fix PRs. (GitHub dependency-review dropped: it needs GitHub
-  Advanced Security on this private repo; OSV-Scanner + Dependabot cover
-  new-dependency CVEs instead. The separate pip-audit / `bun audit` / `npm audit`
-  job was dropped in Sep 2026: it covered three of those eight lockfiles against
+  CVEs over all seven lockfiles in the tree; gitleaks full history; Dependabot
+  fix PRs. (GitHub dependency-review dropped: it needs GitHub Advanced Security
+  on this private repo; OSV-Scanner + Dependabot cover new-dependency CVEs
+  instead. The separate pip-audit / `bun audit` / `npm audit` job was dropped in
+  Sep 2026: it covered three of the eight lockfiles the tree then had against
   advisory databases OSV already ingests — GHSA and PyPA — while taking longer
   than the whole rest of the workflow (9m53s with it, 2m36s without), and two of
   its three steps were silently reporting nothing. Rationale in

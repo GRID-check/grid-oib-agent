@@ -3,10 +3,10 @@
 ## The gap this closes
 
 Async research jobs have had admission control since the scaling review
-(``GRID_MAX_ACTIVE_JOBS`` / ``…_PER_ORG`` in ``aiq_api.jobs.submit``): a
-deliberate ceiling on how many long runs may be in flight, per organization and
-overall. Interactive chat turns had none. A single shared conversation with ten
-members answering at once starts ten multi-agent runs, and the only thing that
+(``GRID_MAX_ACTIVE_JOBS_PER_ORG`` in ``aiq_api.jobs.queue``): a deliberate ceiling
+on how many long runs one organization may run at once. Interactive chat turns
+had none. A single shared conversation with ten members answering at once starts
+ten multi-agent runs, and the only thing that
 ever said no was the ADR-0015 euro budget — that is, after the money was spent.
 
 ## Why concurrency and not a rate
@@ -65,6 +65,9 @@ from contextlib import asynccontextmanager
 from contextlib import contextmanager
 
 from aiq_agent.common import cache
+from aiq_agent.common.lease_slots import ACQUIRE_LUA
+from aiq_agent.common.lease_slots import RELEASE_LUA
+from aiq_agent.common.lease_slots import RENEW_LUA
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +77,7 @@ logger = logging.getLogger(__name__)
 # @default 24
 # @required false
 # Maximum interactive chat turns running concurrently across all organizations.
-# Its own pool, never shared with GRID_MAX_ACTIVE_JOBS — that separation is what
+# Its own pool, never shared with the research queue — that separation is what
 # stops background research from starving chat. 0 or negative disables.
 MAX_ACTIVE_TURNS = int(os.environ.get("GRID_MAX_ACTIVE_TURNS", "24"))
 
@@ -123,44 +126,10 @@ class TurnAdmissionError(RuntimeError):
         self.retry_after_seconds = retry_after_seconds
 
 
-# Drop expired leases, refuse if the pool is full, otherwise take a slot.
-# One script because the three steps must be atomic: split apart, two turns
-# both read "one slot left" and both take it, which is precisely the
-# concurrency this exists to bound.
-_ACQUIRE_LUA = """
-local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local lease = tonumber(ARGV[2])
-local limit = tonumber(ARGV[3])
-local member = ARGV[4]
-
-redis.call('ZREMRANGEBYSCORE', key, '-inf', now - lease)
-if redis.call('ZCARD', key) >= limit then
-  return 0
-end
-redis.call('ZADD', key, now, member)
-redis.call('EXPIRE', key, lease)
-return 1
-"""
-
-_RELEASE_LUA = "return redis.call('ZREM', KEYS[1], ARGV[1])"
-
-# Re-stamp a slot this turn still holds. A slot that was already reclaimed
-# stays gone: adding it back could take the pool past its limit, which is the
-# over-admission a renewal exists to prevent. Returns 1 when renewed.
-_RENEW_LUA = """
-local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local lease = tonumber(ARGV[2])
-local member = ARGV[3]
-
-if not redis.call('ZSCORE', key, member) then
-  return 0
-end
-redis.call('ZADD', key, now, member)
-redis.call('EXPIRE', key, lease)
-return 1
-"""
+# The lease scripts are shared with every fleet-wide slot pool (lease_slots).
+_ACQUIRE_LUA = ACQUIRE_LUA
+_RELEASE_LUA = RELEASE_LUA
+_RENEW_LUA = RENEW_LUA
 
 # Per-process fallback, used only when there is no shared store (local dev, a
 # single-replica compose stack, tests). It bounds this replica honestly and says
@@ -293,6 +262,49 @@ def _pools(organization_id: str | None) -> list[tuple[str, int, str]]:
             )
         )
     return pools
+
+
+# Drop expired leases, then count what is left: the fleet's running turns.
+# One script so the count never includes a lease that has already aged out.
+_COUNT_LUA = """
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local lease = tonumber(ARGV[2])
+redis.call('ZREMRANGEBYSCORE', key, '-inf', now - lease)
+return redis.call('ZCARD', key)
+"""
+
+
+def _local_count(key: str, now: float) -> int:
+    with _local_lock:
+        held = _local_slots.get(key, {})
+        return sum(1 for at in held.values() if at > now - TURN_LEASE_SECONDS)
+
+
+def active_turns() -> int | None:
+    """How many chat turns are running fleet-wide right now, or None when that cannot be known.
+
+    The scaling signal for the chat tier (ADR-0080): KEDA reads it, through
+    ``GET /v1/internal/chat-occupancy``, and sizes the tier to it. It is the
+    size of the global admission pool, the one number every replica already
+    keeps for the cap, so no replica needs to report its own.
+
+    With no shared store configured (``REDIS_URL`` unset: a single process)
+    this replica's own table is the whole fleet. With one configured but
+    unreachable the answer is None, not this replica's share: a quarter of the
+    real number would read as a quiet fleet and scale it in under its turns.
+    Only the global pool is counted, so ``GRID_MAX_ACTIVE_TURNS`` of 0 or less
+    (admission off) reads as 0.
+    """
+    now = time.time()
+    if not os.environ.get("REDIS_URL"):
+        return _local_count(_GLOBAL_KEY, now)
+    try:
+        count = cache.eval_script(_COUNT_LUA, [_GLOBAL_KEY], [now, TURN_LEASE_SECONDS])
+    except Exception:  # pragma: no cover - eval_script contains its own errors
+        logger.warning("Active-turn count failed", exc_info=True)
+        return None
+    return None if count is None else int(count)
 
 
 def _release_all(held: list[str], member: str) -> None:

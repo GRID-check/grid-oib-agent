@@ -60,7 +60,8 @@ import { computePresetSourceIds } from '../lib/source-presets'
 import { FileSourcesTab } from './FileSourcesTab'
 import { UploadDestinationNote } from './UploadDestination'
 import { useAppConfig } from '@/shared/context'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { DictationButton, insertTranscript, type ComposerCaret } from '@/features/dictation'
 import { useFileUpload, useFileDragDrop } from '@/features/documents'
 import type { TrackedFile } from '@/features/documents'
 import { trackedFileToFileItem } from '@/features/documents/types'
@@ -323,7 +324,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const tChat = useTranslations('chat')
   const tCollab = useTranslations('collaboration')
   const tFiles = useTranslations('files')
+  const { locale } = useLocale()
   const [message, setMessage] = useState('')
+  // Voice dictation: where the caret last was (null until the textarea has had
+  // one), and the inline error a failed dictation shows. A failure never
+  // touches `message`.
+  const dictationCaretRef = useRef<ComposerCaret | null>(null)
+  const [dictationError, setDictationError] = useState<string | null>(null)
+  const rememberDictationCaret = useCallback((e: { currentTarget: HTMLTextAreaElement }) => {
+    dictationCaretRef.current = { start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd }
+  }, [])
 
   // ——— @-mentions (spec MN-3, MN-4) ————————————————————————————————————————
   // The mentions the user actually PICKED, as structured references. Never derived
@@ -962,6 +972,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     onReplaceText: replaceComposerText,
   })
   syncSlashQueryRef.current = slash.syncQuery
+
+  // A transcript goes in at the caret, or at the end when there was none, and
+  // never over existing text. Through `replaceComposerText`, so the draft, the
+  // session and the pickers see it exactly as they see typing.
+  const handleTranscript = useCallback(
+    (transcript: string) => {
+      const inserted = insertTranscript(message, transcript, dictationCaretRef.current)
+      if (!inserted) return
+      setDictationError(null)
+      dictationCaretRef.current = { start: inserted.caret, end: inserted.caret }
+      replaceComposerText(inserted.value, inserted.caret)
+    },
+    [message, replaceComposerText]
+  )
 
   // Restore the caret after a mention insertion rewrote the text.
   useEffect(() => {
@@ -1657,6 +1681,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               onKeyUp={(e) => syncMentionQueryFromElement(e.currentTarget)}
               onClick={(e) => syncMentionQueryFromElement(e.currentTarget)}
               onPaste={handlePaste}
+              // Remembered for dictation, which reads it after the textarea has
+              // lost focus to the microphone button. Blur too, not only select:
+              // a caret set by script or assistive tech fires no select event,
+              // and pressing the microphone always blurs the field.
+              onSelect={rememberDictationCaret}
+              onBlur={rememberDictationCaret}
               placeholder={getPlaceholder()}
               disabled={disabled}
               rows={1}
@@ -1721,9 +1751,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               )}
             </AnimatePresence>
 
-            {/* Upload Error Display */}
+            {/* Upload and dictation errors: one inline slot, the upload's first. */}
             <AnimatePresence initial={false}>
-              {uploadError && (
+              {(uploadError || dictationError) && (
                 <motion.div
                   key="upload-error"
                   initial={{ opacity: 0, y: 8 }}
@@ -1733,10 +1763,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 >
                   <Alert variant="destructive" className="mt-2">
                     <AlertDescription className="flex w-full items-start justify-between gap-2">
-                      <span>{uploadError}</span>
+                      <span>{uploadError || dictationError}</span>
                       <button
                         type="button"
-                        onClick={clearError}
+                        onClick={() => {
+                          clearError()
+                          setDictationError(null)
+                        }}
                         aria-label={t('dismissError')}
                         className="focus-visible:ring-ring/60 duration-quick shrink-0 rounded-md p-1 opacity-70 transition-opacity ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
                       >
@@ -1941,6 +1974,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 {!isResponseMode && (
                   <EffortDial conversationId={currentConversationId} disabled={cannotContribute} />
                 )}
+
+                {/* Voice dictation */}
+                <DictationButton
+                  locale={locale}
+                  disabled={cannotContribute || disabled}
+                  onTranscript={handleTranscript}
+                  onError={setDictationError}
+                />
 
                 {/* Attach files */}
                 <Button

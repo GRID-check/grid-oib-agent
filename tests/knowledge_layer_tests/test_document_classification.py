@@ -176,10 +176,7 @@ def endpoint(monkeypatch):
         return patch.object(httpx, "AsyncHTTPTransport", return_value=httpx.MockTransport(handler))
 
     endpoint_value = decisions._Endpoint(url="https://openrouter.ai/api/alpha/decisions", api_key="k", model="m")
-    with (
-        patch.object(decisions, "_zdr_only_blocking", return_value=False),
-        patch.object(decisions, "_resolve_endpoint_blocking", return_value=(endpoint_value, None)),
-    ):
+    with patch.object(decisions, "_resolve_endpoint_blocking", return_value=(endpoint_value, None)):
         yield install, seen
     decisions.reset_breaker()
 

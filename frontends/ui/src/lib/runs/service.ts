@@ -47,12 +47,15 @@ import {
 } from '@/lib/conversations/repository'
 import type { Message, TaskRun } from '@/lib/db/schema'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
+import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import {
   addDocumentToBackendJob,
   cancelBackendJob,
   JobCancelError,
   writeNowBackendJob,
+  type JobControlCaller,
 } from '@/lib/jobs/backend-client'
+import { signJobRequestContext } from '@/lib/jobs/request-envelope'
 import type { PlanDocument } from './plan-documents'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
@@ -230,9 +233,26 @@ async function foldRunLedgerOp(
       return { [RUN_LEDGER_METADATA_KEY]: ledger }
     })
     if (!stored) throw new NotFoundError('This run has no message to write a ledger into')
+    if (!onlyIfLive) await markStartedIfQueued(run, at)
     await notifyWaiting(run, current, ledger)
     return { ledger, applied }
   })
+}
+
+/**
+ * The worker's first flush is the proof a queued run has started: the research
+ * queue (ADR-0079) takes a job at once and starts it when an organization's turn
+ * comes, and until then the run's row says `queued`. Best-effort: the ledger is
+ * already written, and a row that stays `queued` is closed by the run's outcome
+ * exactly as a `running` one is.
+ */
+async function markStartedIfQueued(run: TaskRun, at: Date): Promise<void> {
+  if (run.status !== 'queued') return
+  try {
+    await taskRepository.markRunStarted(run.id, run.organizationId, at)
+  } catch (error) {
+    console.warn('[runs] could not move run', run.id, 'from queued to running', error)
+  }
 }
 
 /** How a run ended, as far as its ledger needs to know. */
@@ -451,6 +471,24 @@ async function runView(run: TaskRun): Promise<RunView> {
 }
 
 /**
+ * The credentials a run control carries to the backend: the person's token, and
+ * the project they were just authorized on, signed by the builder every job
+ * request uses (ADR-0084). The scope comes from `buildCollectionScopeFromRequest`
+ * so the project collection the backend compares is derived exactly as it was
+ * when the run was submitted.
+ */
+async function jobControlCaller(
+  session: AuthorizedSession,
+  projectId: string
+): Promise<JobControlCaller> {
+  const scope = await buildCollectionScopeFromRequest(session, { projectId })
+  return {
+    accessToken: session.accessToken ?? null,
+    contextHeaders: signJobRequestContext(session, scope),
+  }
+}
+
+/**
  * Stop a run on a person's request: the write door of the run primitive that
  * the block's „Abbrechen" presses (ADR-0055, ADR-0062).
  *
@@ -465,8 +503,9 @@ async function runView(run: TaskRun): Promise<RunView> {
  * endpoint (`cancelBackendJob`), the same credential, and the same permission
  * (`project:view` to read the run at all, `CHAT_PERMISSIONS` to act on the
  * agent in the project, exactly as `buildCollectionScopeFromRequest` gates the
- * proxy). The backend then enforces job ownership on top, which is why a run
- * somebody else commissioned answers 404 rather than 403.
+ * proxy). The project travels to the backend signed (ADR-0084), so a teammate
+ * may stop a run somebody else commissioned in it; the backend answers 404, not
+ * 403, for a job outside the signed project that the caller does not own.
  *
  * ## Nothing is written here
  *
@@ -495,7 +534,7 @@ export async function cancelRun(
   if (!run.backendJobId) throw new ConflictError('This run has no backend job to cancel')
 
   try {
-    await cancelBackendJob(run.backendJobId, session.accessToken ?? null)
+    await cancelBackendJob(run.backendJobId, await jobControlCaller(session, projectId))
   } catch (error) {
     if (!(error instanceof JobCancelError)) throw error
     // The backend's verdict on a race: the job finished between the row read
@@ -527,7 +566,7 @@ export async function addRunDocument(
   if (!run.backendJobId) throw new ConflictError('This run has no backend job to hand the document to')
 
   try {
-    await addDocumentToBackendJob(run.backendJobId, document, session.accessToken ?? null)
+    await addDocumentToBackendJob(run.backendJobId, document, await jobControlCaller(session, projectId))
   } catch (error) {
     if (!(error instanceof JobCancelError)) throw error
     if (error.status === 400) throw new ConflictError('This run has already ended')
@@ -556,7 +595,7 @@ export async function writeNowRun(
   if (!run.backendJobId) throw new ConflictError('This run has no backend job to write from')
 
   try {
-    await writeNowBackendJob(run.backendJobId, session.accessToken ?? null)
+    await writeNowBackendJob(run.backendJobId, await jobControlCaller(session, projectId))
   } catch (error) {
     if (!(error instanceof JobCancelError)) throw error
     // The backend's verdict on a race: the job finished between the row read

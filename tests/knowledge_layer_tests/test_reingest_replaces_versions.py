@@ -552,11 +552,12 @@ def presence(monkeypatch):
     """The BFF's answer about the dispatched document, and who asked."""
     from knowledge_layer.llamaindex import document_presence
 
-    state = SimpleNamespace(answer=True, asked=[])
+    # `answers` are given first, one per question; `answer` after that.
+    state = SimpleNamespace(answer=True, answers=[], asked=[])
 
     def still_exists(document_id, collection, organization_id=None):
         state.asked.append((document_id, collection, organization_id))
-        return state.answer
+        return state.answers.pop(0) if state.answers else state.answer
 
     monkeypatch.setattr(document_presence, "document_still_exists", still_exists)
     return state
@@ -593,6 +594,8 @@ def test_a_delete_during_a_reupload_leaves_no_chunks(tmp_path, monkeypatch, live
     monkeypatch.setattr("llama_index.core.VectorStoreIndex", _DeletedBetweenInserts)
     _seed_previous_version(live_ingestor, stores, "proj_del", "statik.pdf")
     upload = _two_page_pdf(monkeypatch, tmp_path)
+    # Present when the job starts reading the file; gone by the time it is in.
+    presence.answers = [True]
     presence.answer = False
 
     job_id = live_ingestor.submit_job([str(upload)], "proj_del", config=_dispatched("statik.pdf"))
@@ -605,7 +608,8 @@ def test_a_delete_during_a_reupload_leaves_no_chunks(tmp_path, monkeypatch, live
     _no_metadata_row("proj_del", "statik.pdf")
     assert status.file_details[0].status.value == "failed"
     assert status.file_details[0].error_message == adapter_module.DOCUMENT_DELETED_DURING_INGEST
-    assert presence.asked == [("doc-1", "proj_del", None)]
+    # Asked before reading the file, and again once it was in.
+    assert presence.asked == [("doc-1", "proj_del", None)] * 2
 
 
 def test_a_dispatch_for_a_deleted_document_indexes_nothing(tmp_path, live_ingestor, stores, presence):
@@ -681,7 +685,8 @@ def test_a_document_that_still_exists_is_replaced_as_before(tmp_path, live_inges
     assert status.file_details[0].status.value == "success"
     assert list(_chunks(live_ingestor, "proj_live").values()) == ["Neue Fassung der Statik."]
     assert get_document_doc_class("proj_live", "statik.txt") == "tragwerk"
-    assert presence.asked == [("doc-1", "proj_live", "org_1")]
+    # Before reading the file, and once it was in.
+    assert presence.asked == [("doc-1", "proj_live", "org_1")] * 2
 
 
 def test_a_job_no_bff_document_dispatched_is_never_asked_about(tmp_path, live_ingestor, stores, presence):
@@ -695,3 +700,139 @@ def test_a_job_no_bff_document_dispatched_is_never_asked_about(tmp_path, live_in
 
     assert status.file_details[0].status.value == "success"
     assert presence.asked == []
+
+
+def test_a_document_deleted_while_its_job_waited_is_not_read_at_all(tmp_path, monkeypatch, live_ingestor, presence):
+    """The download, OCR and vision calls would all be for chunks that go back out."""
+    read = []
+    monkeypatch.setattr(
+        "knowledge_layer.deferred_files.resolve_original", lambda entry, downloaded: read.append(entry) or entry
+    )
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Ein Dokument, das es nicht mehr gibt.", encoding="utf-8")
+    presence.answer = False
+
+    job_id = live_ingestor.submit_job([str(upload)], "proj_gone", config=_dispatched("gone.txt"))
+    status = _wait_terminal(live_ingestor, job_id)
+
+    assert read == []
+    assert presence.asked == [("doc-1", "proj_gone", None)]
+    assert status.file_details[0].error_message == adapter_module.DOCUMENT_DELETED_DURING_INGEST
+
+
+def test_a_run_that_lost_its_claim_stops_before_writing(tmp_path, live_ingestor, stores, presence):
+    """Another worker holds the job now: this run writes no chunk and no status."""
+    upload = tmp_path / "tmp_upload.txt"
+    upload.write_text("Neue Fassung der Statik.", encoding="utf-8")
+    prepared = live_ingestor.prepare_job([str(upload)], "proj_lost", config=_dispatched("statik.txt"))
+    answers = iter([True, False])  # held when the file is read, lost before its chunks go in
+    written = []
+    live_ingestor._persist = written.append
+
+    live_ingestor.run_prepared(prepared, still_owner=lambda: next(answers))
+
+    assert _chunks(live_ingestor, "proj_lost") == {}
+    assert stores.count("proj_lost") == 0
+    # Only the PROCESSING write from before the claim was lost; nothing after.
+    assert [job.status.value for job in written] == ["processing"]
+    assert prepared.job_id not in live_ingestor._jobs
+
+
+# ---------------------------------------------------------------------------
+# A base-corpus job, as the queue carries it: what the old in-process path
+# stamped after the fact is now the ingestor's own
+# ---------------------------------------------------------------------------
+
+
+def _ingest_base_corpus(ing, tmp_path, file_name: str, config: dict | None = None):
+    upload = tmp_path / "tmp_corpus.txt"
+    upload.write_text("Mindestens 1,20 m lichte Durchgangsbreite.", encoding="utf-8")
+    job_id = ing.submit_job(
+        [str(upload)], "oib_knowledge", config={"original_filenames": [file_name], "priority": "bulk", **(config or {})}
+    )
+    status = _wait_terminal(ing, job_id)
+    assert status.file_details[0].status.value == "success"
+
+
+def test_the_dokumentart_an_admin_chose_at_upload_is_stamped_by_the_job(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _ingest_base_corpus(live_ingestor, tmp_path, "statik.txt", {"doc_class": "gesetz"})
+
+    assert get_document_doc_class("oib_knowledge", "statik.txt") == "gesetz"
+
+
+def test_the_admins_choice_beats_the_class_a_replaced_version_carried(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _seed_previous_version(live_ingestor, stores, "oib_knowledge", "statik.txt")  # a person set "tragwerk"
+    _ingest_base_corpus(live_ingestor, tmp_path, "statik.txt", {"doc_class": "gesetz"})
+
+    assert get_document_doc_class("oib_knowledge", "statik.txt") == "gesetz"
+
+
+def test_a_replacement_with_no_choice_keeps_what_a_person_set(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _seed_previous_version(live_ingestor, stores, "oib_knowledge", "statik.txt")
+    _ingest_base_corpus(live_ingestor, tmp_path, "statik.txt")
+
+    assert get_document_doc_class("oib_knowledge", "statik.txt") == "tragwerk"
+
+
+def test_without_a_choice_the_class_is_guessed_from_the_file_name(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _ingest_base_corpus(live_ingestor, tmp_path, "oib-rl_2_ausgabe_mai_2023.txt")
+
+    assert get_document_doc_class("oib_knowledge", "oib-rl_2_ausgabe_mai_2023.txt") == "oib_richtlinie"
+
+
+def test_a_class_outside_the_vocabulary_is_not_stamped(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _ingest_base_corpus(live_ingestor, tmp_path, "statik.txt", {"doc_class": "not_a_real_class"})
+
+    assert get_document_doc_class("oib_knowledge", "statik.txt") == "sonstiges"
+
+
+def test_an_oib_document_gets_its_starting_display_title_from_its_name(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_display_title
+
+    _ingest_base_corpus(live_ingestor, tmp_path, "oib-rl_2_ausgabe_mai_2023.txt")
+
+    assert get_document_display_title("oib_knowledge", "oib-rl_2_ausgabe_mai_2023.txt") == (
+        "OIB-Richtlinie 2, Ausgabe Mai 2023"
+    )
+
+
+def test_a_name_that_gives_no_default_title_gets_none(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_display_title
+
+    _ingest_base_corpus(live_ingestor, tmp_path, "statik.txt")
+
+    assert get_document_display_title("oib_knowledge", "statik.txt") is None
+
+
+def test_a_title_an_admin_set_survives_the_replacement_of_the_document(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_display_title
+
+    _seed_previous_version(live_ingestor, stores, "oib_knowledge", "statik.txt")  # "Statik Bauteil B"
+    _ingest_base_corpus(live_ingestor, tmp_path, "statik.txt")
+
+    assert get_document_display_title("oib_knowledge", "statik.txt") == "Statik Bauteil B"
+
+
+def test_a_project_document_is_not_given_a_base_corpus_title_or_class(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_display_title
+    from aiq_agent.knowledge import get_document_doc_class
+
+    upload = tmp_path / "tmp_project.txt"
+    upload.write_text("Ein Projektdokument.", encoding="utf-8")
+    job_id = live_ingestor.submit_job(
+        [str(upload)], "proj_x", config={"original_filenames": ["oib-rl_2_ausgabe_mai_2023.txt"]}
+    )
+    _wait_terminal(live_ingestor, job_id)
+
+    assert get_document_display_title("proj_x", "oib-rl_2_ausgabe_mai_2023.txt") is None
+    assert get_document_doc_class("proj_x", "oib-rl_2_ausgabe_mai_2023.txt") is None

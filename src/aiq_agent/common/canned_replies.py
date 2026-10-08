@@ -37,6 +37,16 @@ TOOLS_UNAVAILABLE_MESSAGE = (
     "an Ihre Administration oder versuchen Sie es später noch einmal."
 )
 
+#: The model provider refused the turn because no endpoint of the chosen model
+#: satisfies the organization's zero-data-retention setting (ADR-0074). Not
+#: retry-able: only an admin choosing another model changes the outcome.
+ZDR_MODEL_REFUSED_MESSAGE = (
+    "Diese Frage konnte nicht beantwortet werden, weil das eingestellte Modell keinen Anbieter "
+    "ohne Datenspeicherung hat und Ihre Organisation Zero Data Retention verlangt. Eine "
+    "Administratorin oder ein Administrator muss unter Organisation → Modelle ein Modell mit "
+    "Zero-Data-Retention-Anbieter wählen."
+)
+
 #: The chat response when the turn produced no assistant message at all.
 NO_RESPONSE_TEXT = "Es wurde keine Antwort erzeugt."
 
@@ -49,4 +59,5 @@ NON_ANSWER_PREFIXES: tuple[str, ...] = (
     NO_SOURCES_MESSAGE,
     SCOPED_NO_SOURCES_MESSAGE,
     TOOLS_UNAVAILABLE_MESSAGE,
+    ZDR_MODEL_REFUSED_MESSAGE,
 )

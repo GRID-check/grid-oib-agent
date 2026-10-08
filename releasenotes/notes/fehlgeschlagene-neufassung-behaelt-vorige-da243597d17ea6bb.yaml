@@ -1,5 +1,5 @@
 ---
-fixes:
+incident:
   - >
     If a newly uploaded version of a file cannot be processed, for example a
     password-protected PDF, Piloti keeps finding the previous version. Before,

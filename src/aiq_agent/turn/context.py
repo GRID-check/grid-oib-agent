@@ -1,9 +1,10 @@
 """Per-turn context: who is asking, and what the agent must know before it answers.
 
-The three fetches — the platform-lessons digest, the live project-memory
-digest, and the post-answer stage flags — share nothing but the request
-context, so they run as one ``asyncio.gather``: on a cold cache each was a
-round-trip on the time-to-first-token path, paid one after the other.
+The three fetches — the platform-lessons digest, the live prompt context
+(or legacy project-memory digest), and the post-answer stage flags — share
+nothing but the request context, so they run as one ``asyncio.gather``: on a
+cold cache each was a round-trip on the time-to-first-token path, paid one
+after the other.
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ from aiq_agent.project_context import get_user_message_id_from_context
 from aiq_agent.stages import TurnFacts
 from aiq_agent.stages.flags import TurnFlags
 from aiq_agent.stages.flags import resolve_turn_flags
+from aiq_agent.turn.context_client import ContextBlocks
+from aiq_agent.turn.context_client import fetch_turn_context
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +39,7 @@ class TurnContext:
     #: The bounded PLATFORM_LESSONS digest, or None (fail-open, TTL-cached).
     platform_lessons: str | None
     #: The office's standing instructions for this turn, read off the request
-    #: header and already bounded (``project_context.ORG_INSTRUCTIONS_HEADER``).
+    #: header or authenticated BFF response and already bounded.
     #: Its own field rather than part of ``project_context``: the profile is the
     #: project's hard facts, this is how the office wants to be answered, and
     #: they are rendered under different framing for that reason.
@@ -112,6 +115,13 @@ async def _live_memory_digest(request: GridRequestContext, query_text: str) -> s
         return request.project_memory
 
 
+async def _context_blocks(request: GridRequestContext, query_text: str) -> ContextBlocks:
+    if request.context_transport == "bff":
+        return await asyncio.to_thread(fetch_turn_context, request, query=query_text)
+    memory_digest = await _live_memory_digest(request, query_text)
+    return ContextBlocks(request.project_context, memory_digest, request.org_instructions)
+
+
 async def _turn_flags(request: GridRequestContext, resolve_stages: bool) -> TurnFlags:
     """What this turn may do, decided per TURN, not per socket.
 
@@ -166,15 +176,15 @@ async def _load_turn_context(
     query_text: str,
     resolve_stages: bool,
 ) -> TurnContext:
-    platform_lessons, memory_digest, turn_flags = await asyncio.gather(
+    platform_lessons, blocks, turn_flags = await asyncio.gather(
         _platform_lessons(conversation_id),
-        _live_memory_digest(request, query_text),
+        _context_blocks(request, query_text),
         _turn_flags(request, resolve_stages),
     )
     return TurnContext(
-        project_context=compose_project_context(request.project_context, memory_digest),
+        project_context=compose_project_context(blocks.project_context, blocks.project_memory),
         platform_lessons=platform_lessons,
-        org_instructions=request.org_instructions,
+        org_instructions=blocks.org_instructions,
         deep_research_allowed=turn_flags.deep_research_allowed,
         tasks_allowed=turn_flags.tasks_allowed,
         stage_facts=TurnFacts(
@@ -184,7 +194,7 @@ async def _load_turn_context(
             project_id=request.project_id,
             user_id=request.user_id,
             # Reflect against the digest the agent actually saw this turn.
-            memory_digest=memory_digest,
+            memory_digest=blocks.project_memory,
             bundesland=request.bundesland,
             enabled_stages=turn_flags.enabled_stages,
         ),
@@ -200,17 +210,20 @@ async def load_turn_context(
 ) -> TurnContext:
     """Gather everything the turn injects that lives behind a round-trip.
 
-    Fail-open as a whole. Each branch above already degrades on its own, but
-    the composition can still raise (an unexpected error out of a reader, or
-    out of ``compose_project_context``), and this call is one member of the
-    setup gather: a dead branch must cost the LIVE CONTEXT, never the turn and
+    Legacy context is fail-open as a whole. Each branch above already degrades
+    on its own, but the composition can still raise (an unexpected error out of
+    a reader, or out of ``compose_project_context``), and this call is one member
+    of the setup gather: a dead branch must cost the LIVE CONTEXT, never the turn and
     never its siblings. The empty context is what a turn with no project and no
-    memory already runs on.
+    memory already runs on. Compact BFF context is required: any load failure
+    must fail the turn rather than silently answer without authenticated policy.
     """
     try:
         return await _load_turn_context(
             request, conversation_id=conversation_id, query_text=query_text, resolve_stages=resolve_stages
         )
-    except Exception:  # noqa: BLE001 - see above; an answer without context beats no answer
+    except Exception:  # noqa: BLE001 - only legacy requests can answer without context
+        if request.context_transport == "bff":
+            raise
         logger.warning("Project-context load failed; continuing without live context", exc_info=True)
         return TurnContext(project_context=None, platform_lessons=None, org_instructions=None, stage_facts=TurnFacts())

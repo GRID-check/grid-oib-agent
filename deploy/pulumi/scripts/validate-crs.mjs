@@ -10,10 +10,9 @@
  * Validators:
  *   - Gateway API / Envoy Gateway / cert-manager kinds: the runtime validators
  *     bundled with @kubernetes-models (generated from the upstream CRDs).
- *   - CloudNativePG kinds: validated with ajv against the openAPIV3Schema from
- *     the pinned upstream release manifest (CNPG_RELEASE_URL — bump the tag to
- *     validate against a newer operator). Fetched on first run, cached in
- *     .schemas-cache/ (gitignored).
+ *   - CloudNativePG and KEDA kinds: validated with ajv against the
+ *     openAPIV3Schema from pinned upstream release manifests. Fetched on first
+ *     run, cached in .schemas-cache/ (gitignored).
  *
  * This is a GATE and it fails closed:
  *   - exit 1 on any schema failure;
@@ -43,6 +42,35 @@ const CNPG_RELEASE_URL =
   "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/v1.28.0/releases/cnpg-1.28.0.yaml";
 const CNPG_GROUP = "postgresql.cnpg.io/v1";
 const CNPG_KINDS = new Set(["Cluster", "ScheduledBackup", "Backup", "Pooler", "Database"]);
+/**
+ * The KEDA release whose CRDs the plan is validated against IS the chart the
+ * program installs: one constant, `KEDA_CHART_VERSION` in `src/platform/keda.ts`,
+ * read from there so the two cannot be moved apart. (The chart's version is
+ * KEDA's own.) Fails closed when the constant cannot be found.
+ */
+function kedaVersion() {
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../src/platform/keda.ts"), "utf8");
+  const version = /KEDA_CHART_VERSION = "(\d+\.\d+\.\d+)"/.exec(source)?.[1];
+  if (!version) throw new Error("KEDA_CHART_VERSION not found in src/platform/keda.ts");
+  return version;
+}
+const KEDA_VERSION = kedaVersion();
+
+const RELEASE_SCHEMAS = {
+  [CNPG_GROUP]: {
+    name: "CNPG",
+    prefix: "cnpg",
+    url: CNPG_RELEASE_URL,
+    kinds: CNPG_KINDS,
+    optionalEnv: "CNPG_SCHEMAS_OPTIONAL",
+  },
+  "keda.sh/v1alpha1": {
+    name: "KEDA",
+    prefix: "keda",
+    url: `https://github.com/kedacore/keda/releases/download/v${KEDA_VERSION}/keda-${KEDA_VERSION}-crds.yaml`,
+    kinds: new Set(["TriggerAuthentication", "ClusterTriggerAuthentication", "ScaledObject", "ScaledJob"]),
+  },
+};
 
 /** Pulumi's preview placeholder for not-yet-known Output values. */
 const UNKNOWN_SENTINEL = "04da6b54-80e4-46f7-8ec5-a065f938c709";
@@ -145,7 +173,7 @@ const MODEL_PACKAGES = {
     import(`@kubernetes-models/cert-manager/cert-manager.io/v1/${kind}`),
 };
 
-// ── CNPG schemas from the pinned release manifest (fetched + cached) ────────
+// ── Schemas from pinned release manifests (fetched + cached) ───────────────
 // validateFormats off: CRD int32/date-time formats are advisory (the apiserver
 // doesn't enforce them either); logger off to keep CI output readable.
 // allErrors reports every schema violation in a CR at once instead of stopping
@@ -154,31 +182,33 @@ const MODEL_PACKAGES = {
 // pulumi-preview plan generated locally in CI, so it does not apply.
 // nosemgrep: javascript.ajv.security.audit.ajv-allerrors-true.ajv-allerrors-true
 const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false, logger: false });
-let cnpgSchemas = null; // kind → compiled validator; null until loaded
-let cnpgLoadError = null;
-async function loadCnpgSchemas() {
-  if (cnpgSchemas) return cnpgSchemas;
-  cnpgSchemas = {};
+const releaseSchemas = new Map();
+async function loadReleaseSchemas(apiVersion) {
+  if (releaseSchemas.has(apiVersion)) return releaseSchemas.get(apiVersion);
+  const release = RELEASE_SCHEMAS[apiVersion];
+  const result = { schemas: {}, error: null };
+  releaseSchemas.set(apiVersion, result);
   const cacheDir = join(here, "../.schemas-cache");
   // The cache stores ONLY the kinds selected at write time, so its identity is
-  // (release URL, kind set) — not just "cnpg". Without that in the filename, a
+  // (release URL, kind set) — not just the group. Without that in the filename, a
   // checkout carrying a cache written before a kind was added takes the
   // `existsSync` branch, finds no schema for the new kind, and FAILS the gate
   // with "no schema for this kind in the pinned CNPG release" — a wrong answer
   // that `rm -rf .schemas-cache` fixes and nothing in the output suggests.
   const cacheKey = createHash("sha256")
-    .update(CNPG_RELEASE_URL)
+    .update(release.url)
     .update("\u0000")
-    .update([...CNPG_KINDS].sort().join(","))
+    .update([...release.kinds].sort().join(","))
     .digest("hex")
     .slice(0, 12);
-  const cacheFile = join(cacheDir, `cnpg-crds.${cacheKey}.yaml`);
-  let raw;
-  if (existsSync(cacheFile)) {
-    raw = readFileSync(cacheFile, "utf8");
-  } else {
-    try {
-      const res = await fetch(CNPG_RELEASE_URL);
+  const cacheFile = join(cacheDir, `${release.prefix}-crds.${cacheKey}.yaml`);
+  try {
+    let raw;
+    const cached = existsSync(cacheFile);
+    if (cached) {
+      raw = readFileSync(cacheFile, "utf8");
+    } else {
+      const res = await fetch(release.url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const full = await res.text();
       // Cache only the CRDs we validate — the full release manifest is >1 MB.
@@ -186,24 +216,31 @@ async function loadCnpgSchemas() {
         .loadAll(full)
         .filter(
           (d) =>
-            d?.kind === "CustomResourceDefinition" && CNPG_KINDS.has(d.spec?.names?.kind),
+            d?.kind === "CustomResourceDefinition" &&
+            d.spec?.group === apiVersion.split("/")[0] &&
+            release.kinds.has(d.spec?.names?.kind),
         );
       raw = docs.map((d) => yaml.dump(d)).join("---\n");
+    }
+    for (const doc of yaml.loadAll(raw)) {
+      if (doc?.kind !== "CustomResourceDefinition") continue;
+      if (doc.spec?.group !== apiVersion.split("/")[0]) continue;
+      const kind = doc.spec?.names?.kind;
+      const version = doc.spec?.versions?.find((v) => v.name === apiVersion.split("/")[1]);
+      const schema = version?.schema?.openAPIV3Schema;
+      if (release.kinds.has(kind) && schema) result.schemas[kind] = ajv.compile(schema);
+    }
+    if (!Object.keys(result.schemas).length) {
+      throw new Error(`no schemas for ${apiVersion} in the pinned release`);
+    }
+    if (!cached) {
       mkdirSync(cacheDir, { recursive: true });
       writeFileSync(cacheFile, raw);
-    } catch (err) {
-      cnpgLoadError = err;
-      return cnpgSchemas;
     }
+  } catch (err) {
+    result.error = err;
   }
-  for (const doc of yaml.loadAll(raw)) {
-    if (doc?.kind !== "CustomResourceDefinition") continue;
-    const kind = doc.spec?.names?.kind;
-    const version = doc.spec?.versions?.find((v) => v.storage) ?? doc.spec?.versions?.[0];
-    const schema = version?.schema?.openAPIV3Schema;
-    if (kind && schema) cnpgSchemas[kind] = ajv.compile(schema);
-  }
-  return cnpgSchemas;
+  return result;
 }
 
 // ── Validate ────────────────────────────────────────────────────────────────
@@ -232,12 +269,13 @@ for (const { urn, inputs } of crs) {
     spec: cleaned.spec,
   };
 
-  if (apiVersion === CNPG_GROUP) {
-    const schemas = await loadCnpgSchemas();
-    if (cnpgLoadError) {
-      const msg = `CNPG schemas unavailable (${cnpgLoadError.message})`;
-      if (process.env.CNPG_SCHEMAS_OPTIONAL === "1") {
-        console.log(`SKIP  ${label} — ${msg} [CNPG_SCHEMAS_OPTIONAL=1]`);
+  const release = RELEASE_SCHEMAS[apiVersion];
+  if (release) {
+    const { schemas, error } = await loadReleaseSchemas(apiVersion);
+    if (error) {
+      const msg = `${release.name} schemas unavailable (${error.message})`;
+      if (release.optionalEnv && process.env[release.optionalEnv] === "1") {
+        console.log(`SKIP  ${label} — ${msg} [${release.optionalEnv}=1]`);
         skip++;
       } else {
         console.log(`FAIL  ${label} — ${msg}; the gate fails closed`);
@@ -248,10 +286,10 @@ for (const { urn, inputs } of crs) {
     }
     const validate = schemas[kind];
     if (!validate) {
-      // A cnpg.io kind we have no schema for is a typo or a new kind — either
+      // A registered kind we have no schema for is a typo or a new kind — either
       // way it must not slide through a gate that claims to cover this group.
-      console.log(`FAIL  ${label} — no schema for this kind in the pinned CNPG release`);
-      failures.push({ label, errors: `unknown ${CNPG_GROUP} kind "${kind}"` });
+      console.log(`FAIL  ${label} — no schema for this kind in the pinned ${release.name} release`);
+      failures.push({ label, errors: `unknown ${apiVersion} kind "${kind}"` });
       fail++;
       continue;
     }

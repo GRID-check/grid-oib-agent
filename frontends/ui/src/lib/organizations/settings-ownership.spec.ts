@@ -72,6 +72,11 @@ describe('platform-owned settings keys', () => {
     expect(upsertOrganization).not.toHaveBeenCalled()
   })
 
+  it('does not mistake inherited object properties for dedicated-route keys', async () => {
+    await updateOrgSettings('org-1', { settings: { constructor: 'x', toString: 'y' } })
+    expect(upsertOrganization).toHaveBeenCalled()
+  })
+
   it('names every offending key, so a rejected patch is one round trip', async () => {
     await expect(
       updateOrgSettings('org-1', { settings: { storageQuotaBytes: 1, zdrOnly: true } })
@@ -79,10 +84,21 @@ describe('platform-owned settings keys', () => {
   })
 
   it('still accepts the keys the tenant does own', async () => {
-    await updateOrgSettings('org-1', { settings: { zdrOnly: true, webSearchEnabled: false } })
+    await updateOrgSettings('org-1', { settings: { chatEffort: 'low', webSearchEnabled: false } })
     expect(upsertOrganization).toHaveBeenCalledWith(
-      expect.objectContaining({ settings: { zdrOnly: true, webSearchEnabled: false } })
+      expect.objectContaining({ settings: { chatEffort: 'low', webSearchEnabled: false } })
     )
+  })
+
+  // Tenant-owned, but written only by its dedicated route: the generic merge
+  // used to let `org:settings:manage` switch zero data retention off.
+  it('refuses a key a dedicated route owns (zdrOnly), whatever its value', async () => {
+    for (const zdrOnly of [false, true, 'no']) {
+      await expect(updateOrgSettings('org-1', { settings: { zdrOnly } })).rejects.toThrow(
+        /model-config\/zdr/
+      )
+    }
+    expect(upsertOrganization).not.toHaveBeenCalled()
   })
 
   it('accepts a patch with no settings bag at all', async () => {

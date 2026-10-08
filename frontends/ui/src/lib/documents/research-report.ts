@@ -47,12 +47,16 @@ import { AI_GENERATOR_NAME } from '@/lib/ai-provenance'
 import { buildProjectBriefView } from '@/lib/project-profile/brief-view'
 import { getOrganizationDisplayName } from '@/lib/organizations/service'
 import { findProjectInOrg } from '@/lib/projects/repository'
+import { ApiError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { enqueueJob } from '@/lib/jobs-queue/enqueue'
+import { findOpenJobId } from '@/lib/jobs-queue/repository'
+import { BFF_JOB_PRIORITY, type FileResearchReportPayload } from '@/lib/jobs-queue/types'
 import { resolveDocumentBranding } from './branding'
 import { contentDigest } from './content-digest'
-import { fileGeneratedDocument, type FiledGeneratedDocument } from './generated'
+import { assertMayFileGeneratedDocument, fileGeneratedDocument, type FiledGeneratedDocument } from './generated'
 import { createDocumentVersion, transitionDocumentVersion } from './lifecycle'
-import { findDocumentInOrg } from './repository'
+import { findDocumentAuthoredByRef, findDocumentInOrg } from './repository'
 import { findOpenVersion } from './version-repository'
 
 export interface FileResearchReportInput {
@@ -492,5 +496,93 @@ async function renderAndFileReport(
       })
       return { bytes, contentType: PDF_MEDIA_TYPE, marking }
     },
+  })
+}
+
+/**
+ * The report this run already filed into this project, if it did.
+ *
+ * The cheap half of "has this been filed": one probe on the same key
+ * `fileGeneratedDocument` uses, so a reader who opens a report that is already
+ * filed learns that without a job and without a render.
+ */
+export async function findFiledResearchReport(input: {
+  organizationId: string
+  projectId: string
+  runId: string
+}): Promise<FiledGeneratedDocument | null> {
+  const existing = await findDocumentAuthoredByRef(
+    input.runId,
+    input.organizationId,
+    input.projectId,
+    'deep_research'
+  )
+  if (!existing) return null
+  return { documentId: existing.id, filename: existing.filename, folderId: existing.folderId, alreadyFiled: true }
+}
+
+/**
+ * Why this session may not file a report into this project today, or `null` when
+ * it may.
+ *
+ * Asked by a reader's request BEFORE it queues a filing, because a refusal found
+ * only by the job is invisible: the job has no row to record it on (a reader's
+ * request names none) and ends cleanly, and the next read, finding nothing
+ * filed, queues the same job again, for ever, telling the reader each time that
+ * the report is being filed. Asking first makes the refusal the answer the
+ * reader gets. The authorization ladder answers a missing permission as 404 and
+ * a switched-off feature as 403, and both mean "not as this person, not today";
+ * anything else is a fault and is thrown.
+ */
+export async function findReportFilingRefusal(
+  session: AuthorizedSession,
+  projectId: string,
+): Promise<string | null> {
+  try {
+    await assertMayFileGeneratedDocument(session, projectId)
+    return null
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+      return `${error.name}: ${error.message}`.slice(0, 500)
+    }
+    throw error
+  }
+}
+
+/**
+ * Hand a finished run's report to the `bff-jobs` pool to be rendered and filed
+ * ({@link fileResearchReport} runs there, ADR-0079).
+ *
+ * Both callers that used to render in their own request arrive here: the
+ * worker's outcome callback (a scheduled run, or an interactive one nobody
+ * reopened) and the report read of a person who opened it. Rendering a long
+ * report is seconds of CPU on whichever pod took the request, and a failure
+ * left nothing behind to retry; as a job it runs off the chat pod and is
+ * retried by the queue.
+ *
+ * ONE job per run, whoever asks: the open one is returned. The filing is
+ * idempotent on the run's id, so a second job could only repeat the first, and
+ * which of the two callers' identity files it makes no difference to the
+ * document (`createdBy` is the one visible trace; the first caller wins).
+ *
+ * `interactive` priority: the report is the answer to a run somebody waited
+ * minutes for, one job of seconds, and it must not sit behind that office's own
+ * reindex.
+ */
+export async function queueResearchReportFiling(input: {
+  organizationId: string
+  payload: FileResearchReportPayload
+}): Promise<{ jobId: string }> {
+  const open = await findOpenJobId({
+    kind: 'file_research_report',
+    organizationId: input.organizationId,
+    matching: { runId: input.payload.runId },
+  })
+  if (open) return { jobId: open }
+  return enqueueJob({
+    kind: 'file_research_report',
+    organizationId: input.organizationId,
+    priority: BFF_JOB_PRIORITY.interactive,
+    payload: input.payload,
   })
 }

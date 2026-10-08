@@ -1,27 +1,61 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig } from "../config";
+import { GridConfig, assertPgConnectionBudget } from "../config";
 import { commonLabels } from "../platform/namespaces";
+import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedJobSecurityContext } from "../platform/security";
 import {
   BOOTSTRAP_JOB_RESOURCES,
   DATA_RESOURCES,
   JOB_DEFAULTS,
+  KEDA_SCALER_CONNECTION_LIMIT,
+  KEDA_SCALER_ROLE,
   LANGFUSE,
   PLATFORM_RESOURCES,
   PORT,
+  POSTGRES_POOLER,
   POSTGRES_TUNING,
 } from "../constants";
+
+/**
+ * Where a connection goes (ADR-0083). There is no default, on purpose: a caller
+ * that does not have to choose picks the same one every time, and the one it
+ * picks for a session-scoped feature is the wrong one.
+ *
+ * - `pooler`: the transaction pooler. For anything whose every statement is
+ *   self-contained or runs inside one transaction. `SET LOCAL`, `FOR UPDATE SKIP
+ *   LOCKED`, `pg_advisory_xact_lock` and prepared statements all work.
+ * - `direct`: the primary (`grid-pg-rw`). For anything that needs the SAME
+ *   server connection across statements: `LISTEN`, session advisory locks, DDL
+ *   Jobs, and third-party software that issues session `SET`s of its own.
+ */
+export type PgRoute = "pooler" | "direct";
+
+export interface PgDsnOptions {
+  /** One of the logical databases. */
+  db: string;
+  via: PgRoute;
+  driver?: string;
+  /** A non-default role: the least-privilege runtime login (ADR-0041), the scaler, the filer, Langfuse. */
+  as?: { user: string; password: pulumi.Output<string> };
+  /**
+   * Host by FQDN, for a client in another namespace: KEDA's operator resolves a
+   * bare `grid-pg-rw` in `keda`, finds nothing, and the queue never scales out.
+   */
+  clusterWide?: boolean;
+}
 
 export interface Postgres {
   operator: k8s.helm.v3.Release;
   cluster: k8s.apiextensions.CustomResource;
   /** Job that ensures job/checkpoint tables exist (idempotent). */
   initJob: k8s.batch.v1.Job;
+  /** The transaction pooler (ADR-0083); the pooled DSNs name its Service. */
+  pooler: k8s.apiextensions.CustomResource;
   /** Read/write service host (the CNPG primary), e.g. `grid-pg-rw`. */
   rwHost: string;
-  /** Build a DSN for one of the three logical databases. */
-  dsn: (opts: { db: string; driver?: string }) => pulumi.Output<string>;
+  /** Build a DSN for one of the logical databases, through the pooler or straight to the primary. */
+  dsn: (opts: PgDsnOptions) => pulumi.Output<string>;
   /**
    * Resources the SeaweedFS filer must wait for before it can open its store
    * (ADR-0043): the dedicated role, its database, and the grant lockdown.
@@ -40,7 +74,7 @@ export interface Postgres {
   langfuseStoreDeps: pulumi.Resource[];
 }
 
-const CLUSTER_NAME = "grid-pg";
+export const CLUSTER_NAME = "grid-pg";
 
 // Table DDL adapted from deploy/compose/init-db.sql, minus the psql
 // meta-commands (\gexec/\connect) — CNPG creates the databases, this Job only
@@ -128,6 +162,10 @@ export function installPostgres(
   /** Gate the ScheduledBackup on the SeaweedFS bucket-init when backups are on. */
   backupDeps: pulumi.Resource[] = [],
 ): Postgres {
+  // Before the first resource: a budget that cannot fit fails the plan, not a
+  // reconnect at 3 a.m. (ADR-0083).
+  assertPgConnectionBudget(cfg);
+
   // 1. CloudNativePG operator (cluster-wide; installs the CRDs we use below).
   const opNs = new k8s.core.v1.Namespace(
     "cnpg-system-ns",
@@ -222,6 +260,29 @@ export function installPostgres(
         username: "grid_app_rw",
         password: cfg.postgres.runtimePassword,
       },
+    },
+    { provider },
+  );
+
+  /**
+   * Login for `grid_keda_scaler`, the read-only role KEDA's `postgresql` scaler
+   * counts the queue tables with (ADR-0079), where it used to borrow the owner
+   * (`aiq_jobs`) and the schema owner (`grid_app`): a credential held by an
+   * operator in another namespace that could write every table in both.
+   *
+   * Declared here, with the other roles, because CloudNativePG reconciles it as
+   * superuser and so the role exists before the grants Job
+   * (`app/queue-scaler-grants.ts`) tries to grant it anything. It has no
+   * attribute beyond LOGIN: what it may read is exactly what that Job grants,
+   * which is SELECT on the queue tables and nothing else. One role for both
+   * databases, because a role is cluster-wide and its grants are per database.
+   */
+  const scalerCredentials = new k8s.core.v1.Secret(
+    "pg-keda-scaler-credentials",
+    {
+      metadata: { name: `${CLUSTER_NAME}-keda-scaler-credentials`, namespace },
+      type: "kubernetes.io/basic-auth",
+      stringData: { username: KEDA_SCALER_ROLE, password: cfg.postgres.scalerPassword },
     },
     { provider },
   );
@@ -401,6 +462,23 @@ export function installPostgres(
               inRoles: ["grid_app_platform"],
               passwordSecret: { name: runtimeCredentials.metadata.apply((m) => m!.name!) },
             },
+            // KEDA's read-only queue counter (ADR-0079). LOGIN and nothing else:
+            // no BYPASSRLS (its one read of a tenant table is a policy of its
+            // own, written by the grants Job), no DDL, no role membership, and a
+            // connection limit, because the operator opens one per poll.
+            {
+              name: KEDA_SCALER_ROLE,
+              ensure: "present",
+              login: true,
+              inherit: false,
+              superuser: false,
+              createdb: false,
+              createrole: false,
+              replication: false,
+              bypassrls: false,
+              connectionLimit: KEDA_SCALER_CONNECTION_LIMIT,
+              passwordSecret: { name: scalerCredentials.metadata.apply((m) => m!.name!) },
+            },
             // The SeaweedFS filer's own login (ADR-0043). It owns exactly one
             // database and needs DDL inside it — the `[postgres2]` store
             // creates a table per S3 bucket on demand, which is what makes
@@ -450,8 +528,10 @@ export function installPostgres(
             ],
           },
         },
-        // Sensible defaults; SSE LISTEN/NOTIFY needs a direct session, which it
-        // gets since we hand the app the -rw service directly (no pooler here).
+        // `max_connections` is the ceiling `assertPgConnectionBudget` holds the
+        // pooler and the direct connections under. LISTEN/NOTIFY and session
+        // locks need a direct session; they take `grid-pg-rw` (see `PgRoute`),
+        // everything else goes through the pooler below.
         postgresql: {
           parameters: {
             max_connections: POSTGRES_TUNING.maxConnections,
@@ -486,6 +566,73 @@ export function installPostgres(
   );
 
   const rwHost = `${CLUSTER_NAME}-rw`;
+
+  /**
+   * The transaction pooler (ADR-0083), CloudNativePG's `Pooler` running PgBouncer
+   * against the primary. Every Python process opens ~130 server connections
+   * (seven or eight SQLAlchemy engines at pool 5 + overflow 10, the job store's asyncpg
+   * engines, the checkpoint pool at 10) and the BFF tiers another ~100, against
+   * `max_connections` 200: the cluster was one extra replica from "too many
+   * clients". In transaction mode a server connection is held for one
+   * transaction, not for a client's life, so the clients keep their pools and
+   * the server sees `pgPoolerPoolSize` per (database, role).
+   *
+   * `type: rw`, so it follows the primary through a failover the way `grid-pg-rw`
+   * does. Its Service is named after the Pooler, which is what `via: "pooler"`
+   * DSNs resolve.
+   *
+   * `max_prepared_statements` is what lets psycopg3 and asyncpg keep their
+   * protocol-level prepared statements in transaction mode (PgBouncer >= 1.21);
+   * it is why the image is pinned and why no client carries a
+   * `prepare_threshold=None` workaround. The BFF's postgres.js stays on
+   * `prepare: false`, which predates this.
+   */
+  const poolerLabels = commonLabels("pgbouncer");
+  const pooler = new k8s.apiextensions.CustomResource(
+    "grid-pg-pooler-rw",
+    {
+      apiVersion: "postgresql.cnpg.io/v1",
+      kind: "Pooler",
+      metadata: { name: POSTGRES_POOLER.name, namespace, labels: poolerLabels },
+      spec: {
+        cluster: { name: CLUSTER_NAME },
+        instances: cfg.postgres.pooler.instances,
+        type: "rw",
+        pgbouncer: {
+          poolMode: "transaction",
+          parameters: {
+            max_client_conn: POSTGRES_POOLER.maxClientConn,
+            default_pool_size: String(cfg.postgres.pooler.poolSize),
+            max_prepared_statements: POSTGRES_POOLER.maxPreparedStatements,
+          },
+        },
+        template: {
+          metadata: { labels: poolerLabels },
+          spec: {
+            // Soft spread, the same shape as every other multi-replica tier:
+            // two poolers on one node are one pooler when that node drains.
+            ...(cfg.postgres.pooler.instances > 1
+              ? { topologySpreadConstraints: spreadAcrossNodes(poolerLabels) }
+              : {}),
+            containers: [
+              {
+                // The operator picks the PgBouncer container by this name.
+                name: "pgbouncer",
+                image: cfg.postgres.pooler.image,
+                resources: POSTGRES_POOLER.resources,
+              },
+            ],
+          },
+        },
+      },
+    },
+    { provider, dependsOn: [cluster] },
+  );
+  // A voluntary drain takes one pooler at a time. Not for a single pooler: a
+  // PDB on one replica would block the provider's automatic node upgrades.
+  if (cfg.postgres.pooler.instances > 1) {
+    installPdb(POSTGRES_POOLER.name, namespace, provider, poolerLabels, [pooler]);
+  }
 
   /**
    * The filer's database, declared rather than bootstrapped.
@@ -574,16 +721,15 @@ export function installPostgres(
 
   const appUser = encodeURIComponent(cfg.postgres.appUser);
   /**
-   * Build a DSN. `as` selects a non-default role — used for the least-privilege
-   * runtime credential (ADR-0041), which is the same cluster with a different
-   * login, not a different database.
+   * Build a DSN. `via` is the route (see {@link PgRoute}) and has no default.
+   * `as` selects a non-default role — used for the least-privilege runtime
+   * credential (ADR-0041), which is the same cluster with a different login, not
+   * a different database. `clusterWide` names the host by its FQDN, for a client
+   * in ANOTHER namespace.
    */
-  const dsn = (opts: {
-    db: string;
-    driver?: string;
-    as?: { user: string; password: pulumi.Output<string> };
-  }): pulumi.Output<string> => {
+  const dsn = (opts: PgDsnOptions): pulumi.Output<string> => {
     const scheme = opts.driver ?? "postgresql";
+    const service = opts.via === "pooler" ? POSTGRES_POOLER.name : rwHost;
     const user = opts.as ? encodeURIComponent(opts.as.user) : appUser;
     const password = opts.as ? opts.as.password : cfg.postgres.appPassword;
     // Percent-encode the password. The `pgAppPassword` value is documented as
@@ -607,11 +753,13 @@ export function installPostgres(
     //
     // The parameter NAME is driver-specific — see `sslParamFor`.
     const sslParam = sslParamFor(scheme);
-    return password.apply(
-      (pw) =>
-        `${scheme}://${user}:${encodeURIComponent(pw)}@${rwHost}:${PORT.postgres}/${opts.db}` +
-        `?${sslParam}=require`,
-    );
+    return pulumi.all([password, namespace]).apply(([pw, ns]) => {
+      const host = opts.clusterWide ? `${service}.${ns}.svc.cluster.local` : service;
+      return (
+        `${scheme}://${user}:${encodeURIComponent(pw)}@${host}:${PORT.postgres}/${opts.db}` +
+        `?${sslParam}=require`
+      );
+    });
   };
 
   // 4. Idempotent table bootstrap. Waits for the cluster's -rw service to
@@ -628,7 +776,8 @@ export function installPostgres(
           : {}),
       },
     },
-    { provider },
+    // Preserve the bootstrap Job rerun when its SQL changes.
+    { provider, replaceOnChanges: ["data"] },
   );
 
   // DSNs embed the app password — put them in a Secret and env them via
@@ -639,8 +788,9 @@ export function installPostgres(
     {
       metadata: { namespace },
       stringData: {
-        JOBS_DSN: dsn({ db: "aiq_jobs" }),
-        CHECKPOINTS_DSN: dsn({ db: "aiq_checkpoints" }),
+        // Direct: DDL Jobs, and `pg_isready` waiting on the primary itself.
+        JOBS_DSN: dsn({ db: "aiq_jobs", via: "direct" }),
+        CHECKPOINTS_DSN: dsn({ db: "aiq_checkpoints", via: "direct" }),
         // As the filer's own role, which is the only login that can revoke a
         // grant on the database it owns — the app user has no rights there at
         // all, which is the whole point.
@@ -648,6 +798,7 @@ export function installPostgres(
           ? {
               SEAWEED_FILER_DSN: dsn({
                 db: cfg.seaweedfs.filerDatabase,
+                via: "direct",
                 as: {
                   user: cfg.seaweedfs.filerDatabaseUser,
                   password: cfg.seaweedfs.filerDatabasePassword,
@@ -741,13 +892,17 @@ export function installPostgres(
     operator,
     cluster,
     initJob,
+    pooler,
     rwHost,
     dsn,
     filerStoreDeps,
     langfuseStoreDeps,
+    // Direct: Prisma opens sessions it configures itself and takes its own
+    // advisory locks around migrations.
     langfuseDsn: cfg.langfuse.enabled
       ? dsn({
           db: LANGFUSE.database,
+          via: "direct",
           as: { user: LANGFUSE.databaseUser, password: cfg.langfuse.databasePassword },
         })
       : undefined,

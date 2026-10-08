@@ -132,7 +132,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
             </pre>
           )}
           {requestId && <RequestReference requestId={requestId} />}
-          {onRetry && (
+          {onRetry && errorMeta.retryable !== false && (
             <div className="mt-2">
               <Button
                 variant="outline"

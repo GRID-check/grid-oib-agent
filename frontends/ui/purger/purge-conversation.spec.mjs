@@ -28,7 +28,7 @@ function makeDeps(response) {
   const fetchImpl = vi.fn().mockResolvedValue(response)
   return {
     deps: {
-      backendUrl: 'http://aiq-agent:8000',
+      backendUrl: 'http://aiq-api:8000',
       frontendUrl: 'http://frontend:3000',
       internalToken: 'tok',
       bucket: 'grid-documents',

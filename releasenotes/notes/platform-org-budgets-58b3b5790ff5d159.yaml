@@ -1,0 +1,6 @@
+---
+operators:
+  - >
+    Platform operators can set each organization's monthly allowance directly
+    from the organization directory, without switching organizations.
+    The daily limit and current usage are visible alongside it.

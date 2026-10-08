@@ -30,6 +30,18 @@ all three images.
   newer push (the concurrency group killed its CI) and the newer tip brings its
   own chain. A merge train used to paint that third case red, which is how a
   real deploy failure stops being noticed.
+- **Reused PR results**: CI and Security still run on every push and still
+  have to conclude `success` for the gate, but a push whose tree a green
+  `pull_request` run already tested skips every job and passes in seconds. A
+  squash merge onto a `develop` that did not move since the PR's last run is
+  exactly that case. The PR run's final gate (`CI OK`, `Security OK`) uploads a
+  marker artifact named `ci-green-<tree>` / `security-green-<tree>` (7 days);
+  on push, `changes` runs
+  [`ci/reuse_green_run.py`](../../ci/reuse_green_run.py), which counts a
+  marker only when its run completed with `success`, was a `pull_request` run
+  of the same workflow from this repository (not a fork), and ran a workflow
+  file identical to the pushed commit's. Anything else, an API error included,
+  runs everything as before. The weekly Security scan never reuses.
 
 ## One-time setup
 
@@ -102,6 +114,16 @@ Before `pulumi up` touches the cluster, `deploy.yml` plans once and checks that
 plan twice:
 - **`scripts/validate-crs.mjs`** — schema-validates every CustomResource against
   the real upstream CRD schemas (tsc cannot type `apiextensions.CustomResource`).
+  KEDA's `keda.sh/v1alpha1` resources use the CRDs of the release the program
+  installs, including every tier's `TriggerAuthentication` and `ScaledObject`.
+  That release is one constant, `KEDA_CHART_VERSION` in
+  `deploy/pulumi/src/platform/keda.ts` (the chart is pinned to it, and the
+  script reads it from there), so the plan is always checked against the
+  operator it will meet. Like CNPG, these schemas are fetched once and cached
+  under `deploy/pulumi/.schemas-cache/`, keyed by release URL and kind set. A
+  schema download or validation failure blocks deployment; `ALLOW_SKIP` does not
+  bypass a registered validator. Upgrading KEDA is changing that constant: read
+  the release notes for `fallback` and the `postgresql` scaler first.
 - **CrossGuard policy pack** (`deploy/pulumi/policy`, `--policy-pack ./policy`) —
   rollout safety (surge-only updates, readiness soaks, progress deadlines,
   shutdown budgets), CPU/memory bounds on every container, and pull-policy
@@ -212,9 +234,17 @@ rollback can never quietly take the data tier with it.
 Traps this pipeline has actually hit. Each one broke a real run — the code that
 avoids them looks odd without the reason, so don't "simplify" it back.
 
+- **A new custom-resource group needs a plan validator too.** Adding KEDA's
+  ingest autoscaler without registering `keda.sh/v1alpha1` let the manifest
+  tests pass but stopped staging at `no validator wired`. The regression suite
+  now sends the ingest module's emitted resources through the same validator
+  CLI that deployment runs. Register a validator when adding a CR group;
+  setting `ALLOW_SKIP=1` only hides the missing check.
+
 - **A shallow checkout with `persist-credentials: false` cannot diff a push.**
-  `paths-filter` compares against `github.event.before`; that commit is absent
-  from a depth-1 clone, so the action falls back to `git fetch` — which has no
+  `paths-filter` compares against the diff base (the PR's base on a pull request,
+  `github.event.before` on a push); that commit is absent from a depth-1 clone,
+  so the action falls back to `git fetch` — which has no
   token and dies with `could not read Username for 'https://github.com'`. The
   "Detect changes" job therefore uses `fetch-depth: 0`: the base commit is
   already local, so nothing is fetched and no credential is persisted. Applies

@@ -119,6 +119,7 @@ import { useRunClock } from '../hooks/use-run-clock'
 import { landingDelays, type LandingDelays } from '../lib/choreography'
 import { docProvenance } from '../lib/doc-provenance'
 import { RunStatusGlyph } from './RunStatusGlyph'
+import { isZdrPolicyRefusal } from '@/lib/model-config/zdr-refusal'
 
 export interface RunBlockReview {
   decision: 'accepted' | 'rejected'
@@ -641,7 +642,9 @@ export function RunBlock({
       >
         <Link href={reportHref}>{t('action.openReport')}</Link>
       </Button>
-    ) : (status === 'fehlgeschlagen' || status === 'abgebrochen') && onRetry ? (
+    ) : (status === 'fehlgeschlagen' || status === 'abgebrochen') && onRetry && !isZdrPolicyRefusal(ledger.error?.reason) ? (
+      // A zero-data-retention refusal fails the same way on every retry: the
+      // reason already says an admin must choose a ZDR model.
       <Button
         size="sm"
         variant="ghost"

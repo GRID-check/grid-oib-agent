@@ -120,8 +120,19 @@ describe('useFolderDropTarget', () => {
     expect(event.preventDefault).not.toHaveBeenCalled()
   })
 
+  it('lets an upload drag leave the tile — the workspace counted its entry', () => {
+    // The workspace pairs every enter with a leave to know when the upload
+    // overlay goes away. The enter over a tile bubbles to it; a leave stopped
+    // here never did, so the count stayed above zero and the overlay stuck.
+    const { result } = setup()
+    const event = dragEvent(transfer(['Files']))
+
+    act(() => result.current.dropProps.onDragLeave(event))
+    expect(event.stopPropagation).not.toHaveBeenCalled()
+  })
+
   it('does not take folders at all when the surface cannot move them', () => {
-    // The Archiv: flat, so a folder drag has nowhere to go and must not even
+    // A read-only viewer: a folder drag has nowhere to go and must not even
     // highlight.
     const { result } = setup()
     act(() =>

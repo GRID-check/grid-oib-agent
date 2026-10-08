@@ -1,6 +1,8 @@
 import { render, screen, waitFor, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { PlatformAccessProvider } from '@/features/platform/platform-access'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { NormRegistry } from './norm-registry'
 
 vi.mock('sonner', () => ({
@@ -141,7 +143,7 @@ describe('NormRegistry', () => {
 
     expect(await screen.findByText('Bauordnung für Wien')).toBeDefined()
     expect(screen.getByText('OIB-Richtlinie 2 — Brandschutz')).toBeDefined()
-    expect(screen.getByText('3 entries.', { exact: false })).toBeDefined()
+    expect(screen.getByText('3 entries')).toBeDefined()
 
     // Federal law and a state act are told apart by the scope column.
     expect(screen.getAllByText('Federal').length).toBeGreaterThan(0)
@@ -157,10 +159,7 @@ describe('NormRegistry', () => {
   })
 
   test('surfaces a retryable error instead of a permanent skeleton', async () => {
-    const spy = vi
-      .fn()
-      .mockResolvedValueOnce(json({}, 500))
-      .mockResolvedValueOnce(json(ENVELOPE))
+    const spy = vi.fn().mockResolvedValueOnce(json({}, 500)).mockResolvedValueOnce(json(ENVELOPE))
     vi.stubGlobal('fetch', spy)
 
     render(<NormRegistry />)
@@ -225,7 +224,7 @@ describe('NormRegistry', () => {
     expect(body.registry.version).toBe(1)
     expect(body.registry.entries).toHaveLength(3)
     expect(body.registry.entries.find((e: { id: string }) => e.id === 'bauo-wien').title).toBe(
-      'Bauordnung für Wien 2026',
+      'Bauordnung für Wien 2026'
     )
     // Fields with no UI surface must survive the round-trip untouched.
     expect(body.registry.corpus_collection).toBe('oib_knowledge')
@@ -318,13 +317,16 @@ describe('NormRegistry', () => {
     await user().click(within(sheet).getByRole('radio', { name: /External standard/ }))
     await user().type(within(sheet).getByPlaceholderText('e.g. OIB-RL 2'), 'BO W')
     await user().type(within(sheet).getByPlaceholderText('Full title of the norm'), 'Duplikat')
-    await user().type(within(sheet).getByPlaceholderText('https://www.wien.gv.at/…'), 'https://example.test/n')
+    await user().type(
+      within(sheet).getByPlaceholderText('https://www.wien.gv.at/…'),
+      'https://example.test/n'
+    )
 
     // The ID derives from the short name; overriding it lives under Advanced,
     // which is exactly where a collision gets introduced by hand.
     await user().click(within(sheet).getByRole('button', { name: /Advanced/ }))
     const idField = within(within(sheet).getByTestId('norm-editor-advanced')).getByPlaceholderText(
-      'e.g. oib-rl2-2023',
+      'e.g. oib-rl2-2023'
     )
     await user().clear(idField)
     await user().type(idField, 'bauo-wien')
@@ -332,13 +334,15 @@ describe('NormRegistry', () => {
     await user().click(within(sheet).getByRole('button', { name: 'Apply' }))
 
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('The ID “bauo-wien” is already taken'),
+      expect(toast.error).toHaveBeenCalledWith('The ID “bauo-wien” is already taken')
     )
     expect(screen.getByRole('dialog')).toBeDefined()
   })
 
   test('a 422 reports the backend detail without pretending the save went through', async () => {
-    const spy = stubFetch({ put: { status: 422, body: { error: 'entry oib-rl2-2023 has no application' } } })
+    const spy = stubFetch({
+      put: { status: 422, body: { error: 'entry oib-rl2-2023 has no application' } },
+    })
     const { toast } = await import('sonner')
 
     render(<NormRegistry />)
@@ -347,11 +351,52 @@ describe('NormRegistry', () => {
     await user().click(screen.getByRole('button', { name: 'Save registry' }))
 
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('entry oib-rl2-2023 has no application'),
+      expect(toast.error).toHaveBeenCalledWith('entry oib-rl2-2023 has no application')
     )
     // No conflict banner — 422 is our data being wrong, not someone else's write.
     expect(screen.queryByText('The catalog changed elsewhere')).toBeNull()
     expect(screen.getByRole('button', { name: 'Save registry' })).not.toBeDisabled()
     expect(putCalls(spy)).toHaveLength(1)
+  })
+
+  test('read-only staff see the catalog without Add or Save, and open entries read-only', async () => {
+    stubFetch()
+    render(
+      <PlatformAccessProvider permissions={[PLATFORM_PERMISSIONS.settingsView]}>
+        <NormRegistry />
+      </PlatformAccessProvider>
+    )
+
+    expect(await screen.findByText('Bauordnung für Wien')).toBeDefined()
+    expect(screen.queryByRole('button', { name: 'Save registry' })).toBeNull()
+    expect(screen.getByText(/do not have permission to change it/)).toBeDefined()
+
+    // The entry still opens: the source, rank and scope are what support staff
+    // need to answer "why did Piloti cite this?". Nothing in it can change.
+    await userEvent.click(screen.getByRole('button', { name: /Bauordnung für Wien/ }))
+    const sheet = await screen.findByRole('dialog')
+    for (const input of within(sheet).queryAllByRole('textbox')) expect(input).toBeDisabled()
+    expect(within(sheet).queryByRole('button', { name: /Apply|Übernehmen/ })).toBeNull()
+    expect(within(sheet).queryByRole('button', { name: /Delete/ })).toBeNull()
+  })
+
+  test('the card is titled by its entry count, not by the page title, and the table has no second frame', async () => {
+    stubFetch()
+    render(<NormRegistry />)
+
+    expect(await screen.findByText('3 entries')).toBeDefined()
+    expect(screen.queryByText('Norm catalog')).toBeNull()
+    expect(screen.getByRole('table').closest('.rounded-lg.border:not([data-slot=card])')).toBeNull()
+  })
+
+  test('on a phone the rank and scope ride under the title', async () => {
+    stubFetch()
+    render(<NormRegistry />)
+
+    const row = (await screen.findByText('Bauordnung für Wien')).closest('tr') as HTMLElement
+    // The scope column is hidden below `md`; the same fact is in the norm cell.
+    const cells = within(row).getAllByRole('cell')
+    expect(cells[0].textContent).toContain('Wien')
+    expect(cells[2].className).toContain('hidden')
   })
 })

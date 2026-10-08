@@ -33,6 +33,12 @@ interface UseFileDragDropOptions {
   onDrop: (files: File[]) => void
   /** Whether drag-drop is disabled */
   disabled?: boolean
+  /**
+   * Whether a dragged `.zip` counts as supported. On for the durable shelves,
+   * which unpack it before uploading; off for a chat attachment, where an
+   * archive is not a document.
+   */
+  acceptZip?: boolean
 }
 
 interface UseFileDragDropReturn {
@@ -56,6 +62,7 @@ interface UseFileDragDropReturn {
 export function useFileDragDrop({
   onDrop,
   disabled = false,
+  acceptZip = false,
 }: UseFileDragDropOptions): UseFileDragDropReturn {
   const [isDragging, setIsDragging] = useState(false)
   const [isUnsupportedDrag, setIsUnsupportedDrag] = useState(false)
@@ -76,10 +83,12 @@ export function useFileDragDrop({
       dragCounterRef.current++
       setIsDragging(true)
       // Quick MIME check, for the affordance only.
-      const allSupported = checkDraggedFilesSupported(e.dataTransfer, fileUploadConfig)
+      const allSupported = checkDraggedFilesSupported(e.dataTransfer, fileUploadConfig, {
+        allowZip: acceptZip,
+      })
       setIsUnsupportedDrag(!allSupported)
     },
-    [disabled, fileUploadConfig]
+    [disabled, fileUploadConfig, acceptZip]
   )
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
@@ -130,17 +139,24 @@ export function useFileDragDrop({
       // its entries synchronously for that reason; it is called before any
       // await here and returns null when the browser exposes none, which is
       // the signal to use the list below exactly as this always did.
+      //
+      // That list is copied HERE, synchronously, for the same reason: once the
+      // drop event has finished the browser empties `dataTransfer.files`. Read
+      // after the traversal's awaits, it was empty whenever the traversal came
+      // back with nothing — an entry whose `file()` fails (an Outlook
+      // attachment, a OneDrive file that is only in the cloud, a Windows path
+      // past 260 characters) — and the drop did nothing, silently.
       const transfer = e.dataTransfer
+      const droppedFiles = Array.from(transfer.files)
       void (async () => {
         const tree = await readDroppedTree(transfer)
         if (tree) {
           onDrop(asPathStampedFiles(tree))
           return
         }
-        const files = Array.from(transfer.files)
-        if (files.length === 0) return
+        if (droppedFiles.length === 0) return
         // Validation happens in uploadFiles.
-        onDrop(files)
+        onDrop(droppedFiles)
       })()
     },
     [disabled, onDrop]

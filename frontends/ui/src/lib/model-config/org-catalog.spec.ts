@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/llm-credentials/service', () => ({
   resolveActiveCredentialForBackend: vi.fn(),
+  getActiveCredentialProvider: vi.fn(),
 }))
 
 vi.mock('./openrouter', async (importOriginal) => {
@@ -19,13 +20,16 @@ vi.mock('./openrouter', async (importOriginal) => {
         supportedParameters: ['tools'],
       },
     ]),
-    fetchZdrModelIds: vi.fn(),
+    fetchZdrEndpoints: vi.fn(),
   }
 })
 
-import { getCatalogForOrg } from './org-catalog'
-import { resolveActiveCredentialForBackend } from '@/lib/llm-credentials/service'
-import { fetchModelCatalog, fetchZdrModelIds } from './openrouter'
+import { getCatalogForOrg, isZdrApplicableForCredential, isZdrApplicableForOrg } from './org-catalog'
+import { getActiveCredentialProvider, resolveActiveCredentialForBackend } from '@/lib/llm-credentials/service'
+import { fetchModelCatalog, fetchZdrEndpoints, type ZdrEndpoint } from './openrouter'
+
+const zdrIndex = (...ids: string[]): Map<string, ZdrEndpoint[]> =>
+  new Map(ids.map((modelId) => [modelId, [{ modelId, supportedParameters: ['tools'], contextLength: 200000 }]]))
 
 const fetchSpy = vi.spyOn(globalThis, 'fetch')
 
@@ -101,28 +105,32 @@ describe('getCatalogForOrg', () => {
     expect(authorization).toBe('Bearer sk-org')
   })
 
-  it('narrows the platform catalog to ZDR models when zdrOnly is requested', async () => {
+  it('carries the ZDR index (and the WHOLE catalog) when zdrOnly is requested', async () => {
     vi.mocked(resolveActiveCredentialForBackend).mockResolvedValue(null)
-    vi.mocked(fetchZdrModelIds).mockResolvedValue(new Set(['vendor/capable']))
+    const zdr = zdrIndex('vendor/capable')
+    vi.mocked(fetchZdrEndpoints).mockResolvedValue(zdr)
     const catalog = await getCatalogForOrg('org_1', { zdrOnly: true })
-    expect(catalog.zdrOnly).toBe(true)
+    expect(catalog).toMatchObject({ zdrOnly: true, zdrApplicable: true })
+    expect(catalog.zdr).toBe(zdr)
+    // Unfiltered on purpose: validation must be able to say `not_zdr` rather
+    // than "not in the catalog"; the picker filters with `zdr`.
     expect(catalog.models.map((m) => m.id)).toEqual(['vendor/capable'])
   })
 
-  it('drops non-ZDR models under zdrOnly (fail-closed filter)', async () => {
+  it('does not fetch the ZDR list when ZDR is not requested', async () => {
     vi.mocked(resolveActiveCredentialForBackend).mockResolvedValue(null)
-    vi.mocked(fetchZdrModelIds).mockResolvedValue(new Set(['vendor/other']))
-    const catalog = await getCatalogForOrg('org_1', { zdrOnly: true })
-    expect(catalog.models).toEqual([])
+    const catalog = await getCatalogForOrg('org_1')
+    expect(catalog).toMatchObject({ zdrOnly: false, zdrApplicable: true, zdr: null })
+    expect(fetchZdrEndpoints).not.toHaveBeenCalled()
   })
 
   it('propagates a ZDR-list outage (fail-closed, callers surface 503)', async () => {
     vi.mocked(resolveActiveCredentialForBackend).mockResolvedValue(null)
-    vi.mocked(fetchZdrModelIds).mockRejectedValue(new Error('ZDR listing HTTP 503'))
+    vi.mocked(fetchZdrEndpoints).mockRejectedValue(new Error('ZDR listing HTTP 503'))
     await expect(getCatalogForOrg('org_1', { zdrOnly: true })).rejects.toThrow('503')
   })
 
-  it('does not apply ZDR to a provider-native BYOK listing (reports zdrOnly:false)', async () => {
+  it('does not apply ZDR to a provider-native BYOK listing (reports zdrOnly:false, zdrApplicable:false)', async () => {
     vi.mocked(resolveActiveCredentialForBackend).mockResolvedValue({
       // Distinct org+cred so the per-(org,cred) BYOK listing cache from the
       // other tests does not satisfy this fetch.
@@ -134,9 +142,27 @@ describe('getCatalogForOrg', () => {
     })
     fetchSpy.mockResolvedValue(new Response(JSON.stringify({ data: [{ id: 'gpt-4o' }] }), { status: 200 }))
     const catalog = await getCatalogForOrg('org_zdr_byok', { zdrOnly: true })
-    expect(catalog.zdrOnly).toBe(false)
+    expect(catalog).toMatchObject({ zdrOnly: false, zdrApplicable: false, zdr: null })
     expect(catalog.models.map((m) => m.id)).toEqual(['gpt-4o'])
-    expect(fetchZdrModelIds).not.toHaveBeenCalled()
+    expect(fetchZdrEndpoints).not.toHaveBeenCalled()
+  })
+
+  it('decides applicability from the provider alone, never revealing the key', async () => {
+    vi.mocked(getActiveCredentialProvider).mockResolvedValueOnce('openai')
+    expect(await isZdrApplicableForOrg('org_1')).toBe(false)
+    vi.mocked(getActiveCredentialProvider).mockResolvedValueOnce('openrouter')
+    expect(await isZdrApplicableForOrg('org_1')).toBe(true)
+    vi.mocked(getActiveCredentialProvider).mockResolvedValueOnce(null)
+    expect(await isZdrApplicableForOrg('org_1')).toBe(true)
+    expect(resolveActiveCredentialForBackend).not.toHaveBeenCalled()
+  })
+
+  it('ZDR applies to the platform key and an OpenRouter key only', () => {
+    expect(isZdrApplicableForCredential(null)).toBe(true)
+    expect(isZdrApplicableForCredential({ provider: 'openrouter' })).toBe(true)
+    expect(isZdrApplicableForCredential({ provider: 'openai' })).toBe(false)
+    expect(isZdrApplicableForCredential({ provider: 'azure' })).toBe(false)
+    expect(isZdrApplicableForCredential({ provider: 'custom' })).toBe(false)
   })
 
   it('throws when the provider listing fails (callers surface 503)', async () => {

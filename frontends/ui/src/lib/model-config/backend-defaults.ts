@@ -44,7 +44,7 @@ interface LlmDefaults {
  * HTTPS always qualifies. Plain HTTP qualifies only for destinations that cannot
  * leave the deployment's own network: loopback, an RFC1918/link-local/CGNAT
  * address, `.internal`/`.local`, or a single-label hostname — which is what a
- * compose service name (`aiq-agent`) or a Kubernetes short name looks like.
+ * compose service name (`aiq-api`) or a Kubernetes short name looks like.
  * Anything else is a public host over cleartext and does not get the secret.
  */
 export function isTokenSafeDestination(baseUrl: string): boolean {
@@ -90,7 +90,7 @@ async function fetchLlmDefaults(): Promise<LlmDefaults> {
   const token = process.env.GRID_INTERNAL_API_TOKEN
   // The shared internal token is a bearer secret. Plain HTTP is the NORMAL and
   // intended transport here — the backend is a sibling service on the compose or
-  // cluster network (`http://aiq-agent:8000`), which is isolated and has no TLS
+  // cluster network (`http://aiq-api:8000`), which is isolated and has no TLS
   // terminator — so HTTP is not by itself a reason to withhold it. What must not
   // happen is sending it somewhere that is neither TLS-protected nor demonstrably
   // on that internal network, so an operator who points BACKEND_URL at a public
@@ -175,6 +175,19 @@ export async function getWorkflowGroupReasoningEfforts(): Promise<GroupDefaults>
 }
 
 /**
+ * The model ids inside one `GroupDefaults` value: a group spanning several
+ * config LLMs is reported as `"a, b"` (see `getWorkflowGroupDefaults`), and
+ * anything that checks the models one by one has to split it the same way.
+ */
+export function splitGroupDefault(value: string | null | undefined): string[] {
+  if (!value) return []
+  return value
+    .split(',')
+    .map((id) => id.trim())
+    .filter((id) => id.length > 0)
+}
+
+/**
  * `{agentGroupId: yamlModelId | null}` — the backend's YAML models, null when
  * unresolvable. The boot fallback layer only; most callers want
  * `getGroupDefaults()`.
@@ -197,15 +210,26 @@ export async function getWorkflowGroupDefaults(): Promise<GroupDefaults> {
   return defaults
 }
 
+/** Which layer a group's inherited default comes from. */
+export type DefaultSource = 'platform' | 'workflow'
+
+export interface GroupDefaultSource {
+  /** The model id(s) — the workflow layer may report `"a, b"` (see `splitGroupDefault`). */
+  model: string | null
+  source: DefaultSource | null
+}
+
 /**
- * `{agentGroupId: effectiveDefaultModelId | null}` — what an org that has made
- * no choice of its own actually runs: the platform default where the owner set
- * one, the YAML model otherwise.
+ * `{agentGroupId: {model, source}}` — what an org that has made no choice of
+ * its own actually runs, and from which layer: the platform default where the
+ * owner set one, the YAML model otherwise. The one implementation of that
+ * merge; `getGroupDefaults` is its model-only view.
  *
  * Fails open per layer: an unreachable backend still shows the platform
- * defaults, an unreadable defaults table still shows the YAML models.
+ * defaults, an unreadable defaults table still shows the YAML models — the
+ * same as the runtime merge (`getEffectiveModelOverrides`).
  */
-export async function getGroupDefaults(): Promise<GroupDefaults> {
+export async function getGroupDefaultSources(): Promise<Record<string, GroupDefaultSource>> {
   const [workflowDefaults, platformDefaults] = await Promise.all([
     getWorkflowGroupDefaults(),
     getPlatformModelDefaults().catch((error) => {
@@ -213,11 +237,19 @@ export async function getGroupDefaults(): Promise<GroupDefaults> {
       return {} as Record<string, string>
     }),
   ])
-  const defaults: GroupDefaults = { ...workflowDefaults }
-  for (const [groupId, model] of Object.entries(platformDefaults)) {
-    defaults[groupId] = model
-  }
-  return defaults
+  return Object.fromEntries(
+    AGENT_GROUPS.map(({ id }): [string, GroupDefaultSource] => {
+      if (platformDefaults[id]) return [id, { model: platformDefaults[id], source: 'platform' }]
+      const workflow = workflowDefaults[id] ?? null
+      return [id, { model: workflow, source: workflow ? 'workflow' : null }]
+    })
+  )
+}
+
+/** `{agentGroupId: effectiveDefaultModelId | null}` — `getGroupDefaultSources` without the source. */
+export async function getGroupDefaults(): Promise<GroupDefaults> {
+  const sources = await getGroupDefaultSources()
+  return Object.fromEntries(Object.entries(sources).map(([group, { model }]) => [group, model]))
 }
 
 /** Test hook. */

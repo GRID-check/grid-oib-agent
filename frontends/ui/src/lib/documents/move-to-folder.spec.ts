@@ -26,6 +26,12 @@ vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('@/lib/authz/organizations', () => ({ canManageArchiv: vi.fn().mockReturnValue(true) }))
+
+// Reached transitively (the folder core resolves a project's collection for its
+// path mirror); this suite never takes that branch.
+vi.mock('@/lib/projects/repository', () => ({ findProjectInOrg: vi.fn() }))
+
 vi.mock('@/lib/backend-proxy', () => ({
   getBackendUrl: vi.fn().mockReturnValue('http://backend:8000'),
 }))
@@ -68,6 +74,9 @@ vi.mock('@/lib/db/schema', () => ({
   projectFolders: { id: 'folders.id', projectId: 'folders.project_id', path: 'folders.path' },
 }))
 
+import { canManageArchiv } from '@/lib/authz/organizations'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import { ForbiddenError } from '@/lib/api/errors'
 import { moveDocumentToFolder } from './move-to-folder'
 
 const SESSION = { organizationId: 'org-1', userId: 'user-1' } as never
@@ -136,12 +145,12 @@ describe('moveDocumentToFolder', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it('refuses a document that is not filed in a project at all', async () => {
+  it('refuses a document that is on no shelf with folders (a session attachment)', async () => {
     db.selects = [[{ ...DOCUMENT, projectId: null }]]
 
     const result = await moveDocumentToFolder({ documentId: 'doc-1', folderId: null }, SESSION)
 
-    expect(result).toEqual({ ok: false, error: 'Only project documents live in folders.' })
+    expect(result).toEqual({ ok: false, error: 'Only project and Archiv documents live in folders.' })
     expect(db.updates).toHaveLength(0)
   })
 
@@ -179,5 +188,64 @@ describe('moveDocumentToFolder', () => {
     // user is entitled to make.
     expect(result.ok).toBe(true)
     expect(db.updates[0].folderId).toBe('folder-1')
+  })
+})
+
+/**
+ * The Archiv's documents are filed like a project's (ADR-0078): the same path,
+ * with the document's own row saying which shelf it is on. What differs is who
+ * may move it and which folders are valid destinations.
+ */
+describe('moveDocumentToFolder on the Archiv shelf', () => {
+  const ARCHIV_DOCUMENT = {
+    ...DOCUMENT,
+    projectId: null,
+    scope: 'archiv',
+    collectionName: 'archiv_org-1',
+  }
+
+  it('files an Archiv document and mirrors the path onto the Archiv collection', async () => {
+    db.selects = [[ARCHIV_DOCUMENT], [{ id: 'folder-1', path: 'Normen/Brandschutz' }]]
+
+    const result = await moveDocumentToFolder({ documentId: 'doc-1', folderId: 'folder-1' }, SESSION)
+
+    expect(result.ok).toBe(true)
+    expect(db.updates[0].folderId).toBe('folder-1')
+    expect(requireProjectAccess).not.toHaveBeenCalled()
+    expect(fetchSpy.mock.calls[0][0]).toBe(
+      'http://backend:8000/v1/collections/archiv_org-1/documents/Fluchtwegplan.pdf/folder-path',
+    )
+    expect(mirrorBody()).toEqual({ folder_path: 'Normen/Brandschutz' })
+  })
+
+  it('takes org:archiv:manage, not a project permission', async () => {
+    vi.mocked(canManageArchiv).mockReturnValueOnce(false)
+    db.selects = [[ARCHIV_DOCUMENT]]
+
+    await expect(moveDocumentToFolder({ documentId: 'doc-1', folderId: null }, SESSION)).rejects.toBeInstanceOf(
+      ForbiddenError,
+    )
+    expect(db.updates).toHaveLength(0)
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('refuses a folder that is not on the Archiv shelf', async () => {
+    // A project's folder, another tenant's, or none: the lookup is scoped to the
+    // Archiv shelf and the tenant, so none of them is found.
+    db.selects = [[ARCHIV_DOCUMENT], []]
+
+    const result = await moveDocumentToFolder({ documentId: 'doc-1', folderId: 'a-project-folder' }, SESSION)
+
+    expect(result).toEqual({ ok: false, error: 'Folder not found in the Archiv.' })
+    expect(db.updates).toHaveLength(0)
+  })
+
+  it('still refuses a session attachment, which is filed nowhere', async () => {
+    db.selects = [[{ ...DOCUMENT, projectId: null, scope: 'session' }]]
+
+    const result = await moveDocumentToFolder({ documentId: 'doc-1', folderId: null }, SESSION)
+
+    expect(result).toEqual({ ok: false, error: 'Only project and Archiv documents live in folders.' })
+    expect(canManageArchiv).not.toHaveBeenCalled()
   })
 })

@@ -38,6 +38,7 @@ import {
   CONVERSATION_LIST_LIMIT,
   MESSAGE_LIST_LIMIT,
   deleteConversationInOrg,
+  findConversationTenancy,
   findMessageInConversation,
   lastProjectActivityByUser,
   listMessagesForConversation,
@@ -64,6 +65,29 @@ function messageRow(id: string, createdAt: string): unknown[] {
 beforeEach(() => {
   captured.length = 0
   nextRows = []
+})
+
+describe('findConversationTenancy', () => {
+  it.each([
+    's_3f2504e0_4f89_11d3_9a0c_0305e82c3301',
+    '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+  ])('resolves the text conversation identifier %s', async (conversationId) => {
+    nextRows = [['org_1', PROJECT_ID, 'private', 'user_me', null]]
+
+    expect(await findConversationTenancy(conversationId)).toEqual({
+      organizationId: 'org_1',
+      projectId: PROJECT_ID,
+      visibility: 'private',
+      createdBy: 'user_me',
+      deletedAt: null,
+    })
+    expect(onlyQuery().params).toEqual([conversationId, 1])
+  })
+
+  it('queries an unknown text identifier and reports its absence', async () => {
+    expect(await findConversationTenancy('missing_conversation')).toBeNull()
+    expect(onlyQuery().params).toEqual(['missing_conversation', 1])
+  })
 })
 
 describe('listVisibleConversations — scoped to a project', () => {

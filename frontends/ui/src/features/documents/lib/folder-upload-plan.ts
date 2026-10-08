@@ -224,11 +224,6 @@ export interface FolderUploadPlanInput {
   currentFolderId: string | null
   /** Digests for {@link FolderUploadPlan.hashCandidates}, on the second pass. */
   digests?: ReadonlyMap<File, string>
-  /**
-   * A shelf with no folders (the Archiv): every file lands where the reader is,
-   * whatever path it carried, and no folder is planned.
-   */
-  flat?: boolean
 }
 
 /** The path a file had in the tree — a folder input reports it, a drop is stamped with it. */
@@ -261,14 +256,13 @@ function archivedMark(document: PlanDocument): { existingArchived?: true } {
 }
 
 export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploadPlan {
-  const { files, documents, folders, currentFolderId, digests, flat = false } = input
+  const { files, documents, folders, currentFolderId, digests } = input
 
   const currentFolder = currentFolderId
     ? (folders.find((folder) => folder.id === currentFolderId) ?? null)
     : null
 
-  // A flat shelf reads only the name: the path would plan folders it cannot hold.
-  const entries = files.map((file) => ({ file, path: flat ? file.name : droppedPath(file) }))
+  const entries = files.map((file) => ({ file, path: droppedPath(file) }))
 
   /*
    * The re-sync fold.

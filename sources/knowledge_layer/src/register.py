@@ -227,7 +227,10 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     )
     reranker_model: str | None = Field(
         default=None,
-        description="Cross-encoder model id (default cohere/rerank-v3.5, multilingual — a German corpus needs one).",
+        description=(
+            "Cross-encoder model id (default qwen/qwen3-reranker-8b: multilingual, which a German corpus "
+            "needs, and with a zero-data-retention endpoint, which every rerank is pinned to)."
+        ),
     )
     rerank_candidates: int = Field(
         default=15,
@@ -1191,6 +1194,15 @@ def _empty_search_message(
         "Retry once with a shorter topic query"
         + (", a different `file_name` from the inventory" if file_name else ", or `file_name=` an exact inventory name")
         + ", or `title_contains=` a fragment. "
+        # A name taken from the reader's open file filtered a norm question down
+        # to nothing (answer feedback, October 2026): say that the law is not in
+        # that file, so the retry can drop the filter instead of guessing names.
+        + (
+            "If the question is about the law (OIB, Bauordnung) rather than this file's own content, "
+            "retry WITHOUT `file_name=`: the norms are not filed under the reader's documents. "
+            if file_name
+            else ""
+        )
         + (
             f"Nothing is filed under {folder!r}, or nothing there matched — drop `folder=` "
             "to search the whole shelf, or take the exact folder from the inventory. "
@@ -1784,22 +1796,31 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     created and reused for all subsequent queries. The ingestor singleton
     is also made available to the Knowledge API routes via the factory.
     """
+
+    # The summary, judge and requery models have no agent group: no organization
+    # can choose them, and every tenant's documents and questions pass through
+    # them. So they are pinned to zero-data-retention endpoints here, once, for
+    # every request (``openrouter.PLATFORM_FIXED``); a model that cannot carry
+    # the pin fails here rather than send unpinned.
+    async def _platform_llm(ref):
+        from aiq_agent.common import get_langchain_llm
+        from aiq_agent.common.openrouter import PLATFORM_FIXED
+        from aiq_agent.common.openrouter import pin_chat_model
+
+        return pin_chat_model(await get_langchain_llm(_builder, ref), PLATFORM_FIXED)
+
     # Resolve summary LLM if specified (enterprise approach)
     summary_llm_obj = None
     if config.summary_model and config.generate_summary:
-        from aiq_agent.common import get_langchain_llm
-
-        summary_llm_obj = await get_langchain_llm(_builder, config.summary_model)
+        summary_llm_obj = await _platform_llm(config.summary_model)
         logger.info("Resolved summary model: %s", config.summary_model)
 
     # Resolve the LLM-judge reranker model (fail-open: search still works when
     # unset or unresolvable — rerank_chunks degrades to the original order).
     rerank_llm_obj = None
     if config.rerank_llm:
-        from aiq_agent.common import get_langchain_llm
-
         try:
-            rerank_llm_obj = await get_langchain_llm(_builder, config.rerank_llm)
+            rerank_llm_obj = await _platform_llm(config.rerank_llm)
             logger.info("Resolved rerank model: %s", config.rerank_llm)
         except Exception as e:
             logger.warning(f"Could not resolve rerank_llm '{config.rerank_llm}', reranking disabled: {e}")
@@ -1811,10 +1832,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         if config.requery_llm == config.rerank_llm and rerank_llm_obj is not None:
             requery_llm_obj = rerank_llm_obj
         else:
-            from aiq_agent.common import get_langchain_llm
-
             try:
-                requery_llm_obj = await get_langchain_llm(_builder, config.requery_llm)
+                requery_llm_obj = await _platform_llm(config.requery_llm)
                 logger.info("Resolved requery model: %s", config.requery_llm)
             except Exception as e:
                 logger.warning(f"Could not resolve requery_llm '{config.requery_llm}', retrieval loop disabled: {e}")

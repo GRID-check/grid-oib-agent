@@ -92,6 +92,23 @@ def _sent_payload(mock_post) -> dict:
 
 
 @pytest.mark.asyncio
+async def test_the_digest_is_pinned_to_zdr_whatever_the_callers_setting(app, monkeypatch):
+    """Cross-tenant: the questions come from every organization, so it is always pinned."""
+    monkeypatch.setenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    mock_post = AsyncMock(return_value=_llm_response(_GOOD_REPLY))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with (
+            patch("httpx.AsyncClient", _fake_async_client(mock_post)),
+            patch("aiq_agent.common.model_overrides.resolve_org_zdr_only", return_value=False),
+            patch("aiq_agent.common.llm_credentials.resolve_org_llm_credential", return_value=None),
+        ):
+            await client.post("/v1/feedback-digest", json=_BODY, headers={"x-grid-organization-id": "org_platform"})
+
+    assert _sent_payload(mock_post)["provider"]["zdr"] is True
+
+
+@pytest.mark.asyncio
 async def test_success_returns_both_halves(app):
     """A clean reply comes back with strengths and concerns kept apart."""
     mock_post = AsyncMock(return_value=_llm_response(_GOOD_REPLY))

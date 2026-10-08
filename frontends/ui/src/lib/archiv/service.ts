@@ -1,7 +1,8 @@
 /**
  * Archiv service — business logic for the org-wide document Archiv.
  *
- * The Archiv is a hierarchical add-on on top of the existing documents domain:
+ * The Archiv is a hierarchical add-on on top of the existing documents domain
+ * and, since ADR-0078, has folders like a project's Dateien:
  * an Archiv document is a `documents` row with `scope = 'archiv'`, `projectId`
  * NULL, and `collectionName = archiv_<orgId>`. That lets this service REUSE the
  * document pipeline wholesale — the SeaweedFS upload, the model-vs-ingest
@@ -17,42 +18,20 @@
  */
 
 import 'server-only'
-import { PutObjectCommand } from '@aws-sdk/client-s3'
-import {
-  s3Client,
-  bucketAdminS3Client,
-  buildArchivStorageKey,
-} from '@/lib/s3'
-import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
-import {
-  assertFileSizeAllowed,
-  assertUploadTypeAllowed,
-  dispatchDocument,
-  fetchSemanticHits,
-  joinHitsToFiles,
-  type SearchedDocument,
-} from '@/lib/documents/service'
+import { fetchSemanticHits, joinHitsToFiles, type SearchedDocument } from '@/lib/documents/service'
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
-import { contentDigest } from '@/lib/documents/content-digest'
-import { documentNameKey } from '@/lib/documents/name-match'
-import { assertWithinStorageQuota } from '@/lib/storage/service'
-import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
-import { retryRacedUpload } from '@/lib/documents/unique-conflicts'
-import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
-import { findLiveDocumentByFilename } from '@/lib/documents/repository'
+import { ARCHIV_SHELF } from '@/lib/documents/shelf'
+import { toListedDocuments, toListedPage, type ListedDocument } from '@/lib/documents/shelf-listing'
+import { uploadToShelf, type UploadDocumentResult } from '@/lib/documents/shelf-upload'
+import type { DocumentListCursor } from '@/lib/documents/list-cursor'
+import type { DocumentNameMatchRow } from '@/lib/documents/repository'
 import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
 import { assertNoActiveHold } from '@/lib/compliance/holds'
-import {
-  nextVersionNumber,
-  recordUploadedVersionOrDiscard,
-  summarizeDocumentVersions,
-} from '@/lib/documents/lifecycle'
-import { newVersionWriteId, versionWriteKey } from '@/lib/documents/version-content'
-import type { DocumentListRow, DocumentNameMatchRow } from '@/lib/documents/repository'
+import type { DocumentAuthor } from '@/lib/db/schema'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { archivCollectionName } from './collection'
 import {
@@ -62,24 +41,12 @@ import {
   findArchivDocumentsByNames,
   listArchivDocuments as listArchivDocumentRows,
 } from './repository'
-import { encodeDocumentListCursor, type DocumentListCursor } from '@/lib/documents/list-cursor'
 
 /** Bound the best-effort backend call that purges an ingested doc's RAG chunks. */
 const BACKEND_FETCH_TIMEOUT_MS = 10_000
 
-type ArchivListedDocument = Omit<DocumentListRow, 'metadata'> &
-  DocumentMetadata & {
-    /**
-     * How many versions the document has; `null` without a version row.
-     * The chat peek reads it to say a failed re-upload is still cited
-     * through its previous version — the same count `/api/documents`
-     * carries for a project file.
-     */
-    versionCount: number | null
-  }
-
 export interface ArchivListResult {
-  documents: ArchivListedDocument[]
+  documents: ListedDocument[]
   /**
    * Where the next page starts, or `null` when this page is the last. Opaque;
    * a client passes it back as `?cursor=` until it is `null`.
@@ -91,39 +58,22 @@ export interface ArchivListResult {
 }
 
 /**
- * Reconcile in-flight statuses and attach version counts — what a listing
- * row needs before it leaves the BFF, whichever query found it.
- */
-async function toArchivListedDocuments(
-  session: AuthorizedSession,
-  rows: DocumentListRow[],
-): Promise<ArchivListedDocument[]> {
-  const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
-  const versions = await summarizeDocumentVersions(
-    session.organizationId,
-    reconciled.map((row) => row.id),
-  )
-  return reconciled.map(({ metadata: _metadata, ...row }) => ({
-    ...row,
-    versionCount: versions.get(row.id)?.versionCount ?? null,
-  }))
-}
-
-/**
  * One page of the org's Archiv (bounded, keyset-paginated), lazily reconciling
  * in-flight ingestion statuses with the backend and merging its read-only
- * document metadata — the exact same treatment `listDocuments` gives a
- * project's corpus. Any org member may read; the internal `metadata` jsonb
- * never leaves the BFF.
+ * document metadata — the exact same treatment, and the same options and rows,
+ * `listDocumentsPage` gives a project's corpus (`toListedPage`, ADR-0078). Any
+ * org member may read; the internal `metadata` jsonb never leaves the BFF.
+ *
+ * Archived documents have left the working set and are absent unless
+ * `includeArchived` says otherwise; `authoredBy` narrows to one hand.
  */
 export async function listArchiv(
   session: AuthorizedSession,
-  { cursor }: { cursor?: DocumentListCursor } = {},
+  options: { authoredBy?: DocumentAuthor; includeArchived?: boolean; cursor?: DocumentListCursor } = {},
 ): Promise<ArchivListResult> {
-  const page = await listArchivDocumentRows(session.organizationId, { cursor })
+  const page = await listArchivDocumentRows(session.organizationId, options)
   return {
-    documents: await toArchivListedDocuments(session, page.rows),
-    nextCursor: page.nextCursor ? encodeDocumentListCursor(page.nextCursor) : null,
+    ...(await toListedPage(session, page)),
     collectionName: archivCollectionName(session.organizationId),
     canManage: canManageArchiv(session),
   }
@@ -144,14 +94,14 @@ export async function searchArchivDocuments(
   session: AuthorizedSession,
   query: string,
   topK = 20,
-): Promise<{ hits: Array<SearchedDocument<ArchivListedDocument>> }> {
+): Promise<{ hits: Array<SearchedDocument<ListedDocument>> }> {
   const hits = await fetchSemanticHits(archivCollectionName(session.organizationId), query, topK)
   if (hits.length === 0) return { hits: [] }
   const rows = await findArchivDocumentsByFilenames(
     session.organizationId,
     hits.map((hit) => hit.file_name),
   )
-  return { hits: joinHitsToFiles(hits, await toArchivListedDocuments(session, rows)) }
+  return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows)) }
 }
 
 /**
@@ -165,9 +115,9 @@ export async function searchArchivDocuments(
 export async function resolveArchivDocumentsByName(
   session: AuthorizedSession,
   filenames: readonly string[],
-): Promise<ArchivListedDocument[]> {
+): Promise<ListedDocument[]> {
   const rows = await findArchivDocumentsByFilenames(session.organizationId, filenames)
-  return toArchivListedDocuments(session, rows)
+  return toListedDocuments(session, rows)
 }
 
 /**
@@ -182,162 +132,27 @@ export async function probeArchivDocumentNames(
   return findArchivDocumentsByNames(session.organizationId, names)
 }
 
-export interface UploadArchivDocumentResult {
-  documentId: string
-  jobId: string | null
-  /** `processing` is the IFC path — see `UploadDocumentResult`. */
-  status: 'pending' | 'uploaded' | 'failed' | 'processing'
-  filename: string
-}
+export type UploadArchivDocumentResult = UploadDocumentResult
 
 /**
- * Store an uploaded file in SeaweedFS under the org's Archiv prefix, record it as an
- * `archiv`-scoped document, and hand it to the backend for ingestion into the
- * org's shared `archiv_<orgId>` collection. Ingest is best-effort (the file is
- * already durable in SeaweedFS + Postgres); status reads reconcile the outcome.
- * Requires `org:archiv:manage`.
+ * Store an uploaded file in SeaweedFS under the org's Archiv prefix, record it as
+ * an `archiv`-scoped document, and hand it to the backend for ingestion into the
+ * org's shared `archiv_<orgId>` collection — the Archiv's name for the
+ * shelf-parameterised pipeline in `@/lib/documents/shelf-upload`, which a
+ * project's Dateien share. Ingest is best-effort (the file is already durable in
+ * SeaweedFS + Postgres); status reads reconcile the outcome. Requires
+ * `org:archiv:manage`.
+ *
+ * `folderId` files the document into one of the Archiv's folders and
+ * `originPath` records where a folder upload found it, as on a project.
  */
-export async function uploadArchivDocument(
+export function uploadArchivDocument(
   session: AuthorizedSession,
   file: File,
   request: Request,
+  { folderId = null, originPath = null }: { folderId?: string | null; originPath?: string | null } = {},
 ): Promise<UploadArchivDocumentResult> {
-  if (!canManageArchiv(session)) throw new ForbiddenError()
-  await assertUploadTypeAllowed(session, file.name)
-  assertFileSizeAllowed(file.size, file.name)
-  // Same org ceiling as the project path — the Archiv shares the tenant's
-  // bytes, so it must not be a way around the quota (ADR-0042).
-  await assertWithinStorageQuota(session.organizationId, file.size)
-
-  const collectionName = archivCollectionName(session.organizationId)
-  // Same replace-on-re-upload rule as the project path, for the same reason and
-  // through the same helpers — see `uploadDocument`. The Archiv is not a
-  // different filing system; it is the same table with `scope = 'archiv'`, so a
-  // second upload of one filename left the same paid-for ghost here.
-  // One Unicode form, for the same reason and through the same helper as the
-  // project shelf: this is the same table and the same unique name, so a
-  // decomposed name off a Mac would put a second row here too. See
-  // `@/lib/documents/name-match`.
-  const filename = documentNameKey(file.name)
-
-  // Same provisioning step as the project path (ADR-0043): the Archiv shares
-  // the tenant's bucket, because it shares the tenant's bytes.
-  const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
-
-  const bytes = Buffer.from(await file.arrayBuffer())
-  // The same digest the project corpus records, from the same helper. The
-  // Archiv has no folder upload of its own today; the column still describes
-  // the bytes on every shelf, so a row here is not the one that has to be
-  // explained later.
-  const contentHash = contentDigest(bytes)
-
-  // Probe, store, admit — and once more when a concurrent FIRST upload of this
-  // name won the shelf: the second run finds the winner and records these bytes
-  // as its next version, as the same two drops in sequence would have. See
-  // `retryRacedUpload` and `uploadDocument`.
-  const { documentId, storageKey } = await retryRacedUpload(async () => {
-    const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
-    const documentId = superseded?.id ?? crypto.randomUUID()
-    // A re-upload writes new bytes under a new `v<n>/<write id>/` key, so the
-    // version it replaces keeps an object a reader can open (ADR-0054). Version
-    // 1 keeps today's key exactly. A re-upload never takes the version-1
-    // shortcut: the number is a hint and reads 1 while the winner of a
-    // concurrent first upload has not recorded its version yet, which would aim
-    // this PUT at the winner's own key. The row's number is allocated under a
-    // lock when the version is recorded.
-    const baseKey = buildArchivStorageKey(session.organizationId, documentId, filename)
-    const storageKey = superseded
-      ? versionWriteKey(
-          baseKey,
-          await nextVersionNumber(documentId, session.organizationId),
-          newVersionWriteId(),
-        )
-      : baseKey
-
-    await s3Client.send(
-      new PutObjectCommand({
-        Bucket: storageBucket,
-        Key: storageKey,
-        Body: bytes,
-        ContentType: file.type || 'application/octet-stream',
-      }),
-    )
-
-    // Same hard ceiling as the project path, and the same compensating delete on
-    // refusal (ADR-0042). The Archiv shares the tenant's bytes, so it must not be
-    // a way around the limit — including under concurrency, which is what the
-    // pre-check above cannot cover.
-    if (superseded) {
-      await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
-        storageKey,
-        storageBucket,
-        fileSize: file.size,
-        contentType: file.type || null,
-        contentHash,
-        folderId: null,
-        createdBy: session.userId,
-      })
-      // Nothing is discarded: the previous bytes are the previous VERSION's now
-      // (ADR-0054) and its row still names them. They go with the document.
-    } else {
-      // A `LiveFilenameTakenError` here is the lost first-upload race; the
-      // object is already discarded and nothing was charged.
-      await admitOrDiscard(storageBucket, storageKey, {
-        id: documentId,
-        organizationId: session.organizationId,
-        projectId: null,
-        scope: 'archiv',
-        folderId: null,
-        createdBy: session.userId,
-        filename,
-        storageKey,
-        storageBucket,
-        collectionName,
-        fileSize: file.size,
-        contentType: file.type || null,
-        contentHash,
-        status: 'uploaded',
-      })
-    }
-    return { documentId, storageKey }
-  })
-
-  // The version, through the same transition table every other shelf uses
-  // (ADR-0054): born `published` and born approved, because the person who
-  // uploaded it is the assertion. With the columns THIS request stored.
-  await recordUploadedVersionOrDiscard(session, documentId, request, {
-    storageKey,
-    storageBucket,
-    contentType: file.type || null,
-    fileSize: file.size,
-    contentHash,
-  })
-
-  // Same dispatcher as every other shelf: the STEP source of an IFC is never
-  // embedded, so an uploaded model is parsed and its digest is what reaches the
-  // org-wide Archiv collection.
-  const { jobId, status } = await dispatchDocument({
-    organizationId: session.organizationId,
-    projectId: null,
-    documentId,
-    filename,
-    storageKey,
-    storageBucket,
-    collectionName,
-  })
-
-  // Data-provenance event: who brought which file into the org Archiv.
-  await recordAuditEvent({
-    organizationId: session.organizationId,
-    actor: { userId: session.userId, email: session.email },
-    action: 'archiv.document.uploaded',
-    targetType: 'document',
-    targetId: documentId,
-    metadata: { filename: filename.slice(0, 200), fileSize: file.size, collectionName },
-    request,
-  })
-
-  return { documentId, jobId, status, filename }
+  return uploadToShelf(session, ARCHIV_SHELF, { file, folderId, originPath }, request)
 }
 
 /**

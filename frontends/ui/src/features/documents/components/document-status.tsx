@@ -161,11 +161,18 @@ interface DocumentStatusBadgeProps {
    * cannot read it yet") that the word on its own does not state.
    */
   title?: string
+  /**
+   * How many of the office's uploads wait ahead of this one in the ingest
+   * queue. Shown only while the document is in flight and something is ahead;
+   * zero or null leaves the status word alone.
+   */
+  queueAhead?: number | null
 }
 
-export function DocumentStatusBadge({ status, className, title }: DocumentStatusBadgeProps) {
+export function DocumentStatusBadge({ status, className, title, queueAhead }: DocumentStatusBadgeProps) {
   const t = useTranslations('files')
-  const label = documentStatusLabel(status, t)
+  const waiting = queueAhead != null && queueAhead > 0 && documentStatusFacts(status)?.phase === 'in-flight'
+  const label = waiting ? t('status.queuedAhead', { count: queueAhead }) : documentStatusLabel(status, t)
   return (
     <Badge
       variant={documentStatusVariant(status)}

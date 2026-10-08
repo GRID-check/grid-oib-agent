@@ -70,8 +70,9 @@ The `server.js` gateway handles WebSocket upgrade requests:
 2. **Scope resolution:** Calls `/api/auth/websocket-scope?projectId=xxx&conversationId=yyy` (internal HTTP request to the same server) to resolve:
    - `x-grid-collection-scope` header — passes collection scope to backend.
    - `x-grid-organization-id` / `x-grid-user-id` — forwards user context.
-   - `x-grid-project-id` / `x-grid-project-context` / `x-grid-project-memory` — project id + injected profile/memory (the latter two base64url-encoded).
-   - `x-grid-org-instructions` — the organization's standing instructions for this turn, base64url-encoded like the two above it. Preferences on form, focus and workflow; the backend bounds it at `ORG_INSTRUCTIONS_MAX_CHARS` (1500) on decode and appends a one-line marker when it had to cut, and the prompt renders it as `## Anweisungen des Büros` below the KV-cache boundary — never as a source, and never above the rules it may not override.
+   - `x-grid-project-id` — the authorized project. Authenticated handshakes do
+     not carry the project brief, memory or office instructions: those are
+     loaded over HTTP at turn setup (ADR-0077).
    - `x-grid-feature-memory-reflection` (`true`/`false`) — whether the async memory-reflection stage is enabled for the caller (per-org `memory-reflection` WorkOS flag; no env-var fallback). Fail-closed: absent → off.
    - `authorization: Bearer <accessToken>` — forwards backend access token.
 3. **Backend proxy:** Forwards the upgraded socket to `BACKEND_WS_URL + '/websocket'`.
@@ -85,12 +86,26 @@ Alongside every individual `x-grid-*` header above, `server.js` now also sends
 object, plus `bundesland` — a structured jurisdiction field with no
 individual-header equivalent) and `X-Grid-Request-Context-Sig` (hex
 HMAC-SHA256 of the envelope's raw JSON, keyed on `GRID_INTERNAL_API_TOKEN`).
-This is a **dual-write transition**: the individual headers are unchanged and
-still sent; the envelope rides alongside them. The same envelope is minted by
+Legacy HTTP/job callers keep the **dual-write transition**: individual headers
+and the envelope are still sent together. Authenticated WebSocket handshakes
+instead omit `projectContext`, `projectMemory` and `orgInstructions` from both
+carriers and sign `contextTransport: "bff"`. Remaining context headers have an
+encoded-byte budget so an oversized capsule is refused explicitly. The envelope is minted by
 every submission path (WS upgrade, the async-jobs REST proxy, the skill-run
 internal-submit path) via the shared builder
 (`frontends/ui/src/lib/request-context.ts`'s `buildGridRequestContextWireHeaders`,
 duplicated with a pinning comment in `server.js` since it is plain CommonJS).
+
+For compact WebSocket mode, the agent calls `POST /api/internal/turn-context`
+at the beginning of every turn, echoing the signed requester capsule and
+service authentication. Its optional JSON `query` is bounded to 2,000
+characters; user, organization, project and conversation are derived only from
+the verified capsule. The BFF resolves the current requester membership and
+checks project/conversation access, then returns the three prompt blocks in
+the JSON response body. An authenticated context read failure ends the turn
+with an explicit error instead of answering without its project context.
+Legacy and anonymous callers retain their previous inline-context behavior.
+Deploy backend support before the frontend starts emitting compact mode.
 
 Backend-side, `aiq_agent.project_context.GridRequestContext.from_context()`
 prefers a present-and-valid envelope over the individual headers; an
@@ -121,10 +136,11 @@ full design.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BACKEND_URL` | `http://localhost:8000` | Backend HTTP URL |
+| `BACKEND_URL` | `http://localhost:8000` | Backend HTTP URL: the `api` role (ADR-0082) |
+| `BACKEND_CHAT_URL` | none (required by the gateway) | The backend's `chat` role, the only role that serves the socket; no fallback to `BACKEND_URL` |
 | `NEXT_PUBLIC_BACKEND_URL` | Falls back to `BACKEND_URL` | Browser-accessible backend URL |
 
-The WebSocket URL is derived by replacing `http` → `ws` in `BACKEND_URL`. Keep-alive is set to 15 seconds on upstream sockets.
+The WebSocket URL is derived by replacing `http` → `ws` in `BACKEND_CHAT_URL`. Keep-alive is set to 15 seconds on upstream sockets.
 
 ---
 
@@ -289,7 +305,7 @@ refused (`rejected{invalid_message}`), and so is an unknown `type`
 
 | `type` | Fields | Notes |
 |---|---|---|
-| `user_message` | `message_id` (becomes `turn_id`), `text`, `data_sources[]`, `context_only?`, `author_name?`, `focus_file_name?`, `focus_shelf?`, `source_preset?`, `focus_document_id?`, `focus_version_id?`, `focus_version_state?` | A question. The type name is what the gateway's turn limiter (`lib/limits/ws-frames.js`) counts. A second `user_message` for a turn already running or run, on any replica, is `rejected{duplicate_turn}` (the turn id is claimed on the bus for as long as the stream keeps it); a new one supersedes and cancels a stale turn, on whichever replica runs it. |
+| `user_message` | `message_id` (becomes `turn_id`), `text`, `data_sources[]`, `context_only?`, `author_name?`, `focus_file_name?`, `focus_shelf?`, `source_preset?`, `focus_document_id?`, `focus_version_id?`, `focus_version_state?` | A question. The type name is what the gateway's turn limiter (`lib/limits/ws-frames.js`) counts. A second `user_message` for a turn already running or run, on any replica, is `rejected{duplicate_turn}` (the turn id is claimed on the bus for as long as the stream keeps it); a new one supersedes and cancels a stale turn, on whichever replica runs it, and starts only once the stale turn has stopped: the conversation's running marker (`conv:<id>:running`, ADR-0080) is held by the turn that runs, so two turns of one conversation never run at once. If the stale turn has not stopped within `GRID_CHAT_SUPERSEDE_WAIT_SECONDS`, the new question ends with a refused `RUN_FINISHED` ("still finishing the previous answer", with a retry hint) and nothing runs. With `GRID_CHAT_AFFINITY` off, a turn that can no longer renew its marker (Dragonfly unreachable from its replica for most of `GRID_CHAT_RUNNING_TTL_SECONDS`, or the marker gone) stops itself before a newer turn could take the marker and ends with a `cancelled` `RUN_FINISHED`; the partial answer is not persisted. |
 | `interaction_response` | `turn_id`, `interaction_id`, `answer: {text} \| {option_id}` | Exactly one answer, structurally. Only the person the prompt addressed may answer; anyone else gets `rejected{not_asker}`, and an answer with no prompt waiting `rejected{no_pending_interaction}`. |
 | `cancel_turn` | `turn_id` | Stop. Only the asker's verified subject (or an internal caller) may cancel; anyone else gets `rejected{not_asker}`. The server cancels the graph run, not just the socket. |
 | `attach` | `turn_id`, `after_seq` | Replay the turn from `after_seq + 1`, then continue live. Sent for every open turn after a reconnect, and with `after_seq: 0` after a reload. `rejected{turn_not_found}` when the stream holds nothing for the turn: ask for the persisted answer instead. |
