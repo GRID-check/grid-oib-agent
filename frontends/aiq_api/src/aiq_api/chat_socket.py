@@ -113,6 +113,10 @@ from aiq_agent.common.write_fence import unbind_write_fence
 from aiq_agent.conversation_context import ContextOnlyMessage
 from aiq_agent.conversation_context import append_conversation_context
 from aiq_agent.conversation_context import format_context_turn
+from aiq_agent.observability.turn_trace import TRACE_ID_METADATA_KEY
+from aiq_agent.observability.turn_trace import pinned_trace
+from aiq_agent.observability.turn_trace import trace_id_for_message
+from aiq_agent.observability.turn_trace import trace_id_hex
 from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_HEADER
 from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_SIG_HEADER
 from aiq_agent.project_context import GridRequestContext
@@ -407,6 +411,11 @@ def turn_row_metadata(finished: RunFinishedBody) -> dict[str, Any] | None:
         metadata["cards"] = [keyed.card for keyed in result.cards]
     if finished.outcome == "cancelled":
         metadata["stopped"] = True
+    # The trace this answer was produced in: the one `_drive` pinned from the
+    # same id, so the BFF can score and link it (`observability.turn_trace`).
+    trace_id = trace_id_hex(trace_id_for_message(result.message_id))
+    if trace_id:
+        metadata[TRACE_ID_METADATA_KEY] = trace_id
     return metadata
 
 
@@ -1192,7 +1201,10 @@ async def _drive(
     """Run the workflow in a NAT session bound to this turn: the verified subject, the question, the HITL callback."""
     headers = dict(socket.scope.get("headers", []))
     tags = build_request_trace_tags(headers, socket.scope, caller, external_hostnames=_external_hostnames)
-    with user_context(caller), request_trace_tag_context(tags):
+    # The turn's trace is named by its answer id, so the persisted answer row
+    # (`turn_row_metadata`) can say which trace it is, and a vote on it can be
+    # scored there. NAT adopts a pinned id instead of drawing a random one.
+    with pinned_trace(trace_id_for_message(turn.message_id)), user_context(caller), request_trace_tag_context(tags):
         async with session_manager.session(
             # Never None: NAT would then derive an id from the unverified headers.
             user_id=turn.asker_subject or caller.get("type"),

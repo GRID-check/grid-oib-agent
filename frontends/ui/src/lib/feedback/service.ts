@@ -29,14 +29,26 @@ import type { AnswerFeedbackView, UpsertAnswerFeedbackInput } from './types'
 import {
   deleteAnswerFeedbackForUser,
   getAnswerFeedbackForUser,
+  getAnswerTraceId,
   getFeedbackHealth,
   getFeedbackWeeklySummary,
   listAnswerFeedbackForConversation,
+  listFeedbackTurns,
+  FEEDBACK_EXPORT_ROW_CAP,
   upsertAnswerFeedback,
   type FeedbackHealth,
+  type FeedbackOrgRollup,
+  type FeedbackTurn,
   type FeedbackWeeklyCount,
   type FeedbackHealthFilters,
 } from './repository'
+import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
+import { langfuseProjectUrl, langfuseTraceUrl, langfuseUiConfig } from '@/lib/langfuse/config'
+import {
+  deleteFeedbackScore,
+  feedbackScoringEnabled,
+  upsertFeedbackScore,
+} from '@/lib/langfuse/feedback-score'
 import { getFeedbackDigest, type FeedbackDigestOptions, type FeedbackDigestResult } from './digest'
 import { resolveLessonsHoldout } from '@/lib/platform-lessons/holdout'
 import { reopenReportForRedistillation } from '@/lib/platform-lessons/service'
@@ -126,7 +138,38 @@ export async function submitAnswerFeedback(
     })
   }
 
+  // The vote as a score on the answer's Langfuse trace (ADR-0044, Amendment 3).
+  // After the write, never awaited: Langfuse being slow or down must not cost
+  // the voter anything, and the vote in the database is the record either way.
+  void scoreVoteInLangfuse(session.organizationId, row)
+
   return toView(row)
+}
+
+/**
+ * Mirror one stored vote into Langfuse. Never rejects: the score is bookkeeping
+ * about a vote that has already been recorded.
+ *
+ * Nothing is sent when Langfuse is not configured, and nothing when the answer's
+ * row does not name its trace (an unpersisted turn, or one from before the agent
+ * recorded traces): a score on a guessed trace id would attach to nothing.
+ */
+async function scoreVoteInLangfuse(organizationId: string, row: AnswerFeedback): Promise<void> {
+  if (!feedbackScoringEnabled()) return
+  try {
+    const traceId = await getAnswerTraceId(row.messageId, organizationId)
+    if (!traceId) return
+    await upsertFeedbackScore({
+      feedbackId: row.id,
+      traceId,
+      verdict: row.verdict,
+      reason: row.reason ?? null,
+      comment: row.comment ?? null,
+      expectedAnswer: row.expectedAnswer ?? null,
+    })
+  } catch (error) {
+    console.warn('[Feedback] Langfuse score failed (non-fatal):', error)
+  }
 }
 
 /**
@@ -137,7 +180,14 @@ export async function retractAnswerFeedback(
   session: AuthorizedSession,
   messageId: string
 ): Promise<void> {
-  await deleteAnswerFeedbackForUser(session.userId, messageId, session.organizationId)
+  const deletedId = await deleteAnswerFeedbackForUser(
+    session.userId,
+    messageId,
+    session.organizationId
+  )
+  // Its Langfuse score goes with it, keyed by the row id the score was derived
+  // from. Fire-and-forget, like the write; a no-op when Langfuse is not set up.
+  if (deletedId) void deleteFeedbackScore(deletedId)
 }
 
 /** The caller's own votes in one conversation, for client-side hydration. */
@@ -178,19 +228,72 @@ function toView(row: AnswerFeedback): AnswerFeedbackView {
  * quality across tenants, which is the same person the citation-health and
  * profiler surfaces on this page already serve.
  */
+/** One organization's rollup, named for the reader. */
+export interface FeedbackOrgRollupView extends FeedbackOrgRollup {
+  /** The organization's display name; null when the name lookup failed or missed. */
+  organizationName: string | null
+}
+
+/** One voted turn, named for the reader. */
+export interface FeedbackTurnView extends FeedbackTurn {
+  /** The organization's display name; null when the name lookup failed or missed. */
+  organizationName: string | null
+  /**
+   * The turn's trace in the Langfuse UI, where its vote is also a score. Null
+   * when Langfuse links are not configured or the answer row names no trace.
+   */
+  langfuseTraceUrl: string | null
+}
+
+/** What the platform quality view is served: the aggregate, with the tenants named. */
+export interface AnswerFeedbackHealthView extends Omit<FeedbackHealth, 'organizations' | 'turns'> {
+  organizations: FeedbackOrgRollupView[]
+  turns: FeedbackTurnView[]
+  /**
+   * The Langfuse project the votes are scored in (its scores dashboard lives
+   * under it); null when Langfuse links are not configured.
+   */
+  langfuse: { projectUrl: string } | null
+}
+
 export async function getAnswerFeedbackHealth(
   session: GridSession | null,
   filters: FeedbackHealthFilters = {}
-): Promise<FeedbackHealth> {
+): Promise<AnswerFeedbackHealthView> {
   await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
   // The read groups BY organization across every tenant, so it must not run
   // pinned to the owner's active one — row-level security would quietly return
   // that org's rows, or none at all, and the page would look merely empty
   // rather than broken (ADR-0041). The gate above is the authorization this
   // bypass rests on; it sits here so no caller can reach the data without it.
-  return withPlatformAccess('answer feedback: cross-organization quality view', () =>
+  //
+  // Names come from the same resolver citation health uses, so the two cards
+  // never call one tenant two things. It fails soft to an empty map.
+  const health = await withPlatformAccess('answer feedback: cross-organization quality view', () =>
     getFeedbackHealth(filters)
   )
+  // Resolved per id, not from one WorkOS list page, so a tenant past the first
+  // hundred is still named.
+  const names = await getOrganizationDisplayNames([
+    ...health.organizations.map((org) => org.organizationId),
+    ...health.turns.map((turn) => turn.organizationId),
+  ])
+  const nameOf = (organizationId: string): string | null => names.get(organizationId) ?? null
+  const ui = langfuseUiConfig()
+  const projectUrl = langfuseProjectUrl(ui)
+  return {
+    ...health,
+    organizations: health.organizations.map((org) => ({
+      ...org,
+      organizationName: nameOf(org.organizationId),
+    })),
+    turns: health.turns.map((turn) => ({
+      ...turn,
+      organizationName: nameOf(turn.organizationId),
+      langfuseTraceUrl: langfuseTraceUrl(turn.traceId, ui),
+    })),
+    langfuse: projectUrl ? { projectUrl } : null,
+  }
 }
 
 /**
@@ -215,6 +318,36 @@ export async function getAnswerFeedbackDigest(
     () => getFeedbackHealth({ ...filters, limit: 0 })
   )
   return getFeedbackDigest(health, filters, options)
+}
+
+/** The drill-in as the CSV export serves it: every row up to the cap, and whether the cap cut it. */
+export interface AnswerFeedbackExport {
+  turns: FeedbackTurn[]
+  /** True when the window held more rows than `FEEDBACK_EXPORT_ROW_CAP`. */
+  truncated: boolean
+  cap: number
+}
+
+/**
+ * The drill-in, in full, for the export. Same gate, same filters and same query
+ * as the page's list, but not the page's 50-row ceiling: an export that quietly
+ * stopped at the first page would claim a complete window it does not hold.
+ * Reads one row over the cap so a full export is told apart from a cut one.
+ */
+export async function getAnswerFeedbackExport(
+  session: GridSession | null,
+  filters: FeedbackHealthFilters = {}
+): Promise<AnswerFeedbackExport> {
+  await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
+  const rows = await withPlatformAccess('answer feedback export: cross-organization drill-in', () =>
+    listFeedbackTurns({ ...filters, limit: FEEDBACK_EXPORT_ROW_CAP + 1 })
+  )
+  const truncated = rows.length > FEEDBACK_EXPORT_ROW_CAP
+  return {
+    turns: truncated ? rows.slice(0, FEEDBACK_EXPORT_ROW_CAP) : rows,
+    truncated,
+    cap: FEEDBACK_EXPORT_ROW_CAP,
+  }
 }
 
 /**

@@ -90,5 +90,11 @@ export const feedback: typeof en.feedback = {
     triaged: 'Auf „{status}“ gesetzt.',
     triageError: 'Der Status konnte nicht geändert werden.',
     details: 'Browserdetails',
+    listTitle: 'Meldungen',
+    linked: 'Aus dem Postfach',
+    focusMissing: {
+      title: 'Die verlinkte Meldung wurde nicht gefunden.',
+      description: 'Sie wurde gelöscht oder ist für Sie nicht sichtbar. Die übrigen Meldungen stehen unten.',
+    },
   },
 }
