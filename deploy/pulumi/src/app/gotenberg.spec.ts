@@ -82,6 +82,7 @@ describe("gotenberg", () => {
       redisUrl: pulumi.output("redis://dragonfly:6379"),
       seaweedInternalEndpoint: pulumi.output("http://seaweedfs:8333"),
       seaweedPublicEndpoint: pulumi.output("https://s3.example.test"),
+      chromaUrl: pulumi.output("http://chroma:8000"),
       dsn: () => pulumi.output("postgresql://x"),
       imagePullSecrets: [],
     };

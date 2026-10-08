@@ -38,6 +38,8 @@ import { findLiveDocumentByFilename } from './repository'
 import { retryRacedUpload } from './unique-conflicts'
 import { newVersionWriteId, versionWriteKey } from './version-content'
 import { shelfOwner, type DocumentShelf } from './shelf'
+// Type only: `service.ts` imports this module, and a value import would be a cycle.
+import type { IngestPriority } from './service'
 import { requireShelfWrite } from './shelf-authz'
 import { shelfCollectionName } from './shelf-collection'
 
@@ -46,6 +48,12 @@ export interface ShelfUploadInput {
   file: File
   folderId: string | null
   originPath?: string | null
+  /**
+   * The ingest queue's priority for these bytes. A person's upload is
+   * `interactive` (the default); a machine filing thousands of files on their
+   * behalf, the mail import (ADR-0085), says `bulk` so it yields to them.
+   */
+  priority?: IngestPriority
 }
 
 export interface UploadDocumentResult {
@@ -285,7 +293,7 @@ async function prepareUpload(
 
   await requireShelfWrite(session, shelf)
   await assertUploadTypeAllowed(session, file.name)
-  assertFileSizeAllowed(file.size, file.name)
+  await assertFileSizeAllowed(session.organizationId, file.size, file.name)
   // Org-wide ceiling, checked after the per-file one so the caller gets the more
   // specific complaint first, and BEFORE any bytes reach SeaweedFS so a refusal
   // leaves no orphan object behind (ADR-0042).
@@ -387,6 +395,7 @@ export async function uploadToShelf(
     // document under (ADR-0049), so the agent's inventory and
     // `knowledge_search folder=` see the folder from the first ingest onward.
     folderPath,
+    priority: input.priority,
   })
 
   await uploadAuditEvent(session, shelf, request, {

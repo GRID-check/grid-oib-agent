@@ -60,7 +60,7 @@ There is also a fourth, less structural but more immediate finding:
 |---|---|---|---|---|---|
 | 1 | `frontends/ui/server.js` (WS upgrade) | per client IP | fixed window, atomic `INCR` | Dragonfly | fail open |
 | 2 | `frontends/ui/src/lib/sharing/rate-limit.ts` | per subject/action | fixed window, **non-atomic** read-modify-write | Dragonfly via cache | fail open |
-| 3 | `frontends/aiq_api/.../jobs/submit.py`, `jobs/queue.py` | per org | db execution: a **claim cap** (`…_PER_ORG` 3) plus a **queued-length bound** (`MAX_QUEUED_JOBS_PER_ORG` 50), the only 429; Dask: **concurrency** (`MAX_ACTIVE_JOBS` 8 / `…_PER_ORG` 3) | Postgres | fail open |
+| 3 | `frontends/aiq_api/.../jobs/submit.py`, `jobs/queue.py` | per org a **claim cap** (`…_PER_ORG` 3) plus a **queued-length bound** (`MAX_QUEUED_JOBS_PER_ORG` 50), the only 429 | Postgres | fail open |
 | 4 | `common/cost_tracking.py` + ADR-0015 | org / member / project | EUR budget, daily+monthly | Postgres ledger + rollups | read fails open, refusal fails closed |
 | 5 | `GRID_MAX_RUN_COMPLETION_TOKENS`, `GRID_MAX_QUERY_SUBMISSIONS` | per run | hard ceilings | in-process | n/a |
 
@@ -459,7 +459,7 @@ turns answered with a friendly message the way a budget refusal already is.
 - **Concurrency, not a rate** — "30 turns per 5 minutes" happily admits a sixth
   simultaneous research run at a steady trickle, because it counts arrivals
   rather than occupancy.
-- **A separate pool from `GRID_MAX_ACTIVE_JOBS`** — that separation *is* the
+- **A separate pool from the research queue** — that separation *is* the
   partition. Background research cannot consume interactive capacity, and a busy
   chat hour cannot block scheduled research.
 - **Leases, not counters** — a replica OOM-killed mid-turn would leak a slot
@@ -596,11 +596,10 @@ gateway (the back-pocket option of section 5).
 
 ### L3d — research fair share (ADR-0079)
 
-With `GRID_JOB_EXECUTION=db` research is not refused for capacity either: it
+Research is not refused for capacity either: it
 waits, so its L3 is the same order and ceiling ingestion has.
 
-- **Capacity waits, it never fails.** `GRID_MAX_ACTIVE_JOBS` stops being a 429
-  (it still caps Dask, which has no queue). A submit is a row in
+- **Capacity waits, it never fails.** A submit is a row in
   `research_job_queue` and the job is `SUBMITTED` until a worker claims it; the
   UI reads that as `queued`.
 - **Fair share.** The claim is the same `aiq_agent.common.claim_queue`: a free

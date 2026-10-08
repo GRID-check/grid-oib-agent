@@ -272,7 +272,6 @@ dev = [
     "yapf>=0.40.0",
     "mypy>=2.3.0",
     "fakeredis[lua]>=2.20.0",
-    "dask[distributed]>=2024.1.0",
     # Workspace packages for testing
     "tavily-web-search",
     "ris-adapter",
@@ -280,6 +279,7 @@ dev = [
     "aiq-api",
     "aiq-research-cli",
     "aiq-debug",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.uv]

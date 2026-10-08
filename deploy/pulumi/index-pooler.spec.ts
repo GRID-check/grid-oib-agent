@@ -107,7 +107,6 @@ describe("Postgres routing", () => {
       "grid-oib:seaweedfsTopology": "split",
       "grid-oib:seaweedfsFilerStore": "postgres",
       "grid-oib:seaweedfsPerOrgBuckets": "true",
-      "grid-oib:jobExecution": "db",
       "grid-oib:allowPlaintextJobPayloads": "true",
       "grid-oib:pgInstances": "3",
     });
@@ -162,9 +161,10 @@ describe("Postgres routing", () => {
     expect(pairs).toEqual(budgeted);
   });
 
-  // `require_direct_dsns` refuses to start a Postgres process without them: the web tier
-  // needs both, the workers the lock DSN. A tier left without one does not degrade, it
-  // crash-loops, so the manifest is held to it here.
+  // `require_direct_dsns` refuses to start a Postgres process without them: the api role
+  // needs both (it serves the job SSE streams), the chat role and the workers the lock DSN.
+  // A tier left without one does not degrade, it crash-loops, so the manifest is held to it
+  // here. The chat role is given the LISTEN DSN too, as it shares the env list with api.
   it("gives every pod that runs the Python code the direct DSNs its start-up check requires", () => {
     const env = (name: string) =>
       RESOURCES.filter(
@@ -176,7 +176,7 @@ describe("Postgres routing", () => {
         return spec.template.spec.containers.flatMap((c) => (c.env ?? []).map((e) => e.name));
       });
 
-    for (const tier of ["aiq-agent", "agent-worker", "ingest-worker"]) {
+    for (const tier of ["aiq-agent", "aiq-api", "agent-worker", "ingest-worker"]) {
       const names = env(tier);
       expect(names, `${tier} has env`).toContain("AIQ_LISTEN_DB_URL");
       expect(names, `${tier} takes its locks on the direct DSN`).toContain("AIQ_LOCK_DB_URL");

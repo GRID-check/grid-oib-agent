@@ -78,3 +78,13 @@ def test_auth_error_is_the_api_tiers_class():
     from aiq_api.auth.errors import AuthError as ApiAuthError
 
     assert AuthError is ApiAuthError
+
+
+def test_an_ingest_job_is_queued_by_the_api_tiers_own_enqueue(monkeypatch):
+    from aiq_api.jobs import ingest_dispatch
+
+    seen: list[object] = []
+    monkeypatch.setattr(ingest_dispatch, "enqueue_only", lambda prepared: seen.append(prepared) or True)
+
+    assert api_seam.enqueue_ingest_job("job") is True
+    assert seen == ["job"]

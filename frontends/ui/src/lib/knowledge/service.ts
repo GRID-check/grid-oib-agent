@@ -13,15 +13,11 @@ import { getBackendUrl } from '@/lib/backend-proxy'
 import { BadRequestError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 
 /** Lifecycle of a corpus file relative to what the RAG has indexed. */
-export type KnowledgeFileState = 'ingested' | 'stale' | 'pending' | 'snapshot' | 'removed' | 'inconsistent'
-
-/** Where the file's source lives: repo corpus, admin upload, or index-only. */
-export type KnowledgeFileOrigin = 'corpus' | 'uploaded' | 'index_only'
+export type KnowledgeFileState = 'ingested' | 'stale' | 'pending' | 'failed' | 'removed' | 'inconsistent'
 
 export interface KnowledgeFile {
   fileName: string
   state: KnowledgeFileState
-  origin: KnowledgeFileOrigin
   sizeBytes: number | null
   chunkCount: number
   ingestedSha256: string | null
@@ -43,7 +39,7 @@ export interface KnowledgeBaseSummary {
   ingested: number
   stale: number
   pending: number
-  snapshot: number
+  failed: number
   removed: number
   inconsistent: number
   totalChunks: number
@@ -62,7 +58,6 @@ const KNOWLEDGE_STATUS_TIMEOUT_MS = 30_000
 interface BackendFileEntry {
   file_name?: unknown
   state?: unknown
-  origin?: unknown
   size_bytes?: unknown
   chunk_count?: unknown
   ingested_sha256?: unknown
@@ -74,8 +69,7 @@ interface BackendFileEntry {
   display_title?: unknown
 }
 
-const FILE_STATES: KnowledgeFileState[] = ['ingested', 'stale', 'pending', 'snapshot', 'removed', 'inconsistent']
-const FILE_ORIGINS: KnowledgeFileOrigin[] = ['corpus', 'uploaded', 'index_only']
+const FILE_STATES: KnowledgeFileState[] = ['ingested', 'stale', 'pending', 'failed', 'removed', 'inconsistent']
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
@@ -89,13 +83,9 @@ function mapFile(entry: BackendFileEntry): KnowledgeFile {
   const state = FILE_STATES.includes(entry.state as KnowledgeFileState)
     ? (entry.state as KnowledgeFileState)
     : 'pending'
-  const origin = FILE_ORIGINS.includes(entry.origin as KnowledgeFileOrigin)
-    ? (entry.origin as KnowledgeFileOrigin)
-    : 'index_only'
   return {
     fileName: asString(entry.file_name) ?? 'unknown',
     state,
-    origin,
     sizeBytes: typeof entry.size_bytes === 'number' ? entry.size_bytes : null,
     chunkCount: asCount(entry.chunk_count),
     ingestedSha256: asString(entry.ingested_sha256),
@@ -142,7 +132,7 @@ export async function getKnowledgeBaseStatus(): Promise<KnowledgeBaseStatus> {
       ingested: asCount(summary.ingested),
       stale: asCount(summary.stale),
       pending: asCount(summary.pending),
-      snapshot: asCount(summary.snapshot),
+      failed: asCount(summary.failed),
       removed: asCount(summary.removed),
       inconsistent: asCount(summary.inconsistent),
       totalChunks: asCount(summary.total_chunks),
@@ -325,9 +315,9 @@ export async function updateKnowledgeBaseDisplayTitle(
 }
 
 /**
- * Remove a base-corpus document. An admin upload is deleted outright; a
- * repo-shipped document is removed from the active corpus (its chunks are
- * dropped and a persistent exclusion keeps a sync from re-ingesting it).
+ * Delete a base-corpus document: its indexed chunks, its stored file and its
+ * corpus entry. There is one kind of removal and it deletes; uploading the same
+ * file again adds it back.
  */
 export async function deleteKnowledgeBaseDocument(fileName: string): Promise<void> {
   const name = requirePdfBasename(fileName)

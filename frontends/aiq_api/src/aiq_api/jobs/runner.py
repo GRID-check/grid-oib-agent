@@ -1,7 +1,7 @@
 """
 Agent-agnostic job runner.
 
-Provides the Dask task function for running any registered agent with:
+Provides the research worker's job function, ``run_agent_job``, for running any registered agent with:
 - NAT's JobStore for job metadata and status
 - SSE event streaming for real-time UI updates
 - Cancellation monitoring for graceful job termination
@@ -17,6 +17,7 @@ import importlib
 import json
 import logging
 import os
+import time
 import uuid
 from collections.abc import Callable
 from collections.abc import Iterator
@@ -35,6 +36,9 @@ from aiq_agent.common.plan_documents import sanitize_plan_documents
 from aiq_agent.common.provider_limiter import RESEARCH
 from aiq_agent.common.provider_limiter import with_provider_class
 from aiq_agent.common.turn_status import DEGRADED_CARDS_GENERATION_FAILED
+from aiq_agent.observability import boot_timing
+from aiq_agent.observability.boot_timing import BootClock
+from aiq_agent.observability.turn_trace import current_trace_id_hex
 from aiq_agent.project_context import ORGANIZATION_ID_HEADER
 from aiq_agent.project_context import PROJECT_ID_HEADER
 from aiq_agent.project_context import PROJECT_MEMORY_HEADER
@@ -108,8 +112,8 @@ _DEGRADED_EVENT_FIELDS = ("research_truncated", "truncation_reason", "degraded_r
 #: and a real cancel are told apart by positive claim state (``_lost_claim``),
 #: never by message sniffing. Same ``job.*`` lifecycle shape as the other
 #: terminal events, stored through the same ``EventStore`` the SSE stream
-#: replays, so the stored history and the live stream agree on both
-#: ``GRID_JOB_EXECUTION`` paths. Deliberately NOT a ``job.phase`` row:
+#: replays, so the stored history and the live stream agree. Deliberately NOT a
+#: ``job.phase`` row:
 #: ``phase_events`` owns phase progress for the progress display, and an
 #: ownership change is not a phase (frontends/aiq_api/AGENTS.md).
 JOB_OWNERSHIP_LOST_EVENT_TYPE = "job.ownership-lost"
@@ -308,9 +312,9 @@ async def _lost_claim(db_url: str, job_id: str, claim_owner: str | None) -> bool
     again while this run is alive (a draining worker gave the claim back,
     ``queue.release_claims``, so another worker runs the job from the start).
 
-    ``claim_owner`` is the DB worker's own id (``None`` on the Dask path, which
-    has no claim table — the check is skipped and only the terminal verdict
-    gates publishing, so both ``GRID_JOB_EXECUTION`` modes behave). Anything
+    ``claim_owner`` is the research worker's own id. ``None`` (an unclaimed run, as in
+    the tests) has no claim table to check, so only the terminal verdict gates
+    publishing. Anything
     indeterminate (no row, row gone via cancel/mark_done, unreadable) is NOT a
     loss: the terminal-verdict gate below stays the decider and fails open, the
     same philosophy :func:`_update_status_if_not_terminal` keeps.
@@ -579,12 +583,10 @@ class CancellationMonitor:
 
     def __init__(
         self,
-        scheduler_address: str,
         db_url: str,
         job_id: str,
         poll_interval: float = 1.0,
     ):
-        self.scheduler_address = scheduler_address
         self.db_url = db_url
         self.job_id = job_id
         self.poll_interval = poll_interval
@@ -612,7 +614,7 @@ class CancellationMonitor:
         from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
         from nat.front_ends.fastapi.async_jobs.job_store import JobStore
 
-        job_store = JobStore(scheduler_address=self.scheduler_address, db_url=self.db_url)
+        job_store = JobStore(scheduler_address="", db_url=self.db_url)
 
         # FAILURE included: the ghost-job reaper writes FAILURE externally and
         # the worker must stop instead of running to completion against a job
@@ -694,8 +696,6 @@ async def run_with_cancellation(
     and the ghost job reaper can detect dead workers.
     Raises asyncio.CancelledError if the monitor detects cancellation.
     """
-    import time
-
     task = asyncio.create_task(coro)
     monitor.start()
     start_time = time.monotonic()
@@ -755,7 +755,7 @@ async def _resolve_deep_research_checkpointer(fn_config: Any) -> Any | None:
     """Build the durable checkpointer for a deep-research async job, if configured.
 
     Async deep-research jobs have no restart safety by default (T3-8): each
-    Dask job builds a fresh in-memory-only DeepAgents graph via a new
+    job builds a fresh in-memory-only DeepAgents graph via a new
     DeepResearcherAgent, so a worker crash mid-run loses all execution state
     -- only the SQL JobStore row survives, and the ghost-job reaper eventually
     marks it FAILURE with nothing to resume.
@@ -824,7 +824,7 @@ async def _purge_deep_checkpoint_unless_reclaimed(db_url: str, job_id: str, clai
     and the winner resumed from nothing. ``worker.py`` already skipped its own
     purge on claim loss; the runner's did not. Same positive-loss rule as every
     other gate here (:func:`_lost_claim`): an indeterminate claim still purges,
-    and the Dask path (no claim) always does. Both purges are idempotent.
+    and an unclaimed run always does. Both purges are idempotent.
 
     Returns True when it purged.
     """
@@ -943,7 +943,6 @@ def _workflow_reflection_llm_ref(config: Any) -> str | None:
 async def run_agent_job(
     configure_logging: bool,
     log_level: int,
-    scheduler_address: str,
     db_url: str,
     config_file_path: str,
     job_id: str,
@@ -976,25 +975,23 @@ async def run_agent_job(
     clarifier_result: str | None = None,
     memory_reflection_enabled: bool = False,
     memory_reflection_llm: str | None = None,
-    # DB-queue claim owner (the worker's own id) for the still-owner publish
-    # gate. None on the Dask path, which has no claim table, and at submit
-    # time (unclaimed); the DB worker fills in its own id at replay. Must stay
-    # last: the Dask submit path passes these positionally.
+    # Queue claim owner (the research worker's own id) for the still-owner
+    # publish gate. None at submit time (unclaimed); the worker fills in its own
+    # id at replay.
     claim_owner: str | None = None,
     # The ``task_runs`` row this job IS, when the BFF knows it — the only
     # identity the run-ledger route has. Absent for a job submitted before that
     # plumbing exists, and then the fold still narrates the run on its own event
-    # stream and posts nothing (``jobs/run_ledger_fold.py``). Keyword-only in
-    # practice: the Dask path passes positionally up to ``claim_owner``.
+    # stream and posts nothing (``jobs/run_ledger_fold.py``).
     run_id: str | None = None,
     # The Unterlagen the reader named on the plan card (``plan_documents``
     # contract), sanitised here into the agent state and the run ledger.
     documents: dict | None = None,
 ):
     """
-    Dask task to run any registered agent with cancellation support and telemetry.
+    Run any registered agent as a research job, with cancellation support and telemetry.
 
-    This function is submitted to Dask and runs in a worker process. It:
+    The research worker claims a queued row and calls this function. It:
     - Uses NAT's JobStore for status tracking
     - Monitors for cancellation requests and gracefully terminates the agent
     - Exports telemetry to Phoenix/OpenTelemetry via NAT's ExporterManager
@@ -1003,7 +1000,6 @@ async def run_agent_job(
     Args:
         configure_logging: Whether to set up logging in the worker.
         log_level: Logging level to use.
-        scheduler_address: Dask scheduler address.
         db_url: Database URL for job store and event store.
         config_file_path: Path to NAT config file.
         job_id: Unique job identifier.
@@ -1054,14 +1050,14 @@ async def run_agent_job(
             folded and still streamed as ``run.ledger`` events, but nothing is
             written to the run's message.
         claim_owner: Optional DB-queue claim owner (worker id) for the
-            still-owner publish gate. ``None`` (Dask path, or unclaimed at
-            submit) skips the ownership check and only the terminal verdict
+            still-owner publish gate. ``None`` (unclaimed at submit) skips the
+            ownership check and only the terminal verdict
             gates publishing. The DB worker fills in its own id at replay.
     """
 
     # Propagate auth token into the current async task's context so tools
     # can retrieve it via get_auth_token(). Uses a ContextVar so concurrent
-    # jobs in the same Dask worker process don't leak tokens across tasks.
+    # jobs in the same worker process don't leak tokens across tasks.
     _auth_token_reset = None
     if auth_token:
         from ._auth_context import job_auth_token
@@ -1105,25 +1101,24 @@ async def run_agent_job(
     # finally) close it, and they run whether or not setup got that far.
     run_ledger_fold: RunLedgerFold | None = None
     logger.info(
-        "Dask worker received: agent=%s, config=%s, job_id=%s",
+        "Research worker received: agent=%s, config=%s, job_id=%s",
         agent_class_path,
         agent_config_name,
         job_id,
     )
 
     try:
-        job_store = JobStore(scheduler_address=scheduler_address, db_url=db_url)
+        job_store = JobStore(scheduler_address="", db_url=db_url)
         # Guard the RUNNING write: a cancel (INTERRUPTED) or the ghost reaper
         # (FAILURE) may have already finalized this job in the race window
         # between claim and here. An unconditional write would resurrect a
-        # reaped job or silently lose a cancel (esp. in db-execution mode, where
-        # cancel deletes the queue row and this status flip is the only signal).
+        # reaped job or silently lose a cancel (cancel deletes the queue row, and
+        # this status flip is the only signal).
         if not await _update_status_if_not_terminal(job_store, job_id, JobStatus.RUNNING):
             logger.info("Job %s already terminal before start; aborting run", job_id)
             return
 
         cancellation_monitor = CancellationMonitor(
-            scheduler_address=scheduler_address,
             db_url=db_url,
             job_id=job_id,
             poll_interval=1.0,
@@ -1138,12 +1133,18 @@ async def run_agent_job(
         # import and are not in NAT's stock registry. A worker that reaches
         # load_config without that import fails the same way the web pod did.
         register_grid_telemetry()
-        config = load_config(config_file_path)
+        # Paid by every job, not once per process (boot_timing).
+        clock = BootClock("research-job")
+        with clock.phase("load_config"):
+            config = load_config(config_file_path)
 
         # Dynamically load the agent class
         agent_cls = _load_agent_class(agent_class_path)
 
+        building = time.monotonic()
         async with WorkflowBuilder.from_config(config=config) as builder:
+            clock.record("workflow_build", time.monotonic() - building)
+            boot_timing.flush()
             fn_config = builder.get_function_config(agent_config_name)
             if getattr(fn_config, "type", None) == "deep_research_agent":
                 from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
@@ -1184,7 +1185,7 @@ async def run_agent_job(
                     llm = provider.get(LLMRole.ORCHESTRATOR)
 
             # The tenant this job belongs to, captured at submit time inside
-            # usage_context because a Dask worker has no request headers to read
+            # usage_context because a research worker has no request headers to read
             # it from. Two things need it: BYOK below, and the agent state
             # handed to _run_agent (deep research resolves the organization's
             # skills from it).
@@ -1512,7 +1513,7 @@ async def run_agent_job(
                     # Run agent - LLM/tool events will be nested under workflow span.
                     # Unified LLM cost tracking covers every model call in the job;
                     # identity/budget were captured at submit time (no live request
-                    # headers exist inside a Dask worker).
+                    # headers exist inside a research worker).
                     from aiq_agent.common.cost_tracking import BudgetSnapshot
                     from aiq_agent.common.cost_tracking import track_llm_costs
                     from aiq_agent.common.profiler import track_agent_profile
@@ -1744,6 +1745,9 @@ async def run_agent_job(
                             # is supposed to mean.
                             transparency=transparency,
                             expect_run=run_id is not None,
+                            # The trace this run is in, read from the context it
+                            # pinned above: the BFF scores votes on the report there.
+                            trace_id=current_trace_id_hex(),
                         )
                         # What the run left behind, for its ledger: the message
                         # the report was just written into, as the writer names
@@ -2016,7 +2020,7 @@ async def _run_agent(
                 ("plan_documents", plan_documents),
                 ("project_context", project_context),
                 ("platform_lessons", platform_lessons),
-                # No request headers exist in a Dask worker, so an agent that
+                # No request headers exist in a research worker, so an agent that
                 # resolves per-tenant data (deep research resolves the org's
                 # skills) cannot read the organization off the context the way
                 # the synchronous chat path does. It was captured at submit
@@ -2032,7 +2036,7 @@ async def _run_agent(
 
                     state_kwargs["available_documents"] = [AvailableDocument(**doc) for doc in available_documents]
                     logger.debug(
-                        "Dask worker passing %d available documents to agent state",
+                        "Research worker passing %d available documents to agent state",
                         len(available_documents),
                     )
                 except (ImportError, TypeError):
@@ -2328,7 +2332,7 @@ async def _run_deep_research_reflection(
 
         reflection_llm = await get_langchain_llm(builder, reflection_llm_ref)
         overrides = sanitize_model_overrides(model_overrides) if model_overrides else {}
-        # Every dial explicit (not context): a Dask worker has no live request,
+        # Every dial explicit (not context): a research worker has no live request,
         # and a getter here would be a blocking BFF call on the worker's loop.
         # The credential first, so the ZDR pin lands only on a model that still
         # points at OpenRouter.
@@ -2424,7 +2428,7 @@ def _build_job_output(
 
     A named function rather than three inline lines because this dict IS the
     contract a client reads a finished job by, and inline it could not be
-    checked without standing up a worker, a job store and a Dask scheduler.
+    checked without standing up a worker and a job store.
 
     ``report`` is always there. Everything else is present or absent, never
     present-and-empty: no ``cards: []`` on a run that produced none, and no
@@ -2458,7 +2462,7 @@ def _extract_answer_transparency(result: Any) -> dict[str, Any]:
     the two reasons that make the level actionable (``answer_confidence``).
     The socket path lifts all of that off the agent state onto the terminal
     frame. The job path reduced the entire state to a report string, so every
-    one of these markers died inside the Dask worker and the same answer looked
+    one of these markers died inside the research worker and the same answer looked
     *cleaner* delivered as a job than streamed live.
 
     Read defensively — state object OR dict, every field type-checked on its own
@@ -2560,31 +2564,3 @@ def _extract_result(result: Any) -> str:
             return str(result["output"])
 
     return str(result) if result else ""
-
-
-# Backwards compatibility alias
-async def run_deep_research(
-    configure_logging: bool,
-    log_level: int,
-    scheduler_address: str,
-    db_url: str,
-    config_file_path: str,
-    job_id: str,
-    input_text: str,
-):
-    """
-    Legacy function for running deep research jobs.
-
-    Preserved for backwards compatibility. New code should use run_agent_job directly.
-    """
-    await run_agent_job(
-        configure_logging=configure_logging,
-        log_level=log_level,
-        scheduler_address=scheduler_address,
-        db_url=db_url,
-        config_file_path=config_file_path,
-        job_id=job_id,
-        input_text=input_text,
-        agent_class_path="aiq_agent.agents.deep_researcher.agent.DeepResearcherAgent",
-        agent_config_name="deep_research_agent",
-    )

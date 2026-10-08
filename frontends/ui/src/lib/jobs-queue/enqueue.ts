@@ -27,12 +27,15 @@ export async function enqueueJob(input: {
   organizationId: string
   payload: Record<string, unknown>
   priority?: BffJobPriority
+  /** Hold the job until then: a job handing its work on after a failure waits out a backoff. */
+  notBefore?: Date
 }): Promise<EnqueuedJob> {
   const jobId = await insertJob({
     kind: input.kind,
     organizationId: input.organizationId,
     priority: input.priority ?? BFF_JOB_PRIORITY.bulk,
     payload: input.payload,
+    notBefore: input.notBefore,
   })
   return { jobId }
 }

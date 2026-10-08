@@ -82,9 +82,12 @@ Spreadsheets index one chunk per worksheet (labelled by sheet name), so a citati
 
 ### File Size Limits
 
-The maximum upload size is configured via `FILE_UPLOAD_MAX_SIZE_MB` (default: **100 MB**). This limit applies per **batch** (total of all files in a single upload operation), not per individual file.
+The maximum upload size applies to **each file**, not to a batch: a folder of fifty 80 MB plans uploads into the Dateiablage under a 100 MB limit. It is your organization's own limit when Piloti has set one, otherwise the deployment default from `FILE_UPLOAD_MAX_SIZE_MB` (default: **100 MB**, decimal). The upload area shows the limit in force ("max. 100 MB per file"), and Organization → Storage lists it beside the storage quota. Only Piloti's platform staff can change it, between 1 MB and the largest request the deployment accepts. A file over the limit is refused with a message naming it. IFC models (`.ifc`, `.ifczip`) have their own, larger limit (`BIM_MAX_IFC_BYTES`, default 250 MB) that the organization limit does not change.
+
+The total stored per organization is bounded separately by the storage quota.
 
 Additional limits:
+- **Chat-session attachments** also have a total: all files on one chat together may not exceed the deployment default (100 MB), or the organization's per-file limit when that is higher, so one admissible file always fits.
 - **Chat-session attachments**: `FILE_UPLOAD_MAX_FILE_COUNT` (default: **10 files**) caps how many files one chat session can hold. Project Dateiablage and the Büroarchiv are **not** under this cap — they are bounded by the organization's storage quota.
 - **Duplicate filenames** within a session are rejected
 - Files already tracked in the current session are skipped on re-upload

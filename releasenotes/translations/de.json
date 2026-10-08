@@ -136,6 +136,10 @@
     "de": "Ein Dokument, das nach dem Verlust eines Ingestion-Jobs auf „processing“ hängen bleibt, kann jetzt über sein Menü erneut gestartet werden, statt gelöscht und neu hochgeladen zu werden. Dabei bleibt das Dokument erhalten, sodass Quellen, Chat-Verweise und Zuweisungen bestehen bleiben. Solange die Ingestion tatsächlich noch läuft, kann kein erneuter Versuch gestartet werden."
   },
   {
+    "en": "A document that failed to index, or that is still being read, now stays in the project file list with its status, so it is no longer mistaken for a file that was never uploaded.",
+    "de": "Ein Dokument, das nicht indexiert werden konnte oder noch eingelesen wird, bleibt jetzt samt Status in der Dateiliste des Projekts, damit es nicht mehr für eine nie hochgeladene Datei gehalten wird."
+  },
+  {
     "en": "A document whose indexing failed can be sent back through it from its own card: Retry indexing is in the ⋯ menu, beside rename and delete, wherever the failure is shown. Until now the card told you it had failed and the only retry was two clicks inside a viewer you had no reason to open.",
     "de": "Ein Dokument, dessen Indexierung fehlgeschlagen ist, können Sie direkt über seine Karte erneut indexieren: „Indexierung erneut versuchen“ finden Sie im ⋯-Menü neben Umbenennen und Löschen, überall dort, wo der Fehler angezeigt wird. Bisher zeigte die Karte nur den Fehler an; die einzige Möglichkeit, es erneut zu versuchen, waren zwei Klicks in einem Viewer, den Sie gar nicht öffnen mussten."
   },
@@ -410,6 +414,10 @@
   {
     "en": "A source could be shown as cited before it had been checked, and stayed marked that way even when the check later removed it from the answer. The panel now reports only what survived verification.",
     "de": "Eine Quelle kann als zitiert angezeigt werden, bevor sie geprüft wurde, und bleibt auch dann so markiert, wenn die Prüfung sie später aus der Antwort entfernt. Das Panel zeigt jetzt nur noch Quellen an, die die Überprüfung bestanden haben."
+  },
+  {
+    "en": "A stack upgraded from before the KEDA queue scaling no longer fails its deploy at the agent-worker ScaledObject. KEDA now takes over the research worker's old autoscaler instead of refusing to scale a workload it already scaled, so the deploy finishes with nothing done by hand.",
+    "de": "Ein Stack, der vor der KEDA-Warteschlangenskalierung aktualisiert wurde, scheitert beim Deploy nicht mehr am ScaledObject des agent-worker. KEDA übernimmt jetzt den bisherigen Autoscaler des Research Workers, statt die Skalierung eines Workloads abzulehnen, den KEDA bereits skaliert. Dadurch wird das Deploy ohne manuelle Eingriffe abgeschlossen."
   },
   {
     "en": "A standard or product code typed in lowercase now matches the documents that write it in capitals, so a question about a specific code finds the same sources whichever way it is typed.",
@@ -1664,6 +1672,10 @@
     "de": "Die Zeitplan-Karten zeigen jetzt den Auftrag im Wortlaut statt des verwendeten Skills, und ein Zeitplan lässt sich wieder löschen."
   },
   {
+    "en": "Scheduled research reports are filed into the project again in organizations whose features are switched on individually; they had been held back.",
+    "de": "Geplante Rechercheberichte werden in Organisationen, in denen Funktionen individuell aktiviert werden, wieder im Projekt abgelegt; bisher wurden sie zurückgehalten."
+  },
+  {
     "en": "Scheduled tasks are no longer skipped when the research queue is full: a run that has to wait shows as queued in Aufgaben and starts as soon as a worker is free. An office's scheduled runs go after its own questions and never ahead of another office's work.",
     "de": "Geplante Aufgaben werden nicht mehr übersprungen, wenn die Recherche-Warteschlange voll ist: Ein wartender Durchlauf wird in Aufgaben als eingereiht angezeigt und startet, sobald ein Worker frei ist. Die geplanten Durchläufe eines Büros werden erst nach dessen eigenen Fragen ausgeführt und niemals vor der Arbeit eines anderen Büros."
   },
@@ -1770,6 +1782,10 @@
   {
     "en": "Tasks and schedules are one list, schedules on top and single runs below, and schedules are created and edited right there. Old links to the Jobs tab still land in the right place.",
     "de": "Aufgaben und Zeitpläne sind eine Liste, die Zeitpläne oben, die einzelnen Läufe darunter, und Zeitpläne entstehen und ändern sich direkt dort. Alte Links auf den Jobs-Tab landen weiterhin an der richtigen Stelle."
+  },
+  {
+    "en": "Teammates can now follow and steer deep research runs in the projects they work in, including the runs of scheduled and shared tasks, not only their own. Anyone who can view a chat can follow a run in it, while stopping a run or adding a document to it still needs permission to chat in the project.",
+    "de": "Teammitglieder können Deep-Research-Läufe in den Projekten, in denen sie arbeiten, jetzt verfolgen und steuern – auch Läufe geplanter und geteilter Aufgaben, nicht nur ihre eigenen. Wer einen Chat ansehen kann, kann darin einen Lauf verfolgen. Um einen Lauf zu stoppen oder ein Dokument hinzuzufügen, ist weiterhin die Berechtigung erforderlich, im Projekt zu chatten."
   },
   {
     "en": "Text and CSV files saved by Excel or older Windows programs keep their umlauts and ß. Before, those letters were silently dropped.",
@@ -2132,6 +2148,10 @@
     "de": "Die Statuszeile über der Herleitung sagt, wonach Piloti gerade sucht, und sobald die Recherche abgeschlossen ist, dass die Antwort formuliert wird."
   },
   {
+    "en": "The upload area now states the largest file you can upload as a size per file, and the number it shows is the one your organization is held to. It no longer shows 95 MB for a 100 MB limit.",
+    "de": "Der Upload-Bereich gibt nun die maximale Dateigröße pro Datei an, die Sie hochladen können. Angezeigt wird der für Ihre Organisation geltende Wert. Bei einem Limit von 100 MB werden nicht mehr 95 MB angezeigt."
+  },
+  {
     "en": "The upload panel no longer retires itself out from under you. A wholly successful batch still clears after a few seconds, but the countdown holds while your pointer is on the panel or your keyboard focus is inside it.",
     "de": "Das Upload-Panel verschwindet nicht mehr, während Sie damit arbeiten. Ein Stapel, bei dem alle Uploads erfolgreich waren, wird weiterhin nach einigen Sekunden ausgeblendet. Der Countdown pausiert jedoch, solange sich der Mauszeiger über dem Panel befindet oder der Tastaturfokus darin liegt."
   },
@@ -2446,6 +2466,14 @@
   {
     "en": "Word, Excel and PowerPoint files now open in the document viewer as a PDF preview, and a reference to one opens that preview instead of only offering a download. Download still gives you the original file, unchanged.",
     "de": "Word-, Excel- und PowerPoint-Dateien öffnen sich jetzt im Dokumentbetrachter als PDF-Vorschau, und ein Verweis auf eine solche Datei öffnet diese Vorschau, statt nur einen Download anzubieten. Der Download liefert weiterhin die unveränderte Originaldatei."
+  },
+  {
+    "en": "You can import an Outlook archive (.pst or .ost, up to 25 GB) into a project's files, and every email becomes a folder with its attachments and a note holding its sender, recipients, date and text. Piloti can then find and cite your correspondence; your administrator switches the import on.",
+    "de": "Sie können ein Outlook-Archiv (.pst oder .ost, bis zu 25 GB) in die Dateien eines Projekts importieren. Dabei wird jede E-Mail zu einem Ordner mit ihren Anhängen und einer Notiz mit Absender, Empfängern, Datum und Text. Piloti kann Ihre Korrespondenz anschließend finden und zitieren; Ihre Administratorin oder Ihr Administrator schaltet den Import ein."
+  },
+  {
+    "en": "You can now dictate a question: press the microphone in the message field and speak, and the text appears where your cursor was, with German and English kept as you said them and hesitations such as „äh“ left out. Dictation is free and never counts against your organization's budget.",
+    "de": "Sie können jetzt Fragen diktieren: Tippen Sie im Nachrichtenfeld auf das Mikrofon und sprechen Sie. Der Text erscheint an der Cursorposition; Deutsch und Englisch bleiben so erhalten, wie Sie es gesagt haben, während Zögerlaute wie „äh“ weggelassen werden. Das Diktieren ist kostenlos und wird nie auf das Budget Ihrer Organisation angerechnet."
   },
   {
     "en": "You can now hand Piloti recurring work in the chat: „prüf das jeden Montag“ creates a schedule that keeps running. Creating one needs the permission to manage schedules in the project.",

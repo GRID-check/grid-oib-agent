@@ -15,6 +15,7 @@ import hashlib
 import hmac
 import json
 import time
+import uuid
 from collections.abc import AsyncIterator
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -273,7 +274,6 @@ def _types(events: list[dict]) -> list[str]:
 async def test_nat_s_socket_objects_are_nat_s_own_and_the_route_is_ours(monkeypatch):
     from fastapi import FastAPI
 
-    from aiq_api import plugin
     from aiq_api.plugin import AIQAPIConfig
     from aiq_api.plugin import AIQAPIWorker
     from nat.data_models.config import Config
@@ -289,11 +289,11 @@ async def test_nat_s_socket_objects_are_nat_s_own_and_the_route_is_ours(monkeypa
     assert config.step_adaptor.mode == StepAdaptorMode.OFF
 
     monkeypatch.setenv("NAT_CONFIG_FILE", "configs/config_oib_openrouter.yml")
+    monkeypatch.setenv("GRID_ROLE", "chat")
     worker = AIQAPIWorker(Config(general=GeneralConfig(front_end=config)))
     session_manager = object()
     monkeypatch.setattr(worker, "_create_chat_session_manager", AsyncMock(return_value=session_manager))
     monkeypatch.setattr(FastApiFrontEndPluginWorker, "add_routes", AsyncMock())
-    monkeypatch.setattr(plugin, "register_job_routes", AsyncMock())
     monkeypatch.setattr(worker, "_schedule_internal_api_check", lambda: None)
     monkeypatch.setattr(worker, "_install_signal_handlers", lambda: None)
     monkeypatch.setenv("AIQ_ENABLE_DEBUG", "false")
@@ -500,7 +500,35 @@ async def test_a_turn_is_run_started_then_what_the_workflow_yields_in_seq_order(
     assert opened["user_id"] == "user_asker"  # NAT's Context.user_id and span user.id: the verified subject
     assert (opened["conversation_id"], opened["user_message_id"]) == (CONV, "t1")
     assert persisted[0]["message_id"] == answer_message_id(CONV, "t1")
-    assert persisted[0]["metadata"] == {"sources": [{"content": "c", "number": 1}]}
+    assert persisted[0]["metadata"] == {
+        "sources": [{"content": "c", "number": 1}],
+        # The trace the turn ran in, named by its answer (`observability.turn_trace`).
+        "trace_id": uuid.UUID(answer_message_id(CONV, "t1")).hex,
+    }
+
+
+async def test_the_workflow_runs_in_the_trace_its_answer_row_names(harness, persisted):
+    """The BFF scores a vote on the trace the row names, so the run must really be in it.
+
+    NAT adopts a `workflow_trace_id` already in the context instead of drawing a
+    random one, and every root span takes it; the pin is what the workflow sees.
+    """
+    from nat.plugin_api import ContextState
+
+    seen: list[int | None] = []
+
+    async def recording(request, ask):
+        seen.append(ContextState.get().workflow_trace_id.get())
+        yield _finished(request)
+
+    h = harness(recording)
+    sock = h.connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(lambda: persisted)
+
+    answer = uuid.UUID(answer_message_id(CONV, "t1"))
+    assert seen == [answer.int]
+    assert persisted[0]["metadata"]["trace_id"] == answer.hex == f"{seen[0]:032x}"
 
 
 async def test_a_second_message_for_the_running_turn_is_a_duplicate(harness):
@@ -619,7 +647,7 @@ async def test_the_asker_s_stop_cancels_the_run_and_keeps_what_was_read(harness,
     terminal = sock.events()[-1]
     assert (terminal["type"], terminal["outcome"]) == ("RUN_FINISHED", "cancelled")
     assert terminal["result"]["text"] == "Nach § 87"  # the pending [2] has no source
-    assert persisted[0]["metadata"] == {"stopped": True}
+    assert persisted[0]["metadata"] == {"stopped": True, "trace_id": uuid.UUID(answer_message_id(CONV, "t1")).hex}
     assert persisted[0]["text"] == "Nach § 87"
 
 
@@ -1429,6 +1457,7 @@ async def test_the_chat_session_manager_has_no_nat_semaphore(monkeypatch):
     create = AsyncMock(return_value=object())
     monkeypatch.setattr(plugin.SessionManager, "create", create)
     monkeypatch.setenv("NAT_CONFIG_FILE", "configs/config_oib_openrouter.yml")
+    monkeypatch.setenv("GRID_ROLE", "chat")
     worker = AIQAPIWorker(Config(general=GeneralConfig(front_end=AIQAPIConfig())))
 
     manager = await worker._create_chat_session_manager(builder=object())

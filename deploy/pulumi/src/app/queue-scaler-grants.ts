@@ -57,12 +57,9 @@ import { QUEUE_TABLE as INGEST_TABLE } from "./ingest-worker";
  * (`ON_ERROR_STOP`); the role CloudNativePG reconciles asynchronously is waited for.
  */
 
-/** The queue tables of the aiq_jobs database a stack with these tiers needs the scaler to read. */
-export function jobsDatabaseTables(cfg: Pick<GridConfig, "jobExecution" | "ingestWorker">): string[] {
-  return [
-    ...(cfg.ingestWorker.enabled ? [INGEST_TABLE] : []),
-    ...(cfg.jobExecution === "db" ? [RESEARCH_TABLE] : []),
-  ];
+/** The queue tables of the aiq_jobs database the scaler reads: the ingest tier's and the research tier's. */
+export function jobsDatabaseTables(): string[] {
+  return [INGEST_TABLE, RESEARCH_TABLE];
 }
 
 /** What the scaler may read of a queue table: the column its `COUNT(*) ... WHERE status <> 'dead'` filters on. */
@@ -104,15 +101,14 @@ export function appGrantsSql(): string {
  * `NAT_JOB_STORE_DB_URL`), so the tables land in the database the worker
  * will look in.
  */
-export function ensureTablesPython(cfg: Pick<GridConfig, "jobExecution" | "ingestWorker">): string {
-  const lines = [
+export function ensureTablesPython(): string {
+  return [
     "import os",
-    ...(cfg.ingestWorker.enabled ? ["from aiq_agent.knowledge import ingest_queue"] : []),
-    ...(cfg.jobExecution === "db" ? ["from aiq_api.jobs import queue"] : []),
-    ...(cfg.ingestWorker.enabled ? ["ingest_queue.ensure_table(ingest_queue.db_url())"] : []),
-    ...(cfg.jobExecution === "db" ? ['queue.ensure_research_queue_table(os.environ["NAT_JOB_STORE_DB_URL"])'] : []),
-  ];
-  return lines.join("\n");
+    "from aiq_agent.knowledge import ingest_queue",
+    "from aiq_api.jobs import queue",
+    "ingest_queue.ensure_table(ingest_queue.db_url())",
+    'queue.ensure_research_queue_table(os.environ["NAT_JOB_STORE_DB_URL"])',
+  ].join("\n");
 }
 
 export function installQueueScalerGrants(
@@ -120,7 +116,7 @@ export function installQueueScalerGrants(
   cfg: GridConfig,
   dependsOn: pulumi.Resource[],
 ): k8s.batch.v1.Job {
-  const jobsTables = jobsDatabaseTables(cfg);
+  const jobsTables = jobsDatabaseTables();
   const bff = cfg.bffJobs.enabled;
   const labels = commonLabels("keda-scaler-grants");
 
@@ -129,7 +125,7 @@ export function installQueueScalerGrants(
     {
       metadata: { namespace: w.namespace, labels },
       data: {
-        ...(jobsTables.length ? { "jobs.sql": jobsGrantsSql(jobsTables) } : {}),
+        "jobs.sql": jobsGrantsSql(jobsTables),
         ...(bff ? { "app.sql": appGrantsSql() } : {}),
       },
     },
@@ -162,7 +158,7 @@ export function installQueueScalerGrants(
   const script = [
     "echo 'waiting for the scaler role…';",
     waitForRole,
-    ...(jobsTables.length ? ['psql "$JOBS_DSN" -v ON_ERROR_STOP=1 -f /sql/jobs.sql;'] : []),
+    'psql "$JOBS_DSN" -v ON_ERROR_STOP=1 -f /sql/jobs.sql;',
     ...(bff ? ['psql "$APP_DSN" -v ON_ERROR_STOP=1 -f /sql/app.sql;'] : []),
     "echo 'scaler grants complete';",
   ].join(" ");
@@ -180,25 +176,23 @@ export function installQueueScalerGrants(
             enableServiceLinks: false, // see chroma.ts — legacy env collisions
             imagePullSecrets: w.imagePullSecrets,
             restartPolicy: "OnFailure",
-            initContainers: jobsTables.length
-              ? [
-                  {
-                    name: "queue-tables",
-                    image: backendImage(cfg),
-                    imagePullPolicy: appPullPolicy(cfg, backendImage(cfg)),
-                    securityContext: {
-                      ...hardenedContainerSecurityContext(),
-                      runAsNonRoot: true,
-                      runAsUser: UID.backend,
-                      runAsGroup: UID.backend,
-                    },
-                    // Not the image's entrypoint: no role to run, only the schema.
-                    command: ["python", "-c", ensureTablesPython(cfg)],
-                    envFrom: [{ secretRef: { name: dsns.metadata.name } }],
-                    resources: LIGHT_WORKER_RESOURCES,
-                  },
-                ]
-              : [],
+            initContainers: [
+              {
+                name: "queue-tables",
+                image: backendImage(cfg),
+                imagePullPolicy: appPullPolicy(cfg, backendImage(cfg)),
+                securityContext: {
+                  ...hardenedContainerSecurityContext(),
+                  runAsNonRoot: true,
+                  runAsUser: UID.backend,
+                  runAsGroup: UID.backend,
+                },
+                // Not the image's entrypoint: no role to run, only the schema.
+                command: ["python", "-c", ensureTablesPython()],
+                envFrom: [{ secretRef: { name: dsns.metadata.name } }],
+                resources: LIGHT_WORKER_RESOURCES,
+              },
+            ],
             containers: [
               {
                 name: "psql",

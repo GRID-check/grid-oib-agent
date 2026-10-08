@@ -1,6 +1,6 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig, backendAutoscaled, queueScalerEnabled } from "../config";
+import { GridConfig, backendAutoscaled } from "../config";
 import { EDGE_RATE_LIMIT, GOTENBERG, LANGFUSE, PORT } from "../constants";
 import { KEDA_NAMESPACE, KEDA_OPERATOR_LABEL } from "./keda";
 import { CLUSTER_NAME as POSTGRES_CLUSTER } from "../data/postgres";
@@ -297,6 +297,25 @@ export function installNetworkPolicies(
       })
     : undefined;
 
+  // 11b. frontend (the BFF) → Langfuse web public API. The BFF writes every
+  //      answer-feedback vote as a score on its trace (ADR-0044, Amendment 3)
+  //      through `LANGFUSE_HOST`, the in-cluster Service: the public host sits
+  //      behind the edge's OIDC gate, which a server-side call cannot pass.
+  //      Named by caller, like the collector, and the frontend is the only one
+  //      of the app pods that holds the keys.
+  const frontendToLangfuse = cfg.langfuse.enabled
+    ? mk("allow-frontend-to-langfuse", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": LANGFUSE_WEB } },
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } }],
+            ports: [{ protocol: "TCP", port: PORT.langfuseWeb }],
+          },
+        ],
+      })
+    : undefined;
+
   // 12. Langfuse web + worker → ClickHouse, on both interfaces: HTTP 8123 for
   //     queries and native 9000 for the schema migrator. Nothing else in the
   //     deployment speaks to ClickHouse, and it holds the trace store in
@@ -365,15 +384,13 @@ export function installNetworkPolicies(
 
   // 14. The queues' depth, to scale the ingest-worker and agent-worker tiers
   //     (ADR-0076, ADR-0079) and the bff_job_queue's, to scale the bff-jobs pool:
-  //     Postgres only, port 5432 only, and only when one of those tiers runs. The
-  //     operator runs one COUNT(*) there as the read-only scaler login.
-  const kedaToPostgres = queueScalerEnabled(cfg)
-    ? mk("allow-keda-to-postgres", {
-        podSelector: { matchLabels: { "cnpg.io/cluster": POSTGRES_CLUSTER } },
-        policyTypes: ["Ingress"],
-        ingress: [{ from: kedaOperator, ports: [{ protocol: "TCP", port: 5432 }] }],
-      })
-    : undefined;
+  //     Postgres only, port 5432 only. The operator runs one COUNT(*) there as the
+  //     read-only scaler login.
+  const kedaToPostgres = mk("allow-keda-to-postgres", {
+    podSelector: { matchLabels: { "cnpg.io/cluster": POSTGRES_CLUSTER } },
+    policyTypes: ["Ingress"],
+    ingress: [{ from: kedaOperator, ports: [{ protocol: "TCP", port: 5432 }] }],
+  });
 
   // 15. The fleet's running turns, from the backend's internal occupancy route,
   //     to scale the chat tier (ADR-0080). The backend port only, on the backend
@@ -403,6 +420,7 @@ export function installNetworkPolicies(
     ...(collectorToErr2Issue ? [collectorToErr2Issue] : []),
     ...(edgeLangfuse ? [edgeLangfuse] : []),
     ...(collectorToLangfuse ? [collectorToLangfuse] : []),
+    ...(frontendToLangfuse ? [frontendToLangfuse] : []),
     ...(langfuseToClickhouse ? [langfuseToClickhouse] : []),
     ...(gotenberg ? [gotenberg] : []),
   ];

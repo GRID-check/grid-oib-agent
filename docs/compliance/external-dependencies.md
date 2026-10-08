@@ -71,6 +71,10 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
 - **Python:** uv workspace, `uv.lock` + `uv sync --frozen` in image (fully pinned).
   Core: `nvidia-nat*==1.9.0`, `deepagents`, `langgraph-checkpoint-*`, `chromadb`,
   `llama-index`, `langchain-tavily`, `langchain-modal==0.0.5` (pre-alpha maturity).
+  Outlook archives (ADR-0085): `libpff-python==20260926` (libyal, LGPL-3.0-or-later,
+  a native extension used unmodified as a library from its manylinux wheel; the
+  maintainer labels it alpha, and this is its first release with cp314 wheels)
+  and `striprtf==0.0.33` (BSD-3, pure Python) for RTF bodies.
   Deliberate CVE floors + `override-dependencies` block (`pyproject.toml:214-227`).
 - **Node:** `bun.lock` + `bun install --frozen-lockfile`; Next 16, `@workos-inc/*`,
   `@aws-sdk/client-s3`, `http-proxy` (old but latest), drizzle; security `overrides`

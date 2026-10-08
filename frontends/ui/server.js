@@ -4,7 +4,9 @@
  * Architecture (following Nemo-Agent-Toolkit-UI pattern):
  * - Runs on port 3000 as the main entry point
  * - Proxies to Next.js server (dev on 3001, or production on same process)
- * - Proxies /websocket to backend WebSocket endpoint
+ * - Proxies /websocket to the backend's chat role (BACKEND_CHAT_URL). This is the
+ *   only backend traffic this process carries; every HTTP call to the backend is
+ *   the BFF's, to the api role (BACKEND_URL).
  *
  * Development:
  *   npm run dev - Runs gateway + Next.js dev server concurrently
@@ -13,7 +15,9 @@
  *   npm start - Runs Next.js in production mode with integrated proxy
  *
  * Environment:
- *   BACKEND_URL - Backend service URL (e.g., http://backend:8000)
+ *   BACKEND_CHAT_URL - The backend's chat role, for the WebSocket proxy (e.g.,
+ *     http://aiq-agent:8000). Required: it does not fall back to BACKEND_URL,
+ *     which is the api role and serves no chat socket (ADR-0082 step B).
  *   PORT - Gateway port (default: 3000)
  *   NEXT_INTERNAL_URL - Next.js server URL (default: http://localhost:3001)
  */
@@ -135,18 +139,23 @@ const dev = process.env.NODE_ENV !== 'production'
 const hostname = process.env.HOSTNAME || '0.0.0.0'
 const port = parseInt(process.env.PORT || '3000', 10)
 
-const getBackendUrl = () => {
-  const url = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+// The chat role's address. Required and never derived from BACKEND_URL: that is
+// the api role, and a socket sent there would connect to nothing that serves
+// one. A gateway that cannot say where chat is stops here, not at the first
+// reader's upgrade.
+const getBackendChatUrl = () => {
+  const url = (process.env.BACKEND_CHAT_URL || '').trim()
+  if (!url) {
+    throw new Error(
+      'BACKEND_CHAT_URL is required: the URL of the backend chat role, which the WebSocket proxy dials ' +
+        '(e.g. http://aiq-agent:8000). BACKEND_URL is the api role and is not a fallback.',
+    )
+  }
   return url.replace(/\/$/, '')
 }
 
-const getBackendWsUrl = () => {
-  const baseUrl = getBackendUrl()
-  return baseUrl.replace(/^http/, 'ws')
-}
-
-const BACKEND_HTTP_URL = getBackendUrl()
-const BACKEND_WS_URL = getBackendWsUrl()
+const BACKEND_CHAT_URL = getBackendChatUrl()
+const BACKEND_WS_URL = BACKEND_CHAT_URL.replace(/^http/, 'ws')
 const NEXT_INTERNAL_URL = process.env.NEXT_INTERNAL_URL || 'http://localhost:3001'
 
 // ── Conversation affinity (horizontal aiq-agent scaling) ──
@@ -905,7 +914,7 @@ const startServer = async () => {
     console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Frontend: http://localhost:${port}
-  Backend:  ${BACKEND_HTTP_URL}
+  Chat:     ${BACKEND_CHAT_URL}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 `)
   })

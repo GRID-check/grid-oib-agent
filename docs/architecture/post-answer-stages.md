@@ -532,7 +532,7 @@ frame type is `grid_`-prefixed.
 > `register_stage_frame_sink(send_stage_frame)` at **import** of
 > `aiq_api/plugin.py`, next to `install_reconnectable_handler()`. Import-time and
 > not inside `add_routes`, because that is what "the front end starts up" means:
-> a process that never loads this front end — a CLI run, a Dask job worker —
+> a process that never loads this front end — a CLI run, a research worker —
 > leaves the sink unset, and a `frame` stage there still runs, is still bounded
 > and still records its outcome. It simply has nobody to tell, which
 > `delivery.py` already documents as a normal state.
@@ -1249,7 +1249,7 @@ queued.**
   `MEMORY_REFLECTION_MAX_CONCURRENCY` / `MEMORY_REFLECTION_MAX_PENDING`, which
   the primitive supersedes; `deploy/.env.example` and
   `docs/deployment/environment-variables.md` move with them. Loop-keyed via `WeakKeyDictionary` exactly as `_loop_semaphore`
-  does (`reflection.py:385-395`), because chat and Dask workers run different
+  does (`reflection.py:385-395`), because chat and research workers run different
   loops.
 - `GRID_STAGE_MAX_PENDING`, default 16, counted **across all stages**. At the cap
   the stage is not scheduled and records `outcome:"skipped", reason:"pending_cap"`

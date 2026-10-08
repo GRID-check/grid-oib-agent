@@ -83,21 +83,17 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
       // Fail open: a session-lookup problem must not hide chat affordances.
     }
 
-    // Project lookup serves two consumers: the Deep Research section scopes its
-    // job fetch to this project's Qdrant collection (FB-10), and the chat
-    // surface shows the project name in the thread-header breadcrumb and the
-    // composer scope chip (WS-3). Fail-soft: a missing row just degrades to an
-    // unscoped section / nameless scope chip, never a broken chat.
-    let projectCollection: string | null = null
+    // Project lookup for the chat surface: the project name in the
+    // thread-header breadcrumb and the composer scope chip (WS-3). The Deep
+    // Research section needs only the project id, which the job proxy checks
+    // and signs (ADR-0084). Fail-soft: a missing row just degrades to a
+    // nameless scope chip, never a broken chat.
     let projectName: string | null = null
     try {
       // Scoped to the session's organization: the previous lookup matched on id
       // alone, so it read across tenants and — once row-level security landed —
       // ran with no tenant context at all. `findProjectInOrg` supplies both.
       const project = organizationId ? await findProjectInOrg(id, organizationId) : null
-      if (showResearchInHistory) {
-        projectCollection = project?.collectionName ?? null
-      }
       projectName = project?.name ?? null
     } catch {
       // Fail open: the affordances degrade rather than blanking chat.
@@ -109,7 +105,6 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
         showConfidenceChip={showConfidenceChip}
         showAnswerFeedback={showAnswerFeedback}
         showResearchInHistory={showResearchInHistory}
-        projectCollection={projectCollection}
         projectName={projectName}
         canCollaborate={canCollaborate}
         canChatInProject={canChatInProject}
