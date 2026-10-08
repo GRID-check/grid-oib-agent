@@ -51,7 +51,7 @@ _REQUEST_TIMEOUT_SECONDS = 5.0
 #:
 #: Both names are DELIVERED, and they are delivered differently. Piloti
 #: resolves inside a live request and builds a ``SkillRuntime`` per
-#: turn (``piloti/register.py``). Deep research runs in a Dask worker
+#: turn (``piloti/register.py``). Deep research runs in a research worker
 #: with no request headers to read an organization off, so it resolves per RUN
 #: through :func:`resolve_served_skills`, keyed on an organization the job runner
 #: captured at submit time and put on the agent state — see

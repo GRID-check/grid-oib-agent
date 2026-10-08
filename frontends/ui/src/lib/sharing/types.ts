@@ -75,7 +75,7 @@ export const SHARING_ERROR_REASONS = {
   rosterFull: 'roster-full',
   /**
    * The person being let in is not cleared for every restricted folder the
-   * conversation drew on (ADR-0084). `details.person` names them; `details.folders`
+   * conversation drew on (ADR-0086). `details.person` names them; `details.folders`
    * names the folders, and only to a sharer cleared for them.
    */
   restrictedContent: 'restricted-content',

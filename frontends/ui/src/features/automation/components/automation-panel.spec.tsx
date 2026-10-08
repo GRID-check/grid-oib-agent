@@ -45,7 +45,6 @@ vi.mock('@/features/tasks/components/tasks-panel', () => ({
 
 const baseProps = {
   projectId: 'p1',
-  projectCollection: 'col-1',
   canManageOrgSkills: true,
   canManageJobs: false,
 }

@@ -3,7 +3,7 @@ import { projects } from './projects'
 
 /**
  * One upload gesture — a picked set of files or a dropped folder — and when
- * every document it brought in had been read (migration 0108).
+ * every document it brought in had been read (migration 0109).
  *
  * The browser opens the row before it sends the first file, stamps each upload
  * with its id (`documents.upload_batch_id`), and seals it when it has sent the
@@ -11,7 +11,7 @@ import { projects } from './projects'
  * at rest, which is what emits `upload.completed` to the uploader.
  *
  * `excluded` holds the screening terms that kept files on the uploader's
- * machine and how many files each kept (ADR-0083) — never their names, which
+ * machine and how many files each kept (ADR-0085) — never their names, which
  * did not reach the server as files and may themselves be personal data.
  */
 

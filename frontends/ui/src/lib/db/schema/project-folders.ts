@@ -68,7 +68,7 @@ export const projectFolders = pgTable('project_folders', {
   /**
    * Whether the folder inherits its parent's access (`inherit`, the default; a
    * root folder inherits the project) or has its own access list (`custom`,
-   * rows in `project_folder_grants`), migration 0109, ADR-0085. A custom list
+   * rows in `project_folder_grants`), migration 0110, ADR-0087. A custom list
    * holds 1–20 grants (deferred constraint trigger). `lib/authz/folder-access.ts`
    * is the one place that decides what it means.
    */
@@ -77,7 +77,7 @@ export const projectFolders = pgTable('project_folders', {
   accessChangedBy: text('access_changed_by'),
   accessChangedAt: timestamp('access_changed_at', { withTimezone: true }),
   /**
-   * Set when the folder was deleted (migration 0109): the row stays as a
+   * Set when the folder was deleted (migration 0110): the row stays as a
    * tombstone so its access still decides who may read what was derived from
    * it. Every listing, path lookup and placement skips it; only
    * `effectiveFolderLevel` reads it.

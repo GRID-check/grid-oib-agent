@@ -276,7 +276,6 @@ def _types(events: list[dict]) -> list[str]:
 async def test_nat_s_socket_objects_are_nat_s_own_and_the_route_is_ours(monkeypatch):
     from fastapi import FastAPI
 
-    from aiq_api import plugin
     from aiq_api.plugin import AIQAPIConfig
     from aiq_api.plugin import AIQAPIWorker
     from nat.data_models.config import Config
@@ -292,11 +291,11 @@ async def test_nat_s_socket_objects_are_nat_s_own_and_the_route_is_ours(monkeypa
     assert config.step_adaptor.mode == StepAdaptorMode.OFF
 
     monkeypatch.setenv("NAT_CONFIG_FILE", "configs/config_oib_openrouter.yml")
+    monkeypatch.setenv("GRID_ROLE", "chat")
     worker = AIQAPIWorker(Config(general=GeneralConfig(front_end=config)))
     session_manager = object()
     monkeypatch.setattr(worker, "_create_chat_session_manager", AsyncMock(return_value=session_manager))
     monkeypatch.setattr(FastApiFrontEndPluginWorker, "add_routes", AsyncMock())
-    monkeypatch.setattr(plugin, "register_job_routes", AsyncMock())
     monkeypatch.setattr(worker, "_schedule_internal_api_check", lambda: None)
     monkeypatch.setattr(worker, "_install_signal_handlers", lambda: None)
     monkeypatch.setenv("AIQ_ENABLE_DEBUG", "false")
@@ -1432,6 +1431,7 @@ async def test_the_chat_session_manager_has_no_nat_semaphore(monkeypatch):
     create = AsyncMock(return_value=object())
     monkeypatch.setattr(plugin.SessionManager, "create", create)
     monkeypatch.setenv("NAT_CONFIG_FILE", "configs/config_oib_openrouter.yml")
+    monkeypatch.setenv("GRID_ROLE", "chat")
     worker = AIQAPIWorker(Config(general=GeneralConfig(front_end=AIQAPIConfig())))
 
     manager = await worker._create_chat_session_manager(builder=object())

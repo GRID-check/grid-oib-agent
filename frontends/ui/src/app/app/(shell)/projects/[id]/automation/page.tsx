@@ -28,7 +28,7 @@ export async function generateMetadata(): Promise<Metadata> {
  *
  * Tasks is project-scoped (what Piloti did and what it will do: runs plus the
  * standing arrangements behind them, run history joined against the project's
- * Qdrant collection); Skills is the org toolbox reached through the project.
+ * research runs); Skills is the org toolbox reached through the project.
  * The section carries both authorizations separately: `project:skills:manage`
  * gates task mutations, `org:skills:manage` gates skill mutations, and reading
  * either needs only `project:view`.
@@ -88,7 +88,6 @@ export default async function AutomationPage({
     return (
       <AutomationPanel
         projectId={id}
-        projectCollection={project.collectionName}
         canManageOrgSkills={canManageSkills(session)}
         canManageJobs={canManageJobs}
         canChatInProject={canChatInProject}

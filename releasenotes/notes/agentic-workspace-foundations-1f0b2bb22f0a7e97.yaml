@@ -34,9 +34,6 @@ fixes:
     An answer that touches several documents cites several again. A single PDF
     could fill every evidence slot of an answer.
   - >
-    A quote that leaves out or adds a whole word no longer counts as verbatim,
-    so a quote that lost a „nicht“ cannot pass as checked.
-  - >
     When a reference or quote fails the check, Piloti now searches once more for
     the passage and rewrites the answer before it appears. If it still fails,
     the mark stays.
@@ -56,3 +53,7 @@ fixes:
   - >
     An OIB document from an edition other than May 2023 now carries its correct
     edition in the title.
+incident:
+  - >
+    A quote that leaves out or adds a whole word no longer counts as verbatim,
+    so a quote that lost a „nicht“ cannot pass as checked.

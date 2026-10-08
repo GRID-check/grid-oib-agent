@@ -203,7 +203,7 @@ class TestTerminalStickinessUnderRace:
     """Backlog item 6 ratchet: the reaper's FAILURE landing anywhere around the
     runner's SUCCESS write must never be silently flipped — in either order,
     and when the two writes truly race. Separate JobStore instances per writer:
-    in prod these are separate connections (Dask worker vs. web tier)."""
+    in prod these are separate connections (research worker vs. web tier)."""
 
     _REAPER_ERROR = "Job timed out (no heartbeat received from worker)"
 
@@ -281,7 +281,6 @@ class TestTerminalStickinessUnderRace:
 class TestCancellationMonitorStopStatuses:
     def _monitor(self) -> CancellationMonitor:
         return CancellationMonitor(
-            scheduler_address="tcp://localhost:8786",
             db_url="sqlite:///test.db",
             job_id="job-1",
             poll_interval=0.01,

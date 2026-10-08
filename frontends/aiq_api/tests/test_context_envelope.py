@@ -83,14 +83,20 @@ class TestPathMatching:
         assert _path_matches("/v1/data_sources", ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES)
 
     def test_sub_path_match(self):
-        assert _path_matches("/v1/jobs/async/job/abc/stream", ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES)
+        assert _path_matches("/v1/collections/proj_abc/documents", ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES)
 
     def test_unrelated_path_not_prefix_polluted(self):
         # "/v1/collections-admin" must NOT match the "/v1/collections" prefix.
         assert not _path_matches("/v1/collections-admin", ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES)
 
-    def test_job_submit_is_not_covered_by_the_job_reads(self):
+    def test_job_submit_is_not_covered_by_the_agent_listing(self):
         assert not _path_matches("/v1/jobs/async/submit", ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES)
+
+    def test_job_reads_and_controls_authorize_by_themselves(self):
+        # Without an envelope they let a caller reach only its own jobs (ADR-0084),
+        # so a frontend from before it keeps working while a rollout runs both.
+        for path in ("/v1/jobs/async/jobs", "/v1/jobs/async/job/abc", "/v1/jobs/async/job/abc/cancel"):
+            assert _path_matches(path, ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES), path
 
     def test_websocket_has_no_exemption(self):
         assert not _path_matches("/websocket", ENVELOPE_EXEMPT_WEBSOCKET_PATH_PREFIXES)
@@ -117,8 +123,6 @@ class TestExemptPaths:
             "/v1/collections/s_abc/documents",
             "/v1/documents/job-1/status",
             "/v1/data_sources",
-            "/v1/jobs/async/jobs",
-            "/v1/jobs/async/job/job-1/stream",
             "/v1/jobs/async/agents",
             "/v1/drafts/s_abc",
         ],

@@ -519,7 +519,7 @@ describe('readVersionForService — the conversation is part of the predicate', 
     })
   })
 
-  describe('a subject in a folder not every member may read (ADR-0084, ADR-0085)', () => {
+  describe('a subject in a folder not every member may read (ADR-0086, ADR-0087)', () => {
     const RESTRICTED = 'proj_abc_r0123456789ab'
     beforeEach(() => {
       vi.mocked(findConversationInOrg).mockResolvedValue({

@@ -1,5 +1,5 @@
 /**
- * The composer's „Sensible Daten" gate (ADR-0083, "Chat messages are screened
+ * The composer's „Sensible Daten" gate (ADR-0085, "Chat messages are screened
  * too"), through the real composer.
  *
  * A message that matches the office's content terms or detectors is not sent

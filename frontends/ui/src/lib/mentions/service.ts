@@ -393,7 +393,7 @@ async function inviteMentionTarget(
     if (reason === MENTION_ERROR_REASONS.containerAccessRequired) {
       throw containerAccessRefusal(targetId)
     }
-    // Not cleared for a restricted folder the thread drew on (ADR-0084): the
+    // Not cleared for a restricted folder the thread drew on (ADR-0086): the
     // same refusal, told about the person it names, as the container one is.
     if (reason === SHARING_ERROR_REASONS.restrictedContent && error instanceof ApiError) {
       throw new ApiError(error.status, error.code, error.message, { ...asRecord(error.details), targetId })

@@ -413,7 +413,7 @@ async function refreshDuplicate(
   return updated ?? duplicate
 }
 
-/** A note's text as it may be stored, embedded and served: masked (ADR-0083). */
+/** A note's text as it may be stored, embedded and served: masked (ADR-0085). */
 async function maskedNote(organizationId: string, content: string): Promise<string> {
   return (await maskChatText(organizationId, content)).text
 }
@@ -424,7 +424,7 @@ export async function createProjectMemoryItem(
 ): Promise<ProjectMemoryItem> {
   const db = getDb()
   // Masked against the office's „Sensible Daten" policy before anything reads
-  // it (ADR-0083): a note rides every turn's digest and goes to the embedder
+  // it (ADR-0085): a note rides every turn's digest and goes to the embedder
   // below, so it must not hold what the chat composer would have removed. Here
   // rather than at each caller, so the memory panel, the organization route,
   // the agent's `remember` tool and reflection are all masked by construction.
@@ -596,7 +596,7 @@ export async function createProjectMemoryItemForProject(
 export type MemoryOwner =
   | {
       projectId: string
-      /** The project's organization: whose „Sensible Daten" policy masks an edit (ADR-0083). */
+      /** The project's organization: whose „Sensible Daten" policy masks an edit (ADR-0085). */
       organizationId: string
     }
   | { organizationId: string }
