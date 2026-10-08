@@ -1,4 +1,5 @@
 # Architecture Decision Records
+| [0094](0094-permitting-memory-is-derived-from-the-documents-at-ingest.md) | Permitting memory is derived from the documents at ingest, read by meaning | Proposed |
 
 This directory holds the **Architecture Decision Records (ADRs)** for the Grid Agent
 project. An ADR captures a single architecturally significant decision together with
