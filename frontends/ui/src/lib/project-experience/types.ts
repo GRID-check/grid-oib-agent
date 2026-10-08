@@ -45,6 +45,12 @@ export const experienceRequestSchema = z.object({
   projectId: z.string().uuid(),
   /** The project's main collection: the one the backend reads (a restricted folder has its own). */
   collection: text(300),
+  /**
+   * The only files of `collection` the backend may read (`extractableFileNames`):
+   * open to every member now, past the upload screen, active. What it reads becomes
+   * an unrestricted fingerprint and decisions, so the BFF decides, not the backend.
+   */
+  fileNames: z.array(text(512)).min(1),
   vocabulary: experienceVocabularySchema,
   /** Keys a person already confirmed: the pen is not asked for them. */
   knownFacts: z.array(text(100)),

@@ -64,6 +64,7 @@ def _body() -> dict[str, Any]:
         "organizationId": "org_1",
         "projectId": "proj-1",
         "collection": "col-main",
+        "fileNames": ["Baubeschreibung.pdf"],
         "vocabulary": {
             "gebaeudeklasse": {"multiple": False, "options": [{"token": "4", "label": "GK 4"}]},
         },
@@ -110,6 +111,16 @@ async def test_a_request_with_the_wrong_internal_token_is_refused(app) -> None:
 async def test_a_body_without_the_collection_is_a_validation_error(app) -> None:
     body = _body()
     del body["collection"]
+
+    response = await _post(app, body)
+
+    assert response.status_code == 422
+
+
+async def test_a_body_without_the_files_it_may_read_is_a_validation_error(app) -> None:
+    # The BFF names the files every member may open; a body without them reads nothing.
+    body = _body()
+    del body["fileNames"]
 
     response = await _post(app, body)
 

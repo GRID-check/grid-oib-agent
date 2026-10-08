@@ -94,8 +94,13 @@ export interface PermitScope {
   access: LiveFolderAccess
 }
 
-/** A document filed where the reader may be served from: the project root, or a folder the access lists. */
-function servedFrom(visibleFolderIds: readonly string[] | null): SQL {
+/**
+ * A document filed where the reader may be served from: the project root, or a
+ * folder the access lists (`LiveFolderAccess.visibleFolderIds`). Exported for
+ * the closing extraction, which asks it for a reader cleared for no restricted
+ * folder (`project-experience/readable-files.ts`).
+ */
+export function servedFrom(visibleFolderIds: readonly string[] | null): SQL {
   if (visibleFolderIds === null) return sql`true`
   if (visibleFolderIds.length === 0) return isNull(documents.folderId)
   return or(isNull(documents.folderId), inArray(documents.folderId, [...visibleFolderIds])) as SQL

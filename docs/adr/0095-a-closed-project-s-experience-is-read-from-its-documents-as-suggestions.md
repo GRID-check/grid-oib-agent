@@ -62,8 +62,13 @@ it.
   fingerprint values as profile assumptions (`agent_suggested`), never over a
   key a person answered, the quote masked (ADR-0086); decisions as memory rows
   (`distillation`, `source_grounded`) with their evidence (migration 0127).
-* Only the main collection is read: a restricted folder is its own
-  collection, so nothing it holds reaches the profile.
+* Only files every member may open are read, and the BFF names them
+  (`fileNames`): in the main collection, filed where a reader cleared for no
+  restricted folder is served from now (the document's live folder), past the
+  upload screen as a model may read it, and active. The collection alone does
+  not say it: placement moves a document's chunks some time after its folder
+  changes, and a held upload can sit in it. The BFF also drops any evidence
+  naming another file before it writes, whatever the backend answered.
 * It runs while the project is active. An already-closed project is reopened,
   read and closed; the import imports as active, reads, then closes. No
   closed-project rule changes.
@@ -91,7 +96,11 @@ it.
 
 * `tests/aiq_agent/knowledge/test_project_experience.py`: vocabulary, quotes
   found in the read text, evidence from read files only, bounds, fail-open.
-* `src/lib/project-experience/service.spec.ts`: suggestions never over an
+* `src/lib/project-experience/readable-files.integration.spec.ts` (live
+  Postgres): a held upload, a document in a restricted folder whose chunks have
+  not moved, one in the Papierkorb and an archived one are not offered.
+* `src/lib/project-experience/service.spec.ts`: only the named files are
+  sent, evidence from any other is never written, suggestions never over an
   answered key, masked quotes, source-grounded decisions, access refused on a
   closed project.
 * `tests/aiq_agent/common/test_openrouter_call_sites.py` fails a model call

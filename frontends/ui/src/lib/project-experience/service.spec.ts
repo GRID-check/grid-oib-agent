@@ -43,6 +43,12 @@ vi.mock('@/lib/document-roles/repository', () => ({
   deleteBindingsOutsideBauwerke: vi.fn().mockResolvedValue(0),
 }))
 
+// Which files every member may open and a model may read is the SQL's subject
+// (readable-files.integration.spec.ts); here, the names it answered.
+vi.mock('./readable-files', () => ({
+  extractableFileNames: vi.fn(),
+}))
+
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { projectClosedError } from '@/lib/projects/project-status'
 import { createProjectMemoryItemForProject, listProjectMemory } from '@/lib/projects/memory-service'
@@ -52,6 +58,7 @@ import {
   updateProjectProfileIfVersion,
 } from '@/lib/projects/repository'
 import { makeMemoryItem, makeProject } from '@/test-utils/db-fixtures'
+import { extractableFileNames } from './readable-files'
 import { extractProjectExperience } from './service'
 import { experienceRequestSchema, type ExperienceResponse } from './types'
 
@@ -71,6 +78,9 @@ const confirmed = (...keys: string[]) => ({
 })
 
 const evidence = (quote: string, page = '2') => ({ fileName: 'Baubeschreibung.pdf', page, quote })
+
+/** The files every member may open, as `extractableFileNames` answers for the project. */
+const OPEN_FILES = ['Baubeschreibung.pdf', 'Bescheid.pdf']
 
 function backendAnswer(overrides: Partial<ExperienceResponse> = {}): ExperienceResponse {
   return {
@@ -126,6 +136,7 @@ describe('extractProjectExperience', () => {
     vi.mocked(requireProjectAccess).mockResolvedValue(undefined as never)
     vi.mocked(listProjectMemory).mockResolvedValue([])
     vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(makeMemoryItem() as never)
+    vi.mocked(extractableFileNames).mockResolvedValue(OPEN_FILES)
     givenProfile(emptyProfile)
   })
 
@@ -337,5 +348,66 @@ describe('extractProjectExperience', () => {
     expect(result).toEqual({ suggested: 0, drafted: 0, documentsRead: [], error: 'no_documents' })
     expect(updateProjectProfileIfVersion).not.toHaveBeenCalled()
     expect(createProjectMemoryItemForProject).not.toHaveBeenCalled()
+  })
+
+  describe('only from files every member may open (ADR-0089, ADR-0095)', () => {
+    it('names the files the backend may read, asked for the project’s main collection', async () => {
+      answerWith(backendAnswer())
+
+      await extractProjectExperience(session, PROJECT_ID)
+
+      expect(extractableFileNames).toHaveBeenCalledWith('org-1', PROJECT_ID, 'proj_col')
+      expect(sentRequest().fileNames).toEqual(OPEN_FILES)
+    })
+
+    it('asks no backend and writes nothing when no file is open to every member', async () => {
+      vi.mocked(extractableFileNames).mockResolvedValueOnce([])
+
+      const result = await extractProjectExperience(session, PROJECT_ID)
+
+      expect(result).toEqual({ suggested: 0, drafted: 0, documentsRead: [], error: 'no_documents' })
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(updateProjectProfileIfVersion).not.toHaveBeenCalled()
+      expect(createProjectMemoryItemForProject).not.toHaveBeenCalled()
+    })
+
+    it('writes no value or decision from a file it was not allowed to read, whatever the backend answered', async () => {
+      const restricted = { fileName: 'Honorare_vertraulich.pdf', page: '1', quote: 'GK 5' }
+      answerWith(
+        backendAnswer({
+          documentsRead: ['Baubeschreibung.pdf', 'Honorare_vertraulich.pdf'],
+          fingerprint: [
+            { key: 'gebaeudeklasse', value: '5', evidence: [restricted] },
+            { key: 'bundesland', value: 'wien', evidence: [restricted, evidence('Wien')] },
+          ],
+          decisions: [
+            {
+              kind: 'decision',
+              content: 'Honorar der Statikerin pauschal vereinbart.',
+              outcome: 'accepted',
+              evidence: [{ ...restricted, quote: 'pauschal' }],
+            },
+            {
+              kind: 'constraint',
+              content: 'Brandsperre je Geschoß aus 1 mm Stahlblech.',
+              outcome: 'auflage',
+              evidence: [{ ...restricted, quote: 'Brandsperre' }, { fileName: 'Bescheid.pdf', page: '3', quote: 'Brandsperre' }],
+            },
+          ],
+        })
+      )
+
+      const result = await extractProjectExperience(session, PROJECT_ID)
+
+      expect(result).toEqual({ suggested: 1, drafted: 1, documentsRead: ['Baubeschreibung.pdf'], error: null })
+      expect(writtenAssumptions()).toEqual({
+        bundesland: expect.objectContaining({ value: 'wien', reason: 'Baubeschreibung.pdf, S. 2: „Wien"' }),
+      })
+      expect(createProjectMemoryItemForProject).toHaveBeenCalledTimes(1)
+      expect(createProjectMemoryItemForProject).toHaveBeenCalledWith(PROJECT_ID, expect.objectContaining({
+        content: 'Brandsperre je Geschoß aus 1 mm Stahlblech.',
+        evidence: [{ fileName: 'Bescheid.pdf', page: '3' }],
+      }))
+    })
   })
 })

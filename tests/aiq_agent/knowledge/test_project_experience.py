@@ -98,6 +98,7 @@ def _request(**overrides: Any) -> ProjectExperienceRequest:
         "organizationId": "org_1",
         "projectId": "proj-1",
         "collection": "col-main",
+        "fileNames": ["Baubeschreibung.pdf", "Bescheid.pdf", "a.pdf", "b.pdf", "c.pdf"],
         "vocabulary": {key: entry.model_dump() for key, entry in VOCABULARY.items()},
         "knownFacts": [],
         "knownDecisions": [],
@@ -566,3 +567,55 @@ def test_a_quote_the_pdf_broke_across_lines_still_stands_in_the_document():
 def test_a_quote_from_text_the_bound_cut_off_is_not_what_the_pens_read():
     response = _read_one("x" * (MAX_TEXT_CHARS + 10) + " Gebäudeklasse 4", "Gebäudeklasse 4")
     assert response.fingerprint == []
+
+
+# --- only the files the BFF names --------------------------------------------------------------
+
+
+def test_a_file_the_request_does_not_name_is_never_offered_nor_read():
+    # The collection can still hold a document moved into a restricted folder, or one the upload
+    # screen holds: the BFF leaves it out of fileNames, and nothing of it may reach a pen.
+    llm = FakeLLM(
+        {"file_names": ["a.pdf", "Honorare.pdf"]},
+        {"values": [{"key": "gebaeudeklasse", "value": "5", "evidence": [_ev("Honorare.pdf", "GK 5")]}]},
+        {"decisions": []},
+    )
+    fetched: list[str] = []
+
+    def fetch(collection: str, file_name: str):
+        fetched.append(file_name)
+        return {"a.pdf": _pages("Holzbau"), "Honorare.pdf": _pages("GK 5")}.get(file_name)
+
+    response = read_project_experience(
+        _request(fileNames=["a.pdf"]),
+        llm=llm,
+        list_documents=lambda collection: [_doc("a.pdf"), _doc("Honorare.pdf")],
+        fetch_pages=fetch,
+    )
+
+    assert "Honorare.pdf" not in llm.user_prompt(0)
+    assert fetched == ["a.pdf"]
+    assert response.documents_read == ["a.pdf"]
+    assert response.fingerprint == []
+
+
+def test_no_named_file_in_the_collection_is_no_documents_and_asks_no_model():
+    llm = FakeLLM()
+
+    response = read_project_experience(
+        _request(fileNames=["elsewhere.pdf"]),
+        llm=llm,
+        list_documents=lambda collection: [_doc("a.pdf")],
+        fetch_pages=_fetch_from({"a.pdf": _pages("Text")}),
+    )
+
+    assert response.error == "no_documents"
+    assert llm.calls == []
+
+
+def test_a_request_without_file_names_is_refused():
+    body = _request().model_dump(by_alias=True)
+    del body["fileNames"]
+
+    with pytest.raises(ValidationError):
+        ProjectExperienceRequest.model_validate(body)

@@ -12,6 +12,13 @@ was not asked, a token outside the vocabulary, a value or decision without a quo
 that names a file nobody read. A word list or a file-name rule in code would be the same
 judgement made worse, so there is none here.
 
+Only the files the request names are read (``fileNames``). What the pens find becomes a profile
+every member reads and memory rows with no folder restriction, so which files may feed them is the
+BFF's decision, made from the document's live folder and its upload screen
+(``frontends/ui/src/lib/project-experience/readable-files.ts``), not something the collection's
+inventory can answer: a document moved into a restricted folder, or held by the screen, can still
+sit in it. A file the inventory lists and the request does not is never shown to the chooser.
+
 A fault is logged and answered as ``error`` with empty lists; nothing raises to the route.
 """
 
@@ -155,6 +162,9 @@ class ProjectExperienceRequest(_Wire):
     organization_id: str = Field(alias="organizationId")
     project_id: str = Field(alias="projectId")
     collection: str
+    #: The only files of ``collection`` that may be read: open to every member and screened (the BFF's call).
+    #: Required, so a caller that forgets it reads nothing rather than the whole collection.
+    file_names: list[str] = Field(alias="fileNames")
     vocabulary: dict[str, VocabularyEntry] = Field(default_factory=dict)
     known_facts: list[str] = Field(default_factory=list, alias="knownFacts")
     known_decisions: list[Annotated[str, Field(max_length=MAX_KNOWN_DECISION_CHARS)]] = Field(
@@ -419,7 +429,8 @@ def _read(
     fetch_pages: FetchPages,
 ) -> ProjectExperienceResponse:
     model = llm_model_name(llm)
-    inventory = list_documents(request.collection)
+    readable = set(request.file_names)
+    inventory = [document for document in list_documents(request.collection) if document.file_name in readable]
     if not inventory:
         return _failed(ERROR_NO_DOCUMENTS, model=model)
     chosen = choose_documents(inventory, llm)

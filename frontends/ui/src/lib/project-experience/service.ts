@@ -9,6 +9,12 @@
  * which refuses a closed project: the write has to happen while it is active.
  * The BFF checks every value against the vocabulary and drops anything without
  * evidence, so one stray token cannot fail the whole profile patch.
+ *
+ * What it writes is unrestricted (every member reads the profile, and the
+ * memory rows carry no folder restriction), so it may come only from files
+ * every member may open: the BFF names them (`extractableFileNames`), the
+ * backend reads no other, and evidence naming any other file is dropped here
+ * before anything is written, whatever the backend answered.
  */
 
 import 'server-only'
@@ -36,6 +42,7 @@ import {
   type ExperienceVocabularyEntry,
   type ProjectExperienceResult,
 } from './types'
+import { extractableFileNames } from './readable-files'
 import { experienceVocabulary } from './vocabulary'
 
 /**
@@ -47,6 +54,19 @@ import { experienceVocabulary } from './vocabulary'
 const EXTRACTION_TIMEOUT_MS = 90_000
 
 const UNAVAILABLE: ProjectExperienceResult = { suggested: 0, drafted: 0, documentsRead: [], error: 'backend_unavailable' }
+const NO_DOCUMENTS: ProjectExperienceResult = { suggested: 0, drafted: 0, documentsRead: [], error: 'no_documents' }
+
+/**
+ * The items whose evidence names a file the extraction was allowed to read,
+ * each with only that evidence. One left with none is dropped: an
+ * unrestricted suggestion must not rest on a file not every member may open.
+ */
+function readFrom<Item extends { evidence: ExperienceEvidence[] }>(items: Item[], readable: ReadonlySet<string>): Item[] {
+  return items.flatMap((item) => {
+    const evidence = item.evidence.filter((entry) => readable.has(entry.fileName))
+    return evidence.length > 0 ? [{ ...item, evidence }] : []
+  })
+}
 
 /** Keys a person answered, flat or per building: `bauweise@bw1` confirms `bauweise`. */
 function confirmedFactKeys(profile: ProjectProfile): Set<string> {
@@ -201,10 +221,14 @@ export async function extractProjectExperience(
   const profile = salvageProjectProfile(project.profile).profile ?? emptyProjectProfile()
   const knownKeys = confirmedFactKeys(profile)
   const vocabulary = experienceVocabulary()
+  const fileNames = await extractableFileNames(session.organizationId, projectId, project.collectionName)
+  if (fileNames.length === 0) return NO_DOCUMENTS
+  const readable = new Set(fileNames)
   const response = await askBackend({
     organizationId: session.organizationId,
     projectId,
     collection: project.collectionName,
+    fileNames,
     vocabulary,
     knownFacts: [...knownKeys],
     knownDecisions: await knownDecisionsOf(projectId, session.organizationId),
@@ -214,12 +238,13 @@ export async function extractProjectExperience(
 
   const operations = await fingerprintOperations(
     session.organizationId,
-    response.fingerprint,
+    readFrom(response.fingerprint, readable),
     vocabulary,
     knownKeys,
     new Date().toISOString()
   )
   if (operations.length > 0) await patchProjectProfile(session, projectId, operations)
-  const drafted = await writeDecisions(projectId, response.decisions)
-  return { suggested: operations.length, drafted, documentsRead: response.documentsRead, error: null }
+  const drafted = await writeDecisions(projectId, readFrom(response.decisions, readable))
+  const documentsRead = response.documentsRead.filter((name) => readable.has(name))
+  return { suggested: operations.length, drafted, documentsRead, error: null }
 }

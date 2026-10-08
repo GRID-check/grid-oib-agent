@@ -29,9 +29,17 @@ BFF writes ◀──────── fingerprint + decisions, each with eviden
   (migration 0116 trigger) and profile writes. An already-closed project is
   reopened, read, and closed again; the import imports as active, reads, then
   closes. No closed-project rule changes.
-* **Only open folders.** The backend reads the project's main collection. A
-  restricted folder is its own collection (`…_r<hex>`), so nothing a folder
-  restricts reaches the profile, which every member reads.
+* **Only files every member may open.** What the reading finds becomes a
+  profile every member reads and memory rows with no folder restriction, so
+  the BFF names the files it may read (`fileNames`,
+  `lib/project-experience/readable-files.ts`): in the project's main
+  collection, filed where a reader cleared for no restricted folder is served
+  from now (`liveFolderAccess`, the document's live folder), past the upload
+  screen as a model may read it (`SCREENED_ONLY`), active. A restricted folder
+  is its own collection (`…_r<hex>`), but the collection alone is not enough:
+  placement moves a document's chunks some time after its folder changes, and
+  a held upload can sit in it. The backend shows the chooser no other file,
+  and the BFF drops evidence naming one before it writes.
 * **The model decides meaning; code checks facts.** Which documents to read is
   a model's choice from the inventory, never a list of file-name words. Every
   value must be a token of the vocabulary the BFF sent and carry evidence; a
@@ -66,6 +74,7 @@ Request:
   "organizationId": "org_…",
   "projectId": "uuid",
   "collection": "the project's main collection",
+  "fileNames": ["Baubeschreibung.pdf", "Bescheid.pdf"],
   "vocabulary": {
     "bundesland":     { "multiple": false, "options": [{ "token": "niederoesterreich", "label": "Niederösterreich" }] },
     "gebaeudeklasse": { "multiple": false, "options": [{ "token": "4", "label": "GK 4" }] },
@@ -79,7 +88,10 @@ Request:
 }
 ```
 
-`knownFacts` are keys a person already confirmed: the pen is not asked for
+`fileNames` (required, at least one) are the only files of `collection` the
+backend may read; a file the inventory lists and the request does not name is
+never offered to the chooser. With none, the BFF answers `no_documents` without
+asking the backend. `knownFacts` are keys a person already confirmed: the pen is not asked for
 them. `knownDecisions` (at most 60, each at most 300 characters) are the
 project's active decisions and constraints, so the pen drafts only new ones.
 
