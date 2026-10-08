@@ -44,9 +44,11 @@ import { getDictionary } from '@/i18n/dictionaries'
 import { getDb } from '@/lib/db'
 import { AGENT_REFUSAL_LOCALE } from './restricted-egress'
 import {
+  listRecordedSourceFolders,
   listRestrictingSourceProjects,
   lockConversationAudience,
   markAnswerRestrictedUse,
+  projectsOfFolders,
   readConversationAudience,
   recordSourceFolders,
   recordSourceProjects,
@@ -124,11 +126,27 @@ export async function recordCrossProjectHandOut(
 
 /**
  * Whether this conversation drew on another project that still restricts its
- * readers (ADR-0093): an active one, or a folder of one. What a turn reads to
- * know its doors are shut. Content from a project closed now does not count.
+ * readers (ADR-0093): an active one, or a restricted folder of one. What a turn
+ * reads to know its doors are shut. A closed project's open folders do not
+ * count; its restricted folders do, because closing a project leaves them shut
+ * (ADR-0089), and nothing else on the memory path knows a folder of another
+ * project: the agent's restriction evidence is this project's scope.
  */
 export async function drewOnOtherProjects(conversationId: string, organizationId: string): Promise<boolean> {
-  return (await listRestrictingSourceProjects(getDb(), organizationId, conversationId)).length > 0
+  const db = getDb()
+  const [projects, folders] = await Promise.all([
+    listRestrictingSourceProjects(db, organizationId, conversationId),
+    listRecordedSourceFolders(db, organizationId, conversationId),
+  ])
+  if (projects.length > 0) return true
+  if (folders.length === 0) return false
+  const [audience, owners] = await Promise.all([
+    readConversationAudience(db, organizationId, conversationId),
+    projectsOfFolders(db, organizationId, folders),
+  ])
+  // A folder of the conversation's own project is the restricted-use record's
+  // (ADR-0088); any other, a gone one included, is another project's.
+  return folders.some((folderId) => owners.get(folderId) !== audience.projectId)
 }
 
 /**

@@ -57,6 +57,6 @@ export const errors: typeof en.errors = {
     audienceChanged:
       'Wer diese Unterhaltung lesen darf, hat sich gerade geändert, deshalb wurde in anderen Projekten nichts übernommen. Fragen Sie bitte noch einmal.',
     memory:
-      'Diese Unterhaltung stützt sich auf laufende andere Projekte, deshalb wird nichts aus ihr im Projekt- oder Büro-Gedächtnis gespeichert: Dieses Gedächtnis lesen alle im Projekt, auch Personen, die jene Projekte nicht öffnen dürfen. Was aus abgeschlossenen Projekten stammt, darf gespeichert werden.',
+      'Diese Unterhaltung stützt sich auf laufende andere Projekte oder auf Ordner anderer Projekte mit eigener Zugriffsliste, deshalb wird nichts aus ihr im Projekt- oder Büro-Gedächtnis gespeichert: Dieses Gedächtnis lesen alle im Projekt, auch Personen, die jene Projekte oder Ordner nicht öffnen dürfen. Was aus den offenen Ordnern abgeschlossener Projekte stammt, darf gespeichert werden.',
   },
 }

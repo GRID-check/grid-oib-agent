@@ -19,6 +19,7 @@ const ORG = 'org_1'
 const CONV = 's_conv_1'
 const OWNER = 'user_owner'
 const OTHER = '22222222-0000-4000-8000-000000000002'
+const OWN = '11111111-0000-4000-8000-000000000001'
 const HONORARE_ID = 'abcdef01-2345-4678-89ab-cdef01234567'
 const ANSWER = '5a5a5a5a-0000-4000-8000-000000000001'
 
@@ -26,6 +27,8 @@ const state = vi.hoisted(() => ({
   audiences: [] as ConversationAudienceRow[],
   steps: [] as string[],
   recordedProjects: [] as string[],
+  recordedFolders: [] as string[],
+  folderProjects: new Map<string, string>(),
 }))
 
 vi.mock('@/lib/db', () => ({
@@ -49,6 +52,10 @@ vi.mock('./restricted-use-repository', () => ({
     state.steps.push(`mark:${messageId}:${JSON.stringify(tx)}`)
   }),
   listRestrictingSourceProjects: vi.fn(async () => [...state.recordedProjects]),
+  listRecordedSourceFolders: vi.fn(async () => [...state.recordedFolders]),
+  projectsOfFolders: vi.fn(async (_db: unknown, _org: string, ids: readonly string[]) => {
+    return new Map(ids.flatMap((id) => (state.folderProjects.has(id) ? [[id, state.folderProjects.get(id)!] as const] : [])))
+  }),
 }))
 
 import { CrossProjectAudienceChangedError, CrossProjectMemoryError } from '@/lib/api/errors'
@@ -62,6 +69,8 @@ beforeEach(() => {
   state.audiences = [solo]
   state.steps = []
   state.recordedProjects = []
+  state.recordedFolders = []
+  state.folderProjects = new Map()
 })
 
 describe('isSoloAudience', () => {
@@ -168,6 +177,24 @@ describe('requireMayRememberFrom', () => {
     expect(error).toBeInstanceOf(CrossProjectMemoryError)
     expect((error as CrossProjectMemoryError).status).toBe(409)
     expect((error as CrossProjectMemoryError).message).toContain('laufende andere Projekte')
+  })
+
+  it('refuses one that drew on a restricted folder of another project, closed or not (ADR-0089)', async () => {
+    // The project is closed (not restricting), the folder of it still is: the
+    // agent's own restriction evidence only knows this project's folders.
+    state.audiences = [{ ...solo, projectId: OWN }]
+    state.recordedFolders = [HONORARE_ID]
+    state.folderProjects = new Map([[HONORARE_ID, OTHER]])
+
+    await expect(requireMayRememberFrom(CONV, ORG)).rejects.toBeInstanceOf(CrossProjectMemoryError)
+  })
+
+  it('leaves a restricted folder of the conversation’s own project to the restricted-use record', async () => {
+    state.audiences = [{ ...solo, projectId: OWN }]
+    state.recordedFolders = [HONORARE_ID]
+    state.folderProjects = new Map([[HONORARE_ID, OWN]])
+
+    await expect(requireMayRememberFrom(CONV, ORG)).resolves.toBeUndefined()
   })
 
   it('lets every other write through', async () => {

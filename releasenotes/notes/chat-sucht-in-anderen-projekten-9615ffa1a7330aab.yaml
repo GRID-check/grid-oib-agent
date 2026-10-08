@@ -13,5 +13,6 @@ features:
     never shows a colleague something they may not read.
   - >
     Drawing on a closed project changes nothing about your chat. A chat that
-    drew on a running project can be shared only with people who may open it,
-    and nothing from it is saved to project memory.
+    drew on a running project, or on a restricted folder of any other project,
+    can be shared only with people who may open it, and nothing from it is
+    saved to project memory.

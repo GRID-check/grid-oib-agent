@@ -25,7 +25,8 @@
  *     `message_restricted_use` (ADR-0092); one of open content only is not;
  *   - no memory may be written from such a chat;
  *   - a CLOSED project restricts nobody: anyone may read and be shared the
- *     chat, memory may be written; reopened, it restricts again;
+ *     chat, memory may be written; reopened, it restricts again; a restricted
+ *     folder of it still refuses memory;
  *   - the erasure takes both records, and another organization sees neither.
  */
 
@@ -315,6 +316,21 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
       expect(await inOrg(ORG, () => crossUse.drewOnOtherProjects(id, ORG))).toBe(true)
     } finally {
       await setStatus(ids.closed, 'closed')
+    }
+  })
+
+  it('refuses a memory from a chat that drew on a restricted folder of a closed project (ADR-0089)', async () => {
+    const id = await chat()
+    await setStatus(ids.other, 'closed')
+    try {
+      await admit(id, [folderId], ids.other)
+      // The project restricts nobody now; its restricted folder still does,
+      // and the agent's own evidence only knows this project's folders.
+      expect(await inOrg(ORG, () => use.recordedSourceProjects(id, ORG))).toEqual([])
+      expect(await inOrg(ORG, () => crossUse.drewOnOtherProjects(id, ORG))).toBe(true)
+      expect(await reasonOf(inOrg(ORG, () => crossUse.requireMayRememberFrom(id, ORG)))).toBe('CROSS_PROJECT_MEMORY')
+    } finally {
+      await setStatus(ids.other, 'active')
     }
   })
 

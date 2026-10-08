@@ -147,6 +147,10 @@ record decides:
   run, task, profile patch or filing into anything the whole project reads;
 * what may be remembered (`POST /api/internal/memory`, 409
   `CROSS_PROJECT_MEMORY`), and whether card decisions reach the project digest.
+  `drewOnOtherProjects` counts a recorded restricted folder of another project
+  too, closed or not: the agent's restriction evidence for a memory knows only
+  the conversation's own project's folders, so nothing else would keep such a
+  folder's words out of memory every member reads.
 
 A chat that drew only on closed projects' open folders is therefore an
 ordinary chat: shareable with anyone in the office, able to remember, to start
@@ -216,8 +220,8 @@ Every access rule has a test that fails without it (revert-checked):
   records nothing, the memory refusal; `cross-project-use.integration.spec.ts`
   against Postgres: the record, the mark (a restricted folder marks the answer,
   open content does not), the foreign folder judged in its own tree, sharing, a
-  closed project restricting nobody and restricting again once reopened,
-  erasure, RLS.
+  closed project restricting nobody and restricting again once reopened, a
+  restricted folder of a closed project still refusing memory, erasure, RLS.
 * `lib/conversations/restricted-use.spec.ts`, `restricted-egress.spec.ts`: the
   judges and every door.
 * Route specs: `app/api/internal/cross-project/routes.spec.ts`,

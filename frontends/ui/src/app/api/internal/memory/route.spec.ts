@@ -28,6 +28,8 @@ const crossProject = vi.hoisted(() => ({ recorded: new Map<string, string[]>() }
 vi.mock('@/lib/db', () => ({ getDb: () => ({}) }))
 vi.mock('@/lib/conversations/restricted-use-repository', () => ({
   listRestrictingSourceProjects: vi.fn(async (_db: unknown, _org: string, id: string) => crossProject.recorded.get(id) ?? []),
+  // No restricted folder recorded: the folder rule is cross-project-use.spec's.
+  listRecordedSourceFolders: vi.fn(async () => []),
 }))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectTenancy: vi.fn(async () => ({ organizationId: 'org_1', deletedAt: null })),
