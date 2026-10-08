@@ -39,6 +39,15 @@ esac
 : "${WORKOS_AUTHKIT_ISSUER:?set WORKOS_AUTHKIT_ISSUER, e.g. https://<tenant>.authkit.app}"
 : "${WORKOS_AGENT_CLIENT_ID:?set WORKOS_AGENT_CLIENT_ID (the M2M application)}"
 : "${WORKOS_AGENT_CLIENT_SECRET:?set WORKOS_AGENT_CLIENT_SECRET}"
+# The client secret travels in the request body, so an `http://` issuer would
+# send it in cleartext. stdin keeps it out of argv, not off the wire.
+case "$WORKOS_AUTHKIT_ISSUER" in
+  https://*) ;;
+  *)
+    echo "WORKOS_AUTHKIT_ISSUER must start with https:// (got: $WORKOS_AUTHKIT_ISSUER)" >&2
+    exit 2
+    ;;
+esac
 
 # The secret goes in on stdin (`@-`), never as an argument: `headersHelper`
 # runs this on every connection, and argv is readable by anyone who can run
