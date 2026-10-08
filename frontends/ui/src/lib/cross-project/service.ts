@@ -151,12 +151,28 @@ function projectRefOf(project: Project): CrossProjectRef {
   }
 }
 
+/**
+ * The OIB edition a project was planned under: a confirmed fact, else the
+ * agent's suggestion from its documents (unconfirmed), else null. A wizard default
+ * is no evidence and is not read.
+ */
+function oibEditionOf(profile: Project['profile'] | null): CrossProjectListed['oibEdition'] {
+  const fact = profile?.facts?.oib_ausgabe?.value
+  if (typeof fact === 'string' && fact.trim()) return { value: fact.trim(), confirmed: true }
+  const suggestion = profile?.assumptions?.oib_ausgabe
+  if (suggestion?.source === 'agent_suggested' && typeof suggestion.value === 'string' && suggestion.value.trim()) {
+    return { value: suggestion.value.trim(), confirmed: false }
+  }
+  return null
+}
+
 function listed(project: Project, currentProjectId: string | null): CrossProjectListed {
   return {
     ...projectRefOf(project),
     collection: project.collectionName,
     address: projectAddressOf(project),
     period: projectPeriodOf(project),
+    oibEdition: oibEditionOf(project.profile),
     current: project.id === currentProjectId,
   }
 }

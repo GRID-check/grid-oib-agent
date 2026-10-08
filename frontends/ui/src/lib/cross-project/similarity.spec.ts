@@ -12,7 +12,7 @@ import { SIMILARITY_WEIGHTS, bundeslandOf, rankBySimilarity, sharedTraits, simil
 
 type Profile = Project['profile']
 
-function profile(facts: Record<string, unknown>): Profile {
+function profile(facts: Record<string, unknown>, assumptions: Profile['assumptions'] = {}): Profile {
   return {
     facts: Object.fromEntries(
       Object.entries(facts).map(([key, value]) => [
@@ -22,8 +22,13 @@ function profile(facts: Record<string, unknown>): Profile {
     ),
     goals: {},
     unknowns: [],
-    assumptions: {},
+    assumptions,
   }
+}
+
+/** An unconfirmed assumption as the document extractor (`agent_suggested`) or the onboarding (`onboarding_default`) writes it. */
+function assumption(value: unknown, source: 'agent_suggested' | 'onboarding_default' = 'agent_suggested'): Profile['assumptions'][string] {
+  return { value: value as string, status: 'unconfirmed', reason: 'Aus den Unterlagen', source, updatedAt: '' }
 }
 
 const here = similarityFacts(
@@ -141,6 +146,53 @@ describe('similarity', () => {
   it('is 0 when either side knows nothing', () => {
     expect(similarity(similarityFacts(profile({})), here)).toBe(0)
     expect(similarity(here, similarityFacts(null as unknown as Profile))).toBe(0)
+  })
+})
+
+describe('suggestions from the documents', () => {
+  it('ranks a project by a suggested Gebäudeklasse when no fact says it', () => {
+    const suggested = profile({}, { gebaeudeklasse: assumption('4') })
+
+    expect(similarityFacts(suggested).gebaeudeklasse).toEqual([4])
+    expect(similarity(here, similarityFacts(suggested))).toBe(SIMILARITY_WEIGHTS.gebaeudeklasse)
+    const ranked = rankBySimilarity(profile({ gebaeudeklasse: 4 }), [
+      { id: 'no-facts', profile: profile({}) },
+      { id: 'suggested', profile: suggested },
+    ])
+    expect(ranked.map((project) => project.id)).toEqual(['suggested', 'no-facts'])
+  })
+
+  it('lets a confirmed fact beat a conflicting suggestion, on every key it holds', () => {
+    const both = profile({ gebaeudeklasse: 2, bundesland: 'steiermark' }, { gebaeudeklasse: assumption('4'), bundesland: assumption('niederoesterreich') })
+
+    expect(similarityFacts(both)).toMatchObject({ bundesland: 'steiermark', gebaeudeklasse: [2] })
+    // The suggestion would have matched `here` on Land and class; the fact matches on neither.
+    expect(similarity(here, similarityFacts(both))).toBe(0)
+  })
+
+  it('does not let a suggestion overrule a confirmed „offen"', () => {
+    expect(similarityFacts(profile({ gebaeudeklasse: 'offen' }, { gebaeudeklasse: assumption('4') })).gebaeudeklasse).toEqual([])
+  })
+
+  it('ignores an onboarding default: a wizard guess is no evidence', () => {
+    const defaulted = profile(
+      {},
+      {
+        gebaeudeklasse: assumption('4', 'onboarding_default'),
+        nutzungen: assumption(['wohnen'], 'onboarding_default'),
+        bundesland: assumption('niederoesterreich', 'onboarding_default'),
+      }
+    )
+
+    expect(similarityFacts(defaulted)).toMatchObject({ bundesland: null, gebaeudeklasse: [], nutzungen: [] })
+    expect(similarity(here, similarityFacts(defaulted))).toBe(0)
+  })
+
+  it('ranks by a suggested Land, but the wire still names only a confirmed one', () => {
+    const suggestedLand = profile({}, { bundesland: assumption('niederoesterreich') })
+
+    expect(similarity(here, similarityFacts(suggestedLand))).toBe(SIMILARITY_WEIGHTS.bundesland)
+    expect(bundeslandOf(suggestedLand)).toBeNull()
   })
 })
 

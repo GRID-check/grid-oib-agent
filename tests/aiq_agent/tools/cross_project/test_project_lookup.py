@@ -63,6 +63,22 @@ def _hit(filename: str, collection: str = OTHER_COLLECTION, **extra: Any) -> dic
     }
 
 
+def _listed_project(**extra: Any) -> dict[str, Any]:
+    """One project as the BFF's ``CrossProjectListed`` answers it, every field the schema requires."""
+    return {
+        "id": OTHER,
+        "name": "Wohnbau Graz",
+        "status": "closed",
+        "bundesland": "steiermark",
+        "collection": OTHER_COLLECTION,
+        "address": None,
+        "period": {"start": "2019-03-01", "end": "2021-06-30"},
+        "oibEdition": None,
+        "current": False,
+        **extra,
+    }
+
+
 SEARCH_BODY = {
     "decisions": [],
     "permits": [],
@@ -597,23 +613,17 @@ class TestFindAndBrief:
             "collection": "proj_own",
             "address": None,
             "period": {"start": "2026-01-01", "end": None},
+            "oibEdition": None,
             "current": True,
         }
-        other = {
-            "id": OTHER,
-            "name": "Wohnbau Graz",
-            "status": "closed",
-            "bundesland": "steiermark",
-            "collection": OTHER_COLLECTION,
-            "address": "Hauptstraße 3, Graz",
-            "period": {"start": "2019-03-01", "end": "2021-06-30"},
-            "current": False,
-        }
+        other = _listed_project(address="Hauptstraße 3, Graz")
         _answering(monkeypatch, calls, {"projects": [own, other], "total": 2})
 
         result = await lookup.run_project_lookup("find", query="Graz")
 
-        assert "- Wohnbau Graz — abgeschlossen · 2019-03-01 bis 2021-06-30 · Hauptstraße 3, Graz (project_id" in result
+        assert (
+            "- Wohnbau Graz — abgeschlossen · 2019-03-01 bis 2021-06-30 · Steiermark · Hauptstraße 3, Graz (project_id"
+        ) in result
         assert "das Projekt dieses Chats" in result
         assert turn.admitted == {OTHER_COLLECTION}
         # A closed project: every office member reads it, so naming it shuts nothing.
@@ -628,6 +638,7 @@ class TestFindAndBrief:
             "collection": OTHER_COLLECTION,
             "address": None,
             "period": {"start": "2026-01-01", "end": None},
+            "oibEdition": None,
             "current": False,
         }
         _answering(monkeypatch, calls, {"projects": [running], "total": 1})
@@ -646,6 +657,7 @@ class TestFindAndBrief:
             "collection": "proj_own",
             "address": None,
             "period": {"start": "2026-01-01", "end": None},
+            "oibEdition": None,
             "current": True,
         }
         _answering(monkeypatch, calls, {"project": own, "summary": "Ein Schulbau.", "facts": "confirmed:\n- x=y"})
@@ -654,6 +666,67 @@ class TestFindAndBrief:
 
         assert "Zusammenfassung: Ein Schulbau." in result
         assert not turn.drew_on_others
+
+    async def test_find_prints_each_projects_land_after_its_period_and_names_one_that_is_not_this_chats(
+        self, monkeypatch, calls, turn, schema
+    ) -> None:
+        """The Land is printed; one other than this chat's project's carries the Bauordnung warning of `_land_note`."""
+        monkeypatch.setattr(
+            project_context, "get_signed_request_context", lambda: type("Context", (), {"bundesland": "wien"})()
+        )
+        graz = _listed_project()
+        unknown = _listed_project(
+            id="33333333-0000-4000-8000-000000000003", name="Lagerhalle", bundesland=None, collection="proj_33"
+        )
+        body = {"projects": [graz, unknown], "total": 2}
+        _answering(monkeypatch, calls, body)
+
+        result = await lookup.run_project_lookup("find")
+
+        _validator(schema, "CrossProjectListResponse").validate(body)
+        assert (
+            "- Wohnbau Graz — abgeschlossen · 2019-03-01 bis 2021-06-30 · "
+            "Steiermark — nicht das Bundesland dieses Projekts: dort gilt eine andere Bauordnung (project_id"
+        ) in result
+        assert "- Lagerhalle — abgeschlossen · 2019-03-01 bis 2021-06-30 (project_id" in result
+
+    @pytest.mark.parametrize(
+        ("edition", "printed"),
+        [
+            ({"value": "2019", "confirmed": True}, "· geplant nach OIB-Richtlinien 2019 (project_id"),
+            (
+                {"value": "2015", "confirmed": False},
+                "· geplant nach OIB-Richtlinien 2015 (aus den Unterlagen, unbestätigt) (project_id",
+            ),
+        ],
+    )
+    async def test_brief_says_the_oib_edition_and_marks_one_only_suggested_by_the_documents(
+        self, monkeypatch, calls, turn, schema, edition, printed
+    ) -> None:
+        body = {"project": _listed_project(oibEdition=edition), "summary": None, "facts": "confirmed:\n- x=y"}
+        _answering(monkeypatch, calls, body)
+
+        result = await lookup.run_project_lookup("brief", project_id=OTHER)
+
+        _validator(schema, "CrossProjectBriefResponse").validate(body)
+        assert printed in result
+        assert ("unbestätigt" in result) is (not edition["confirmed"])
+
+    async def test_an_absent_oib_edition_prints_nothing_on_find_or_brief(
+        self, monkeypatch, calls, turn, schema
+    ) -> None:
+        found = {"projects": [_listed_project(oibEdition=None)], "total": 1}
+        _answering(monkeypatch, calls, found)
+        listing = await lookup.run_project_lookup("find")
+        brief = {"project": _listed_project(oibEdition=None), "summary": None, "facts": ""}
+        _answering(monkeypatch, calls, brief)
+        read = await lookup.run_project_lookup("brief", project_id=OTHER)
+
+        _validator(schema, "CrossProjectListResponse").validate(found)
+        _validator(schema, "CrossProjectBriefResponse").validate(brief)
+        assert "OIB" not in listing
+        assert "OIB" not in read
+        assert "Keine bestätigten Eckdaten." in read
 
 
 class TestTheWire:

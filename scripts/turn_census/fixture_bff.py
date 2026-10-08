@@ -204,6 +204,12 @@ class FixtureOffice:
             "collection": project["collection"],
             "address": project.get("facts", {}).get("standort_adresse"),
             "period": {"start": project.get("startedOn") or "2013-01-01", "end": project.get("endedOn")},
+            # The BFF's oibEdition: a confirmed fact, else no edition (the fixture holds no agent suggestion).
+            "oibEdition": (
+                {"value": str(project["facts"]["oib_ausgabe"]), "confirmed": True}
+                if (project.get("facts") or {}).get("oib_ausgabe")
+                else None
+            ),
             "current": project["id"] == self.current["id"],
         }
 

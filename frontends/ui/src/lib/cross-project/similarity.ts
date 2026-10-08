@@ -4,7 +4,9 @@
  * told about at the start of a turn, and the order a `similar` search walks.
  *
  * Read off the confirmed profile facts in the shape the intake wizard stores
- * them: a building's answers carry its instance (`bauweise@bw1`), and a project
+ * them (where a key has no fact, off the suggestion read from the project's
+ * documents, `docs/design/closed-project-experience.md`): a building's
+ * answers carry its instance (`bauweise@bw1`), and a project
  * of several buildings is read as all of them, so a GK 4 timber house with a
  * masonry annex resembles both a timber and a masonry project. Weighted by what decides whether a past
  * solution carries over: the Bundesland outweighs any single trait (it decides
@@ -30,6 +32,12 @@ export interface SimilarityFacts {
 
 type Profile = Pick<Project, 'profile'>['profile']
 
+/** A stored value as the list the ranking reads: a multi-select's entries, a single value as one, nothing for null. */
+function valuesOf(value: unknown): unknown[] {
+  if (value === null || value === undefined) return []
+  return Array.isArray(value) ? (value as unknown[]) : [value]
+}
+
 /**
  * Every stored value of a fact: the project-wide key and each building's copy
  * (`bauweise@bw1`), multi-selects flattened, in key order. A use zone's copy
@@ -43,11 +51,22 @@ function factValues(profile: Profile | null, key: string): unknown[] {
       return base === key && zone === undefined
     })
     .sort()
-    .flatMap((name) => {
-      const value: unknown = facts[name]?.value
-      if (value === null || value === undefined) return []
-      return Array.isArray(value) ? (value as unknown[]) : [value]
-    })
+    .flatMap((name) => valuesOf(facts[name]?.value))
+}
+
+/**
+ * What the ranking reads for one fingerprint key: its confirmed facts when they
+ * hold any value, else the agent's suggestion from the project's documents (an
+ * unconfirmed assumption with source `agent_suggested`). A wizard default
+ * (`onboarding_default`) is no evidence and is never read. A confirmed fact
+ * wins even where it says „offen": the person decided, and a suggestion does not
+ * overrule that.
+ */
+function readKey(profile: Profile | null, key: string): unknown[] {
+  const confirmed = factValues(profile, key)
+  if (confirmed.length > 0) return confirmed
+  const suggestion = profile?.assumptions?.[key]
+  return suggestion?.source === 'agent_suggested' ? valuesOf(suggestion.value) : []
 }
 
 /**
@@ -75,7 +94,7 @@ export function bundeslandOf(profile: Profile | null): string | null {
 
 /** The Land the ranking compares: a site abroad has none, so two such projects share no jurisdiction. */
 function land(profile: Profile | null): string | null {
-  const found = bundeslandOf(profile)
+  const found = tokens(readKey(profile, 'bundesland'))[0] ?? null
   return found === ABROAD ? null : found
 }
 
@@ -99,20 +118,23 @@ function overlap(a: readonly string[], b: readonly string[]): string[] {
   return a.filter((entry) => b.includes(entry))
 }
 
-/** The facts of one profile the ranking reads; missing or malformed facts read as unknown. */
+/**
+ * The facts of one profile the ranking reads; missing or malformed facts read
+ * as unknown, and a suggestion stands in where no fact does.
+ */
 export function similarityFacts(profile: Profile | null): SimilarityFacts {
   return {
     bundesland: land(profile),
     gebaeudeklasse: [
       ...new Set(
-        factValues(profile, 'gebaeudeklasse')
+        readKey(profile, 'gebaeudeklasse')
           .map(gebaeudeklasse)
           .filter((value): value is number => value !== null)
       ),
     ].sort((a, b) => a - b),
-    bauweise: tokens(factValues(profile, 'bauweise')),
-    nutzungen: tokens(factValues(profile, 'nutzungen')),
-    vorhabensart: tokens(factValues(profile, 'vorhabensart')),
+    bauweise: tokens(readKey(profile, 'bauweise')),
+    nutzungen: tokens(readKey(profile, 'nutzungen')),
+    vorhabensart: tokens(readKey(profile, 'vorhabensart')),
   }
 }
 

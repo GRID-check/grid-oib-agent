@@ -747,6 +747,29 @@
                 ],
                 "additionalProperties": true
               },
+              "oibEdition": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "confirmed": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "confirmed"
+                    ],
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "current": {
                 "type": "boolean"
               }
@@ -759,6 +782,7 @@
               "collection",
               "address",
               "period",
+              "oibEdition",
               "current"
             ],
             "additionalProperties": true
@@ -863,6 +887,29 @@
               ],
               "additionalProperties": true
             },
+            "oibEdition": {
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    },
+                    "confirmed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "confirmed"
+                  ],
+                  "additionalProperties": true
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "current": {
               "type": "boolean"
             }
@@ -875,6 +922,7 @@
             "collection",
             "address",
             "period",
+            "oibEdition",
             "current"
           ],
           "additionalProperties": true
