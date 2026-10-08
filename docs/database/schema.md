@@ -864,7 +864,7 @@ one event. A deployment with the audit log off sends and marks nothing.
 | `id` | `uuid` | PK, `gen_random_uuid()` | The event's idempotency key, `document.quarantined:<id>` |
 | `organization_id` | `text` | NOT NULL | RLS: `organization_id = grid_current_org()` |
 | `document_id` | `uuid` | NOT NULL | No FK: a reviewer may delete the file before the decision reaches the trail |
-| `job_id` | `text` | UNIQUE with `document_id` (`document_quarantine_decisions_dispatch_key`) | The ingest job whose gate decided: one dispatch, one decision. NULL only when the row carried no job (the backend's file list said quarantined) |
+| `job_id` | `text` | UNIQUE with `document_id` (`document_quarantine_decisions_dispatch_key`) | The ingest job whose gate decided: one dispatch, one decision. NULL only when the row carried no job (the backend's file list said quarantined). A row that carries a job takes a failure only from that job, never from the file list, whose failed entry under the name may be an earlier dispatch's (`attributableFailure`, `lib/documents/reconcile-status.ts`) |
 | `decided_at` | `timestamptz` | NOT NULL, `now()` | The event's `occurredAt` |
 | `scope` | `text` | NOT NULL, CHECK `project`/`archiv`/`session` | |
 | `project_id` | `uuid` | | CHECK `(scope = 'project') = (project_id IS NOT NULL)` |

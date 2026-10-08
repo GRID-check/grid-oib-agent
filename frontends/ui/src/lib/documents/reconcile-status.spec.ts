@@ -1003,6 +1003,18 @@ describe('describeBackendIngestState', () => {
     expect(knowledge).toEqual({ state: 'terminal', resolution: { status: 'completed', errorMessage: null } })
   })
 
+  it("reports absent, not an earlier dispatch's failure, when the backend forgot the job", async () => {
+    // The persisted terminal would be the earlier job's verdict, recorded as
+    // this dispatch's; nothing the backend knows of is this dispatch.
+    routeBackend({}, [{ file_name: 'plan.pdf', status: 'failed', error_message: 'quarantined:{}' }])
+
+    expect(await describeBackendIngestState(makeRow({ status: 'processing' }))).toEqual({ state: 'absent' })
+    expect(await describeBackendIngestState(makeRow({ status: 'processing', metadata: null }))).toEqual({
+      state: 'terminal',
+      resolution: expect.objectContaining({ status: 'quarantined' }),
+    })
+  })
+
   it('reports in-progress when a file under this name is mid-flight', async () => {
     routeBackend({}, [{ file_name: 'plan.pdf', status: 'pending' }])
 
@@ -1106,16 +1118,34 @@ describe('reconcileDocumentStatuses — upload screening', () => {
     expect(completed.insert).not.toHaveBeenCalled()
   })
 
-  it('quarantines from the collection file list when the job is forgotten', async () => {
+  it('quarantines a row that carries no job from the collection file list, a decision of no dispatch', async () => {
+    const db = makeDbMock()
+    mockFetch.mockResolvedValue(
+      collectionResponse([{ file_name: 'plan.pdf', status: 'failed', error_message: verdict }])
+    )
+
+    const [result] = await reconcileDocumentStatuses([makeRow({ metadata: null })], 'org-1')
+
+    expect(result.status).toBe('quarantined')
+    expect(db.set).toHaveBeenCalledWith(expect.objectContaining({ status: 'quarantined' }))
+    expect(db.values).toHaveBeenCalledWith(expect.objectContaining({ jobId: null }))
+  })
+
+  // The backend lists the first failed entry of a name it still tracks, so a
+  // released file's old quarantine is what the list says while the new
+  // dispatch's job is forgotten. Adopting it put the file back in quarantine
+  // and recorded job-2 as having quarantined it.
+  it('takes no failure from the file list for a row whose job the backend forgot', async () => {
     const db = makeDbMock()
     mockFetch
       .mockResolvedValueOnce(batchResponse({}))
       .mockResolvedValue(collectionResponse([{ file_name: 'plan.pdf', status: 'failed', error_message: verdict }]))
 
-    const [result] = await reconcileDocumentStatuses([makeRow()], 'org-1')
+    const [result] = await reconcileDocumentStatuses([makeRow({ metadata: { ingestJobId: 'job-2' } })], 'org-1')
 
-    expect(result.status).toBe('quarantined')
-    expect(db.set).toHaveBeenCalledWith(expect.objectContaining({ status: 'quarantined' }))
+    expect(result.status).toBe('pending')
+    expect(db.update).not.toHaveBeenCalled()
+    expect(db.insert).not.toHaveBeenCalled()
   })
 
   it.each(['clean', 'partial', 'unchecked'])('records the outcome %s of a completed, screened job', async (screening) => {
