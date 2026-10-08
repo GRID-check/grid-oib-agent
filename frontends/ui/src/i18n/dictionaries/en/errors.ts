@@ -51,5 +51,7 @@ export const errors = {
       'This conversation draws on a folder with restricted access, so it cannot change the project context: the project context is visible to everyone in the project, including people not cleared for that folder.',
     filing:
       'This conversation draws on a folder with restricted access, so nothing from it can be filed there: that place is visible to people not cleared for the restricted folder. Filing works only into a folder restricted at least as narrowly.',
+    planDocument:
+      'A document you named sits in a folder with restricted access, so it cannot be handed to a research run: a run’s documents and its report are visible to everyone in the project, including people not cleared for that folder.',
   },
 }
