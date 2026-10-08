@@ -1384,10 +1384,10 @@ export const platform = {
     rowDocuments: '{count, plural, one {{formatted} document} other {{formatted} documents}}',
     rowOver: 'Quota reached, uploads refused',
     rowNear: 'Almost full',
-    edit: 'Edit quota for {org}',
-    save: 'Save quota',
+    edit: 'Edit limits for {org}',
+    save: 'Save',
     cancel: 'Cancel',
-    saved: 'Quota updated.',
+    saved: 'Limits updated.',
     saveError: 'Could not update the quota.',
     belowUsage: 'That quota is below what the organization already stores. Free space first.',
     invalidQuota: 'Enter a quota in GB above zero, or leave the field empty for no limit.',
@@ -1396,7 +1396,21 @@ export const platform = {
     truncated: 'Showing the first 1000 organizations. Ask for a fleet report if you need the rest.',
     loadError: 'Could not load storage usage.',
     empty: 'No organization has stored anything yet.',
-    hint: 'Leave the field empty to remove the limit. A quota below current usage is refused, since it would leave the organization no way to fix it.',
+    hint: 'Leave the quota empty to remove the limit. A quota below current usage is refused, since it would leave the organization no way to fix it.',
+    columnUploadLimit: 'Max. file size',
+    /** An organization without its own upload limit; `size` is the deployment default. */
+    uploadLimitDefault: 'Default ({size})',
+    /** Narrow layout, under the usage figure. */
+    uploadLimitShort: 'max. {size} per file',
+    quotaFor: 'Quota for {org}, in GB',
+    uploadLimitFor: 'Max. file size for {org}, in MB',
+    uploadLimitUnit: 'MB',
+    uploadLimitPlaceholder: 'Default',
+    invalidUploadLimit:
+      'Enter a file size in MB from 1 to {max}, or leave the field empty for the default.',
+    uploadLimitSaveError: 'Could not update the max. file size.',
+    uploadLimitHint:
+      'Max. file size applies to each file except IFC models, which have their own limit. Empty means the default of {default}. At most {max}: larger requests are cut off before they reach Piloti, whatever the organization is allowed.',
   },
 
 }

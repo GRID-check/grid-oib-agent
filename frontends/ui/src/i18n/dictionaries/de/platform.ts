@@ -1383,10 +1383,10 @@ export const platform: typeof en.platform = {
     rowDocuments: '{count, plural, one {{formatted} Dokument} other {{formatted} Dokumente}}',
     rowOver: 'Kontingent erreicht, Uploads abgelehnt',
     rowNear: 'Fast voll',
-    edit: 'Kontingent für {org} bearbeiten',
-    save: 'Kontingent speichern',
+    edit: 'Limits für {org} bearbeiten',
+    save: 'Speichern',
     cancel: 'Abbrechen',
-    saved: 'Kontingent aktualisiert.',
+    saved: 'Limits aktualisiert.',
     saveError: 'Kontingent konnte nicht aktualisiert werden.',
     belowUsage:
       'Dieses Kontingent liegt unter dem bereits belegten Speicher. Geben Sie zuerst Platz frei.',
@@ -1398,7 +1398,21 @@ export const platform: typeof en.platform = {
       'Es werden die ersten 1000 Organisationen angezeigt. Für den Rest bitte einen Flottenbericht anfordern.',
     loadError: 'Speichernutzung konnte nicht geladen werden.',
     empty: 'Noch keine Organisation hat Daten gespeichert.',
-    hint: 'Feld leer lassen, um das Limit zu entfernen. Ein Kontingent unter der aktuellen Belegung wird abgelehnt, weil die Organisation es sonst nicht beheben könnte.',
+    hint: 'Kontingent leer lassen, um das Limit zu entfernen. Ein Kontingent unter der aktuellen Belegung wird abgelehnt, weil die Organisation es sonst nicht beheben könnte.',
+    columnUploadLimit: 'Max. Dateigröße',
+    /** Organisation ohne eigene Obergrenze; `size` ist der Standard des Deployments. */
+    uploadLimitDefault: 'Standard ({size})',
+    /** Schmale Ansicht, unter der Belegung. */
+    uploadLimitShort: 'max. {size} je Datei',
+    quotaFor: 'Kontingent für {org} in GB',
+    uploadLimitFor: 'Max. Dateigröße für {org} in MB',
+    uploadLimitUnit: 'MB',
+    uploadLimitPlaceholder: 'Standard',
+    invalidUploadLimit:
+      'Geben Sie eine Dateigröße in MB von 1 bis {max} ein oder lassen Sie das Feld leer für den Standard.',
+    uploadLimitSaveError: 'Die maximale Dateigröße konnte nicht aktualisiert werden.',
+    uploadLimitHint:
+      'Die max. Dateigröße gilt je Datei, außer für IFC-Modelle mit eigener Grenze. Leer bedeutet den Standard von {default}. Höchstens {max}: Größere Anfragen werden abgeschnitten, bevor sie Piloti erreichen, unabhängig vom Wert der Organisation.',
   },
 
 }
