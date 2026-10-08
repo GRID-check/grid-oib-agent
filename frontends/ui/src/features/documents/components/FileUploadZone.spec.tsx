@@ -26,8 +26,8 @@ vi.mock('@/shared/context', () => ({
       acceptedTypes: '.pdf,.docx,.txt,.md',
       acceptedMimeTypes: ['application/pdf', 'text/plain', 'text/markdown'],
       maxTotalSizeMB: 100,
-      maxFileSize: 100 * 1024 * 1024,
-      maxTotalSize: 100 * 1024 * 1024,
+      maxFileSize: 100 * 1e6,
+      maxTotalSize: 100 * 1e6,
       maxFileCount: 10,
     },
   }),
@@ -36,7 +36,7 @@ vi.mock('@/shared/context', () => ({
 // Mock the constants
 vi.mock('../', () => ({
   ACCEPTED_FILE_TYPES: '.pdf,.docx,.txt',
-  MAX_FILE_SIZE: 10 * 1024 * 1024, // 10 MB
+  MAX_FILE_SIZE: 10 * 1e6, // 10 MB, decimal like the server
 }))
 
 describe('FileUploadZone', () => {
@@ -52,7 +52,7 @@ describe('FileUploadZone', () => {
       render(<FileUploadZone onUpload={mockOnUpload} />)
 
       // Should show file size limit
-      expect(screen.getByText('Up to 10 MB')).toBeInTheDocument()
+      expect(screen.getByText('Up to 10 MB per file')).toBeInTheDocument()
     })
 
     test('shows accepted file types', () => {
@@ -65,11 +65,11 @@ describe('FileUploadZone', () => {
       render(
         <FileUploadZone
           onUpload={mockOnUpload}
-          maxFileSize={5 * 1024 * 1024}
+          maxFileSize={5 * 1e6}
         />
       )
 
-      expect(screen.getByText('Up to 5 MB')).toBeInTheDocument()
+      expect(screen.getByText('Up to 5 MB per file')).toBeInTheDocument()
     })
 
     test('uses custom accepted types', () => {

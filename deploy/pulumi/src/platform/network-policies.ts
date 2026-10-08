@@ -297,6 +297,25 @@ export function installNetworkPolicies(
       })
     : undefined;
 
+  // 11b. frontend (the BFF) → Langfuse web public API. The BFF writes every
+  //      answer-feedback vote as a score on its trace (ADR-0044, Amendment 3)
+  //      through `LANGFUSE_HOST`, the in-cluster Service: the public host sits
+  //      behind the edge's OIDC gate, which a server-side call cannot pass.
+  //      Named by caller, like the collector, and the frontend is the only one
+  //      of the app pods that holds the keys.
+  const frontendToLangfuse = cfg.langfuse.enabled
+    ? mk("allow-frontend-to-langfuse", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": LANGFUSE_WEB } },
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } }],
+            ports: [{ protocol: "TCP", port: PORT.langfuseWeb }],
+          },
+        ],
+      })
+    : undefined;
+
   // 12. Langfuse web + worker → ClickHouse, on both interfaces: HTTP 8123 for
   //     queries and native 9000 for the schema migrator. Nothing else in the
   //     deployment speaks to ClickHouse, and it holds the trace store in
@@ -401,6 +420,7 @@ export function installNetworkPolicies(
     ...(collectorToErr2Issue ? [collectorToErr2Issue] : []),
     ...(edgeLangfuse ? [edgeLangfuse] : []),
     ...(collectorToLangfuse ? [collectorToLangfuse] : []),
+    ...(frontendToLangfuse ? [frontendToLangfuse] : []),
     ...(langfuseToClickhouse ? [langfuseToClickhouse] : []),
     ...(gotenberg ? [gotenberg] : []),
   ];

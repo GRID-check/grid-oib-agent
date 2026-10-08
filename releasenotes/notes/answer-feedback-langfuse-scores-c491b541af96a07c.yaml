@@ -1,0 +1,17 @@
+---
+operators:
+  - >
+    Every vote on an answer is now also a user-feedback score on that answer's
+    trace in Langfuse, with its reason and comment, and the Platform feedback
+    view links each rated turn to its trace. A weak answer can now be read next
+    to its retrieval, prompt and cost.
+  - >
+    The Platform feedback view now names organizations, pairs each answer with
+    its own question, and keeps coverage at or below 100 percent. Its counts,
+    trend and window agree, and its export carries the comment and is no longer
+    cut at 50 rows.
+security:
+  - >
+    The Platform feedback export now neutralises cells a spreadsheet would run
+    as a formula. Comments and answers are user and model text, and one starting
+    with an equals sign became a live formula.
