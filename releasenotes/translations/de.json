@@ -1,5 +1,9 @@
 [
   {
+    "en": "A CSV or text file exported from Excel on Windows previews with its €, „ “ and – again.",
+    "de": "Eine unter Windows aus Excel exportierte CSV- oder Textdatei zeigt in der Vorschau €, „ “ und – wieder richtig an."
+  },
+  {
     "en": "A Freigabe ausstehend filter sits beside Unvergeben and Von Piloti and combines with both.",
     "de": "Der Filter „Freigabe ausstehend“ steht neben „Unvergeben“ und „Von Piloti“ und lässt sich mit beiden kombinieren."
   },
@@ -58,6 +62,10 @@
   {
     "en": "A chat answer that is still running no longer loses its connection when the browser tab is in the background or the phone signal is weak for a moment.",
     "de": "Eine noch laufende Chat-Antwort bricht nicht mehr ab, wenn der Browser-Tab im Hintergrund ist oder das Mobilfunksignal kurz schwächelt."
+  },
+  {
+    "en": "A chat whose answers drew on a folder not everyone may read can be shared only with colleagues who may read that folder too, and Piloti will not file a draft or diagram from it where others could open it.",
+    "de": "Ein Chat, dessen Antworten aus einem Ordner schöpfen, den nicht alle lesen dürfen, lässt sich nur mit Kolleginnen und Kollegen teilen, die diesen Ordner ebenfalls lesen dürfen, und Piloti legt Entwürfe oder Diagramme daraus nirgends ab, wo andere sie öffnen könnten."
   },
   {
     "en": "A chat whose deletion failed because a service was briefly unavailable is now deleted automatically once the service is back, instead of staying hidden until someone deleted it again.",
@@ -130,6 +138,10 @@
   {
     "en": "A document can now be moved to another folder with Move to folder in its ⋯ menu. Each destination is listed by its full path, and All Files takes it out of every folder.",
     "de": "Ein Dokument lässt sich jetzt über „In Ordner verschieben“ im ⋯-Menü in einen anderen Ordner legen. Jedes Ziel steht mit seinem vollständigen Pfad da, und „Alle Dateien“ nimmt es aus jedem Ordner heraus."
+  },
+  {
+    "en": "A document from a folder not everyone may read cannot be added to a research run. The list marks it, and Piloti says why if you try.",
+    "de": "Ein Dokument aus einem Ordner, den nicht alle lesen dürfen, lässt sich keinem Rechercheauftrag hinzufügen. Die Liste kennzeichnet es, und Piloti sagt beim Versuch, warum."
   },
   {
     "en": "A document stuck on \"processing\" after an ingestion job was lost can now be retried from its menu instead of deleted and re-uploaded. The retry keeps the document, so sources, chat references and assignments survive, and it refuses while ingestion is genuinely still running.",
@@ -222,6 +234,10 @@
   {
     "en": "A finished task that filed no document and opened no chat now opens the report of its run, and a failed one its reasoning.",
     "de": "Eine fertige Aufgabe, die kein Dokument abgelegt und keinen Chat eröffnet hat, öffnet jetzt den Bericht ihres Laufs, eine fehlgeschlagene ihren Gedankengang."
+  },
+  {
+    "en": "A folder holding subfolders you cannot read can only be moved by an organization admin, and a demoted admin stops reaching every folder within a minute. Review requests go only to people who may read the folder, and the projects overview counts only the documents you may read.",
+    "de": "Einen Ordner mit Unterordnern, die Sie nicht lesen dürfen, kann nur ein Organisations-Admin verschieben, und wer kein Admin mehr ist, erreicht binnen einer Minute nicht mehr jeden Ordner. Prüfanfragen gehen nur an Personen, die den Ordner lesen dürfen, und die Projektübersicht zählt nur die Dokumente, die Sie lesen dürfen."
   },
   {
     "en": "A follow-up like \"kürze Punkt 3\" changes that document in place instead of producing a second version of it, so the conversation keeps working on one draft rather than on a growing pile of near-copies.",
@@ -420,6 +436,10 @@
     "de": "Ein in Kleinbuchstaben eingegebener Norm- oder Produktcode findet jetzt auch Dokumente, in denen er in Großbuchstaben geschrieben ist. Fragen zu einem bestimmten Code liefern daher unabhängig von der Schreibweise dieselben Quellen."
   },
   {
+    "en": "A subfolder can only narrow what its parent allows, and someone who may only read a folder sees it marked „Nur lesen“, without upload, rename, move or delete. Only a project admin who may edit a folder can change who may read or edit it.",
+    "de": "Ein Unterordner kann nur einschränken, was sein übergeordneter Ordner erlaubt, und wer einen Ordner nur lesen darf, sieht ihn als „Nur lesen“ markiert, ohne Hochladen, Umbenennen, Verschieben oder Löschen. Nur ein Projekt-Admin, der einen Ordner bearbeiten darf, kann ändern, wer ihn lesen oder bearbeiten darf."
+  },
+  {
     "en": "A task Piloti starts in a conversation, and a connection message, now appear in that conversation even if you have opened another one in the meantime.",
     "de": "Ein Auftrag, den Piloti in einer Unterhaltung startet, und eine Verbindungsmeldung erscheinen jetzt in dieser Unterhaltung, auch wenn Sie inzwischen eine andere geöffnet haben."
   },
@@ -462,6 +482,10 @@
   {
     "en": "Adding a comment to an answer you already marked as unhelpful now gives Piloti a second chance to learn from it — the extra detail is exactly what a bare thumbs-down was missing.",
     "de": "Wenn Sie eine bereits als nicht hilfreich markierte Antwort kommentieren, erhält Piloti nun eine zweite Chance, daraus zu lernen – die zusätzlichen Details fehlten bei einem bloßen Daumen nach unten."
+  },
+  {
+    "en": "Adding a document to a running research run from the run's list of documents now works; until now the run never received it.",
+    "de": "Eine Unterlage aus der Liste eines laufenden Rechercheauftrags hinzuzufügen funktioniert jetzt; bisher kam sie beim Auftrag nie an."
   },
   {
     "en": "Administrators can invite colleagues to a project again. Invitations failed for some administrator roles.",
@@ -724,6 +748,10 @@
     "de": "BMP- und TIFF-Bilder zeigen wieder eine Vorschau, statt zu melden, es sei keine verfügbar."
   },
   {
+    "en": "Before an upload starts, you see which files that list holds back and why, and those files never leave your computer. A single file, such as a Bauvertrag in a folder called „Verträge“, can be released with one tick.",
+    "de": "Bevor ein Upload beginnt, sehen Sie, welche Dateien diese Liste zurückhält und warum, und diese Dateien verlassen Ihren Computer nie. Eine einzelne Datei, etwa ein Bauvertrag in einem Ordner namens „Verträge“, lässt sich mit einem Häkchen freigeben."
+  },
+  {
     "en": "Before uploading, Piloti tells you how many documents are new, changed or unchanged, and you decide with a tick whether changed ones are updated. Unchanged files are skipped.",
     "de": "Vor dem Hochladen sagt Piloti, wie viele Dokumente neu, geändert oder unverändert sind, und Sie entscheiden mit einem Häkchen, ob geänderte aktualisiert werden. Unveränderte Dateien werden übersprungen."
   },
@@ -942,6 +970,10 @@
   {
     "en": "Drawings never carry a measurement. A Schnitt, a Treppe, a Fluchtweg or ein Abstand still comes back as one of the fifteen technical schematics, where Piloti supplies the values and the drawing is computed from them, so the picture cannot disagree with its own numbers.",
     "de": "Zeichnungen enthalten niemals Maßangaben. Ein Schnitt, eine Treppe, ein Fluchtweg oder ein Abstand wird weiterhin als eines der fünfzehn technischen Schemata zurückgegeben. Dabei liefert Piloti die Werte und berechnet daraus die Zeichnung, sodass die Darstellung ihren eigenen Zahlen nicht widersprechen kann."
+  },
+  {
+    "en": "Dropping a folder no longer uploads .DS_Store, Thumbs.db or Office lock files (~$Vertrag.docx) with it.",
+    "de": "Wer einen Ordner hineinzieht, lädt .DS_Store, Thumbs.db oder Office-Sperrdateien (~$Vertrag.docx) nicht mehr mit hoch."
   },
   {
     "en": "Dropping files on any other project page, such as Einstellungen, now opens Dateien and uploads them there, where the browser used to open the file in place of Piloti.",
@@ -1490,6 +1522,10 @@
   {
     "en": "Piloti now answers as a colleague in the planning office rather than as a compliance checker, so summarising a plan or sorting drawings no longer ends in a verdict. It helps you apply a rule and does not replace the Entwurfsverfasser or the Behörde.",
     "de": "Piloti antwortet jetzt wie eine Kollegin im Planungsbüro statt wie eine Prüfstelle: Wer einen Plan zusammenfassen oder Zeichnungen ordnen lässt, bekommt kein Urteil mehr. Piloti hilft, eine Regel anzuwenden, und ersetzt weder den Entwurfsverfasser noch die Behörde."
+  },
+  {
+    "en": "Piloti now checks the text of every upload on its own server before any language model sees it. A file that matches waits in quarantine until an office or project admin releases or deletes it under Organisation → Quarantäne.",
+    "de": "Piloti prüft jetzt den Text jedes Uploads auf dem eigenen Server, bevor ein Sprachmodell ihn sieht. Eine Datei mit Treffer wartet in Quarantäne, bis ein Admin des Büros oder des Projekts sie unter Organisation → Quarantäne freigibt oder löscht."
   },
   {
     "en": "Piloti now chooses its source by the question rather than by a fixed order, so a question about the Bauordnung goes where the Bauordnung is. Every value it states still comes from a passage it read in that answer.",
@@ -2372,6 +2408,10 @@
     "de": "Nennt eine Antwort eine Datei beim Namen, etwa „Beginnen Sie mit pd8280-2.pdf“, ist der Name jetzt ein Link, der das Dokument neben der Antwort öffnet, im Fließtext wie in Tabellen."
   },
   {
+    "en": "When everything an upload brought in has been read, your inbox tells you, with a summary of what arrived, where it was filed, what each file is, and what was held back or failed. Project settings list every upload with its outcome and who uploaded it.",
+    "de": "Sobald alles gelesen ist, was ein Upload gebracht hat, meldet es Ihr Postfach – mit einer Zusammenfassung, was angekommen ist, wo es abgelegt wurde, was jede Datei ist und was zurückgehalten wurde oder fehlgeschlagen ist. Die Projekteinstellungen listen jeden Upload mit seinem Ergebnis und der Person, die ihn hochgeladen hat."
+  },
+  {
     "en": "When something fails, the error message now carries a short reference for support that you can copy with one click.",
     "de": "Schlägt etwas fehl, nennt die Fehlermeldung jetzt eine kurze Referenz für den Support, die sich mit einem Klick kopieren lässt."
   },
@@ -2414,6 +2454,10 @@
   {
     "en": "When you send a new question while Piloti is still answering the previous one, the earlier answer is now stopped completely before the new one starts, so the two can no longer mix in one conversation. In the rare case that the earlier answer does not stop within a few seconds, Piloti says it is still finishing and asks you to send the question again.",
     "de": "Wenn Sie eine neue Frage senden, während Piloti noch die vorherige beantwortet, wird die frühere Antwort vollständig beendet, bevor die neue beginnt. So können sich die beiden nicht mehr in einer Unterhaltung vermischen. Falls die frühere Antwort ausnahmsweise nicht innerhalb weniger Sekunden stoppt, teilt Piloti Ihnen mit, dass sie noch abgeschlossen wird, und bittet Sie, die Frage erneut zu senden."
+  },
+  {
+    "en": "When your office checks chat messages for sensitive data, Piloti now says plainly that a dictated message is first transcribed by an external speech model; only the text is checked before it is sent.",
+    "de": "Wenn Ihr Büro Chatnachrichten auf sensible Daten prüft, sagt Piloti jetzt klar, dass eine diktierte Nachricht zuerst von einem externen Spracherkennungsmodell transkribiert wird; geprüft wird nur der Text, bevor er gesendet wird."
   },
   {
     "en": "Whether Piloti may file the documents it writes into a project is now a permission of its own, File agent-authored documents. Members without it can still upload, rename and delete their own files.",
@@ -2478,6 +2522,18 @@
   {
     "en": "You can preview the report as a PDF before you download it, in a panel you can drag as wide as you need. What you see is the document you get.",
     "de": "Sie können den Bericht vor dem Herunterladen als PDF in der Vorschau ansehen – in einem Bereich, den Sie beliebig breit ziehen können. Was Sie sehen, ist das Dokument, das Sie erhalten."
+  },
+  {
+    "en": "Your office can now build its own roles in Piloti, under Organisation → Personen & Zugriff → Eigene Rollen, and decide per project folder which roles may read it and which may edit it. A role not on a folder's list does not see the folder, its files or what Piloti finds in them, and organization admins may read and edit everything.",
+    "de": "Ihr Büro kann jetzt unter Organisation → Personen & Zugriff → Eigene Rollen eigene Rollen in Piloti anlegen und je Projektordner festlegen, welche Rollen ihn lesen und welche ihn bearbeiten dürfen. Eine Rolle, die nicht auf der Liste eines Ordners steht, sieht weder den Ordner noch seine Dateien noch das, was Piloti darin findet, und Organisations-Admins dürfen alles lesen und bearbeiten."
+  },
+  {
+    "en": "Your office now decides what must not be uploaded, under Organisation → Sensible Daten: terms for file and folder names, terms for the content, and checks for IBANs, Austrian social security numbers and card numbers. Piloti starts you on a suggested list you can keep, change or switch off.",
+    "de": "Ihr Büro legt jetzt unter Organisation → Sensible Daten fest, was nicht hochgeladen werden darf: Begriffe für Datei- und Ordnernamen, Begriffe für den Inhalt sowie Prüfungen auf IBANs, österreichische Sozialversicherungsnummern und Kartennummern. Piloti beginnt mit einer vorgeschlagenen Liste, die Sie übernehmen, ändern oder abschalten können."
+  },
+  {
+    "en": "Your office's content terms and number checks now also cover what you type into the chat: before a message with an IBAN or a listed term goes out, Piloti shows what it found and sends it only masked, or lets you edit it first.",
+    "de": "Die Inhaltsbegriffe und Nummernprüfungen Ihres Büros gelten jetzt auch für das, was Sie in den Chat schreiben: Bevor eine Nachricht mit einer IBAN oder einem gelisteten Begriff hinausgeht, zeigt Piloti, was es gefunden hat, und sendet sie nur maskiert – oder Sie bearbeiten sie zuerst."
   },
   {
     "en": "Your organization can now give Piloti standing instructions under Organisation, Anweisungen, such as result first, then reasons, or assume Vienna when no province is named. They apply to every question from everyone in the office.",

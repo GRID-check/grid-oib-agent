@@ -25,6 +25,11 @@
  *
  * Replica-safe: a re-point is guarded on the collection it read, so two sweeps
  * (or a sweep and a person restricting a folder) move a document once.
+ *
+ * What runs here is the purge and the re-point, the part that keeps a
+ * restricted document out of the open collection. The re-read of what it moved
+ * is the project's `placement_reingest` job (bulk, on the `bff-jobs` pool),
+ * which placement queues once per project; the sweep dispatches no ingest.
  */
 
 import 'server-only'

@@ -143,6 +143,8 @@ const OPAQUE_STATUS_WRITES: Readonly<Record<string, string>> = {
   // Reads, not writes: a drizzle SELECT projection naming the column.
   'src/lib/documents/repository.ts: documents.status': 'a SELECT projection, not a write',
   'src/lib/session-documents/repository.ts: documents.status': 'a SELECT projection, not a write',
+  'src/lib/documents/placement-repository.ts: documents.status':
+    "a SELECT and RETURNING projection, not a write; its one write is the literal 'processing'",
   // The reconciler's own plumbing: an HTTP status, a backend file state, and
   // its resolution being handed on. None of them reaches the column except
   // through the repository entry above.
@@ -384,10 +386,6 @@ const PASS_THROUGH_TABLE_WRITERS = [
   // authorship, so the scan has nothing to find in it — and the day it writes
   // either, this list is what has to be revisited rather than quietly widened.
   'src/lib/projects/folder-service.ts',
-  // Re-points a document at the collection its folder puts it in (ADR-0086):
-  // it writes `collection_name` and `updated_at` and nothing else; the status
-  // that follows is the re-ingest's, authored in `src/lib/documents`.
-  'src/lib/projects/collection-placement.ts',
 ]
 
 function everySourceFile(dir: string, found: string[] = []): string[] {

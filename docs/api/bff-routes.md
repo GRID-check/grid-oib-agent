@@ -30,6 +30,17 @@ against the folders' current access; `lib/conversations/restricted-egress.ts`):
 Filing is allowed only into a living folder whose path carries every folder
 the conversation recorded.
 
+**A run's Unterlagen** are refused the same way, with `details.action`
+`planDocument`, whichever conversation they come from: `POST /api/projects/{id}/runs`
+and `POST /api/internal/tasks` (`op: research`) when `documents` names one on
+either list, and `POST /api/projects/{id}/runs/{runId}/documents`. A document
+counts when any project document by that file name, archived ones included,
+sits in a folder not every member may read; an Archiv entry is not checked
+(`requirePlanDocumentsOpen`). The name and title would otherwise reach every
+member through the run's plan, its job stream and the report's „Nicht gelesene
+Unterlagen" (ADR-0084). Refused before a run row exists or the backend hears of
+the document.
+
 ## Writes in a read-only folder (ADR-0087)
 
 Every route that writes in a folder (upload, new folder, rename, move, delete,
@@ -352,6 +363,7 @@ Source: `frontends/ui/src/app/api/v1/[...path]/route.ts`
 | `GET` | `/api/jobs/async/job/{job_id}/stream` | Varies | SSE stream from beginning. Proxies to `GET /v1/jobs/async/job/{id}/stream`. Supports `?token=` for EventSource auth fallback. | — | SSE stream (`text/event-stream`) |
 | `GET` | `/api/jobs/async/job/{job_id}/stream/{last_event_id}` | Varies | SSE stream reconnection from event ID. | — | SSE stream |
 | `POST` | `/api/jobs/async/job/{job_id}/cancel` | Varies | Cancel a running job. Proxies to `POST /v1/jobs/async/job/{id}/cancel`. | — | `{ job_id, status }` |
+| `POST` | `/api/jobs/async/job/{job_id}/documents` | — | **Not served**: `404` before any upstream request, matched on the normalized upstream path. A document reaches a running run only through `POST /api/projects/{id}/runs/{runId}/documents` (`addRunDocument`, ADR-0055), which checks it against the project's restricted folders; forwarded from here it would reach the backend with a signed project and no such check. `cancel` and `write-now` are still forwarded. | — | `{ error: { code: 'NOT_FOUND', message } }` |
 | `DELETE` | `/api/jobs/async/job/{job_id}/cancel` | Varies | Same as POST cancel. | — | `{ job_id, status }` |
 | `POST` | `/api/platform/maintenance/kill-runs` | Platform owner (`platform:settings:manage`) | The kill switch on Platform → Maintenance: interrupts every queued or running deep research in every organization (`lib/runs/kill-all.ts`). Calls `POST /v1/internal/jobs/kill-active` first; only when the job store confirms does it close every `task_runs` row still `queued`/`running` as `interrupted` through `recordRunOutcome` (`onlyIfActive`, so a row the backend's own report closed is not closed twice). The requester gets the usual inbox notice. Not audited to WorkOS (no schema yet); the server log names who pressed it. | — | `{ jobsFound, jobsKilled, jobsAlreadyFinished, runsClosed, failures: [{ id, error }], truncated }` (500 when the job store did not confirm; then no run was closed) |
 | `GET` | `/api/jobs/async/job/{job_id}/state` | Varies | Get job artifacts (tool calls, outputs, sources). Proxies to `GET /v1/jobs/async/job/{id}/state`. | — | `{ job_id, has_state, artifacts }` |

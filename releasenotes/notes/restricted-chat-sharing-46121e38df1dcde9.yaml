@@ -1,0 +1,13 @@
+---
+features:
+  - >
+    A chat whose answers drew on a folder not everyone may read can be shared
+    only with colleagues who may read that folder too, and Piloti will not file
+    a draft or diagram from it where others could open it.
+  - >
+    A document from a folder not everyone may read cannot be added to a research
+    run. The list marks it, and Piloti says why if you try.
+fixes:
+  - >
+    Adding a document to a running research run from the run's list of documents
+    now works; until now the run never received it.
