@@ -10,16 +10,17 @@ export const MAIL_ARCHIVE_EXTENSIONS = ['.pst', '.ost'] as const
  * One upload part. The browser sends the archive in parts of exactly this size
  * (the last one shorter), each a request the BFF writes through to S3 as one
  * multipart part. 32 MiB keeps a part well under the request-body ceiling and
- * a twenty-gigabyte archive at 640 parts, far from S3's 10,000.
+ * a 25 GB archive at about 750 parts, far from S3's 10,000.
  */
 export const MAIL_IMPORT_PART_BYTES = 32 * 1024 * 1024
 
 /** S3 allows at most this many parts in one multipart upload. */
 export const MAX_MULTIPART_PARTS = 10_000
 
-const DEFAULT_MAX_ARCHIVE_BYTES = 25 * 1024 ** 3
+/** Decimal, like every size the product shows (`formatBytes`): 25 GB reads as 25 GB. */
+const DEFAULT_MAX_ARCHIVE_BYTES = 25e9
 
-/** The largest archive an import takes (`GRID_MAIL_IMPORT_MAX_BYTES`, default 25 GiB). */
+/** The largest archive an import takes (`GRID_MAIL_IMPORT_MAX_BYTES`, default 25 GB). */
 export function maxArchiveBytes(env: Record<string, string | undefined> = process.env): number {
   const parsed = Number.parseInt(env.GRID_MAIL_IMPORT_MAX_BYTES ?? '', 10)
   const value = Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_ARCHIVE_BYTES

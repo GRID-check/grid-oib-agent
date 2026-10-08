@@ -62,6 +62,7 @@ export type MailImportPatch = Partial<
     | 'stagingDeletedAt'
     | 'rootFolderId'
     | 'totalItems'
+    | 'errorCode'
     | 'lastError'
     | 'completedAt'
     | 'inflightPosition'

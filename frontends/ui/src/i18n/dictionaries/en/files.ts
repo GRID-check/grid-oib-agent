@@ -519,6 +519,68 @@ export const files = {
     // is what went wrong, which is a different thing to retry.
     applyError: 'This folder could not be uploaded completely. Check the list and try again.',
   },
+  /**
+   * The Outlook archive import (ADR-0085): a .pst or .ost sent in parts, then
+   * filed by a background job, one folder per mail.
+   */
+  mailImport: {
+    action: 'Import Outlook archive',
+    title: 'Import an Outlook archive',
+    description:
+      'Choose a .pst or .ost file. Each email becomes a folder under “E-Mail-Import” with its attachments and a note holding its text and headers.',
+    privacy:
+      'An archive holds the correspondence of everyone who wrote to this mailbox. Import what the project needs, not a whole mailbox.',
+    choose: 'Choose archive…',
+    maxSize: 'Up to {size}.',
+    notAnArchive: '“{name}” is not an Outlook archive (.pst or .ost).',
+    tooLarge: '“{name}” is larger than {size}.',
+    start: 'Import',
+    sending: 'Sending {sent} of {total}…',
+    sendingHint: 'Keep this tab open until the archive is sent. Filing then runs in the background.',
+    sendError: 'The archive could not be sent: {reason}',
+    resume: 'Continue sending',
+    resumeHint: 'Choose “{name}” again to continue where sending stopped.',
+    resumeMismatch: 'That is not the same file. Choose “{name}” ({size}).',
+    cancel: 'Cancel',
+    cancelError: 'The import could not be cancelled.',
+    close: 'Close',
+    history: 'Imports in this project',
+    empty: 'No archive has been imported into this project yet.',
+    loadError: 'The imports could not be loaded.',
+    openFolder: 'Open folder',
+    startedBy: 'Started by {email}',
+    progress: '{done} of {total} items',
+    filed: '{mails, plural, one {# email} other {# emails}}, {files, plural, one {# attachment} other {# attachments}}',
+    skipped: '{count, plural, one {# skipped} other {# skipped}}',
+    skippedItem: '{file} in {mail}: {reason}',
+    skippedMail: '{mail}: {reason}',
+    status: {
+      uploading: 'Sending',
+      queued: 'Waiting',
+      importing: 'Importing',
+      completed: 'Imported',
+      failed: 'Failed',
+      cancelled: 'Cancelled',
+    },
+    errors: {
+      unreadable: 'This file could not be read as an Outlook archive. Export it again from Outlook as a .pst file.',
+      quota: 'The organization’s storage is full. What was imported until then stays.',
+      access: 'The person who started the import may no longer add documents to this project.',
+      requester_left: 'The person who started the import is no longer a member of the organization.',
+      stopped: 'The import stopped after repeated errors.',
+      stalled: 'The import stopped without finishing.',
+      upload_expired: 'The archive was not sent completely within two days.',
+    },
+    reasons: {
+      not_mail: 'not an email',
+      inline: 'picture in the text',
+      embedded_message: 'attached email',
+      type: 'file type not accepted',
+      size: 'too large',
+      quota: 'storage full',
+      unreadable: 'unreadable',
+    },
+  },
   upload: {
     uploading: 'Uploading…',
     upload: 'Upload',

@@ -15,6 +15,16 @@ export type MailImportSkipReason =
   | 'quota'
   | 'unreadable'
 
+/** Why an import ended without filing everything (migration 0108 holds the list). */
+export type MailImportErrorCode =
+  | 'unreadable'
+  | 'quota'
+  | 'access'
+  | 'requester_left'
+  | 'stopped'
+  | 'stalled'
+  | 'upload_expired'
+
 export interface MailImportSkippedSample {
   /** The mail's folder name (`<date time> – <sender>`), or the item's class for a non-mail. */
   mail: string
@@ -54,6 +64,7 @@ export const mailImports = pgTable(
     itemsSkipped: integer('items_skipped').notNull().default(0),
     filesSkipped: integer('files_skipped').notNull().default(0),
     skippedSamples: jsonb('skipped_samples').$type<MailImportSkippedSample[]>().notNull().default([]),
+    errorCode: text('error_code').$type<MailImportErrorCode>(),
     lastError: text('last_error'),
     createdAt: timestamp('created_at', { withTimezone: true, precision: 3 }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

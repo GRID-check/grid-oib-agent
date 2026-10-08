@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod'
-import type { MailImportSkippedSample, MailImportStatus } from '@/lib/db/schema/mail-imports'
+import type { MailImportErrorCode, MailImportSkippedSample, MailImportStatus } from '@/lib/db/schema/mail-imports'
 
 export const startMailImportSchema = z.object({
   filename: z.string().trim().min(1).max(255),
@@ -31,6 +31,9 @@ export interface MailImportView {
   itemsSkipped: number
   filesSkipped: number
   skippedSamples: MailImportSkippedSample[]
+  /** Why it ended without filing everything; the dialog words it. */
+  errorCode: MailImportErrorCode | null
+  /** The technical detail, shown only where the code alone says too little (`stopped`). */
   error: string | null
   createdAt: string
   completedAt: string | null

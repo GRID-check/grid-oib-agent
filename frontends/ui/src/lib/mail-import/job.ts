@@ -19,7 +19,7 @@
 
 import 'server-only'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { MailImport, MailImportSkippedSample, MailImportStatus } from '@/lib/db/schema'
+import type { MailImport, MailImportErrorCode, MailImportSkippedSample, MailImportStatus } from '@/lib/db/schema'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { requireShelfWrite } from '@/lib/documents/shelf-authz'
 import { projectShelf } from '@/lib/documents/shelf'
@@ -44,7 +44,20 @@ import { discardStaging } from './service'
 import { archiveUrlForBackend } from './staging'
 
 /** A reason no retry changes; the import ends `failed` with it. */
-class PermanentImportFailure extends Error {}
+class PermanentImportFailure extends Error {
+  constructor(
+    readonly code: MailImportErrorCode,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+/** Why an import failed: a code the UI words, and the detail for whoever debugs it. */
+interface Failure {
+  code: MailImportErrorCode
+  detail: string
+}
 
 const OPEN: MailImportStatus[] = ['queued', 'importing']
 
@@ -62,16 +75,19 @@ export async function runMailImportSlice(
   const row = await repository.findMailImport(organizationId, payload.projectId, payload.importId)
   if (!row || !OPEN.includes(row.status)) return done
   if (!session) {
-    await finish(row, 'failed', 'The person who started the import is no longer a member of the organization.')
+    await finish(row, 'failed', {
+      code: 'requester_left',
+      detail: 'The person who started the import is no longer a member of the organization.',
+    })
     return done
   }
   try {
     const finished = await fileUntilBudget(session, row)
     return finished ? done : { done: false, payload }
   } catch (error) {
-    const reason = failureReason(error)
-    if (!reason && !attempt.last) throw error
-    await finish(row, 'failed', reason ?? `The import stopped after repeated errors: ${messageOf(error)}`)
+    const failure = failureOf(error)
+    if (!failure && !attempt.last) throw error
+    await finish(row, 'failed', failure ?? { code: 'stopped', detail: `Repeated errors: ${messageOf(error)}` })
     return done
   }
 }
@@ -106,7 +122,10 @@ async function startSlice(session: AuthorizedSession, initial: MailImport): Prom
   try {
     await requireShelfWrite(session, projectShelf(running.projectId))
   } catch {
-    throw new PermanentImportFailure('The person who started the import may no longer add documents to this project.')
+    throw new PermanentImportFailure(
+      'access',
+      'The person who started the import may no longer add documents to this project.',
+    )
   }
   const archiveFolderId = await ensureArchiveFolder(session, running)
   const archive: ArchiveRef = {
@@ -170,11 +189,12 @@ async function fileItem(context: FilingContext, item: ArchiveItem): Promise<bool
 }
 
 /** End the import, delete its staging, and tell the person. A second ending is a no-op. */
-async function finish(row: MailImport, status: 'completed' | 'failed', error: string | null): Promise<void> {
+async function finish(row: MailImport, status: 'completed' | 'failed', failure: Failure | null): Promise<void> {
   const ended = await repository.updateMailImport(row.organizationId, row.id, OPEN, {
     status,
     completedAt: new Date(),
-    lastError: error?.slice(0, 1000) ?? null,
+    errorCode: failure?.code ?? null,
+    lastError: failure?.detail.slice(0, 1000) ?? null,
     inflightPosition: null,
     inflightFolderId: null,
   })
@@ -211,10 +231,10 @@ async function announce(row: MailImport): Promise<void> {
   }
 }
 
-function failureReason(error: unknown): string | null {
-  if (error instanceof UnreadableArchiveError) return `${error.message}. Is it an Outlook data file (.pst or .ost)?`
-  if (error instanceof MailImportQuotaError) return 'The organization’s storage quota is full; the rest of the archive was not filed.'
-  if (error instanceof PermanentImportFailure) return error.message
+function failureOf(error: unknown): Failure | null {
+  if (error instanceof UnreadableArchiveError) return { code: 'unreadable', detail: error.message }
+  if (error instanceof MailImportQuotaError) return { code: 'quota', detail: error.message }
+  if (error instanceof PermanentImportFailure) return { code: error.code, detail: error.message }
   return null
 }
 
@@ -266,6 +286,7 @@ async function settleStale(row: MailImport): Promise<'aborted' | 'failed' | 'wai
     const ended = await repository.updateMailImport(row.organizationId, row.id, ['uploading'], {
       status: 'cancelled',
       completedAt: new Date(),
+      errorCode: 'upload_expired',
       lastError: 'The archive was not sent completely within two days.',
     })
     if (ended) await discardStaging(ended)
@@ -273,6 +294,6 @@ async function settleStale(row: MailImport): Promise<'aborted' | 'failed' | 'wai
   }
   const job = await findOpenJobId({ kind: 'mail_import', organizationId: row.organizationId, matching: { importId: row.id } })
   if (job) return 'waiting'
-  await finish(row, 'failed', 'The import job stopped without finishing.')
+  await finish(row, 'failed', { code: 'stalled', detail: 'The import job stopped without finishing.' })
   return 'failed'
 }

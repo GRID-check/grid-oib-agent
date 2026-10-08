@@ -61,6 +61,9 @@ CREATE TABLE IF NOT EXISTS "mail_imports" (
   -- A bounded sample of what was skipped and why, for the notification and the
   -- status view. The counts above are exact; this is for a person to read.
   "skipped_samples" jsonb DEFAULT '[]'::jsonb NOT NULL,
+  -- Why an import ended without filing everything, as a code the UI words in
+  -- the reader's language; `last_error` is the detail, for whoever debugs it.
+  "error_code" text,
   "last_error" text,
   "created_at" timestamp(3) with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -80,7 +83,13 @@ CREATE TABLE IF NOT EXISTS "mail_imports" (
   -- An import that ended says when, and only an ended one does.
   CONSTRAINT "mail_imports_completed_at"
     CHECK (("status" IN ('completed', 'failed', 'cancelled')) = ("completed_at" IS NOT NULL)),
-  CONSTRAINT "mail_imports_error_length" CHECK ("last_error" IS NULL OR char_length("last_error") <= 1000)
+  CONSTRAINT "mail_imports_error_length" CHECK ("last_error" IS NULL OR char_length("last_error") <= 1000),
+  CONSTRAINT "mail_imports_error_code"
+    CHECK ("error_code" IS NULL OR "error_code" IN
+      ('unreadable', 'quota', 'access', 'requester_left', 'stopped', 'stalled', 'upload_expired')),
+  -- Only an import that failed, or a send that expired, carries a reason.
+  CONSTRAINT "mail_imports_error_code_ended"
+    CHECK ("error_code" IS NULL OR "status" IN ('failed', 'cancelled'))
 );
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "mail_imports_org_project_created_idx"

@@ -72,6 +72,7 @@ function row(overrides: Partial<MailImport> = {}): MailImport {
     itemsSkipped: 0,
     filesSkipped: 0,
     skippedSamples: [],
+    errorCode: null,
     lastError: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -158,7 +159,7 @@ describe('runMailImportSlice', () => {
 
     expect((await runMailImportSlice(session, payload, { last: false }, 'org_1')).done).toBe(true)
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
-      status: 'failed', lastError: expect.stringMatching(/could not be read/),
+      status: 'failed', errorCode: 'unreadable', lastError: expect.stringMatching(/could not be read/),
     }))
     expect(emitInboxItems).toHaveBeenCalledWith([expect.objectContaining({ type: 'mail_import.failed' })])
   })
@@ -170,7 +171,7 @@ describe('runMailImportSlice', () => {
 
     await runMailImportSlice(session, payload, { last: false }, 'org_1')
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
-      status: 'failed', lastError: expect.stringMatching(/quota/),
+      status: 'failed', errorCode: 'quota',
     }))
   })
 
@@ -183,7 +184,7 @@ describe('runMailImportSlice', () => {
 
     expect((await runMailImportSlice(session, payload, { last: true }, 'org_1')).done).toBe(true)
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
-      status: 'failed', lastError: expect.stringMatching(/repeated errors.*502/),
+      status: 'failed', errorCode: 'stopped', lastError: expect.stringMatching(/Repeated errors.*502/),
     }))
     vi.mocked(repository.findMailImport).mockReset()
     vi.mocked(readArchivePage).mockReset()
@@ -193,7 +194,7 @@ describe('runMailImportSlice', () => {
     vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
     await runMailImportSlice(null, payload, { last: false }, 'org_1')
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
-      status: 'failed', lastError: expect.stringMatching(/no longer a member/),
+      status: 'failed', errorCode: 'requester_left',
     }))
   })
 

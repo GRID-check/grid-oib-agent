@@ -22,6 +22,7 @@ import { requireShelfWrite } from '@/lib/documents/shelf-authz'
 import { projectShelf } from '@/lib/documents/shelf'
 import { BFF_JOB_PRIORITY, requesterOf } from '@/lib/jobs-queue/types'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
+import { formatBytes } from '@/lib/format'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { MAIL_ARCHIVE_EXTENSIONS, MAIL_IMPORT_PART_BYTES, maxArchiveBytes } from './config'
 import * as repository from './repository'
@@ -199,6 +200,7 @@ export function toView(row: MailImport, session: Pick<AuthorizedSession, 'userId
     itemsSkipped: row.itemsSkipped,
     filesSkipped: row.filesSkipped,
     skippedSamples: row.skippedSamples,
+    errorCode: row.errorCode,
     error: row.lastError,
     createdAt: new Date(row.createdAt).toISOString(),
     completedAt: row.completedAt ? new Date(row.completedAt).toISOString() : null,
@@ -238,7 +240,7 @@ function assertArchiveAccepted(input: StartMailImportInput): void {
   }
   const max = maxArchiveBytes()
   if (input.sizeBytes > max) {
-    throw new BadRequestError(`The archive exceeds the maximum of ${Math.round(max / 1024 ** 3)} GB`, {
+    throw new BadRequestError(`The archive exceeds the maximum of ${formatBytes(max, 'en')}`, {
       maxSizeBytes: max,
       fileSize: input.sizeBytes,
     })
