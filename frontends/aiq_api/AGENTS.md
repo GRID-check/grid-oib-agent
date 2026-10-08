@@ -12,6 +12,7 @@ The backend's FastAPI front end, loaded by NAT as a front-end plugin
 | Accept a request | Authenticate through `auth/middleware.py`; the validator is resolved from the `aiq_api.validators` entry point, not imported | The WorkOS validator is pluggable on purpose (ADR-0002). A direct import hard-wires identity into the API tier |
 | Add a job phase | Emit it through `jobs/phase_events.py` so the SSE stream and the event store agree | The UI's progress display and the stored history diverge, and only one of them is replayable |
 | Store job payloads | Go through `jobs/payload_crypto.py` | Job payloads carry tenant content into a shared store |
+| Remove or rename a `run_agent_job` parameter | Name the old key in `RETIRED_PAYLOAD_KEYS` (`jobs/worker.py`) in the same change. Rows queued, and jobs running, at the upgrade replay the old payload | Every job in flight at the upgrade fails with a TypeError. `tests/test_retired_payload_keys.py` binds replays to the real signature |
 | Change how a research job runs | Keep the one path: `jobs/submit.py` persists the job and its queue row, a `jobs/worker.py` replica claims and runs it, and the cancel route flips `job_info` to INTERRUPTED for the worker's `CancellationMonitor` to poll (ADR-0021). The `chat` role submits and the `api` role streams and cancels (ADR-0082), so the queue is the only place a job can live | A second execution path forks cancel, reclaim and the reaper, and only one of them gets tested |
 
 ## Rules that need more than a row

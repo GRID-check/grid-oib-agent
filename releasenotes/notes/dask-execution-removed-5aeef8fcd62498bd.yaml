@@ -1,8 +1,8 @@
 ---
 operators:
   - >
-    Research jobs run only on the database-claimed queue now. Unset
-    GRID_JOB_EXECUTION and NAT_DASK_SCHEDULER_ADDRESS, which are gone, and
-    GRID_MAX_ACTIVE_JOBS, the Dask-only cap; GRID_MAX_ACTIVE_JOBS_PER_ORG
-    stays. Drain the research queue before you upgrade: a job queued or
-    running under the old release fails when a new worker claims it.
+    Research jobs run only on the database-claimed queue now. Jobs queued or
+    running when you upgrade run normally; there is nothing to drain. The deploy
+    files no longer set GRID_JOB_EXECUTION, NAT_DASK_SCHEDULER_ADDRESS or
+    GRID_MAX_ACTIVE_JOBS, and a leftover value is ignored.
+    GRID_MAX_ACTIVE_JOBS_PER_ORG stays.
