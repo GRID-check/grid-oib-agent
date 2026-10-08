@@ -26,6 +26,7 @@ import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import {
   getHiddenFolderIds,
   getProjectFolderAccess,
+  isFolderVisibleToMember,
   requireFolderWrite,
 } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -111,6 +112,7 @@ import {
   type ReingestFailedPayload,
 } from '@/lib/jobs-queue/types'
 import { getAccessibleDocument } from './access'
+import { recordDocumentAccess } from '@/lib/download-log/service'
 import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
@@ -2312,6 +2314,7 @@ export async function getDocumentDownload(
     }),
     { expiresIn: presignTtlSeconds() }
   )
+  await recordDocumentAccess(session, doc, 'download')
 
   return {
     downloadUrl,
@@ -2414,6 +2417,7 @@ export async function getDocumentPreview(
       }),
       { expiresIn: 3600 }
     )
+    await recordDocumentAccess(session, doc, 'preview')
     return {
       url,
       contentType: 'application/pdf',
@@ -2440,13 +2444,14 @@ export async function getDocumentPreview(
     }),
     { expiresIn: 3600 }
   )
+  await recordDocumentAccess(session, doc, 'preview')
 
   // A same-origin, signature-authorized path for the raster image formats the
   // optimizer can actually process — this is what lets `next/image` resize a
   // full-size upload down to the box it is rendered in. Null for PDFs, SVGs and
   // the exotic formats above, whose callers fall back to `url` unoptimized.
   const imageUrl = OPTIMIZABLE_IMAGE_CONTENT_TYPES.includes(contentType)
-    ? buildDocumentImageUrl(session.organizationId, documentId, 'original')
+    ? buildDocumentImageUrl(session.organizationId, session.userId, documentId, 'original')
     : null
 
   return { url, contentType, filename: doc.filename, imageUrl, rendition: false, sourceContentType: null }
@@ -2518,6 +2523,7 @@ export async function streamDocumentFile(
     throw new NotFoundError('File not available')
   }
   if (!body) throw new NotFoundError('File not available')
+  await recordDocumentAccess(session, doc, 'pdf')
 
   // ASCII-safe filename for the header; this route only ever displays inline.
   const asciiName = filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '_')
@@ -2579,6 +2585,7 @@ export async function getDocumentTextPreview(
   } catch {
     throw new NotFoundError('File not available')
   }
+  await recordDocumentAccess(session, doc, 'text')
 
   const truncated = bytes.byteLength > TEXT_PREVIEW_MAX_BYTES
   let { text } = decodeTextBytes(bytes.subarray(0, TEXT_PREVIEW_MAX_BYTES), { truncated })
@@ -2633,7 +2640,7 @@ export async function getDocumentThumbnail(
     return { url: null }
   }
 
-  const signedUrl = buildDocumentImageUrl(session.organizationId, documentId, 'thumb')
+  const signedUrl = buildDocumentImageUrl(session.organizationId, session.userId, documentId, 'thumb')
   if (signedUrl) return { url: signedUrl }
 
   try {
@@ -2659,8 +2666,8 @@ export async function getDocumentThumbnail(
  *
  * The signature is the authorization. It was minted by `getDocumentPreview` /
  * `getDocumentThumbnail` AFTER `getAccessibleDocument` ran the real
- * `project:view` check, and it is bound to the org, the document and the
- * variant, so it cannot be walked onto another tenant's document or onto the
+ * `project:view` check, and it is bound to the org, the person, the document
+ * and the variant, so it cannot be walked onto another tenant's document or onto the
  * full-size original when it was issued for a thumbnail. The org id is taken
  * from the signed claims rather than the caller, so the row lookup stays
  * tenant-scoped exactly as the session path is.
@@ -2679,9 +2686,20 @@ export async function streamDocumentImage(
     throw new ForbiddenError('Invalid or expired image URL')
   }
 
-  const { organizationId, variant } = verified.claims
+  const { organizationId, userId, variant } = verified.claims
   const doc = await findDocumentInOrg(documentId, organizationId)
   if (!doc?.storageKey) throw new NotFoundError()
+  // The URL outlives the moment it was minted, and the optimizer's fetch has no
+  // session, so the person it names is asked again: a folder they can no longer
+  // read does not load its images (ADR-0084, ADR-0085). Not found, like every
+  // other refusal on this path.
+  if (
+    doc.scope === 'project' &&
+    doc.projectId &&
+    !(await isFolderVisibleToMember(organizationId, doc.projectId, doc.folderId, userId))
+  ) {
+    throw new NotFoundError()
+  }
 
   const contentType = variant === 'thumb' ? 'image/jpeg' : doc.contentType || ''
   // Belt and braces over the signing-side check: this route serves images and

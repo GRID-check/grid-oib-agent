@@ -7,6 +7,10 @@ import { createHash } from 'node:crypto'
  * for", and the version table's own behaviour is `lifecycle.spec.ts`'s.
  */
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
+// The log's own behaviour is `download-log/service.spec.ts`'s; here it is the
+// seam the byte-serving functions are held to: which of them call it, with
+// what, and only after the request could no longer be refused.
+vi.mock('@/lib/download-log/service', () => ({ recordDocumentAccess: vi.fn(async () => undefined) }))
 vi.mock('./version-repository', () => ({
   DOCUMENT_VERSION_LIST_LIMIT: 200,
   insertDocumentVersion: vi.fn(async (values: Record<string, unknown>) => ({
@@ -229,6 +233,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildDocumentImageUrl } from '@/lib/images/signed-image-url'
+import { recordDocumentAccess } from '@/lib/download-log/service'
 
 const session: AuthorizedSession = {
   userId: 'user-1',
@@ -3033,7 +3038,7 @@ describe('thumbnails ignore empty objects', () => {
 
   it('streamDocumentImage 404s an empty thumbnail object', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-secret')
-    const imageUrl = new URL(buildDocumentImageUrl('org-1', 'doc-1', 'thumb')!, 'https://grid.test')
+    const imageUrl = new URL(buildDocumentImageUrl('org-1', 'user-1', 'doc-1', 'thumb')!, 'https://grid.test')
     vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 0, Body: undefined } as never)
 
     await expect(streamDocumentImage('doc-1', imageUrl.searchParams)).rejects.toBeInstanceOf(
@@ -3263,5 +3268,91 @@ describe('restricted folders (ADR-0084)', () => {
     await expect(refusal).rejects.toBeInstanceOf(ConflictError)
     await expect(refusal).rejects.not.toThrow(/Honorare|Verwaltung/)
     expect(admitOrDiscard).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The download log's seam (ADR-0085). Every function that hands a document's
+ * bytes to a person asks `recordDocumentAccess` once, with the document row the
+ * access check returned and the kind that names the route; `coverage.spec.ts`
+ * holds the list of functions, this holds that the calls are really made, and
+ * only for a request that was served.
+ */
+describe('the download log records what leaves', () => {
+  const pdf = () =>
+    makeDocument({
+      id: 'doc-pdf',
+      filename: 'plan.pdf',
+      contentType: 'application/pdf',
+      storageKey: 'org/org-1/project/proj-1/doc/doc-pdf/plan.pdf',
+    })
+
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+    vi.mocked(findDocumentInOrg).mockResolvedValue(pdf())
+    vi.mocked(s3Client.send).mockReset()
+  })
+
+  it('records a download, with the row the access check returned', async () => {
+    await getDocumentDownload(session, 'doc-pdf')
+
+    expect(recordDocumentAccess).toHaveBeenCalledTimes(1)
+    expect(recordDocumentAccess).toHaveBeenCalledWith(session, expect.objectContaining({ id: 'doc-pdf' }), 'download')
+  })
+
+  it('records a preview', async () => {
+    await getDocumentPreview(session, 'doc-pdf')
+
+    expect(recordDocumentAccess).toHaveBeenCalledWith(session, expect.objectContaining({ id: 'doc-pdf' }), 'preview')
+  })
+
+  it('records the PDF stream once the object was read', async () => {
+    vi.mocked(s3Client.send).mockResolvedValue({ Body: { transformToWebStream: () => new ReadableStream() } } as never)
+
+    await streamDocumentFile(session, 'doc-pdf')
+
+    expect(recordDocumentAccess).toHaveBeenCalledWith(session, expect.objectContaining({ id: 'doc-pdf' }), 'pdf')
+  })
+
+  it('records a text preview once the bytes were read', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-txt', filename: 'a.csv', contentType: 'text/csv', storageKey: 'org/org-1/a.csv' })
+    )
+    vi.mocked(s3Client.send).mockResolvedValue({
+      Body: { transformToByteArray: async () => new TextEncoder().encode('a;b') },
+    } as never)
+
+    await getDocumentTextPreview(session, 'doc-txt')
+
+    expect(recordDocumentAccess).toHaveBeenCalledWith(session, expect.objectContaining({ id: 'doc-txt' }), 'text')
+  })
+
+  it('records nothing for a request it refused', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ id: 'doc-bin', contentType: 'application/zip', storageKey: 'k' }))
+    await expect(getDocumentPreview(session, 'doc-bin')).rejects.toMatchObject({ status: 415 })
+    await expect(getDocumentTextPreview(session, 'doc-bin')).rejects.toMatchObject({ status: 415 })
+    await expect(streamDocumentFile(session, 'doc-bin')).rejects.toMatchObject({ status: 415 })
+
+    vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ id: 'doc-none', storageKey: '' }))
+    await expect(getDocumentDownload(session, 'doc-none')).rejects.toBeInstanceOf(NotFoundError)
+
+    vi.mocked(requireProjectAccess).mockRejectedValue(new ForbiddenError())
+    await expect(getDocumentDownload(session, 'doc-pdf')).rejects.toBeInstanceOf(ForbiddenError)
+
+    expect(recordDocumentAccess).not.toHaveBeenCalled()
+  })
+
+  it('does not hand the URL over when the log refuses (a folder with its own list)', async () => {
+    vi.mocked(recordDocumentAccess).mockRejectedValueOnce(Object.assign(new Error('not recorded'), { status: 503 }))
+
+    await expect(getDocumentDownload(session, 'doc-pdf')).rejects.toMatchObject({ status: 503 })
+  })
+
+  it('does not record a thumbnail, which is not the file', async () => {
+    vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 48211 } as never)
+
+    await getDocumentThumbnail(session, 'doc-pdf')
+
+    expect(recordDocumentAccess).not.toHaveBeenCalled()
   })
 })

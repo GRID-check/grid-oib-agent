@@ -14,6 +14,7 @@ export const organization = {
     storage: 'Storage',
     screening: 'Sensitive data',
     quarantine: 'Quarantine',
+    downloads: 'Download log',
     compliance: 'Compliance',
     enterprise: 'Enterprise',
   },
@@ -52,6 +53,11 @@ export const organization = {
       title: 'Quarantine',
       subtitle: 'Files the content check held back. No model has read them. Whoever may review them releases or deletes them here.',
     },
+    downloads: {
+      title: 'Download log',
+      subtitle:
+        'Who took which document out, and who opened one in a folder with its own access list. Kept for a limited time, for security and accountability only.',
+    },
     compliance: {
       title: 'Compliance',
       subtitle:
@@ -61,6 +67,70 @@ export const organization = {
       title: 'Enterprise',
       subtitle:
         'SSO, directory sync, domain verification and audit-log streaming — the WorkOS controls only an admin may touch.',
+    },
+  },
+  /**
+   * Organization -> Download log (ADR-0085): who took which document out, and
+   * who opened one in a folder with its own access list. Personal data about
+   * staff, so the page says what it is for, how long it keeps it and that
+   * reading it is recorded.
+   */
+  downloadLog: {
+    purpose:
+      'This log exists for security and accountability: to find out who took a document out or opened one in a folder with its own access list. It is not an activity report and is not used to evaluate anyone.',
+    retention: 'Entries are kept for {days} days and then deleted automatically.',
+    readRecorded: 'Every time this page is read, the audit log records who looked and which filters they used.',
+    filters: {
+      label: 'Filter the download log',
+      person: 'Person',
+      allPeople: 'Everyone',
+      document: 'Document',
+      documentPlaceholder: 'Name, or a document id',
+      from: 'From',
+      to: 'To',
+      kind: 'What happened',
+      allKinds: 'Everything',
+      apply: 'Show',
+      reset: 'Reset',
+    },
+    kinds: {
+      download: 'Download',
+      preview: 'Preview',
+      pdf: 'Opened in the viewer',
+      text: 'Text preview',
+      version: 'Version opened',
+      model: '3D model opened',
+    },
+    access: { download: 'Download', open: 'Opened' },
+    columns: { when: 'When', person: 'Person', action: 'What', document: 'Document', place: 'Where' },
+    place: {
+      archiv: 'Archive',
+      session: 'Chat attachment',
+      project: 'Project',
+      root: 'Project root',
+      ownList: 'Own access list',
+      projectGone: 'Project no longer exists',
+      folderGone: 'Folder no longer exists',
+    },
+    unknownPerson: 'No longer in the organization',
+    version: 'Version {id}',
+    empty: 'Nothing recorded for these filters.',
+    emptyHint: 'Downloads are recorded everywhere; opening a document only in folders with their own access list.',
+    loadError: 'The download log could not be loaded. Nothing was shown, and nothing was recorded as read.',
+    loadMore: 'Show older entries',
+    loading: 'Loading…',
+    retry: 'Try again',
+    retentionCard: {
+      title: 'Download log retention',
+      description:
+        'How long the download log keeps its entries. The default and the maximum are 365 days; an organization may shorten it to 30 days.',
+      label: 'Days',
+      hint: 'Between 30 and 365. A shorter time takes effect at the next daily clean-up.',
+      save: 'Save retention',
+      saving: 'Saving…',
+      saved: 'Retention saved',
+      invalid: 'Enter a whole number of days from 30 to 365.',
+      error: 'The retention could not be saved. Please try again.',
     },
   },
   /** People & access: the member directory, the role catalog, the permission map. */
@@ -191,6 +261,10 @@ export const organization = {
       budgets_manage: { name: 'Manage budgets', hint: 'Spending limits and usage of the whole organization.' },
       compliance_manage: { name: 'Manage compliance', hint: 'Legal holds and deletions.' },
       audit_view: { name: 'View the audit log', hint: 'The record of every privileged change.' },
+      downloads_view: {
+        name: 'View the download log',
+        hint: 'Who downloaded which document. Reading it is itself recorded.',
+      },
       archiv_manage: {
         name: 'Manage the Archiv',
         hint: 'Upload, delete and re-read documents in the office Archiv. Everyone can read it.',

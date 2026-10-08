@@ -134,6 +134,9 @@ live in WorkOS, where Piloti's own roles live; you assign them to people on the
 
 ## Who may read and edit a folder
 
+(Which downloads and openings of such a folder are recorded, and who may read
+that record: [the download log](download-log.md).)
+
 In a project's Files, a project admin opens a folder's **⋯ → Zugriff …** and
 chooses one of two answers. Only someone who both manages the project and may
 **edit that folder** can do this: a project admin who may only read a folder

@@ -380,10 +380,15 @@ recorded folders.
   the per-socket confinement check, and restricted memory keyed by collection. ADR-0084's
   retrieval collection per restricted folder, its egress refusals and its IFC rule stand.
 * User guide: [`sensitive-data-and-access.md`](../user-guides/sensitive-data-and-access.md#who-may-read-and-edit-a-folder).
+* The download log is built: [`user-guides/download-log.md`](../user-guides/download-log.md) (what it records,
+  retention, who reads it, the works-council note), the table in
+  [`database/schema.md`](../database/schema.md#document_access_log-migration-0112-adr-0085), and
+  `lib/download-log/service.ts` — `recordDocumentAccess` is called by every function that hands a
+  document's bytes to a person, held to the list by `coverage.spec.ts`.
 * Decided by the product owner on 6 Oct 2026 (`plans/2026-10-06-folder-access-lifecycle.md`):
   the share dialog lists only people who qualify, a chat shared with someone who later loses a
   folder stays in their list without its content, and deleting a role folders name asks first.
 * Where a later lifecycle feature would attach (participant notices, an organization setting for
-  deleted-folder content, a download log): `setFolderAccess` after placement, the tombstone in
+  deleted-folder content): `setFolderAccess` after placement, the tombstone in
   `deleteProjectFolder`, `effectiveFolderLevel`, `resolveMembershipRoles`, `admitSourceFolders`
   and `widenConversationAudience`, `memoryVisibleTo` and `readableFolderIdsFor`.
