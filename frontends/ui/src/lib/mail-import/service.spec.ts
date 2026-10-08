@@ -159,6 +159,22 @@ describe('putMailImportPart', () => {
     expect(staging.putStagedPart).not.toHaveBeenCalled()
   })
 
+  it('stops reading a body without a declared length the moment it passes the part size', async () => {
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+    let pulled = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1
+        controller.enqueue(new Uint8Array(8))
+      },
+    })
+    const request = new Request('http://x', { method: 'PUT', body, duplex: 'half' } as RequestInit)
+    await expect(putMailImportPart(session, PROJECT, IMPORT, 3, request)).rejects.toThrow(/must be 10 bytes/)
+    // Two chunks of 8 pass the 10-byte part; the read stops there, not at the end of an endless body.
+    expect(pulled).toBeLessThanOrEqual(3)
+    expect(staging.putStagedPart).not.toHaveBeenCalled()
+  })
+
   it("refuses a part of somebody else's import as not found", async () => {
     vi.mocked(repository.findMailImport).mockResolvedValueOnce(row({ userId: 'user_other' }))
     const request = new Request('http://x', { method: 'PUT', body: new Uint8Array(10) })

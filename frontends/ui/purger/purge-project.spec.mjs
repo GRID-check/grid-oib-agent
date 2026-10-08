@@ -139,6 +139,8 @@ describe('purgeProject', () => {
     expect(deps.fetchImpl).toHaveBeenCalled()
     expect(deps.deleteStoragePrefix).toHaveBeenCalledWith('grid-documents', 'org/org1/project/p1/')
     // A half-sent mail import is not an object; the sweep aborts it too (ADR-0085).
+    const bucketRead = executed.find((step) => step.text.startsWith('SELECT DISTINCT storage_bucket'))
+    expect(bucketRead.text).toContain('FROM mail_imports')
     expect(deps.abortMultipartUploads).toHaveBeenCalledWith('grid-documents', 'org/org1/project/p1/')
     expect(executed.filter((q) => q.text.startsWith('DELETE')).at(-1).text).toContain('FROM projects')
   })

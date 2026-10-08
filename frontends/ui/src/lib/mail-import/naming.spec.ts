@@ -55,6 +55,9 @@ describe('mail names', () => {
     expect(numbered('Posteingang', 3)).toBe('Posteingang (3)')
     expect(numberedFilename('Plan.pdf', 2)).toBe('Plan (2).pdf')
     expect(numberedFilename('README', 2)).toBe('README (2)')
+    const longest = `${'x'.repeat(236)}.pdf`
+    expect(numberedFilename(longest, 50)).toHaveLength(240)
+    expect(numberedFilename(longest, 50).endsWith(' (50).pdf')).toBe(true)
   })
 
   it('prefixes an attachment with its mail, and bounds a long name keeping the extension', () => {

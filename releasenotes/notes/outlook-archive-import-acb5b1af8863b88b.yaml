@@ -11,6 +11,7 @@ fixes:
     whose features are switched on individually; they had been held back.
 operators:
   - >
-    The Outlook archive import is off by default: set mailImportEnabled (Pulumi)
-    or GRID_MAIL_IMPORT_ENABLED (Compose), or create the mail-import WorkOS
-    flag under enforcement. The backend gains libpff-python and striprtf.
+    The Outlook archive import is off by default. With feature-flag enforcement
+    on, create the mail-import WorkOS flag and turn it on per organization;
+    otherwise set mailImportEnabled (Pulumi) or GRID_MAIL_IMPORT_ENABLED
+    (Compose). The backend gains libpff-python and striprtf.

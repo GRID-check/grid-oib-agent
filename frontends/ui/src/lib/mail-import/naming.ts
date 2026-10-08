@@ -72,12 +72,17 @@ export function numbered(name: string, n: number): string {
   return `${name.slice(0, MAX_FOLDER_NAME - suffix.length).trim()}${suffix}`
 }
 
-/** As {@link numbered}, with the number before the extension: `Plan (2).pdf`. */
+/**
+ * As {@link numbered}, with the number before the extension (`Plan (2).pdf`),
+ * and still within the filename bound once the number is on it.
+ */
 export function numberedFilename(filename: string, n: number): string {
   if (n <= 1) return filename
+  const suffix = ` (${n})`
   const dot = filename.lastIndexOf('.')
-  if (dot <= 0) return `${filename} (${n})`
-  return `${filename.slice(0, dot)} (${n})${filename.slice(dot)}`
+  const extension = dot > 0 && filename.length - dot <= 12 ? filename.slice(dot) : ''
+  const stem = extension ? filename.slice(0, dot) : filename
+  return `${stem.slice(0, MAX_FILENAME - suffix.length - extension.length).trim()}${suffix}${extension}`
 }
 
 /** Names `validateFolderName` refuses (the old DOS devices), which an Outlook folder may still carry. */

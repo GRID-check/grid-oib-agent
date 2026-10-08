@@ -126,7 +126,7 @@ export async function putMailImportPart(
   if (Number.isFinite(declared) && declared !== expected) {
     throw new BadRequestError(`Part ${partNumber} must be ${expected} bytes`, { expected, declared })
   }
-  const body = new Uint8Array(await request.arrayBuffer())
+  const body = await readAtMost(request, expected, partNumber)
   if (body.byteLength !== expected) {
     throw new BadRequestError(`Part ${partNumber} must be ${expected} bytes`, { expected, received: body.byteLength })
   }
@@ -270,6 +270,29 @@ export function missingParts(sizeBytes: number, parts: readonly UploadedPart[]):
     if (held.get(n) !== expectedPartSize(sizeBytes, n)) missing.push(n)
   }
   return missing
+}
+
+/**
+ * The request body, refused the moment it passes `limit` bytes. A chunked
+ * request declares no length, and the transport ceiling in front of the route
+ * is the upload one (hundreds of megabytes), so reading it whole first would
+ * buffer whatever a client sends before the size check could say no.
+ */
+async function readAtMost(request: Request, limit: number, partNumber: number): Promise<Uint8Array> {
+  const body = new Uint8Array(limit)
+  const reader = request.body?.getReader()
+  if (!reader) return body.subarray(0, 0)
+  let length = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) return body.subarray(0, length)
+    if (length + value.byteLength > limit) {
+      await reader.cancel()
+      throw new BadRequestError(`Part ${partNumber} must be ${limit} bytes`, { expected: limit })
+    }
+    body.set(value, length)
+    length += value.byteLength
+  }
 }
 
 function assertArchiveAccepted(input: StartMailImportInput): void {
