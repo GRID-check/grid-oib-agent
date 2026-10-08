@@ -18,18 +18,25 @@
  * identical and it has finished indexing. Never a second document. Names are
  * chosen in attachment order with the names this mail already claimed set
  * aside, so a retry arrives at the same name for the same file.
+ *
+ * **Free across the whole project.** A project keeps one document per name
+ * across all its collections, and a folder with its own access list files into
+ * its own collection (ADR-0087). So a name is probed project-wide: one held
+ * anywhere but this mail's folder is passed over for ` (2)`, never superseded
+ * (which would re-file someone else's document into the mail) and never sent
+ * into the upload's cross-collection refusal.
  */
 
 import 'server-only'
-import { BadRequestError, FileTooLargeError, InsufficientStorageError, NotFoundError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, FileTooLargeError, ForbiddenError, InsufficientStorageError } from '@/lib/api/errors'
+import { FOLDER_READ_ONLY_REASON } from '@/lib/authz/folder-access-rule'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { MailImport, MailImportSkippedSample, MailImportSkipReason } from '@/lib/db/schema'
 import { resolveShelfFolderPath } from '@/lib/documents/folder-path'
 import { documentNameKey } from '@/lib/documents/name-match'
-import { findLiveDocumentByFilename } from '@/lib/documents/repository'
+import { findLiveDocumentByFilename, findProjectCollectionsHoldingFilename } from '@/lib/documents/repository'
 import { assertFileSizeAllowed, assertUploadTypeAllowed, uploadDocument } from '@/lib/documents/service'
 import { projectShelf } from '@/lib/documents/shelf'
-import { shelfCollectionName } from '@/lib/documents/shelf-collection'
 import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
 import { createProjectFolder, ensureProjectFolderPaths } from '@/lib/projects/folder-service'
 import { ScreenedUploadError } from '@/lib/upload-screening/service'
@@ -86,7 +93,6 @@ export interface FilingContext {
   archive: ArchiveRef
   /** The folder the archive's tree is mirrored under. */
   archiveFolderId: string
-  collectionName: string
   request: Request
   /** Outlook folder path → project folder id, for this slice. */
   folders: Map<string, string>
@@ -103,14 +109,11 @@ export interface FiledMail {
   skipped: MailImportSkippedSample[]
 }
 
-/** Build the context a slice files with; throws when the project has no collection. */
-export async function filingContext(
-  input: Omit<FilingContext, 'collectionName' | 'folders' | 'deadline'> & { deadline?: number },
-): Promise<FilingContext> {
-  const shelf = projectShelf(input.mailImport.projectId)
-  const collectionName = await shelfCollectionName(shelf, input.session.organizationId)
-  if (!collectionName) throw new NotFoundError('Project not found')
-  return { deadline: Number.POSITIVE_INFINITY, ...input, collectionName, folders: new Map() }
+/** Build the context a slice files with. */
+export function filingContext(
+  input: Omit<FilingContext, 'folders' | 'deadline'> & { deadline?: number },
+): FilingContext {
+  return { deadline: Number.POSITIVE_INFINITY, ...input, folders: new Map() }
 }
 
 /**
@@ -278,7 +281,15 @@ function refusalReason(error: unknown): MailImportSkipReason | null {
   if (error instanceof FileTooLargeError) return 'size'
   if (error instanceof BadRequestError) return 'type'
   if (error instanceof ScreenedUploadError) return 'screened'
+  // A folder of the import's tree turned read-only for the person under it (ADR-0088).
+  if (error instanceof ForbiddenError && isFolderReadOnly(error.details)) return 'access'
+  // Another document took the name elsewhere in the project after the probe (ADR-0087).
+  if (error instanceof ConflictError) return 'name_taken'
   return null
+}
+
+function isFolderReadOnly(details: unknown): boolean {
+  return typeof details === 'object' && details !== null && 'reason' in details && details.reason === FOLDER_READ_ONLY_REASON
 }
 
 /**
@@ -317,8 +328,8 @@ async function fileBytes(
 
 /**
  * The first of `desired`, `desired (2)`… that this mail has not taken already
- * and that no document in the project has, or that the one in this very
- * folder has (a retry of this mail).
+ * and that no document in the project has, in any of its collections, or that
+ * only the one in this very folder has (a retry of this mail).
  */
 async function freeFilename(
   context: FilingContext,
@@ -329,8 +340,17 @@ async function freeFilename(
   for (let n = 1; n <= MAX_NAME_ATTEMPTS; n += 1) {
     const candidate = documentNameKey(numberedFilename(desired, n))
     if (claimed.has(candidate)) continue
-    const existing = await findLiveDocumentByFilename(context.session.organizationId, context.collectionName, candidate)
-    if (!existing || existing.folderId === folderId) return candidate
+    if (await nameIsFreeFor(context, folderId, candidate)) return candidate
   }
   throw new Error(`no free filename for ${desired} after ${MAX_NAME_ATTEMPTS} attempts`)
+}
+
+/** No document of the project holds `filename`, or only the one already in `folderId`. */
+async function nameIsFreeFor(context: FilingContext, folderId: string, filename: string): Promise<boolean> {
+  const { organizationId } = context.session
+  const holders = await findProjectCollectionsHoldingFilename(organizationId, context.mailImport.projectId, filename)
+  if (holders.length === 0) return true
+  if (holders.length > 1) return false
+  const existing = await findLiveDocumentByFilename(organizationId, holders[0], filename)
+  return existing?.folderId === folderId
 }

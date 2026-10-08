@@ -615,7 +615,7 @@ export const files = {
     errors: {
       unreadable: 'This file could not be read as an Outlook archive. Export it again from Outlook as a .pst file.',
       quota: 'The organization’s storage is full. What was imported until then stays.',
-      access: 'The person who started the import may no longer add documents to this project.',
+      access: 'The person who started the import may not add documents to this project or its “E-Mail-Import” folder.',
       requester_left: 'The person who started the import is no longer a member of the organization.',
       stopped: 'The import stopped after repeated errors.',
       stalled: 'The import stopped without finishing.',
@@ -627,6 +627,8 @@ export const files = {
       size: 'too large',
       unreadable: 'damaged in the archive',
       screened: 'held back by the office’s name screening',
+      access: 'folder is read-only',
+      name_taken: 'name already used in the project',
     },
   },
   upload: {

@@ -271,6 +271,31 @@ describe('ProjectFileWorkspace', () => {
  * the plan that replaced that: what it says, what the reader decides, and where
  * the files actually go.
  */
+describe('ProjectFileWorkspace — the mail import action', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+  })
+
+  const workspace = (rootAccess?: 'read' | 'write') => (
+    <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" mailImportEnabled initialRootAccess={rootAccess} />
+  )
+
+  it('offers the import to a reader who may write at the project root, where it files its folder', () => {
+    renderWorkspace(workspace('write'))
+    expect(screen.getByTestId('mail-import-trigger')).toBeDefined()
+  })
+
+  it('hides it from a reader whose root access is read, and when the access is not known (ADR-0088)', () => {
+    const { unmount } = renderWorkspace(workspace('read'))
+    expect(screen.queryByTestId('mail-import-trigger')).toBeNull()
+    unmount()
+    renderWorkspace(workspace())
+    expect(screen.queryByTestId('mail-import-trigger')).toBeNull()
+  })
+})
+
 describe('ProjectFileWorkspace — a dropped folder', () => {
   const existing: DocumentWireRow = {
     id: 'doc-eg',
