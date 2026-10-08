@@ -32,7 +32,7 @@ import { resolveDocumentFolderPath } from '@/lib/documents/folder-path'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems } from '@/lib/inbox/service'
 import { quarantineReviewersOf } from '@/lib/upload-batches/settle'
-import { auditedQuarantineReasons, parseQuarantine, type QuarantineVerdict } from './quarantine'
+import { parseQuarantine, type QuarantineVerdict } from './quarantine'
 import { mayReviewQuarantine } from './quarantine-reviewers'
 
 export { mayReviewQuarantine }
@@ -90,7 +90,7 @@ export async function releaseQuarantinedDocument(
     folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
   })
 
-  const verdict = parseQuarantine(doc.errorMessage)
+  const reasons = parseQuarantine(doc.errorMessage)?.reasons ?? []
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },
@@ -101,8 +101,14 @@ export async function releaseQuarantinedDocument(
     metadata: {
       projectId: doc.projectId ?? '',
       filename: doc.filename.slice(0, 200),
-      // Kinds and terms only: a detector's masked sample stays on the row.
-      reasons: auditedQuarantineReasons(verdict),
+      // Kinds only: a detector's masked sample stays on the row.
+      reasons: [...new Set(reasons.map((reason) => reason.kind))].join(',').slice(0, 200),
+      // The office's words found in the text say what the document holds, so
+      // they go under `terms`, which is withheld with the name when the folder
+      // is restricted (DOCUMENT_NAME_KEYS, ADR-0086).
+      terms: [...new Set(reasons.flatMap((reason) => (reason.kind === 'term' && reason.term ? [reason.term] : [])))]
+        .join(',')
+        .slice(0, 200),
     },
     request,
   })

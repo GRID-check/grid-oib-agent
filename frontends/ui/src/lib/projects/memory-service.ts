@@ -451,7 +451,7 @@ export async function listOrganizationMemory(
   const conditions = [
     eq(projectMemory.scope, 'organization'),
     eq(projectMemory.organizationId, organizationId),
-    // Organization memory is never restricted (0111 CHECK); said here too, so
+    // Organization memory is never restricted (0112 CHECK); said here too, so
     // this listing stays open-only if that ever changes.
     isNull(projectMemory.restrictedFolderIds),
   ]
@@ -513,7 +513,7 @@ export async function createProjectMemoryItem(
 ): Promise<ProjectMemoryItem> {
   const db = getDb()
   // Stored canonical, so equal restrictions compare equal (consolidation, the
-  // 0111 index). Organization memory reaches every project and is never
+  // 0112 index). Organization memory reaches every project and is never
   // restricted: the caller demotes such a finding to its project first.
   const restrictedFolderIds = canonicalRestriction(input.restrictedFolderIds)
   if (restrictedFolderIds && input.scope !== 'project') {
@@ -526,7 +526,7 @@ export async function createProjectMemoryItem(
   // the agent's `remember` tool and reflection are all masked by construction.
   const content = await maskedNote(input.organizationId, input.content)
   // The judge's verdict rides only on a note that ended up restricted (the
-  // 0116 CHECK): on an open note it would tell any project member that the
+  // 0117 CHECK): on an open note it would tell any project member that the
   // chat could list a restricted folder. The audit trail has every verdict.
   const restrictionJudge = restrictedFolderIds ? (input.restrictionJudge ?? null) : null
   const values: NewProjectMemoryItem = { ...input, content, restrictedFolderIds, restrictionJudge }

@@ -165,7 +165,8 @@ unchanged, transfers that failed and files the screening kept back belong to no
 folder, so they are not counted for you, and an upload with nothing in your
 folders is not listed. A folder in the Papierkorb is hidden from everyone, so
 its files are not counted, but it closes nothing to you as long as you could
-open it: the upload's other counts stay.
+open it: the upload's other counts stay. A folder whose files were deleted for
+good when its time in the Papierkorb ran out closes nothing either.
 
 ## Your office's own roles
 

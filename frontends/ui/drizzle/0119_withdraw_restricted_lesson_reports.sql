@@ -1,4 +1,4 @@
--- 0118: withdraw what the lessons pipeline already took from a conversation
+-- 0119: withdraw what the lessons pipeline already took from a conversation
 -- that drew on a folder with restricted access (ADR-0086, ADR-0087).
 --
 -- Since `OUTSIDE_RESTRICTED_USE` (lib/feedback/repository.ts) the sweep never

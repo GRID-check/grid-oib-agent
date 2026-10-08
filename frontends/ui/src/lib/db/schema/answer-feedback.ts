@@ -57,7 +57,7 @@ export const answerFeedback = pgTable(
     lessonsHoldout: boolean('lessons_holdout'),
     /**
      * Its conversation drew on a folder with restricted access (migration
-     * 0119). Set by a trigger when the conversation's
+     * 0120). Set by a trigger when the conversation's
      * `conversation_restricted_folders` row is deleted, so the vote stays out of
      * every cross-tenant reader after the chat is gone (`OUTSIDE_RESTRICTED_USE`).
      */

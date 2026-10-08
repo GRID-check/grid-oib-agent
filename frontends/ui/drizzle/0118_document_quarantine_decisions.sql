@@ -1,4 +1,4 @@
--- 0117: the content gate's quarantine decisions, kept until the audit trail
+-- 0118: the content gate's quarantine decisions, kept until the audit trail
 -- has them (ADR-0085; AI Act transparency).
 --
 -- `document.quarantined` was emitted once, from the read whose guarded status
@@ -31,11 +31,24 @@
 -- what the trail asks before it names the file: a name filed under a folder
 -- not every project member may read is withheld (ADR-0086).
 --
+-- ## Retention
+--
+-- The row is personal data (the file's name, the uploader, the matched terms)
+-- kept for one purpose, reaching the trail, so it lives as long as that takes
+-- and no longer, whether or not the document still exists. The upload sweep,
+-- as the platform role, deletes a decision once `audited_at` is set, and any
+-- decision taken more than seven days ago: the window after which the sweep
+-- stops sending it (`pruneSpentQuarantines`, lib/upload-screening). A
+-- deployment with the trail off marks nothing, so it keeps a week of them in
+-- case the trail is switched on, and none older. The trail keeps the event for
+-- its own retention; this table is not the record.
+--
 -- ## What the database refuses
 --
 -- * A second decision for one dispatch.
 -- * Any change but `audited_at` going from NULL to a time, by anyone; any
---   DELETE by anyone but the platform role. A decision is not rewritten.
+--   DELETE by anyone but the platform role, which is the retention sweep. A
+--   decision is not rewritten.
 CREATE TABLE IF NOT EXISTS "document_quarantine_decisions" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "organization_id" text NOT NULL,
@@ -57,7 +70,7 @@ CREATE TABLE IF NOT EXISTS "document_quarantine_decisions" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "document_quarantine_decisions" IS
-  'The content gate''s quarantine decisions (0117, ADR-0085): one row per ingest job that quarantined a document, written with the status, sent to the audit trail as document.quarantined until audited_at is set. No foreign keys: the row outlives the document. Only audited_at changes; only the platform role deletes.';
+  'The content gate''s quarantine decisions (0117, ADR-0085): one row per ingest job that quarantined a document, written with the status, sent to the audit trail as document.quarantined until audited_at is set. No foreign keys: the row outlives the document until it is audited, or seven days. Only audited_at changes; only the platform role (the upload sweep''s retention) deletes.';
 --> statement-breakpoint
 -- The sweep's discovery: what is still owed to the trail, found without a scan.
 CREATE INDEX IF NOT EXISTS "document_quarantine_decisions_due_idx"

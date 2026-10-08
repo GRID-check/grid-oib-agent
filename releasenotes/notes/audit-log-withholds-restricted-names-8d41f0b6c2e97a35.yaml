@@ -3,5 +3,6 @@ security:
   - >
     New audit log entries no longer show the names of documents in folders that
     not every project member may read, nor the screening words that matched such
-    a name; they say the name was withheld. Entries written earlier, or before
+    a name or that the content check found in such a document when it was
+    released from quarantine; they say the name was withheld. Entries written earlier, or before
     the folder was restricted or the document moved into it, keep the name.
