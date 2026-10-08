@@ -32,6 +32,8 @@ const Q2 = '0f0f0f0f-0000-4000-8000-000000000003'
 const A2 = '0f0f0f0f-0000-4000-8000-000000000004'
 /** An answer id with no message row: the turn was never persisted. */
 const A_MISSING = '0f0f0f0f-0000-4000-8000-0000000000ff'
+/** An answer from before every window, rated today. */
+const A_OLD = '0f0f0f0f-0000-4000-8000-000000000005'
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
 
@@ -80,12 +82,21 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
           (${Q1}::uuid, ${CHAT}, 'user',      'Wie lang darf der Fluchtweg sein?', ${minutesAgo(40)}::timestamptz),
           (${A1}::uuid, ${CHAT}, 'assistant', '40 m bei GK 4.',                    ${minutesAgo(39)}::timestamptz),
           (${Q2}::uuid, ${CHAT}, 'user',      'Und bei GK 5?',                     ${minutesAgo(20)}::timestamptz),
-          (${A2}::uuid, ${CHAT}, 'assistant', 'Ebenfalls 40 m.',                   ${minutesAgo(19)}::timestamptz)
+          (${A2}::uuid, ${CHAT}, 'assistant', 'Ebenfalls 40 m.',                   ${minutesAgo(19)}::timestamptz),
+          (${A_OLD}::uuid, ${CHAT}, 'assistant', 'Eine alte Antwort.',             ${minutesAgo(100 * 24 * 60)}::timestamptz)
       `)
     })
     await vote(A1, 'down', { reason: 'inaccurate' })
     await vote(A2, 'down', { reason: 'other' })
     await vote(A_MISSING, 'down')
+    await vote(A_OLD, 'up')
+    // A second person rating the same answer: one more vote, no more answers.
+    await inOrg(() =>
+      db.execute(sql`
+        insert into answer_feedback (organization_id, conversation_id, message_id, user_id, verdict)
+        values (${ORG}, ${CHAT}, ${A1}, ${`${USER}_second`}, 'up')
+      `),
+    )
   })
 
   afterAll(async () => {
@@ -100,6 +111,30 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
     })
     const { closeDb } = await import('@/lib/db')
     await closeDb()
+  })
+
+  describe('coverage', () => {
+    /**
+     * Two answers were produced in the window and five votes landed on four
+     * answers: one old, one never persisted, one rated twice. Votes over produced
+     * answers said 250 %.
+     */
+    it('counts every answer the window is about, so coverage cannot pass 100 %', async () => {
+      const health = await platform(() => repo.getFeedbackHealth({ organizationId: ORG, windowDays: 7 }))
+
+      expect(health.totals.up + health.totals.down).toBe(5)
+      expect(health.ratedAnswers).toBe(4) // A1, A2, A_MISSING, A_OLD
+      expect(health.answers).toBe(4) // {A1, A2} produced, united with the four rated
+      expect(health.coverage).toBe(1)
+    })
+
+    it('reports no coverage, not 0 %, for a window with no answers', async () => {
+      const health = await platform(() =>
+        repo.getFeedbackHealth({ organizationId: `${ORG}_nobody`, windowDays: 7 }),
+      )
+      expect(health.answers).toBe(0)
+      expect(health.coverage).toBeNull()
+    })
   })
 
   describe('free-text search', () => {

@@ -242,6 +242,7 @@ async function generateDigest(
   const body = {
     window_days: health.windowDays,
     answers: health.answers,
+    rated_answers: health.ratedAnswers,
     up: health.totals.up,
     down: health.totals.down,
     voters: health.totals.voters,

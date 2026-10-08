@@ -20,8 +20,6 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   answerFeedback,
-  conversations,
-  messages,
   type AnswerFeedback,
   type AnswerFeedbackReason,
   type AnswerFeedbackVerdict,
@@ -289,11 +287,21 @@ export interface FeedbackHealth {
    * about who reaches for a thumb. Publishing the coverage beside it is what stops
    * the headline being quoted as something it is not.
    *
-   * Best available, not perfect: it counts persisted assistant messages, and
-   * persistence is best-effort per turn. It therefore UNDER-counts answers, which
-   * biases coverage upward — so the real coverage is at most this, never more.
+   * Counted as the answers PRODUCED in the window (persisted assistant
+   * messages) united with the answers RATED in it, so a vote on an older or an
+   * unpersisted answer brings its answer into the denominator too. Persistence
+   * is best-effort per turn, so this can still under-count unrated answers.
    */
   answers: number
+  /** Distinct answers that received at least one vote in the window. Never more than `answers`. */
+  ratedAnswers: number
+  /**
+   * `ratedAnswers / answers`, a fraction in [0, 1]; `null` when there were no
+   * answers, which is "no reading", not 0 %. This, and not votes over answers,
+   * is the coverage figure: votes exceed answers whenever two people rate one,
+   * and that ratio passed 100 %.
+   */
+  coverage: number | null
   totals: FeedbackHealthTotals
   reasons: FeedbackReasonCount[]
   daily: FeedbackDailyPoint[]
@@ -395,25 +403,50 @@ export async function getFeedbackHealth(
   const scope = [...orgScope, ...topicScope]
   const inWindow = gte(answerFeedback.createdAt, sql`${since}::timestamptz`)
 
-  // The denominator has to obey the org filter too, or a tenant's rate is
-  // computed over the whole platform's answers and its coverage reads far higher
-  // than it is. `messages` carries no organization: its conversation does, and
-  // the column is NOT NULL with an FK, so the join drops nothing when nothing is
-  // filtered. The topic filter rides the same join for the same reason — a
-  // numerator narrowed to one topic over a denominator that was not is the same
-  // bug on a second axis.
-  const [answersRow] = await db
-    .select({ count: sql<string>`count(*)` })
-    .from(messages)
-    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
-    .where(
-      and(
-        eq(messages.role, 'assistant'),
-        gte(messages.createdAt, sql`${since}::timestamptz`),
-        ...(organizationId ? [eq(conversations.organizationId, organizationId)] : []),
-        ...(topic ? [sql`${conversations.tags} @> array[${topic}]::text[]`] : []),
-      ),
+  // The denominator: every answer the window is about. That is the answers
+  // PRODUCED in it (persisted assistant messages) united with the answers RATED
+  // in it, deduplicated by id. Counting only the produced ones let coverage pass
+  // 100%: a vote today on last month's answer, a turn whose row was never
+  // persisted, and two people rating one answer all added to the numerator and
+  // never to the denominator. With the union, `ratedAnswers <= answers` holds by
+  // construction.
+  //
+  // Both halves obey the org and topic filters, or a tenant's coverage is
+  // computed over the whole platform's answers. `messages` carries its
+  // organization through its conversation (NOT NULL, FK), so the join drops
+  // nothing when nothing is filtered; the rated half takes the same EXISTS the
+  // vote aggregates use.
+  const coverageRows = await db.execute(sql`
+    with produced as (
+      select m.id::text as message_id
+      from messages m
+      join conversations c on c.id = m.conversation_id
+      where m.role = 'assistant'
+        and m.created_at >= ${since}::timestamptz
+        ${organizationId ? sql`and c.organization_id = ${organizationId}` : sql``}
+        ${topic ? sql`and c.tags @> array[${topic}]::text[]` : sql``}
+    ),
+    rated as (
+      select distinct f.message_id
+      from answer_feedback f
+      where f.created_at >= ${since}::timestamptz
+        ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
+        ${
+          topic
+            ? sql`and exists (
+                select 1 from conversations tc
+                where tc.id = f.conversation_id and tc.tags @> array[${topic}]::text[]
+              )`
+            : sql``
+        }
     )
+    select
+      (select count(*) from (select message_id from produced union select message_id from rated) u) as answers,
+      (select count(*) from rated) as rated_answers
+  `)
+  const [coverageRow] = rowsOf(coverageRows)
+  const answers = Number(coverageRow?.answers ?? 0)
+  const ratedAnswers = Number(coverageRow?.rated_answers ?? 0)
 
   const [totalsRow] = await db
     .select({
@@ -488,7 +521,9 @@ export async function getFeedbackHealth(
 
   return {
     windowDays,
-    answers: Number(answersRow?.count ?? 0),
+    answers,
+    ratedAnswers,
+    coverage: answers > 0 ? ratedAnswers / answers : null,
     totals: {
       up: Number(totalsRow?.up ?? 0),
       down: Number(totalsRow?.down ?? 0),
