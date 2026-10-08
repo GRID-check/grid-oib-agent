@@ -112,6 +112,95 @@ export const organization = {
         'Managing people and roles needs the “Manage people and roles” permission. An organization admin can grant it.',
     },
   },
+  /**
+   * Personen & Zugriff → Eigene Rollen (ADR-0084): roles an office builds in
+   * WorkOS, assigned on the People tab, named by restricted folders.
+   */
+  customRoles: {
+    title: 'Custom roles',
+    description:
+      'Roles your office builds itself, beside Piloti’s. A role bundles permissions under a name such as “Management”.',
+    howTo:
+      'You assign roles to people on the People tab. A project folder can be restricted to one or more roles: then only people holding one of them see the folder, its documents and what Piloti answers from them. Organization admins always see everything.',
+    oneRoleTitle: 'One role per person',
+    oneRoleBody:
+      'Unless your organization has multiple roles per person switched on, everyone holds exactly one role. A role you use for folders must then also carry the permissions its holders work with.',
+    create: 'New role',
+    customGroup: 'Your office’s roles',
+    environmentGroup: 'Piloti’s roles',
+    environmentHint: 'Provided by Piloti for every organization. They cannot be changed here.',
+    emptyTitle: 'No custom roles yet',
+    emptyDescription: 'Create a role such as “Management” to restrict folders to the people who hold it.',
+    permissionCount: '{count, plural, one {# permission} other {# permissions}}',
+    editRole: 'Edit role “{name}”',
+    deleteRole: 'Delete role “{name}”',
+    loadError: 'The roles could not be loaded right now.',
+    readOnly: 'Only people with the “Manage people and roles” permission can change custom roles.',
+    editor: {
+      createTitle: 'New role',
+      editTitle: 'Edit role “{name}”',
+      createDescription:
+        'Name the role and choose what it may do. You assign it to people on the People tab afterwards.',
+      editDescription: 'The identifier stays the same, and everyone who holds the role keeps it.',
+      name: 'Name',
+      namePlaceholder: 'e.g. Management',
+      nameHint:
+        'Piloti derives the role’s identifier from its name when you create it. The identifier stays the same afterwards, even if you rename the role.',
+      nameRequired: 'Give the role a name.',
+      description: 'Description (optional)',
+      descriptionPlaceholder: 'Who holds this role, and what for',
+      permissions: 'Permissions',
+      permissionsHint:
+        'These permissions apply across the whole organization. Access to individual projects is granted per project.',
+      notGrantable: 'You do not hold this permission yourself, so you cannot grant it.',
+      create: 'Create role',
+      save: 'Save',
+      saving: 'Saving…',
+      created: 'Role “{name}” created. Assign it on the People tab.',
+      saved: 'Role “{name}” saved.',
+      saveError: 'The role could not be saved. Please try again.',
+      nameTaken: 'A role with this name already exists.',
+      forbidden: 'You can only put permissions you hold yourself into a role.',
+      discardTitle: 'Discard your changes?',
+      discardDescription: 'What you entered for this role has not been saved.',
+      discardConfirm: 'Discard',
+      keepEditing: 'Keep editing',
+    },
+    deleteDialog: {
+      title: 'Delete the role “{name}”?',
+      description:
+        'A role can only be deleted once nobody holds it. A folder restricted to this role alone is then visible to organization admins only.',
+      confirm: 'Delete role',
+      deleted: 'Role “{name}” deleted.',
+      stillAssigned: 'Somebody still holds this role. Give them another role on the People tab first.',
+      error: 'The role could not be deleted. Please try again.',
+    },
+    /** One label and one line per organization permission, keyed by the slug after `org:` with `:` as `_`. */
+    permission: {
+      settings_manage: { name: 'Manage organization settings', hint: 'Name, language and defaults of the organization.' },
+      models_manage: { name: 'Manage AI models', hint: 'Which model each part of Piloti works with.' },
+      budgets_manage: { name: 'Manage budgets', hint: 'Spending limits and usage of the whole organization.' },
+      compliance_manage: { name: 'Manage compliance', hint: 'Legal holds and deletions.' },
+      audit_view: { name: 'View the audit log', hint: 'The record of every privileged change.' },
+      archiv_manage: {
+        name: 'Manage the Archiv',
+        hint: 'Upload, delete and re-read documents in the office Archiv. Everyone can read it.',
+      },
+      skills_manage: {
+        name: 'Manage skills',
+        hint: 'Write, change and delete the office’s skills. Everyone can use them.',
+      },
+      projects_create: { name: 'Create projects', hint: 'Start new projects.' },
+      projects_administer: {
+        name: 'Administer all projects',
+        hint: 'Reach every project without being added to it, and see every restricted folder.',
+      },
+      members_manage: {
+        name: 'Manage people and roles',
+        hint: 'Invite people, change their roles, and build roles here.',
+      },
+    },
+  },
   overview: {
     title: 'Overview',
     description: 'Your organization at a glance.',

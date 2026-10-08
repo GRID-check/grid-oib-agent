@@ -23,6 +23,9 @@ features:
     with a summary of what arrived, where it was filed, what each file is, and
     what was held back or failed. Project settings list every upload with its
     outcome and who uploaded it.
+  - >
+    Your office can now build its own roles in Piloti, under Organisation →
+    Personen & Zugriff → Eigene Rollen.
 fixes:
   - >
     A chat in a project with a great deal of project information can no longer

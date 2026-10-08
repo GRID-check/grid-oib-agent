@@ -9,7 +9,11 @@
  * "Billing Admin" and "what is a Billing Admin", and would imply three
  * permissions where there is one.
  *
- * Only the roster is fetched, and it is fetched best-effort. Roles and
+ * A fourth tab, Eigene Rollen (ADR-0084), is the one that writes: the office's
+ * own roles in WorkOS. It loads them itself, client-side, so a WorkOS hiccup
+ * there leaves the other three views as they were.
+ *
+ * Only the roster is fetched here, and it is fetched best-effort. Roles and
  * permissions render from `lib/authz/catalog.ts` — the same array the
  * provisioning script applies to WorkOS — so a WorkOS listing hiccup degrades
  * the directory card to its error state and leaves the other two views, and the
@@ -26,6 +30,7 @@ import { ShieldAlert } from 'lucide-react'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/ui/page-header'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { CustomRolesSection } from '@/features/organization/components/custom-roles-section'
 import { PeopleDirectory } from '@/features/organization/components/people-directory'
 import { PermissionReference } from '@/features/organization/components/permission-reference'
 import { RoleCatalog } from '@/features/organization/components/role-catalog'
@@ -86,6 +91,7 @@ export default async function OrganizationAccessPage(): Promise<JSX.Element> {
           <TabsList>
             <TabsTrigger value="people">{t('access.people.title')}</TabsTrigger>
             <TabsTrigger value="roles">{t('access.roles.title')}</TabsTrigger>
+            <TabsTrigger value="custom-roles">{t('customRoles.title')}</TabsTrigger>
             <TabsTrigger value="permissions">{t('access.permissions.title')}</TabsTrigger>
           </TabsList>
 
@@ -94,6 +100,11 @@ export default async function OrganizationAccessPage(): Promise<JSX.Element> {
           </TabsContent>
           <TabsContent value="roles" className="mt-4">
             <RoleCatalog />
+          </TabsContent>
+          {/* The office's own roles (ADR-0084): built here in WorkOS, assigned
+              on the People tab, named by restricted folders. */}
+          <TabsContent value="custom-roles" className="mt-4">
+            <CustomRolesSection />
           </TabsContent>
           <TabsContent value="permissions" className="mt-4">
             <PermissionReference />
