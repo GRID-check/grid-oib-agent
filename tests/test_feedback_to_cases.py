@@ -56,7 +56,7 @@ def test_a_csv_without_the_expected_answer_column_gives_no_cases(tmp_path):
 
 def test_the_exports_bom_does_not_hide_the_first_column(tmp_path):
     """The export starts with a BOM for Excel; read as plain utf-8 it glued itself to `created_at`."""
-    cases = yaml.safe_load(_run(tmp_path, "﻿" + CSV))["questions"]
+    cases = yaml.safe_load(_run(tmp_path, "\ufeff" + CSV))["questions"]
     assert cases[0]["draft"]["reported"] == "2026-10-06"
 
 
