@@ -525,6 +525,11 @@ TTL_CLEANUP_INTERVAL_SECONDS = _env_int("AIQ_TTL_CLEANUP_INTERVAL_SECONDS", 3600
 # pruned so in-memory job tracking doesn't grow for the life of the process.
 JOB_RETENTION_SECONDS = 3600  # 1 hour
 
+# How long an ingest waits for a Bescheid's permit record (one structured model
+# call over the document, then the BFF embeds its requirements). Past it the
+# record is skipped, never the file.
+PERMIT_RECORD_TIMEOUT_SECONDS = 90
+
 # The per-file error of an attempt whose document was deleted while it indexed
 # (see `document_presence`). FAILED rather than SUCCESS so the end-of-job
 # summary reconciliation, which backfills a row for every successful file,
@@ -4230,6 +4235,49 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         )
         return answer is False
 
+    def _remember_permit(
+        self,
+        config: dict[str, Any],
+        collection_name: str,
+        file_name: str,
+        tags: list[str] | None,
+        text_documents: list[Any],
+    ) -> None:
+        """Hand a Bescheid's permit record to the BFF (permitting memory), fail-open and bounded.
+
+        Runs once the tags are known, and only when the tag decision typed the document a
+        Bescheid and the job names the BFF row it was dispatched for. The extraction is a
+        second model call over the whole document, so it gets its own deadline: a slow
+        model costs the record, never the ingest. A document that is no longer a Bescheid
+        keeps its old record until a follow-up drops it (docs/design/permitting-memory.md).
+        """
+        from aiq_agent.knowledge.permit_extraction import extract_and_store_permit_record
+        from aiq_agent.knowledge.permit_extraction import is_bescheid
+
+        organization_id, document_id = config.get("organization_id"), config.get("document_id")
+        if not (self.generate_summary_enabled and self.summary_llm and organization_id and document_id):
+            return
+        if not is_bescheid(tags):
+            return
+        from aiq_agent.common.cost_tracking import submit_in_context
+
+        pages = [(doc.metadata.get("page_label"), doc.get_content()) for doc in text_documents]
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = submit_in_context(
+                pool,
+                extract_and_store_permit_record,
+                pages,
+                self.summary_llm,
+                organization_id=str(organization_id),
+                document_id=str(document_id),
+                collection=collection_name,
+                file_name=file_name,
+            )
+            _future_result(future, "Permit record", file_name, timeout=PERMIT_RECORD_TIMEOUT_SECONDS)
+        finally:
+            pool.shutdown(wait=False)
+
     def _run_ingestion(
         self,
         job_id: str,
@@ -4906,6 +4954,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Clean up executor
                     if executor:
                         executor.shutdown(wait=False)
+
+                    self._remember_permit(config, collection_name, file_name, tags, text_documents)
 
                     # Standalone images must appear in the per-turn
                     # available_documents list to be usable in chat (summaries
