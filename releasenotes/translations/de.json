@@ -172,6 +172,14 @@
     "de": "Ein fehlgeschlagener Abruf taucht nicht mehr als Quelle in der Herleitung auf."
   },
   {
+    "en": "A file cannot be uploaded over one waiting in quarantine, not even by its uploader, so the held-back version never becomes part of its history. Delete the quarantined file first, or have it released.",
+    "de": "Eine Datei, die in Quarantäne wartet, lässt sich nicht überschreiben, auch nicht von der Person, die sie hochgeladen hat, sodass die zurückgehaltene Fassung nie Teil ihres Verlaufs wird. Löschen Sie die Datei in Quarantäne zuerst, oder lassen Sie sie freigeben."
+  },
+  {
+    "en": "A file in quarantine can be asked for: press „Freigabe anfragen“ next to it in the upload summary, and the people who may release it get an inbox notice naming the file. In Organisation → Quarantäne, „Ansehen“ opens the file where it is filed, so it can be looked at before it is released.",
+    "de": "Für eine Datei in Quarantäne lässt sich die Freigabe anfragen: Drücken Sie daneben in der Upload-Zusammenfassung auf „Freigabe anfragen“, und wer sie freigeben darf, erhält eine Meldung im Postfach, die die Datei nennt. Unter Organisation → Quarantäne öffnet „Ansehen“ die Datei dort, wo sie abgelegt ist, sodass sie sich vor der Freigabe ansehen lässt."
+  },
+  {
     "en": "A file is found even when the answer spells its name with different capitals, or when it is an attachment uploaded in this chat.",
     "de": "Eine Datei wird auch gefunden, wenn die Antwort ihren Namen anders groß schreibt oder wenn sie als Beilage in diesem Chat hochgeladen wurde."
   },
