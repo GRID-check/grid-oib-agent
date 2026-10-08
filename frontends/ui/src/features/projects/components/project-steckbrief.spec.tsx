@@ -1,5 +1,5 @@
 /**
- * The Steckbrief card (ADR-0089): it shows address, period and people, offers
+ * The Steckbrief card (ADR-0090): it shows address, period and people, offers
  * only what the server allows, and sends months and nothing more.
  */
 import { render, screen, within } from '@/test-utils'

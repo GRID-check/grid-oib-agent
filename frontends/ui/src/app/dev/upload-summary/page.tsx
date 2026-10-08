@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Dev preview for the upload summary (ADR-0085): what an inbox row's
+ * Dev preview for the upload summary (ADR-0086): what an inbox row's
  * `upload.completed` opens. Renders the REAL components with fixtures:
  *
  *  - the mixed batch, still reading one file, laid out inline so a full-page
@@ -75,7 +75,7 @@ function Preview(): JSX.Element {
       <div className="space-y-2">
         <h1 className="text-lg font-semibold">Upload-Übersicht</h1>
         <p className="text-muted-foreground text-sm">
-          Opened from the inbox row „Ihr Upload ist gelesen“ (ADR-0085). Inline below; the real route dialog with{' '}
+          Opened from the inbox row „Ihr Upload ist gelesen“ (ADR-0086). Inline below; the real route dialog with{' '}
           <code>?dialog=1</code>.
         </p>
         <Button asChild variant="outline" size="sm">

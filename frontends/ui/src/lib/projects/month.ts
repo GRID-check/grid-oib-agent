@@ -1,8 +1,8 @@
 /**
- * A month, as the Steckbrief keeps its dates (ADR-0089): Beginn and Abschluss
+ * A month, as the Steckbrief keeps its dates (ADR-0090): Beginn and Abschluss
  * of a project, and from–to of each person on it, are months. On the wire a
  * month is `YYYY-MM`; in Postgres it is a `date` on the first of that month
- * (migration 0116 CHECKs the day). Pure, shared by the service and the form.
+ * (migration 0117 CHECKs the day). Pure, shared by the service and the form.
  */
 
 /** `YYYY-MM`, the month on the wire and in the form's `<input type="month">`. */

@@ -41,7 +41,7 @@ describe('errorResponse', () => {
     })
   })
 
-  it('answers an insert into a closed project (GPC01) as the 403 the permission check gives (ADR-0088)', async () => {
+  it('answers an insert into a closed project (GPC01) as the 403 the permission check gives (ADR-0089)', async () => {
     const error = Object.assign(new Error('Failed query: insert into "documents"'), {
       cause: Object.assign(new Error('project p1 is closed; nothing may be added to it'), { code: 'GPC01' }),
     })
@@ -51,7 +51,7 @@ describe('errorResponse', () => {
   })
 
   it('answers a write into a deleted folder (GFD01) as the folder being gone', async () => {
-    // Migration 0114: a folder went to the Papierkorb between the write check and the insert.
+    // Migration 0115: a folder went to the Papierkorb between the write check and the insert.
     const error = Object.assign(new Error('Failed query: insert into "documents"'), {
       cause: Object.assign(new Error('folder f1 is deleted; nothing may be filed into it'), { code: 'GFD01' }),
     })

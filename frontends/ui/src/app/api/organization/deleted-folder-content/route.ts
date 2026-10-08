@@ -1,5 +1,5 @@
 /**
- * Organisation → Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0087):
+ * Organisation → Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0088):
  * who sees chats, answers and notes drawn from a folder once it is purged.
  *
  * GET — any member: the settings page shows the choice to everyone, and the

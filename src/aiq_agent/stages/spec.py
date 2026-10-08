@@ -83,7 +83,7 @@ class TurnFacts:
     #: What the ``remember`` tool wrote DURING the turn, after that digest was
     #: built. Reflection must treat these as already recorded.
     remembered_this_turn: tuple[str, ...] = ()
-    #: What the turn could have taken from restricted folders (ADR-0086): the
+    #: What the turn could have taken from restricted folders (ADR-0087): the
     #: restricted collections in its scope, the ones it cited or read, and the
     #: restricted documents its prompt listed. Memory written from the turn is
     #: restricted accordingly (``memory/restriction.py``); empty for an open turn.

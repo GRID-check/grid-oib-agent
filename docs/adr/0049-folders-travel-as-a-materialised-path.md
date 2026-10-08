@@ -98,7 +98,7 @@ An Archiv folder's delete works out to a prefix rewrite because
 `deleteShelfFolder` re-files the folder's documents at its parent and
 re-parents its children the same way: `Brandschutz/Alt` → `Brandschutz` and
 `Brandschutz/Alt/EG` → `Brandschutz/EG` are the same replacement. A project
-folder's delete used to be one too. Since ADR-0087's Papierkorb it takes its
+folder's delete used to be one too. Since ADR-0088's Papierkorb it takes its
 subfolders and documents with it and their chunks are purged from the index, so
 nothing moves on the Python side; a restore re-ingests them under their path.
 
