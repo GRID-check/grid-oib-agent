@@ -116,7 +116,7 @@ async function assertDocumentReadable(
       if (document.projectId === null) throw new NotFoundError(notFoundMessage)
       await requireProjectAccess(session, document.projectId, 'project:view')
       // A model filed under a folder this session is not cleared for does not
-      // exist for it (ADR-0086): not found, never forbidden — the header, the
+      // exist for it (ADR-0087): not found, never forbidden — the header, the
       // element query and the presigned source URL all pass through here.
       if (!(await isFolderVisibleTo(session, document.projectId, document.folderId))) {
         throw new NotFoundError(notFoundMessage)

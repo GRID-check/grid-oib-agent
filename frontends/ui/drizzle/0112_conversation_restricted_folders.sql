@@ -1,6 +1,6 @@
 -- 0111: conversation_restricted_folders — the folders not every project member
 -- can read whose content a conversation actually drew on, one row per folder
--- (ADR-0086, ADR-0087).
+-- (ADR-0087, ADR-0088).
 --
 -- ## Per folder, and per use
 --
@@ -42,6 +42,6 @@ CREATE TABLE IF NOT EXISTS "conversation_restricted_folders" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "conversation_restricted_folders" IS
-  'A folder not every project member can read whose content this conversation drew on (ADR-0087). Written when the BFF admits that use; who may read the conversation is decided at read time from the folder''s current access.';
+  'A folder not every project member can read whose content this conversation drew on (ADR-0088). Written when the BFF admits that use; who may read the conversation is decided at read time from the folder''s current access.';
 --> statement-breakpoint
 SELECT grid_secure_table('conversation_restricted_folders', 'organization_id = grid_current_org()');

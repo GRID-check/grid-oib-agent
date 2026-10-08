@@ -55,7 +55,7 @@ vi.mock('@/lib/documents/research-report', () => ({
 }))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectIdByCollectionName: vi.fn(),
-  // An active project: a closed one refuses the submit (ADR-0088).
+  // An active project: a closed one refuses the submit (ADR-0089).
   findProjectTenancy: vi.fn(async () => ({ organizationId: 'org_1', deletedAt: null, status: 'active' })),
 }))
 
@@ -993,7 +993,7 @@ describe('/api/jobs/async/[...path] proxy — a cancel the backend refuses becau
   })
 })
 
-describe('/api/jobs/async/[...path] proxy — a run’s documents have one door (ADR-0055, ADR-0086)', () => {
+describe('/api/jobs/async/[...path] proxy — a run’s documents have one door (ADR-0055, ADR-0087)', () => {
   // `addRunDocument` checks a document against the project's restricted
   // folders before the backend hears of it; the proxy would forward the same
   // control with a signed project and no such check, so it does not serve it.

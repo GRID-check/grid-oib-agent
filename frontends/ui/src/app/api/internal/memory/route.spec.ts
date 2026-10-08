@@ -262,7 +262,7 @@ describe('POST /api/internal/memory', () => {
 })
 
 /**
- * ADR-0086: a finding from a turn that read a restricted folder is written as
+ * ADR-0087: a finding from a turn that read a restricted folder is written as
  * restricted project memory. The route checks the shape and the scope; the
  * service checks each name is a current restricted collection of the project.
  */

@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * What may leave a conversation that drew on a restricted folder (ADR-0086).
+ * What may leave a conversation that drew on a restricted folder (ADR-0087).
  *
  * The decision is driven here with the conversation's record and the folder
  * tree mocked: a run, task or profile patch from a conversation that recorded a
@@ -29,7 +29,7 @@ import { requireMayFileFrom, requireMayLeaveConversation, requirePlanDocumentsOp
 const ORG = 'org_1'
 const PROJECT = '3f8b0d2e-0000-4000-8000-000000000001'
 const COLLECTION = 'proj_3f8b0d2e'
-/** Source folders, by id (ADR-0087): the record names folders, not collections. */
+/** Source folders, by id (ADR-0088): the record names folders, not collections. */
 const VERTRAEGE = 'vertraege'
 const HONORARE = 'honorare'
 const CONV = 's_conv_1'

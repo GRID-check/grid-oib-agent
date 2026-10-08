@@ -31,7 +31,7 @@
  * Not served: POST job/{job_id}/documents answers 404 without reaching the
  * backend. A document reaches a running run only through the run primitive,
  * `POST /api/projects/{id}/runs/{runId}/documents` (`addRunDocument`,
- * ADR-0055), which refuses a document from a restricted folder (ADR-0086).
+ * ADR-0055), which refuses a document from a restricted folder (ADR-0087).
  * - DELETE /api/jobs/async/job/{job_id}/cancel - Cancel job
  * - GET /api/jobs/async/job/{job_id}/state - Get job artifacts
  * - GET /api/jobs/async/job/{job_id}/report - Get final report
@@ -638,7 +638,7 @@ export const POST = tenantSlotRoute(async function POST(
       submit: path[0] === 'submit',
     })
 
-    // A closed project files nothing (ADR-0088): a research run's report would
+    // A closed project files nothing (ADR-0089): a research run's report would
     // land in it. The agent no longer offers research there; this is the door a
     // direct call comes through.
     if (path[0] === 'submit' && scope.projectId && isProjectClosed(await findProjectTenancy(scope.projectId))) {

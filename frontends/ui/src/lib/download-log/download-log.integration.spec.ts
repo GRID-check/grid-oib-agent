@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * The download log against a REAL Postgres with every migration applied, as the
- * restricted runtime role (migration 0113, ADR-0087):
+ * restricted runtime role (migration 0114, ADR-0088):
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/download-log/download-log.integration.spec.ts

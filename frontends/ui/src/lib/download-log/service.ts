@@ -1,6 +1,6 @@
 /**
  * The download log: recording a hand-over of a document's bytes, and the admin
- * view of what was recorded (ADR-0087, plan 2026-10-06-folder-access-lifecycle).
+ * view of what was recorded (ADR-0088, plan 2026-10-06-folder-access-lifecycle).
  *
  * ## What is recorded
  *
@@ -197,7 +197,7 @@ export interface DownloadLogEntry {
   scope: AccessLogRow['scope']
   projectId: string | null
   projectName: string | null
-  /** `closed`: the file's project is closed (ADR-0088), said beside its name. */
+  /** `closed`: the file's project is closed (ADR-0089), said beside its name. */
   projectStatus: ProjectStatus | null
   documentId: string
   /** Null when {@link DownloadLogEntry.nameWithheld}. */

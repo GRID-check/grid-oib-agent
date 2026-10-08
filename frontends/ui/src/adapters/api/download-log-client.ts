@@ -1,5 +1,5 @@
 /**
- * Download log client (ADR-0087): the admin read and the retention write,
+ * Download log client (ADR-0088): the admin read and the retention write,
  * through their first-party BFF routes.
  *
  *   - read      → `GET /api/organization/download-log`
@@ -24,7 +24,7 @@ const EntrySchema = z.object({
   scope: z.enum(DOWNLOAD_LOG_SCOPES),
   projectId: z.string().nullable(),
   projectName: z.string().nullable(),
-  // Optional for a response from a build before ADR-0088.
+  // Optional for a response from a build before ADR-0089.
   projectStatus: z.enum(PROJECT_STATUSES).nullable().optional(),
   documentId: z.string(),
   /** Null when `nameWithheld`: the viewer may not read the folder the row was logged in. */

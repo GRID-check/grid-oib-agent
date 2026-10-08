@@ -69,7 +69,7 @@ export interface UploadDecision {
     sendDirect: (files: File[]) => void
   ) => Promise<void>
   /**
-   * The reader's answer for one file the upload screening excluded (ADR-0085):
+   * The reader's answer for one file the upload screening excluded (ADR-0086):
    * upload it anyway, or not. Re-plans at once, because a released file can
    * create a folder and claim a name the excluded one did not, and then asks
    * the name probe about it, which it was kept out of until now. Rejects when
@@ -138,7 +138,7 @@ export function useUploadDecision(): UploadDecision {
     const { screeningBasePath, documents: source, ...planInput } = input
     // The screening first, and alone: the name probe is a request, and a name
     // the office's policy holds back must not leave the browser in it either
-    // (ADR-0085). Without the policy nothing is planned and nothing is sent.
+    // (ADR-0086). Without the policy nothing is planned and nothing is sent.
     const policy = await loadUploadScreeningPolicy()
     if (current !== generation.current) return
     const screening = { policy, basePath: screeningBasePath ?? null, released: new Set<File>() }

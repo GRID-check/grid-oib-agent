@@ -1,5 +1,5 @@
 /**
- * Who may read and who may write a project folder (ADR-0087).
+ * Who may read and who may write a project folder (ADR-0088).
  *
  * PUT `{ mode: 'inherit' }` or `{ mode: 'custom', grants: [{ role, level }] }`
  * — `project:manage`. `role` is a WorkOS role slug of the organization, or `*`

@@ -1,4 +1,4 @@
-"""The Python reader of ADR-0086's restricted-folder collection names.
+"""The Python reader of ADR-0087's restricted-folder collection names.
 
 The writer is ``restrictedCollectionName`` in
 ``frontends/ui/src/lib/authz/folder-access.ts``:

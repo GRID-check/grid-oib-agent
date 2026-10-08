@@ -282,7 +282,7 @@ def render_grounding_block(block: GroundingBlock) -> str:
     record_grounding_block(block, rendered)
     # Every passage's collection is reported for the tool call that returns this
     # block, which is what admits a restricted folder's passages before the
-    # model reads them (ADR-0087). Here and not in the producers, for the
+    # model reads them (ADR-0088). Here and not in the producers, for the
     # reason recording is: no evidence tool can render a hit and skip it.
     from aiq_agent.knowledge.restricted_use import note_collections_read
 

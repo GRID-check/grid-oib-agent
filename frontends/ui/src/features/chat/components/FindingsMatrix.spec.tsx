@@ -84,7 +84,7 @@ describe('FindingsMatrix', () => {
     expect(screen.getByTestId('findings-dropped')).toHaveTextContent('Barrierefreiheit')
   })
 
-  test('in a closed project says, under the matrix, that open findings get no new research (ADR-0088)', () => {
+  test('in a closed project says, under the matrix, that open findings get no new research (ADR-0089)', () => {
     render(
       <CurrentProjectProvider value={{ id: 'p1', name: 'Seestadt', status: 'closed' as const, closedAt: '2026-10-01T00:00:00Z', readsBecauseClosed: false }}>
         <FindingsMatrix findings={findings} />

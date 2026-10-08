@@ -63,7 +63,7 @@ vi.mock('@/lib/authz/projects', () => ({
 }))
 
 // Which people may read what a conversation recorded is `restricted-use.spec.ts`'s
-// subject (ADR-0087); here nothing it recorded restricts anybody.
+// subject (ADR-0088); here nothing it recorded restricts anybody.
 vi.mock('@/lib/conversations/restricted-use', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/conversations/restricted-use')>()),
   peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),
@@ -145,7 +145,7 @@ vi.mock('@/lib/storage/bucket', () => ({
 
 vi.mock('@/lib/bim/service', () => ({ deleteBimDerivedObjects: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
-// The upload-screening policy (ADR-0085) the name gate reads: an office on
+// The upload-screening policy (ADR-0086) the name gate reads: an office on
 // Piloti's suggested list. Unreadable settings refuse the upload outright.
 vi.mock('@/lib/organizations/service', () => ({
   getOrgSettings: vi.fn(async () => ({ displayName: null, defaultLocale: 'de', settings: {} })),

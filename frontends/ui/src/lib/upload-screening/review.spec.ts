@@ -85,7 +85,7 @@ describe('mayReviewQuarantine', () => {
   })
 })
 
-describe('mayReviewQuarantine and restricted folders (ADR-0086)', () => {
+describe('mayReviewQuarantine and restricted folders (ADR-0087)', () => {
   it("does not let a project admin review a document in a folder they are not cleared for", async () => {
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' } as Awaited<
       ReturnType<typeof requireProjectAccess>
