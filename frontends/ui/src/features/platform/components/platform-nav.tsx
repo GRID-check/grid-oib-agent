@@ -85,9 +85,13 @@ export const PLATFORM_SECTION_GROUPS = [
   sections: readonly { key: string; href: string; icon: LucideIcon }[]
 }[]
 
-export const PLATFORM_SECTIONS = PLATFORM_SECTION_GROUPS.flatMap((group) => group.sections)
+type PlatformSection = (typeof PLATFORM_SECTION_GROUPS)[number]['sections'][number]
 
-export type PlatformSectionKey = (typeof PLATFORM_SECTIONS)[number]['key']
+export const PLATFORM_SECTIONS: readonly PlatformSection[] = PLATFORM_SECTION_GROUPS.flatMap(
+  (group): readonly PlatformSection[] => group.sections,
+)
+
+export type PlatformSectionKey = PlatformSection['key']
 
 /**
  * The overview lives at the bare `/app/platform`, so it must match exactly —
