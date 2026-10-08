@@ -8,14 +8,14 @@ import { documentVisibleTo, type ShelfReader } from '@/lib/documents/visibility'
 
 export interface ProjectOverviewReader {
   /**
-   * Folders whose documents this reader may not see (ADR-0086), from
+   * Folders whose documents this reader may not see (ADR-0087), from
    * `getHiddenFolderIds`. Required, not optional: the overview shows filenames
    * and counts, and a caller that forgot to ask would show every restricted
    * folder's documents to everyone who can open the project.
    */
   hiddenFolderIds: readonly string[]
   /**
-   * How this person reads the project (ADR-0085), from `shelfReaderFor`: a
+   * How this person reads the project (ADR-0086), from `shelfReaderFor`: a
    * member or a reviewer of its quarantine. Required for the same reason as
    * the key above: a held file is not there for anyone else, by name or in a
    * number.

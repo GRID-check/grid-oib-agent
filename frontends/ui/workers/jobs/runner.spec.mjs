@@ -14,6 +14,7 @@ const CONFIG = {
   staleSeconds: 180,
   maxAttempts: 3,
   perLaneCap: 0,
+  yieldAfterMs: 0,
   reapEveryMs: 60_000,
   transientBackoffMs: 0,
   retryBackoffSeconds: 30,
@@ -49,7 +50,7 @@ function runnerOver(queue, slices, extra = {}) {
   for (const outcome of slices) runSlice.mockResolvedValueOnce(outcome)
   const runner = createRunner(
     { ...CONFIG, ...extra },
-    { sql: /** @type {never} */ ({}), queue, runSlice, streak, log, sleep: () => Promise.resolve() },
+    { sql: /** @type {never} */ ({}), queue, runSlice, streak, log, sleep: () => Promise.resolve(), now: extra.now },
   )
   return { runner, runSlice, log }
 }
@@ -71,6 +72,35 @@ describe('a claimed job', () => {
     expect(queue.fail).not.toHaveBeenCalled()
     expect(queue.release).not.toHaveBeenCalled()
     expect(runner.inFlight()).toBe(0)
+  })
+
+  it('gives a long claim its slot back between slices, keeping its progress and its attempt', async () => {
+    const queue = fakeQueue()
+    let clock = 0
+    const { runner, runSlice } = runnerOver(queue, [], { yieldAfterMs: 600_000, now: () => clock })
+    // Five minutes a slice: the second one reaches the ten-minute mark.
+    runSlice
+      .mockImplementationOnce(async () => ((clock += 300_000), { kind: 'more', payload: { cursor: 1 } }))
+      .mockImplementationOnce(async () => ((clock += 300_000), { kind: 'more', payload: { cursor: 2 } }))
+
+    await runner.runClaim(CLAIM, 'w-0')
+
+    expect(runSlice).toHaveBeenCalledTimes(2)
+    expect(queue.saveProgress.mock.calls.map((call) => call[3])).toEqual([{ cursor: 1 }, { cursor: 2 }])
+    expect(queue.release).toHaveBeenCalledWith(expect.anything(), 'job-1', 'w-0')
+    expect(queue.fail).not.toHaveBeenCalled()
+    expect(queue.complete).not.toHaveBeenCalled()
+  })
+
+  it('does not yield a claim whose progress could not be saved: it is lost, not given back', async () => {
+    const queue = fakeQueue({ saveProgress: vi.fn().mockResolvedValue(false) })
+    let clock = 0
+    const { runner, runSlice } = runnerOver(queue, [], { yieldAfterMs: 1, now: () => clock })
+    runSlice.mockImplementationOnce(async () => ((clock += 10), { kind: 'more', payload: { cursor: 1 } }))
+
+    await runner.runClaim(CLAIM, 'w-0')
+
+    expect(queue.release).not.toHaveBeenCalled()
   })
 
   it('records a failed attempt with its reason, and says when the last one made it dead', async () => {
@@ -314,6 +344,7 @@ describe('configuration', () => {
       concurrency: 2,
       maxAttempts: 3,
       perLaneCap: 0,
+      yieldAfterMs: 600_000,
       retryBackoffSeconds: 30,
       deadRetentionSeconds: 14 * 86_400,
     })

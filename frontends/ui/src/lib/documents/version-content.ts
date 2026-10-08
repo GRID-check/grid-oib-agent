@@ -394,7 +394,7 @@ async function readObjectText(
 /**
  * The version's text, read for a session that may read its document; nothing
  * is recorded here. `forModel` when a model reads the text rather than the
- * person: a held document (ADR-0085) reaches no model, whoever's session
+ * person: a held document (ADR-0086) reaches no model, whoever's session
  * fetches it, its uploader and its reviewers included, and neither do a
  * version's bytes the verdict on record did not judge.
  */
@@ -434,7 +434,7 @@ export async function readVersionContent(
  * and the reviewer never receives these bytes, so there is no hand-over to
  * record. `coverage.spec.ts` lists the exemption with this reason. A model
  * reads it, so a document whose screening has not passed answers 404 here
- * (ADR-0085), for its reviewer as much as anyone.
+ * (ADR-0086), for its reviewer as much as anyone.
  */
 export async function readVersionTextForTask(
   session: AuthorizedSession,
@@ -454,7 +454,7 @@ export interface ServiceReader {
 
 /**
  * A subject in a restricted folder is opened into the turn's working directory
- * whole, so reading it is USE of that folder (ADR-0086, ADR-0087): admitted for
+ * whole, so reading it is USE of that folder (ADR-0087, ADR-0088): admitted for
  * the conversation, against its audience, before the bytes leave. Refused, or
  * with no asker to check, it reads as no subject at all. True when a folder not
  * every member may read was admitted, so the agent knows the conversation is
@@ -542,7 +542,7 @@ export async function readVersionForService(
   ) {
     throw new NotFoundError('Version not found')
   }
-  // A held document (ADR-0085) never reaches a model, not even as the subject
+  // A held document (ADR-0086) never reaches a model, not even as the subject
   // its own uploader opened a chat about: nobody's own uploads count here.
   const document = await findDocumentInOrg(version.documentId, organizationId, SCREENED_ONLY)
   // The verdict is about the item's bytes; these are the version's.

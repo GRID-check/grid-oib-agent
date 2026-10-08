@@ -63,7 +63,7 @@ export async function moveDocumentToFolder(
 
   // The document is read FIRST and without a shelf permission check, because
   // the shelf it is on is what the permission is checked against. It is read
-  // org-scoped and through the hold (ADR-0085), so a document in another
+  // org-scoped and through the hold (ADR-0086), so a document in another
   // tenant, or a held file this session neither uploaded nor reviews, is
   // simply not found.
   const document = await findDocumentForSession(session, input.documentId)
@@ -77,7 +77,7 @@ export async function moveDocumentToFolder(
 
   await requireShelfWrite(session, shelf)
 
-  // A project's folders have access per role (ADR-0086, ADR-0087); the
+  // A project's folders have access per role (ADR-0087, ADR-0088); the
   // Archiv's do not. Both ends must be visible to the mover: a document in a
   // folder they may not read does not exist for them, and neither does such a
   // destination. Moving out of a folder and into another is a write on both: a

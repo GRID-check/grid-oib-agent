@@ -78,7 +78,7 @@ function requireBauwerk(projectId: string, bauwerkId: string) {
 }
 
 
-/** The reader a session reads a project's bindings as: its folders (ADR-0086) and the hold (ADR-0085). */
+/** The reader a session reads a project's bindings as: its folders (ADR-0087) and the hold (ADR-0086). */
 async function sessionRoleReader(session: AuthorizedSession, projectId: string): Promise<DocumentRoleReader> {
   const [hiddenFolderIds, documents] = await Promise.all([
     getHiddenFolderIds(session, projectId),
@@ -89,7 +89,7 @@ async function sessionRoleReader(session: AuthorizedSession, projectId: string):
 
 /**
  * A binding to a document in a folder this session may not see is not listed
- * (ADR-0086), nor one to a held file it neither uploaded nor reviews (ADR-0085).
+ * (ADR-0087), nor one to a held file it neither uploaded nor reviews (ADR-0086).
  */
 export async function listDocumentRoles(
   projectId: string,
@@ -154,7 +154,7 @@ export async function declareDocumentRole(
   // cannot see.
   //
   // A document in a folder this session may not see is answered the same way
-  // (ADR-0086), and so is a held file it may not see (ADR-0085): binding it
+  // (ADR-0087), and so is a held file it may not see (ADR-0086): binding it
   // would put its filename back in front of them.
   const reader = await sessionRoleReader(session, input.projectId)
   if (!(await documentBelongsToProject(input.documentId, input.projectId, reader))) {
@@ -230,7 +230,7 @@ export async function declareDocumentRole(
  * The displaced bindings this session may be told about. Cardinality counts
  * every holder of the slot, hidden or not, so a hidden holder is displaced like
  * any other; naming it in the answer would hand its filename to someone not
- * cleared for its folder (ADR-0086), so it is displaced without a word.
+ * cleared for its folder (ADR-0087), so it is displaced without a word.
  */
 async function keepVisible(
   projectId: string,
@@ -249,8 +249,8 @@ export async function revokeDocumentRole(
 ): Promise<void> {
   await requireProjectAccess(session, projectId, [...WRITE_PERMISSIONS])
   // A binding is answered the way its document is: one to a file in a folder
-  // this session may not see (ADR-0086), or to a held file it neither uploaded
-  // nor reviews (ADR-0085), is not there to remove, exactly as it is not there
+  // this session may not see (ADR-0087), or to a held file it neither uploaded
+  // nor reviews (ADR-0086), is not there to remove, exactly as it is not there
   // to list. Its id is the only thing that names it.
   const visible = await listProjectDocumentRoles(projectId, await sessionRoleReader(session, projectId))
   const removed = visible.some((row) => row.id === bindingId) ? await deleteBindings(projectId, [bindingId]) : 0

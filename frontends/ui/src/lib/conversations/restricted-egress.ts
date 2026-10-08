@@ -1,6 +1,6 @@
 /**
  * What may leave a conversation that drew on a folder with restricted access
- * (ADR-0086, ADR-0087).
+ * (ADR-0087, ADR-0088).
  *
  * Product rule: restricted-folder content must not reach colleagues not cleared
  * for that folder. Sharing such a conversation is decided per person
@@ -187,7 +187,7 @@ export async function requirePlanDocumentsOpen(
   // No folder has its own list, so every folder is read by every member.
   if (!folders.some((folder) => folder.accessMode === 'custom')) return
   const tree = folderTree(folders)
-  // Every row by that name, held ones included (ADR-0085): the answer is only
+  // Every row by that name, held ones included (ADR-0086): the answer is only
   // ever a refusal, and a held file in a restricted folder is still there.
   const rows = await findProjectDocumentsByFilenames(projectId, organizationId, names, {
     includeArchived: true,

@@ -301,7 +301,7 @@ export function errorResponse(error: unknown, request: Request): Response {
     )
   }
   // Something was filed into a folder that went to the Papierkorb between the
-  // write check and the insert (migration 0114's trigger): the folder is gone.
+  // write check and the insert (migration 0115's trigger): the folder is gone.
   if (findPostgresCode(error) === FOLDER_DELETED_SQLSTATE) {
     return errorPayload(
       { error: 'Folder not found', code: 'NOT_FOUND', details: { reason: FOLDER_DELETED_REASON } },
@@ -310,7 +310,7 @@ export function errorResponse(error: unknown, request: Request): Response {
     )
   }
   // Something was added to a project that closed between the permission check
-  // and the insert (migration 0115's trigger): the same 403 the check gives.
+  // and the insert (migration 0116's trigger): the same 403 the check gives.
   if (findPostgresCode(error) === PROJECT_CLOSED_SQLSTATE) {
     const closed = projectClosedError()
     return errorPayload({ error: closed.message, code: closed.code, details: closed.details }, closed.status, requestId)

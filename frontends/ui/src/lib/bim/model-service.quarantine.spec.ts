@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * A quarantined IFC's model (ADR-0085).
+ * A quarantined IFC's model (ADR-0086).
  *
  * The IFC digest is screened like any upload, but the model is extracted
  * BEFORE the digest is dispatched, so a file held back for its content still

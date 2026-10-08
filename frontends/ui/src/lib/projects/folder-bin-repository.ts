@@ -1,5 +1,5 @@
 /**
- * The SQL behind the Papierkorb (migration 0114): moving a folder's subtree to
+ * The SQL behind the Papierkorb (migration 0115): moving a folder's subtree to
  * the bin and back, its queue row, its listing, the purge marker, and the
  * search for what was derived from a folder.
  *
@@ -625,7 +625,7 @@ export const BIN_LIST_LIMIT = 200
 /**
  * The project's bin entries, newest first: each deleted folder's root, with
  * what it holds as the reader may count it. A held file of somebody else is
- * not in the number (ADR-0085): a count that moves when a colleague's upload
+ * not in the number (ADR-0086): a count that moves when a colleague's upload
  * lands in a binned folder says it is there.
  */
 export async function listBinEntries(

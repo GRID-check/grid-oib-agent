@@ -384,7 +384,7 @@ const TABLE_WRITE_RE = /\.(insert|update)\(\s*documents\s*\)|update\s+"?document
 const PASS_THROUGH_TABLE_WRITERS = [
   'src/lib/storage/repository.ts',
   // A restore from the Papierkorb re-points a document at the collection its
-  // folder puts it in now (ADR-0087): `collection_name` and `updated_at`, and
+  // folder puts it in now (ADR-0088): `collection_name` and `updated_at`, and
   // nothing else; the status that follows is the re-ingest's.
   'src/lib/projects/folder-bin-repository.ts',
   // The purge marks a filed report drawn from a deleted folder: a merge of

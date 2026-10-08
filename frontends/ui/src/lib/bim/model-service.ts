@@ -100,7 +100,7 @@ async function assertDocumentReadable(
   document: Document,
   notFoundMessage: string
 ): Promise<void> {
-  // A held file's model is its uploader's and its reviewers' only (ADR-0085):
+  // A held file's model is its uploader's and its reviewers' only (ADR-0086):
   // the caller loaded `document` through `findDocumentForSession`.
   switch (document.scope) {
     case 'archiv':
@@ -119,7 +119,7 @@ async function assertDocumentReadable(
       if (document.projectId === null) throw new NotFoundError(notFoundMessage)
       await requireProjectAccess(session, document.projectId, 'project:view')
       // A model filed under a folder this session is not cleared for does not
-      // exist for it (ADR-0086): not found, never forbidden — the header, the
+      // exist for it (ADR-0087): not found, never forbidden — the header, the
       // element query and the presigned source URL all pass through here.
       if (!(await isFolderVisibleTo(session, document.projectId, document.folderId))) {
         throw new NotFoundError(notFoundMessage)
@@ -140,7 +140,7 @@ export async function getAccessibleModel(
 ): Promise<BimModelHeader> {
   assertIfcModelsEnabled(session)
   // The header only names the document; the document is what the hold and the
-  // shelf decide about (ADR-0085), and it goes through the session's rule.
+  // shelf decide about (ADR-0086), and it goes through the session's rule.
   const model = await findBimModelById(modelId, session.organizationId, internalRead('resolve-document'))
   if (!model) throw new NotFoundError('Model not found')
 
@@ -164,7 +164,7 @@ export async function getModelForDocument(
 }
 
 /**
- * The model list's reader per shelf (ADR-0085). It reads the project's models
+ * The model list's reader per shelf (ADR-0086). It reads the project's models
  * and the Büroablage's together, and each shelf has its own reviewers: the
  * project's admins for one, the Büroablage's curators for the other.
  */
@@ -319,7 +319,7 @@ async function revisionSiblingIds(
 ): Promise<string[]> {
   const series = revisionSeriesKey(model.filename)
   // The revisions this person may see: a held revision is not theirs to sign
-  // for or withdraw a signature from (ADR-0085).
+  // for or withdraw a signature from (ADR-0086).
   const models = await listBimModels(session.organizationId, {
     projectId,
     includeArchiv: true,

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The Papierkorb against a REAL Postgres (migration 0114, ADR-0087), through
+ * The Papierkorb against a REAL Postgres (migration 0115, ADR-0088), through
  * the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -50,7 +50,7 @@ vi.mock('@/lib/documents/service', () => ({
 }))
 // Project permissions are WorkOS's; each session here states which it holds,
 // and a denial is the real one's: not found.
-// A closed project (ADR-0088) is stubbed the way `requireProjectAccess` decides
+// A closed project (ADR-0089) is stubbed the way `requireProjectAccess` decides
 // it: writes refused before anything else unless the caller asks as if active.
 const projectState = vi.hoisted(() => ({ closed: false }))
 vi.mock('@/lib/authz/projects', async () => {
@@ -106,7 +106,7 @@ const admin = sessionOf('user_admin', [], ['org:projects:administer'])
 
 class Rollback extends Error {}
 
-describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', () => {
+describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
@@ -581,7 +581,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
     })
   })
 
-  describe('nothing lands in a deleted folder (the triggers, migration 0114)', () => {
+  describe('nothing lands in a deleted folder (the triggers, migration 0115)', () => {
     it('refuses an upload, a move and a new subfolder into a folder in the bin', async () => {
       await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
       await expect(insertDocument('Neu.pdf', folder.archiv)).rejects.toMatchObject({ cause: { code: 'GFD01' } })
@@ -646,7 +646,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
       expect((await queueRow(folder.verwaltung))[0]?.status).toBe('restored')
     })
 
-    it("counts a colleague's held upload only for the people who may see it (ADR-0085)", async () => {
+    it("counts a colleague's held upload only for the people who may see it (ADR-0086)", async () => {
       // Still being screened, uploaded by somebody else: not the project's yet.
       await inOrg(() =>
         db.execute(sql`
@@ -743,7 +743,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
       await expect(bin.restoreFolderFromBin(pl, { projectId, folderId: folder.vertraege })).rejects.toMatchObject({ status: 404 })
     })
 
-    it('in a closed project the manager restores, and nobody else does (ADR-0088)', async () => {
+    it('in a closed project the manager restores, and nobody else does (ADR-0089)', async () => {
       await bin.moveFolderToBin(gf, { projectId, folderId: folder.vertraege })
       projectState.closed = true
       try {
@@ -825,7 +825,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
   describe('a binned document is not handed to anyone (the download log’s readers all ask the folder rule first)', () => {
     it('refuses every reader, admins included, and a capability URL’s re-check, as not found', async () => {
       const documents = inTenant(await import('@/lib/documents/access'))
-      // Screened, with a verdict about the bytes it holds (ADR-0085).
+      // Screened, with a verdict about the bytes it holds (ADR-0086).
       await inOrg(() => db.execute(sql`UPDATE documents SET screening_outcome = 'clean' WHERE id = ${doc.archiv}::uuid`))
       await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
       for (const session of [pl, gf, manager, admin]) {
@@ -837,7 +837,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
       // judged its bytes, though the restore reads it again.
       await bin.restoreFolderFromBin(pl, { projectId, folderId: folder.plaene })
       await expect(documents.getAccessibleDocument(pl, doc.archiv)).resolves.toMatchObject({ id: doc.archiv })
-      // One with no verdict passes the hold only at rest (ADR-0085), so it is
+      // One with no verdict passes the hold only at rest (ADR-0086), so it is
       // its uploader's and its reviewers' while it is read again, and everyone's after.
       await expect(documents.getAccessibleDocument(pl, doc.plan)).rejects.toMatchObject({ status: 404 })
       await expect(documents.getAccessibleDocument(manager, doc.plan)).resolves.toMatchObject({ id: doc.plan })

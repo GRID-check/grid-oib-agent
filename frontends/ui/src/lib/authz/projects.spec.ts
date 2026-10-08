@@ -297,7 +297,7 @@ describe('requireProjectAccess', () => {
     ).rejects.toThrow('Not found')
   })
 
-  describe('a closed project (ADR-0088)', () => {
+  describe('a closed project (ADR-0089)', () => {
     beforeEach(() => {
       findProjectTenancy.mockResolvedValue({ organizationId: 'org_1', deletedAt: null, status: 'closed' })
     })

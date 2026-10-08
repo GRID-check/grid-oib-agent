@@ -440,7 +440,7 @@ async def test_a_spreadsheet_preview_is_left_to_the_job_which_draws_it_after_the
     """An office original indexed from its own bytes (a workbook) has a
     thumbnail only through its rendition. The route used to draw it in a
     background task, before the job had read a word of the file, so a workbook
-    the content gate quarantined already had a thumbnail (ADR-0085). Now the
+    the content gate quarantined already had a thumbnail (ADR-0086). Now the
     route fetches and PUTs nothing: the rendition is the job's deferred
     download (``preview_paths``), drawn only once the screen passes. The URL
     stays out of the config's repr."""
@@ -577,7 +577,7 @@ async def test_a_new_version_of_the_same_document_is_submitted(app, keyed_ingest
 async def test_a_move_into_a_restricted_collection_does_not_join_the_open_collections_job(
     app, keyed_ingestor, no_network
 ):
-    """A document moved across a folder restriction (ADR-0086) keeps its id and
+    """A document moved across a folder restriction (ADR-0087) keeps its id and
     object and is dispatched again into the folder's collection. Joining the
     job still writing into the open collection would index nothing where the
     document now belongs."""

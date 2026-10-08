@@ -1,5 +1,5 @@
 /**
- * SQL for upload batches (migration 0109). Every function names its
+ * SQL for upload batches (migration 0110). Every function names its
  * organization and runs inside `withTenant`, except the sweep's discovery,
  * which is cross-tenant by design and says so where it is called.
  */
@@ -157,7 +157,7 @@ export async function batchIdsOfDocuments(organizationId: string, documentIds: r
 }
 
 /**
- * The documents a batch wrote, bounded, as `reader` may see them (ADR-0085).
+ * The documents a batch wrote, bounded, as `reader` may see them (ADR-0086).
  * A batch's rows are its uploader's own (a re-upload moves a row into the new
  * uploader's batch), so its uploader reads every one.
  */
@@ -184,7 +184,7 @@ export async function listBatchDocuments(
  * leaving out what is filed in a folder hidden from this reader
  * (`getHiddenFolderIds`) with the document listing's own predicate
  * (`outsideHiddenFolders`), so "hidden" has one SQL spelling, and a held file
- * the reader neither uploaded nor reviews (ADR-0085): somebody else's upload
+ * the reader neither uploaded nor reviews (ADR-0086): somebody else's upload
  * counts for the team once it is screened.
  */
 export async function countBatchDocumentsByStatus(

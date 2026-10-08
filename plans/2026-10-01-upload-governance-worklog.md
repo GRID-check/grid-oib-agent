@@ -1,6 +1,6 @@
 # Upload governance — working log (2026-10-01, overnight)
 
-> **Numbers as written.** This branch's migrations 0104–0111 are 0108–0114 since develop took 0104–0106 (#847), and its ADR-0079, 0080, 0081 are ADR-0085, 0086, 0087. Older numbers here (0106–0114) are those before the stack's collapse; [`database/schema.md`](../docs/database/schema.md) has the numbers as shipped.
+> **Numbers as written.** This branch's migrations 0104–0112 are 0109–0115 since develop took 0104–0106 (#847), and its ADR-0079, 0080, 0081 are ADR-0086, 0087, 0088. Older numbers here (0106–0115) are those before the stack's collapse; [`database/schema.md`](../docs/database/schema.md) has the numbers as shipped.
 
 Branch `claude/nvidia-toolkit-data-validation-rbnyi6`. Request, in the user's words:
 can the NVIDIA Agent Toolkit validate that nothing sensitive is uploaded; can an
@@ -189,11 +189,11 @@ modal must fetch its own data. No type opens a modal today.
   caller a hidden folder existed; a folder delete or move could carry documents out of
   a restriction without `project:manage`; the intake wizard's upload skipped the name
   screen; BIM routes read models in hidden folders; and a restricted turn's mark lived
-  in memory only (now migration 0108, `conversation_restricted_turns`). Full UI suite
+  in memory only (now migration 0109, `conversation_restricted_turns`). Full UI suite
   after the fix, four shards: 11,383 passed, 0 failed. CI green on `4ef628f`.
 - **Memory decision (product owner, 2 Oct).** Writing nothing from a restricted turn
   felt broken: „Restricted shouldn't feel like that it should feel like a first
   thought." Chosen: **restricted memory**. A memory carries the restricted collections
   it came from and is served only to people cleared for all of them; what the turn
   cited or read decides, and when that says nothing an LLM judge classifies, failing
-  closed to every restricted collection in scope. Migration 0109.
+  closed to every restricted collection in scope. Migration 0110.

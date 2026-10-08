@@ -1,5 +1,5 @@
 /**
- * „Ausmisten" at a project's close (ADR-0090): Piloti proposes which documents
+ * „Ausmisten" at a project's close (ADR-0091): Piloti proposes which documents
  * the finished project no longer needs, the person closing it decides about
  * every one, and what they confirm goes to the Papierkorb (14 days,
  * restorable). Nothing is removed without that confirmation.
@@ -12,7 +12,7 @@
  * tags and the summary ingestion wrote, read from the index as every file
  * listing reads them, the editorial state), so nothing reaches a
  * model that ingestion did not already send. A document the content gate holds
- * in quarantine (ADR-0085) is left out altogether: it waits for a reviewer, not
+ * in quarantine (ADR-0086) is left out altogether: it waits for a reviewer, not
  * for a clean-out. Only a document whose screening passed (`clean`, or
  * `released` by a reviewer) reaches the model; one screened partly, not at all
  * or not yet is proposed by the rules alone. Two sources, merged per document:
@@ -22,7 +22,7 @@
  *
  * ## Into the Papierkorb, without widening anyone's access
  *
- * The Papierkorb holds folders (ADR-0087). For each folder the confirmed
+ * The Papierkorb holds folders (ADR-0088). For each folder the confirmed
  * documents are in (the project root counts as one), a subfolder „Ausgemistet
  * <date>" is made INSIDE it, the documents are moved there and the subfolder is
  * put in the Papierkorb. A subfolder that inherits its parent's access has
@@ -101,7 +101,7 @@ async function writableFacts(session: AuthorizedSession, projectId: string): Pro
     listProjectFolders(projectId, session),
   ])
   const pathOf = new Map(folders.map((folder) => [folder.id, folder.path]))
-  // The closer's own reader (ADR-0085): screened files, and the held ones they
+  // The closer's own reader (ADR-0086): screened files, and the held ones they
   // uploaded or review. Only `screeningPassed` facts reach the model below.
   const reader = await shelfReaderFor(session, { scope: 'project', projectId })
   const rows = await listAllDocuments(projectId, session.organizationId, [...access.hiddenFolderIds], reader)
@@ -131,7 +131,7 @@ async function writableFacts(session: AuthorizedSession, projectId: string): Pro
     authoredBy: row.authoredBy,
     contentHash: row.contentHash ?? null,
     createdAt: new Date(row.createdAt).toISOString(),
-    // The one definition of "screened" (ADR-0085), the same that lets a file
+    // The one definition of "screened" (ADR-0086), the same that lets a file
     // reach every member and the retrieval index: what a reader may already ask
     // Piloti about may be named to the clean-out's model too.
     screeningPassed: hasPassedScreening(row),

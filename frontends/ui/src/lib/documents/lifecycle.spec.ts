@@ -104,7 +104,7 @@ vi.mock('./version-content', () => ({
   writeVersionContent: vi.fn(),
 }))
 vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
-// The restricted-folder refusal (ADR-0086) is decided in `restricted-egress.ts`
+// The restricted-folder refusal (ADR-0087) is decided in `restricted-egress.ts`
 // and pinned in its own spec; here only the join is under test.
 vi.mock('@/lib/conversations/restricted-egress', async () => {
   const { ConversationConfinedError } = await import('@/lib/api/errors')
@@ -476,7 +476,7 @@ describe('transitionDocumentVersion — guards', () => {
 })
 
 /**
- * A held document (ADR-0085) opens no review round. The round's inbox row names
+ * A held document (ADR-0086) opens no review round. The round's inbox row names
  * the file and carries the Auftragssatz to each reviewer, who need not be its
  * uploader or one of the people who review its quarantine. Its uploader can
  * reach the version workflow (the hold lets them see their own file), so the
@@ -815,7 +815,7 @@ describe('transitionDocumentVersion — effects', () => {
 
   it('dispatches nothing on publish for bytes of a PERSON\'s document the gate already judged', async () => {
     // A draft forked and published unedited: the same bytes the verdict on
-    // record is about (migration 0122). Sending them again would screen and
+    // record is about (migration 0123). Sending them again would screen and
     // index what is already screened and indexed.
     vi.mocked(getAccessibleDocument).mockResolvedValue(
       makeDocument({ id: 'doc_1', projectId: 'proj_1', contentHash: 'sha256:abc', screeningOutcome: 'clean' }),
@@ -1285,7 +1285,7 @@ describe('replaceVersionContent', () => {
     expect(writeVersionContent).toHaveBeenCalled()
   })
 
-  it('asks the restricted-folder refusal about the document’s own folder before rendering (ADR-0086)', async () => {
+  it('asks the restricted-folder refusal about the document’s own folder before rendering (ADR-0087)', async () => {
     const { requireMayFileFrom } = await import('@/lib/conversations/restricted-egress')
     const { findProjectInOrg } = await import('@/lib/projects/repository')
     const { ConversationConfinedError } = await import('@/lib/api/errors')
@@ -1395,7 +1395,7 @@ describe('request_changes and the revision task', () => {
   })
 
   // The run hands the text to a model and the task is listed to the whole
-  // project: a held document opens none (ADR-0085).
+  // project: a held document opens none (ADR-0086).
   it('opens no task for a document whose screening has not passed', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const held = { ...document, status: 'quarantined', screeningOutcome: 'quarantined' as const }
@@ -1439,7 +1439,7 @@ describe('request_changes and the revision task', () => {
 
   /**
    * A task's goal, plan (the draft's text) and filed filename are listed to
-   * every project member, and tasks carry no folder audience (ADR-0086). A
+   * every project member, and tasks carry no folder audience (ADR-0087). A
    * draft in a folder some member may not read is never quoted into one.
    */
   describe('a draft in a folder some project member may not read', () => {

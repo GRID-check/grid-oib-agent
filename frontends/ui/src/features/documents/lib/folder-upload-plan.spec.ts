@@ -537,7 +537,7 @@ describe('buildFolderUploadPlan — an archived match', () => {
 })
 
 /**
- * ADR-0085: what the office's upload screening names is shown in the plan and
+ * ADR-0086: what the office's upload screening names is shown in the plan and
  * never sent — not the file, and not the folder it would have created — unless
  * the reader releases that one file.
  */

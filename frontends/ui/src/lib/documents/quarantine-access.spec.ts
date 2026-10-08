@@ -1,5 +1,5 @@
 /**
- * A held document (ADR-0085) exists only for its uploader and for the people
+ * A held document (ADR-0086) exists only for its uploader and for the people
  * who may review the quarantine: a quarantined one, and since the 2026-10-08
  * amendment every upload whose screening has not passed yet.
  *
@@ -163,7 +163,7 @@ describe.each(SURFACES)('the $name of a quarantined project document', ({ open, 
  * `getAccessibleDocument` with. A re-upload keeps the document's id, so a card
  * that fetched its thumbnail URL before the new bytes were held holds a URL for
  * the held thumbnail, or for an image, the held image. The route serves
- * screened files only (ADR-0085), so the URL stops working for everyone the
+ * screened files only (ADR-0086), so the URL stops working for everyone the
  * moment the row is held, its uploader and reviewers included: they preview
  * through the presigned `url` their own session check produced.
  */
@@ -233,7 +233,7 @@ describe('a document whose screening passed', () => {
 })
 
 /**
- * Held from upload until the screening passes (ADR-0085, 2026-10-08): a file
+ * Held from upload until the screening passes (ADR-0086, 2026-10-08): a file
  * still on its way through the gate is not the project's yet either. Before
  * the amendment every member could list and download it in the minutes before
  * its verdict, and a quarantine then took back what had already been seen.
@@ -265,7 +265,7 @@ describe.each([
 })
 
 /**
- * The write paths load the row through the same rule (ADR-0085): a member who
+ * The write paths load the row through the same rule (ADR-0086): a member who
  * may not see a held file is told it does not exist, rather than allowed to
  * delete or rename it. Refused before anything was erased or written.
  */

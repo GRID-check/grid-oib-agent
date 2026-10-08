@@ -85,7 +85,7 @@ export async function listSessionDocuments(
 ): Promise<SessionDocumentListResult> {
   await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
 
-  // A held file is listed for its uploader and the organization's admins only (ADR-0085).
+  // A held file is listed for its uploader and the organization's admins only (ADR-0086).
   const reader = await shelfReaderFor(session, { scope: 'session', projectId: null })
   const rows = await listSessionDocumentRows(conversationId, session.organizationId, reader, SESSION_DOCUMENT_LIST_LIMIT)
   // Narrowed again after the reconcile, by the same rule: a row the query let
@@ -155,7 +155,7 @@ export async function uploadSessionDocument(
   // Authorization + the row the document's foreign key needs, in one call.
   await createConversation(session, { id: conversationId, projectId: input.projectId ?? null })
 
-  // The name gate's server-side repeat (ADR-0085), before a byte is stored.
+  // The name gate's server-side repeat (ADR-0086), before a byte is stored.
   // A chat attachment reaches the model as surely as a project file does.
   const nameGate = await assertUploadNameAllowed(
     session.organizationId,
@@ -361,7 +361,7 @@ export async function deleteSessionDocument(
   documentId: string,
   request: Request,
 ): Promise<void> {
-  // Through the hold (ADR-0085): somebody else's unscreened attachment is not
+  // Through the hold (ADR-0086): somebody else's unscreened attachment is not
   // there to delete for a participant who is not its uploader or a reviewer.
   const doc = await findSessionDocument(
     documentId,

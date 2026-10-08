@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The hold (ADR-0085, amended 2026-10-08) against a REAL Postgres: the one
+ * The hold (ADR-0086, amended 2026-10-08) against a REAL Postgres: the one
  * predicate, the one exit from quarantine, and the readers that used to forget.
  *
  *   - `documentVisibleTo` (SQL) and `mayReadDocument` (in memory) answer the
@@ -9,7 +9,7 @@
  *     specs drive the services through the in-memory twin, so this is what
  *     makes them evidence about the database.
  *   - a quarantined row leaves quarantine through a release and no other write:
- *     the repository's status writers skip it, and migration 0121's trigger
+ *     the repository's status writers skip it, and migration 0122's trigger
  *     refuses any other UPDATE that tries.
  *   - the item read, the sharing probe, document roles, the upload history's
  *     counts and the IFC model header each see a held row only as its reader may.
@@ -64,7 +64,7 @@ describe.skipIf(!url)('the hold on a document, against Postgres', () => {
     outcome: (typeof OUTCOMES)[number]
     authoredBy: 'user' | 'agent'
     createdBy: string
-    /** What the verdict judged (migration 0122): the row's own bytes unless a test says otherwise. */
+    /** What the verdict judged (migration 0123): the row's own bytes unless a test says otherwise. */
     screened?: 'own' | 'earlier' | 'none'
   }): Promise<Row> {
     const n = rows.length
@@ -229,7 +229,7 @@ describe.skipIf(!url)('the hold on a document, against Postgres', () => {
     expect(agentStale && seen.has(agentStale.id)).toBe(true)
   })
 
-  describe('a verdict names the bytes it judged (migration 0122)', () => {
+  describe('a verdict names the bytes it judged (migration 0123)', () => {
     const facts = async (id: string) => {
       const [row] = await inTenant(() =>
         db.execute<{ content_hash: string | null; screened_hash: string | null; status: string; hash: string | null }>(sql`
@@ -344,7 +344,7 @@ describe.skipIf(!url)('the hold on a document, against Postgres', () => {
       expect(await statusOf(quarantinedId)).toBe('quarantined')
     })
 
-    it('refuses any other write that tries, at the database (migration 0121)', async () => {
+    it('refuses any other write that tries, at the database (migration 0122)', async () => {
       const refusal = { cause: { code: 'GQH01', message: expect.stringMatching(/only a release takes it out of quarantine/) } }
       await expect(
         inTenant(() => db.execute(sql`UPDATE documents SET status = 'pending' WHERE id = ${quarantinedId}::uuid`))

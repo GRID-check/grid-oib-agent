@@ -25,7 +25,7 @@ import { internalRead, memberReader } from './document-reader'
 import { findDocumentInOrg } from './repository'
 
 /**
- * The document as this session may see it by the hold (ADR-0085), or `null`:
+ * The document as this session may see it by the hold (ADR-0086), or `null`:
  * a screened row, a held row it uploaded, or a held row whose quarantine it
  * reviews. The first read is the member's, through `documentVisibleTo`; only a
  * row that read cannot see is loaded again, to ask the reviewer rule of its own
@@ -59,7 +59,7 @@ export type DocumentAccessIntent = 'read' | 'write'
  * and defaulting to another shelf's rule is how a private document becomes an
  * org-wide one.
  *
- * A held document (ADR-0085) exists only for its uploader and for the people
+ * A held document (ADR-0086) exists only for its uploader and for the people
  * who may review the quarantine, on top of the shelf's own rule: its content
  * has not passed the office's screening, and nobody has decided yet that the
  * project, the Büroablage or the chat may read it ({@link findDocumentForSession}).
@@ -102,9 +102,9 @@ export async function getAccessibleDocument(
         intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
       )
       // A document under a folder this session may not read does not exist
-      // for it (ADR-0086): not found, never forbidden.
+      // for it (ADR-0087): not found, never forbidden.
       if (!(await isFolderVisibleTo(session, doc.projectId, doc.folderId))) throw new NotFoundError()
-      // Changing it is a write in its folder (ADR-0087): every rename, retag,
+      // Changing it is a write in its folder (ADR-0088): every rename, retag,
       // re-ingest, new version, publish and archive passes through here, and a
       // folder the session may only read refuses them all (403).
       if (intent === 'write') await requireFolderWrite(session, doc.projectId, [doc.folderId])

@@ -59,7 +59,7 @@ export interface ArchivListResult {
   canManage: boolean
 }
 
-/** How this session reads the Büroablage: as a curator of its quarantine or not (`shelfReaderFor`, ADR-0085). */
+/** How this session reads the Büroablage: as a curator of its quarantine or not (`shelfReaderFor`, ADR-0086). */
 function archivReader(session: AuthorizedSession): Promise<ShelfReader> {
   return shelfReaderFor(session, { scope: 'archiv', projectId: null })
 }
@@ -78,7 +78,7 @@ export async function listArchiv(
   session: AuthorizedSession,
   options: { authoredBy?: DocumentAuthor; includeArchived?: boolean; cursor?: DocumentListCursor } = {},
 ): Promise<ArchivListResult> {
-  // A held file is listed for its uploader and the curators only (ADR-0085).
+  // A held file is listed for its uploader and the curators only (ADR-0086).
   const reader = await archivReader(session)
   const page = await listArchivDocumentRows(session.organizationId, { ...options, reader })
   return {
@@ -141,7 +141,7 @@ export async function probeArchivDocumentNames(
   session: AuthorizedSession,
   names: readonly string[],
 ): Promise<DocumentNameMatchRow[]> {
-  // Not somebody else's unscreened file: the probe answers with its digest (ADR-0085).
+  // Not somebody else's unscreened file: the probe answers with its digest (ADR-0086).
   return findArchivDocumentsByNames(session.organizationId, names, { reader: await archivReader(session) })
 }
 
@@ -185,7 +185,7 @@ export async function deleteArchivDocument(
 ): Promise<void> {
   if (!canManageArchiv(session)) throw new ForbiddenError()
 
-  // Through the hold (ADR-0085); a curator reviews the Büroablage's quarantine.
+  // Through the hold (ADR-0086); a curator reviews the Büroablage's quarantine.
   const doc = await findArchivDocument(documentId, session.organizationId, await archivReader(session))
   if (!doc) throw new NotFoundError()
   // Before the first destructive step: a hold on the document, its uploader or

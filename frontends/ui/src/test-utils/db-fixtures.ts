@@ -67,7 +67,7 @@ export const makeMemoryItem = (
   sourceConversationId: null,
   supersedesId: null,
   conflictsWithId: null,
-  // Open memory unless a test restricts it (ADR-0086, migration 0112).
+  // Open memory unless a test restricts it (ADR-0087, migration 0113).
   restrictedFolderIds: null,
   restrictionJudge: null,
   salience: 0.5,
@@ -158,7 +158,7 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   folderId: null,
   ...overrides,
   // The verdict on record is about the bytes the row holds unless a test says
-  // otherwise (migration 0122): a fixture that sets a digest has been screened
+  // otherwise (migration 0123): a fixture that sets a digest has been screened
   // as that digest.
   screenedHash: 'screenedHash' in overrides ? (overrides.screenedHash ?? null) : (overrides.contentHash ?? null),
   visibility: overrides.visibility ?? 'project',

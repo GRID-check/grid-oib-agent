@@ -18,9 +18,9 @@
  *      left `queued` whose job is gone (`lib/documents/stuck-processing.ts`,
  *      `lib/tasks/filing-sweep.ts`, ADR-0079);
  *   6. POSTs the BFF's upload sweep (`/api/internal/upload-batches/sweep`,
- *      ADR-0085), which settles the uploads whose browser is gone, and its
+ *      ADR-0086), which settles the uploads whose browser is gone, and its
  *      folder placement sweep (`/api/internal/folder-placement/sweep`,
- *      ADR-0086), which moves a document a backend outage left in the wrong
+ *      ADR-0087), which moves a document a backend outage left in the wrong
  *      retrieval collection;
  *   7. once a day, deletes the Langfuse traces older than the retention window
  *      (`sweepTraceRetention`; ADR-0044 — Langfuse's own retention setting is an
@@ -29,7 +29,7 @@
  *      delete request, which the purger never sees (`sweepConversationTraces`);
  *   9. once a day, purges the download log past its retention: 12 months at
  *      most, less where an organization chose so, in bounded batches
- *      (`sweepDownloadLogRetention`; migration 0113).
+ *      (`sweepDownloadLogRetention`; migration 0114).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
@@ -219,7 +219,7 @@ async function reconcileBackgroundWork(config, fetchImpl, streak) {
 
 /**
  * One upload sweep: POST {frontendUrl}/api/internal/upload-batches/sweep
- * (ADR-0085). Settles the uploads whose browser is gone, so their uploader is
+ * (ADR-0086). Settles the uploads whose browser is gone, so their uploader is
  * told when everything was read, and sends the content gate's quarantine
  * decisions still owed to the audit trail. Same posture as the run reconciler:
  * the BFF does the work, this container supplies the clock, nothing throws,
@@ -243,7 +243,7 @@ async function sweepUploads(config, fetchImpl, streak) {
 
 /**
  * Move the documents a backend outage left in the wrong retrieval collection
- * (ADR-0086): a document under a restricted folder whose chunks could not be
+ * (ADR-0087): a document under a restricted folder whose chunks could not be
  * purged from the project's open collection is still findable there until it
  * is placed again.
  */
@@ -382,7 +382,7 @@ async function sweepConversationTraces(
 const DOWNLOAD_LOG_BACKOFF_MS = 60 * 60 * 1000
 
 /**
- * The download log's retention sweep (migration 0113): purge entries past their
+ * The download log's retention sweep (migration 0114): purge entries past their
  * retention, once a day counted from the previous run, the first on the first
  * tick after the process starts. A run deletes at most 50 batches of 1000
  * (`pruneDownloadLog`); when it stopped on that budget with more behind it, the

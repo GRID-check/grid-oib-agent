@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Renaming and moving folders under read/write access (ADR-0087).
+ * Renaming and moving folders under read/write access (ADR-0088).
  *
  * Each is a write: on the folder and on a move's new parent. A folder the
  * session may only read refuses with a typed 403, one it may not read answers
@@ -282,7 +282,7 @@ describe('moving a folder', () => {
   })
 })
 
-describe('a folder the session may only read (ADR-0087)', () => {
+describe('a folder the session may only read (ADR-0088)', () => {
   it('refuses a new folder inside it with a typed 403, and one inside a folder it may not read as missing', async () => {
     state.granted = new Set(MANAGER)
     await expect(

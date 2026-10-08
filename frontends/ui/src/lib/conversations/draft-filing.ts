@@ -81,7 +81,7 @@ async function findSameTitleDocument(
   let offset = 0
   for (;;) {
     // What the model already knows of: a held file's name is not the agent's
-    // to collide with or learn of (ADR-0085).
+    // to collide with or learn of (ADR-0086).
     const rows = await listProjectDocuments(projectId, organizationId, {
       limit: DOCUMENT_LIST_LIMIT,
       offset,
@@ -98,7 +98,7 @@ export interface FileConversationDraftInput {
   path: string
   title?: string
   force?: boolean
-  /** The language of a refusal (a thread that drew on a restricted folder, ADR-0086). */
+  /** The language of a refusal (a thread that drew on a restricted folder, ADR-0087). */
   locale?: Locale
 }
 

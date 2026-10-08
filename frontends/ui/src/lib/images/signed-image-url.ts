@@ -46,7 +46,7 @@
  * after the person it names has lost the folder.
  *
  * Not to a standing the route cannot ask again. Who may see a document held
- * back by the upload screen (ADR-0085) is its uploader and its reviewers, a
+ * back by the upload screen (ADR-0086) is its uploader and its reviewers, a
  * rule over session roles the token does not carry, so the route serves
  * screened files only and the mint issues no URL for a held one: a URL minted
  * before a re-upload was held stops working, for everyone, the moment it is.

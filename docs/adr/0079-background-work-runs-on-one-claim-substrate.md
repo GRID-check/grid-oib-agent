@@ -87,7 +87,10 @@ Chosen option 3.
   the depth KEDA already counts, the `[bff-jobs] … now dead` ERROR lines (each
   one opens an issue), and a `SELECT` on the table.
 * **A failed attempt costs an attempt, behind a backoff; a dead row is a trace.**
-  Only a drain or a cap gives a claim back free. A handler that threw, a slice
+  Only a drain, a cap or a yield gives a claim back free; a claim that has held
+  its slot for ten minutes yields between slices, so an hours-long job (an
+  archive import, ADR-0085) never holds a replica's slots against every other
+  organization's work. A handler that threw, a slice
   that timed out and a BFF that did not answer spend the attempt, and the job
   waits `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS`, doubling, before the next
   (`bff_job_queue.not_before`), so a job that always times out or kills the BFF
@@ -100,7 +103,7 @@ Chosen option 3.
   organization (`eraseLane`).
 * **A walk runs as the person's rights of today.** A job can wait, and a reindex
   spans many slices, so `reindex_project`, `reingest_failed` and the Papierkorb's
-  `restore_folder_bin` (ADR-0087) resolve the requester's membership and role
+  `restore_folder_bin` (ADR-0088) resolve the requester's membership and role
   again before every slice (`resolvePinnedRequesterSession`) and the rescan
   re-checks `org:settings:manage`. A role revoked, or a person who left, ends the
   job quietly. One walk runs as the system instead: `purge_binned_chunks`

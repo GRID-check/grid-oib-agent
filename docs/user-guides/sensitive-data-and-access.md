@@ -2,8 +2,8 @@
 
 What an office can keep out of Piloti, what it can keep from some of its own
 people, and how an uploader learns what became of an upload. The decisions
-behind this are ADR-0085 (screening and quarantine), ADR-0086 (folder
-access follows WorkOS roles) and ADR-0087 (read and write per role). Which of
+behind this are ADR-0086 (screening and quarantine), ADR-0087 (folder
+access follows WorkOS roles) and ADR-0088 (read and write per role). Which of
 this is automated, which part is a language model, where a person decides and
 what the audit log records: [Sensitive data and the AI Act](ai-act.md).
 

@@ -1,6 +1,6 @@
 /**
  * The hold is a reader every query states, not a status every reader remembers
- * (ADR-0085, amended 2026-10-08).
+ * (ADR-0086, amended 2026-10-08).
  *
  * Three repair rounds on the quarantine each found readers of `documents` that
  * forgot to check `status = 'quarantined'`: the project overview, the name
@@ -66,7 +66,7 @@ const SEES_EVERY_ROW: Record<string, string> = {
     'Undo of a clean-out: removes a folder only when NO document is filed in it, held ones included.',
 
   // --- Storage accounting: every byte counts --------------------------------
-  'lib/storage/repository.ts#aggregateStorageUsage': 'Quota: a held file occupies storage like any other (ADR-0085, Consequences).',
+  'lib/storage/repository.ts#aggregateStorageUsage': 'Quota: a held file occupies storage like any other (ADR-0086, Consequences).',
   'lib/storage/repository.ts#aggregateStorageUsageByOrganization': 'Quota, per organization, for the platform view: every byte.',
   'lib/storage/repository.ts#readStorageUsage': 'Quota admission under the lock: every byte, or a held upload is free storage.',
   'lib/storage/repository.ts#sumItemBytes': 'Quota: item bytes, every row.',
@@ -558,7 +558,7 @@ function elevatedReaders(source: string, path: string): Array<{ key: string; mak
   return found
 }
 
-describe('every read of documents states its reader (ADR-0085)', () => {
+describe('every read of documents states its reader (ADR-0086)', () => {
   const files = sourceFiles().map((file) => ({
     path: file.slice(SRC.length + 1).replaceAll('\\', '/'),
     source: readFileSync(file, 'utf8'),

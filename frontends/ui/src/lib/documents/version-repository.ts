@@ -874,7 +874,7 @@ export async function listRefusedVersionsForConversation(
         inArray(documentVersions.state, ['changes_requested', 'rejected']),
         isNotNull(documentVersions.reviewComment),
         // This block rides into a model's conversation: a held document is
-        // named to none (ADR-0085).
+        // named to none (ADR-0086).
         documentVisibleTo(SCREENED_ONLY),
       ),
     )

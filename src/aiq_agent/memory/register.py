@@ -11,7 +11,7 @@ Two scopes:
 - ``organization``: cross-cutting knowledge that applies to every project in
   the user's organization (never shared across organizations).
 
-A turn whose scope holds a restricted folder's collection (ADR-0086) still
+A turn whose scope holds a restricted folder's collection (ADR-0087) still
 remembers: :mod:`aiq_agent.memory.restriction` decides which restricted
 collections the finding depends on, and it is stored as restricted memory that
 only people cleared for them are served or shown. Such a finding is never
@@ -147,7 +147,7 @@ def _resolve_target(scope: str, project_id: str | None, organization_id: str | N
 
 
 def _turn_restriction_evidence() -> RestrictionEvidence:
-    """What this turn could have taken from restricted folders (ADR-0086).
+    """What this turn could have taken from restricted folders (ADR-0087).
 
     The scope decides whether the question arises at all: the inventory block
     and ``list_files`` name in-scope documents with their summaries, so a
@@ -302,7 +302,7 @@ class ProjectMemoryRememberConfig(FunctionBaseConfig, name="project_memory_remem
         default=None,
         description=(
             "Model that judges whether a finding written in a turn with restricted folders in scope draws "
-            "on a restricted document it did not read (ADR-0086). Resolved like the memory-reflection "
+            "on a restricted document it did not read (ADR-0087). Resolved like the memory-reflection "
             "stage's model (same agent group, org override, BYOK). Unset: such a finding is restricted "
             "to every restricted folder in scope (fail closed)."
         ),
@@ -381,7 +381,7 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
                 # the quote and ignores it when nothing matches or the target is
                 # human-curated, so the write lands either way.
                 supersedes_content=supersedes or None,
-                # ADR-0086: served and shown only to people cleared for all of these.
+                # ADR-0087: served and shown only to people cleared for all of these.
                 restricted_collections=restriction,
                 # Audited by the BFF with the item it was about (AI Act).
                 restriction_judge=decision.judge.as_payload() if decision.judge else None,

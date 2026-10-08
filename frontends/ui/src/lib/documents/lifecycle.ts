@@ -152,7 +152,7 @@ export interface TransitionInput {
    * origin conversation opens one either way — see the `openRevisionTask` effect.
    *
    * Refused before the swap for a document in a folder some project member may
-   * not read: a task is listed to the whole project (ADR-0086).
+   * not read: a task is listed to the whole project (ADR-0087).
    */
   delegateRevision?: boolean
   /** The language of a refusal; the agent's route leaves it German. */
@@ -170,7 +170,7 @@ export interface TransitionInput {
 /** The context every effect receives. Read-only; effects do not chain. */
 /**
  * A person's document published from a draft: its new bytes are screened and
- * indexed like an upload's (ADR-0085, migration 0122).
+ * indexed like an upload's (ADR-0086, migration 0123).
  *
  * The upload shelves dispatch what they store, and an upload's version is born
  * `published` without passing through here. A draft forked from a person's
@@ -554,7 +554,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
    * no folder audience of their own. So a draft in a folder some member may not
    * read gets no task, whoever filed it: the reviewer who asked outright was
    * refused with the reason before the swap, and a version nobody asked about
-   * keeps its comment on the row for its author (ADR-0086).
+   * keeps its comment on the row for its author (ADR-0087).
    */
   openRevisionTask: async ({ session, document, version, input }) => {
     const delegated = input.delegateRevision === true
@@ -563,7 +563,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
     // Archiv and a conversation's private attachments are both project-less, and
     // `tasks.project_id` is NOT NULL for the tenant predicate's sake.
     if (!document.projectId) return
-    // A held document (ADR-0085) opens no task: the run hands its text to a
+    // A held document (ADR-0086) opens no task: the run hands its text to a
     // model, and the task's goal and file name are listed to the whole project.
     if (!hasPassedScreening(document)) {
       console.warn(`[documents] no revision task for version ${version.id}: its document has not passed screening`)
@@ -900,7 +900,7 @@ export async function transitionDocumentVersion(
 
   assertGuards(session, version, transition, input)
   await requireTransitionPermission(session, document, transition)
-  // A held document (ADR-0085) opens no review round: the inbox row names it,
+  // A held document (ADR-0086) opens no review round: the inbox row names it,
   // with its Auftragssatz, to reviewers who need be neither its uploader nor
   // one of its quarantine reviewers. Its uploader reaches this path, because
   // the hold lets them see their own file, so it is refused here, before the
@@ -1187,7 +1187,7 @@ export async function replaceVersionContent(
     /**
      * The conversation the new content came out of, for the agent's rewrite. Content from a thread that drew on a
      * restricted folder goes only into a document filed at least as narrowly
-     * (ADR-0086, `restricted-egress.ts`), exactly as a new filing does.
+     * (ADR-0087, `restricted-egress.ts`), exactly as a new filing does.
      */
     origin?: ConversationOrigin
   } = {},
@@ -1270,7 +1270,7 @@ export async function recordUploadedVersion(
   stored?: UploadedBytes,
 ): Promise<DocumentVersion | null> {
   // The upload wrote this row a moment ago, and its bytes are still held
-  // (ADR-0085); the version records them whatever the gate will say.
+  // (ADR-0086); the version records them whatever the gate will say.
   const document = await findDocumentInOrg(documentId, session.organizationId, internalRead('just-written'))
   if (!document) return null
   const bytes = stored ?? document

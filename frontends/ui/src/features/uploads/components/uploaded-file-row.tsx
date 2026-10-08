@@ -38,7 +38,7 @@ import { FacetChip, useTallyLabel } from './upload-atoms'
 const SUMMARY_LINES = 2
 
 /**
- * „Freigabe anfragen" (ADR-0085): the uploader asks the people who may release
+ * „Freigabe anfragen" (ADR-0086): the uploader asks the people who may release
  * a quarantined file to look at it. Only the uploader opens an upload summary,
  * so whoever sees the button may press it. Once sent, it says so and rests: a
  * second press would only fold into the same inbox row.
@@ -194,7 +194,7 @@ export function UploadedFileRow({
         )}
         {document.outcome === 'failed' && document.screening === null && (
           // Its reading ended before the check had a verdict, so colleagues do
-          // not see it until a reviewer releases it (ADR-0085); a retry of an
+          // not see it until a reviewer releases it (ADR-0086); a retry of an
           // IFC too large to read fails the same way.
           <RequestReleaseButton documentId={document.id} name={name} />
         )}

@@ -32,7 +32,7 @@ vi.mock('./version-repository', () => ({
 }))
 vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
 vi.mock('@/lib/conversations/repository', () => ({ findConversationInOrg: vi.fn() }))
-// A subject in a folder every member may read admits nothing (ADR-0087); the
+// A subject in a folder every member may read admits nothing (ADR-0088); the
 // restricted case overrides `placementCollectionFor` and the admission.
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('@/lib/conversations/restricted-use', () => ({ admitRestrictedUse: vi.fn() }))
@@ -514,7 +514,7 @@ describe('readVersionForService — the conversation is part of the predicate', 
     })
   })
 
-  it('answers 404 for a quarantined subject, so its bytes never reach a model (ADR-0085)', async () => {
+  it('answers 404 for a quarantined subject, so its bytes never reach a model (ADR-0086)', async () => {
     vi.mocked(findConversationInOrg).mockResolvedValue({
       subjectResourceType: 'document',
       subjectResourceId: 'doc_1',
@@ -531,7 +531,7 @@ describe('readVersionForService — the conversation is part of the predicate', 
 
   // Held from upload until the screen passes, not from the verdict: a person's
   // upload still on its way through the gate is no model's subject either.
-  it('answers 404 for an upload whose screening has not passed yet (ADR-0085)', async () => {
+  it('answers 404 for an upload whose screening has not passed yet (ADR-0086)', async () => {
     vi.mocked(findConversationInOrg).mockResolvedValue({
       subjectResourceType: 'document',
       subjectResourceId: 'doc_1',
@@ -547,7 +547,7 @@ describe('readVersionForService — the conversation is part of the predicate', 
 
   /**
    * The verdict is about the item's bytes; the subject read returns a VERSION's
-   * (ADR-0085). A superseded version a person uploaded holds bytes no verdict
+   * (ADR-0086). A superseded version a person uploaded holds bytes no verdict
    * on record judged: replaced while it was still being read, or after its
    * reading failed. It reaches no model, however the item stands now.
    */
@@ -601,7 +601,7 @@ describe('readVersionForService — the conversation is part of the predicate', 
     })
   })
 
-  describe('a subject in a folder not every member may read (ADR-0086, ADR-0087)', () => {
+  describe('a subject in a folder not every member may read (ADR-0087, ADR-0088)', () => {
     const RESTRICTED = 'proj_abc_r0123456789ab'
     const ANSWER_ID = '0b7c6d2e-5f1a-5c3b-9d4e-8f7a6b5c4d3e'
     beforeEach(() => {
@@ -729,7 +729,7 @@ describe('reading a version’s text, and the download log', () => {
   })
 
   // A model reads this text, so a document whose screening has not passed
-  // answers 404 to its reviewer too (ADR-0085): no held text in a task.
+  // answers 404 to its reviewer too (ADR-0086): no held text in a task.
   it.each([
     ['quarantined', { status: 'quarantined', screeningOutcome: 'quarantined' as const }],
     ['still being screened', { status: 'processing', screeningOutcome: null }],

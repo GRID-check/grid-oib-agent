@@ -97,7 +97,7 @@ const MODEL_COLUMNS = {
 } as const
 
 /**
- * One model by id, as `reader` may see its document (ADR-0085): an IFC is
+ * One model by id, as `reader` may see its document (ADR-0086): an IFC is
  * extracted before its digest is screened, so a held file has a model too.
  */
 export async function findBimModelById(
@@ -117,7 +117,7 @@ export async function findBimModelById(
   return rows[0] ?? null
 }
 
-/** A document's model, as `reader` may see the document (ADR-0085). */
+/** A document's model, as `reader` may see the document (ADR-0086). */
 export async function findBimModelByDocument(
   documentId: string,
   organizationId: string,
@@ -165,13 +165,13 @@ export async function listBimModels(
     includeArchiv?: boolean
     limit?: number
     /**
-     * Folders whose models this reader may not see (ADR-0086), from the
+     * Folders whose models this reader may not see (ADR-0087), from the
      * folder-access decision point. Their models are left out as if they did
      * not exist.
      */
     hiddenFolderIds?: readonly string[]
     /**
-     * Whose list (ADR-0085): a held document's model is its uploader's and its
+     * Whose list (ADR-0086): a held document's model is its uploader's and its
      * reviewers' only. A person's list asks each shelf its own reviewers
      * (`shelves`, since it spans a project and the Büroablage); the agent's is
      * `screened-only`, as it has no person to ask and never reads a held file.
@@ -1125,7 +1125,7 @@ export interface BimStoredConfirmation {
 }
 
 /**
- * The confirmations of a project's Prüfbuch this reader may see (ADR-0085).
+ * The confirmations of a project's Prüfbuch this reader may see (ADR-0086).
  *
  * A confirmation names a model revision and carries a person's note about it,
  * so it is a fact about that model's document: one recorded on a held revision

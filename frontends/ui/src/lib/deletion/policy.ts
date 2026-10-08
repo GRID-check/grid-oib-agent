@@ -6,7 +6,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
  */
 const MAX_GRACE_DAYS = 23
 const DEFAULT_GRACE_DAYS = 7
-/** How long a deleted folder stays in the Papierkorb, restorable (ADR-0087). */
+/** How long a deleted folder stays in the Papierkorb, restorable (ADR-0088). */
 const DEFAULT_FOLDER_GRACE_DAYS = 14
 
 /** A grace period from the environment: a number of days, at least 0 and at most {@link MAX_GRACE_DAYS}. */

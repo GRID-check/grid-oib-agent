@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * „Ausmisten" (ADR-0090): the proposal looks only at what the closer may read
+ * „Ausmisten" (ADR-0091): the proposal looks only at what the closer may read
  * and write, sends the model metadata and nothing else, falls back to the rules
  * when the model fails, and the confirmation puts exactly what the person chose
  * into the Papierkorb, one subfolder per source folder, audited.
@@ -40,7 +40,7 @@ vi.mock('@/lib/documents/move-to-folder', () => ({ moveDocumentToFolder: mocks.m
 vi.mock('@/lib/documents/shelf-folders', () => ({ FOLDER_NAME_TAKEN: 'A folder with this name already exists here.' }))
 vi.mock('./folder-bin', () => ({ moveFolderToBin: mocks.moveFolderToBin, restoreFolderFromBin: mocks.restoreFolderFromBin }))
 vi.mock('./cleanup-repository', () => ({ deleteEmptyCreatedFolder: mocks.deleteEmptyCreatedFolder }))
-// The closer reads the project as a member (ADR-0085): screened files, and the held ones they uploaded.
+// The closer reads the project as a member (ADR-0086): screened files, and the held ones they uploaded.
 vi.mock('@/lib/upload-screening/quarantine-reviewers', () => ({
   shelfReaderFor: vi.fn(async () => ({ kind: 'member', userId: 'user_pl' })),
 }))

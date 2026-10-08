@@ -164,7 +164,7 @@ downloading.
 1. Validates `file_ref` and `collection` are present, and passes `file_ref`, `extraction_ref`, `preview_ref` and `thumbnail_upload_url` through the object-store SSRF gates. It is the only gate those URLs meet: the job fetches them later without asking again
 2. With a `document_id`, looks for a live job under the dispatch key (sha256 of `document_id` and the object path of `file_ref`), under a per-key lock on this replica, and answers with that job's id when one exists
 3. Otherwise submits to the active ingestor: `ingestor.submit_job([DeferredObjectDownload(file_ref)], collection, config={cleanup_files: True, original_filenames: [...], ...})`. `original_filenames` is `file_name` when the BFF stated one and the URL basename otherwise; it becomes each chunk's `file_name` metadata. A rendition goes in as `extraction_paths: [DeferredObjectDownload(extraction_ref, suffix=".pdf")]`, positional like `original_filenames`, so the chunks are read from the PDF and still carry the original's name (`Bericht.docx`). `DeferredObjectDownload`'s `repr` is `<deferred object download>`: no presigned URL is logged or visible in the job config
-4. Returns `{ job_id, status: 'pending', document_id }` (202) and fetches nothing itself. An office original with `preview_ref` and no `extraction_ref` (a spreadsheet) gets the rendition as the job's second deferred download (`preview_paths`), drawn into its thumbnail only after the screen passes (ADR-0085)
+4. Returns `{ job_id, status: 'pending', document_id }` (202) and fetches nothing itself. An office original with `preview_ref` and no `extraction_ref` (a spreadsheet) gets the rendition as the job's second deferred download (`preview_paths`), drawn into its thumbnail only after the screen passes (ADR-0086)
 
 A failed submit is a 500 with a fixed message. A missing object, an expired
 signature or an unreachable store is no longer a status of this request: it is a
@@ -204,7 +204,7 @@ The `LlamaIndexIngestor.submit_job()` creates a job with `JobState.PENDING` and 
 
 For each file:
 
-0. **Download and thumbnail** — a deferred original is downloaded first (`knowledge_layer.deferred_files.resolve_original`): one GET without redirects, into a temp file whose suffix comes from the response's `Content-Type` (the object path as fallback, scrubbed), owned and deleted by the job whether or not `cleanup_files` is set. A failed download fails the file with the stable error `original_download_failed: …` and nothing else is fetched for it, the rendition included; the log names the error class and HTTP status, never the URL. Then the rendition, when there is one. The 400px card thumbnail is drawn later, once the file's upload screen has passed (ADR-0085): from the rendition or a PDF original after its text screen, from an image once it passes on its name, from a spreadsheet's `preview_paths` rendition after its extracted text is screened. A quarantined file has none
+0. **Download and thumbnail** — a deferred original is downloaded first (`knowledge_layer.deferred_files.resolve_original`): one GET without redirects, into a temp file whose suffix comes from the response's `Content-Type` (the object path as fallback, scrubbed), owned and deleted by the job whether or not `cleanup_files` is set. A failed download fails the file with the stable error `original_download_failed: …` and nothing else is fetched for it, the rendition included; the log names the error class and HTTP status, never the URL. Then the rendition, when there is one. The 400px card thumbnail is drawn later, once the file's upload screen has passed (ADR-0086): from the rendition or a PDF original after its text screen, from an image once it passes on its name, from a spreadsheet's `preview_paths` rendition after its extracted text is screened. A quarantined file has none
 1. **Text extraction** — a PDF is read per page with pdfplumber, recording each line's font size and weight (`line_styles`). `.xlsx`/`.xlsm` go through `office_extractors`; `.md`, `.txt`, `.csv` and `.tsv` through `text_formats`, which decodes without dropping a byte (BOM, else strict UTF-8, else cp1252, else Latin-1; the encoding is stored as `source_encoding`). Any other extension falls to `SimpleDirectoryReader`. When the job carries an extraction path for the file, the PDF rendition is read instead and every later step treats it as a PDF: pages, tables, images and visual pages. For a `.pptx` or `.pptm` a companion reads the speaker notes from the original, one unit per slide labelled with its rendition page, because a PDF export drops them. On a job whose config carries `screening`, the [upload screen](#upload-screening-before-the-first-model-call) runs on this extracted text before anything below
    **Chunking.** Every text chunk carries a locator a citation and `read_passage(punkt=…)` can use:
 
@@ -240,7 +240,7 @@ Where it sits, per file, against the five places ingestion sends content out:
 | 2 | text extraction: pdfplumber per page (a rendition for Word and presentation files, plus pptx speaker notes) and the PDF's uncaptioned tables; `office_extractors`, `text_formats` or `SimpleDirectoryReader` otherwise | local |
 | 3 | page triage (`page_triage.triage_pdf`, PDFium) | local |
 | **4** | **upload screen**: PDF text pages, speaker notes and table row groups, or the extracted documents of any other format | **local** |
-| 4a | thumbnail, only when the screen passed (to the office's own object store, ADR-0085) | local |
+| 4a | thumbnail, only when the screen passed (to the office's own object store, ADR-0086) | local |
 | 5 | OCR of scanned and garbled pages (`transcription.route_pdf_pages`) | external |
 | 6 | image captioning of a standalone image (`_build_image_documents`) | external |
 | 7 | VLM enrichment of embedded rasters and drawing pages (`processing.enrich_vlm_batch`) | external |
@@ -281,7 +281,7 @@ The cost is that both versions are retrievable for the length of the job.
 
 A file the upload screen quarantines is the exception. A quarantine holds the
 whole document, its earlier screened version included, from everyone but its
-uploader and its reviewers until a reviewer releases or deletes it (ADR-0085),
+uploader and its reviewers until a reviewer releases or deletes it (ADR-0086),
 so `_retire_held_predecessor` takes the previous version's chunks out of Chroma
 and the lexical mirror as the verdict lands, still under the replacement lock.
 It drops no metadata row: the Dokumentart and title a person set wait there for

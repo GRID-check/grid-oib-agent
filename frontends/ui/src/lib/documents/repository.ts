@@ -103,12 +103,12 @@ export interface DocumentListRow {
    * Who uploaded it, and the content gate's verdict. On the LIST row for one
    * reader: a listing reconciles its rows after the query, and a row the
    * reconcile turns `quarantined` must be narrowed again by the same rule the
-   * query applied (`keepReadable` in `./document-reader`, ADR-0085). Neither
+   * query applied (`keepReadable` in `./document-reader`, ADR-0086). Neither
    * leaves the BFF (`toListedDocuments` drops them).
    */
   createdBy: string
   screeningOutcome: DocumentScreeningOutcome | null
-  /** The digest the verdict judged (migration 0122); dropped with the two above. */
+  /** The digest the verdict judged (migration 0123); dropped with the two above. */
   screenedHash: string | null
   createdAt: Date
   updatedAt: Date
@@ -160,12 +160,12 @@ export interface ListProjectDocumentsOptions {
    */
   includeArchived?: boolean
   /**
-   * Folders whose documents this reader may not see (ADR-0086), from
+   * Folders whose documents this reader may not see (ADR-0087), from
    * `getHiddenFolderIds`. Their rows are left out as if they did not exist.
    */
   hiddenFolderIds?: readonly string[]
   /**
-   * Who reads the listing (ADR-0085), from `shelfReaderFor`: a member sees the
+   * Who reads the listing (ADR-0086), from `shelfReaderFor`: a member sees the
    * screened rows and the held rows they uploaded, a reviewer every row.
    * Required, so no listing can forget the hold.
    */
@@ -516,7 +516,7 @@ export async function findDocumentsByNames(
             shelfDocumentWhere(shelf, organizationId),
             ...outsideHiddenFolders(hiddenFolderIds),
             // The probe answers with the digest: somebody else's unscreened
-            // file would let a member confirm its contents by hash (ADR-0085).
+            // file would let a member confirm its contents by hash (ADR-0086).
             documentVisibleTo(reader),
             where,
           ),
@@ -541,7 +541,7 @@ export function findProjectDocumentsByNames(
  * Tenancy probe for authorization — unscoped, like `findConversationTenancy`.
  * The caller decides whether an organization mismatch is a 404.
  *
- * Screened rows only (ADR-0085): this is the sharing registry's probe, and a
+ * Screened rows only (ADR-0086): this is the sharing registry's probe, and a
  * held file is shared, assigned or named in an inbox row by nobody, its
  * uploader and reviewers included, until its screening passes. Sharing it
  * would hand it to people the hold exists to keep it from.
@@ -624,7 +624,7 @@ export async function documentIdsExisting(ids: readonly string[]): Promise<Set<s
 
 /**
  * Load a document by id scoped to an organization, as `reader` may see it: a
- * held row (ADR-0085) is `null` for a reader who may not see it, exactly as an
+ * held row (ADR-0086) is `null` for a reader who may not see it, exactly as an
  * unknown id is. A session's item paths go through `findDocumentForSession`
  * (`./access`), which asks the reviewer rule for the rest.
  */
@@ -844,7 +844,7 @@ export async function findLiveDocumentByFilename(
         fileSize: documents.fileSize,
         contentHash: documents.contentHash,
         folderId: documents.folderId,
-        // What `assertMayReplaceHeld` needs to answer a held row (ADR-0085).
+        // What `assertMayReplaceHeld` needs to answer a held row (ADR-0086).
         status: documents.status,
         authoredBy: documents.authoredBy,
         screeningOutcome: documents.screeningOutcome,
@@ -875,7 +875,7 @@ export async function findLiveDocumentByFilename(
           eq(documents.authoredBy, 'user'),
           // Every row, held or not: the unique index refuses a second live
           // name whoever holds the first, and the caller answers a held row
-          // its uploader may not see as a taken name (ADR-0085).
+          // its uploader may not see as a taken name (ADR-0086).
           documentVisibleTo(internalRead('identity')),
         ),
       )
@@ -891,7 +891,7 @@ export async function findLiveDocumentByFilename(
  * The retrieval collections of this project that already hold a live,
  * person-uploaded document of this name — either Unicode form, as
  * {@link findLiveDocumentByFilename} reads it. A project keeps one document
- * per name across all its collections (ADR-0086); the database only enforces
+ * per name across all its collections (ADR-0087); the database only enforces
  * it per collection.
  */
 export async function findProjectCollectionsHoldingFilename(
@@ -912,7 +912,7 @@ export async function findProjectCollectionsHoldingFilename(
           inArray(documents.filename, documentNameVariants(filename)),
           eq(documents.authoredBy, 'user'),
           // A held file takes its name too; the upload refuses it without
-          // saying whose, as it does a hidden folder's (ADR-0085, ADR-0086).
+          // saying whose, as it does a hidden folder's (ADR-0086, ADR-0087).
           documentVisibleTo(internalRead('identity')),
         ),
       )
@@ -949,7 +949,7 @@ export async function findStorageKeyByCollectionAndFilename(
             // See the note above: this is a byte-serving path reachable with
             // model-supplied arguments. A machine-authored row must not resolve.
             eq(documents.authoredBy, 'user'),
-            // Nor one the content gate has not passed (ADR-0085): a held file
+            // Nor one the content gate has not passed (ADR-0086): a held file
             // has not reached a model, and a name the model was told must not
             // reach it through here either. Nobody's own uploads count.
             documentVisibleTo(SCREENED_ONLY),
@@ -1113,11 +1113,11 @@ export async function setDocumentDisplayName(
 
 /**
  * A row the content gate quarantined keeps its status through every write but
- * a reviewer's release (`markScreeningReleased`) and a delete (ADR-0085). A
+ * a reviewer's release (`markScreeningReleased`) and a delete (ADR-0086). A
  * dispatch, a local conversion or a failure does not clear a held state: a new
  * screening produces a new verdict, written by the reconcile, never a reset to
  * `pending` that the next reader takes for an ordinary upload. Every status
- * writer below carries it; migration 0121's trigger refuses any other write
+ * writer below carries it; migration 0122's trigger refuses any other write
  * that tries.
  */
 const notQuarantined = ne(documents.status, 'quarantined')
@@ -1130,7 +1130,7 @@ const notQuarantined = ne(documents.status, 'quarantined')
  *
  * Beside the job id, the digest of the bytes this job reads
  * (`ingestContentHash`): the verdict it brings back is about those bytes, and
- * the reconcile writes it to `screened_hash` from here (migration 0122), not
+ * the reconcile writes it to `screened_hash` from here (migration 0123), not
  * from whatever the row holds when the verdict lands.
  */
 export async function setDocumentIngestJob(
@@ -1156,7 +1156,7 @@ export async function setDocumentIngestJob(
 /**
  * The `documents.metadata` key of a row placement purged and re-pointed whose
  * re-read into its new collection is the `placement_reingest` job's to do
- * (`lib/projects/collection-placement.ts`, ADR-0086). Only ever set beside
+ * (`lib/projects/collection-placement.ts`, ADR-0087). Only ever set beside
  * `status = 'processing'`; the job removes it when it takes the row, and every
  * other writer of `processing` or of an ingest job id drops it.
  */
@@ -1246,7 +1246,7 @@ export interface StuckProcessingDocument {
  *
  * A row whose job is still `queued` or `claimed` is left out in the query, so
  * the batch is always rows that need something done. So is a row in a folder
- * that went to the Papierkorb (ADR-0087): it is hidden and its chunks were
+ * that went to the Papierkorb (ADR-0088): it is hidden and its chunks were
  * purged, and restoring the folder marks it `processing` for the restore's
  * job again; a job queued for it here would only parse or convert a document
  * nobody may see. Once restored, a row that job never reached (it died, or its
@@ -1388,7 +1388,7 @@ export async function countDocumentsByProject(
   organizationId: string,
   projectIds: string[],
   hiddenFolderIds: readonly string[] | undefined,
-  /** Whose count: a held file moves the number for its uploader and its reviewers only (ADR-0085). */
+  /** Whose count: a held file moves the number for its uploader and its reviewers only (ADR-0086). */
   reader: DocumentReader,
 ): Promise<Record<string, number>> {
   if (projectIds.length === 0) return {}
@@ -1445,7 +1445,7 @@ const screenedHashOfDispatch = sql<string | null>`coalesce(${documents.metadata}
  * a NEW job, and a read that resolved the old one would write the old verdict
  * over it. A write keyed on the job lands only on the dispatch it is about.
  *
- * A quarantine is the content gate's decision (ADR-0085), and the same
+ * A quarantine is the content gate's decision (ADR-0086), and the same
  * transaction records it in `document_quarantine_decisions`, keyed on the
  * dispatch, for the audit trail: a moved row and its decision exist together
  * or not at all, and one job is one decision.
@@ -1464,11 +1464,11 @@ export async function setDocumentReconciledStatus(
         .set({
           status: resolution.status,
           errorMessage: resolution.errorMessage,
-          // Only when the job said something (ADR-0085): an unscreened job must
+          // Only when the job said something (ADR-0086): an unscreened job must
           // not erase a reviewer's `released`.
           ...(resolution.screeningOutcome ? { screeningOutcome: resolution.screeningOutcome } : {}),
           // A job that read its bytes to the end vouches for THOSE bytes
-          // (migration 0122): the digest its dispatch recorded, never the row's
+          // (migration 0123): the digest its dispatch recorded, never the row's
           // current one, which a version swap may have moved since. A job
           // dispatched before 0122 recorded none and keeps the backfilled value.
           ...(resolution.status === 'completed' ? { screenedHash: screenedHashOfDispatch } : {}),
@@ -1514,7 +1514,7 @@ export async function setDocumentReconciledStatus(
 }
 
 /**
- * A reviewer's release of a held document (ADR-0085): who, when, and which
+ * A reviewer's release of a held document (ADR-0086): who, when, and which
  * bytes. Guarded on the row still being held at rest with the bytes the
  * reviewer saw, so a release that raced a re-upload releases nothing. Returns
  * whether it took. A quarantine is released this way, and so is a file the gate
@@ -1534,7 +1534,7 @@ export async function markScreeningReleased(
         status: 'uploaded',
         errorMessage: null,
         screeningOutcome: 'released',
-        // The release is a verdict about these bytes (migration 0122).
+        // The release is a verdict about these bytes (migration 0123).
         screenedHash: release.contentHash,
         screeningReleasedHash: release.contentHash,
         screeningReleasedBy: release.releasedBy,
@@ -1546,7 +1546,7 @@ export async function markScreeningReleased(
           eq(documents.id, documentId),
           eq(documents.organizationId, organizationId),
           // Held and at rest: a quarantine, or a file the gate never reached a
-          // verdict on (ADR-0085). A file in flight is the job's, not a reviewer's.
+          // verdict on (ADR-0086). A file in flight is the job's, not a reviewer's.
           heldAtRest(),
           eq(documents.contentHash, release.contentHash),
         ),

@@ -166,9 +166,9 @@ export type AuditEventInput = AuditEventFields &
  * automated decision of one kind.
  */
 export const SYSTEM_ACTORS = {
-  /** The content gate of the ingest job (ADR-0085): rule-based, no model. */
+  /** The content gate of the ingest job (ADR-0086): rule-based, no model. */
   uploadScreening: 'system:upload_screening',
-  /** The restricted-memory judge (ADR-0086): a language model. */
+  /** The restricted-memory judge (ADR-0087): a language model. */
   memoryJudge: 'system:memory_judge',
 } as const
 

@@ -1,5 +1,5 @@
 /**
- * MSW handler for the office's upload-screening policy (ADR-0085).
+ * MSW handler for the office's upload-screening policy (ADR-0086).
  *
  * Every upload path reads the policy before it sends anything, and a policy
  * that cannot be read sends nothing: the browser no longer screens with

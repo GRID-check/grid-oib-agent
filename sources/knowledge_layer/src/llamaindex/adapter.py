@@ -3908,7 +3908,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     def _thumbnail_after_screen(self, thumbnail_upload_url: str | None, image_path: str | None) -> None:
         """Draw the file card's thumbnail, called only once the file's screening passed.
 
-        Upload screening (ADR-0085) holds a file back until its content gate
+        Upload screening (ADR-0086) holds a file back until its content gate
         passes, and a thumbnail is a derivative of that content: a first-page
         render of a fee agreement shows the fee. It used to be drawn first, for
         speed, so a quarantined file had one before its verdict, and the route
@@ -4122,7 +4122,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         """Take a quarantined re-upload's predecessor out of retrieval.
 
         A quarantine holds the whole document from everyone but its uploader and
-        its reviewers (ADR-0085), the earlier screened version included, and it
+        its reviewers (ADR-0086), the earlier screened version included, and it
         lasts until a reviewer releases or deletes it, not for the minutes a
         reading takes. Its earlier chunks would answer retrieval for a document
         no member may open, so they go now: from Chroma and the lexical mirror,
@@ -4496,7 +4496,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             job.file_details[i].progress_percent = (i / len(file_paths)) * 100
 
                     # The card's thumbnail is drawn once the file's screening
-                    # has passed, never before (ADR-0085): a thumbnail is a
+                    # has passed, never before (ADR-0086): a thumbnail is a
                     # derivative of the content, and a quarantined file has
                     # none. See `_thumbnail_after_screen`.
                     thumbnail_upload_url = config.get("thumbnail_upload_url")
@@ -5158,7 +5158,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     self._discard_partial_version(chroma_collection, collection_name, file_name, chunks_before)
                 finally:
                     # Still under the replacement lock: a quarantined re-upload
-                    # holds its whole document (ADR-0085) until a reviewer
+                    # holds its whole document (ADR-0086) until a reviewer
                     # acts, so its predecessor stops answering now.
                     if previous is not None and not retired and not deleted and self._quarantined(job, i):
                         self._retire_held_predecessor(chroma_collection, collection_name, file_name, previous)

@@ -93,7 +93,7 @@ describe('FilePreviewPane', () => {
     expect(screen.getByText(/1 MB/i)).toBeDefined()
   })
 
-  it("names a closed project's file as such, under its name (ADR-0088)", () => {
+  it("names a closed project's file as such, under its name (ADR-0089)", () => {
     const closed = { id: 'proj-1', name: 'Seestadt D12', status: 'closed' as const, closedAt: null, readsBecauseClosed: false }
     const { unmount } = render(
       <CurrentProjectProvider value={closed}>

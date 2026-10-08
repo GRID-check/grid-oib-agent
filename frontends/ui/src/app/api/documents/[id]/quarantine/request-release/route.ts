@@ -1,5 +1,5 @@
 /**
- * Ask for a quarantined document to be released (ADR-0085, „Freigabe
+ * Ask for a quarantined document to be released (ADR-0086, „Freigabe
  * anfragen"). The uploader's half of the quarantine: it notifies the people who
  * may release the file through the inbox and changes nothing about the file.
  */

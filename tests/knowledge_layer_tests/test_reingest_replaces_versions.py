@@ -398,7 +398,7 @@ def test_a_reupload_with_no_vlm_key_keeps_the_previous_image(tmp_path, monkeypat
 
 
 def test_a_quarantined_reupload_retires_the_previous_version_and_keeps_its_row(tmp_path, live_ingestor, stores):
-    """A quarantine holds the whole document (ADR-0085), so nothing of it answers retrieval.
+    """A quarantine holds the whole document (ADR-0086), so nothing of it answers retrieval.
 
     Unlike a failed re-upload, which the uploader retries, a quarantine waits on
     a reviewer for as long as it takes. The previous version's chunks would go
