@@ -87,13 +87,43 @@ describe('feedbackTrendDelta', () => {
 })
 
 describe('feedbackTrendAverage', () => {
-  it('averages only the readable days', () => {
+  /**
+   * The headline is pooled: every helpful vote over every vote. A mean of daily
+   * rates weighs a 2-vote day like a 40-vote one, and the line's label then
+   * disagrees with the number above it.
+   */
+  it('pools every vote in the window, so it equals the headline rate', () => {
     const points = [
-      { day: day(2), up: 8, down: 2 },
-      // Thin day: excluded, rather than dragged in at 0%.
-      { day: day(1), up: 0, down: 1 },
-      { day: day(0), up: 6, down: 4 },
+      { day: day(2), up: 36, down: 4 }, // 90 %, 40 votes
+      { day: day(1), up: 0, down: 2 }, // thin: counts for its two votes, no more
+      { day: day(0), up: 3, down: 2 }, // 60 %, 5 votes
     ]
-    expect(feedbackTrendAverage(fillTrendWindow(points, 3, 5, NOW))).toBe(70)
+    // Pooled: 39 / 47. The old unweighted mean of readable days said 75.
+    expect(feedbackTrendAverage(fillTrendWindow(points, 3, 5, NOW))).toBeCloseTo((39 / 47) * 100, 6)
+  })
+
+  it('is 0 for a window with no votes', () => {
+    expect(feedbackTrendAverage(fillTrendWindow([], 3, 5, NOW))).toBe(0)
+  })
+})
+
+describe('feedbackTrendDelta, weighted', () => {
+  /**
+   * Early third: a 100-vote day at 50 % and a 5-vote day at 100 %. Unweighted
+   * that third reads 75 %; pooled it reads 52.4 %. Late third: 60 %. The
+   * unweighted delta says "15 points worse"; the votes say "7.6 points better".
+   */
+  it('weights each third by its votes, so a thin day cannot reverse the direction', () => {
+    const points = [
+      { day: day(5), up: 50, down: 50 },
+      { day: day(4), up: 5, down: 0 },
+      { day: day(3), up: 6, down: 4 },
+      { day: day(2), up: 6, down: 4 },
+      { day: day(1), up: 30, down: 20 },
+      { day: day(0), up: 30, down: 20 },
+    ]
+    const delta = feedbackTrendDelta(fillTrendWindow(points, 6, 5, NOW))
+
+    expect(delta).toBeCloseTo(60 - (55 / 105) * 100, 6)
   })
 })

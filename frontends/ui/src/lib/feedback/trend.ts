@@ -73,6 +73,19 @@ export function fillTrendWindow(
 }
 
 /**
+ * The helpful rate of a set of days, POOLED: all their helpful votes over all
+ * their votes. Not the mean of the daily rates, which weighs a five-vote day the
+ * same as a fifty-vote one and so answers a question nobody asked; the headline
+ * on the page is pooled, and a trend measured differently would disagree with it
+ * on the same screen. `null` when the days hold no votes.
+ */
+function pooledRate(days: readonly FeedbackTrendDay[]): number | null {
+  const total = days.reduce((sum, d) => sum + d.total, 0)
+  if (total === 0) return null
+  return (days.reduce((sum, d) => sum + d.up, 0) / total) * 100
+}
+
+/**
  * The direction, in percentage points of the helpful rate. Positive = improving.
  *
  * Measured as the first third of readable days against the last third — NOT the
@@ -80,7 +93,8 @@ export function fillTrendWindow(
  * one end swings the verdict by a dozen points and the claim about whether the
  * product is improving becomes noise. That is the same small-sample trap the
  * rest of this surface guards against; measuring it differently here would be
- * incoherent.
+ * incoherent. Each third is POOLED (see `pooledRate`), so a busy day counts for
+ * its votes, not for one day.
  *
  * `null` when fewer than two days are readable — "we do not know yet" is a
  * different statement from "flat", and only one of them is honest.
@@ -89,14 +103,17 @@ export function feedbackTrendDelta(days: readonly FeedbackTrendDay[]): number | 
   const readable = days.filter((d) => d.rate !== null)
   if (readable.length < 2) return null
   const third = Math.max(1, Math.floor(readable.length / 3))
-  const mean = (window: readonly FeedbackTrendDay[]): number =>
-    window.reduce((sum, d) => sum + (d.rate ?? 0), 0) / window.length
-  return mean(readable.slice(-third)) - mean(readable.slice(0, third))
+  const early = pooledRate(readable.slice(0, third))
+  const late = pooledRate(readable.slice(-third))
+  return early === null || late === null ? null : late - early
 }
 
-/** Mean helpful rate across the readable days of the window. */
+/**
+ * The helpful rate across the whole window, pooled over every vote in it, so it
+ * is the same number as the page's headline rather than a mean of daily rates.
+ * Thin days count for the votes they hold: pooling is what makes them harmless,
+ * where dropping them would lose votes the headline keeps.
+ */
 export function feedbackTrendAverage(days: readonly FeedbackTrendDay[]): number {
-  const readable = days.filter((d) => d.rate !== null)
-  if (readable.length === 0) return 0
-  return readable.reduce((sum, d) => sum + (d.rate ?? 0), 0) / readable.length
+  return pooledRate(days) ?? 0
 }
