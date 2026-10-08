@@ -33,6 +33,18 @@ export interface FeedbackTrendDay {
 }
 
 /**
+ * Where a window of `windowDays` starts: UTC midnight of the oldest day the
+ * chart draws. The window is calendar days, today included, because that is
+ * what the chart plots (`fillTrendWindow`) and what citation health counts.
+ * A rolling `now - N x 24h` window started mid-day, so the headline counted part
+ * of a day the chart did not show and the two described different periods.
+ */
+export function feedbackWindowStart(windowDays: number, now: Date = new Date()): Date {
+  const days = Math.max(1, Math.floor(windowDays))
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - (days - 1)))
+}
+
+/**
  * Below this many votes in a day, a percentage is noise. One down-vote out of
  * two is 50% and would spike a line into something that looks like a collapse.
  */

@@ -157,6 +157,22 @@ describe('listFeedbackTurns', () => {
     expect(text).toContain("coalesce(f.reason, 'other') =")
   })
 
+  /**
+   * The window used to be `now - N x 24h`, which starts mid-day: the headline
+   * then counted part of a day the chart (UTC calendar days) does not draw.
+   */
+  it('starts the window at UTC midnight, on the first day the chart draws', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-30T15:45:00Z'))
+    try {
+      const execute = capture()
+      await listFeedbackTurns({ windowDays: 7 })
+      expect(params(execute.mock.calls[0][0])).toContain('2026-07-24T00:00:00.000Z')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('drops a reason filter on the praised list', async () => {
     const execute = capture()
     await listFeedbackTurns({ verdict: 'up', reason: 'inaccurate' })

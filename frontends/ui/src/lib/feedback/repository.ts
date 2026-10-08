@@ -29,6 +29,7 @@ import {
 import { isConversationTagKey, type ConversationTagKey } from '@/lib/conversations/tags'
 import { executeRows } from '@/lib/db/execute-rows'
 import { VOTED_TURN_JOINS } from './turn-join'
+import { feedbackWindowStart } from './trend'
 
 /** Hard cap for the per-conversation hydration list. */
 export const CONVERSATION_FEEDBACK_LIST_LIMIT = 200
@@ -341,9 +342,12 @@ function rowsOf(result: unknown): Record<string, unknown>[] {
   return executeRows(result)
 }
 
-/** Start of the health window, as an ISO instant. */
+/**
+ * Start of the health window, as an ISO instant: UTC midnight, N-1 days back,
+ * the same calendar days the chart draws (`feedbackWindowStart`).
+ */
 function windowStart(days: number): string {
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  return feedbackWindowStart(days).toISOString()
 }
 
 /**

@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { feedbackTrendAverage, feedbackTrendDelta, fillTrendWindow } from './trend'
+import { feedbackTrendAverage, feedbackTrendDelta, feedbackWindowStart, fillTrendWindow } from './trend'
 
 /** Pinned, so the window does not move under the test at midnight. */
 const NOW = new Date('2026-07-30T12:00:00Z')
@@ -125,5 +125,17 @@ describe('feedbackTrendDelta, weighted', () => {
     const delta = feedbackTrendDelta(fillTrendWindow(points, 6, 5, NOW))
 
     expect(delta).toBeCloseTo(60 - (55 / 105) * 100, 6)
+  })
+})
+
+describe('feedbackWindowStart', () => {
+  it('starts at UTC midnight of the oldest day the chart draws', () => {
+    const start = feedbackWindowStart(7, NOW)
+    expect(start.toISOString()).toBe(`${day(6)}T00:00:00.000Z`)
+    expect(fillTrendWindow([], 7, 5, NOW)[0].day).toBe(start.toISOString().slice(0, 10))
+  })
+
+  it('is today at midnight for a one-day window, never mid-day', () => {
+    expect(feedbackWindowStart(1, NOW).toISOString()).toBe('2026-07-30T00:00:00.000Z')
   })
 })
