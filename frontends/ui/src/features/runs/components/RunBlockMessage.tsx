@@ -27,6 +27,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion, motionEntrance, motionInstant } from '@/components/motion'
 import type { ChatMessage } from '@/features/chat/types'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
+import { useTranslations } from '@/i18n'
 import type { RunStatus } from '@/lib/runs/run-ledger-types'
 import { runDisplayStatus } from '@/lib/runs/run-vocabulary'
 import { useRunLedger } from '../hooks/use-run-ledger'
@@ -59,7 +60,8 @@ export function RunBlockMessage({
   answer,
   onContinue,
 }: RunBlockMessageProps): JSX.Element | null {
-  const { ledger, live, cancel, writeNow, addDocument, connection } = useRunLedger({
+  const t = useTranslations('runs')
+  const { ledger, live, cancel, writeNow, addDocument, addDocumentFailure, connection } = useRunLedger({
     message,
     projectId,
     conversationId,
@@ -124,6 +126,9 @@ export function RunBlockMessage({
                 setPicking(true)
               }
             : null
+        }
+        addDocumentFailure={
+          addDocumentFailure ? (addDocumentFailure.message ?? t('unterlagen.addFailed')) : null
         }
         onOpenDocument={projectId ? openDocument : null}
         onContinue={onContinue ?? null}
