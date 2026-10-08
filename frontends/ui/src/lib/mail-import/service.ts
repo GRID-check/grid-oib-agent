@@ -40,6 +40,7 @@ import {
   type UploadedPart,
 } from './staging'
 import type { MailImportList, MailImportUploadPlan, MailImportView, StartMailImportInput } from './types'
+import { sealImportBatch } from './upload-batch'
 
 /** Imports one person may have open in one project at a time. */
 const OPEN_IMPORTS_PER_PERSON = 1
@@ -183,6 +184,8 @@ export async function cancelMailImport(
     inflightFolderId: null,
   })
   if (!cancelled) return toView((await repository.findMailImport(session.organizationId, projectId, importId)) ?? row, session)
+  // What was filed before the cancel still gets its summary.
+  await sealImportBatch(cancelled)
   await discardStaging(cancelled)
   return toView(cancelled, session)
 }
