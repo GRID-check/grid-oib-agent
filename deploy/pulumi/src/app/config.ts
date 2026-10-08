@@ -4,7 +4,7 @@ import { GridConfig } from "../config";
 import { APP_DEFAULTS, KEDA_SCALER_ROLE, LANGFUSE, PORT } from "../constants";
 import type { Postgres } from "../data/postgres";
 import { FRONTEND_DRAIN_SECONDS, secretChecksum } from "../platform/rollout";
-import { LANGFUSE_SECRETS_NAME, LANGFUSE_SECRET_KEYS } from "../platform/langfuse";
+import { frontendLangfuseEnv, LANGFUSE_SECRETS_NAME, LANGFUSE_SECRET_KEYS } from "../platform/langfuse";
 
 type EnvVar = k8s.types.input.core.v1.EnvVar;
 
@@ -573,6 +573,9 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
           { name: "OTEL_EXPORTER_OTLP_ENDPOINT", value: "http://otel-collector:4318" },
         ]
       : []),
+    // Answer feedback as Langfuse scores, and links from a rated turn to its
+    // trace (ADR-0044, Amendment 3). Only where the Langfuse tier is deployed.
+    ...frontendLangfuseEnv(cfg),
   ];
 }
 
@@ -610,6 +613,22 @@ export function langfuseApiEnv(cfg: GridConfig): EnvVar[] {
 const BFF_JOBS_OVERRIDES = new Set(["OTEL_SERVICE_NAME", "GRID_SHUTDOWN_DRAIN_MS"]);
 
 /**
+ * Names the bff-jobs pod does not inherit from the frontend: the Langfuse keys.
+ * Only the request path scores a vote, and `allow-frontend-to-langfuse` admits
+ * the frontend alone, so a job holding them could reach for an API it cannot
+ * open. Erasing traces is the purger's and the scheduler's (ADR-0044).
+ */
+const BFF_JOBS_WITHHELD = new Set([
+  "LANGFUSE_HOST",
+  "LANGFUSE_PUBLIC_URL",
+  "LANGFUSE_PROJECT_ID",
+  "LANGFUSE_PUBLIC_KEY",
+  "LANGFUSE_SECRET_KEY",
+]);
+const inheritedByBffJobs = (env: EnvVar) =>
+  typeof env.name !== "string" || !(BFF_JOBS_OVERRIDES.has(env.name) || BFF_JOBS_WITHHELD.has(env.name));
+
+/**
  * bff-jobs pool environment (ADR-0079): the whole frontend environment, because
  * the jobs call the same services the routes do (the database, object storage,
  * the backend, WorkOS), plus what the runner reads. Every `GRID_BFF_JOBS_` name
@@ -619,7 +638,7 @@ const BFF_JOBS_OVERRIDES = new Set(["OTEL_SERVICE_NAME", "GRID_SHUTDOWN_DRAIN_MS
 export function bffJobsEnv(w: AppWiring): EnvVar[] {
   const { cfg } = w;
   return [
-    ...frontendEnv(w).filter((env) => typeof env.name !== "string" || !BFF_JOBS_OVERRIDES.has(env.name)),
+    ...frontendEnv(w).filter(inheritedByBffJobs),
     { name: "GRID_BFF_JOBS_CONCURRENCY", value: String(cfg.bffJobs.concurrency) },
     { name: "GRID_BFF_JOBS_DRAIN_SECONDS", value: String(cfg.bffJobs.drainSeconds) },
     { name: "GRID_BFF_JOBS_MAX_PER_ORG", value: String(cfg.bffJobs.maxPerOrg) },

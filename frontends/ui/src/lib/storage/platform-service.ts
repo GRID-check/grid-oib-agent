@@ -11,6 +11,12 @@
 import 'server-only'
 import { aggregateStorageUsageByOrganization } from './repository'
 import { STORAGE_QUOTA_SETTING, effectiveQuotaFromSettings } from './service'
+import {
+  configuredUploadLimit,
+  effectiveUploadLimit,
+  uploadLimitBounds,
+  type UploadLimitBounds,
+} from './upload-limit'
 import { findOrganizations, ORGANIZATION_PAGE_MAX } from '@/lib/organizations/repository'
 
 export interface OrganizationStorageRow {
@@ -23,6 +29,10 @@ export interface OrganizationStorageRow {
   quotaBytes: number | null
   /** True when the quota comes from the platform default rather than this org. */
   inherited: boolean
+  /** The organization's own per-file upload limit, or null when it follows the default. */
+  maxUploadFileBytes: number | null
+  /** The per-file upload limit in force for it. */
+  effectiveMaxUploadFileBytes: number
 }
 
 export interface PlatformStorageOverview {
@@ -40,6 +50,13 @@ export interface PlatformStorageOverview {
    * to conclude.
    */
   truncated: boolean
+  /**
+   * The deployment's default per-file upload limit and the range an
+   * organization's own may take. Once per response rather than per row: they
+   * are facts about this deployment, and the editor judges a typed value
+   * against `ceilingBytes` before it sends it.
+   */
+  uploadLimit: UploadLimitBounds
 }
 
 /**
@@ -74,10 +91,12 @@ export async function getPlatformStorageOverview(): Promise<PlatformStorageOverv
   )
 
   const ids = new Set<string>([...usageByOrg.keys(), ...settingsById.keys()])
+  const bounds = uploadLimitBounds()
 
   const rows = [...ids].map((organizationId): OrganizationStorageRow => {
     const usage = usageByOrg.get(organizationId)
     const settings = settingsById.get(organizationId) ?? {}
+    const ownUploadLimit = configuredUploadLimit(settings)
 
     return {
       organizationId,
@@ -86,6 +105,8 @@ export async function getPlatformStorageOverview(): Promise<PlatformStorageOverv
       documents: usage?.documents ?? 0,
       quotaBytes: effectiveQuotaFromSettings(settings),
       inherited: !(STORAGE_QUOTA_SETTING in settings),
+      maxUploadFileBytes: ownUploadLimit,
+      effectiveMaxUploadFileBytes: effectiveUploadLimit(ownUploadLimit, bounds),
     }
   })
 
@@ -99,5 +120,6 @@ export async function getPlatformStorageOverview(): Promise<PlatformStorageOverv
       organizations: rows.length,
     },
     truncated: page.truncated,
+    uploadLimit: bounds,
   }
 }

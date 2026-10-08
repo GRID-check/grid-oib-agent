@@ -156,6 +156,10 @@
     "de": "Ein Dokument, das nach dem Verlust eines Ingestion-Jobs auf „processing“ hängen bleibt, kann jetzt über sein Menü erneut gestartet werden, statt gelöscht und neu hochgeladen zu werden. Dabei bleibt das Dokument erhalten, sodass Quellen, Chat-Verweise und Zuweisungen bestehen bleiben. Solange die Ingestion tatsächlich noch läuft, kann kein erneuter Versuch gestartet werden."
   },
   {
+    "en": "A document that failed to index, or that is still being read, now stays in the project file list with its status, so it is no longer mistaken for a file that was never uploaded.",
+    "de": "Ein Dokument, das nicht indexiert werden konnte oder noch eingelesen wird, bleibt jetzt samt Status in der Dateiliste des Projekts, damit es nicht mehr für eine nie hochgeladene Datei gehalten wird."
+  },
+  {
     "en": "A document whose indexing failed can be sent back through it from its own card: Retry indexing is in the ⋯ menu, beside rename and delete, wherever the failure is shown. Until now the card told you it had failed and the only retry was two clicks inside a viewer you had no reason to open.",
     "de": "Ein Dokument, dessen Indexierung fehlgeschlagen ist, können Sie direkt über seine Karte erneut indexieren: „Indexierung erneut versuchen“ finden Sie im ⋯-Menü neben Umbenennen und Löschen, überall dort, wo der Fehler angezeigt wird. Bisher zeigte die Karte nur den Fehler an; die einzige Möglichkeit, es erneut zu versuchen, waren zwei Klicks in einem Viewer, den Sie gar nicht öffnen mussten."
   },
@@ -1864,6 +1868,10 @@
     "de": "Aufgaben und Zeitpläne sind eine Liste, die Zeitpläne oben, die einzelnen Läufe darunter, und Zeitpläne entstehen und ändern sich direkt dort. Alte Links auf den Jobs-Tab landen weiterhin an der richtigen Stelle."
   },
   {
+    "en": "Teammates can now follow and steer deep research runs in the projects they work in, including the runs of scheduled and shared tasks, not only their own. Anyone who can view a chat can follow a run in it, while stopping a run or adding a document to it still needs permission to chat in the project.",
+    "de": "Teammitglieder können Deep-Research-Läufe in den Projekten, in denen sie arbeiten, jetzt verfolgen und steuern – auch Läufe geplanter und geteilter Aufgaben, nicht nur ihre eigenen. Wer einen Chat ansehen kann, kann darin einen Lauf verfolgen. Um einen Lauf zu stoppen oder ein Dokument hinzuzufügen, ist weiterhin die Berechtigung erforderlich, im Projekt zu chatten."
+  },
+  {
     "en": "Text and CSV files saved by Excel or older Windows programs keep their umlauts and ß. Before, those letters were silently dropped.",
     "de": "Text- und CSV-Dateien, die mit Excel oder älteren Windows-Programmen gespeichert werden, behalten ihre Umlaute und ihr ß. Bisher gehen diese Zeichen unbemerkt verloren."
   },
@@ -2222,6 +2230,10 @@
   {
     "en": "The status line above the Herleitung says what Piloti is searching for, and once the research is done, that the answer is being written.",
     "de": "Die Statuszeile über der Herleitung sagt, wonach Piloti gerade sucht, und sobald die Recherche abgeschlossen ist, dass die Antwort formuliert wird."
+  },
+  {
+    "en": "The upload area now states the largest file you can upload as a size per file, and the number it shows is the one your organization is held to. It no longer shows 95 MB for a 100 MB limit.",
+    "de": "Der Upload-Bereich gibt nun die maximale Dateigröße pro Datei an, die Sie hochladen können. Angezeigt wird der für Ihre Organisation geltende Wert. Bei einem Limit von 100 MB werden nicht mehr 95 MB angezeigt."
   },
   {
     "en": "The upload panel no longer retires itself out from under you. A wholly successful batch still clears after a few seconds, but the countdown holds while your pointer is on the panel or your keyboard focus is inside it.",
