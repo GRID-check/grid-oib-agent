@@ -299,7 +299,10 @@ class _ChatSocket:
         )
         status, *lines = self._read_head().split("\r\n")
         headers = {name.strip().lower(): value.strip() for name, _, value in (line.partition(":") for line in lines)}
-        expected = base64.b64encode(hashlib.sha1((key + _WS_ACCEPT_GUID).encode("ascii")).digest()).decode("ascii")
+        # RFC 6455 4.2.2 fixes SHA-1 for the accept key: it proves the server read this handshake, it signs nothing.
+        # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
+        accept = hashlib.sha1((key + _WS_ACCEPT_GUID).encode("ascii"), usedforsecurity=False)
+        expected = base64.b64encode(accept.digest()).decode("ascii")
         if _HTTP_SWITCHING_PROTOCOLS not in f"{status} " or headers.get("sec-websocket-accept") != expected:
             self._sock.close()
             raise RuntimeError(f"Chat socket refused the upgrade: {status}")

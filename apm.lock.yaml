@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-10-08T20:29:58.242691+00:00'
+generated_at: '2026-10-08T20:38:15.136391+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-add-data-source
@@ -258,14 +258,14 @@ dependencies:
     .agents/skills/aiq-research/SKILL.md: sha256:29df45bf034709779aff3d6f2a40ee975eb939bbd2128806f2cdfa0be64d5baa
     .agents/skills/aiq-research/evals/basic-product.json: sha256:ab51d108e02da349b7e558f9e1998de522fa9838e129a7b918b06c9a4589af18
     .agents/skills/aiq-research/evals/evals.json: sha256:a7d34b90801c9692b4763a213811b7dd6417bb24820d4fab2e37a63ab90e43be
-    .agents/skills/aiq-research/scripts/aiq.py: sha256:fdb71c47c84098b4a4072d12fa7876cb6cabbde263c33cf651370d17d8ec4d30
+    .agents/skills/aiq-research/scripts/aiq.py: sha256:f90178c2347652f8106d8b77ba79d5db80ce8ad61a999c00c495bd284b967ada
     .agents/skills/aiq-research/skill-card.md: sha256:bec96647ce61f801f4ed4bb43ed3add76d949e9dd8518cb977dcf803eaeed638
     .agents/skills/aiq-research/skill.oms.sig: sha256:dfe1fa14c22c8719317bd0edbc9122fa40e4115132b2374e070b42e49add83b9
     .claude/skills/aiq-research/BENCHMARK.md: sha256:88dc980f3be7d23ba8b4d03c6dcf80fc9f25e930e6db96f5a0b85348bef1e26d
     .claude/skills/aiq-research/SKILL.md: sha256:29df45bf034709779aff3d6f2a40ee975eb939bbd2128806f2cdfa0be64d5baa
     .claude/skills/aiq-research/evals/basic-product.json: sha256:ab51d108e02da349b7e558f9e1998de522fa9838e129a7b918b06c9a4589af18
     .claude/skills/aiq-research/evals/evals.json: sha256:a7d34b90801c9692b4763a213811b7dd6417bb24820d4fab2e37a63ab90e43be
-    .claude/skills/aiq-research/scripts/aiq.py: sha256:fdb71c47c84098b4a4072d12fa7876cb6cabbde263c33cf651370d17d8ec4d30
+    .claude/skills/aiq-research/scripts/aiq.py: sha256:f90178c2347652f8106d8b77ba79d5db80ce8ad61a999c00c495bd284b967ada
     .claude/skills/aiq-research/skill-card.md: sha256:bec96647ce61f801f4ed4bb43ed3add76d949e9dd8518cb977dcf803eaeed638
     .claude/skills/aiq-research/skill.oms.sig: sha256:dfe1fa14c22c8719317bd0edbc9122fa40e4115132b2374e070b42e49add83b9
   source: local
@@ -1140,7 +1140,7 @@ deployments:
   owners:
   - ./skills/aiq-research
   active_owner: ./skills/aiq-research
-  content_hash: sha256:fdb71c47c84098b4a4072d12fa7876cb6cabbde263c33cf651370d17d8ec4d30
+  content_hash: sha256:f90178c2347652f8106d8b77ba79d5db80ce8ad61a999c00c495bd284b967ada
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-research/skill-card.md
@@ -2175,7 +2175,7 @@ deployments:
   owners:
   - ./skills/aiq-research
   active_owner: ./skills/aiq-research
-  content_hash: sha256:fdb71c47c84098b4a4072d12fa7876cb6cabbde263c33cf651370d17d8ec4d30
+  content_hash: sha256:f90178c2347652f8106d8b77ba79d5db80ce8ad61a999c00c495bd284b967ada
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-research/skill-card.md
