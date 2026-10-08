@@ -212,7 +212,7 @@ describe('uploadSessionDocument, a file already attached under that name', () =>
 
 // A re-upload keeps the replaced bytes as an earlier version (ADR-0054), so
 // replacing somebody else's quarantined attachment would hand its held-back
-// bytes to the whole chat (ADR-0083).
+// bytes to the whole chat (ADR-0085).
 describe("uploadSessionDocument onto somebody else's quarantined attachment", () => {
   it('is refused like a taken name, and nothing is admitted', async () => {
     vi.mocked(findLiveDocumentByFilename).mockResolvedValue({ ...existing, status: 'quarantined' })
@@ -452,7 +452,7 @@ describe('deleteSessionDocument purges the chunks again after the row', () => {
   })
 })
 
-describe('listSessionDocuments and a quarantined attachment (ADR-0083)', () => {
+describe('listSessionDocuments and a quarantined attachment (ADR-0085)', () => {
   beforeEach(() => {
     vi.mocked(listSessionDocumentRows).mockResolvedValue([])
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])

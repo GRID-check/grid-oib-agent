@@ -35,7 +35,7 @@ export type DocumentAccessIntent = 'read' | 'write'
  * and defaulting to another shelf's rule is how a private document becomes an
  * org-wide one.
  *
- * A quarantined document (ADR-0083) exists only for its uploader and for the
+ * A quarantined document (ADR-0085) exists only for its uploader and for the
  * people who may review the quarantine, on top of the shelf's own rule: its
  * content matched the office's sensitive-data list, and nobody has decided yet
  * that the project, the Büroablage or the chat may read it.

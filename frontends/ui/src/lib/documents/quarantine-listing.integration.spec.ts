@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * A quarantined document in the listings and on the agent's byte path
- * (ADR-0083), against a REAL Postgres.
+ * (ADR-0085), against a REAL Postgres.
  *
  * The unit spec proves the services pass the reader; this one proves the SQL
  * keeps what it should: a reader who may not review the quarantine sees the

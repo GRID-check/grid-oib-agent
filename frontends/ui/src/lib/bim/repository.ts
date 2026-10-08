@@ -162,7 +162,7 @@ export async function listBimModels(
      */
     hiddenFolderIds?: readonly string[]
     /**
-     * A quarantined document's model (ADR-0083) is its uploader's and its
+     * A quarantined document's model (ADR-0085) is its uploader's and its
      * reviewers' only: `quarantineReaders` (each from `quarantineReaderFor`,
      * one per shelf, since the list spans a project and the Büroablage) keeps
      * the reader's own, and `withoutQuarantined` keeps none, for the agent,

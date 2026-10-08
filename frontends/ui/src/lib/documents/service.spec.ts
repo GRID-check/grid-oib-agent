@@ -2413,7 +2413,7 @@ describe('runReindexSlice', () => {
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
-  // A quarantined file waits on a reviewer (ADR-0083); a re-index is not a
+  // A quarantined file waits on a reviewer (ADR-0085); a re-index is not a
   // release, even when the person pressing it could release it.
   it('skips a quarantined document it may see, and reports it as skipped, not queued', async () => {
     vi.mocked(listProjectDocumentPage).mockResolvedValueOnce({ rows: [listRow('doc-1', 'plan.pdf')], nextCursor: null })
@@ -2772,7 +2772,7 @@ describe('re-uploading a filename this collection already holds', () => {
    * A re-upload keeps the replaced bytes as an earlier version (ADR-0054), and a
    * version is served on the document's current status. Onto a quarantined file
    * it would turn the held-back bytes into a version every member can open once
-   * the new bytes settle (ADR-0083): refused like a taken name for somebody who
+   * the new bytes settle (ADR-0085): refused like a taken name for somebody who
    * may not see the file, and with the reason for its uploader.
    */
   describe('onto a quarantined file', () => {

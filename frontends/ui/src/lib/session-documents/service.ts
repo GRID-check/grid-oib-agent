@@ -85,7 +85,7 @@ export async function listSessionDocuments(
 ): Promise<SessionDocumentListResult> {
   await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
 
-  // A file in quarantine is listed for its uploader and the organization's admins only (ADR-0083).
+  // A file in quarantine is listed for its uploader and the organization's admins only (ADR-0085).
   const quarantineReader = await quarantineReaderFor(session, { scope: 'session', projectId: null })
   const rows = await listSessionDocumentRows(
     conversationId,

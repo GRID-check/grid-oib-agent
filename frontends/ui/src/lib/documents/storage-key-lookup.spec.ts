@@ -88,7 +88,7 @@ describe('findStorageKeyByCollectionAndFilename', () => {
     expect(columns).toContain('filename')
   })
 
-  it('never resolves a quarantined document, whose bytes no model may read (ADR-0083)', async () => {
+  it('never resolves a quarantined document, whose bytes no model may read (ADR-0085)', async () => {
     await findStorageKeyByCollectionAndFilename('proj_abc', 'konten.pdf')
 
     // The bound values, not the column names: every column reaches the tree

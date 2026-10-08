@@ -176,7 +176,7 @@ describe('dispatchDocument', () => {
   })
 
   /**
-   * A quarantined row (ADR-0083) is released by a reviewer, who moves it to
+   * A quarantined row (ADR-0085) is released by a reviewer, who moves it to
    * `uploaded` first, and by nobody else. A restore from the Papierkorb, a
    * placement move and a project re-index all re-dispatch whole folders; a
    * dispatch used to set the row `pending`, which every reader may open, and

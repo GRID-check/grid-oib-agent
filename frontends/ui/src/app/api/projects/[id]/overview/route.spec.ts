@@ -90,7 +90,7 @@ describe('GET /api/projects/[id]/overview', () => {
     expect(getHiddenFolderIds).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user-1' }), 'proj-1')
   })
 
-  // ADR-0083: the recent list names a file, the count and size move with it.
+  // ADR-0085: the recent list names a file, the count and size move with it.
   // A member who neither uploaded a quarantined file nor reviews the project's
   // quarantine must not find it here, so the route has to hand the query a reader.
   it("narrows the count, size and recent list to a member's own quarantined files", async () => {

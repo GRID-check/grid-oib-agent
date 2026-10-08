@@ -127,7 +127,7 @@ export async function resolveInternalModel(
     // reader who holds no role: every restricted subtree is hidden, and a
     // `modelId` naming a model inside one is not found.
     hiddenFolderIds: input.projectId ? await getRestrictedFolderIds(input.organizationId, input.projectId) : [],
-    // Nor is a quarantined file's model (ADR-0083): nothing of it reaches a
+    // Nor is a quarantined file's model (ADR-0085): nothing of it reaches a
     // model until a reviewer releases it, its building data included.
     withoutQuarantined: true,
   })

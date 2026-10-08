@@ -284,7 +284,7 @@ export const collaboration: typeof en.collaboration = {
         titleNone: 'Dateien in der Quarantäne',
         body: 'Kein Modell hat sie gelesen. Geben Sie sie frei oder löschen Sie sie.',
       },
-      // ADR-0083: wer eine Datei hochgeladen hat, die in der Quarantäne liegt,
+      // ADR-0085: wer eine Datei hochgeladen hat, die in der Quarantäne liegt,
       // bittet um Freigabe. {subject} ist der Dateiname.
       documentReleaseRequested: {
         title: '{actor} bittet um Freigabe von „{subject}"',

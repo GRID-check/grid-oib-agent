@@ -45,7 +45,7 @@ function sourceDeletedAtOf(metadata: unknown): string | null {
   return typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? at : null
 }
 
-/** Who of a shelf's quarantine this listing's reader may see (`quarantineReaderFor`, ADR-0083). */
+/** Who of a shelf's quarantine this listing's reader may see (`quarantineReaderFor`, ADR-0085). */
 export interface ListingReader {
   /** Required, so a caller states it: `undefined` is a reviewer, who sees every quarantined row. */
   quarantineReader: string | undefined
@@ -64,7 +64,7 @@ export async function toListedDocuments(
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   // A row this turns `quarantined` was read as `pending`, so the query let it
-  // through: it is narrowed again here, after the verdict (ADR-0083).
+  // through: it is narrowed again here, after the verdict (ADR-0085).
   const reconciled = keepVisibleQuarantine(
     await reconcileDocumentStatuses(rows, session.organizationId),
     quarantineReader,
