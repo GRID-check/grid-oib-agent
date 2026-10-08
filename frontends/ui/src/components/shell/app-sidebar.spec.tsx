@@ -169,10 +169,10 @@ describe('AppSidebar - Archiv nav item (ADR-0024)', () => {
     const labels = Array.from(navs)
       .flatMap((nav) => Array.from(nav.querySelectorAll('a span[data-slot="rail-nav-label"]')))
       .map((el) => el.textContent)
-    // Ask Piloti · Files · Automation* · Archiv* · Inbox*, per
-    // `project-sections.ts`. Automation is absent here because `showSkills`
+    // Ask Piloti · Files · Automation* · Similar projects · Archiv* · Inbox*,
+    // per `project-sections.ts`. Automation is absent here because `showSkills`
     // is off.
-    expect(labels).toEqual(['Ask Piloti', 'Files', 'Archiv', 'Inbox'])
+    expect(labels).toEqual(['Ask Piloti', 'Files', 'Similar projects', 'Archiv', 'Inbox'])
   })
 })
 

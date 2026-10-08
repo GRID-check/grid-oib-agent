@@ -23,6 +23,8 @@ export const nav = {
     research: 'Research',
     /** Automation — Tasks and Skills as tabs inside one section. */
     automation: 'Automation',
+    /** Similar closed projects, read for this one (ADR-0085). */
+    referenzen: 'Similar projects',
     skills: 'Skills',
     jobs: 'Jobs',
     /** The tab that leads: work delegated to Piloti, one card per task (ADR-0051). */
