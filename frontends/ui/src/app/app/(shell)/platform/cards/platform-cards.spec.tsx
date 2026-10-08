@@ -34,7 +34,13 @@ const catalog = {
           description: 'Provided vs required Steigung',
           constraints: [],
         },
-        { name: 'comfort_note', type: 'string', required: false, description: 'The comfort rule', constraints: [] },
+        {
+          name: 'comfort_note',
+          type: 'string',
+          required: false,
+          description: 'The comfort rule',
+          constraints: [],
+        },
       ],
     },
     {
@@ -93,7 +99,7 @@ describe('PlatformCards', () => {
     await waitFor(() => {
       const preview = entry.querySelector('.pointer-events-none')
       expect(preview).not.toBeNull()
-      expect((preview as HTMLElement).inert).toBe(true)
+      expect(preview).toHaveAttribute('inert')
     })
   })
 
@@ -131,6 +137,9 @@ describe('PlatformCards', () => {
     for (const link of links) {
       expect(link).toHaveAttribute('href', FEATURE_REQUEST.url)
       expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
+      // It leaves Piloti for a new tab, and says so to a screen reader too.
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAccessibleName(/opens in a new tab/)
     }
   })
 
@@ -145,5 +154,19 @@ describe('PlatformCards', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(catalog))
     await user.click(screen.getByRole('button', { name: /retry/i }))
     expect(await screen.findByTestId('platform-card-stair_diagram')).toBeInTheDocument()
+  })
+
+  test('an empty catalog is an empty state with somewhere to ask, not a blank card', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ...catalog, cards: [], cardCount: 0 }))
+    render(<PlatformCards />)
+
+    expect(await screen.findByText('No card types')).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: /request a card/i }).length).toBeGreaterThan(0)
+  })
+
+  test('the card is titled by what it holds, not by the page title', async () => {
+    render(<PlatformCards />)
+    expect(await screen.findByText('3 card types')).toBeInTheDocument()
+    expect(screen.queryByText('Card catalog')).not.toBeInTheDocument()
   })
 })
