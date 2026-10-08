@@ -160,7 +160,7 @@ non-members), `lib/authz/folder-access.spec.ts` (the outsider clearance), and
 `lib/projects/project-status.integration.spec.ts` on real Postgres through
 `scripts/rls-test-db.sh`: the real tree, rule and listing SQL show a person holding the
 granted role not seeing a restricted folder of a closed project, before and after a
-reopen; the CHECKs; and the trigger. The script also takes 0114 down and up.
+reopen; the CHECKs; and the trigger. The script also takes 0115 down and up.
 
 ## Pros and Cons of the Options
 

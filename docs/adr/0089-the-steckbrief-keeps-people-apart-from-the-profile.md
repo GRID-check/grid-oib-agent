@@ -57,7 +57,7 @@ name, because the audit log outlives an erasure.
 
 **Who may.** Reading needs `project:view`, so every member of the office reads a
 closed project's Steckbrief. Changing the period or a person needs the profile's
-write permissions and is therefore refused in a closed project; the 0114 guard
+write permissions and is therefore refused in a closed project; the 0115 guard
 also refuses an INSERT into `project_people` there. Deleting a person needs the
 same in an active project and `project:manage` in a closed one.
 
@@ -76,7 +76,7 @@ context builder and the agent's internal routes and fails on an import of it.
 
 `lib/projects/steckbrief.integration.spec.ts` on real Postgres (tenancy, CHECKs, the closed-project
 guard, the cascade, closing filling the Abschluss), `steckbrief-service.spec.ts` (who may, account
-check, audit without names), `people-stay-out-of-the-prompt.spec.ts`, and the 0115 down/up in
+check, audit without names), `people-stay-out-of-the-prompt.spec.ts`, and the 0116 down/up in
 `scripts/rls-test-db.sh`.
 
 ## Pros and Cons of the Options
