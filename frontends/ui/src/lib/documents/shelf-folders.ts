@@ -15,11 +15,11 @@
  * composite keys keep a parent and a document on the folder's own shelf and
  * tenant, so a bug in here cannot file across either.
  *
- * The project shelf adds per-folder access per role (ADR-0087), decided in
+ * The project shelf adds per-folder access per role (ADR-0088), decided in
  * `@/lib/projects/folder-service`: it checks before calling in here and passes
  * a {@link ShelfFolderVisibility} where a walk must skip what the reader may
  * not see. Two things differ here by shelf: a project folder's delete leaves a
- * tombstone (migration 0110), because what was derived from it is judged by
+ * tombstone (migration 0111), because what was derived from it is judged by
  * the access it had, and a project's path rewrite reaches every collection its
  * documents live in (a restricted folder's documents are in their own).
  */
@@ -47,14 +47,14 @@ type Outcome<T> = ({ ok: true } & T) | { ok: false; error: string }
 
 /**
  * A sibling already holds this exact name. Deliberately the one answer for a
- * visible sibling and a hidden one (ADR-0086): it names neither, and says no
+ * visible sibling and a hidden one (ADR-0087): it names neither, and says no
  * more than `uniq_project_folders_parent_name` forces anyone to learn.
  */
 export const FOLDER_NAME_TAKEN = 'A folder with this name already exists here.'
 
 /**
  * What a folder walk may see and create on a shelf with per-folder access (the
- * project's, ADR-0087). Absent on the Archiv, where every folder is the shelf's.
+ * project's, ADR-0088). Absent on the Archiv, where every folder is the shelf's.
  */
 export interface ShelfFolderVisibility {
   isVisible(folderId: string): boolean
@@ -97,6 +97,13 @@ export interface DeleteFolderResult {
 
 const folderOnShelf = (shelf: DocumentShelf, organizationId: string, folderId: string) =>
   and(eq(projectFolders.id, folderId), shelfFolderWhere(shelf, organizationId))
+
+/**
+ * The answer when a sibling folder already has the name. A constant, because a
+ * caller that picks the next free name (the mail import's ` (2)`) has to tell
+ * this refusal from every other one.
+ */
+export const FOLDER_NAME_TAKEN = 'A folder with this name already exists here.'
 
 /** One folder of the shelf, or `undefined` — another shelf's or tenant's folder id is simply not found. */
 export async function findShelfFolder(
@@ -321,7 +328,7 @@ const MAX_ENSURE_DEPTH = 12
  * would discard eighty-nine folders that are correct and that a retry would
  * simply recreate.
  *
- * ## Folders the reader may not see (ADR-0086)
+ * ## Folders the reader may not see (ADR-0087)
  *
  * With a `visibility`, a hidden folder does not exist here: it is never
  * matched, never descended into, and a hidden `parentId` is "not found".
@@ -430,7 +437,7 @@ async function resolvePath(
       continue
     }
     if (walk.hiddenNames.has(`${current?.id ?? ''}\u0000${name}`)) return { ok: false, error: FOLDER_NAME_TAKEN }
-    // Creating a folder is a write into its parent (ADR-0087); matching an
+    // Creating a folder is a write into its parent (ADR-0088); matching an
     // existing one is not, and the upload into it asks on its own.
     if (current && !walk.createdHere.has(current.id)) walk.visibility?.assertMayCreateIn(current.id)
     const created = await getOrCreateChild(db, shelf, organizationId, current, name)
@@ -540,7 +547,7 @@ export async function mirrorShelfFolderPathRewrite(
     const collectionName = await shelfCollectionName(shelf, organizationId)
     if (!collectionName) return
     // Every collection the project's documents live in, not only its own: a
-    // restricted folder's documents are in theirs (ADR-0086), and a rename
+    // restricted folder's documents are in theirs (ADR-0087), and a rename
     // above it must reach them too. A failed read still mirrors the shelf's
     // own collection rather than none.
     const others =

@@ -34,6 +34,10 @@ lib64/
 # (art/riso/downloads.mjs writes them; the unlisted image page serves them).
 !frontends/web/public/downloads/
 parts/
+# `parts/` is buildout's, and like `lib/` above it matches at any depth: it hid
+# the mail import's `mail-imports/[importId]/parts/[partNumber]` route from the
+# first commit that wrote it. Source directories of that name are not artifacts.
+!frontends/*/src/**/parts/
 sdist/
 var/
 wheels/

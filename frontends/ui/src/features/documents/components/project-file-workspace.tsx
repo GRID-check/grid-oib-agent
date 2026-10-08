@@ -13,6 +13,7 @@ import type { DocumentWireRow } from '../lib/file-item'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import type { FolderItem } from '../file-types'
 import { FileWorkspace } from './file-workspace'
+import { MailImportAction } from './mail-import-action'
 
 // The row and folder types live in `../file-types`; they are re-exported here
 // because this is the name every importer already uses.
@@ -72,6 +73,8 @@ interface ProjectFileWorkspaceProps {
    * first paint (ADR-0087). Absent means `write`; the folder listing refreshes it.
    */
   initialRootAccess?: 'read' | 'write'
+  /** Whether the Outlook archive import is offered (`isMailImportEnabled`, ADR-0085). Off by default. */
+  mailImportEnabled?: boolean
 }
 
 /**
@@ -97,6 +100,7 @@ export function ProjectFileWorkspace({
   initialFilesComplete = true,
   canManageFolderAccess = false,
   initialRootAccess = 'write',
+  mailImportEnabled = false,
 }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const router = useRouter()
@@ -131,7 +135,12 @@ export function ProjectFileWorkspace({
   return (
     <FileWorkspace
       shelf={shelf}
-      renderHeader={(controls) => <ProjectSectionActions>{controls}</ProjectSectionActions>}
+      renderHeader={(controls) => (
+        <ProjectSectionActions>
+          {controls}
+          {mailImportEnabled && <MailImportAction projectId={projectId} />}
+        </ProjectSectionActions>
+      )}
       initialFolders={initialFolders}
       initialFiles={initialFiles}
       initialFilesComplete={initialFilesComplete}

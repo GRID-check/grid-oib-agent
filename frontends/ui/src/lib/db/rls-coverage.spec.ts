@@ -96,11 +96,15 @@ const BOUNDARY_MIGRATIONS = [
   // active tenant; the runner reads across lanes under the platform role.
   '0104_bff_job_queue.sql',
   // Adds upload_batches — one upload gesture and when it was all read
-  // (ADR-0085). Keyed directly by its organization.
-  '0109_upload_batches.sql',
+  // (ADR-0086). Keyed directly by its organization.
+  '0110_upload_batches.sql',
   // Adds project_folder_grants — a folder's own access list, one row per role
-  // and level (ADR-0087). Keyed directly by its organization.
-  '0110_project_folder_grants.sql',
+  // and level (ADR-0088). Keyed directly by its organization.
+  '0111_project_folder_grants.sql',
+  // Adds mail_imports (ADR-0085), an Outlook archive a member is filing into a
+  // project. Keyed by the organization, secured like product_feedback; the
+  // stale-upload sweep reads across tenants under the platform role.
+  '0108_mail_imports.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

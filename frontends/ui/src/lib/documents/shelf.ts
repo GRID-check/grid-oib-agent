@@ -70,7 +70,7 @@ export function shelfFolderWhere(shelf: DocumentShelf, organizationId: string): 
   return and(
     eq(projectFolders.organizationId, organizationId),
     eq(projectFolders.scope, shelfScope(shelf)),
-    // A deleted folder's tombstone (migration 0110) is no folder of the shelf:
+    // A deleted folder's tombstone (migration 0111) is no folder of the shelf:
     // only the access rule reads it, through its own repository.
     isNull(projectFolders.deletedAt),
     ...(shelf.kind === 'project' ? [eq(projectFolders.projectId, shelf.projectId)] : []),

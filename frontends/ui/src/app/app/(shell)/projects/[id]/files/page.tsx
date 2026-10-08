@@ -7,6 +7,7 @@ import { can } from '@/lib/authz/decide'
 import {
   FEATURE_FLAGS,
   isCollaborationEnabled,
+  isMailImportEnabled,
   isFeatureEnabled,
   isIfcModelsEnabled,
   isIfcPreviewFirstEnabled,
@@ -127,6 +128,7 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
         previewFirst={previewFirst}
         canCollaborate={isCollaborationEnabled(session)}
         currentUserId={session.userId}
+        mailImportEnabled={isMailImportEnabled(session)}
       />
     )
   })

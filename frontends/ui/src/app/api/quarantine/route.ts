@@ -1,5 +1,5 @@
 /**
- * The quarantine queue (ADR-0085): documents the content check held back, that
+ * The quarantine queue (ADR-0086): documents the content check held back, that
  * this session may release or delete. Org admins see the organization's queue,
  * project admins their projects' part of it, everyone else an empty list.
  */

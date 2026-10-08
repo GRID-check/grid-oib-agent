@@ -3,14 +3,14 @@ import { sql } from 'drizzle-orm'
 import { projectFolders } from './project-folders'
 import { projects } from './projects'
 
-/** What a grant lets a role do in a folder (ADR-0087). */
+/** What a grant lets a role do in a folder (ADR-0088). */
 export const FOLDER_GRANT_LEVELS = ['read', 'write'] as const
 export type FolderGrantLevel = (typeof FOLDER_GRANT_LEVELS)[number]
 
 /**
  * `project_folder_grants` — one role's access to a folder that has its own
- * access list (`project_folders.access_mode = 'custom'`, migration 0110,
- * ADR-0087). `read`: see, open, download, search and use in answers. `write`:
+ * access list (`project_folders.access_mode = 'custom'`, migration 0111,
+ * ADR-0088). `read`: see, open, download, search and use in answers. `write`:
  * read plus everything that changes the folder or what is in it. A role not
  * listed gets nothing; `*` is every member of the project.
  *

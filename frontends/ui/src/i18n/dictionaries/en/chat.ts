@@ -1225,7 +1225,7 @@ export const chat = {
     failed: 'Message could not be copied',
   },
   /**
-   * Sensitive data in chat (ADR-0085): what the composer reports before sending.
+   * Sensitive data in chat (ADR-0086): what the composer reports before sending.
    * The placeholders themselves are domain data and come from `content-screen.ts`.
    */
   screening: {
