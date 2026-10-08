@@ -5,17 +5,26 @@
  * itself wrote down while it ran (`remember`, reflection, a person in the
  * memory panel). Shorter and more comparable than a passage, and they say why.
  *
- * Matched with Postgres' German full-text search (stemming, stop words), with
- * OR semantics over the question's words so a natural question („Wie haben wir
- * das Stiegenhaus gelöst?") still matches, ranked by `ts_rank_cd`. Each
- * project's items are filtered by what the reader may see of that project's
- * memory, exactly as its own memory panel filters them (`memoryVisibleTo`):
- * restricted items only for a reader cleared for every folder they came from.
+ * Ranked as the project's own memory recall ranks (`buildProjectMemoryDigest`):
+ * by meaning, the question's embedding against each item's stored one, fused by
+ * reciprocal rank with a token-overlap channel that keeps identifiers („OIB-RL
+ * 2", „REI 90") findable. No language's stemmer or stop words decide: a
+ * question in English finds a decision written in German. Rank-only, like the
+ * passage search beside it, the best few are returned and the model judges
+ * which matter. Without an embedder the token channel alone answers.
+ *
+ * Each project's items are filtered by what the reader may see of that
+ * project's memory, exactly as its own memory panel filters them
+ * (`memoryVisibleTo`): restricted items only for a reader cleared for every
+ * folder they came from.
  */
 
 import 'server-only'
 import { and, desc, eq, inArray, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { contentTokens, jaccardSimilarity } from '@/lib/knowledge/consolidation'
+import { cosineSimilaritySql, embedNote } from '@/lib/knowledge/embeddings'
+import { fuseHybridRelevance } from '@/lib/knowledge/recall-scoring'
 import { projectMemory, type ProjectMemoryKind } from '@/lib/db/schema'
 import { memoryVisibleTo } from '@/lib/projects/memory-service'
 
@@ -42,15 +51,10 @@ export interface FoundDecision {
   restrictedFolderIds: string[] | null
 }
 
-/**
- * The question's words as a German OR query: `plainto_tsquery` stems and drops
- * stop words, and its AND becomes OR so one shared subject is enough to match.
- */
-function anyWordOf(question: string) {
-  return sql`replace(plainto_tsquery('german', ${question})::text, '&', '|')::tsquery`
-}
+/** How many items one search ranks: its own bound, so a large office cannot widen it. */
+const DECISION_CANDIDATES = 300
 
-/** The decisions of these projects that match the question, best first; none for an empty scope or question. */
+/** The decisions of these projects most relevant to the question, best first; none for an empty scope or question. */
 export async function searchProjectDecisions(
   organizationId: string,
   scopes: readonly DecisionScope[],
@@ -58,8 +62,11 @@ export async function searchProjectDecisions(
   limit: number = CROSS_PROJECT_MAX_DECISIONS
 ): Promise<FoundDecision[]> {
   if (scopes.length === 0 || !question.trim()) return []
-  const query = anyWordOf(question)
-  const document = sql`to_tsvector('german', ${projectMemory.content})`
+  // Fail-open: no embedder means the token channel alone ranks.
+  const embedded = await embedNote(question, { timeoutMs: 1500 })
+  const relevance = embedded
+    ? cosineSimilaritySql(projectMemory.embedding, embedded.vector)
+    : sql<number | null>`null::double precision`
   const visible = or(
     ...scopes.map((scope) => and(eq(projectMemory.projectId, scope.projectId), memoryVisibleTo(scope.readableFolderIds)))
   )
@@ -73,7 +80,8 @@ export async function searchProjectDecisions(
       pinned: projectMemory.pinned,
       updatedAt: projectMemory.updatedAt,
       restrictedFolderIds: projectMemory.restrictedFolderIds,
-      rank: sql<number>`ts_rank_cd(${document}, ${query})`,
+      relevance,
+      embeddingModel: projectMemory.embeddingModel,
     })
     .from(projectMemory)
     .where(
@@ -82,19 +90,32 @@ export async function searchProjectDecisions(
         eq(projectMemory.scope, 'project'),
         eq(projectMemory.status, 'active'),
         inArray(projectMemory.kind, [...DECISION_KINDS]),
-        visible,
-        sql`${document} @@ ${query}`
+        visible
       )
     )
-    .orderBy(desc(sql`ts_rank_cd(${document}, ${query})`), desc(projectMemory.updatedAt))
-    .limit(limit)
+    .orderBy(...(embedded ? [sql`${relevance} desc nulls last`] : []), desc(projectMemory.updatedAt))
+    .limit(DECISION_CANDIDATES)
+
+  // A vector from another model is noise of the right shape: only the current one counts.
+  const dense = rows.map((row) =>
+    embedded && row.embeddingModel === embedded.fingerprint && row.relevance !== null ? Number(row.relevance) : null
+  )
+  const asked = contentTokens(question)
+  const lexical = rows.map((row) => jaccardSimilarity(asked, contentTokens(row.content)))
+  const fused = fuseHybridRelevance(dense, lexical)
+
   // Raw values are not runtime-validated: coerced at the boundary.
-  return rows.map((row) => ({
-    projectId: String(row.projectId),
-    kind: row.kind,
-    content: row.content,
-    confirmed: row.pinned || row.verification === 'user_confirmed' || row.provenanceType === 'user',
-    updatedAt: new Date(row.updatedAt),
-    restrictedFolderIds: row.restrictedFolderIds && row.restrictedFolderIds.length > 0 ? [...row.restrictedFolderIds] : null,
-  }))
+  return rows
+    .map((row, index) => ({ row, score: fused[index] }))
+    .filter((entry): entry is { row: (typeof rows)[number]; score: number } => entry.score !== null)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(({ row }) => ({
+      projectId: String(row.projectId),
+      kind: row.kind,
+      content: row.content,
+      confirmed: row.pinned || row.verification === 'user_confirmed' || row.provenanceType === 'user',
+      updatedAt: new Date(row.updatedAt),
+      restrictedFolderIds: row.restrictedFolderIds && row.restrictedFolderIds.length > 0 ? [...row.restrictedFolderIds] : null,
+    }))
 }

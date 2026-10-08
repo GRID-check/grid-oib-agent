@@ -88,10 +88,13 @@ class TestTheFixtureBff:
         assert body["decisions"][0]["project"]["name"] == "Holzwohnbau Baden, Wiener Straße"
         assert "Prüfbericht" in body["decisions"][0]["content"]
 
-    def test_a_question_nothing_answers_finds_nothing(self, bff):
-        _, body = _post(bff, "/api/internal/cross-project/search", {"query": "Feuerwehraufzug Hochhaus"})
+    def test_a_question_nothing_answers_still_gets_the_nearest_passages_as_in_production(self, bff):
+        """No relevance floor: production hands the nearest passages over and the agent judges, so the eval does too."""
+        _, body = _post(bff, "/api/internal/cross-project/search", {"query": "Feuerwehraufzug Hochhaus", "limit": 5})
 
-        assert body["hits"] == [] and body["decisions"] == []
+        assert 0 < len(body["hits"]) <= 5
+        # Without an embedder only shared tokens rank a decision, and none shares one.
+        assert body["decisions"] == []
 
     def test_the_listing_and_the_brief_answer_in_their_wire_shapes(self, bff):
         status, listing = _post(bff, "/api/internal/cross-project/projects", {"query": "Mödling"})
@@ -180,7 +183,46 @@ class TestTheScenarios:
     def test_a_hit_says_its_land_in_another_offices_search(self):
         hits = FixtureOffice(scenario="wien-bestand").search({"query": "Kapselung Gipsfaserplatten"})["hits"]
 
-        assert {hit["project"]["bundesland"] for hit in hits} == {"niederoesterreich"}
+        assert hits[0]["project"]["bundesland"] == "niederoesterreich"
+        assert {"wien", "niederoesterreich"} <= {hit["project"]["bundesland"] for hit in hits}
+
+
+def _concept_embedder(concepts: dict[str, list[str]]):
+    """A deterministic stand-in for the embedding model: one axis per concept, a text on every axis it names."""
+    axes = list(concepts)
+
+    def embed(texts: list[str]) -> list[list[float]]:
+        return [
+            [1.0 if any(word in text.casefold() for word in concepts[axis]) else 0.0 for axis in axes] + [0.01]
+            for text in texts
+        ]
+
+    return embed
+
+
+CONCEPTS = _concept_embedder({"eaves": ["eaves", "traufe"], "lining": ["lining", "kapselung", "gipsfaser"]})
+
+
+class TestTheSearchRanksByMeaning:
+    def test_a_question_in_another_language_finds_the_passage_by_meaning(self):
+        office = FixtureOffice(embed=CONCEPTS)
+
+        hits = office.search({"query": "How were the eaves of our timber houses built?"})["hits"]
+
+        assert hits[0]["filename"] == "Detail_Traufe_Holzbau.pdf"
+
+    def test_the_decisions_are_ranked_by_meaning_and_handed_over_like_the_passages(self):
+        office = FixtureOffice(embed=CONCEPTS)
+
+        decisions = office.search({"query": "Which fire lining did we choose?"})["decisions"]
+
+        assert decisions[0]["project"]["name"] == "Holzwohnbau Baden, Wiener Straße"
+        assert len(decisions) <= 6
+
+    def test_an_embedder_that_fails_leaves_the_token_channel(self):
+        office = FixtureOffice(embed=lambda texts: None)
+
+        assert office.search({"query": "Traufe Holzbau"})["hits"][0]["filename"] == "Detail_Traufe_Holzbau.pdf"
 
     def test_the_envelope_sits_in_the_scenarios_current_project(self):
         office = FixtureOffice(scenario="wien-bestand")

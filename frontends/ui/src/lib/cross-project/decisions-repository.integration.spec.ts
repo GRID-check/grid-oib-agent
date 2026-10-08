@@ -8,9 +8,11 @@
  *     npx vitest run src/lib/cross-project/decisions-repository.integration.spec.ts
  *
  * What it proves, each a claim about SQL a mocked handle cannot disagree with:
- *   - German full-text search matches a natural question to a decision by its
- *     stems („gelöst" finds „lösen", „Stiegenhäuser" finds „Stiegenhaus"),
- *     with one shared subject enough, and finds nothing unrelated;
+ *   - the question's embedding is ranked against each item's stored one in
+ *     SQL, and a vector from another model counts for nothing: a question in
+ *     English finds a decision written in German by meaning alone;
+ *   - without an embedder the token channel answers, and a question sharing
+ *     nothing with any decision finds none;
  *   - only active `decision` and `constraint` items of the projects asked
  *     about come back: no open question, no superseded item, no other
  *     project's, no organization-wide note;
@@ -25,6 +27,19 @@ import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
+
+/** The question's vector, as the embedder would return it; null is an embedder that is down. */
+let queryVector: number[] | null = null
+const MODEL = 'test-embedder'
+vi.mock('@/lib/knowledge/embeddings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/knowledge/embeddings')>()),
+  embedNote: async () => (queryVector ? { vector: queryVector, fingerprint: MODEL } : null),
+}))
+
+// Three axes of meaning, so a test can say what a vector is about: stairs, escape widths, fees.
+const STAIRS = [1, 0, 0]
+const WIDTHS = [0, 1, 0]
+const FEES = [0, 0, 1]
 
 const url = process.env.GRID_TEST_DATABASE_URL
 const STAMP = Date.now()
@@ -64,14 +79,16 @@ describe.skipIf(!url)('recorded decisions against live Postgres', () => {
     projectId: string | null,
     kind: string,
     content: string,
-    extra: { status?: string; restricted?: string[]; scope?: string } = {}
+    extra: { status?: string; restricted?: string[]; scope?: string; vector?: number[]; model?: string } = {}
   ) {
     const restricted = extra.restricted ? sql`${`{${extra.restricted.join(',')}}`}::uuid[]` : sql`null`
+    const vector = extra.vector ? sql`${`{${extra.vector.join(',')}}`}::real[]` : sql`null`
     await inOrg(organizationId, () =>
       db.execute(sql`
-        insert into project_memory (scope, project_id, organization_id, kind, content, status, restricted_folder_ids)
+        insert into project_memory (scope, project_id, organization_id, kind, content, status, restricted_folder_ids,
+                                    embedding, embedding_model)
         values (${extra.scope ?? 'project'}, ${projectId}::uuid, ${organizationId}, ${kind}, ${content},
-                ${extra.status ?? 'active'}, ${restricted})`)
+                ${extra.status ?? 'active'}, ${restricted}, ${vector}, ${extra.vector ? (extra.model ?? MODEL) : null})`)
     )
   }
 
@@ -108,16 +125,19 @@ describe.skipIf(!url)('recorded decisions against live Postgres', () => {
           select id from folder`)
       )
     )
-    await note(ORG, ids.baden, 'decision', 'Das Stiegenhaus wird in Stahlbeton ausgeführt, weil das Brandschutzgutachten nur so die Abweichung zulässt.')
-    await note(ORG, ids.moedling, 'constraint', 'Die Baubehörde Mödling verlangt die Fluchtwegbreite in allen Grundrissen bemaßt.')
-    await note(ORG, ids.baden, 'open_question', 'Ist das Stiegenhaus als Fluchtweg ausreichend breit?')
-    await note(ORG, ids.baden, 'decision', 'Stiegenhaus zuerst in Holz geplant.', { status: 'superseded' })
-    await note(ORG, ids.other, 'decision', 'Stiegenhaus des Nebenprojekts in Holz-Massivbau.')
-    await note(ORG, null, 'decision', 'Stiegenhäuser plant das Büro immer in Stahlbeton.', { scope: 'organization' })
+    await note(ORG, ids.baden, 'decision', 'Das Stiegenhaus wird in Stahlbeton ausgeführt, weil das Brandschutzgutachten nur so die Abweichung zulässt.', { vector: STAIRS })
+    await note(ORG, ids.moedling, 'constraint', 'Die Baubehörde Mödling verlangt die Fluchtwegbreite in allen Grundrissen bemaßt.', { vector: WIDTHS })
+    // The same meaning from another embedder: noise of the right shape, never compared.
+    await note(ORG, ids.moedling, 'decision', 'Treppenkern betoniert.', { vector: STAIRS, model: 'another-embedder' })
+    await note(ORG, ids.baden, 'open_question', 'Ist das Stiegenhaus als Fluchtweg ausreichend breit?', { vector: STAIRS })
+    await note(ORG, ids.baden, 'decision', 'Stiegenhaus zuerst in Holz geplant.', { status: 'superseded', vector: STAIRS })
+    await note(ORG, ids.other, 'decision', 'Stiegenhaus des Nebenprojekts in Holz-Massivbau.', { vector: STAIRS })
+    await note(ORG, null, 'decision', 'Stiegenhäuser plant das Büro immer in Stahlbeton.', { scope: 'organization', vector: STAIRS })
     await note(ORG, ids.baden, 'decision', 'Das Honorar für das Stiegenhaus wurde pauschal vereinbart.', {
       restricted: [ids.folder],
+      vector: FEES,
     })
-    await note(OTHER_ORG, await project(OTHER_ORG, 'Fremd'), 'decision', 'Stiegenhaus in Stahlbeton, fremdes Büro.')
+    await note(OTHER_ORG, await project(OTHER_ORG, 'Fremd'), 'decision', 'Stiegenhaus in Stahlbeton, fremdes Büro.', { vector: STAIRS })
   })
 
   afterAll(async () => {
@@ -133,18 +153,38 @@ describe.skipIf(!url)('recorded decisions against live Postgres', () => {
     await closeDb()
   })
 
-  it('finds a decision by the stems of a natural question, one shared subject being enough', async () => {
-    const found = await search(ORG, 'Wie haben wir die Stiegenhäuser gelöst?')
+  it('ranks by meaning: a question in English finds the German decision, and another model’s vector counts for nothing', async () => {
+    queryVector = STAIRS
+    const found = await search(ORG, 'How did we build the stair core?')
+    queryVector = null
 
-    expect(found.map((decision) => decision.content)).toEqual([
-      'Das Stiegenhaus wird in Stahlbeton ausgeführt, weil das Brandschutzgutachten nur so die Abweichung zulässt.',
-    ])
-    expect(found[0]).toMatchObject({ projectId: ids.baden, kind: 'decision', restrictedFolderIds: null })
+    expect(found[0]).toMatchObject({
+      projectId: ids.baden,
+      kind: 'decision',
+      content: 'Das Stiegenhaus wird in Stahlbeton ausgeführt, weil das Brandschutzgutachten nur so die Abweichung zulässt.',
+      restrictedFolderIds: null,
+    })
+    // Its words share nothing with the question and its vector is another model's: not found.
+    expect(found.map((decision) => decision.content)).not.toContain('Treppenkern betoniert.')
   })
 
-  it('finds a constraint too, and nothing for a question no decision shares a word with', async () => {
-    expect((await search(ORG, 'Fluchtwegbreite Behörde')).map((decision) => decision.projectId)).toEqual([ids.moedling])
+  it('without an embedder, the token channel answers, and finds nothing for a question sharing no word', async () => {
+    queryVector = null
+
+    expect((await search(ORG, 'Fluchtwegbreite Baubehörde')).map((decision) => decision.projectId)).toEqual([ids.moedling])
+    expect((await search(ORG, 'Stiegenhaus Stahlbeton'))[0]?.projectId).toBe(ids.baden)
     expect(await search(ORG, 'Photovoltaik Dachbegrünung')).toEqual([])
+  })
+
+  it('returns only active decisions and constraints of the projects asked about', async () => {
+    queryVector = STAIRS
+    const contents = (await search(ORG, 'Stiegenhaus')).map((decision) => decision.content)
+    queryVector = null
+
+    expect(contents).not.toContain('Ist das Stiegenhaus als Fluchtweg ausreichend breit?')
+    expect(contents).not.toContain('Stiegenhaus zuerst in Holz geplant.')
+    expect(contents).not.toContain('Stiegenhaus des Nebenprojekts in Holz-Massivbau.')
+    expect(contents).not.toContain('Stiegenhäuser plant das Büro immer in Stahlbeton.')
   })
 
   it('serves a restricted decision only to a reader cleared for its folder', async () => {
@@ -160,7 +200,9 @@ describe.skipIf(!url)('recorded decisions against live Postgres', () => {
   })
 
   it('is blind to another organization, and finds nothing there for this one', async () => {
+    queryVector = STAIRS
     const found = await search(ORG, 'Stiegenhaus Stahlbeton')
+    queryVector = null
 
     expect(found.every((decision) => [ids.baden, ids.moedling].includes(decision.projectId))).toBe(true)
     expect(found.map((decision) => decision.content).join(' ')).not.toContain('fremdes Büro')

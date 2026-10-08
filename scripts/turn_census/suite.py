@@ -490,7 +490,8 @@ def render(
         "",
         f"{meta.get('started', '')} · commit `{meta.get('commit', '?')}` · model config `{meta.get('config', '')}` · "
         f"{meta.get('runs_per_question', '')} run(s) per question"
-        + (f" · overrides {meta['overrides']}" if meta.get("overrides") else ""),
+        + (f" · overrides {meta['overrides']}" if meta.get("overrides") else "")
+        + (f" · fixture search: {meta['fixture_search']}" if meta.get("fixture_search") else ""),
         "",
         "Median (min–max). Seconds follow reasoning tokens at ~85 tok/s; the spike column is the "
         "largest single call, which is where run-to-run variance comes from."
@@ -808,9 +809,11 @@ def start_fixture_bff(out: Path) -> tuple[Any, Any]:
     import secrets
 
     from fixture_bff import FixtureBFF
+    from fixture_bff import production_embedder
 
     token = secrets.token_hex(16)
-    bff = FixtureBFF(token, out / "requests.jsonl").start()
+    # Ranked by the deployment's own embedder, as production ranks; the token channel alone without a key.
+    bff = FixtureBFF(token, out / "requests.jsonl", embed=production_embedder()).start()
 
     def env_for(conversation_id: str, question: dict) -> dict[str, str]:
         from fixture_bff import DEFAULT_SCENARIO
@@ -999,6 +1002,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{len(questions)} question(s) × {args.runs} run(s), {args.workers} at a time → {args.out}")
     args.out.mkdir(parents=True, exist_ok=True)
     bff, env_for = start_fixture_bff(args.out) if args.set == "precedent" else (None, None)
+    if bff is not None:
+        # A run ranked by tokens alone measures a kinder search than production's: the report says which it was.
+        meta["fixture_search"] = "embeddings" if bff.embed is not None else "tokens only (no embedding key)"
     try:
         runs = run_suite(questions, args.runs, args.out, args.workers, args.override, stamp, env_for)
     finally:

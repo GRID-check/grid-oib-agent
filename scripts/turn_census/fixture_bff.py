@@ -13,10 +13,16 @@ This serves exactly the routes that question needs, from
 
 Every OTHER internal route gets its connection dropped without an answer. That
 is exactly what a suite run sees today, with no BFF at all, so a run differs
-from the norm suite only by what this file serves. Search is lexical and
-deliberately simple. The eval measures what the AGENT does with what the
-lookup returns, not how well a vector search ranks: the BFF's own search is
-tested in ``lib/cross-project/service.spec.ts``.
+from the norm suite only by what this file serves.
+
+Search ranks as production does, by meaning: the deployment's own embedding
+model (``knowledge_layer``'s ``make_embed_model``, the note-embeddings
+route's), fused by reciprocal rank with a token channel, each searched
+project's nearest passages returned whatever their relevance, the decisions
+ranked the same way. No word list and no threshold production does not have:
+on a question nothing answers, the agent is handed the nearest passages and
+must judge, as it is in production. Without an embedding key the token
+channel alone ranks, and the run's report says so.
 
 Every request is appended to ``requests.jsonl`` beside the run, so a check can
 read which lookups a turn made and with what arguments.
@@ -25,9 +31,11 @@ read which lookups a turn made and with what arguments.
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
 import unicodedata
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -40,7 +48,39 @@ FIXTURES = ROOT / "frontends" / "ui" / "tests" / "fixtures" / "precedent"
 PAGE_PROJECTS = 8
 #: The office as `office.json` describes it; the other scenarios are named under its `scenarios`.
 DEFAULT_SCENARIO = "default"
-_WORD = re.compile(r"[a-z0-9]{4,}")
+#: As `perProjectTopK`'s cap and `CROSS_PROJECT_MAX_DECISIONS` in `lib/cross-project/`.
+MAX_PER_PROJECT = 30
+MAX_DECISIONS = 6
+#: Reciprocal-rank constant, as `RRF_K` in `lib/knowledge/recall-scoring.ts`.
+RRF_K = 60
+_TOKEN = re.compile(r"[a-z0-9]+")
+
+#: Texts to vectors, in order; None when the embedder could not answer.
+Embed = Callable[[list[str]], "list[list[float]] | None"]
+
+
+def production_embedder() -> Embed | None:
+    """The deployment's embedding model, built as the note-embeddings route builds it; None without a key."""
+    try:
+        from knowledge_layer.llamaindex.adapter import LlamaIndexRetriever
+        from knowledge_layer.llamaindex.adapter import _resolve_embed_api_key
+        from knowledge_layer.llamaindex.adapter import make_embed_model
+    except ImportError:
+        return None
+    model = LlamaIndexRetriever.DEFAULT_EMBED_MODEL
+    base_url = LlamaIndexRetriever.DEFAULT_EMBED_BASE_URL
+    api_key = _resolve_embed_api_key(base_url, model)
+    if not api_key:
+        return None
+    embedder = make_embed_model(base_url=base_url, model=model, api_key=api_key)
+
+    def embed(texts: list[str]) -> list[list[float]] | None:
+        try:
+            return [list(vector) for vector in embedder.get_text_embedding_batch(texts)]
+        except Exception:  # noqa: BLE001 - an embedder that fails leaves the token channel, as production's does
+            return None
+
+    return embed
 
 
 def _fold(text: str) -> str:
@@ -49,33 +89,43 @@ def _fold(text: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
 
 
-def _words(text: str) -> set[str]:
-    return set(_WORD.findall(_fold(text)))
+def _tokens(text: str) -> set[str]:
+    """Every token, no language's stop words or stems: the channel that keeps „REI 90" and „OIB-RL 2" findable."""
+    return set(_TOKEN.findall(_fold(text)))
 
 
-def _stem(word: str) -> str:
-    """The word without an inflection ending: „Fluchttreppen" and „Fluchttreppe" share „fluchttrepp".
-
-    Only the last two letters go, never below five: a looser prefix made
-    „Feuerwehraufzug" match „Feuerwiderstand", a precedent that does not exist.
-    """
-    return word[: max(5, len(word) - 2)]
+def _jaccard(a: set[str], b: set[str]) -> float:
+    return len(a & b) / len(a | b) if a and b else 0.0
 
 
-def _score(query: str, document: dict[str, Any]) -> float:
-    """The share of the query's words the document carries, inflections allowed."""
-    wanted = _words(query)
-    if not wanted:
-        return 0.0
-    have = _words(" ".join(str(document.get(key) or "") for key in ("title", "filename", "text")))
-    hits = sum(1 for word in wanted if any(other.startswith(_stem(word)) for other in have))
-    return round(hits / len(wanted), 3)
+def _cosine(a: list[float], b: list[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
+    norm = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
+    return dot / norm if norm else 0.0
+
+
+def _fuse(dense: list[float | None], lexical: list[float]) -> list[float | None]:
+    """Reciprocal-rank fusion of the two channels, as `fuseHybridRelevance`: rank-only, an absent entry unranked."""
+    fused = [0.0] * len(lexical)
+    for channel in (dense, [value if value > 0 else None for value in lexical]):
+        ranked = sorted((score, index) for index, score in enumerate(channel) if score is not None)
+        for rank, (_score, index) in enumerate(reversed(ranked)):
+            fused[index] += 1 / (RRF_K + rank + 1)
+    return [value if value > 0 else None for value in fused]
+
+
+def _document_text(document: dict[str, Any]) -> str:
+    return " ".join(str(document.get(key) or "") for key in ("title", "filename", "text"))
 
 
 class FixtureOffice:
     """The fixture office and what the production renderers made of it."""
 
-    def __init__(self, directory: Path = FIXTURES, scenario: str = DEFAULT_SCENARIO) -> None:
+    def __init__(
+        self, directory: Path = FIXTURES, scenario: str = DEFAULT_SCENARIO, embed: Embed | None = None
+    ) -> None:
+        self.embed = embed
+        self._vectors: dict[str, list[float]] = {}
         self.office = json.loads((directory / "office.json").read_text(encoding="utf-8"))
         self._rendered = json.loads((directory / "rendered.json").read_text(encoding="utf-8"))["scenarios"]
         self.scenario = scenario
@@ -127,19 +177,48 @@ class FixtureOffice:
             return [project for project in ordered if project["status"] == "closed"]
         return ordered
 
+    def _dense(self, query: str, texts: list[str]) -> list[float | None]:
+        """Each text's cosine to the query by the embedder, texts embedded once; all None without one."""
+        if self.embed is None:
+            return [None] * len(texts)
+        missing = [text for text in dict.fromkeys([query, *texts]) if text not in self._vectors]
+        if missing:
+            vectors = self.embed(missing)
+            if not vectors or len(vectors) != len(missing):
+                return [None] * len(texts)
+            self._vectors.update(zip(missing, vectors, strict=True))
+        asked = self._vectors[query]
+        return [_cosine(asked, self._vectors[text]) for text in texts]
+
+    def _rank(self, query: str, texts: list[str]) -> list[tuple[int, float, float | None]]:
+        """(index, display score, fused relevance) per text, best first: as production ranks."""
+        dense = self._dense(query, texts)
+        asked = _tokens(query)
+        lexical = [_jaccard(asked, _tokens(text)) for text in texts]
+        fused = _fuse(dense, lexical)
+        scored = [
+            (index, dense[index] if dense[index] is not None else lexical[index], fused[index])
+            for index in range(len(texts))
+        ]
+        return sorted(scored, key=lambda entry: (entry[2] is not None, entry[2] or 0.0, entry[1]), reverse=True)
+
     def search(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Each searched project's nearest passages, as `searchProjectDocuments` returns them: no relevance floor."""
         scope = self._in_scope(body)
         offset = int(body.get("offset") or 0)
         page = scope[offset : offset + PAGE_PROJECTS]
+        query = str(body.get("query") or "")
+        limit = int(body.get("limit") or 10)
         types, disciplines = set(body.get("documentTypes") or []), set(body.get("disciplines") or [])
+        per_project = min(limit * 3 if types or disciplines else limit, MAX_PER_PROJECT)
         hits = []
         for project in page:
-            for document in project.get("documents") or []:
+            documents = project.get("documents") or []
+            nearest = self._rank(query, [_document_text(document) for document in documents])[:per_project]
+            for index, score, _relevance in nearest:
+                document = documents[index]
                 tags = set(document.get("tags") or [])
                 if (types and not types & tags) or (disciplines and not disciplines & tags):
-                    continue
-                score = _score(str(body.get("query") or ""), document)
-                if score < 0.25:
                     continue
                 hits.append(
                     {
@@ -150,7 +229,7 @@ class FixtureOffice:
                         "collection": project["collection"],
                         "page": document.get("page"),
                         "snippet": document["text"],
-                        "score": score,
+                        "score": round(score, 3),
                         "tags": sorted(tags),
                         "uploadedAt": "2026-01-15T08:00:00.000Z",
                     }
@@ -158,8 +237,8 @@ class FixtureOffice:
         hits.sort(key=lambda hit: hit["score"], reverse=True)
         following = offset + len(page)
         return {
-            "decisions": self._decisions(page, str(body.get("query") or "")),
-            "hits": hits[: int(body.get("limit") or 10)],
+            "decisions": self._decisions(page, query),
+            "hits": hits[:limit],
             "projectsInScope": len(scope),
             "projectsSearched": len(page),
             "nextOffset": following if following < len(scope) else None,
@@ -167,14 +246,18 @@ class FixtureOffice:
         }
 
     def _decisions(self, page: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
-        """The page's recorded decisions sharing a word with the question, as the BFF's full-text search would."""
-        found = []
-        for project in page:
-            for decision in project.get("decisions") or []:
-                if _score(query, {"text": decision["content"]}) == 0:
-                    continue
-                found.append({"project": self._ref(project), "collection": project["collection"], **decision})
-        return found[:6]
+        """The page's recorded decisions most relevant to the question, ranked as `searchProjectDecisions` ranks."""
+        candidates = [(project, decision) for project in page for decision in project.get("decisions") or []]
+        ranked = self._rank(query, [decision["content"] for _project, decision in candidates])
+        return [
+            {
+                "project": self._ref(candidates[index][0]),
+                "collection": candidates[index][0]["collection"],
+                **candidates[index][1],
+            }
+            for index, _score, relevance in ranked
+            if relevance is not None
+        ][:MAX_DECISIONS]
 
     def projects_listing(self, body: dict[str, Any]) -> dict[str, Any]:
         needle = _fold(str(body.get("query") or ""))
@@ -237,8 +320,11 @@ def lookups_served(log_path: Path, conversation_id: str) -> list[str]:
 class FixtureBFF:
     """The fixture office behind a local HTTP server, on a free port, until :meth:`stop`."""
 
-    def __init__(self, token: str, log_path: Path, office: FixtureOffice | None = None) -> None:
-        self.office = office or FixtureOffice()
+    def __init__(
+        self, token: str, log_path: Path, office: FixtureOffice | None = None, embed: Embed | None = None
+    ) -> None:
+        self.embed = embed
+        self.office = office or FixtureOffice(embed=embed)
         self._offices = {self.office.scenario: self.office}
         self._scenario_of: dict[str, str] = {}
         self.token = token
@@ -268,7 +354,7 @@ class FixtureBFF:
         """Answer this conversation from a scenario's office: which project the chat sits in, which exist."""
         with self._lock:
             if scenario not in self._offices:
-                self._offices[scenario] = FixtureOffice(scenario=scenario)
+                self._offices[scenario] = FixtureOffice(scenario=scenario, embed=self.embed)
             self._scenario_of[conversation_id] = scenario
             return self._offices[scenario]
 

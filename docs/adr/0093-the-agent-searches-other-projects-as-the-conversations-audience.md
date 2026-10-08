@@ -105,8 +105,11 @@ listing of the project shows them.
 
 **Decisions before passages** (added 2026-10-07). The search also returns
 the searched projects' recorded decisions: their active `decision` and
-`constraint` memory items, matched by Postgres' German full-text search with
-OR semantics, at most 6 (`lib/cross-project/decisions-repository.ts`). Each
+`constraint` memory items, the 6 most relevant (`lib/cross-project/decisions-repository.ts`),
+ranked as the project's own memory recall ranks: by embedding, fused with a
+token channel. (2026-10-08: it first used Postgres' German full-text search,
+which tied matching to one language's stemmer; a question in English found
+no German decision.) Each
 project's items are filtered exactly as its own memory panel filters them.
 In a solo chat, a restricted item is served only when the asker is cleared,
 in that project, for every folder it came from. A shared chat gets open
