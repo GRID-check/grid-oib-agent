@@ -269,3 +269,7 @@ config:
   grid-oib:bffJobsMaxReplicas: "2"
   grid-oib:bffJobsConcurrency: "2"
   grid-oib:bffJobsDrainSeconds: "60"
+  # ── Postgres pooler (ADR-0083) ──
+  # One PgBouncer on the one-instance dev cluster: no replica to fail over to and
+  # no second node to spread across. pgPoolerPoolSize stays at its default (12).
+  grid-oib:pgPoolerInstances: "1"

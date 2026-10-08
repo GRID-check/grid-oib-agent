@@ -215,9 +215,26 @@ secrets:
       Scoped to `**/web/.next/**` rather than suppressing the rule outright, so
       a genuinely leaked service-account key anywhere else in any scanned image
       still fails the gate. Only the Langfuse web image has that path among the
-      five pinned images.
+      pinned images.
 
       The `expired_at` here is a RE-VERIFICATION date, not a wait-for-a-fix
       date: upstream will never "fix" placeholder text in a form. It is boxed so
       that someone confirms, after a Langfuse bump, that these matches are still
       the template and not something that has become real.
+
+  - id: private-key
+    paths:
+      - "**/ssl-cert-snakeoil.key"
+    expired_at: 2026-11-30
+    statement: |
+      ghcr.io/cloudnative-pg/pgbouncer ships Debian's ssl-cert "snakeoil" key,
+      generated at image build by the ssl-cert package that the PGDG pgbouncer
+      package pulls in. It is a self-signed placeholder, identical for every
+      pull of the digest, and nothing here uses it: the CloudNativePG Pooler
+      mounts its own server and client certificates from the cluster's
+      secrets and points pgbouncer's TLS settings at them.
+
+      Scoped to that one filename so a real private key anywhere else in any
+      scanned image still fails the gate. RE-VERIFICATION date, like the
+      Langfuse entry above: confirm after a pgbouncer bump that the match is
+      still the snakeoil file.

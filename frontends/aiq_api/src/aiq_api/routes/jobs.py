@@ -1392,17 +1392,15 @@ async def _reap_stale_jobs_once(job_store, db_url: str, scheduler_address: str |
     Returns the list of reaped job IDs. Factored out of _reap_ghost_jobs for
     testability.
     """
-    loop = asyncio.get_running_loop()
+    from aiq_agent.knowledge.leader_lock import leader_lock_async
 
     # Only one replica runs the cycle (advisory lock), so N web replicas don't
-    # redundantly re-detect and re-mark the same ghosts.
-    lock = await loop.run_in_executor(None, _acquire_reaper_lock, db_url)
-    if lock is _REAPER_LOCK_SKIP:
-        return []
-    try:
-        return await _do_reap_cycle(job_store, db_url, scheduler_address, loop)
-    finally:
-        await loop.run_in_executor(None, _release_reaper_lock, lock)
+    # redundantly re-detect and re-mark the same ghosts. A session lock, so it is
+    # taken on the direct AIQ_LOCK_DB_URL connection, never on db_url (ADR-0083).
+    async with leader_lock_async(_PG_REAPER_LOCK_ID) as is_leader:
+        if not is_leader:
+            return []
+        return await _do_reap_cycle(job_store, db_url, scheduler_address, asyncio.get_running_loop())
 
 
 async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, loop) -> list[str]:
@@ -1496,53 +1494,6 @@ def _int_env(name: str, default: int) -> int:
 _PG_ADVISORY_LOCK_ID = 0x41495143_4C45414E  # "AIQCLEAN" in hex
 # Distinct lock for the ghost-job reaper so N web replicas don't double-reap.
 _PG_REAPER_LOCK_ID = _PG_ADVISORY_LOCK_ID + 1
-
-# Sentinel: postgres, but another replica holds the reaper lock this cycle.
-_REAPER_LOCK_SKIP = object()
-
-
-def _acquire_reaper_lock(db_url: str):
-    """Session-level advisory lock so only one replica runs a reap cycle.
-
-    Returns None on SQLite (single process — no lock needed), an open connection
-    holding the lock on success, or ``_REAPER_LOCK_SKIP`` when another replica
-    holds it. The lock auto-releases if this connection drops (crash-safe).
-    """
-    if not db_url.startswith("postgres"):
-        return None
-    from sqlalchemy import text
-
-    from ..jobs.event_store import EventStore
-
-    conn = EventStore._get_or_create_sync_engine(db_url).connect()
-    try:
-        got = conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": _PG_REAPER_LOCK_ID}).scalar()
-    except Exception:
-        # Don't leak the connection if the lock query itself failed.
-        conn.close()
-        raise
-    if not got:
-        conn.close()
-        return _REAPER_LOCK_SKIP
-    return conn
-
-
-def _release_reaper_lock(conn) -> None:
-    if conn is None or conn is _REAPER_LOCK_SKIP:
-        return
-    from sqlalchemy import text
-
-    try:
-        conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": _PG_REAPER_LOCK_ID})
-        conn.close()
-    except Exception:
-        # If unlock failed, the SESSION-level advisory lock is still held. A
-        # plain close() returns the connection to the pool WITH the lock held,
-        # which would wedge the reaper cluster-wide. invalidate() drops the
-        # underlying DBAPI connection so Postgres ends the session and releases
-        # the lock.
-        logger.warning("Reaper advisory unlock failed; invalidating connection to release the lock", exc_info=True)
-        conn.invalidate()
 
 
 def _checkpoint_retention_seconds() -> int:
@@ -1981,11 +1932,15 @@ async def _sse_generator_postgres(
             sequence_id = event_id
         return f"id: {sequence_id}\nevent: {event_type}\ndata: {json.dumps(data)}\n\n"
 
-    # LISTEN/NOTIFY needs a persistent session — incompatible with PgBouncer
-    # transaction pooling. Use AIQ_LISTEN_DB_URL to point directly at PostgreSQL.
+    # LISTEN/NOTIFY needs a persistent session, which the transaction pooler in
+    # front of `db_url` does not give (ADR-0083): the LISTEN lands on a server
+    # connection the client does not keep, and no notification ever arrives. So
+    # there is no default to `db_url`; AIQ_LISTEN_DB_URL is the direct DSN, and
+    # `require_direct_dsns` (called when the web process starts) already refused
+    # to boot without it, so this is an assertion and not a runtime path.
     import os
 
-    listen_db_url = os.environ.get("AIQ_LISTEN_DB_URL", db_url)
+    listen_db_url = os.environ["AIQ_LISTEN_DB_URL"]
     # Strip +psycopg2 before +psycopg (it's a prefix of the former) — this
     # codebase standardizes on postgresql+psycopg:// URLs, which asyncpg
     # rejects; a leftover driver suffix silently degrades every SSE stream

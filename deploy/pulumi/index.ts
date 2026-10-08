@@ -199,8 +199,14 @@ const wiring: AppWiring = {
 const secrets = buildSecrets(wiring);
 
 // grid_app DB is created at cluster bootstrap; run drizzle migrations before
-// the frontend/workers that read it.
-const migrations = runMigrations(wiring, cfg, secrets, [postgres.cluster, postgres.initJob]);
+// the frontend/workers that read it. The migrations themselves go straight to
+// the primary; the pooler is listed so everything ordered after them (the BFF
+// tiers, which connect through it) is created after it too (ADR-0083).
+const migrations = runMigrations(wiring, cfg, secrets, [
+  postgres.cluster,
+  postgres.initJob,
+  postgres.pooler,
+]);
 
 // WorkOS must know every audit action the code emits, or it rejects the events
 // and the trail silently thins out (issues #255/#256). Reconciled per deploy so
@@ -213,6 +219,7 @@ if (cfg.auth.requireAuth) {
 // ── App workloads ──────────────────────────────────────────────────────────
 const backend = installBackend(wiring, cfg, secrets, [
   postgres.initJob,
+  postgres.pooler,
   seaweed.bucketInitJob,
   dragonfly.service,
   ...(chroma ? [chroma.service] : []),
@@ -273,6 +280,7 @@ const agentWorker =
   cfg.jobExecution === "db"
     ? installAgentWorker(wiring, cfg, secrets, [
         postgres.initJob,
+        postgres.pooler,
         dragonfly.service,
         seaweed.bucketInitJob,
         ...(chroma ? [chroma.service] : []),
@@ -285,6 +293,7 @@ const agentWorker =
 const ingestWorker = cfg.ingestWorker.enabled
   ? installIngestWorker(wiring, cfg, secrets, [
       postgres.initJob,
+      postgres.pooler,
       dragonfly.service,
       seaweed.bucketInitJob,
       ...(chroma ? [chroma.service] : []),

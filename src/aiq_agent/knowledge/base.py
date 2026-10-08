@@ -124,7 +124,8 @@ class TTLCleanupMixin:
 
         Elects a single runner via a Postgres advisory lock so that, with the
         vector store now shared across replicas, N replicas don't race the same
-        session-collection deletions each cycle. Fail-open on single-node.
+        session-collection deletions each cycle. With no Postgres the process always leads;
+        when the election cannot be held the cycle is skipped and the next tick retries.
         """
         from .leader_lock import leader_lock
 
