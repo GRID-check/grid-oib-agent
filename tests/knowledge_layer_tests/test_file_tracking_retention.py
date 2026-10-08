@@ -1,88 +1,173 @@
-"""Retention + O(1) correlation for the in-memory per-file tracking dict.
+"""How long a file's record lives, and how it is removed, in the shared status store.
 
-`LlamaIndexIngestor._files` grew for the life of the process (one entry per
-upload, never aged out), and `list_files` rescanned it per listed file (O(files²)).
-These test the two fixes in isolation — the helpers touch only `_files`/`_lock`,
-so a minimally-constructed instance exercises them without a Chroma client.
+A file that failed has no chunks; the job row that names it is the only record
+of it, and every process lists it from there (`ingest_status_store.collection_jobs`).
+The row used to be backed by a per-process dict (`LlamaIndexIngestor._files`)
+that grew for the life of the process and was pruned by age. With the store the
+only record, the same bounds live in the store: a retention window that ends a
+failed file's listing and bounds the table, a delete that forgets the file, and
+a collection delete that forgets all of them.
 """
 
 from __future__ import annotations
 
-import threading
-from datetime import UTC
 from datetime import datetime
-from datetime import timedelta
 
-from knowledge_layer.llamaindex.adapter import FILE_TRACKING_RETENTION_SECONDS
-from knowledge_layer.llamaindex.adapter import LlamaIndexIngestor
+import pytest
+from sqlalchemy import text
 
-from aiq_agent.knowledge.schema import FileInfo
+from aiq_agent.knowledge import ingest_status_store
+from aiq_agent.knowledge.document_metadata_store import DocumentMetadataStore
+from aiq_agent.knowledge.schema import FileProgress
 from aiq_agent.knowledge.schema import FileStatus
+from aiq_agent.knowledge.schema import IngestionJobStatus
+from aiq_agent.knowledge.schema import JobState
+
+DAY = 86400
+LONG_AGO = "2000-01-01 00:00:00"
 
 
-def _bare_ingestor() -> LlamaIndexIngestor:
-    """An ingestor with just the state the tracking helpers touch (no Chroma)."""
-    ing = object.__new__(LlamaIndexIngestor)
-    ing._files = {}
-    ing._lock = threading.RLock()
-    return ing
+@pytest.fixture
+def sqlite_db(tmp_path, monkeypatch):
+    url = f"sqlite:///{tmp_path}/jobs.db"
+    monkeypatch.setenv("AIQ_SUMMARY_DB", url)
+    yield url
+    ingest_status_store._initialized.discard(url)
 
 
-def _fi(file_id, name, collection, status, *, ingested_days_ago=None, uploaded_days_ago=None):
-    def _ago(days):
-        return None if days is None else datetime.now(tz=UTC) - timedelta(days=days)
-
-    return FileInfo(
-        file_id=file_id,
-        file_name=name,
+def _job(job_id: str, state: JobState, files: dict[str, FileStatus], collection: str = "proj_a"):
+    return IngestionJobStatus(
+        job_id=job_id,
+        status=state,
+        submitted_at=datetime(2026, 7, 22, 12, 0, 0),
+        total_files=len(files),
         collection_name=collection,
-        status=status,
-        uploaded_at=_ago(uploaded_days_ago),
-        ingested_at=_ago(ingested_days_ago),
+        backend="llamaindex",
+        file_details=[FileProgress(file_name=name, status=status) for name, status in files.items()],
     )
 
 
-class TestPruneStaleFiles:
-    def test_prunes_only_aged_terminal_entries(self):
-        ing = _bare_ingestor()
-        retention_days = FILE_TRACKING_RETENTION_SECONDS / 86400 + 1
-        ing._files = {
-            "old-success": _fi("old-success", "a.pdf", "c", FileStatus.SUCCESS, ingested_days_ago=retention_days),
-            "old-failed": _fi("old-failed", "b.pdf", "c", FileStatus.FAILED, uploaded_days_ago=retention_days),
-            "recent-success": _fi("recent-success", "d.pdf", "c", FileStatus.SUCCESS, ingested_days_ago=0),
-            "ingesting": _fi("ingesting", "e.pdf", "c", FileStatus.INGESTING, uploaded_days_ago=retention_days),
-            "no-timestamp": _fi("no-timestamp", "f.pdf", "c", FileStatus.SUCCESS),
-        }
-
-        ing._prune_stale_files()
-
-        remaining = set(ing._files)
-        assert "old-success" not in remaining
-        assert "old-failed" not in remaining
-        assert remaining == {"recent-success", "ingesting", "no-timestamp"}
-
-    def test_noop_on_empty(self):
-        ing = _bare_ingestor()
-        ing._prune_stale_files()  # must not raise
-        assert ing._files == {}
+def _write_back(url: str, job_id: str) -> None:
+    """Make the row look last written, and last vouched for, long ago."""
+    engine = DocumentMetadataStore._get_or_create_sync_engine(url)
+    with engine.connect() as conn:
+        conn.execute(
+            text("UPDATE ingest_jobs SET updated_at = :t, heartbeat_at = :t WHERE job_id = :j"),
+            {"t": LONG_AGO, "j": job_id},
+        )
+        conn.commit()
 
 
-class TestIndexTrackedFiles:
-    def test_indexes_by_name_scoped_to_collection_first_seen_wins(self):
-        ing = _bare_ingestor()
-        ing._files = {
-            "id1": _fi("id1", "dup.pdf", "target", FileStatus.SUCCESS),
-            "id2": _fi("id2", "dup.pdf", "target", FileStatus.SUCCESS),  # same name, later -> ignored
-            "id3": _fi("id3", "other.pdf", "target", FileStatus.FAILED),
-            "id4": _fi("id4", "elsewhere.pdf", "different", FileStatus.SUCCESS),  # other collection
-        }
+def _names(collection: str, within: int = DAY) -> set[str]:
+    jobs = ingest_status_store.collection_jobs(collection, within)
+    return {detail.file_name for job in jobs for detail in job.file_details}
 
-        index = ing._index_tracked_files("target")
 
-        assert set(index) == {"dup.pdf", "other.pdf"}  # scoped to 'target'
-        assert index["dup.pdf"][0] == "id1"  # first-seen wins
-        assert index["other.pdf"][0] == "id3"
+class TestRetention:
+    def test_a_finished_job_outside_the_window_is_not_listed_and_is_pruned(self, sqlite_db):
+        ingest_status_store.put(_job("old", JobState.FAILED, {"b.pdf": FileStatus.FAILED}))
+        ingest_status_store.put(_job("new", JobState.FAILED, {"c.pdf": FileStatus.FAILED}))
+        _write_back(sqlite_db, "old")
 
-    def test_empty_collection_yields_empty_index(self):
-        ing = _bare_ingestor()
-        assert ing._index_tracked_files("nothing") == {}
+        assert _names("proj_a") == {"c.pdf"}
+
+        assert ingest_status_store.prune_expired(DAY) == 1
+        assert ingest_status_store.get("old") is None
+        assert ingest_status_store.get("new") is not None
+
+    def test_a_live_job_is_never_pruned_however_long_it_runs(self, sqlite_db):
+        ingest_status_store.put(_job("running", JobState.PROCESSING, {"big.pdf": FileStatus.INGESTING}))
+        engine = DocumentMetadataStore._get_or_create_sync_engine(sqlite_db)
+        with engine.connect() as conn:
+            conn.execute(text("UPDATE ingest_jobs SET updated_at = :t"), {"t": LONG_AGO})
+            conn.commit()
+
+        # Its owner still beats, so it is not stale, and so not expired.
+        assert ingest_status_store.prune_expired(DAY) == 0
+        assert ingest_status_store.get("running") is not None
+
+    def test_a_job_the_queue_still_holds_is_never_pruned(self, sqlite_db):
+        from aiq_agent.knowledge import ingest_queue
+
+        ingest_status_store.put(_job("queued", JobState.PENDING, {"wait.pdf": FileStatus.UPLOADING}))
+        ingest_queue.enqueue("queued", None, "payload")
+        _write_back(sqlite_db, "queued")
+
+        assert ingest_status_store.prune_expired(DAY) == 0
+
+    def test_without_a_database_nothing_is_stored_and_nothing_is_listed(self, monkeypatch):
+        monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
+        monkeypatch.delenv("NAT_JOB_STORE_DB_URL", raising=False)
+
+        assert ingest_status_store.collection_jobs("proj_a", DAY) == []
+        assert ingest_status_store.forget_file("proj_a", "a.pdf") == 0
+        assert ingest_status_store.prune_expired(DAY) == 0
+
+
+class TestForget:
+    def test_forgetting_a_file_keeps_the_other_files_of_its_job(self, sqlite_db):
+        ingest_status_store.put(
+            _job("j", JobState.COMPLETED, {"keep.pdf": FileStatus.SUCCESS, "gone.pdf": FileStatus.FAILED})
+        )
+
+        assert ingest_status_store.forget_file("proj_a", "gone.pdf") == 1
+
+        assert _names("proj_a") == {"keep.pdf"}
+
+    def test_a_job_left_with_no_file_is_deleted(self, sqlite_db):
+        ingest_status_store.put(_job("j", JobState.FAILED, {"gone.pdf": FileStatus.FAILED}))
+
+        assert ingest_status_store.forget_file("proj_a", "gone.pdf") == 1
+
+        assert ingest_status_store.get("j") is None
+
+    def test_a_job_still_running_keeps_its_files(self, sqlite_db):
+        ingest_status_store.put(_job("j", JobState.PROCESSING, {"busy.pdf": FileStatus.INGESTING}))
+
+        assert ingest_status_store.forget_file("proj_a", "busy.pdf") == 0
+
+        assert _names("proj_a") == {"busy.pdf"}
+
+    def test_another_collection_is_not_touched(self, sqlite_db):
+        ingest_status_store.put(_job("a", JobState.FAILED, {"same.pdf": FileStatus.FAILED}, "proj_a"))
+        ingest_status_store.put(_job("b", JobState.FAILED, {"same.pdf": FileStatus.FAILED}, "proj_b"))
+
+        ingest_status_store.forget_file("proj_a", "same.pdf")
+
+        assert _names("proj_a") == set()
+        assert _names("proj_b") == {"same.pdf"}
+
+    def test_forgetting_a_collection_removes_every_job_of_it(self, sqlite_db):
+        ingest_status_store.put(_job("a", JobState.FAILED, {"x.pdf": FileStatus.FAILED}, "proj_a"))
+        ingest_status_store.put(_job("a2", JobState.PROCESSING, {"y.pdf": FileStatus.INGESTING}, "proj_a"))
+        ingest_status_store.put(_job("b", JobState.FAILED, {"x.pdf": FileStatus.FAILED}, "proj_b"))
+
+        ingest_status_store.forget_collection("proj_a")
+
+        assert _names("proj_a") == set()
+        assert _names("proj_b") == {"x.pdf"}
+
+
+class TestRowsThatPredateTheCollectionColumn:
+    def test_the_migration_files_an_old_row_under_its_collection(self, tmp_path, monkeypatch):
+        url = f"sqlite:///{tmp_path}/old.db"
+        monkeypatch.setenv("AIQ_SUMMARY_DB", url)
+        old = _job("old", JobState.FAILED, {"b.pdf": FileStatus.FAILED})
+        engine = DocumentMetadataStore._get_or_create_sync_engine(url)
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE ingest_jobs (job_id VARCHAR PRIMARY KEY, status_json TEXT NOT NULL, "
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, owner VARCHAR, heartbeat_at DATETIME, "
+                    "dispatch_key VARCHAR)"
+                )
+            )
+            conn.execute(
+                text("INSERT INTO ingest_jobs (job_id, status_json, heartbeat_at) VALUES ('old', :s, :t)"),
+                {"s": old.model_dump_json(), "t": LONG_AGO},
+            )
+            conn.commit()
+        try:
+            assert _names("proj_a") == {"b.pdf"}
+        finally:
+            ingest_status_store._initialized.discard(url)

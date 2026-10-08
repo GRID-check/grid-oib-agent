@@ -124,6 +124,29 @@ export const chat: typeof en.chat = {
     // tiny one-line hint under the composer keeps the active source count legible.
     sourcesActiveMobile: '{count, plural, one {# Quelle} other {# Quellen}} aktiv',
   },
+  // Spracheingabe im Eingabefeld (features/dictation).
+  dictation: {
+    start: 'Diktieren',
+    startHint: 'Sprechen Sie, Piloti schreibt es in Ihre Nachricht. Stoppt nach {seconds} Sekunden.',
+    stop: 'Beenden und einfügen',
+    recording: 'Aufnahme, {elapsed}',
+    transcribing: 'Wird verschriftlicht …',
+    unavailable: {
+      unsupported: 'Dieser Browser kann nicht vom Mikrofon aufnehmen.',
+      insecure: 'Spracheingabe braucht eine sichere (https-)Verbindung.',
+      noFormat: 'Dieser Browser nimmt in keinem Format auf, das Piloti verschriftlichen kann.',
+      denied:
+        'Der Mikrofonzugriff ist blockiert. Erlauben Sie ihn in den Website-Einstellungen des Browsers und laden Sie die Seite neu.',
+    },
+    errors: {
+      noMicrophone: 'Es wurde kein Mikrofon gefunden.',
+      denied: 'Der Mikrofonzugriff wurde nicht erlaubt.',
+      rateLimited: 'Zu viele Aufnahmen in kurzer Zeit. Versuchen Sie es in einer Minute erneut.',
+      tooLarge: 'Die Aufnahme ist zu groß zum Verschriftlichen.',
+      notConfigured: 'Spracheingabe ist gerade nicht verfügbar.',
+      failed: 'Die Aufnahme konnte nicht verschriftlicht werden. Ihre Nachricht ist unverändert.',
+    },
+  },
   // Der Reiter einer Quellenkarte in der Herleitung: die grobe Ebene, wenn der
   // Server keine feine Lane benannt hat, und das Regal, auf dem das Dokument
   // laut Wire liegt (ADR-0047: Deutsch ist Darstellung, nie Transport).
@@ -195,7 +218,7 @@ export const chat: typeof en.chat = {
     // Ein offener Befund lässt sich als eigener Auftrag klären; der Lauf
     // erscheint als Block in diesem Verlauf.
     clarify: 'Klären',
-    /** Unter der Matrix in einem abgeschlossenen Projekt, wo „Klären“ stünde (ADR-0086). */
+    /** Unter der Matrix in einem abgeschlossenen Projekt, wo „Klären“ stünde (ADR-0088). */
     clarifyClosed: 'Abgeschlossenes Projekt: keine neue Recherche zu offenen Befunden.',
     commissioned: 'Auftrag angelegt',
     // Gegenüber dem vorigen Bericht zum selben Thema.
@@ -1220,12 +1243,12 @@ export const chat: typeof en.chat = {
     failed: 'Nachricht konnte nicht kopiert werden',
   },
   /**
-   * Sensible Daten im Chat (ADR-0083): was der Composer vor dem Senden meldet.
+   * Sensible Daten im Chat (ADR-0085): was der Composer vor dem Senden meldet.
    * Die Platzhalter selbst sind Fachdaten und kommen aus `content-screen.ts`.
    */
   screening: {
     title: 'Enthält {items} (Sensible Daten).',
-    body: 'Piloti sendet sie nicht an das Modell.',
+    body: 'Piloti sendet sie nicht an das Antwortmodell.',
     preview: 'Das Modell sieht: „{text}“',
     iban: '{count, plural, one {eine IBAN} other {# IBANs}}',
     at_svnr: '{count, plural, one {eine Sozialversicherungsnummer} other {# Sozialversicherungsnummern}}',

@@ -11,11 +11,14 @@ vi.mock('./repository', () => ({
 }))
 vi.mock('./settle', () => ({ settleUploadBatches: vi.fn() }))
 vi.mock('@/lib/documents/reconcile-status', () => ({ reconcileDocumentStatuses: vi.fn().mockResolvedValue([]) }))
-vi.mock('@/lib/upload-screening/quarantine-audit', () => ({ sweepOwedQuarantines: vi.fn().mockResolvedValue(0) }))
+vi.mock('@/lib/upload-screening/quarantine-audit', () => ({
+  pruneSpentQuarantines: vi.fn().mockResolvedValue(0),
+  sweepOwedQuarantines: vi.fn().mockResolvedValue(0),
+}))
 
 import type { UploadBatch } from '@/lib/db/schema'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
-import { sweepOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
+import { pruneSpentQuarantines, sweepOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
 import { makeDocument } from '@/test-utils/db-fixtures'
 import { listInFlightBatchDocuments, listOpenBatchesBetween, sealAbandonedBatch } from './repository'
 import { settleUploadBatches } from './settle'
@@ -44,6 +47,7 @@ beforeEach(() => {
   vi.mocked(listInFlightBatchDocuments).mockResolvedValue([])
   vi.mocked(settleUploadBatches).mockResolvedValue([])
   vi.mocked(sweepOwedQuarantines).mockResolvedValue(0)
+  vi.mocked(pruneSpentQuarantines).mockResolvedValue(0)
 })
 
 describe('sweepUploadBatches', () => {
@@ -84,7 +88,7 @@ describe('sweepUploadBatches', () => {
     warn.mockRestore()
   })
 
-  // The content gate's decisions reach the trail at least once (ADR-0083): a
+  // The content gate's decisions reach the trail at least once (ADR-0085): a
   // send that failed when the row moved is the sweep's, batch or no batch.
   it('sends the quarantine decisions still owed to the audit trail, and counts them', async () => {
     vi.mocked(listOpenBatchesBetween).mockResolvedValue([])
@@ -105,6 +109,23 @@ describe('sweepUploadBatches', () => {
     const result = await sweepUploadBatches(NOW)
 
     expect(result).toMatchObject({ completed: 1, audited: 0 })
+    warn.mockRestore()
+  })
+
+  // Retention (0118): after the send, and even when the send could not run.
+  it('deletes the spent quarantine decisions after sending, and counts them', async () => {
+    vi.mocked(listOpenBatchesBetween).mockResolvedValue([])
+    vi.mocked(sweepOwedQuarantines).mockRejectedValue(new Error('db hiccup'))
+    vi.mocked(pruneSpentQuarantines).mockResolvedValue(4)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const result = await sweepUploadBatches(NOW)
+
+    expect(pruneSpentQuarantines).toHaveBeenCalledWith(NOW)
+    expect(vi.mocked(sweepOwedQuarantines).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(pruneSpentQuarantines).mock.invocationCallOrder[0]
+    )
+    expect(result).toMatchObject({ audited: 0, pruned: 4 })
     warn.mockRestore()
   })
 })

@@ -52,7 +52,7 @@ vi.mock('./repository', () => ({
   deleteProjectDocument: vi.fn(),
 }))
 
-// The organization's upload-screening policy (ADR-0083) is read through its
+// The organization's upload-screening policy (ADR-0085) is read through its
 // settings row; each test states the row it means.
 vi.mock('@/lib/organizations/service', () => ({ getOrgSettings: vi.fn() }))
 
@@ -177,7 +177,7 @@ describe('dispatchDocument', () => {
   })
 
   /**
-   * A quarantined row (ADR-0083) is released by a reviewer, who moves it to
+   * A quarantined row (ADR-0085) is released by a reviewer, who moves it to
    * `uploaded` first, and by nobody else. A restore from the Papierkorb, a
    * placement move and a project re-index all re-dispatch whole folders; a
    * dispatch used to set the row `pending`, which every reader may open, and
@@ -828,7 +828,7 @@ describe('the ingest dispatch after a timeout', () => {
 })
 
 /**
- * ADR-0083: every path into the index carries the office's content rules, so
+ * ADR-0085: every path into the index carries the office's content rules, so
  * the ingest job can quarantine a match before its first model call. Tested at
  * the choke point, for the same reason as the authorship refusal above: a
  * caller cannot forget what it never has to supply.

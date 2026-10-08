@@ -1,5 +1,5 @@
 /**
- * „Ausmisten" at a project's close (ADR-0088): Piloti proposes which documents
+ * „Ausmisten" at a project's close (ADR-0090): Piloti proposes which documents
  * the finished project no longer needs, the person closing it decides about
  * every one, and what they confirm goes to the Papierkorb (14 days,
  * restorable). Nothing is removed without that confirmation.
@@ -12,7 +12,7 @@
  * tags and the summary ingestion wrote, read from the index as every file
  * listing reads them, the editorial state), so nothing reaches a
  * model that ingestion did not already send. A document the content gate holds
- * in quarantine (ADR-0083) is left out altogether: it waits for a reviewer, not
+ * in quarantine (ADR-0085) is left out altogether: it waits for a reviewer, not
  * for a clean-out. Only a document whose screening passed (`clean`, or
  * `released` by a reviewer) reaches the model; one screened partly, not at all
  * or not yet is proposed by the rules alone. Two sources, merged per document:
@@ -22,7 +22,7 @@
  *
  * ## Into the Papierkorb, without widening anyone's access
  *
- * The Papierkorb holds folders (ADR-0085). For each folder the confirmed
+ * The Papierkorb holds folders (ADR-0087). For each folder the confirmed
  * documents are in (the project root counts as one), a subfolder „Ausgemistet
  * <date>" is made INSIDE it, the documents are moved there and the subfolder is
  * put in the Papierkorb. A subfolder that inherits its parent's access has

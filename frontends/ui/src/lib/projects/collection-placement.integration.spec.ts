@@ -1,20 +1,23 @@
 /**
  * @vitest-environment node
  *
- * Moving documents into the collection their folder puts them in (ADR-0084),
+ * Moving documents into the collection their folder puts them in (ADR-0086),
  * against a REAL Postgres through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/projects/collection-placement.integration.spec.ts
  *
- * The backend is mocked; the rows are not. What is proven: the purge comes
- * before the re-point, a failed purge leaves the row where it is (and reports
- * it), a second placement moves nothing, the sweep finds the project and
- * finishes what an outage left, and lifting the restriction brings the
- * document back. Then completeness: a misplaced row behind a thousand placed
- * ones is moved, the moves per call are bounded and the rest reported pending,
- * a row whose ingest is still running waits, and the sweep reaches a project
- * beyond its first page.
+ * The backend is mocked; the rows and the job queue are not. What is proven:
+ * the purge comes before the re-point, a failed purge leaves the row where it
+ * is (and reports it), the re-point hands the re-read to ONE queued
+ * `placement_reingest` job and the job dispatches it at bulk, a second
+ * placement moves nothing, the sweep finds the project and finishes what an
+ * outage left, lifting the restriction brings the document back, a row still
+ * waiting for its re-read moves again while a row the job has taken waits.
+ * Then completeness: a misplaced row behind a thousand placed ones is moved,
+ * the moves per call are bounded and the rest reported pending, a row whose
+ * ingest is still running waits, and the sweep reaches a project beyond its
+ * first page.
  */
 
 import { sql } from 'drizzle-orm'
@@ -22,7 +25,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:8000' }))
-vi.mock('@/lib/documents/service', () => ({ dispatchDocument: vi.fn().mockResolvedValue({ jobId: 'job', status: 'pending' }) }))
+vi.mock('@/lib/documents/service', () => ({
+  dispatchDocument: vi.fn().mockResolvedValue({ jobId: 'job', status: 'pending' }),
+  INGEST_DISPATCH_FAILED_MESSAGE: 'dispatch failed',
+}))
 vi.mock('@/lib/documents/collection-file-ref', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/documents/collection-file-ref')>()),
   purgeIngestedChunks: vi.fn(),
@@ -60,7 +66,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
     )
   /**
    * Give the folder its own list of `roles` (each `write`), or make it inherit
-   * again with `null`: one statement, so the 0109 trigger sees the finished
+   * again with `null`: one statement, so the 0110 trigger sees the finished
    * list at commit. `everyone` adds `*: read`, a list every member may read.
    */
   const restrict = (roles: string[] | null, everyone = false) =>
@@ -82,6 +88,39 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
         WHERE id = ${folderId}::uuid
       `)
     )
+
+  /** What the row says about its re-read: status, the placement mark, the job it names. */
+  const handOffOf = async (id: string) =>
+    Array.from(
+      await inTenant(() =>
+        db.execute<{ status: string; marked: boolean; job: string | null }>(sql`
+          SELECT status, metadata ? 'placementReingest' AS marked, metadata ->> 'bffJobId' AS job
+          FROM documents WHERE id = ${id}::uuid
+        `)
+      )
+    )[0]
+  /** The project's `placement_reingest` jobs no worker has claimed. */
+  const waitingJobs = async (project: string): Promise<string[]> =>
+    Array.from(
+      await inTenant(() =>
+        db.execute<{ job_id: string }>(sql`
+          SELECT job_id FROM bff_job_queue
+          WHERE kind = 'placement_reingest' AND lane = ${ORG} AND status = 'queued' AND payload ->> 'projectId' = ${project}
+        `)
+      ),
+      (row) => String(row.job_id)
+    )
+  /** Run the project's re-read job to the end, as a `bff-jobs` worker would, inside the job's lane. */
+  const runReingestJob = async (project: string): Promise<void> => {
+    for (let i = 0; i < 100; i++) {
+      const { done } = await inTenant(() => placement.runPlacementReingestSlice(ORG, { projectId: project }))
+      if (done) break
+    }
+    await inTenant(() => db.execute(sql`DELETE FROM bff_job_queue WHERE kind = 'placement_reingest' AND lane = ${ORG}`))
+  }
+  /** The backend finished the re-read the mocked dispatch stands for. */
+  const ingestSettled = (id: string) =>
+    inTenant(() => db.execute(sql`UPDATE documents SET status = 'completed', metadata = '{}'::jsonb WHERE id = ${id}::uuid`))
 
   /** Sweep, as the internal route does (inside platform access), until `done` or the walk has gone round twice. */
   const sweepUntil = async (done: () => Promise<boolean>): Promise<void> => {
@@ -148,6 +187,8 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
   })
 
   afterAll(async () => {
+    // The job-queue suites claim across lanes: leave no job of ours behind for them.
+    await inTenant(() => db.execute(sql`DELETE FROM bff_job_queue WHERE lane = ${ORG}`))
     await inTenant(() => db.execute(sql`DELETE FROM documents WHERE organization_id = ${ORG}`))
     await inTenant(() => db.execute(sql`DELETE FROM projects WHERE organization_id = ${ORG}`))
   })
@@ -163,7 +204,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
     expect(dispatch).not.toHaveBeenCalled()
   })
 
-  it('is finished by the sweep: purge first, then the row, then the re-read into the folder collection', async () => {
+  it('is finished by the sweep: purge first, then the row, then ONE bulk job re-reads it into the folder collection', async () => {
     const order: string[] = []
     vi.mocked(purge).mockImplementation(async (_backend, ref) => {
       if (ref.filename === 'Honorarnote.pdf') order.push(`purge while row in ${await collectionOf(documentId)}`)
@@ -172,7 +213,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
     vi.mocked(dispatch).mockImplementation(async (input) => {
       // The sweep is cross-tenant: another suite's restricted project, running
       // at the same time, has its documents dispatched by this sweep too.
-      if (input.documentId === documentId) order.push(`dispatch into ${input.collectionName}`)
+      if (input.documentId === documentId) order.push(`dispatch into ${input.collectionName} at ${input.priority}`)
       return { jobId: 'job', status: 'pending' } as Awaited<ReturnType<typeof dispatch>>
     })
 
@@ -182,11 +223,21 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
     const target = restrictedCollectionName(COLLECTION, folderId)
     await sweepUntil(async () => (await collectionOf(documentId)) === target)
 
+    // The sweep purged and re-pointed; the re-read is the job's, and nothing was dispatched yet.
     expect(await collectionOf(documentId)).toBe(target)
-    expect(order).toEqual([`purge while row in ${COLLECTION}`, `dispatch into ${target}`])
+    expect(order).toEqual([`purge while row in ${COLLECTION}`])
+    const [jobId] = await waitingJobs(projectId)
+    expect(await waitingJobs(projectId)).toEqual([jobId])
+    expect(await handOffOf(documentId)).toEqual({ status: 'processing', marked: true, job: jobId })
+
+    await runReingestJob(projectId)
+
+    expect(order).toEqual([`purge while row in ${COLLECTION}`, `dispatch into ${target} at bulk`])
+    expect((await handOffOf(documentId))?.marked).toBe(false)
     // The sweep is cross-tenant, so other suites' documents may be purged first.
     const ours = vi.mocked(purge).mock.calls.find(([, ref]) => ref.filename === 'Honorarnote.pdf')
     expect(ours?.[1]).toMatchObject({ collectionName: COLLECTION, filename: 'Honorarnote.pdf' })
+    await ingestSettled(documentId)
   })
 
   it('moves nothing the second time', async () => {
@@ -201,6 +252,42 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
 
     expect(await placement.placeProjectDocuments(ORG, projectId)).toEqual({ moved: 1, failed: [], pending: 0 })
     expect(await collectionOf(documentId)).toBe(COLLECTION)
+  })
+
+  it('moves a row still waiting for its re-read like a settled one, into one job, and dispatches it where it now belongs', async () => {
+    vi.mocked(purge).mockResolvedValue(true)
+    const target = restrictedCollectionName(COLLECTION, folderId)
+    // Waiting since the lift above. Restricted again before its job ran:
+    await restrict(['org-geschaeftsfuehrung'])
+    expect(await placement.placeProjectDocuments(ORG, projectId)).toEqual({ moved: 1, failed: [], pending: 0 })
+    expect(await collectionOf(documentId)).toBe(target)
+    // The lift's job had not started, so it serves this move too.
+    expect(await waitingJobs(projectId)).toHaveLength(1)
+
+    // Lifted again, and the job runs only now: it reads the folder tree as it is.
+    await restrict(null)
+    await runReingestJob(projectId)
+
+    expect(await collectionOf(documentId)).toBe(COLLECTION)
+    expect(vi.mocked(dispatch).mock.calls.map(([input]) => [input.collectionName, input.priority])).toEqual([[COLLECTION, 'bulk']])
+    await ingestSettled(documentId)
+  })
+
+  it('does not move a row the re-read job has already taken', async () => {
+    vi.mocked(purge).mockResolvedValue(true)
+    await restrict(['org-geschaeftsfuehrung'])
+    expect(await placement.placeProjectDocuments(ORG, projectId)).toEqual({ moved: 1, failed: [], pending: 0 })
+    // The job takes the row (its mark goes) and has not dispatched yet when the restriction is lifted.
+    await inTenant(() => db.execute(sql`UPDATE documents SET metadata = metadata - 'placementReingest' WHERE id = ${documentId}::uuid`))
+    await restrict(null)
+
+    expect(await placement.placeProjectDocuments(ORG, projectId)).toEqual({ moved: 0, failed: [], pending: 1 })
+    expect(await collectionOf(documentId)).toBe(restrictedCollectionName(COLLECTION, folderId))
+
+    await ingestSettled(documentId)
+    expect(await placement.placeProjectDocuments(ORG, projectId)).toEqual({ moved: 1, failed: [], pending: 0 })
+    await inTenant(() => db.execute(sql`DELETE FROM bff_job_queue WHERE kind = 'placement_reingest' AND lane = ${ORG}`))
+    await ingestSettled(documentId)
   })
 
   it('moves nothing for a list that narrows only who writes: every member still reads (`*`), retrieval keys on read', async () => {

@@ -1,6 +1,6 @@
 /**
  * Upload batches: one upload gesture, from the browser's first request to the
- * moment everything it brought in has been read (migration 0108, ADR-0083).
+ * moment everything it brought in has been read (migration 0109, ADR-0085).
  *
  *   open    → the browser, before it sends a file (`POST /api/upload-batches`)
  *   stamp   → each upload names the batch; the document row carries its id
@@ -51,7 +51,7 @@ import {
 /** The shelves an upload can go to; re-stated here so a route needs nothing from the db layer. */
 export { UPLOAD_BATCH_SCOPES } from '@/lib/db/schema'
 
-/** Most files one batch may announce. Mirrors the CHECK in migration 0108. */
+/** Most files one batch may announce. Mirrors the CHECK in migration 0109. */
 export const UPLOAD_BATCH_MAX_FILES = 10_000
 
 export interface OpenUploadBatchInput {
@@ -160,7 +160,7 @@ export interface UploadSummaryDocument {
    */
   replaced: boolean
   /**
-   * Filed in a folder with its own access list, or below one (ADR-0085):
+   * Filed in a folder with its own access list, or below one (ADR-0087):
    * „geschützt", as ticket „Übersicht" asks. The test the folder's lock in the
    * file browser and the download log apply (`isUnderOwnList`), whatever the
    * list grants: one that lets every member read and limits only who may
@@ -230,6 +230,8 @@ type BatchCounts = Pick<UploadBatch, 'expectedCount' | 'unchangedCount' | 'faile
  * may be of a file bound for a folder hidden from the reader. Where that is
  * possible, `placed` (the documents the reader may see) stands in for the
  * announced total and the rest is withheld; `null` passes the batch through.
+ * It is possible while a folder the reader may not read can still receive a
+ * file, empty or not: a batch is opened before its first file lands.
  */
 function batchCounts(batch: UploadBatch, placed: number | null): BatchCounts {
   if (placed === null) {
@@ -266,7 +268,7 @@ const UNRESTRICTED = (): boolean => false
 
 /**
  * The batch's documents this reader may still see. A folder restricted after
- * the upload hides what was filed in it from its own uploader too (ADR-0084):
+ * the upload hides what was filed in it from its own uploader too (ADR-0086):
  * the summary names files, and a name is what the restriction withholds. Once
  * it hides any of them, the batch's own counts are withheld as well
  * (`batchCounts`), since they may count files in that folder. A file in the
@@ -343,6 +345,17 @@ export interface UploadHistoryEntry {
   counts: Record<UploadSummaryDocument['outcome'], number>
 }
 
+/**
+ * The folders the reader may not read that a file can still be filed in: every
+ * unreadable folder but a purged tombstone. The purge erases a folder's
+ * documents before it marks the folder purged, and nothing is uploaded into or
+ * restored to a tombstone, so it holds no file and never will. A living folder
+ * can receive one at any moment, empty or not.
+ */
+function foldersClosedToReader(tree: FolderTree, access: ProjectFolderAccess): string[] {
+  return unreadableFolderIds(access).filter((folderId) => !tree.get(folderId)?.purgedAt)
+}
+
 /** One page of a project's upload history. */
 export interface UploadHistoryPage {
   uploads: UploadHistoryEntry[]
@@ -356,7 +369,7 @@ export interface UploadHistoryPage {
  * project: it says who brought how much in when, and the per-file detail stays
  * in each uploader's summary.
  *
- * What was filed in a folder hidden from the reader (ADR-0084) is left out as
+ * What was filed in a folder hidden from the reader (ADR-0086) is left out as
  * the document listing leaves it out, as if it did not exist. A count is
  * metadata, and „12 Dateien, 3 in Quarantäne" for a folder the reader cannot
  * open says who filed how much there and when. Only a document row carries a
@@ -370,6 +383,17 @@ export interface UploadHistoryPage {
  * admins included, so its files are not tallied; it withholds the batch's
  * counts only from a reader who may not read it, or every project with a
  * binned folder would show everyone a cut-down history.
+ *
+ * What withholds is a folder closed to the reader that can still hold a file
+ * (`foldersClosedToReader`). An empty one withholds too: the batch is opened
+ * with its announced total before the first file is sent, so a history that
+ * showed „12 Dateien" while the folder is empty and then dropped the upload
+ * once its first file landed there would tell the reader who filed how much
+ * there, and when. A purged folder's tombstone (closed to non-admins under the
+ * `admins` and `remove` settings) does not: the purge erased what it held
+ * before marking it, and nothing is filed in a tombstone again. Otherwise one
+ * purge would cut every project member's history down for good, though nothing
+ * is left to withhold.
  */
 export async function listProjectUploadHistory(
   session: AuthorizedSession,
@@ -383,6 +407,7 @@ export async function listProjectUploadHistory(
   ])
   const hiddenFolderIds = folders ? [...folders.access.hiddenFolderIds] : []
   const reader = await shelfReaderFor(session, { scope: 'project', projectId })
+  const filesHiddenFromReader = folders !== null && foldersClosedToReader(folders.tree, folders.access).length > 0
   const [counts, directory] = await Promise.all([
     countBatchDocumentsByStatus(
       session.organizationId,
@@ -391,15 +416,14 @@ export async function listProjectUploadHistory(
     ),
     loadOrganizationDirectory(session.organizationId),
   ])
-  const readerHidesFolders = folders !== null && unreadableFolderIds(folders.access).length > 0
   const uploads = batches.flatMap((batch): UploadHistoryEntry[] => {
     const tally: UploadHistoryEntry['counts'] = { ready: 0, reading: 0, quarantined: 0, failed: 0, stored: 0 }
     for (const row of counts) {
       if (row.batchId === batch.id) tally[outcomeOf(row.status)] += row.count
     }
     const placed = Object.values(tally).reduce((sum, count) => sum + count, 0)
-    if (readerHidesFolders && placed === 0) return []
-    const own = batchCounts(batch, readerHidesFolders ? placed : null)
+    if (filesHiddenFromReader && placed === 0) return []
+    const own = batchCounts(batch, filesHiddenFromReader ? placed : null)
     return [
       {
         id: batch.id,

@@ -8,6 +8,7 @@ assert what the registry now holds.
 """
 
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -32,7 +33,12 @@ def test_llamaindex_maps_to_an_ingestor_class():
 
     assert inspect.isclass(registered), f"llamaindex is registered as {registered!r}, not a class"
     assert issubclass(registered, BaseIngestor)
-    assert registered is LlamaIndexIngestor
+    # Compared by name and source file, not identity. The suite imports this
+    # package under two names (`knowledge_layer`, and `sources.knowledge_layer.src`
+    # by path, which the worktree tests need), and each name loads its own copy
+    # of the module. A combined run registers whichever copy loaded first.
+    assert registered.__qualname__ == LlamaIndexIngestor.__qualname__
+    assert Path(inspect.getfile(registered)).resolve() == Path(inspect.getfile(LlamaIndexIngestor)).resolve()
 
 
 def test_every_registered_ingestor_is_an_ingestor_class():

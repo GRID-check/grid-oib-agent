@@ -102,9 +102,9 @@ export async function getAccessibleDocument(
         intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view',
       )
       // A document under a folder this session may not read does not exist
-      // for it (ADR-0084): not found, never forbidden.
+      // for it (ADR-0086): not found, never forbidden.
       if (!(await isFolderVisibleTo(session, doc.projectId, doc.folderId))) throw new NotFoundError()
-      // Changing it is a write in its folder (ADR-0085): every rename, retag,
+      // Changing it is a write in its folder (ADR-0087): every rename, retag,
       // re-ingest, new version, publish and archive passes through here, and a
       // folder the session may only read refuses them all (403).
       if (intent === 'write') await requireFolderWrite(session, doc.projectId, [doc.folderId])

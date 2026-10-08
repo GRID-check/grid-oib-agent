@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Read/write folder access against a REAL Postgres (ADR-0085, migration 0109),
+ * Read/write folder access against a REAL Postgres (ADR-0087, migration 0110),
  * through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -42,7 +42,7 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     withTenant({ organizationId, userId: USER }, run)
   const firstId = (rows: Iterable<{ id: string }>): string => String(Array.from(rows)[0]?.id)
 
-  /** A folder, with its own list in the same statement: the 0109 trigger checks at commit. */
+  /** A folder, with its own list in the same statement: the 0110 trigger checks at commit. */
   async function insertFolder(name: string, parentId: string | null, path: string, grants: Grants | null) {
     const rows = await inTenant(() =>
       db.execute<{ id: string }>(sql`
@@ -237,7 +237,7 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     ).rejects.toThrow()
   })
 
-  it('lists the living folders whose own list names a role, with their project, and counts them all (ADR-0085)', async () => {
+  it('lists the living folders whose own list names a role, with their project, and counts them all (ADR-0087)', async () => {
     const found = await accessRepo.listFoldersNamingRole(ORG, 'org-geschaeftsfuehrung')
 
     expect(found.total).toBe(2)
@@ -301,7 +301,7 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
 })
 
 /**
- * Restricted folders do not hold IFC models (ADR-0084). The unit specs prove
+ * Restricted folders do not hold IFC models (ADR-0086). The unit specs prove
  * the BIM read paths pass the hidden folders on and the guard asks for the
  * count; this proves the two queries that receive them.
  */

@@ -1,6 +1,6 @@
 /**
  * Every project document in the retrieval collection its folder puts it in
- * (ADR-0084).
+ * (ADR-0086).
  *
  * A document under a restricted folder belongs in that folder's collection
  * (`<project collection>_r<…>`); every other document in the project's own.
@@ -13,41 +13,72 @@
  * A move is purge, then re-point, then re-ingest. The purge comes FIRST so that
  * a document moving into a restricted folder stops being findable in the open
  * collection before anything else happens; if the purge fails the document is
- * left where it is and reported, and the next call tries again. Re-ingesting
- * costs what an upload costs (it is one), which is why a restriction on a large
- * folder takes a while to settle.
+ * left where it is and reported, and the next call tries again. Those two steps
+ * are the security-relevant part and run here, in the caller: a few small
+ * requests and one UPDATE per document, no model.
+ *
+ * The re-ingest does not. It costs what an upload costs, and a restriction over
+ * a large folder is thousands of them, so the re-point hands it to the
+ * `placement_reingest` job (ADR-0079) in the same statement: the row goes to
+ * `processing`, marked as waiting for that job, and one job per project, at
+ * bulk priority on the `bff-jobs` pool, re-reads the marked rows a page at a
+ * time with every dispatch `bulk` (ADR-0081). A colleague's upload in the same
+ * office is claimed first, and the re-reads take provider slots only after
+ * interactive work. The job dispatches each row into the collection its folder
+ * puts it in when the job runs, so a tree that changed again while it waited is
+ * honoured without a second purge: the row's chunks are already gone
+ * everywhere.
  *
  * Complete, and bounded per call. The candidates are read in pages by id until
  * none are left, so no number of correctly placed rows can hide a misplaced one
- * behind a page limit. What is bounded is the MOVES: each is a purge and a
- * re-ingest, so one call attempts at most `PLACEMENT_MOVES` and reports the
- * rest as `pending`, which the placement sweep finishes on its next ticks.
+ * behind a page limit. What is bounded is the MOVES: each is a purge, so one
+ * call attempts at most `PLACEMENT_MOVES` and reports the rest as `pending`,
+ * which the placement sweep finishes on its next ticks.
  *
  * A row whose ingest is still in flight is not moved: its job is still writing
  * chunks into the old collection, and a purge now would be followed by those
  * chunks landing there anyway. Its status is reconciled with the backend first
  * (nothing else may have read it since the job ended); one still running is
- * `pending`, and a later call moves it once the job has settled.
+ * `pending`, and a later call moves it once the job has settled. A row still
+ * waiting for its placement re-read is the exception: nothing is writing its
+ * chunks, so it moves like a settled one.
  *
  * What a move loses: a Dokumentart or display title set on the backend's
  * metadata row (`document_metadata`, keyed by collection) is not carried over;
  * the BFF's own `display_name` is, and is mirrored again on the next rename.
+ * A machine's published document is re-pointed and not re-read: placement does
+ * not dispatch the published version's bytes and provenance the publish door
+ * does (`lifecycle.ts`, `ingestPublished`), so its chunks are gone until it is
+ * published again.
  */
 
 import 'server-only'
-import { and, asc, eq, gt, inArray, isNull, ne, or } from 'drizzle-orm'
 import { getBackendUrl } from '@/lib/backend-proxy'
-import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
-import { documents, projectFolders } from '@/lib/db/schema'
-import { computeFolderAccess } from '@/lib/authz/folder-access'
+import { computeFolderAccess, type ProjectFolderAccess } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from '@/lib/documents/document-status'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
-import { dispatchDocument } from '@/lib/documents/service'
+import { markDocumentIngestFailed } from '@/lib/documents/repository'
+import { dispatchDocument, INGEST_DISPATCH_FAILED_MESSAGE } from '@/lib/documents/service'
+import { enqueueJob } from '@/lib/jobs-queue/enqueue'
+import { findOpenJobId } from '@/lib/jobs-queue/repository'
+import type { JobSliceResult, PlacementReingestPayload } from '@/lib/jobs-queue/types'
 import { invalidateProjectPromptViewCache } from '@/lib/project-profile/prompt-view'
 import { findProjectInOrg } from '@/lib/projects/repository'
+import {
+  PLACEMENT_PAGE,
+  awaitsPlacementReingest,
+  findPlacementFolderPath,
+  listPlacementRows,
+  repointPlacementRow,
+  tagAwaitingPlacementReingest,
+  takeAwaitingPlacementReingest,
+  type PlacementRow,
+} from '@/lib/documents/placement-repository'
+
+export { PLACEMENT_PAGE }
 
 const PURGE_TIMEOUT_MS = 15_000
 
@@ -63,154 +94,34 @@ export interface PlacementResult {
   pending: number
 }
 
-interface PlacementRow {
-  id: string
-  folderId: string | null
-  collectionName: string
-  filename: string
-  status: string
-  errorMessage: string | null
-  metadata: unknown
-  updatedAt: Date
-  authoredBy: (typeof documents.$inferSelect)['authoredBy']
-  publishedVersionId: string | null
-  storageKey: string | null
-  storageBucket: string | null
-}
-
 interface Misplaced {
   row: PlacementRow
   target: string
 }
 
-/** Candidate rows one page of the scan reads. Every page is read; this bounds memory, not coverage. */
-export const PLACEMENT_PAGE = 500
-
-/** Moves one placement attempts. Each is a purge and a re-ingest; the rest is reported `pending`. */
+/** Moves one placement attempts. Each is a purge and a re-point; the rest is reported `pending`. */
 export const PLACEMENT_MOVES = 100
 
-/**
- * One page of the rows that can be in the wrong collection, after `afterId`:
- * those outside the project's own collection (filed under a restriction, or
- * left there by one since lifted), and those filed under a restricted folder.
- * Everything else is where it belongs by construction, so a project of ten
- * thousand open documents is not read to move none.
- */
-async function listPlacementRows(
-  organizationId: string,
-  projectId: string,
-  projectCollection: string,
-  restrictedSubtree: readonly string[],
-  afterId: string | null
-): Promise<PlacementRow[]> {
-  const db = getDb()
-  const candidates = or(
-    ne(documents.collectionName, projectCollection),
-    ...(restrictedSubtree.length > 0 ? [inArray(documents.folderId, [...restrictedSubtree])] : [])
-  )
-  return withTenant({ organizationId }, () =>
-    db
-      .select({
-        id: documents.id,
-        folderId: documents.folderId,
-        collectionName: documents.collectionName,
-        filename: documents.filename,
-        status: documents.status,
-        errorMessage: documents.errorMessage,
-        metadata: documents.metadata,
-        updatedAt: documents.updatedAt,
-        authoredBy: documents.authoredBy,
-        publishedVersionId: documents.publishedVersionId,
-        storageKey: documents.storageKey,
-        storageBucket: documents.storageBucket,
-      })
-      .from(documents)
-      .where(
-        and(
-          eq(documents.organizationId, organizationId),
-          eq(documents.projectId, projectId),
-          eq(documents.scope, 'project'),
-          candidates,
-          ...(afterId ? [gt(documents.id, afterId)] : [])
-        )
-      )
-      .orderBy(asc(documents.id))
-      .limit(PLACEMENT_PAGE)
-  )
-}
+/** Rows one `placement_reingest` slice re-reads. The marks on the rows are the job's place, so it saves no cursor. */
+export const PLACEMENT_REINGEST_SLICE = 25
 
-/** Re-point one row, guarded on the collection it was read with. False when it moved meanwhile, or the name is taken there. */
-async function repoint(organizationId: string, row: PlacementRow, target: string): Promise<boolean> {
-  const db = getDb()
-  try {
-    const updated = await withTenant({ organizationId }, () =>
-      db
-        .update(documents)
-        .set({ collectionName: target, updatedAt: new Date() })
-        .where(
-          and(
-            eq(documents.id, row.id),
-            eq(documents.organizationId, organizationId),
-            eq(documents.collectionName, row.collectionName)
-          )
-        )
-        .returning({ id: documents.id })
-    )
-    return updated.length > 0
-  } catch (error) {
-    // `uniq_documents_live_name_per_collection`: the target already holds a
-    // live document of this name. Left where it is, and reported.
-    console.warn(`[placement] could not move document ${row.id} to ${target}:`, error)
-    return false
-  }
-}
+/** How a move came out: re-pointed with its re-read handed to the job, re-pointed alone, or not at all. */
+type MoveOutcome = 'handed-off' | 'repointed' | 'failed'
 
-async function folderPathOf(organizationId: string, projectId: string, folderId: string | null): Promise<string | null> {
-  if (!folderId) return null
-  const db = getDb()
-  const [row] = await withTenant({ organizationId }, () =>
-    db
-      .select({ path: projectFolders.path })
-      .from(projectFolders)
-      .where(and(eq(projectFolders.id, folderId), eq(projectFolders.projectId, projectId), isNull(projectFolders.deletedAt)))
-      .limit(1)
-  )
-  return row?.path ?? null
-}
-
-async function moveDocument(
-  organizationId: string,
-  projectId: string,
-  row: PlacementRow,
-  target: string
-): Promise<boolean> {
+async function moveDocument(organizationId: string, row: PlacementRow, target: string): Promise<MoveOutcome> {
   const ref = collectionFileRef(row)
-  if (ref && !(await purgeIngestedChunks(getBackendUrl(), ref, PURGE_TIMEOUT_MS))) return false
-  if (!(await repoint(organizationId, row, target))) return false
-  // A row that owned no chunks (a draft Piloti wrote, never indexed) only
-  // needed the pointer. One that did is read again, into its new collection.
-  if (!ref || !row.storageKey) return true
-  try {
-    await dispatchDocument({
-      organizationId,
-      projectId,
-      documentId: row.id,
-      filename: row.filename,
-      storageKey: row.storageKey,
-      storageBucket: row.storageBucket,
-      collectionName: target,
-      folderPath: await folderPathOf(organizationId, projectId, row.folderId),
-    })
-  } catch (error) {
-    // The move itself held: the chunks are gone from the old collection and
-    // the row names the new one. A failed dispatch leaves it `failed`, which
-    // the ordinary retry re-reads into the right place.
-    console.warn(`[placement] re-ingest of ${row.id} into ${target} failed:`, error)
-  }
-  return true
+  if (ref && !(await purgeIngestedChunks(getBackendUrl(), ref, PURGE_TIMEOUT_MS))) return 'failed'
+  // A row that owned no chunks (a draft Piloti wrote, never indexed) only needs
+  // the pointer, and so does a machine's published document (see the module
+  // comment). A person's document with stored bytes is read again, by the job.
+  const reingest = Boolean(ref && row.storageKey && row.authoredBy === 'user')
+  if (!(await repointPlacementRow(organizationId, row, target, { reingest }))) return 'failed'
+  return reingest ? 'handed-off' : 'repointed'
 }
 
-const isInFlight = (status: string): boolean => IN_FLIGHT_DOCUMENT_STATUSES.has(status.toLowerCase())
+/** Whether a row must wait before it may move: an ingest is writing its chunks. */
+const mustWait = (row: PlacementRow): boolean =>
+  IN_FLIGHT_DOCUMENT_STATUSES.has(row.status.toLowerCase()) && !awaitsPlacementReingest(row)
 
 /**
  * The misplaced rows with their status brought up to date. An in-flight status
@@ -220,7 +131,7 @@ const isInFlight = (status: string): boolean => IN_FLIGHT_DOCUMENT_STATUSES.has(
  * answer leaves the statuses as read, so those rows wait.
  */
 async function withSettledStatuses(organizationId: string, misplaced: Misplaced[]): Promise<Misplaced[]> {
-  const inFlight = misplaced.filter(({ row }) => isInFlight(row.status)).map(({ row }) => row)
+  const inFlight = misplaced.filter(({ row }) => mustWait(row)).map(({ row }) => row)
   if (inFlight.length === 0) return misplaced
   try {
     const reconciled = await reconcileDocumentStatuses(inFlight, organizationId)
@@ -232,23 +143,127 @@ async function withSettledStatuses(organizationId: string, misplaced: Misplaced[
   }
 }
 
-/** Move what this page has in the wrong place, within the call's move budget; count the rest as pending. */
-async function placePage(
-  organizationId: string,
-  projectId: string,
-  misplaced: Misplaced[],
+/** What one call did, and whether it left re-reads for the job. */
+interface PlacementRun {
   result: PlacementResult
-): Promise<void> {
+  handedOff: number
+}
+
+/** Move what this page has in the wrong place, within the call's move budget; count the rest as pending. */
+async function placePage(organizationId: string, misplaced: Misplaced[], run: PlacementRun): Promise<void> {
+  const { result } = run
   const attempted = (): number => result.moved + result.failed.length
   const settled = attempted() < PLACEMENT_MOVES ? await withSettledStatuses(organizationId, misplaced) : misplaced
   for (const { row, target } of settled) {
-    if (attempted() >= PLACEMENT_MOVES || isInFlight(row.status)) {
+    if (attempted() >= PLACEMENT_MOVES || mustWait(row)) {
       result.pending += 1
       continue
     }
-    if (await moveDocument(organizationId, projectId, row, target)) result.moved += 1
-    else result.failed.push(row.id)
+    const outcome = await moveDocument(organizationId, row, target)
+    if (outcome === 'failed') {
+      result.failed.push(row.id)
+      continue
+    }
+    result.moved += 1
+    if (outcome === 'handed-off') run.handedOff += 1
   }
+}
+
+/**
+ * Make sure a `placement_reingest` job will take the project's waiting rows,
+ * and name it on them.
+ *
+ * Reuses a job of the project that no worker has claimed yet: it will read the
+ * marks from the start. A running one is not reused, because it may already
+ * have found nothing left and be finishing; a second job then queues behind it,
+ * so a project has at most one waiting. Bulk, like the dispatches it makes.
+ *
+ * Never throws: the moves have happened and are what the caller reports. A
+ * queue that cannot be written leaves the rows at `processing` with no job
+ * named, which the stranded-row sweep (`documents/stuck-processing.ts`)
+ * re-dispatches, at bulk, after its quarter of an hour.
+ */
+async function queuePlacementReingest(organizationId: string, projectId: string): Promise<void> {
+  try {
+    await withTenant({ organizationId }, async () => {
+      const kind = 'placement_reingest'
+      const open = await findOpenJobId({ kind, organizationId, matching: { projectId }, notStarted: true })
+      const payload: PlacementReingestPayload = { projectId }
+      const jobId = open ?? (await enqueueJob({ kind, organizationId, payload })).jobId
+      await tagAwaitingPlacementReingest(organizationId, projectId, jobId)
+    })
+  } catch (error) {
+    console.warn(`[placement] could not queue the re-read of project ${projectId}; the stranded-row sweep will:`, error)
+  }
+}
+
+/**
+ * Re-read one row placement moved, into the collection its folder puts it in
+ * NOW, at bulk priority.
+ *
+ * The tree may have changed again while the row waited. Its chunks were purged
+ * before it was marked and nothing has dispatched it since, so it can go
+ * straight to its current collection with no second purge. When that re-point
+ * is refused (the name is taken there) it is not dispatched where it stands,
+ * which may now be the wrong side of a restriction: it fails with the reason,
+ * and the next placement, which sees a settled misplaced row, moves it.
+ */
+async function reingestPlacedRow(
+  organizationId: string,
+  projectId: string,
+  placement: ProjectFolderAccess,
+  row: PlacementRow
+): Promise<void> {
+  const target = placement.collectionFor(row.folderId)
+  if (target !== row.collectionName && !(await repointPlacementRow(organizationId, row, target, { reingest: false }))) {
+    await markDocumentIngestFailed(row.id, organizationId, INGEST_DISPATCH_FAILED_MESSAGE)
+    return
+  }
+  if (!row.storageKey) return
+  try {
+    await dispatchDocument({
+      organizationId,
+      projectId,
+      documentId: row.id,
+      filename: row.filename,
+      storageKey: row.storageKey,
+      storageBucket: row.storageBucket,
+      collectionName: target,
+      folderPath: await findPlacementFolderPath(organizationId, projectId, row.folderId),
+      // Nobody is waiting on a placement: a colleague's upload goes first, in
+      // this office's lane and for provider slots (ADR-0079, ADR-0081).
+      priority: 'bulk',
+    })
+  } catch (error) {
+    // The row stays `processing` naming this job; once the job is gone the
+    // stranded-row sweep dispatches it again.
+    console.warn(`[placement] re-ingest of ${row.id} into ${target} failed:`, error)
+  }
+}
+
+/**
+ * One slice of a `placement_reingest` job: take the next rows of the project
+ * waiting for their re-read and dispatch each. Done when a slice takes fewer
+ * than a full page, which also covers a project deleted meanwhile (its rows
+ * are gone with it).
+ */
+export async function runPlacementReingestSlice(
+  organizationId: string,
+  payload: PlacementReingestPayload
+): Promise<JobSliceResult<PlacementReingestPayload>> {
+  const project = await findProjectInOrg(payload.projectId, organizationId)
+  if (!project) return { done: true, payload }
+  const { placement } = await projectPlacement(organizationId, payload.projectId, project.collectionName)
+  const rows = await takeAwaitingPlacementReingest(organizationId, payload.projectId, PLACEMENT_REINGEST_SLICE)
+  for (const row of rows) await reingestPlacedRow(organizationId, payload.projectId, placement, row)
+  return { done: rows.length < PLACEMENT_REINGEST_SLICE, payload }
+}
+
+/** Which collection each folder of the project puts a document in. Placement does not depend on who asks. */
+async function projectPlacement(organizationId: string, projectId: string, projectCollection: string) {
+  const tree = await listProjectFolderTree(organizationId, projectId)
+  // An all-seeing clearance reads only the "which collection" half of the decision.
+  return { tree, placement: computeFolderAccess(tree, { roles: [], seesEverything: true }, projectCollection) }
 }
 
 /**
@@ -282,13 +297,10 @@ export async function placeProjectDocuments(organizationId: string, projectId: s
  * would otherwise empty the cache of each of them every time.
  */
 export async function retryProjectPlacement(organizationId: string, projectId: string): Promise<PlacementResult> {
-  const result: PlacementResult = { moved: 0, failed: [], pending: 0 }
+  const run: PlacementRun = { result: { moved: 0, failed: [], pending: 0 }, handedOff: 0 }
   const project = await findProjectInOrg(projectId, organizationId)
-  if (!project) return result
-  const tree = await listProjectFolderTree(organizationId, projectId)
-  // Placement does not depend on who asks: an all-seeing clearance reads only
-  // the "which collection" half of the decision.
-  const placement = computeFolderAccess(tree, { roles: [], seesEverything: true }, project.collectionName)
+  if (!project) return run.result
+  const { tree, placement } = await projectPlacement(organizationId, projectId, project.collectionName)
   const restrictedSubtree = tree
     .filter((folder) => placement.collectionFor(folder.id) !== project.collectionName)
     .map((folder) => folder.id)
@@ -303,8 +315,10 @@ export async function retryProjectPlacement(organizationId: string, projectId: s
       .filter((row) => row.folderId === null || !deleted.has(row.folderId))
       .map((row) => ({ row, target: placement.collectionFor(row.folderId) }))
       .filter(({ row, target }) => target !== row.collectionName)
-    await placePage(organizationId, projectId, misplaced, result)
-    if (page.length < PLACEMENT_PAGE) return result
+    await placePage(organizationId, misplaced, run)
+    if (page.length < PLACEMENT_PAGE) break
     afterId = page[page.length - 1].id
   }
+  if (run.handedOff > 0) await queuePlacementReingest(organizationId, projectId)
+  return run.result
 }

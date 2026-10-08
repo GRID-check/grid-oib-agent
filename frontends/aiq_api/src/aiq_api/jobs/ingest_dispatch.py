@@ -2,11 +2,11 @@
 
 ``POST /v1/ingest`` prepares a job (validated, recorded PENDING) and puts it in
 the durable, fair queue (``aiq_agent.knowledge.ingest_queue``). Every process
-that claims (the web tier unless ``GRID_INGEST_QUEUE_CLAIM=false``, and the
-dedicated ingest-worker tier, ``ingest_worker``) attaches ``QueueSource`` to its
-ingestor, so its free workers claim the next job fairly across every
-organisation and run it. A job survives the restart of the replica that
-accepted it, and ingestion scales apart from the chat tier.
+that claims (only the dedicated ingest-worker tier, ``ingest_worker``: the
+``chat`` and ``api`` roles accept jobs and never claim them) attaches
+``QueueSource`` to its ingestor, so its free workers claim the next job fairly
+across every organisation and run it. A job survives the restart of the replica
+that accepted it, and ingestion scales apart from the web tiers.
 
 The queue is used when the ingestor can run a job elsewhere, a database is
 configured, every file is a deferred object-store download (a local path exists
@@ -60,6 +60,7 @@ _DEFERRED_CONFIG_LISTS = ("extraction_paths", "preview_paths")
 _URL_CONFIG_KEYS = ("thumbnail_upload_url",)
 
 _DOWNLOAD = "__object_download__"
+_CORPUS_OBJECT = "__corpus_object__"
 
 
 def _flag(name: str, default: bool) -> bool:
@@ -87,18 +88,6 @@ def _int_env(name: str, default: int) -> int:
 # before the queue existed.
 def queue_enabled() -> bool:
     return _flag("GRID_INGEST_QUEUE", True) and ingest_queue.db_url() is not None
-
-
-# @environment_variable GRID_INGEST_QUEUE_CLAIM
-# @category Knowledge Layer
-# @type bool
-# @default true
-# @required false
-# Whether this process's ingest workers claim from the durable queue. Set
-# `false` on the web tier when the ingest-worker tier runs, so ingestion stays
-# off the chat pods.
-def claim_enabled() -> bool:
-    return _flag("GRID_INGEST_QUEUE_CLAIM", True)
 
 
 def _per_org_cap() -> int:
@@ -169,21 +158,29 @@ def _dead_retention_seconds() -> int:
 
 
 def _encode_entry(entry: Any) -> Any:
+    from aiq_agent.corpus_store import CorpusObjectDownload
+
     from ..routes.ingest import DeferredObjectDownload
 
     if isinstance(entry, DeferredObjectDownload):
         return {_DOWNLOAD: entry.to_payload()}
+    if isinstance(entry, CorpusObjectDownload):
+        return {_CORPUS_OBJECT: entry.to_payload()}
     return entry
 
 
 def durable(prepared: PreparedIngestJob) -> bool:
     """Whether the job can run in another process: every file a deferred download."""
+    from aiq_agent.corpus_store import CorpusObjectDownload
+
     from ..routes.ingest import DeferredObjectDownload
 
     entries = list(prepared.file_paths)
     for key in _DEFERRED_CONFIG_LISTS:
         entries.extend(prepared.config.get(key) or [])
-    return bool(prepared.file_paths) and all(isinstance(e, DeferredObjectDownload) for e in entries)
+    return bool(prepared.file_paths) and all(
+        isinstance(e, (DeferredObjectDownload, CorpusObjectDownload)) for e in entries
+    )
 
 
 def encode(prepared: PreparedIngestJob) -> str:
@@ -204,10 +201,14 @@ def encode(prepared: PreparedIngestJob) -> str:
 
 
 def _decode_entry(entry: Any) -> Any:
+    from aiq_agent.corpus_store import CorpusObjectDownload
+
     from ..routes.ingest import DeferredObjectDownload
 
     if isinstance(entry, dict) and _DOWNLOAD in entry:
         return DeferredObjectDownload.from_payload(entry[_DOWNLOAD])
+    if isinstance(entry, dict) and _CORPUS_OBJECT in entry:
+        return CorpusObjectDownload.from_payload(entry[_CORPUS_OBJECT])
     raise ValueError("a queued ingestion job may only carry object-store downloads")
 
 
@@ -248,6 +249,31 @@ def dispatch(ingestor: BaseIngestor, prepared: PreparedIngestJob) -> None:
             # Class name only: the payload and its error carry presigned URLs.
             logger.warning("Could not queue ingestion job %s durably; running it here", prepared.job_id)
     ingestor.submit_prepared(prepared)
+
+
+class QueueUnavailable(RuntimeError):
+    """The job cannot be queued, and its caller has no other place to run it."""
+
+
+def enqueue_only(prepared: PreparedIngestJob) -> bool:
+    """Store a PENDING job in the durable queue, and never run it here; whether this call stored it.
+
+    For work that must run on a claiming worker or not at all (the base corpus): unlike
+    :func:`dispatch` there is no fallback to this process's own pool when the queue is off,
+    the ingestor cannot run a job elsewhere, or the write fails. Each raises
+    :class:`QueueUnavailable`, with a message that carries no payload (it holds URLs). A job
+    whose id the queue already holds is not stored again (False).
+    """
+    if prepared.status.status != JobState.PENDING:
+        raise QueueUnavailable(f"ingestion job {prepared.job_id} was not accepted: {prepared.status.error_message}")
+    if not queue_enabled():
+        raise QueueUnavailable("the ingest queue is off or has no database (GRID_INGEST_QUEUE, AIQ_SUMMARY_DB)")
+    if not durable(prepared):
+        raise QueueUnavailable(f"ingestion job {prepared.job_id} cannot run in another process")
+    try:
+        return ingest_queue.enqueue(prepared.job_id, prepared.organization_id, encode(prepared), prepared.priority)
+    except Exception as error:
+        raise QueueUnavailable(f"could not queue ingestion job {prepared.job_id}: {type(error).__name__}") from error
 
 
 # ------------------------------------------------------------------ claims
@@ -449,10 +475,6 @@ class QueueSource:
             run.stop.set()
         return ingest_queue.release_claims(job_ids, self._worker)
 
-    def stop_claiming(self) -> None:
-        """Take no new job from here on (a drain); the jobs in hand run on."""
-        self._ingestor.detach_job_source()
-
     def release_held(self) -> int:
         """Give back every claim this process still holds (a drain that ran out of time)."""
         with self._held_lock:
@@ -485,39 +507,26 @@ def worker_id() -> str:
     return ingest_status_store.OWNER
 
 
-def stop_claiming() -> None:
-    """Stop this process claiming ingestion jobs, for a drain; the jobs it holds run on.
-
-    The web tier claims too when no ingest-worker tier runs, so its shutdown
-    calls this before it waits for its chat turns, and :func:`release_held`
-    after: otherwise it keeps claiming through the whole chat drain, and every
-    claim still held when the pod is killed goes stale and costs an attempt.
-    """
-    source = _active
-    if source is not None:
-        source.stop_claiming()
-
-
 def release_held() -> int:
     """Give back the claims this process still holds without spending their attempts; how many.
 
-    For a worker that must exit with jobs unfinished: another worker may take
-    them now instead of after the stale window.
+    For the ingest worker, when it must exit with jobs unfinished: another
+    worker may take them now instead of after the stale window.
     """
     source = _active
     return source.release_held() if source is not None else 0
 
 
-def attach(ingestor: BaseIngestor | None, *, claim: bool | None = None) -> bool:
-    """Start claiming from the durable queue in this process, when it should; whether it does.
+def attach(ingestor: BaseIngestor | None) -> bool:
+    """Start claiming from the durable queue in this process; whether it does.
 
-    ``claim`` overrides ``GRID_INGEST_QUEUE_CLAIM``: the ingest-worker tier
-    exists to claim, whatever the web tier's environment it shares says.
+    Only the ingest worker calls this. It does not claim when the ingestor
+    cannot run a job elsewhere, or when the queue is off or has no database.
     """
     global _active
     if ingestor is None or getattr(ingestor, "supports_durable_jobs", False) is not True:
         return False
-    if not (queue_enabled() and (claim_enabled() if claim is None else claim)):
+    if not queue_enabled():
         logger.info("This process does not claim queued ingestion jobs")
         return False
     _active = QueueSource(ingestor)

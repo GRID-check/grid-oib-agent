@@ -270,8 +270,8 @@ Ordered by measured impact on the hot path:
 7. **`collection.peek(limit=10000)` scans** to compute file counts (`adapter.py:968-1214`) —
    replace with Chroma `count()`/metadata queries before collections grow.
 8. **DB pool posture:** postgres-js default 10 conns/replica, backend pools 5 — fine now; when
-   replicas multiply, add PgBouncer (`prepare: false` is already set, but note
-   `jobs.py:1325` LISTEN/NOTIFY needs a direct session — route SSE listeners around the pooler).
+   replicas multiply, add PgBouncer. **Done (ADR-0083):** a transaction pooler in front of the
+   pooled DSNs, with LISTEN, session locks and migrations on a direct connection.
 
 ---
 

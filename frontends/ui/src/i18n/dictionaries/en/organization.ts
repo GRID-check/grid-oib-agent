@@ -70,7 +70,7 @@ export const organization = {
     },
   },
   /**
-   * Organization -> Download log (ADR-0085): who took which document out, and
+   * Organization -> Download log (ADR-0087): who took which document out, and
    * who opened one in a folder with its own access list. Personal data about
    * staff, so the page says what it is for, how long it keeps it and that
    * reading it is recorded.
@@ -185,7 +185,7 @@ export const organization = {
     },
   },
   /**
-   * Personen & Zugriff → Eigene Rollen (ADR-0084): roles an office builds in
+   * Personen & Zugriff → Eigene Rollen (ADR-0086): roles an office builds in
    * WorkOS, assigned on the People tab, named by restricted folders.
    */
   customRoles: {
@@ -244,7 +244,7 @@ export const organization = {
         'A role can only be deleted once nobody holds it. A folder restricted to this role alone is then visible to organization admins only.',
       confirm: 'Delete role',
       deleted: 'Role “{name}” deleted.',
-      /** Folders whose own access list names the role (ADR-0085): shown before the deletion is confirmed. */
+      /** Folders whose own access list names the role (ADR-0087): shown before the deletion is confirmed. */
       foldersCount: '{count, plural, one {# folder names} other {# folders name}} this role in its access list:',
       foldersEffect:
         'After the deletion those lists match nobody: only organization admins can read these folders until a valid role is set. The project settings list them under “Folders without a valid role”.',
@@ -614,7 +614,7 @@ export const organization = {
     open: 'View audit logs',
     error: 'Could not open the audit log viewer.',
   },
-  /** Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0085). */
+  /** Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0087). */
   deletedFolderContent: {
     title: 'Content from deleted folders',
     description:
@@ -638,7 +638,7 @@ export const organization = {
     loadError: 'The setting could not be loaded.',
     readOnly: 'Only organization admins can change this.',
   },
-  /** Sensitive data: the lists Piloti checks every upload against (ADR-0083). */
+  /** Sensitive data: the lists Piloti checks every upload against (ADR-0085). */
   screening: {
     title: 'Screening list',
     description:
@@ -657,7 +657,7 @@ export const organization = {
     nameExceptionsHint: 'Words that contain a term but mean something else: “Berechnung” contains “Rechnung”.',
     contentTitle: 'After upload: content',
     contentHint:
-      'Piloti reads the text on its own server and checks it before any model sees it. Matches wait in quarantine until someone releases or deletes them. The same terms and numbers apply to chat messages: before sending, Piloti shows what it found and sends the message to the model only masked.',
+      'Piloti reads the text on its own server and checks it before any model sees it. Matches wait in quarantine until someone releases or deletes them. The same terms and numbers apply to chat messages: before sending, Piloti shows what it found and sends the message to the answering model only masked. A dictated message is first heard by an external speech model, which transcribes it.',
     contentTerms: 'Content terms',
     contentTermsHint: 'Matches words that start with the term: “Honorar” finds “Honorarnote”.',
     detectors: 'Detect numbers',
@@ -680,7 +680,7 @@ export const organization = {
     readOnly: 'Only people with the “Manage organization settings” permission can change these lists.',
     loadError: 'Could not load the lists.',
   },
-  /** Quarantine: files the content check held back (ADR-0083). */
+  /** Quarantine: files the content check held back (ADR-0085). */
   quarantine: {
     listLabel: 'Files held back',
     empty: 'Nothing is waiting for review',

@@ -29,7 +29,7 @@
  *   - `busy`     — a turn in flight. Every row is dimmed and unclickable, so the
  *                  panel says why instead of leaving the user to test rows.
  *   - `rights-lost` — chats shared with the reader who may no longer read a
- *                  folder they drew on (ADR-0085): they stay in the list under
+ *                  folder they drew on (ADR-0087): they stay in the list under
  *                  the neutral title „Geteilter Chat", and the open one shows
  *                  „Ihnen fehlen inzwischen die Rechte …" instead of a thread
  *                  and a composer.
@@ -208,7 +208,6 @@ export default function SessionsPreviewPage() {
           onRenameSession={() => {}}
           showDeepResearchSection={variant === 'research'}
           projectId="p-1"
-          projectCollection={variant === 'research' ? 'preview' : undefined}
         />
       </main>
     </div>

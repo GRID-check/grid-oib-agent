@@ -79,7 +79,7 @@ import {
   renderVersionBytes,
   writeVersionContent,
 } from './version-content'
-import type { AgentDocumentProvenance } from './service'
+import type { AgentDocumentProvenance, DispatchDocumentResult, IngestPriority } from './service'
 import {
   DOCUMENT_VERSION_TRANSITIONS,
   findDocumentVersionTransition,
@@ -152,7 +152,7 @@ export interface TransitionInput {
    * origin conversation opens one either way — see the `openRevisionTask` effect.
    *
    * Refused before the swap for a document in a folder some project member may
-   * not read: a task is listed to the whole project (ADR-0084).
+   * not read: a task is listed to the whole project (ADR-0086).
    */
   delegateRevision?: boolean
   /** The language of a refusal; the agent's route leaves it German. */
@@ -554,7 +554,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
    * no folder audience of their own. So a draft in a folder some member may not
    * read gets no task, whoever filed it: the reviewer who asked outright was
    * refused with the reason before the swap, and a version nobody asked about
-   * keeps its comment on the row for its author (ADR-0084).
+   * keeps its comment on the row for its author (ADR-0086).
    */
   openRevisionTask: async ({ session, document, version, input }) => {
     const delegated = input.delegateRevision === true
@@ -657,6 +657,43 @@ async function agentProvenance(
     approved_at: version.approvedAt?.toISOString() ?? null,
     producer: document.authoredByProducer,
   }
+}
+
+/**
+ * Read a machine's published document into the index again, as its published
+ * version: what a Papierkorb restore owes a Piloti document whose chunks went
+ * when its folder was deleted (`projects/folder-bin-jobs.ts`).
+ *
+ * The same dispatch `ingestPublished` makes, with the version and provenance it
+ * names, because `dispatchDocument` indexes a machine's row only for its
+ * published version. Without either half (no published version, a name outside
+ * the `piloti/` namespace) it refuses the way the dispatcher does, so a caller
+ * cannot mistake "not indexable" for a backend failure. No purge first: the
+ * chunks this replaces are already gone.
+ */
+export async function redispatchPublishedVersion(
+  organizationId: string,
+  document: Document,
+  priority: IngestPriority,
+): Promise<DispatchDocumentResult> {
+  const { dispatchDocument, AgentAuthoredDocumentNotIndexableError } = await import('./service')
+  const version = await findPublishedVersion(document.id, organizationId)
+  if (!version || !isAgentDocumentFilename(document.filename)) {
+    throw new AgentAuthoredDocumentNotIndexableError(document.id)
+  }
+  return dispatchDocument({
+    organizationId,
+    projectId: document.projectId,
+    documentId: document.id,
+    filename: document.filename,
+    storageKey: version.storageKey,
+    storageBucket: version.storageBucket,
+    collectionName: document.collectionName,
+    folderPath: await resolveDocumentFolderPath(document, organizationId),
+    versionId: version.id,
+    provenance: await agentProvenance(organizationId, document, version),
+    priority,
+  })
 }
 
 /** Every effect a transition names, in order. */
@@ -1142,7 +1179,7 @@ export async function replaceVersionContent(
     /**
      * The conversation the new content came out of, for the agent's rewrite. Content from a thread that drew on a
      * restricted folder goes only into a document filed at least as narrowly
-     * (ADR-0084, `restricted-egress.ts`), exactly as a new filing does.
+     * (ADR-0086, `restricted-egress.ts`), exactly as a new filing does.
      */
     origin?: ConversationOrigin
   } = {},

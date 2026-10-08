@@ -5,6 +5,7 @@ vi.mock('server-only', () => ({}))
 vi.mock('./repository', () => ({
   batchIdsOfDocuments: vi.fn(),
   completeSettledBatches: vi.fn(),
+  reopenCompletedBatches: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/lib/inbox/service', () => ({ emitInboxItems: vi.fn().mockResolvedValue(1) }))
 vi.mock('@/lib/projects/repository', () => ({ findProjectInOrg: vi.fn() }))
@@ -30,7 +31,7 @@ import { emitInboxItems } from '@/lib/inbox/service'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
 import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
-import { batchIdsOfDocuments, completeSettledBatches } from './repository'
+import { batchIdsOfDocuments, completeSettledBatches, reopenCompletedBatches } from './repository'
 import { onDocumentsSettled, settleUploadBatches } from './settle'
 
 const batch = (overrides: Partial<UploadBatch> = {}): UploadBatch => ({
@@ -94,6 +95,24 @@ describe('settleUploadBatches', () => {
     await settleUploadBatches('org-1', ['batch-1'])
     expect(emitInboxItems).not.toHaveBeenCalled()
   })
+
+  // A completed batch is never settled again, so an uploader not told when it
+  // completed would never be: the completion is undone for the sweep to redo.
+  it('reopens what it completed when the uploader cannot be told, and says so', async () => {
+    vi.mocked(completeSettledBatches).mockResolvedValue([batch(), batch({ id: 'batch-2' })])
+    vi.mocked(emitInboxItems).mockRejectedValueOnce(new Error('inbox upsert refused'))
+
+    await expect(settleUploadBatches('org-1', ['batch-1', 'batch-2'])).rejects.toThrow('inbox upsert refused')
+
+    const completedAt = vi.mocked(completeSettledBatches).mock.calls[0][2]
+    expect(reopenCompletedBatches).toHaveBeenCalledWith('org-1', ['batch-1', 'batch-2'], completedAt)
+  })
+
+  it('reopens nothing when the uploader was told', async () => {
+    vi.mocked(completeSettledBatches).mockResolvedValue([batch()])
+    await settleUploadBatches('org-1', ['batch-1'])
+    expect(reopenCompletedBatches).not.toHaveBeenCalled()
+  })
 })
 
 describe('onDocumentsSettled', () => {
@@ -133,7 +152,7 @@ describe('onDocumentsSettled', () => {
     expect(JSON.stringify(emitted)).not.toContain('doc-q')
   })
 
-  it('leaves out a project admin the quarantined document\'s folder is hidden from (ADR-0084)', async () => {
+  it('leaves out a project admin the quarantined document\'s folder is hidden from (ADR-0086)', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(
       makeDocument({ id: 'doc-q', projectId: 'proj-1', folderId: 'f-honorare', createdBy: 'uploader' })
     )

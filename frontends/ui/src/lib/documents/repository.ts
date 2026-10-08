@@ -160,7 +160,7 @@ export interface ListProjectDocumentsOptions {
    */
   includeArchived?: boolean
   /**
-   * Folders whose documents this reader may not see (ADR-0084), from
+   * Folders whose documents this reader may not see (ADR-0086), from
    * `getHiddenFolderIds`. Their rows are left out as if they did not exist.
    */
   hiddenFolderIds?: readonly string[]
@@ -891,7 +891,7 @@ export async function findLiveDocumentByFilename(
  * The retrieval collections of this project that already hold a live,
  * person-uploaded document of this name — either Unicode form, as
  * {@link findLiveDocumentByFilename} reads it. A project keeps one document
- * per name across all its collections (ADR-0084); the database only enforces
+ * per name across all its collections (ADR-0086); the database only enforces
  * it per collection.
  */
 export async function findProjectCollectionsHoldingFilename(
@@ -1154,6 +1154,15 @@ export async function setDocumentIngestJob(
 }
 
 /**
+ * The `documents.metadata` key of a row placement purged and re-pointed whose
+ * re-read into its new collection is the `placement_reingest` job's to do
+ * (`lib/projects/collection-placement.ts`, ADR-0086). Only ever set beside
+ * `status = 'processing'`; the job removes it when it takes the row, and every
+ * other writer of `processing` or of an ingest job id drops it.
+ */
+export const PLACEMENT_REINGEST_MARKER = 'placementReingest'
+
+/**
  * Mark a document as being worked on locally, before any backend job exists.
  *
  * The IFC path needs this: extraction happens in THIS process and can take
@@ -1168,7 +1177,9 @@ export async function setDocumentIngestJob(
  * the re-ingest heal) then answered with the OLD job's outcome — a retry of a
  * failed file flipped back to failed while its new conversion was running.
  * Clearing it at the one writer of `processing` fixes both readers at once.
- * The queue job of the previous round goes with it ({@link setDocumentBackgroundJob}).
+ * The queue job of the previous round goes with it ({@link setDocumentBackgroundJob}),
+ * and so does the placement mark ({@link PLACEMENT_REINGEST_MARKER}): a row this
+ * marks is owned by the work that marked it, not waiting for placement's job.
  */
 export async function markDocumentProcessing(
   documentId: string,
@@ -1181,7 +1192,7 @@ export async function markDocumentProcessing(
       .set({
         status: 'processing',
         errorMessage: null,
-        metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId' - 'bffJobId'`,
+        metadata: sql`coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId' - 'bffJobId' - ${PLACEMENT_REINGEST_MARKER}::text`,
         updatedAt: new Date(),
       })
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId), notQuarantined)),
@@ -1235,9 +1246,11 @@ export interface StuckProcessingDocument {
  *
  * A row whose job is still `queued` or `claimed` is left out in the query, so
  * the batch is always rows that need something done. So is a row in a folder
- * that went to the Papierkorb (ADR-0085): it is hidden and its chunks were
- * purged, and restoring the folder dispatches it again; a job queued for it
- * here would only parse or convert a document nobody may see.
+ * that went to the Papierkorb (ADR-0087): it is hidden and its chunks were
+ * purged, and restoring the folder marks it `processing` for the restore's
+ * job again; a job queued for it here would only parse or convert a document
+ * nobody may see. Once restored, a row that job never reached (it died, or its
+ * requester lost access) is found here like any other.
  */
 export async function listStuckProcessingDocuments(
   before: Date,
@@ -1432,7 +1445,7 @@ const screenedHashOfDispatch = sql<string | null>`coalesce(${documents.metadata}
  * a NEW job, and a read that resolved the old one would write the old verdict
  * over it. A write keyed on the job lands only on the dispatch it is about.
  *
- * A quarantine is the content gate's decision (ADR-0083), and the same
+ * A quarantine is the content gate's decision (ADR-0085), and the same
  * transaction records it in `document_quarantine_decisions`, keyed on the
  * dispatch, for the audit trail: a moved row and its decision exist together
  * or not at all, and one job is one decision.
@@ -1451,7 +1464,7 @@ export async function setDocumentReconciledStatus(
         .set({
           status: resolution.status,
           errorMessage: resolution.errorMessage,
-          // Only when the job said something (ADR-0083): an unscreened job must
+          // Only when the job said something (ADR-0085): an unscreened job must
           // not erase a reviewer's `released`.
           ...(resolution.screeningOutcome ? { screeningOutcome: resolution.screeningOutcome } : {}),
           // A job that read its bytes to the end vouches for THOSE bytes

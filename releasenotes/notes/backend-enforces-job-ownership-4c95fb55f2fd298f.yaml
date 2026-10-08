@@ -1,0 +1,4 @@
+---
+operators:
+  - >
+    All four backend tiers in Kubernetes now get REQUIRE_AUTH and WORKOS_CLIENT_ID from the stack, so the backend enforces job access: the submitter, plus the project or conversation the BFF signed (ADR-0084). Direct submissions from before this release have no owner and stay reachable only through a recorded organization and project.

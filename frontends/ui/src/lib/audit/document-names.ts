@@ -9,14 +9,14 @@ import type { AuditAction } from './service'
 
 /**
  * The actions that carry a project document's name (`filename`, a rename's
- * `previousName` and `displayName`, and the name-gate `terms` that matched it). Each must say where the document is filed
+ * `previousName` and `displayName`, and the screening `terms` that matched it). Each must say where the document is filed
  * (`AuditEventInput.filedIn` (`./service`)), because the name of a document in a folder
  * not every project member may read is withheld from the trail.
  *
  * Why: the trail is read in the WorkOS audit portal, which `org:audit:view`
  * opens, and that permission is held by roles that are not organization admins
  * (`org-auditor`, `org-compliance-officer`). A restricted folder's file names
- * are not theirs to read (ADR-0084). The target id still says which document,
+ * are not theirs to read (ADR-0086). The target id still says which document,
  * and someone cleared for the folder resolves it in Piloti.
  *
  * `audit/service.spec.ts` fails when an action registers a name key and is in
@@ -54,10 +54,11 @@ export const UNRESTRICTED_NAME_ACTIONS: Partial<Record<AuditAction, string>> = {
 }
 
 /**
- * The metadata keys that carry a document's name, or a piece of it: `terms` are
- * the office's name-gate words that matched a segment of the file's name or its
- * folder path (`document.screening_overridden`), so „gehalt" says what the
- * withheld name holds as plainly as the name would.
+ * The metadata keys that carry a document's name, or what it holds: `terms` are
+ * the office's words that matched, a segment of the file's name or its folder
+ * path (`document.screening_overridden`) or the text itself
+ * (`document.quarantine_released`), so „gehalt" says what the withheld document
+ * holds as plainly as its name would.
  */
 export const DOCUMENT_NAME_KEYS = ['filename', 'previousName', 'displayName', 'terms'] as const
 

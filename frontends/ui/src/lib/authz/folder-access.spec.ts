@@ -40,6 +40,7 @@ import {
   readableByEveryMember,
   readableFolderIdsFor,
   readableFoldersOfRestrictedProjects,
+  RESTRICTED_PROJECT_READS_AT_ONCE,
   requireFolderWrite,
   restrictedCollectionName,
   unreadableFolderIds,
@@ -133,7 +134,7 @@ describe('unreadableFoldersBelow — what a move of a subtree may not do blind',
   })
 })
 
-describe('effectiveFolderLevel — the one rule (ADR-0085)', () => {
+describe('effectiveFolderLevel — the one rule (ADR-0087)', () => {
   // [who, folder, expected level]
   const cases: Array<[string, FolderClearance, string | null, FolderLevel]> = [
     // The project root and inheriting folders: the project decides.
@@ -413,7 +414,7 @@ describe('the session loaders', () => {
   })
 })
 
-describe('a closed project (ADR-0086): closing opens no restricted folder', () => {
+describe('a closed project (ADR-0088): closing opens no restricted folder', () => {
   const closed = { organizationId: 'org-1', deletedAt: null, status: 'closed' as const }
 
   beforeEach(() => {
@@ -475,6 +476,26 @@ describe('a closed project (ADR-0086): closing opens no restricted folder', () =
     expect(readable).not.toContain(shut.vertraege)
   })
 
+  it('reads the restricted projects a few at a time, never one by one nor all at once, and answers in their order', async () => {
+    const projectIds = Array.from({ length: 10 }, (_, index) => `proj-${index}`)
+    vi.mocked(listProjectsWithCustomOrBinnedFolders).mockResolvedValue(projectIds)
+    vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org-1', deletedAt: null, status: 'active' })
+    let inFlight = 0
+    let mostInFlight = 0
+    vi.mocked(listProjectFolderTree).mockImplementation(async (_org, projectId) => {
+      inFlight += 1
+      mostInFlight = Math.max(mostInFlight, inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5 - (Number(projectId.slice(5)) % 3)))
+      inFlight -= 1
+      return [inherit(`folder-of-${projectId}`, null)]
+    })
+
+    const readable = await readableFoldersOfRestrictedProjects(session([GF]))
+
+    expect(mostInFlight).toBe(RESTRICTED_PROJECT_READS_AT_ONCE)
+    expect(readable).toEqual(projectIds.map((projectId) => `folder-of-${projectId}`))
+  })
+
   it('an active project never asks whether someone is a member: the roles decide as before', async () => {
     vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org-1', deletedAt: null, status: 'active' })
     vi.mocked(checkResourcePermission).mockResolvedValue(false)
@@ -534,7 +555,7 @@ describe('requireFolderWrite — the one write check', () => {
   })
 })
 
-describe('a role deleted in WorkOS leaves its folders to the admins (ADR-0085)', () => {
+describe('a role deleted in WorkOS leaves its folders to the admins (ADR-0087)', () => {
   /** Honorare named only „Geschäftsführung" (`GF`), which was deleted; `PL` still exists. */
   const GONE = 'org-gone'
   const DEAD = '99999999-aaaa-4bbb-8ccc-0000000000a1'

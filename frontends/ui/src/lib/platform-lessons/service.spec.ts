@@ -337,7 +337,7 @@ describe('buildPlatformLessonsDigest', () => {
   })
 
   /**
-   * Migration 0118 retires the lessons created from a conversation that drew on
+   * Migration 0119 retires the lessons created from a conversation that drew on
    * a restricted folder. A digest cached before it ran still holds them, and is
    * shared by every replica: it must not be injected for the rest of its TTL.
    */

@@ -7,13 +7,14 @@
  * Büroablage to every org member, on every byte path: `getAccessibleDocument`
  * never looked at the status. These specs drive the real gate and the real
  * reviewer rule (`mayReviewQuarantine`) through each surface a person opens a
- * file by — download, preview, text preview, thumbnail — and the listing, for a
- * member, the uploader and a reviewer. The repository mock answers each read
+ * file by — download, preview, text preview, thumbnail, the signed image URL
+ * the thumbnail and preview hand out — and the listing, for a member, the
+ * uploader and a reviewer. The repository mock answers each read
  * by the reader it is given (`mayReadDocument`, the in-memory twin of
  * `documentVisibleTo`; `visibility.integration.spec.ts` holds the two equal).
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
@@ -154,6 +155,68 @@ describe.each(SURFACES)('the $name of a quarantined project document', ({ open, 
 
   it("is served to the organization's admin", async () => {
     await expect(open(orgAdmin)).resolves.toBeDefined()
+  })
+})
+
+/**
+ * The signed image URL outlives its mint, and its route has no session to run
+ * `getAccessibleDocument` with. A re-upload keeps the document's id, so a card
+ * that fetched its thumbnail URL before the new bytes were held holds a URL for
+ * the held thumbnail, or for an image, the held image. The route serves
+ * screened files only (ADR-0083), so the URL stops working for everyone the
+ * moment the row is held, its uploader and reviewers included: they preview
+ * through the presigned `url` their own session check produced.
+ */
+describe('the signed image URL of a document that turns held', () => {
+  const imageRow = (overrides: Partial<Document> = {}): Document =>
+    quarantined({ filename: 'plan.png', contentType: 'image/png', storageKey: 'org-1/proj-1/doc-q/plan.png', ...overrides })
+  const before = imageRow({ status: 'completed', errorMessage: null, screeningOutcome: 'clean' })
+
+  /** Mint through the real surface, then present the URL as the optimizer would. */
+  async function mintThenStream(session: AuthorizedSession, atMint: Document, atUse: Document): Promise<Response> {
+    store(atMint)
+    const { url } = await getDocumentThumbnail(session, 'doc-q')
+    if (!url?.startsWith('/api/')) throw new Error(`expected a signed same-origin URL, got ${url}`)
+    store(atUse)
+    vi.mocked(s3Client.send).mockClear()
+    return streamDocumentImage('doc-q', new URL(url, 'https://grid.test').searchParams)
+  }
+
+  beforeEach(() => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-signing-secret')
+    vi.mocked(s3Client.send).mockResolvedValue({
+      ContentLength: 64,
+      Body: { transformToWebStream: () => new ReadableStream() },
+    } as never)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('answers 404 to a member whose URL was minted before the verdict', async () => {
+    await expect(mintThenStream(member, before, imageRow())).rejects.toBeInstanceOf(NotFoundError)
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('answers 404 to the earlier uploader, once somebody else re-uploaded it', async () => {
+    const reuploaded = imageRow({ createdBy: 'member-1' })
+    await expect(mintThenStream(uploader, before, reuploaded)).rejects.toBeInstanceOf(NotFoundError)
+  })
+
+  it('answers 404 to the uploader of the held bytes too', async () => {
+    await expect(mintThenStream(uploader, before, imageRow())).rejects.toBeInstanceOf(NotFoundError)
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('is not minted for a reviewer on a held row', async () => {
+    store(imageRow())
+    await expect(getDocumentThumbnail(projectAdmin, 'doc-q')).resolves.toEqual({ url: null })
+  })
+
+  it('streams to a member while the row stays screened', async () => {
+    const response = await mintThenStream(member, before, before)
+    expect(response.status).toBe(200)
   })
 })
 

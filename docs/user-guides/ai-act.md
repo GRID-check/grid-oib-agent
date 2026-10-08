@@ -43,7 +43,7 @@ result every time, and every verdict names the rule that matched.
 The memory judge has no human check at the moment it decides. If it answers
 that a note does not draw on a restricted folder, the note is open to the
 project. That is the accepted risk of keeping memory in restricted chats
-(ADR-0084), and it is why each of its verdicts is in the audit log. A
+(ADR-0086), and it is why each of its verdicts is in the audit log. A
 restricted note the judge helped decide on says so beside its lock in the
 Projektspeicher („von KI mitbestimmt"), and the lock's tooltip names its
 folders. A note the judge left open carries no such mark: its readers may not
@@ -60,7 +60,7 @@ installation has the audit log switched on.
 |---|---|---|
 | `org.upload_screening.updated` | Someone changes the sensitive-data list. Counts only, never the terms | The person |
 | `document.screening_overridden` | An uploader releases a file a name term held back. The terms that matched | The person |
-| `document.quarantined` | The content screening quarantines a file. Which file, its project, whose upload it was, the kinds and terms that matched (`term:Lohnzettel,iban`), whether the whole text could be checked, and the screening run that decided. A file in a folder not every project member may open is recorded without its name, as for every event that names a file. Once per decision, at the time of the decision: if the audit log cannot be reached, Piloti keeps the decision and sends it again within minutes, even if the file was deleted meanwhile | `system:upload_screening` |
+| `document.quarantined` | The content screening quarantines a file. Which file, its project, whose upload it was, the kinds and terms that matched (`term:Lohnzettel,iban`), whether the whole text could be checked, and the screening run that decided. A file in a folder not every project member may open is recorded without its name, as for every event that names a file. Once per decision, at the time of the decision: if the audit log cannot be reached, Piloti keeps the decision and sends it again within minutes, even if the file was deleted meanwhile. Piloti's own copy is deleted once the audit log has it, and after seven days at the latest | `system:upload_screening` |
 | `document.quarantine_released` | A reviewer releases a quarantined file. The kinds and terms it was held for | The person |
 | `project.memory.restriction_judged` | The memory judge decides about a note. Which note (by id), its project, the verdict (`drawn`, `none` or `failed`), the folders it was asked about, the folders it named, the folders the note is restricted to, and the chat it came from. Also when the note was meant for the whole organisation and your installation does not let Piloti store those itself (the default): then the event names the organisation instead of a note (`outcome: refused`), because the judge's verdict decided that Piloti offered it to you to save, unrestricted | `system:memory_judge` |
 

@@ -477,7 +477,7 @@ describe('RunBlock — stopping a run', () => {
     expect(screen.queryByTestId('run-action-continue')).not.toBeInTheDocument()
   })
 
-  it('in a closed project says there is no new research where „Bericht fortschreiben" would be (ADR-0086)', () => {
+  it('in a closed project says there is no new research where „Bericht fortschreiben" would be (ADR-0088)', () => {
     render(
       <CurrentProjectProvider value={{ id: 'p1', name: 'Seestadt', status: 'closed' as const, closedAt: '2026-10-01T00:00:00Z', readsBecauseClosed: false }}>
         <RunBlock ledger={finished('doc-9')} title={TITLE} onContinue={vi.fn()} />
@@ -594,6 +594,19 @@ describe('RunBlock — the documents the reader named', () => {
 
     render(<RunBlock ledger={finished('doc-9')} title={TITLE} onAddDocument={onAddDocument} />)
     expect(screen.queryByTestId('run-action-add-document')).not.toBeInTheDocument()
+  })
+
+  it('says where the add was pressed that the document did not reach the run', () => {
+    const refusal = 'A document you named sits in a folder with restricted access …'
+    const { unmount } = render(
+      <RunBlock ledger={researching()} title={TITLE} onAddDocument={vi.fn()} addDocumentFailure={refusal} />
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(refusal)
+    expect(screen.getByTestId('run-add-document-failure')).toHaveClass('text-error')
+    unmount()
+
+    render(<RunBlock ledger={researching()} title={TITLE} onAddDocument={vi.fn()} addDocumentFailure={null} />)
+    expect(screen.queryByTestId('run-add-document-failure')).not.toBeInTheDocument()
   })
 
   it('says nothing about documents when none was named', () => {

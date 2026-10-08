@@ -11,13 +11,27 @@
  * Session/bearer resolution (incl. the `?token=` fallback for EventSource
  * streams) is shared with the v1 proxy via `@/lib/proxy/proxy-request`.
  *
+ * Authorization (ADR-0084): every method resolves the scope the caller named
+ * (`?projectId=`, `?conversationId=`, or the body's) through
+ * `buildCollectionScopeFromRequest`, which checks `CHAT_PERMISSIONS` on the
+ * project and `viewer` on the conversation, and sends it as the signed
+ * envelope. The backend lets the job's owner through, and anyone else only to a
+ * job inside that project (read and steer) or conversation (read).
+ *
  * Handles:
+ * - GET /api/jobs/async/jobs?projectId= - List research runs, filtered to the checked project
  * - GET /api/jobs/async/agents - List available agents
  * - POST /api/jobs/async/submit - Submit a new job
  * - GET /api/jobs/async/job/{job_id} - Get job status
  * - GET /api/jobs/async/job/{job_id}/stream - SSE stream (primary use case)
  * - GET /api/jobs/async/job/{job_id}/stream/{last_event_id} - SSE reconnection
  * - POST /api/jobs/async/job/{job_id}/cancel - Cancel job
+ * - POST /api/jobs/async/job/{job_id}/write-now - „Jetzt schreiben"
+ *
+ * Not served: POST job/{job_id}/documents answers 404 without reaching the
+ * backend. A document reaches a running run only through the run primitive,
+ * `POST /api/projects/{id}/runs/{runId}/documents` (`addRunDocument`,
+ * ADR-0055), which refuses a document from a restricted folder (ADR-0086).
  * - DELETE /api/jobs/async/job/{job_id}/cancel - Cancel job
  * - GET /api/jobs/async/job/{job_id}/state - Get job artifacts
  * - GET /api/jobs/async/job/{job_id}/report - Get final report
@@ -34,25 +48,26 @@
 import { NextResponse } from 'next/server'
 import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
-import type { ScopedCollection } from '@/lib/collection-scope'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
 import { resolveOrgInstructions } from '@/lib/org-instructions/service'
 import {
-  buildGridRequestContextWireHeaders,
-  type GridRequestContextInput,
-} from '@/lib/request-context'
+  signJobRequestContext,
+  type AuthorizedJobScope,
+  type JobSubmitContext,
+} from '@/lib/jobs/request-envelope'
 import {
   buildAuthHeaders,
   backendErrorEnvelope,
+  errorEnvelope,
   noResponseBodyEnvelope,
   handleAuthzError,
   proxyErrorEnvelope,
   sseStreamResponse,
 } from '@/lib/backend-proxy'
-import { parseBodyContext, parseQueryContext } from '@/lib/proxy/collection-authz'
+import { parseQueryContext, resolveRequestContext } from '@/lib/proxy/collection-authz'
 import { buildProxyUrl, resolveSessionAndBearer } from '@/lib/proxy/proxy-request'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import {
@@ -65,37 +80,46 @@ import { findProjectIdByCollectionName, findProjectTenancy } from '@/lib/project
 import { isProjectClosed, projectClosedError } from '@/lib/projects/project-status'
 
 /**
- * Per-org runtime model overrides ({agentGroup: openrouterModelId}) plus the
- * signed context envelope (backlog T3-9 follow-up, 2026-07-16, user-mandated)
- * for the async-submit proxy — same header/encoding server.js forwards on
- * the WebSocket upgrade (x-grid-model-overrides, base64url JSON), decoded by
- * the backend (model_overrides.py). Without the overrides header, submit
- * falls through to the WS-only override path and jobs silently run on
- * YAML-default models even when the org has configured overrides; without
- * the envelope, the backend's enforcement middleware rejects the submit
- * outright for an authenticated caller (REQUIRE_AUTH=true).
+ * The signed context envelope (backlog T3-9 follow-up, 2026-07-16,
+ * user-mandated; ADR-0084) for every request this proxy forwards, plus, on a
+ * submit, the per-org runtime model overrides ({agentGroup: openrouterModelId})
+ * — same header/encoding server.js forwards on the WebSocket upgrade
+ * (x-grid-model-overrides, base64url JSON), decoded by the backend
+ * (model_overrides.py). Without the overrides header, submit falls through to
+ * the WS-only override path and jobs silently run on YAML-default models even
+ * when the org has configured overrides.
  *
- * Routed through the shared `GridRequestContext` builder
- * (`@/lib/request-context`, backlog T3-9) so this path's headers can never
- * drift from every other producer/consumer. Always returns at least the
- * envelope headers (never just `{}`) so the caller can unconditionally
- * spread the result into the fetch headers.
+ * The envelope goes on every method, not only the submit: the backend
+ * authorizes a job by the scope it signs (`aiq_api/jobs/access.py`). It lets the
+ * owner through on the bearer alone and anyone else only inside the project or
+ * conversation this tier checked, so a teammate's stream, status, report and
+ * cancel all need it. Without it the caller reaches only the jobs it owns.
  *
- * The model-overrides lookup is best-effort: a failure must not block job
- * submission — the rest of the context (org/user/project/scope, still
- * enough to satisfy the envelope requirement) is still sent, matching the
- * fail-open contract of every other override consumer.
+ * Built by `signJobRequestContext` (`@/lib/jobs/request-envelope`), the one
+ * builder every job request uses. Always returns at least the envelope headers
+ * (never just `{}`) so the caller can unconditionally spread the result into the
+ * fetch headers.
  */
 async function resolveGridContextHeaders(
   session: GridSession | null,
-  extra: { projectId?: string; collectionScope?: ReadonlyArray<string | ScopedCollection> }
+  scope: AuthorizedJobScope,
+  { submit }: { submit: boolean }
 ): Promise<Record<string, string>> {
-  const input: GridRequestContextInput = {
-    organizationId: session?.organizationId ?? null,
-    userId: session?.userId ?? null,
-    projectId: extra.projectId ?? null,
-    collectionScope: extra.collectionScope ?? null,
-  }
+  const submitContext = submit ? await resolveSubmitContext(session, scope.projectId) : {}
+  return signJobRequestContext(session, scope, submitContext)
+}
+
+/**
+ * What a submit configures its run with. Every lookup here is best-effort: a
+ * failure must not block job submission — the rest of the context
+ * (org/user/project/scope, still enough to satisfy the envelope requirement) is
+ * still sent, matching the fail-open contract of every other override consumer.
+ */
+async function resolveSubmitContext(
+  session: GridSession | null,
+  projectId: string | undefined
+): Promise<JobSubmitContext> {
+  const input: JobSubmitContext = {}
 
   if (session?.organizationId) {
     try {
@@ -116,13 +140,13 @@ async function resolveGridContextHeaders(
     }
   }
 
-  if (extra.projectId) {
+  if (projectId) {
     // Structured jurisdiction fact (backlog T3-9 follow-up, 2026-07-16,
     // user-mandated) — rides the envelope's `bundesland` field. Best-effort:
     // a lookup failure must not block job submission; the backend falls back
     // to prompt-text parsing of `project_context` (unaffected either way).
     try {
-      const bundesland = await loadProjectBundesland(extra.projectId, session?.organizationId)
+      const bundesland = await loadProjectBundesland(projectId, session?.organizationId)
       if (bundesland) {
         input.bundesland = bundesland
       }
@@ -131,7 +155,33 @@ async function resolveGridContextHeaders(
     }
   }
 
-  return buildGridRequestContextWireHeaders(input, process.env.GRID_INTERNAL_API_TOKEN)
+  return input
+}
+
+/**
+ * The run listing's query, with the project filter taken from the scope this
+ * tier authorized rather than from the client.
+ *
+ * The client names a project by `projectId`, which `buildCollectionScopeFromRequest`
+ * checked; the backend filters by collection. Translating here means the
+ * collection the backend narrows to is the one the envelope signs, and a
+ * `project_collection` the client sent is never forwarded: it named a project
+ * nobody checked.
+ */
+function listingSearchParams(
+  searchParams: URLSearchParams,
+  scope: AuthorizedJobScope
+): URLSearchParams {
+  const params = new URLSearchParams(searchParams)
+  params.delete('project_collection')
+  const requestedProject = params.get('projectId')
+  params.delete('projectId')
+  params.delete('conversationId')
+  const signedProject = scope.scopedCollections.find((entry) => entry.shelf === 'project')
+  if (requestedProject && scope.projectId === requestedProject && signedProject) {
+    params.set('project_collection', signedProject.collection)
+  }
+  return params
 }
 
 const LOG_LABEL = 'Deep Research API'
@@ -425,25 +475,26 @@ export const GET = tenantSlotRoute(async function GET(
     const authHeaders = buildAuthHeaders(authHeader)
     traceRequest('WorkOS access token present:', !!authHeaders.Authorization)
 
-    // Only the scope header. The reader's project used to be destructured here
-    // and handed to `fileReportIfCommissioned`; that it is now unused is the
-    // check on the claim that a report's destination comes from the run — the
-    // linter fails the build if it is ever consulted again without being read.
-    const { headerValue } = await buildCollectionScopeFromRequest(
-      session,
-      parseQueryContext(searchParams)
-    )
+    // The reader's scope goes to the backend, signed, because the backend
+    // authorizes the job by it. It is never handed to `fileReportIfCommissioned`:
+    // a report's destination comes from the run, not from whoever reads it.
+    const scope = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
+    const gridContextHeaders = await resolveGridContextHeaders(session, scope, { submit: false })
 
     // The token query param is consumed for auth and forwarded via headers.
-    const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, upstreamPath, searchParams, ['token'])
+    const upstreamParams =
+      path.length === 1 && path[0] === 'jobs' ? listingSearchParams(searchParams, scope) : searchParams
+    const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, upstreamPath, upstreamParams, ['token'])
 
-    // Forward the request to the backend
+    // Forward the request to the backend. The scope header is set LAST, from
+    // the same value the envelope encodes, as on the POST below.
     const response = await fetch(upstreamUrl, {
       method: 'GET',
       headers: {
         ...authHeaders,
+        ...gridContextHeaders,
         Accept: isStreamRequest ? 'text/event-stream' : 'application/json',
-        'X-Grid-Collection-Scope': headerValue,
+        'X-Grid-Collection-Scope': scope.headerValue,
       },
       ...(isStreamRequest ? { signal: req.signal } : {}),
     })
@@ -514,7 +565,19 @@ export const GET = tenantSlotRoute(async function GET(
 })
 
 /**
- * Handle POST requests (submit, cancel)
+ * The backend's `job/{id}/documents` control, however the browser spelled the
+ * path: matched on the upstream URL after it is normalized, so an encoded
+ * slash or a dot segment cannot reach it under another name. A trailing slash
+ * too, which the backend would redirect onto the control.
+ */
+const RUN_DOCUMENTS_CONTROL = /\/job\/[^/]+\/documents\/?$/
+
+function isRunDocumentsControl(backendUrl: string): boolean {
+  return RUN_DOCUMENTS_CONTROL.test(new URL(backendUrl).pathname)
+}
+
+/**
+ * Handle POST requests (submit, cancel, write-now)
  */
 export const POST = tenantSlotRoute(async function POST(
   req: Request,
@@ -525,6 +588,19 @@ export const POST = tenantSlotRoute(async function POST(
     const backendUrl = buildProxyUrl(JOBS_BASE_PATH, path)
 
     traceRequest('POST:', backendUrl)
+
+    // Handing a run a document has one door, the run primitive (ADR-0055):
+    // there the document is checked against the project's restricted folders,
+    // because its name and title reach everyone who reads the run (ADR-0084).
+    // Forwarded from here it would reach the backend with a signed project and
+    // no such check. No client calls it here.
+    if (isRunDocumentsControl(backendUrl)) {
+      return errorEnvelope(
+        404,
+        'NOT_FOUND',
+        'Documents are handed to a run through POST /api/projects/{projectId}/runs/{runId}/documents'
+      )
+    }
 
     // Get the request body (may be empty for cancel)
     let parsedBody: Record<string, unknown> | undefined
@@ -550,21 +626,22 @@ export const POST = tenantSlotRoute(async function POST(
       if (gated) return gated
     }
 
-    const { headerValue, scopedCollections, projectId } = await buildCollectionScopeFromRequest(
+    // Body first, then the query: a submit names its project in the body, a
+    // cancel (no body) in `?projectId=`.
+    const scope = await buildCollectionScopeFromRequest(
       session,
-      parseBodyContext(parsedBody)
+      resolveRequestContext(new URL(req.url).searchParams, parsedBody)
     )
     // The shelf-bearing entries, not the bare names: the signed envelope is the
     // copy `scoping.py` trusts for an authenticated turn (ADR-0047).
-    const gridContextHeaders = await resolveGridContextHeaders(session, {
-      projectId,
-      collectionScope: scopedCollections,
+    const gridContextHeaders = await resolveGridContextHeaders(session, scope, {
+      submit: path[0] === 'submit',
     })
 
-    // A closed project files nothing (ADR-0086): a research run's report would
+    // A closed project files nothing (ADR-0088): a research run's report would
     // land in it. The agent no longer offers research there; this is the door a
     // direct call comes through.
-    if (path[0] === 'submit' && projectId && isProjectClosed(await findProjectTenancy(projectId))) {
+    if (path[0] === 'submit' && scope.projectId && isProjectClosed(await findProjectTenancy(scope.projectId))) {
       const closed = projectClosedError()
       return NextResponse.json(
         { error: { code: closed.code, message: closed.message, details: closed.details } },
@@ -586,7 +663,7 @@ export const POST = tenantSlotRoute(async function POST(
         'Content-Type': 'application/json',
         ...authHeaders,
         ...gridContextHeaders,
-        'X-Grid-Collection-Scope': headerValue,
+        'X-Grid-Collection-Scope': scope.headerValue,
       },
       ...(body ? { body } : {}),
     })
@@ -631,10 +708,8 @@ export const DELETE = tenantSlotRoute(async function DELETE(
     const authHeaders = buildAuthHeaders(authHeader)
     traceRequest('DELETE WorkOS access token present:', !!authHeaders.Authorization)
 
-    const { headerValue } = await buildCollectionScopeFromRequest(
-      session,
-      parseQueryContext(searchParams)
-    )
+    const scope = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
+    const gridContextHeaders = await resolveGridContextHeaders(session, scope, { submit: false })
 
     const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, path, searchParams, ['token'])
 
@@ -642,8 +717,9 @@ export const DELETE = tenantSlotRoute(async function DELETE(
       method: 'DELETE',
       headers: {
         ...authHeaders,
+        ...gridContextHeaders,
         Accept: 'application/json',
-        'X-Grid-Collection-Scope': headerValue,
+        'X-Grid-Collection-Scope': scope.headerValue,
       },
     })
 

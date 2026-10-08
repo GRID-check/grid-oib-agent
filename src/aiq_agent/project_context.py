@@ -410,8 +410,10 @@ class GridRequestContext:
     #: Epoch MILLISECONDS the envelope was minted. Inside the signed bytes, so
     #: its age cannot be edited without breaking the signature. Parsed but NOT
     #: enforced here: this tier has accepted envelopes without one since before
-    #: the field existed, and the window is the BFF verifier's to enforce
-    #: (`verifyGridRequestContextEnvelope`), which fails closed on it.
+    #: the field existed. A reader that GRANTS access on the envelope enforces
+    #: the window itself and fails closed on a missing value, as the BFF
+    #: verifier (`verifyGridRequestContextEnvelope`) does: the job routes do so
+    #: in `aiq_api.jobs.access.signed_job_scope` (ADR-0084).
     issued_at: int | None = None
     #: The envelope EXACTLY as it arrived — the base64url header and its hex
     #: signature, unparsed.

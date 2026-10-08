@@ -42,7 +42,7 @@ export const projectFolders = pgTable('project_folders', {
    * `(organization_id, COALESCE(project_id, '000…0'::uuid),
    * COALESCE(parent_id, '000…0'::uuid), name) WHERE deleted_at IS NULL` — one
    * living folder per name per parent on a shelf (migrations 0063, 0102; partial
-   * since 0109, so a tombstone does not hold its name). It is not declared here because
+   * since 0110, so a tombstone does not hold its name). It is not declared here because
    * it is an EXPRESSION index and drizzle's index builder cannot express one,
    * the same arrangement `documents_conversation_idx` has for being partial.
    *
@@ -68,7 +68,7 @@ export const projectFolders = pgTable('project_folders', {
   /**
    * Whether the folder inherits its parent's access (`inherit`, the default; a
    * root folder inherits the project) or has its own access list (`custom`,
-   * rows in `project_folder_grants`), migration 0109, ADR-0085. A custom list
+   * rows in `project_folder_grants`), migration 0110, ADR-0087. A custom list
    * holds 1–20 grants (deferred constraint trigger). `lib/authz/folder-access.ts`
    * is the one place that decides what it means.
    */
@@ -77,11 +77,11 @@ export const projectFolders = pgTable('project_folders', {
   accessChangedBy: text('access_changed_by'),
   accessChangedAt: timestamp('access_changed_at', { withTimezone: true }),
   /**
-   * Set when the folder was deleted (migration 0109): the row stays so its
+   * Set when the folder was deleted (migration 0110): the row stays so its
    * access still decides who may read what was derived from it. Every listing,
    * path lookup and placement skips it, and a document filed in it is hidden
    * from everyone; only `effectiveFolderLevel` reads it. With `purgedAt` unset
-   * it is in the Papierkorb (migration 0113), restorable until its queue row is
+   * it is in the Papierkorb (migration 0114), restorable until its queue row is
    * purged. A project folder only: an Archiv folder's delete removes the row,
    * and `project_folders_bin_state_check` refuses a deleted Archiv folder.
    */
@@ -90,12 +90,12 @@ export const projectFolders = pgTable('project_folders', {
   /**
    * The folder a person deleted, on every folder that went to the Papierkorb
    * with it (itself included); what a restore puts back together. NULL for a
-   * living folder and for a tombstone older than 0113.
+   * living folder and for a tombstone older than 0114.
    */
   binRootId: uuid('bin_root_id'),
   /**
    * When the purge removed what the folder held: from then on a permanent
-   * tombstone, row and grants kept (ADR-0085). What was derived from it is then
+   * tombstone, row and grants kept (ADR-0087). What was derived from it is then
    * shown as the organization's „Inhalte aus gelöschten Ordnern" setting says.
    */
   purgedAt: timestamp('purged_at', { withTimezone: true }),

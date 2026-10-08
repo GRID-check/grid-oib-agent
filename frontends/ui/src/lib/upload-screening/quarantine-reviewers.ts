@@ -6,7 +6,9 @@
  * only the person who uploaded it and the people who decide about it may open
  * it. Everyone else is told it does not exist, on every item path
  * (`findDocumentForSession`) and in every listing (`shelfReaderFor` names the
- * reader the query's `documentVisibleTo` narrows by).
+ * reader the query's `documentVisibleTo` narrows by). The signed image route
+ * has no session to ask this with, so it serves screened files only
+ * (`streamDocumentImage`).
  *
  * The reviewer rule lives here, apart from `./review`, because the documents
  * layer asks it on every item read, and `./review` imports the documents
@@ -42,7 +44,7 @@ export async function mayReviewQuarantine(session: AuthorizedSession, doc: Revie
     return false
   }
   // A project admin who is not cleared for the document's folder does not
-  // review it: they could not see it anywhere else either (ADR-0084).
+  // review it: they could not see it anywhere else either (ADR-0086).
   return isFolderVisibleTo(session, doc.projectId, doc.folderId).catch(() => false)
 }
 

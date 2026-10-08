@@ -4,14 +4,11 @@
  * ## Why this exists
  *
  * Document bytes live in SeaweedFS and used to reach the browser as presigned
- * object-store URLs. That is unoptimizable by construction, for two independent
- * reasons: the presigned host resolves to a private IP inside the compose
- * network, which `next/image` refuses to fetch (`dangerouslyAllowLocalIP` is
- * false by default), and every signature is a fresh URL, so the optimizer's
- * cache key changes on every request and it would re-download and re-encode the
- * original each time.
+ * object-store URLs. That is unoptimizable by construction: the presigned host
+ * resolves to a private IP inside the compose network, which `next/image`
+ * refuses to fetch (`dangerouslyAllowLocalIP` is false by default).
  *
- * Serving the same bytes from a SAME-ORIGIN route fixes both — the optimizer
+ * Serving the same bytes from a SAME-ORIGIN route fixes that — the optimizer
  * resolves a local path in-process, and one allow-list entry covers the whole
  * route rather than a per-environment host. (It does need that entry: a local
  * `src` with a query string is refused unless `images.localPatterns` names its
@@ -33,6 +30,14 @@
  * tightened, stops loading images within the role cache's minute
  * (`lib/auth/membership-roles.ts`), not when the URL expires.
  *
+ * That holds only because nothing answers for the route without calling it.
+ * The optimizer's server-side cache did: a cached or even stale copy was served
+ * without a fetch, and a failed refetch re-stored it, so `next.config.ts` turns
+ * that cache off (`maximumDiskCacheSize: 0`). What remains is the browser's own
+ * cache, which keeps a picture it has already been shown for at most
+ * {@link IMAGE_URL_WINDOW_SECONDS} ({@link DOCUMENT_IMAGE_CACHE_CONTROL}, and
+ * `images.minimumCacheTTL`); `optimizer-cache.spec.ts` holds both.
+ *
  * ## What the signature is bound to
  *
  * Organization, person, document id, variant and expiry — all five, so a token
@@ -40,17 +45,26 @@
  * full-size original when it was issued for a thumbnail, and cannot be used
  * after the person it names has lost the folder.
  *
+ * And one grant: whether the person was cleared to see the document IN
+ * QUARANTINE (ADR-0085). The route cannot ask the reviewer rule again, because
+ * that rule reads session roles the token does not carry, so the mint records
+ * the answer: a URL minted for a row that was already quarantined, which
+ * `getAccessibleDocument` only lets the uploader and the reviewers reach, says
+ * so. A URL minted before the row turned quarantined does not, and the route
+ * refuses it to anyone but the row's current uploader. Without the grant a
+ * token minted for a member before a re-upload was quarantined would go on
+ * streaming the held-back bytes until it expired.
+ *
  * ## Why the expiry is bucketed rather than exact
  *
- * A per-request expiry would make every issued URL unique, which reintroduces
- * exactly the cache-key churn that made presigned URLs useless to the optimizer.
- * Rounding to a fixed window means one person gets a byte-identical URL for a
- * document throughout that window, so the optimizer caches once and serves the
- * resized image from cache. The cost is that a leaked URL stays live for up to
- * two windows; the benefit is that optimization works at all. The window is five
- * minutes: it was an hour, and the access it carries (project membership, which
- * the route cannot re-check without a session) outlived a revocation by up to
- * two hours. The folder is re-checked on every use regardless of the window.
+ * A per-request expiry would make every issued URL unique, so no cache could
+ * ever reuse a response. Rounding to a fixed window means one person gets a
+ * byte-identical URL for a document throughout that window, so their browser
+ * fetches it once rather than on every re-render or revisit. The cost is that a
+ * leaked URL stays live for up to two windows. The window is five minutes: it
+ * was an hour, and the access it carries (project membership, which the route
+ * cannot re-check without a session) outlived a revocation by up to two hours.
+ * The folder is re-checked on every use regardless of the window.
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
@@ -58,12 +72,19 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 /** Which object a token authorizes: the upload itself, or its ingest thumbnail. */
 export type DocumentImageVariant = 'original' | 'thumb'
 
-const SIGNATURE_DOMAIN = 'grid:document-image:v2'
+const SIGNATURE_DOMAIN = 'grid:document-image:v3'
 const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
 const DEV_APP_ENVS = new Set(['development', 'dev', 'local'])
 
 /** Expiry rounding, in seconds. Also the floor on a token's remaining life. */
 export const IMAGE_URL_WINDOW_SECONDS = 300
+
+/**
+ * What the route sends. Private, and no longer-lived than one window: the
+ * optimizer passes the max-age on (as `public`, see `next.config.ts`), so this
+ * is what bounds how long a browser keeps the picture without asking again.
+ */
+export const DOCUMENT_IMAGE_CACHE_CONTROL = `private, max-age=${IMAGE_URL_WINDOW_SECONDS}`
 
 function isDevEnvironment(): boolean {
   const env = (process.env.APP_ENV ?? process.env.NODE_ENV ?? 'production').toLowerCase()
@@ -130,6 +151,12 @@ export interface DocumentImageClaims {
   userId: string
   documentId: string
   variant: DocumentImageVariant
+  /**
+   * The person may see this document while it is quarantined: it was
+   * quarantined when the URL was minted, and `getAccessibleDocument` let them
+   * reach it, so they are its uploader or one of its reviewers.
+   */
+  quarantine: boolean
   /** Unix seconds, bucketed by {@link IMAGE_URL_WINDOW_SECONDS}. */
   exp: number
 }
@@ -141,6 +168,7 @@ function signature(claims: DocumentImageClaims, secret: string): string {
     claims.userId,
     claims.documentId,
     claims.variant,
+    claims.quarantine ? 'quarantine' : '',
     String(claims.exp),
   ].join(':')
   return createHmac('sha256', secret).update(message, 'utf8').digest('hex')
@@ -153,6 +181,13 @@ function signature(claims: DocumentImageClaims, secret: string): string {
 export function imageUrlExpiry(nowMs: number = Date.now()): number {
   const nowSeconds = Math.floor(nowMs / 1000)
   return (Math.floor(nowSeconds / IMAGE_URL_WINDOW_SECONDS) + 2) * IMAGE_URL_WINDOW_SECONDS
+}
+
+/** What a minted URL grants beyond the five bound values, and the clock tests pin. */
+export interface DocumentImageUrlOptions {
+  /** See {@link DocumentImageClaims.quarantine}. Set it only for a row that is quarantined now. */
+  quarantine?: boolean
+  nowMs?: number
 }
 
 /**
@@ -169,7 +204,7 @@ export function buildDocumentImageUrl(
   userId: string,
   documentId: string,
   variant: DocumentImageVariant,
-  nowMs: number = Date.now(),
+  { quarantine = false, nowMs = Date.now() }: DocumentImageUrlOptions = {},
 ): string | null {
   const secret = signingSecret()
   if (!secret) return null
@@ -179,12 +214,14 @@ export function buildDocumentImageUrl(
     userId,
     documentId,
     variant,
+    quarantine,
     exp: imageUrlExpiry(nowMs),
   }
   const query = new URLSearchParams({
     org: organizationId,
     u: userId,
     v: variant,
+    ...(quarantine ? { q: '1' } : {}),
     exp: String(claims.exp),
     sig: signature(claims, secret),
   })
@@ -214,16 +251,18 @@ export function verifyDocumentImageUrl(
   const organizationId = params.get('org')
   const userId = params.get('u')
   const variant = params.get('v')
+  const grant = params.get('q')
   const exp = Number(params.get('exp'))
   const provided = params.get('sig')
 
   if (!organizationId || !userId || !provided) return { ok: false, reason: 'malformed' }
   if (variant !== 'original' && variant !== 'thumb') return { ok: false, reason: 'malformed' }
+  if (grant !== null && grant !== '1') return { ok: false, reason: 'malformed' }
   if (!Number.isSafeInteger(exp) || exp <= 0) return { ok: false, reason: 'malformed' }
 
   if (exp * 1000 <= nowMs) return { ok: false, reason: 'expired' }
 
-  const claims: DocumentImageClaims = { organizationId, userId, documentId, variant, exp }
+  const claims: DocumentImageClaims = { organizationId, userId, documentId, variant, quarantine: grant === '1', exp }
   const expected = signature(claims, secret)
 
   // timingSafeEqual throws on a length mismatch, which a hex-length check

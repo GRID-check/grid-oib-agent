@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The Steckbrief's tables (ADR-0087, migration 0115) against a REAL Postgres,
+ * The Steckbrief's tables (ADR-0089, migration 0116) against a REAL Postgres,
  * through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -96,7 +96,7 @@ describe.skipIf(!url)('the Steckbrief against Postgres', () => {
     })
     expect(await repo.findProjectPeriod(projectId, ORG)).toEqual({ startedOn: '2023-03-01', endedOn: '2026-10-01' })
 
-    // The 0114 guard covers the Steckbrief's people too; erasing one is still possible.
+    // The 0115 guard covers the Steckbrief's people too; erasing one is still possible.
     await expect(repo.insertProjectPerson(projectId, ORG, USER, person({ name: 'Später' }))).rejects.toThrow()
     expect(await repo.deleteProjectPersonRow(projectId, ORG, kept.id)).toBe(true)
 

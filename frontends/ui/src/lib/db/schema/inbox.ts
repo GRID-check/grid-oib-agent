@@ -99,19 +99,19 @@ export const INBOX_ITEM_TYPES = [
   'feedback.submitted',
   /**
    * Operational: everything an upload of yours brought in has been read
-   * (ADR-0083, ticket „Was ist angekommen?"). Addressed to the uploader; the
+   * (ADR-0085, ticket „Was ist angekommen?"). Addressed to the uploader; the
    * row opens the upload's summary.
    */
   'upload.completed',
   /**
    * Operational: the content check held a file back before any model read it
-   * (ADR-0083). Addressed to whoever may release or delete it, folded into one
+   * (ADR-0085). Addressed to whoever may release or delete it, folded into one
    * counted row per organization, and opening the quarantine queue.
    */
   'document.quarantined',
   /**
    * Operational: the uploader of a quarantined file asks for it to be released
-   * (ADR-0083, „Freigabe anfragen"). Addressed to whoever may release it, one
+   * (ADR-0085, „Freigabe anfragen"). Addressed to whoever may release it, one
    * row per file, opening the quarantine queue. It names the file: only the
    * file's own reviewers receive it.
    */
@@ -140,7 +140,7 @@ export const INBOX_TARGET_TYPES = [
   'organization',
   'project',
   'product_feedback',
-  /** One upload gesture (migration 0108): the target of `upload.completed`. */
+  /** One upload gesture (migration 0109): the target of `upload.completed`. */
   'upload_batch',
 ] as const
 export type InboxTargetType = (typeof INBOX_TARGET_TYPES)[number]

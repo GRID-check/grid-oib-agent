@@ -75,10 +75,15 @@ const SEES_EVERY_ROW: Record<string, string> = {
   'lib/storage/repository.ts#versionOverheadSql': 'Quota: the version-overhead fragment the sums above share.',
 
   // --- Placement and the Papierkorb move every document of a folder ---------
-  'lib/projects/collection-placement.ts#listPlacementRows':
+  'lib/documents/placement-repository.ts#listPlacementRows':
     "Placement moves every document whose folder's access changed into the right collection, held ones too, or a held file stays in a collection readers it should not have can search once it passes.",
+  'lib/documents/placement-repository.ts#takeAwaitingPlacementReingest':
+    'The `placement_reingest` job takes the rows placement marked for their re-read. Rows to a job, nothing to a person; a quarantined row is never marked.',
   'lib/projects/folder-bin-repository.ts#listDocumentIdsInFolders': 'The Papierkorb moves a folder with every document in it.',
-  'lib/projects/folder-bin-repository.ts#listDocumentsInFolders': 'The Papierkorb purges and restores every document of a folder.',
+  'lib/projects/folder-bin-repository.ts#listDocumentPageInFolders':
+    'The Papierkorb purges, takes out of retrieval and restores every document of a folder, in pages for its jobs.',
+  'lib/projects/folder-bin-repository.ts#listRestoringDocumentPage':
+    'The `restore_folder_bin` job re-dispatches the rows its restore stamped; a quarantined row is never stamped. Rows to a job.',
   'lib/projects/folder-derived-repository.ts#listReportsDerivedFrom':
     "Piloti's own reports drawn from a purged folder: the purge marks every one of them, and none of them is an upload.",
   'lib/authz/folder-access-repository.ts#listProjectDocumentCollections':
@@ -177,6 +182,10 @@ const ELEVATED_READERS: Record<string, { makes: string[]; why: string }> = {
   'lib/document-roles/repository.ts#findBindingsForRole': {
     makes: ['internal:identity'],
     why: "Whether a role is taken, which the unique index answers over every row; returns no held document's facts.",
+  },
+  'lib/conversations/restricted-egress.ts#requirePlanDocumentsOpen': {
+    makes: ['internal:identity'],
+    why: "Whether a run's Unterlagen name a file in a restricted folder: every row by that name, held ones included, and only ever a refusal.",
   },
   'lib/documents/repository.ts#findDocumentAuthoredByRef': {
     makes: ['internal:identity'],

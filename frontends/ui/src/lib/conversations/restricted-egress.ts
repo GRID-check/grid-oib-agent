@@ -1,6 +1,6 @@
 /**
  * What may leave a conversation that drew on a folder with restricted access
- * (ADR-0084, ADR-0085).
+ * (ADR-0086, ADR-0087).
  *
  * Product rule: restricted-folder content must not reach colleagues not cleared
  * for that folder. Sharing such a conversation is decided per person
@@ -18,7 +18,15 @@
  *     rewriting a draft's content): allowed only into a folder restricted at
  *     least as narrowly, see {@link requireMayFileFrom};
  *   * a revision task opened from a draft in a restricted folder, whatever its
- *     conversation, see {@link folderRestrictsReading}.
+ *     conversation, see {@link folderRestrictsReading};
+ *   * a run's Unterlagen (`commissionResearchRun`, `addRunDocument`): a
+ *     document's name and title are written into the run's plan and job stream
+ *     and its report's „Nicht gelesene Unterlagen", which every member of the
+ *     project reads (ADR-0084 lets every `project:chat` member read and steer
+ *     every run of the project). A document from a folder not every member may
+ *     read is refused there, whoever names it; see {@link requirePlanDocumentsOpen}.
+ *     This door is about the DOCUMENT, not the conversation: a cleared member
+ *     can pick one from their own inventory in an open thread.
  *
  * ## Which conversations
  *
@@ -41,6 +49,9 @@ import { getDictionary } from '@/i18n/dictionaries'
 import type { Locale } from '@/i18n/config'
 import { folderTree, readableByEveryMember } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
+import { internalRead } from '@/lib/documents/document-reader'
+import { findProjectDocumentsByFilenames } from '@/lib/documents/repository'
+import type { PlanDocument } from '@/lib/runs/plan-documents'
 import { recordedRestrictedFolders } from './restricted-use'
 
 export type ConfinedAction = ConversationConfinedError['action']
@@ -79,7 +90,7 @@ async function originFolders(origin: ConversationOrigin, organizationId: string)
 export async function requireMayLeaveConversation(
   origin: ConversationOrigin,
   organizationId: string,
-  action: Exclude<ConfinedAction, 'filing'>
+  action: Exclude<ConfinedAction, 'filing' | 'planDocument'>
 ): Promise<void> {
   if ((await originFolders(origin, organizationId)).length > 0) throw confinementRefusal(action, origin.locale)
 }
@@ -141,4 +152,48 @@ export async function folderRestrictsReading(
   if (projectId === null || folderId === null) return false
   const tree = folderTree(await listProjectFolderTree(organizationId, projectId))
   return !readableByEveryMember(tree, folderId)
+}
+
+/** The Archiv is the organization's shelf: every member reads it, and no project folder restricts it. */
+const ARCHIV_SHELF = 'archiv'
+
+/**
+ * Refuse a run's Unterlagen when one of them is a project document filed in a
+ * folder not every member of the project may read.
+ *
+ * A plan document is a file name (ADR-0047) with a title beside it, and both
+ * are shown to the whole project: in the run's plan, in its job stream (the
+ * `job.document_added` event), and in the report's „Nicht gelesene
+ * Unterlagen", because the run's scope holds no restricted collection and
+ * cannot read the file. So the name is resolved against every document of the
+ * project, restricted folders included and archived rows too, and refused when
+ * any row by that name sits in such a folder. Names are not unique across
+ * folders: a name that also exists in an open folder is refused as well, the
+ * safe reading. An Archiv entry needs no check. A name the project does not
+ * hold passes: there is nothing to leak.
+ *
+ * Refused, never dropped: the reader picked the document on purpose, and a
+ * silent drop would leave them believing the run reads it.
+ */
+export async function requirePlanDocumentsOpen(
+  organizationId: string,
+  projectId: string,
+  documents: readonly PlanDocument[],
+  locale: Locale
+): Promise<void> {
+  const names = documents.filter((document) => document.shelf !== ARCHIV_SHELF).map((document) => document.name)
+  if (names.length === 0) return
+  const folders = await listProjectFolderTree(organizationId, projectId)
+  // No folder has its own list, so every folder is read by every member.
+  if (!folders.some((folder) => folder.accessMode === 'custom')) return
+  const tree = folderTree(folders)
+  // Every row by that name, held ones included (ADR-0083): the answer is only
+  // ever a refusal, and a held file in a restricted folder is still there.
+  const rows = await findProjectDocumentsByFilenames(projectId, organizationId, names, {
+    includeArchived: true,
+    reader: internalRead('identity'),
+  })
+  if (rows.some((row) => row.folderId !== null && !readableByEveryMember(tree, row.folderId))) {
+    throw confinementRefusal('planDocument', locale)
+  }
 }

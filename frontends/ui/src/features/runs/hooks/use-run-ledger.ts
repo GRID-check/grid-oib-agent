@@ -64,7 +64,7 @@ import type { ChatMessage } from '@/features/chat/types'
 import { useChatStore } from '@/features/chat/store'
 import { sanitizeRunLedger } from '@/lib/runs/run-ledger'
 import { isTerminalRunStatus, type RunLedger } from '@/lib/runs/run-ledger-types'
-import { addRunDocument, cancelRun, fetchRunView, writeNowRun } from '@/lib/runs/run-view-client'
+import { addRunDocument, cancelRun, fetchRunView, RunViewError, writeNowRun } from '@/lib/runs/run-view-client'
 import type { PlanDocument } from '@/lib/runs/plan-documents'
 import { runDisplayStatus } from '@/lib/runs/run-vocabulary'
 
@@ -116,7 +116,27 @@ export interface UseRunLedgerResult {
    * the run's own stream; the view the request answers is taken as a snapshot.
    */
   addDocument: ((doc: PlanDocument) => Promise<void>) | null
+  /**
+   * Why the last addition did not take, until the next one is tried; `null`
+   * when it took or none was tried. The block shows it where the add was
+   * pressed, so a refused add never looks like one that is merely slow.
+   */
+  addDocumentFailure: AddDocumentFailure | null
 }
+
+/**
+ * A failed „Unterlage hinzufügen". `message` is the API's own sentence when it
+ * is one written for the reader (a document from a restricted folder, 403
+ * `CONVERSATION_CONFINED`, already in their language); `null` for any other
+ * failure, which the block words itself.
+ */
+export interface AddDocumentFailure {
+  message: string | null
+}
+
+const failureOf = (error: unknown): AddDocumentFailure => ({
+  message: error instanceof RunViewError && error.code === 'CONVERSATION_CONFINED' ? error.message : null,
+})
 
 /**
  * `candidate` only when it is strictly NEWER than what is shown.
@@ -190,6 +210,9 @@ export function useRunLedger({
 
         client = createDeepResearchClient({
           jobId: view.backendJobId,
+          // The run's project, signed by the proxy, is what opens a run somebody
+          // else commissioned to this reader (ADR-0084).
+          projectId,
           callbacks: {
             onLedger: (payload) => {
               const next = sanitizeRunLedger(payload)
@@ -259,14 +282,18 @@ export function useRunLedger({
     }
   }, [runId, projectId])
 
+  const [addDocumentFailure, setAddDocumentFailure] = useState<AddDocumentFailure | null>(null)
   const addDocument = useCallback(
     async (doc: PlanDocument): Promise<void> => {
       if (!runId || !projectId) return
+      setAddDocumentFailure(null)
       try {
         const view = await addRunDocument(projectId, runId, doc)
         if (view.ledger) setLedger((current) => notOlder(current, view.ledger as RunLedger))
-      } catch {
-        // Fail-open, like the cancel: the run goes on and the person can try again.
+      } catch (error) {
+        // The run goes on either way; the person is told the document did not
+        // reach it, and why when the API said why.
+        setAddDocumentFailure(failureOf(error))
       }
     },
     [runId, projectId]
@@ -280,5 +307,6 @@ export function useRunLedger({
     cancel: terminal || !runId || !projectId ? null : cancel,
     writeNow: terminal || !runId || !projectId ? null : writeNow,
     addDocument: terminal || !runId || !projectId ? null : addDocument,
+    addDocumentFailure,
   }
 }

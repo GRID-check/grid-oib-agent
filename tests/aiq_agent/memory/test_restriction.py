@@ -1,4 +1,4 @@
-"""The one decision about which restricted folders a memory depends on (ADR-0084).
+"""The one decision about which restricted folders a memory depends on (ADR-0086).
 
 ``restriction_decisions`` (``decide_restrictions`` plus the judge's verdict) is
 called by the ``remember`` tool and by the reflection stage. These tests drive
@@ -281,7 +281,7 @@ class TestRestrictedMemoryInThePrompt:
 
 
 class TestACopyOfARestrictedNoteIsRestrictedWithoutAsking:
-    """ADR-0084: a verbatim copy of a restricted digest line is that line, whatever the judge says."""
+    """ADR-0086: a verbatim copy of a restricted digest line is that line, whatever the judge says."""
 
     _NOTE = "Honorar für die Tragwerksplanung: 48.000 € netto, mit Büro Müller vereinbart."
 
@@ -337,7 +337,7 @@ class TestACopyOfARestrictedNoteIsRestrictedWithoutAsking:
 
 
 class TestRestrictedNotesEarlierTurnsWereShown:
-    """ADR-0084: a restricted note that left the digest is still evidence in a later turn."""
+    """ADR-0086: a restricted note that left the digest is still evidence in a later turn."""
 
     _EARLIER = R.RestrictedNote("Gehalt Bauleitung: 5.200 € brutto.", (PERSONNEL,))
 

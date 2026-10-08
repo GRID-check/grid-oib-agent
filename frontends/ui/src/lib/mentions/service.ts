@@ -393,7 +393,7 @@ async function inviteMentionTarget(
     if (reason === MENTION_ERROR_REASONS.containerAccessRequired) {
       throw containerAccessRefusal(targetId)
     }
-    // Not cleared for a restricted folder the thread drew on (ADR-0084): the
+    // Not cleared for a restricted folder the thread drew on (ADR-0086): the
     // same refusal, told about the person it names, as the container one is.
     if (reason === SHARING_ERROR_REASONS.restrictedContent && error instanceof ApiError) {
       throw new ApiError(error.status, error.code, error.message, { ...asRecord(error.details), targetId })
@@ -741,7 +741,7 @@ export async function listShareCandidates(
 
 /**
  * Who among the people an owner could invite cannot read what the resource was
- * drawn from (ADR-0085): for a conversation that recorded a folder, the people
+ * drawn from (ADR-0087): for a conversation that recorded a folder, the people
  * whose roles do not reach every one of them now. Only the people the grant
  * could otherwise succeed for are asked about: reachable ones not yet in the
  * room, so the question is as small as the answer is useful. Null for a type

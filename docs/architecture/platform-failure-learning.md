@@ -136,19 +136,19 @@ which is a deliberate second gate: the injectable/visible layer is safe by
 construction, and crossing back to raw is a privileged act.
 
 Before any of them, a down-vote on a conversation that drew on a folder with
-restricted access (any `conversation_restricted_folders` row, ADR-0084) is
+restricted access (any `conversation_restricted_folders` row, ADR-0086) is
 never read: its question and answer may quote a folder some of the tenant's
 own members may not read, and a lesson reaches every tenant. Deleting the chat
 deletes that record but not the vote, so the delete marks the vote
-`restricted_source` (migration 0119) and the filter reads both; a vote whose
-chat was deleted before 0119 cannot be told apart. What a sweep took
-from one before that rule, migration 0118 withdrew once: the report's
+`restricted_source` (migration 0120) and the filter reads both; a vote whose
+chat was deleted before 0120 cannot be told apart. What a sweep took
+from one before that rule, migration 0119 withdrew once: the report's
 `canonical_summary` is cleared, and a lesson created from it loses its text
 and is retired (`restricted_source`). A lesson the report was only linked to
 keeps its text, since none of it came from there. An `edited` event's
 `previousContent` stays in the trail, which is append-only. The injection
 digest's cache key moved to `platformlessons:digest:v2` with it, so a digest
-cached before 0118 ran is not injected for the rest of its five minutes.
+cached before 0119 ran is not injected for the rest of its five minutes.
 
 Four defence layers, none trusted alone: deterministic scrub → instructed
 omission (the distiller writes the failure class, not the instance) → auditor

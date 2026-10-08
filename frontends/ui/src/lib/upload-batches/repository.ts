@@ -1,5 +1,5 @@
 /**
- * SQL for upload batches (migration 0108). Every function names its
+ * SQL for upload batches (migration 0109). Every function names its
  * organization and runs inside `withTenant`, except the sweep's discovery,
  * which is cross-tenant by design and says so where it is called.
  */
@@ -107,6 +107,33 @@ export async function completeSettledBatches(
         )
       )
       .returning()
+  )
+}
+
+/**
+ * Undo a completion whose uploader could not be told (`settleUploadBatches`),
+ * so the batch is open again and the next settle, or the sweep, completes it
+ * and tells them. Guarded on the completion time that call wrote: it reopens
+ * only what it completed itself.
+ */
+export async function reopenCompletedBatches(
+  organizationId: string,
+  batchIds: readonly string[],
+  completedAt: Date
+): Promise<void> {
+  if (batchIds.length === 0) return
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(uploadBatches)
+      .set({ completedAt: null })
+      .where(
+        and(
+          inArray(uploadBatches.id, [...batchIds]),
+          eq(uploadBatches.organizationId, organizationId),
+          eq(uploadBatches.completedAt, completedAt)
+        )
+      )
   )
 }
 

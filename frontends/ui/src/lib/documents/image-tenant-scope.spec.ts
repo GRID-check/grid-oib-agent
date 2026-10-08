@@ -106,7 +106,7 @@ vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:800
 vi.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: vi.fn() }))
 vi.mock('@/lib/documents/vlm-capability', () => ({ isVlmConfigured: vi.fn() }))
 vi.mock('./reconcile-status', () => ({ reconcileDocumentStatuses: vi.fn() }))
-// What a row that came to rest sets off (ADR-0083) is off this path, and its
+// What a row that came to rest sets off (ADR-0085) is off this path, and its
 // module graph reaches the inbox and the sharing registry, which reads schema
 // table objects the narrow double above does not provide. Same reason as the
 // lifecycle mock.
@@ -138,6 +138,7 @@ vi.mock('@/lib/images/signed-image-url', () => ({
     claims: { organizationId: 'org-from-signature', userId: 'user-from-signature', documentId: 'doc-1', variant: 'original', exp: 0 },
   }),
   buildDocumentImageUrl: () => null,
+  DOCUMENT_IMAGE_CACHE_CONTROL: 'private, max-age=300',
 }))
 
 import { getTenantContext, runWithTenantSlot } from '@/lib/db/tenant-context'

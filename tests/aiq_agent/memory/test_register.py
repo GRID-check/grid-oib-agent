@@ -123,14 +123,17 @@ async def test_org_deny_without_card_registry_falls_back_to_error(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_generic_org_failure_emits_confirmation_card(monkeypatch):
-    # A generic write failure on an ORG-scoped write also offers the card.
+@pytest.mark.parametrize("failure", [RuntimeError("500 from the BFF"), TimeoutError("timed out")])
+async def test_an_org_write_that_failed_otherwise_offers_no_card(monkeypatch, failure):
+    # Only the refusal offers the card. The BFF audits the memory judge's
+    # verdict before it refuses; a 500 or a timeout reached no audit, and a card
+    # accepted then would write open memory whose verdict the trail never saw.
     from aiq_agent.cards.registry import CardRegistry
     from aiq_agent.cards.registry import reset_card_registry
     from aiq_agent.cards.registry import set_card_registry
 
     _patch_context(monkeypatch)
-    insert = MagicMock(side_effect=RuntimeError("boom"))
+    insert = MagicMock(side_effect=failure)
 
     reg = CardRegistry()
     token = set_card_registry(reg)
@@ -139,8 +142,9 @@ async def test_generic_org_failure_emits_confirmation_card(monkeypatch):
     finally:
         reset_card_registry(token)
 
-    assert "NOT been saved yet" in result
-    assert [c["type"] for c in reg.snapshot()] == ["memory_proposal"]
+    assert "NOT saved" in result
+    assert "NOT been saved yet" not in result
+    assert reg.snapshot() == []
 
 
 @pytest.mark.asyncio
@@ -304,7 +308,7 @@ class TestToolVocabulary:
                 info.input_schema(kind="decision", content="x", scope="global")
 
 
-# ADR-0084: a turn whose scope holds a restricted folder's collection still
+# ADR-0086: a turn whose scope holds a restricted folder's collection still
 # remembers; what it writes is restricted memory, never organization memory, and
 # never a confirmation card (an accepted card is an open write by another door).
 _RESTRICTED = "proj_abc_r0123456789ab"
@@ -459,7 +463,7 @@ async def test_an_open_scope_still_records(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_restricted_note_an_earlier_turn_was_shown_still_restricts(monkeypatch):
-    """ADR-0084: the note is gone from this turn's digest and no restricted row is
+    """ADR-0086: the note is gone from this turn's digest and no restricted row is
     listable; what earlier turns were shown (bound by `turn_registries`) is still
     evidence, and a copy of it is restricted to the note's own collection."""
     from aiq_agent.memory.restriction import RestrictedNote

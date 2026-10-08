@@ -176,6 +176,12 @@ export interface RunBlockProps {
    */
   onAddDocument?: (() => void) | null
   /**
+   * Why the last „Unterlage hinzufügen" did not take, worded for the reader;
+   * shown under the status line, where the add was pressed. Absent or null
+   * when it took.
+   */
+  addDocumentFailure?: string | null
+  /**
    * Open one Grundlage document from the receipt — as a dialog over the thread.
    * Absent, the receipt names the document and nothing opens.
    */
@@ -530,6 +536,7 @@ export function RunBlock({
   onCancel,
   onWriteNow,
   onAddDocument,
+  addDocumentFailure,
   onOpenDocument,
   onContinue,
   connection,
@@ -696,7 +703,7 @@ export function RunBlock({
 
   const receipt = grundlageReceipt(ledger)
 
-  // A closed project commissions nothing (ADR-0086): say so where „Bericht fortschreiben“ would be.
+  // A closed project commissions nothing (ADR-0088): say so where „Bericht fortschreiben“ would be.
   const closedProject = useCurrentProject()?.status === 'closed'
   const carryForward: ReactNode =
     closedProject && (status === 'fertig' || status === 'unterbrochen') ? (
@@ -869,6 +876,20 @@ export function RunBlock({
               </motion.span>
             </AnimatePresence>
           </p>
+
+          {/* A refused or failed „Unterlage hinzufügen", where it was pressed:
+              the picker has closed, and a document that silently never reached
+              the run reads as one the run is about to read. */}
+          {addDocumentFailure && (
+            <p
+              className="text-error flex items-start gap-1.5 text-[11px] leading-[1.5]"
+              role="alert"
+              data-testid="run-add-document-failure"
+            >
+              <XCircle className="mt-0.5 size-3 shrink-0" aria-hidden />
+              <span>{addDocumentFailure}</span>
+            </p>
+          )}
         </div>
 
         {/* The body grows out of the stand — height plus opacity, a

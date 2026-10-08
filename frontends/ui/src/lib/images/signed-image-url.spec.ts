@@ -33,7 +33,7 @@ describe('signed document image URLs', () => {
 
   it('mints a root-relative path — the optimizer only treats those as local', () => {
     withSecret()
-    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)
+    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })
 
     expect(url).not.toBeNull()
     expect(url!.startsWith('/api/documents/')).toBe(true)
@@ -42,20 +42,20 @@ describe('signed document image URLs', () => {
 
   it('round-trips a freshly minted URL', () => {
     withSecret()
-    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)!
+    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })!
 
     const result = verifyDocumentImageUrl(DOC, paramsOf(url), NOW)
 
     expect(result).toEqual({
       ok: true,
-      claims: { organizationId: ORG, userId: USER, documentId: DOC, variant: 'original', exp: imageUrlExpiry(NOW) },
+      claims: { organizationId: ORG, userId: USER, documentId: DOC, variant: 'original', quarantine: false, exp: imageUrlExpiry(NOW) },
     })
   })
 
   it('gives one person the SAME url throughout a window, so the optimizer cache can hit', () => {
     withSecret()
-    const early = buildDocumentImageUrl(ORG, USER, DOC, 'thumb', NOW)
-    const later = buildDocumentImageUrl(ORG, USER, DOC, 'thumb', NOW + 2_000)
+    const early = buildDocumentImageUrl(ORG, USER, DOC, 'thumb', { nowMs: NOW })
+    const later = buildDocumentImageUrl(ORG, USER, DOC, 'thumb', { nowMs: NOW + 2_000 })
 
     expect(early).toEqual(later)
   })
@@ -65,7 +65,7 @@ describe('signed document image URLs', () => {
     // Minted in the last second of a window — the naive "now + window" would
     // leave this token ~0s of life and break the image it was just issued for.
     const endOfWindow = Math.ceil(NOW / 1000 / IMAGE_URL_WINDOW_SECONDS) * IMAGE_URL_WINDOW_SECONDS * 1000 - 1000
-    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', endOfWindow)!
+    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: endOfWindow })!
 
     const remainingSeconds = imageUrlExpiry(endOfWindow) - endOfWindow / 1000
 
@@ -75,7 +75,7 @@ describe('signed document image URLs', () => {
 
   it('rejects the token once its expiry passes', () => {
     withSecret()
-    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)!
+    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })!
     const exp = imageUrlExpiry(NOW)
 
     expect(verifyDocumentImageUrl(DOC, paramsOf(url), exp * 1000)).toEqual({
@@ -86,7 +86,7 @@ describe('signed document image URLs', () => {
 
   it('will not let a token be walked onto another document', () => {
     withSecret()
-    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)!
+    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })!
 
     expect(verifyDocumentImageUrl('doc-2', paramsOf(url), NOW)).toEqual({
       ok: false,
@@ -96,7 +96,7 @@ describe('signed document image URLs', () => {
 
   it('will not let a token be re-addressed to another person', () => {
     withSecret()
-    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)!
+    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })!
     const params = paramsOf(url)
     params.set('u', 'user_01SOMEONE_WITH_ACCESS')
 
@@ -105,8 +105,8 @@ describe('signed document image URLs', () => {
 
   it('gives two people two urls, so a person is never answered for with another’s claim', () => {
     withSecret()
-    expect(buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)).not.toEqual(
-      buildDocumentImageUrl(ORG, 'user_01OTHER', DOC, 'original', NOW)
+    expect(buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })).not.toEqual(
+      buildDocumentImageUrl(ORG, 'user_01OTHER', DOC, 'original', { nowMs: NOW })
     )
   })
 
@@ -116,7 +116,7 @@ describe('signed document image URLs', () => {
 
   it('will not let a token be walked onto another tenant', () => {
     withSecret()
-    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)!
+    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })!
     const params = paramsOf(url)
     params.set('org', 'org_01OTHER')
 
@@ -125,16 +125,37 @@ describe('signed document image URLs', () => {
 
   it('will not let a thumbnail token be escalated to the full-size original', () => {
     withSecret()
-    const url = buildDocumentImageUrl(ORG, USER, DOC, 'thumb', NOW)!
+    const url = buildDocumentImageUrl(ORG, USER, DOC, 'thumb', { nowMs: NOW })!
     const params = paramsOf(url)
     params.set('v', 'original')
 
     expect(verifyDocumentImageUrl(DOC, params, NOW)).toEqual({ ok: false, reason: 'bad-signature' })
   })
 
+  // The grant is what lets a reviewer's preview stream a quarantined row
+  // (ADR-0085), so a member's token must not pick it up by editing the query.
+  it('will not let a token claim the quarantine grant it was not minted with', () => {
+    withSecret()
+    const params = paramsOf(buildDocumentImageUrl(ORG, USER, DOC, 'thumb', { nowMs: NOW })!)
+    params.set('q', '1')
+
+    expect(verifyDocumentImageUrl(DOC, params, NOW)).toEqual({ ok: false, reason: 'bad-signature' })
+  })
+
+  it('carries the quarantine grant it was minted with, and binds it', () => {
+    withSecret()
+    const params = paramsOf(buildDocumentImageUrl(ORG, USER, DOC, 'thumb', { quarantine: true, nowMs: NOW })!)
+
+    expect(verifyDocumentImageUrl(DOC, params, NOW)).toMatchObject({ ok: true, claims: { quarantine: true } })
+    params.delete('q')
+    expect(verifyDocumentImageUrl(DOC, params, NOW)).toEqual({ ok: false, reason: 'bad-signature' })
+    params.set('q', 'yes')
+    expect(verifyDocumentImageUrl(DOC, params, NOW)).toEqual({ ok: false, reason: 'malformed' })
+  })
+
   it('will not let the expiry be extended without resigning', () => {
     withSecret()
-    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)!
+    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })!
     const params = paramsOf(url)
     params.set('exp', String(imageUrlExpiry(NOW) + 86_400))
 
@@ -143,7 +164,7 @@ describe('signed document image URLs', () => {
 
   it('does not verify a token signed with a different secret', () => {
     withSecret('secret-a')
-    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)!
+    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })!
 
     withSecret('secret-b')
 
@@ -155,7 +176,7 @@ describe('signed document image URLs', () => {
 
   it('rejects a malformed variant rather than treating it as a default', () => {
     withSecret()
-    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)!
+    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })!
     const params = paramsOf(url)
     params.set('v', 'source')
 
@@ -165,7 +186,7 @@ describe('signed document image URLs', () => {
   it('is disabled, not open, when no secret is configured', () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', '')
 
-    expect(buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)).toBeNull()
+    expect(buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })).toBeNull()
     expect(verifyDocumentImageUrl(DOC, new URLSearchParams(), NOW)).toEqual({
       ok: false,
       reason: 'disabled',
@@ -178,7 +199,7 @@ describe('signed document image URLs', () => {
 
     // Anyone who read the compose file could otherwise mint a URL for any
     // document in any tenant.
-    expect(buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)).toBeNull()
+    expect(buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })).toBeNull()
   })
 
   it('says so in the log when signing is disabled, instead of degrading silently', () => {
@@ -189,13 +210,13 @@ describe('signed document image URLs', () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', '')
 
-    buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)
+    buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })
 
     expect(logged).toHaveBeenCalledWith(expect.stringContaining('DISABLED'))
     expect(logged).toHaveBeenCalledWith(expect.stringContaining('GRID_INTERNAL_API_TOKEN'))
 
     // Once, not once per image on the page.
-    buildDocumentImageUrl(ORG, USER, 'doc-2', 'original', NOW)
+    buildDocumentImageUrl(ORG, USER, 'doc-2', 'original', { nowMs: NOW })
     expect(logged).toHaveBeenCalledTimes(1)
 
     logged.mockRestore()
@@ -206,7 +227,7 @@ describe('signed document image URLs', () => {
     withSecret('grid-internal-dev-token')
     vi.stubEnv('APP_ENV', 'production')
 
-    buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)
+    buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })
 
     expect(logged).toHaveBeenCalledWith(expect.stringContaining('well-known dev default'))
 
@@ -217,7 +238,7 @@ describe('signed document image URLs', () => {
     withSecret('grid-internal-dev-token')
     vi.stubEnv('APP_ENV', 'development')
 
-    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', NOW)
+    const url = buildDocumentImageUrl(ORG, USER, DOC, 'original', { nowMs: NOW })
 
     expect(url).not.toBeNull()
     expect(verifyDocumentImageUrl(DOC, paramsOf(url!), NOW).ok).toBe(true)

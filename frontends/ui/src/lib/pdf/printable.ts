@@ -114,16 +114,16 @@ const SUBSTITUTIONS: Record<string, string> = {
   '☑': '[x]',
   '☐': '[ ]',
   // Spaces that are not the space: thin, hair, narrow no-break, figure.
-  ' ': ' ',
-  ' ': ' ',
-  ' ': ' ',
-  ' ': ' ',
-  ' ': ' ',
+  '\u2007': ' ',
+  '\u2008': ' ',
+  '\u2009': ' ',
+  '\u200A': ' ',
+  '\u202F': ' ',
   // Zero-width joiners and marks, which have no width to lose.
-  '​': '',
-  '‌': '',
-  '‍': '',
-  '﻿': '',
+  '\u200B': '',
+  '\u200C': '',
+  '\u200D': '',
+  '\uFEFF': '',
   // Non-breaking and figure hyphens.
   '‑': '-',
   '‒': '-',
@@ -150,7 +150,7 @@ const decompose = (character: string): string => {
 
 /** Cheap check, so a document of ordinary German prose is not rewritten at all. */
 // eslint-disable-next-line no-control-regex
-const ALL_PRINTABLE = /^[\t\n -~ -ÿ€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]*$/
+const ALL_PRINTABLE = /^[\t\n -~\u00A0-ÿ€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]*$/
 
 /**
  * One string, in characters the document's faces can draw.

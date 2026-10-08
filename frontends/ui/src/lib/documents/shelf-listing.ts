@@ -30,7 +30,7 @@ export type ListedDocument = Omit<DocumentListRow, 'metadata' | 'createdBy' | 's
   DocumentMetadata & {
     assignees: AssignedPerson[]
     /**
-     * When a folder this report was drawn from was purged (ADR-0085): the
+     * When a folder this report was drawn from was purged (ADR-0087): the
      * purge marks a filed report it finds (`metadata.sourceDeleted`), and the
      * listing shows „Quelle gelöscht am …". Null for every other document.
      */

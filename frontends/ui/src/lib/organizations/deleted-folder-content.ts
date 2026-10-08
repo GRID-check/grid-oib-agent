@@ -1,5 +1,5 @@
 /**
- * Organisation → Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0085):
+ * Organisation → Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0087):
  * who sees chats, answers and notes drawn from a folder once its purge has
  * run. The read half; the write is `./deleted-folder-content-service.ts`.
  *

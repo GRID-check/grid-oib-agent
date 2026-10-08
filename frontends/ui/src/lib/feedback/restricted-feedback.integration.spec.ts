@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * Votes on a conversation that drew on a restricted folder stay out of every
- * cross-tenant reader of answer feedback (ADR-0084, ADR-0085), against a REAL
+ * cross-tenant reader of answer feedback (ADR-0086, ADR-0087), against a REAL
  * Postgres through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -18,7 +18,7 @@
  *     is injected into every organization's turns.
  * The aggregates still count the vote: a count quotes nothing. The vote stays
  * out after its chat is deleted, which takes the record with it but not the
- * vote (migration 0119).
+ * vote (migration 0120).
  */
 
 import { sql } from 'drizzle-orm'

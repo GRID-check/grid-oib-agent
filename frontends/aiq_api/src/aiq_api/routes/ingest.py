@@ -223,7 +223,7 @@ def _dispatch_key(request: IngestRequest) -> str | None:
     Not the document alone: a re-upload keeps the document id and writes its
     bytes under a new key (ADR-0054), and must be indexed even while the
     previous version's job still runs. Not without the collection: a document
-    moved across a folder restriction (ADR-0084) is dispatched again with the
+    moved across a folder restriction (ADR-0086) is dispatched again with the
     same id and object into its new collection, and joining a live job still
     writing into the old one would index nothing where it now belongs. The
     object path is the presigned URL without its query, so the signature, which

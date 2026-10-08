@@ -1,5 +1,5 @@
 /**
- * Setting who may read and who may write a project folder (ADR-0085).
+ * Setting who may read and who may write a project folder (ADR-0087).
  *
  * A folder inherits its parent's access, or has its own list: WorkOS roles
  * (and `*`, every project member), each with `read` or `write`. Nesting only
@@ -49,7 +49,7 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { placeProjectDocuments, type PlacementResult } from './collection-placement'
 import { assertRestrictionKeepsIfcOpen } from './ifc-folder-guard'
 
-/** Most entries one folder's own list may hold; mirrors the 0109 constraint trigger. */
+/** Most entries one folder's own list may hold; mirrors the 0110 constraint trigger. */
 export const FOLDER_ACCESS_MAX_GRANTS = 20
 
 /** A folder's access, as it is set. */
@@ -100,7 +100,7 @@ export interface FolderWithoutValidRole {
 }
 
 /**
- * The project's folders left without a valid role (ADR-0085): their own list
+ * The project's folders left without a valid role (ADR-0087): their own list
  * names only roles deleted from the organization since, so organization admins
  * are the only ones who read them. For the project settings to flag, with a
  * link to each.
@@ -155,12 +155,12 @@ export async function setFolderAccess(
 
   const grants = input.access.mode === 'custom' ? await validatedGrants(session.organizationId, input.access.grants) : null
   // Folders not every member may read do not hold IFC models until their
-  // building data is partitioned (ADR-0084): refused before anything changes.
+  // building data is partitioned (ADR-0086): refused before anything changes.
   await assertRestrictionKeepsIfcOpen(session.organizationId, input.projectId, input.folderId, grants)
 
   const db = getDb()
   const updated = await withTenant({ organizationId: session.organizationId }, () =>
-    // One transaction: the 0109 trigger checks at commit that a custom list is
+    // One transaction: the 0110 trigger checks at commit that a custom list is
     // never empty, so the old list may go before the new one arrives.
     db.transaction(async (tx) => {
       await tx.delete(projectFolderGrants).where(eq(projectFolderGrants.folderId, input.folderId))

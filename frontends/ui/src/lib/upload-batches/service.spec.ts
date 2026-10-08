@@ -211,7 +211,7 @@ describe('getUploadSummary', () => {
     expect(summary.documents[3]?.errorMessage).toContain('pdf_pages_unreadable')
   })
 
-  it('leaves out what was filed in a folder the uploader may no longer see (ADR-0084)', async () => {
+  it('leaves out what was filed in a folder the uploader may no longer see (ADR-0086)', async () => {
     vi.mocked(listBatchDocuments).mockResolvedValue([
       makeDocument({ id: 'open', filename: 'EG.pdf', folderId: 'f-open' }),
       makeDocument({ id: 'hidden', filename: 'Honorar.pdf', folderId: 'f-hidden' }),
@@ -333,7 +333,7 @@ describe('listProjectUploadHistory', () => {
     expect(entry).toMatchObject({ excludedCount: 2, unchangedCount: 1, counts: { ready: 2, quarantined: 1, reading: 0 } })
   })
 
-  it('counts nothing filed in a folder hidden from the reader, as the document listing leaves it out (ADR-0084)', async () => {
+  it('counts nothing filed in a folder hidden from the reader, as the document listing leaves it out (ADR-0086)', async () => {
     const OTHER = '1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f'
     vi.mocked(loadCustomFolderTree).mockResolvedValue([inherit('f-open'), gfOnly('f-hidden')])
     vi.mocked(listProjectUploadBatchPage).mockResolvedValue({
@@ -446,6 +446,45 @@ describe('listProjectUploadHistory', () => {
     } = await listProjectUploadHistory(session, 'proj-1')
 
     expect(entry).toMatchObject({ expectedCount: 4, unchangedCount: 0, failedCount: 0, excludedCount: 0 })
+  })
+
+  it.each<[string, AccessFolder]>([
+    ['a purged folder whose content is for admins', gfOnly('f-gone', { deleted: true, purgedAt: new Date(), purgedContent: 'admins' })],
+    ['a purged folder removed with its content', { ...inherit('f-gone'), deleted: true, purgedAt: new Date(), purgedContent: 'remove' }],
+  ])('passes the batch through when the only folder closed to the reader is %s', async (_label, closed) => {
+    vi.mocked(loadCustomFolderTree).mockResolvedValue([inherit('f-open'), closed])
+    vi.mocked(listProjectUploadBatchPage).mockResolvedValue({
+      batches: [
+        batch({ expectedCount: 9, unchangedCount: 3, failedCount: 1 }),
+        batch({ id: '3e4f5a6b-7c8d-4e9f-8a0b-1c2d3e4f5a6b', expectedCount: 2, unchangedCount: 2, excluded: [] }),
+      ],
+      nextCursor: null,
+    })
+    // The purge erased the folder's documents before it marked the folder.
+    vi.mocked(countBatchDocumentsByStatus).mockResolvedValue([{ batchId: BATCH_ID, status: 'completed', count: 4 }])
+
+    const { uploads: entries } = await listProjectUploadHistory(session, 'proj-1')
+
+    expect(entries).toHaveLength(2)
+    expect(entries[0]).toMatchObject({ expectedCount: 9, unchangedCount: 3, failedCount: 1, excludedCount: 2, counts: { ready: 4 } })
+    expect(entries[1]).toMatchObject({ expectedCount: 2, unchangedCount: 2 })
+  })
+
+  it('withholds an upload into a closed folder that is still empty, its first file in flight or failed', async () => {
+    // The batch is opened with its announced total before any file is sent,
+    // and a document row is written only when a file lands: until then the
+    // closed folder holds nothing. Listing the upload now and dropping it once
+    // the file lands would tell the reader who filed how much there, and when.
+    vi.mocked(loadCustomFolderTree).mockResolvedValue([inherit('f-open'), gfOnly('f-lohn')])
+    vi.mocked(listProjectUploadBatchPage).mockResolvedValue({
+      batches: [batch({ expectedCount: 12, unchangedCount: 0, failedCount: 1, excluded: [] })],
+      nextCursor: null,
+    })
+    vi.mocked(countBatchDocumentsByStatus).mockResolvedValue([])
+
+    const { uploads } = await listProjectUploadHistory(session, 'proj-1')
+
+    expect(uploads).toEqual([])
   })
 
   it('pages: reads from the cursor it is given and hands the next one back, opaque', async () => {

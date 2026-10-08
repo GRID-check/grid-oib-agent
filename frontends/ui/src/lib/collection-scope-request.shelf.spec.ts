@@ -66,7 +66,7 @@ function shelfOf(payload: ScopedCollection[], collection: string): string | unde
 beforeEach(() => {
   process.env.REQUIRE_AUTH = 'true'
   process.env.BASE_COLLECTION_NAME = 'oib_knowledge'
-  vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' } as never)
+  vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor', closed: false, readsBecauseClosed: false })
   vi.mocked(findConversationTenancy).mockResolvedValue(null)
   vi.mocked(findProjectCollectionName).mockResolvedValue(null)
   vi.mocked(findUserPreferencesForSession).mockResolvedValue(null)

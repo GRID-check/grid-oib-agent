@@ -11,7 +11,7 @@ Two scopes:
 - ``organization``: cross-cutting knowledge that applies to every project in
   the user's organization (never shared across organizations).
 
-A turn whose scope holds a restricted folder's collection (ADR-0084) still
+A turn whose scope holds a restricted folder's collection (ADR-0086) still
 remembers: :mod:`aiq_agent.memory.restriction` decides which restricted
 collections the finding depends on, and it is stored as restricted memory that
 only people cleared for them are served or shown. Such a finding is never
@@ -147,7 +147,7 @@ def _resolve_target(scope: str, project_id: str | None, organization_id: str | N
 
 
 def _turn_restriction_evidence() -> RestrictionEvidence:
-    """What this turn could have taken from restricted folders (ADR-0084).
+    """What this turn could have taken from restricted folders (ADR-0086).
 
     The scope decides whether the question arises at all: the inventory block
     and ``list_files`` name in-scope documents with their summaries, so a
@@ -229,16 +229,17 @@ def _emit_memory_proposal_card(*, content: str, kind: str, confidence: str) -> b
     return True
 
 
-def _failure_result(
-    exc: Exception, *, scope: str, kind: str, content: str, confidence: str, restricted: bool = False
-) -> str:
+def _failure_result(exc: Exception, *, kind: str, content: str, confidence: str, restricted: bool = False) -> str:
     """Translate a failed write into a tool result, emitting a card when one helps.
 
     An ORG-scoped write the agent's service token may not make is the one
     failure with a sanctioned alternative: a confirmation card lets the user
     complete the write through their OWN authenticated session (org-wide) or
-    save it to just this project. Everything else — and every project-scoped
-    failure — gets an honest error string instead of a dead end.
+    save it to just this project. Only that refusal: the BFF audits the memory
+    judge's verdict before it refuses (``outcome: refused``), and a write that
+    failed otherwise (a 500, a timeout) reached no audit, so a card for it would
+    write open memory whose judge's "none" the trail never saw. Everything else
+    gets an honest error string.
     """
     org_denied = isinstance(exc, memory_client.OrgMemoryDisabledError)
     if org_denied:
@@ -248,11 +249,8 @@ def _failure_result(
 
     # Never a card for a restricted finding: accepting it writes open memory
     # through the user's own session, which is the leak by another door.
-    if (
-        not restricted
-        and (org_denied or scope == "organization")
-        and _emit_memory_proposal_card(content=content, kind=kind, confidence=confidence)
-    ):
+    # `org_denied` is only ever an organization-scoped write.
+    if not restricted and org_denied and _emit_memory_proposal_card(content=content, kind=kind, confidence=confidence):
         return _CARD_SHOWN_RESULT
     return _ORG_DISABLED_RESULT if org_denied else _UNAVAILABLE_RESULT
 
@@ -304,7 +302,7 @@ class ProjectMemoryRememberConfig(FunctionBaseConfig, name="project_memory_remem
         default=None,
         description=(
             "Model that judges whether a finding written in a turn with restricted folders in scope draws "
-            "on a restricted document it did not read (ADR-0084). Resolved like the memory-reflection "
+            "on a restricted document it did not read (ADR-0086). Resolved like the memory-reflection "
             "stage's model (same agent group, org override, BYOK). Unset: such a finding is restricted "
             "to every restricted folder in scope (fail closed)."
         ),
@@ -383,7 +381,7 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
                 # the quote and ignores it when nothing matches or the target is
                 # human-curated, so the write lands either way.
                 supersedes_content=supersedes or None,
-                # ADR-0084: served and shown only to people cleared for all of these.
+                # ADR-0086: served and shown only to people cleared for all of these.
                 restricted_collections=restriction,
                 # Audited by the BFF with the item it was about (AI Act).
                 restriction_judge=decision.judge.as_payload() if decision.judge else None,
@@ -391,7 +389,6 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
         except _WRITE_FAILURES as exc:
             return _failure_result(
                 exc,
-                scope=target.scope,
                 kind=kind,
                 content=content,
                 confidence=confidence,

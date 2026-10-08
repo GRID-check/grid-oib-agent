@@ -40,6 +40,9 @@ def db(request, tmp_path, monkeypatch):
         with _engine(url).begin() as conn:
             for table in ("ingest_job_queue", "ingest_lane_turns", "ingest_jobs"):
                 conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
+        # Another suite in this process may have created them already: the flags say "exists".
+        ingest_queue._initialized.discard(url)
+        ingest_status_store._initialized.discard(url)
     monkeypatch.setenv("AIQ_SUMMARY_DB", url)
     yield url
     ingest_queue._initialized.discard(url)
@@ -526,3 +529,30 @@ def test_claims_and_dead_jobs_are_counted(db, readings):
     assert metrics_now["grid.queue.claim_latency_ms"][0].count == 3
     duration = metrics_now["grid.queue.job_duration_seconds"][0]
     assert (duration.attributes["kind"], duration.sum) == ("ingest", 2.5)
+
+
+def test_queueing_an_id_twice_stores_one_job(db):
+    assert ingest_queue.enqueue("same", "org-a", "first payload") is True
+    assert ingest_queue.enqueue("same", "org-a", "second payload") is False
+
+    claim = ingest_queue.claim_next("w1", **CLAIM)
+    assert (claim.job_id, claim.payload) == ("same", "first payload")
+    assert ingest_queue.claim_next("w2", **CLAIM) is None
+
+
+def test_an_id_the_queue_holds_is_not_stored_again_whatever_its_state(db):
+    ingest_queue.enqueue("claimed", "org-a", "p")
+    ingest_queue.claim_next("w1", **CLAIM)
+    ingest_queue.enqueue("dead", "org-a", "p")
+    ingest_queue.mark_dead("dead", "gave up")
+
+    assert ingest_queue.enqueue("claimed", "org-a", "p") is False
+    assert ingest_queue.enqueue("dead", "org-a", "p") is False
+    assert ingest_queue.counts() == {"queued": 0, "claimed": 1, "dead": 1}
+
+
+def test_an_id_can_be_queued_again_once_its_row_is_forgotten(db):
+    ingest_queue.enqueue("again", None, "p")
+    ingest_queue.mark_done("again")
+
+    assert ingest_queue.enqueue("again", None, "p") is True

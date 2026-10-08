@@ -1,6 +1,6 @@
 /**
  * The sweep that finishes a restriction a backend outage interrupted
- * (ADR-0084).
+ * (ADR-0086).
  *
  * Placement purges a document's chunks from its old collection before it
  * re-points the row. When the purge fails the row stays where it was, and so
@@ -25,6 +25,11 @@
  *
  * Replica-safe: a re-point is guarded on the collection it read, so two sweeps
  * (or a sweep and a person restricting a folder) move a document once.
+ *
+ * What runs here is the purge and the re-point, the part that keeps a
+ * restricted document out of the open collection. The re-read of what it moved
+ * is the project's `placement_reingest` job (bulk, on the `bff-jobs` pool),
+ * which placement queues once per project; the sweep dispatches no ingest.
  */
 
 import 'server-only'

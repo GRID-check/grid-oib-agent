@@ -64,7 +64,7 @@ vi.mock('@/lib/storage/bucket', () => ({
   resolveDocumentBucket: (bucket: string | null) => bucket ?? 'grid-documents',
 }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
-// The upload-screening policy (ADR-0083) the name gate reads: an office on
+// The upload-screening policy (ADR-0085) the name gate reads: an office on
 // Piloti's suggested list. Unreadable settings refuse the upload outright.
 vi.mock('@/lib/organizations/service', () => ({
   getOrgSettings: vi.fn(async () => ({ displayName: null, defaultLocale: 'de', settings: {} })),
@@ -218,7 +218,7 @@ describe('uploadSessionDocument, a file already attached under that name', () =>
 
 // A re-upload keeps the replaced bytes as an earlier version (ADR-0054), so
 // replacing somebody else's quarantined attachment would hand its held-back
-// bytes to the whole chat (ADR-0083).
+// bytes to the whole chat (ADR-0085).
 describe("uploadSessionDocument onto somebody else's quarantined attachment", () => {
   it('is refused like a taken name, and nothing is admitted', async () => {
     vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
@@ -460,7 +460,7 @@ describe('deleteSessionDocument purges the chunks again after the row', () => {
   })
 })
 
-describe('listSessionDocuments and a quarantined attachment (ADR-0083)', () => {
+describe('listSessionDocuments and a quarantined attachment (ADR-0085)', () => {
   beforeEach(() => {
     vi.mocked(listSessionDocumentRows).mockResolvedValue([])
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])

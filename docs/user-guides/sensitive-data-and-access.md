@@ -2,8 +2,8 @@
 
 What an office can keep out of Piloti, what it can keep from some of its own
 people, and how an uploader learns what became of an upload. The decisions
-behind this are ADR-0083 (screening and quarantine), ADR-0084 (folder
-access follows WorkOS roles) and ADR-0085 (read and write per role). Which of
+behind this are ADR-0085 (screening and quarantine), ADR-0086 (folder
+access follows WorkOS roles) and ADR-0087 (read and write per role). Which of
 this is automated, which part is a language model, where a person decides and
 what the audit log records: [Sensitive data and the AI Act](ai-act.md).
 
@@ -58,7 +58,7 @@ What Piloti drops on its own: system files a folder carries along, such as
 The **content terms and number checks** apply to what people type into the chat
 as well; the file-name terms do not. When a message contains one, the composer
 does not send it. It says what it found, for example „Enthält eine IBAN
-(Sensible Daten). Piloti sendet sie nicht an das Modell.", and offers two
+(Sensible Daten). Piloti sendet sie nicht an das Antwortmodell.", and offers two
 choices:
 
 - **Maskiert senden** sends the message with each match replaced, so Piloti
@@ -98,6 +98,12 @@ applies to an open chat once the page is reloaded.
   anfordern"), which the chat that wrote the draft reads;
 - the instruction of a **scheduled task**, and a research job started through
   the API;
+- **voice input** (the microphone in the chat): the recording is transcribed by
+  an external speech model before the check can see any text. The transcript
+  is then checked when you send it, like typed text, so the answering model
+  does not see a match, but the speech model has heard it. On Piloti's own key
+  that model keeps no data; an office on its own key gets that provider's
+  retention policy;
 - anything stored before the list applied to it: older chats, notes and
   comments keep the text they were saved with.
 
@@ -178,7 +184,8 @@ unchanged, transfers that failed and files the screening kept back belong to no
 folder, so they are not counted for you, and an upload with nothing in your
 folders is not listed. A folder in the Papierkorb is hidden from everyone, so
 its files are not counted, but it closes nothing to you as long as you could
-open it: the upload's other counts stay.
+open it: the upload's other counts stay. A folder whose files were deleted for
+good when its time in the Papierkorb ran out closes nothing either.
 
 ## Your office's own roles
 

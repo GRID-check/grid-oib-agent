@@ -162,7 +162,7 @@ export function resetLessonSweepStateForTests(): void {
 }
 
 /**
- * v2: migration 0118 retired the lessons created from a conversation that drew
+ * v2: migration 0119 retired the lessons created from a conversation that drew
  * on a restricted folder, and a v1 digest written before it ran may still
  * inject one for the rest of its TTL.
  */

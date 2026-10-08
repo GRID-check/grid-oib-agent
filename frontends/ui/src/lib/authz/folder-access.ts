@@ -1,6 +1,6 @@
 /**
- * Who may read and who may write which folders of a project (ADR-0084,
- * ADR-0085) — the one place that decides.
+ * Who may read and who may write which folders of a project (ADR-0086,
+ * ADR-0087) — the one place that decides.
  *
  * A folder either inherits its parent's access (`accessMode: 'inherit'`; a root
  * folder inherits the project) or has its own access list (`'custom'`): grants
@@ -20,8 +20,8 @@
  * of its NEAREST such folder. Only a session that may read that folder gets the
  * collection in its signed scope. Write never affects retrieval.
  *
- * Deleted folders stay in the tree (migration 0109): in the Papierkorb, then as
- * purged tombstones (0113). They are hidden from every listing and from
+ * Deleted folders stay in the tree (migration 0110): in the Papierkorb, then as
+ * purged tombstones (0114). They are hidden from every listing and from
  * placement, what is filed in them is hidden from everyone, and
  * {@link effectiveFolderLevel} still answers for them, because content derived
  * from a deleted folder is judged by the access it had (once purged, as the
@@ -110,7 +110,7 @@ export async function seesEveryFolder(session: AuthorizedSession): Promise<boole
  * long. Only when WorkOS cannot be asked is the token's claim the answer, as it
  * is for the roles.
  *
- * Someone who reads a CLOSED project only because it is closed (ADR-0086: every
+ * Someone who reads a CLOSED project only because it is closed (ADR-0088: every
  * organization member may) clears what a member holding no role clears: the
  * folders open to everyone, and no folder with its own role list. Their roles
  * were never matched against this project's grants before it closed, and
@@ -406,24 +406,42 @@ export async function readableFolderIdsFor(
 }
 
 /**
+ * How many projects {@link readableFoldersOfRestrictedProjects} reads at once.
+ * Each is the session's clearance there ({@link clearanceOf}: for a session
+ * that does not see everything, a tenancy probe, and for a closed project a
+ * WorkOS FGA check too) and one transaction for its tree, so this many hold at
+ * most this many pool connections (of `GRID_DB_POOL_MAX`, 10 by default). The
+ * round trips are as many as one at a time made; a long list waits about a
+ * quarter as long for them, and every other request keeps most of the pool.
+ */
+export const RESTRICTED_PROJECT_READS_AT_ONCE = 4
+
+/**
  * Every folder the session may read in the organization's projects that have a
  * folder hiding something from someone ({@link loadCustomFolderTree} is not
  * null for them): what a query that must not match an unreadable folder's rows
  * is narrowed to in SQL (the download log's name filter). Each project by the
  * session's clearance in that project ({@link clearanceOf}), so a closed one
  * clears someone who reads it only because it is closed as a member with no
- * role (ADR-0086). A project the list leaves out, past its bound, contributes
- * no folder, so its rows match nothing: the narrowing fails closed.
+ * role (ADR-0088). A project the list leaves out, past its bound, contributes
+ * no folder, so its rows match nothing: the narrowing fails closed. Projects
+ * are read {@link RESTRICTED_PROJECT_READS_AT_ONCE} at a time; the answer is in
+ * the list's order all the same.
  */
 export async function readableFoldersOfRestrictedProjects(session: AuthorizedSession): Promise<string[]> {
   const { organizationId } = session
-  const readable: string[] = []
-  // One project at a time: each is a few reads, and a burst of them would take
-  // the pool from every other request.
-  for (const projectId of await listProjectsWithCustomOrBinnedFolders(organizationId)) {
-    readable.push(...(await readableFolderIdsFor(organizationId, projectId, await clearanceOf(session, projectId))))
+  const projectIds = await listProjectsWithCustomOrBinnedFolders(organizationId)
+  const readable: string[][] = []
+  let next = 0
+  const reader = async (): Promise<void> => {
+    for (let index = next++; index < projectIds.length; index = next++) {
+      const projectId = projectIds[index]
+      readable[index] = await readableFolderIdsFor(organizationId, projectId, await clearanceOf(session, projectId))
+    }
   }
-  return readable
+  const readers = Math.min(RESTRICTED_PROJECT_READS_AT_ONCE, projectIds.length)
+  await Promise.all(Array.from({ length: readers }, reader))
+  return readable.flat()
 }
 
 /**
@@ -450,7 +468,7 @@ export async function sourceFoldersOfCollections(
 }
 
 /**
- * When each purged folder of the project was purged (ADR-0085): what a surface
+ * When each purged folder of the project was purged (ADR-0087): what a surface
  * shows as „Quelle gelöscht am …" under content drawn from it. Labels, never a
  * decision: who may see that content is {@link effectiveFolderLevel}'s.
  */

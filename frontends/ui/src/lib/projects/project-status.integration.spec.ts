@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * A closed project (ADR-0086, migration 0114) against a REAL Postgres, through
+ * A closed project (ADR-0088, migration 0115) against a REAL Postgres, through
  * the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -9,7 +9,7 @@
  *
  * What only the database can prove: that closing and reopening never open a
  * folder with its own role list (the real tree, the real rule, the real listing
- * SQL), that the status CHECKs hold, and that the 0114 trigger refuses an insert
+ * SQL), that the status CHECKs hold, and that the 0115 trigger refuses an insert
  * into a closed project while an update still goes through. WorkOS is the only
  * thing stubbed: who holds which organization role, and who holds a grant on
  * the project.

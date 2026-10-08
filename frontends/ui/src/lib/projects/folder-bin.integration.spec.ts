@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The Papierkorb against a REAL Postgres (migration 0113, ADR-0085), through
+ * The Papierkorb against a REAL Postgres (migration 0114, ADR-0087), through
  * the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -23,7 +23,7 @@
 
 import postgres from 'postgres'
 import { sql } from 'drizzle-orm'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { restrictedCollectionName } from '@/lib/authz/folder-access-rule'
 import { REVIEWER_READER } from '@/lib/documents/document-reader'
@@ -40,6 +40,7 @@ vi.mock('@/lib/documents/collection-file-ref', async (importOriginal) => ({
 // object store); here it deletes the row, through the hold trigger.
 vi.mock('@/lib/documents/folder-path', () => ({ resolveDocumentFolderPath: vi.fn(async () => null) }))
 vi.mock('@/lib/documents/service', () => ({
+  INGEST_DISPATCH_FAILED_MESSAGE: 'dispatch failed',
   dispatchDocument: vi.fn(async () => ({ jobId: 'job', status: 'pending' })),
   eraseProjectDocument: vi.fn(async (doc: { id: string; organizationId: string; projectId: string }) => {
     const { deleteProjectDocument } = await import('@/lib/documents/repository')
@@ -49,7 +50,7 @@ vi.mock('@/lib/documents/service', () => ({
 }))
 // Project permissions are WorkOS's; each session here states which it holds,
 // and a denial is the real one's: not found.
-// A closed project (ADR-0086) is stubbed the way `requireProjectAccess` decides
+// A closed project (ADR-0088) is stubbed the way `requireProjectAccess` decides
 // it: writes refused before anything else unless the caller asks as if active.
 const projectState = vi.hoisted(() => ({ closed: false }))
 vi.mock('@/lib/authz/projects', async () => {
@@ -76,18 +77,11 @@ vi.mock('@/lib/authz/projects', async () => {
   }
 })
 vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn(async () => null) }))
-// The real Langfuse client, with a fetch that reads the CURRENT global, so a
-// test can stand in for Langfuse after the client was created.
-vi.mock('../../../workers/langfuse-traces', async (importOriginal) => {
-  const actual = await importOriginal<{
-    createConversationTraceEraser: (options: { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch }) => unknown
-  }>()
-  return {
-    ...actual,
-    createConversationTraceEraser: (options: { env?: NodeJS.ProcessEnv }) =>
-      actual.createConversationTraceEraser({ ...options, fetchImpl: (input, init) => globalThis.fetch(input, init) }),
-  }
-})
+// A machine's published document goes back by its version (the lifecycle's
+// specs cover the dispatch itself).
+vi.mock('@/lib/documents/lifecycle', () => ({
+  redispatchPublishedVersion: vi.fn(async () => ({ jobId: 'job', status: 'pending' })),
+}))
 
 const url = process.env.GRID_TEST_DATABASE_URL
 const STAMP = Date.now()
@@ -112,7 +106,7 @@ const admin = sessionOf('user_admin', [], ['org:projects:administer'])
 
 class Rollback extends Error {}
 
-describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', () => {
+describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
@@ -124,6 +118,8 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
   let setting: typeof import('@/lib/organizations/deleted-folder-content-service')
   let collectionRef: typeof import('@/lib/documents/collection-file-ref')
   let documentService: typeof import('@/lib/documents/service')
+  let lifecycle: typeof import('@/lib/documents/lifecycle')
+  let jobs: typeof import('./folder-bin-jobs')
   let projectId: string
   const folder: Record<string, string> = {}
   const doc: Record<string, string> = {}
@@ -269,6 +265,36 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
     return claimed
   }
 
+  /** The organization's queued `bff_job_queue` jobs of one kind, oldest first. */
+  async function queuedJobs(kind: string) {
+    const rows = await withPlatformAccess('test: read the job queue', () =>
+      db.execute<{ job_id: string; priority: number; payload: Record<string, unknown>; not_before: string | null }>(sql`
+        SELECT job_id, priority, payload, not_before FROM bff_job_queue
+        WHERE lane = ${ORG} AND kind = ${kind} ORDER BY created_at`)
+    )
+    return Array.from(rows)
+  }
+
+  async function documentRow(documentId: string) {
+    const [row] = await inOrg(() =>
+      db.execute<{ status: string; metadata: Record<string, unknown> | null; error_message: string | null; collection_name: string }>(
+        sql`SELECT status, metadata, error_message, collection_name FROM documents WHERE id = ${documentId}::uuid`
+      )
+    )
+    return row
+  }
+
+  /** Run a restore job the way the `bff-jobs` pool does: slice after slice from the saved payload, to the end. */
+  async function runRestoreJob(session: AuthorizedSession, payload: Record<string, unknown>) {
+    let state = payload as Parameters<typeof jobs.runRestoreFolderSlice>[1]
+    for (let slice = 0; slice < 100; slice += 1) {
+      const result = await jobs.runRestoreFolderSlice(session, state)
+      state = result.payload
+      if (result.done) return state
+    }
+    throw new Error('the restore job never finished')
+  }
+
   async function makeDue(folderId: string): Promise<void> {
     await withPlatformAccess('test: make the bin entry due', () =>
       db.execute(sql`UPDATE deletion_queue SET purge_after = now() - interval '1 minute'
@@ -298,6 +324,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
     await releaseHolds()
     await withPlatformAccess('test: clean up', async () => {
       await db.execute(sql`DELETE FROM deletion_queue WHERE organization_id = ${ORG}`)
+      await db.execute(sql`DELETE FROM bff_job_queue WHERE lane = ${ORG}`)
       await db.execute(sql`DELETE FROM project_memory WHERE organization_id = ${ORG}`)
       await db.execute(sql`DELETE FROM messages WHERE organization_id = ${ORG}`)
       await db.execute(sql`DELETE FROM conversation_restricted_folders WHERE organization_id = ${ORG}`)
@@ -305,7 +332,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
       await db.execute(sql`DELETE FROM conversations WHERE organization_id = ${ORG} AND id <> ${CHAT}`)
       await db.execute(sql`DELETE FROM documents WHERE organization_id = ${ORG}`)
       // The grants go with their folders (ON DELETE CASCADE); deleting them
-      // first would leave a custom list empty, which 0109 refuses.
+      // first would leave a custom list empty, which 0110 refuses.
       await db.execute(sql`DELETE FROM project_folders WHERE project_id = ${projectId}::uuid`)
       await db.execute(sql`DELETE FROM legal_holds WHERE organization_id = ${ORG}`)
     })
@@ -325,6 +352,8 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
     setting = inTenant(await import('@/lib/organizations/deleted-folder-content-service'))
     collectionRef = await import('@/lib/documents/collection-file-ref')
     documentService = await import('@/lib/documents/service')
+    lifecycle = await import('@/lib/documents/lifecycle')
+    jobs = inTenant(await import('./folder-bin-jobs'))
 
     await withPlatformAccess('test seed: organization', () =>
       db.execute(sql`INSERT INTO organizations (workos_organization_id, display_name) VALUES (${ORG}, ${ORG}) ON CONFLICT DO NOTHING`)
@@ -350,6 +379,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
     vi.mocked(collectionRef.purgeIngestedChunks).mockReset()
     vi.mocked(collectionRef.purgeIngestedChunks).mockResolvedValue(true)
     vi.mocked(documentService.dispatchDocument).mockClear()
+    vi.mocked(lifecycle.redispatchPublishedVersion).mockClear()
   })
 
   afterAll(async () => {
@@ -407,8 +437,94 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
       expect((await folderState(folder.archiv))?.deleted_at).toBeNull()
       expect(await visibleDocumentNames(pl)).toContain('Plan.pdf')
       expect((await queueRow(folder.plaene))[0]?.status).toBe('restored')
-      // The one whose chunks did go is read again.
-      expect(vi.mocked(documentService.dispatchDocument).mock.calls.map(([input]) => input.filename)).toEqual(['Plan.pdf'])
+      // Read again by the restore's job, never left reading indexed without chunks.
+      const [restore] = await queuedJobs('restore_folder_bin')
+      expect((await documentRow(doc.plan)).metadata?.bffJobId).toBe(restore.job_id)
+      await runRestoreJob(pl, restore.payload)
+      expect(vi.mocked(documentService.dispatchDocument).mock.calls.map(([input]) => input.filename).sort()).toEqual([
+        'Archiv.pdf',
+        'Plan.pdf',
+      ])
+      // The undo withdrew the takeover job: nothing is left to finish.
+      expect(await queuedJobs('purge_binned_chunks')).toEqual([])
+    })
+
+    it('queues, with the bin entry, the job that finishes the purge, and withdraws it once the request confirmed', async () => {
+      let during: Awaited<ReturnType<typeof queuedJobs>> = []
+      vi.mocked(collectionRef.purgeIngestedChunks).mockImplementation(async () => {
+        if (during.length === 0) during = await queuedJobs('purge_binned_chunks')
+        return true
+      })
+      const before = Date.now()
+      await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
+      // While the request purged, the job was there, held back for the request.
+      expect(during).toHaveLength(1)
+      expect(during[0].priority).toBe(0)
+      expect(new Date(String(during[0].not_before)).getTime()).toBeGreaterThanOrEqual(before + bin.BIN_PURGE_TAKEOVER_MS - 5_000)
+      expect(during[0].payload).toMatchObject({ projectId, folderId: folder.plaene, cursor: null })
+      // Done: the job is gone and the entry says so.
+      expect(await queuedJobs('purge_binned_chunks')).toEqual([])
+      const [entry] = await queueRow(folder.plaene)
+      expect(entry.payload).toMatchObject({ documents: 2, chunksPurgedAt: expect.any(String) })
+    })
+
+    it('is finished by its job when the request died half way, so it is not searchable for the grace period', async () => {
+      // The request is cut off after the bin committed: no purge confirmed, no undo.
+      vi.mocked(collectionRef.purgeIngestedChunks).mockImplementation(async () => {
+        throw new Error('the pod went away')
+      })
+      await expect(bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })).rejects.toThrow(/went away/)
+      expect((await folderState(folder.plaene))?.deleted_at).not.toBeNull()
+      expect((await queueRow(folder.plaene))[0]?.payload.chunksPurgedAt).toBeUndefined()
+
+      const [job] = await queuedJobs('purge_binned_chunks')
+      vi.mocked(collectionRef.purgeIngestedChunks).mockReset()
+      vi.mocked(collectionRef.purgeIngestedChunks).mockResolvedValue(true)
+      const result = await jobs.runPurgeBinnedChunksSlice(ORG, job.payload as never, { last: false })
+      expect(result.done).toBe(true)
+      expect(vi.mocked(collectionRef.purgeIngestedChunks).mock.calls.map(([, ref]) => ref.filename).sort()).toEqual([
+        'Archiv.pdf',
+        'Plan.pdf',
+      ])
+      expect((await queueRow(folder.plaene))[0]?.payload).toMatchObject({ documents: 2, chunksPurgedAt: expect.any(String) })
+      expect((await folderState(folder.plaene))?.deleted_at).not.toBeNull()
+
+      // A second run finds the purge recorded and touches nothing.
+      vi.mocked(collectionRef.purgeIngestedChunks).mockClear()
+      await jobs.runPurgeBinnedChunksSlice(ORG, job.payload as never, { last: false })
+      expect(collectionRef.purgeIngestedChunks).not.toHaveBeenCalled()
+    })
+
+    it('has its job retry a refused purge, and undo the delete on the last attempt instead of leaving it searchable', async () => {
+      vi.mocked(collectionRef.purgeIngestedChunks).mockImplementation(async () => {
+        throw new Error('the pod went away')
+      })
+      await expect(bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })).rejects.toThrow(/went away/)
+      const [job] = await queuedJobs('purge_binned_chunks')
+      vi.mocked(collectionRef.purgeIngestedChunks).mockReset()
+      vi.mocked(collectionRef.purgeIngestedChunks).mockImplementation(async (_backend, ref) => ref.filename !== 'Archiv.pdf')
+
+      await expect(jobs.runPurgeBinnedChunksSlice(ORG, job.payload as never, { last: false })).rejects.toThrow(/did not confirm/)
+      expect((await folderState(folder.plaene))?.deleted_at).not.toBeNull()
+
+      await expect(jobs.runPurgeBinnedChunksSlice(ORG, job.payload as never, { last: true })).resolves.toMatchObject({ done: true })
+      expect((await folderState(folder.plaene))?.deleted_at).toBeNull()
+      expect((await queueRow(folder.plaene))[0]?.status).toBe('restored')
+      expect(await queuedJobs('restore_folder_bin')).toHaveLength(1)
+    })
+
+    it('has its job do nothing once the folder was restored', async () => {
+      vi.mocked(collectionRef.purgeIngestedChunks).mockImplementation(async () => {
+        throw new Error('the pod went away')
+      })
+      await expect(bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })).rejects.toThrow(/went away/)
+      const [job] = await queuedJobs('purge_binned_chunks')
+      await bin.restoreFolderFromBin(pl, { projectId, folderId: folder.plaene })
+      vi.mocked(collectionRef.purgeIngestedChunks).mockReset()
+      vi.mocked(collectionRef.purgeIngestedChunks).mockResolvedValue(true)
+      await expect(jobs.runPurgeBinnedChunksSlice(ORG, job.payload as never, { last: true })).resolves.toMatchObject({ done: true })
+      expect(collectionRef.purgeIngestedChunks).not.toHaveBeenCalled()
+      expect((await folderState(folder.plaene))?.deleted_at).toBeNull()
     })
 
     it('is never placed back into a collection while it is in the bin', async () => {
@@ -465,7 +581,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
     })
   })
 
-  describe('nothing lands in a deleted folder (the triggers, migration 0113)', () => {
+  describe('nothing lands in a deleted folder (the triggers, migration 0114)', () => {
     it('refuses an upload, a move and a new subfolder into a folder in the bin', async () => {
       await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
       await expect(insertDocument('Neu.pdf', folder.archiv)).rejects.toMatchObject({ cause: { code: 'GFD01' } })
@@ -516,6 +632,12 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
       expect(await access.getHiddenFolderIds(pl, projectId)).toEqual(expect.arrayContaining([folder.vertraege, folder.alt]))
       expect(await access.canWriteFolder(bh, projectId, folder.vertraege)).toBe(false)
       expect(await access.canWriteFolder(gf, projectId, folder.vertraege)).toBe(true)
+      // Nothing is dispatched in the request: a job reads them, at bulk priority.
+      expect(documentService.dispatchDocument).not.toHaveBeenCalled()
+      const [job] = await queuedJobs('restore_folder_bin')
+      expect(job.priority).toBe(1)
+      await runRestoreJob(gf, job.payload)
+      expect(vi.mocked(documentService.dispatchDocument).mock.calls.every(([input]) => input.priority === 'bulk')).toBe(true)
       const dispatched = new Map(
         vi.mocked(documentService.dispatchDocument).mock.calls.map(([input]) => [input.filename, input.collectionName])
       )
@@ -540,6 +662,77 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
       expect(await countFor(manager)).toBe(4)
     })
 
+    it('marks the documents processing in the restore itself, so a restore cut off never leaves one reading indexed', async () => {
+      const quarantined = await insertDocument('Gesperrt.pdf', folder.archiv)
+      await inOrg(() => db.execute(sql`UPDATE documents SET status = 'quarantined' WHERE id = ${quarantined}::uuid`))
+      await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
+      await bin.restoreFolderFromBin(pl, { projectId, folderId: folder.plaene })
+
+      const [job] = await queuedJobs('restore_folder_bin')
+      for (const id of [doc.plan, doc.archiv]) {
+        expect(await documentRow(id)).toMatchObject({ status: 'processing', metadata: expect.objectContaining({ bffJobId: job.job_id }) })
+      }
+      // A file waiting on a reviewer was never indexed, and stays as it was.
+      expect((await documentRow(quarantined)).status).toBe('quarantined')
+      // The job never ran (a rollout, a dead job): the stuck-processing sweep finds the rows.
+      await withPlatformAccess('test: the job is gone', () => db.execute(sql`DELETE FROM bff_job_queue WHERE lane = ${ORG}`))
+      const stuck = await docsRepo.listStuckProcessingDocuments(new Date(Date.now() + 60_000), 1000)
+      expect(stuck.map((row) => row.id)).toEqual(expect.arrayContaining([doc.plan, doc.archiv]))
+    })
+
+    it('fails a restored document there is nothing to read from, rather than leaving it indexed with no chunks', async () => {
+      // A row with no stored object to read from (the column is NOT NULL; an empty key is the shape that reaches here).
+      await inOrg(() => db.execute(sql`UPDATE documents SET storage_key = '' WHERE id = ${doc.archiv}::uuid`))
+      await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
+      await bin.restoreFolderFromBin(pl, { projectId, folderId: folder.plaene })
+      const [job] = await queuedJobs('restore_folder_bin')
+      const finished = await runRestoreJob(pl, job.payload)
+      expect(finished.counts).toMatchObject({ queued: 1, failed: 1 })
+      expect((await documentRow(doc.archiv)).status).toBe('failed')
+      expect(vi.mocked(documentService.dispatchDocument).mock.calls.map(([input]) => input.filename)).toEqual(['Plan.pdf'])
+    })
+
+    it("reads a machine's published document back as its published version", async () => {
+      const [report] = ids(
+        await inOrg(() =>
+          db.execute<{ id: string }>(sql`
+            WITH item AS (
+              INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id,
+                                     authored_by, authored_by_producer, authored_by_ref, authored_by_ref_kind)
+              VALUES (${ORG}, ${USER}, 'piloti/bericht.pdf', 'k/bericht', ${COLLECTION}, 'completed', 'project', ${projectId}::uuid,
+                      ${folder.archiv}::uuid, 'agent', 'report', 'answer-1', 'answer_artifact')
+              RETURNING id, project_id
+            )
+            INSERT INTO document_versions (organization_id, document_id, project_id, version_number, state, storage_key,
+                                           approved_by, approved_at, published_by, published_at, created_by)
+            SELECT ${ORG}, item.id, item.project_id, 1, 'published', 'k/bericht', ${USER}, now(), ${USER}, now(), ${USER} FROM item
+            RETURNING document_id AS id`)
+        )
+      )
+      await inOrg(() =>
+        db.execute(sql`UPDATE documents SET published_version_id = v.id FROM document_versions v
+                       WHERE documents.id = ${report}::uuid AND v.document_id = documents.id`)
+      )
+      await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
+      await bin.restoreFolderFromBin(pl, { projectId, folderId: folder.plaene })
+      const [job] = await queuedJobs('restore_folder_bin')
+      await runRestoreJob(pl, job.payload)
+      expect(vi.mocked(lifecycle.redispatchPublishedVersion).mock.calls.map(([, row, priority]) => [row.id, priority])).toEqual([
+        [report, 'bulk'],
+      ])
+      expect(vi.mocked(documentService.dispatchDocument).mock.calls.map(([input]) => input.filename)).not.toContain('piloti/bericht.pdf')
+    })
+
+    it('stops the walk when the requester lost the project, and leaves the rest to the sweep', async () => {
+      await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
+      await bin.restoreFolderFromBin(pl, { projectId, folderId: folder.plaene })
+      const [job] = await queuedJobs('restore_folder_bin')
+      const revoked = sessionOf('user_pl', [PL], ['project:view'])
+      await expect(runRestoreJob(revoked, job.payload)).resolves.toMatchObject({ cursor: null })
+      expect(documentService.dispatchDocument).not.toHaveBeenCalled()
+      expect((await documentRow(doc.plan)).status).toBe('processing')
+    })
+
     it('needs write on the deleted folder: a reader sees the entry but may not restore it', async () => {
       await bin.moveFolderToBin(gf, { projectId, folderId: folder.vertraege })
       const listing = await bin.listFolderBin(bh, projectId)
@@ -550,7 +743,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
       await expect(bin.restoreFolderFromBin(pl, { projectId, folderId: folder.vertraege })).rejects.toMatchObject({ status: 404 })
     })
 
-    it('in a closed project the manager restores, and nobody else does (ADR-0086)', async () => {
+    it('in a closed project the manager restores, and nobody else does (ADR-0088)', async () => {
       await bin.moveFolderToBin(gf, { projectId, folderId: folder.vertraege })
       projectState.closed = true
       try {
@@ -884,37 +1077,26 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
     })
   })
 
-  describe('„Mit dem Ordner entfernen“ when „Endgültig löschen“ runs: everything derived goes, traces included', () => {
-    const langfuse = { observations: [] as Array<{ traceId: string; sessionId: string }>, deleted: [] as string[][] }
+  describe('„Mit dem Ordner entfernen“ when „Endgültig löschen“ runs: everything derived goes, the traces by the purger', () => {
+    const langfuse = vi.fn(async () => Response.json({ data: [], meta: {} }))
 
     beforeEach(async () => {
       await setting.saveDeletedFolderContentPolicy(admin, 'remove', new Request('http://test'))
-      process.env.LANGFUSE_HOST = 'http://langfuse.test'
-      process.env.LANGFUSE_PUBLIC_KEY = 'pk'
-      process.env.LANGFUSE_SECRET_KEY = 'sk' // pragma: allowlist secret (a stub Langfuse)
-      langfuse.observations = [
-        { traceId: 'trace-1', sessionId: CHAT },
-        { traceId: 'trace-2', sessionId: CHAT },
-      ]
-      langfuse.deleted = []
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async (input: string | URL, init?: RequestInit) => {
-          const target = new URL(String(input))
-          if (target.pathname === '/api/public/v2/observations') {
-            const session = target.searchParams.get('sessionId')
-            return Response.json({ data: langfuse.observations.filter((row) => row.sessionId === session), meta: {} })
-          }
-          if (target.pathname === '/api/public/traces' && init?.method === 'DELETE') {
-            langfuse.deleted.push((JSON.parse(String(init.body)) as { traceIds: string[] }).traceIds)
-            return Response.json({})
-          }
-          return new Response('unexpected', { status: 500 })
-        })
-      )
+      // Even a BFF that somehow held Langfuse's keys must not call it: the
+      // deployment gives it neither the keys nor the network path.
+      vi.stubEnv('LANGFUSE_HOST', 'http://langfuse.test')
+      vi.stubEnv('LANGFUSE_PUBLIC_KEY', 'pk')
+      vi.stubEnv('LANGFUSE_SECRET_KEY', 'sk') // pragma: allowlist secret (a stub Langfuse)
+      langfuse.mockClear()
+      vi.stubGlobal('fetch', langfuse)
     })
 
-    it('deletes the notes, replaces the answers, erases the traces, marks the reports, and records ids without content', async () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      vi.unstubAllGlobals()
+    })
+
+    it('deletes the notes, replaces the answers, marks the reports, records ids without content, and hands the traces to the purger', async () => {
       memory.restricted = await insertNote('aus dem Plan', [folder.plaene], null)
       memory.fromChat = await insertNote('im Chat gelernt', null, CHAT)
       memory.unrelated = await insertNote('anderes Projektwissen', null, null)
@@ -936,7 +1118,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
 
       const result = await bin.purgeFolderFromBinNow(manager, { projectId, folderId: folder.plaene }, new Request('http://test'))
 
-      expect(result.counts).toMatchObject({ documents: 2, folders: 2, memoryNotes: 2, answers: 1, conversations: 1, reports: 1, tracesErased: 2 })
+      expect(result.counts).toMatchObject({ documents: 2, folders: 2, memoryNotes: 2, answers: 1, conversations: 1, reports: 1, tracesErased: 0 })
       const notes = await inOrg(() => db.execute<{ id: string }>(sql`SELECT id FROM project_memory WHERE organization_id = ${ORG}`))
       expect(ids(notes)).toEqual([memory.unrelated])
       const [answer] = await inOrg(() =>
@@ -946,36 +1128,36 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
       expect(Object.keys(answer.metadata)).toEqual(['sourceRemoved'])
       const [other] = await inOrg(() => db.execute<{ content: string }>(sql`SELECT content FROM messages WHERE id = ${message.other}::uuid`))
       expect(other.content).toBe('Allgemein …')
-      expect(langfuse.deleted).toEqual([['trace-1', 'trace-2']])
+      expect(langfuse).not.toHaveBeenCalled()
       // A filed report stays, marked „Quelle gelöscht am …".
       const [kept] = await inOrg(() =>
         db.execute<{ metadata: Record<string, unknown> }>(sql`SELECT metadata FROM documents WHERE id = ${report}::uuid`)
       )
       expect(kept.metadata.sourceDeleted).toMatchObject({ folderId: folder.plaene })
 
+      // The row is the purger's now, due at once, and the folder is gone from the Papierkorb.
       const [record] = await queueRow(folder.plaene)
-      expect(record.status).toBe('purged')
+      expect(record.status).toBe('pending')
+      expect(await claimable()).toContain(folder.plaene)
+      expect((await bin.listFolderBin(manager, projectId)).entries).toEqual([])
       expect(record.requested_by).toBe('user_pl')
       expect(record.payload.derivedRemoval).toMatchObject({
         conversationIds: [CHAT],
         messageIds: [message.cites],
         reportIds: [report],
       })
-      expect(record.payload.purged).toMatchObject({ tracesErased: 2, memoryNotes: 2 })
+      expect(record.payload.purged).toMatchObject({ tracesErased: 0, memoryNotes: 2 })
       // The record holds no content: no answer text, no passage, no file name.
       const proof = JSON.stringify(record.payload)
       for (const content of ['Herr Muster', 'Plan.pdf', 'Archiv.pdf', 'aus dem Plan']) expect(proof).not.toContain(content)
-    })
 
-    it('leaves the row pending for the purger when Langfuse fails, and the retry still names the traces it owes', async () => {
-      vi.stubGlobal('fetch', vi.fn(async () => new Response('down', { status: 503 })))
-      message.cites = await insertAnswer('Plan …', [{ collection: COLLECTION, file_name: 'Plan.pdf' }])
-      await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
-      await expect(bin.purgeFolderFromBinNow(manager, { projectId, folderId: folder.plaene })).rejects.toThrow(/503/)
-      expect((await queueRow(folder.plaene))[0]?.status).toBe('pending')
-      // The purger's retry: the BFF's steps are done, and what is owed is the traces.
-      const retry = await bin.purgeBinnedFolder(ORG, folder.plaene)
-      expect(retry).toMatchObject({ status: 'already-purged', traceConversationIds: [CHAT] })
+      // What the purger's own call is answered: done, with the counts, and the
+      // conversations whose traces it erases with its credentials.
+      await expect(bin.purgeBinnedFolder(ORG, folder.plaene)).resolves.toMatchObject({
+        status: 'already-purged',
+        counts: { documents: 2, memoryNotes: 2 },
+        traceConversationIds: [CHAT],
+      })
     })
   })
 })

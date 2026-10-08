@@ -1,5 +1,5 @@
 /**
- * „Ausmisten" by rule (ADR-0088): the documents a closing project plainly no
+ * „Ausmisten" by rule (ADR-0090): the documents a closing project plainly no
  * longer needs, found from their metadata alone. The floor under the model's
  * proposal: it holds when the model call fails, and it is shown beside it when
  * the call works. Pure, no I/O.

@@ -1,5 +1,5 @@
 /**
- * The sweep that finishes what no reader is left to finish (ADR-0083).
+ * The sweep that finishes what no reader is left to finish (ADR-0085).
  *
  * Reconciliation settles a batch whenever somebody reads its documents, and the
  * browser that uploaded them polls while its tab is open. Close the tab and
@@ -14,7 +14,9 @@
  *    and settles the batch through the same hook a reader's read uses.
  *  - A quarantine whose audit event did not go out when its row moved is sent
  *    (`upload-screening/quarantine-audit.ts`, `sweepOwedQuarantines`): the
- *    content gate's decisions reach the trail at least once.
+ *    content gate's decisions reach the trail at least once. Then the spent
+ *    decisions are deleted (`pruneSpentQuarantines`): the ones the trail has,
+ *    and any older than the week in which they are sent.
  *
  * Replica-safe: completion is a guarded UPDATE, so two sweeps that settle the
  * same batch emit one inbox item.
@@ -23,7 +25,7 @@
 import 'server-only'
 import { withTenant } from '@/lib/db/tenant-context'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
-import { sweepOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
+import { pruneSpentQuarantines, sweepOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
 import { listInFlightBatchDocuments, listOpenBatchesBetween, sealAbandonedBatch } from './repository'
 import { settleUploadBatches } from './settle'
 
@@ -43,6 +45,8 @@ export interface UploadSweepResult {
   failed: number
   /** Owed quarantine decisions sent to the audit trail. */
   audited: number
+  /** Spent quarantine decisions deleted (retention). */
+  pruned: number
 }
 
 export async function sweepUploadBatches(now: Date = new Date()): Promise<UploadSweepResult> {
@@ -51,7 +55,14 @@ export async function sweepUploadBatches(now: Date = new Date()): Promise<Upload
     new Date(now.getTime() - SETTLE_GRACE_MS),
     SWEEP_BATCH
   )
-  const result: UploadSweepResult = { checked: open.length, sealed: 0, completed: 0, failed: 0, audited: 0 }
+  const result: UploadSweepResult = {
+    checked: open.length,
+    sealed: 0,
+    completed: 0,
+    failed: 0,
+    audited: 0,
+    pruned: 0,
+  }
   for (const batch of open) {
     try {
       await withTenant({ organizationId: batch.organizationId }, async () => {
@@ -75,6 +86,13 @@ export async function sweepUploadBatches(now: Date = new Date()): Promise<Upload
     result.audited = await sweepOwedQuarantines(now)
   } catch (error) {
     console.warn('[upload-batches] sweep could not list the owed quarantine decisions:', error)
+  }
+  // After the send, so a decision is deleted only once it was sent or stopped
+  // being sent; whether or not the trail is on.
+  try {
+    result.pruned = await pruneSpentQuarantines(now)
+  } catch (error) {
+    console.warn('[upload-batches] sweep could not delete the spent quarantine decisions:', error)
   }
   return result
 }

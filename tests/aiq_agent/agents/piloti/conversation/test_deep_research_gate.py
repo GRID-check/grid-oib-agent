@@ -103,7 +103,7 @@ class TestFinalizeAnswerWithoutDeepResearch:
         assert DEEP_RESEARCH_UNAVAILABLE_NOTE not in update["messages"][0].content
 
     def test_a_confined_turn_says_why_instead_of_blaming_the_workspace(self):
-        """ADR-0084: the capability exists; this conversation may not use it."""
+        """ADR-0086: the capability exists; this conversation may not use it."""
         update = _finalize_answer(
             AIMessage(content="Dafür starte ich eine Tiefenrecherche."),
             _signals(answer_is_handoff=True),
@@ -229,7 +229,7 @@ class TestCommissionRefusal:
 
     @pytest.mark.asyncio
     async def test_a_confined_conversation_is_told_why_and_never_run_in_process(self, deep_fn):
-        """ADR-0084: the BFF refused a run out of a thread that drew on a restricted folder."""
+        """ADR-0086: the BFF refused a run out of a thread that drew on a restricted folder."""
         graph = self._graph(CommissionRefused("confined", "Aus dieser Unterhaltung …"), deep_fn)
 
         update = await graph._commission_run(ConversationState(messages=[HumanMessage(content="Bericht?")]))

@@ -19,6 +19,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import {
   s3Client,
   signingS3Client,
+  presignForBackend,
   buildImageStorageKey,
   buildThumbnailStorageKey,
 } from '@/lib/s3'
@@ -50,7 +51,11 @@ import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING } from './reingest-codes'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
-import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
+import {
+  buildDocumentImageUrl,
+  DOCUMENT_IMAGE_CACHE_CONTROL,
+  verifyDocumentImageUrl,
+} from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import {
   FEATURE_FLAGS,
@@ -102,7 +107,7 @@ import { findOpenJobId } from '@/lib/jobs-queue/repository'
 import {
   BFF_JOB_PRIORITY,
   emptyCounts,
-  FAILED_NAMES_KEPT,
+  recordJobFailure,
   requesterOf,
   type BffJobPriority,
   type BimExtractPayload,
@@ -421,10 +426,9 @@ export async function dispatchIngest(
   // sign with the internal-endpoint client, not the browser-facing one.
   // The ingest JOB downloads it, not the request, and the job may start long
   // after dispatch behind the bounded ingest queue: see the constant.
-  const presignedUrl = await getSignedUrl(
-    s3Client,
+  const presignedUrl = await presignForBackend(
     new GetObjectCommand({ Bucket: bucket, Key: storageKey }),
-    { expiresIn: INGEST_JOB_REF_TTL_SECONDS }
+    INGEST_JOB_REF_TTL_SECONDS
   )
 
   // Presigned upload slot for the 200px JPEG thumbnail the ingest pipeline
@@ -433,15 +437,14 @@ export async function dispatchIngest(
   // write capability to a shared path rather than to this document's own.
   const thumbnailUploadKey = buildThumbnailStorageKey(storageKey)
   const thumbnailUploadUrl = thumbnailUploadKey
-    ? await getSignedUrl(
-        signingS3Client,
+    ? await presignForBackend(
         new PutObjectCommand({
           Bucket: bucket,
           Key: thumbnailUploadKey,
           ContentType: 'image/jpeg',
         }),
         // Written by the same job at its end, so it must outlive the queue too.
-        { expiresIn: INGEST_JOB_REF_TTL_SECONDS }
+        INGEST_JOB_REF_TTL_SECONDS
       )
     : null
 
@@ -625,7 +628,7 @@ export async function probeProjectDocumentNames(
   await requireProjectAccess(session, projectId, 'project:view')
   // A name taken in a hidden folder is not reported: the upload refuses it
   // without saying where (`assertNameFreeInProject`). Nor is one held by
-  // somebody else's quarantined file (ADR-0083): the upload refuses it as a
+  // somebody else's quarantined file (ADR-0085): the upload refuses it as a
   // taken name (`assertMayReplaceQuarantined`).
   return findProjectDocumentsByNames(projectId, session.organizationId, names, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
@@ -809,7 +812,7 @@ export async function searchProjectDocuments(
   if (!project) throw new NotFoundError('Project not found')
 
   // The project's own collection and every restricted one this reader is
-  // cleared for (ADR-0084); one ranking across them, cut to `topK`.
+  // cleared for (ADR-0086); one ranking across them, cut to `topK`.
   const access = await getProjectFolderAccess(session, projectId, project.collectionName)
   const collections = [project.collectionName, ...access.clearedRestrictedCollections]
   const hits = (await Promise.all(collections.map((collection) => fetchSemanticHits(collection, query, topK))))
@@ -842,13 +845,13 @@ export interface UploadDocumentInput {
   originPath?: string | null
   /**
    * The uploader released this file in the upload dialog although the
-   * organization's name screening excludes it (ADR-0083) — the Bauvertrag in a
+   * organization's name screening excludes it (ADR-0085) — the Bauvertrag in a
    * folder called „Verträge". Honoured and audited; absent means "do not
    * override", so a client that never asks is screened.
    */
   screeningRelease?: boolean
   /**
-   * The upload gesture this file belongs to (migration 0108), as the browser
+   * The upload gesture this file belongs to (migration 0109), as the browser
    * opened it. Recorded on the row when it is the uploader's own open batch
    * for this project; anything else is ignored rather than refused.
    */
@@ -996,7 +999,7 @@ export interface DispatchDocumentResult {
    * `processing` is a detached path: an IFC model ({@link beginModelExtraction})
    * or an office file converting first ({@link beginRenditionIngest}).
    * `quarantined` is a row nothing was dispatched for: it waits on a reviewer
-   * (ADR-0083), and only a release sends it on.
+   * (ADR-0085), and only a release sends it on.
    */
   status: 'pending' | 'uploaded' | 'failed' | 'processing' | 'quarantined'
 }
@@ -1090,7 +1093,7 @@ export async function dispatchDocument(
   if (!row || !mayBeIndexed(row, input.versionId ?? null)) {
     throw new AgentAuthoredDocumentNotIndexableError(input.documentId)
   }
-  // A quarantined row (ADR-0083) reaches the index through a reviewer's release
+  // A quarantined row (ADR-0085) reaches the index through a reviewer's release
   // and no other way: the release moves it to `uploaded` before it dispatches
   // (`markScreeningReleased`). Every other caller re-reads a whole folder or
   // project — a restore from the Papierkorb, a placement move when a folder's
@@ -1468,9 +1471,7 @@ async function signedRenditionRef(input: DispatchDocumentInput, fileName: string
   const bucket = resolveDocumentBucket(input.storageBucket)
   try {
     const renditionKey = await ensureRendition({ bucket, storageKey: input.storageKey, filename: fileName })
-    return await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: renditionKey }), {
-      expiresIn: INGEST_JOB_REF_TTL_SECONDS,
-    })
+    return await presignForBackend(new GetObjectCommand({ Bucket: bucket, Key: renditionKey }), INGEST_JOB_REF_TTL_SECONDS)
   } catch (error) {
     console.warn(
       '[documents] office rendition at ingest failed:',
@@ -1650,12 +1651,6 @@ async function forEachBounded<T>(
   await Promise.all(workers)
 }
 
-/** Keep the names of the first few failures for the log; the count stays exact. */
-function recordFailure(counts: JobCounts, name: string): void {
-  counts.failed += 1
-  if (counts.failedNames.length < FAILED_NAMES_KEPT) counts.failedNames.push(name)
-}
-
 /**
  * Rebuild every document's chunks in one project: authorize, then hand the walk
  * to a job.
@@ -1740,7 +1735,7 @@ async function redispatchForReindex(
   // Mid-flight rows are skipped: a second dispatch would double the work of
   // one that is running. Every in-flight spelling, not just two of them.
   // So is a quarantined one: it waits on a reviewer, and `dispatchDocument`
-  // would leave it alone anyway (ADR-0083).
+  // would leave it alone anyway (ADR-0085).
   if (!doc.storageKey || IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status) || doc.status === 'quarantined') return 'skipped'
 
   // Belt to the query's braces. The listing already asks for `'user'` only, so
@@ -1815,14 +1810,14 @@ export async function runReindexSlice(
       counts[outcome] += 1
     } catch (error) {
       // A document in a folder the requester may not read, or may only read
-      // (ADR-0085), is not theirs to re-read: skipped, and never named, since
+      // (ADR-0087), is not theirs to re-read: skipped, and never named, since
       // its name is what a hidden folder hides.
       if (error instanceof NotFoundError || error instanceof ForbiddenError) {
         counts.skipped += 1
         return
       }
       // One document's failure must not abandon the rest of the project.
-      recordFailure(counts, documentDisplayName(row))
+      recordJobFailure(counts, documentDisplayName(row))
     }
   })
 
@@ -1948,7 +1943,7 @@ export async function runReingestFailedSlice(
   const counts: JobCounts = { ...payload.counts, failedNames: [...payload.counts.failedNames] }
   await forEachBounded(ids, REINDEX_CONCURRENCY, async (id) => {
     const outcome = await retryFailedDocument(session, id)
-    if (outcome === 'failed') recordFailure(counts, id)
+    if (outcome === 'failed') recordJobFailure(counts, id)
     else counts[outcome] += 1
   })
 
@@ -2159,7 +2154,7 @@ export async function renameDocument(
         : 'document.renamed',
     targetType: 'document',
     targetId: documentId,
-    // A document under a folder not every member may read is not named (ADR-0084).
+    // A document under a folder not every member may read is not named (ADR-0086).
     filedIn: filedInOf(doc),
     metadata: {
       filename: doc.filename.slice(0, 200),
@@ -2256,7 +2251,7 @@ export async function deleteDocument(
   const doc = await findDocumentForSession(session, documentId)
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
 
-  // A delete is a write in the document's folder (ADR-0085): the project's
+  // A delete is a write in the document's folder (ADR-0087): the project's
   // document-write permission, and write on the folder. A folder the session
   // may not read is not found; one it may only read refuses (403).
   await requireFolderWrite(session, doc.projectId, [doc.folderId])
@@ -2749,6 +2744,11 @@ export async function getDocumentThumbnail(
  * full-size original when it was issued for a thumbnail. The org id is taken
  * from the signed claims rather than the caller, so the row lookup stays
  * tenant-scoped exactly as the session path is.
+ *
+ * What may have changed since the mint is asked again: the folder, and the
+ * hold (ADR-0083). A re-upload keeps the document's id, so a URL minted for a
+ * member before the new bytes were held would otherwise go on serving their
+ * thumbnail, or for an image the image itself, until it expired.
  */
 export async function streamDocumentImage(
   documentId: string,
@@ -2775,7 +2775,7 @@ export async function streamDocumentImage(
   if (!doc?.storageKey) throw new NotFoundError()
   // The URL outlives the moment it was minted, and the optimizer's fetch has no
   // session, so the person it names is asked again: a folder they can no longer
-  // read does not load its images (ADR-0084, ADR-0085). Not found, like every
+  // read does not load its images (ADR-0086, ADR-0087). Not found, like every
   // other refusal on this path.
   if (
     doc.scope === 'project' &&
@@ -2817,9 +2817,10 @@ export async function streamDocumentImage(
     headers: {
       'Content-Type': contentType,
       'Content-Disposition': 'inline',
-      // Private: the bytes are tenant data, and the optimizer keeps its own
-      // server-side cache regardless. Bounded by the signature's own lifetime.
-      'Cache-Control': 'private, max-age=3600',
+      // One token window. The optimizer keeps no copy (`next.config.ts`) but
+      // forwards this max-age to the browser, so it bounds how long a picture
+      // stays visible without this check running again.
+      'Cache-Control': DOCUMENT_IMAGE_CACHE_CONTROL,
       'X-Content-Type-Options': 'nosniff',
     },
   })
@@ -2950,14 +2951,13 @@ export async function presignDocumentImageUpload(
   if (!doc) return null
   const storageKey = buildImageStorageKey(doc.storageKey, imageIndex)
   if (!storageKey) return null
-  const uploadUrl = await getSignedUrl(
-    signingS3Client,
+  const uploadUrl = await presignForBackend(
     new PutObjectCommand({
       Bucket: resolveDocumentBucket(doc.storageBucket),
       Key: storageKey,
       ContentType: 'image/jpeg',
     }),
-    { expiresIn: 3600 }
+    3600
   )
   return { uploadUrl, storageKey }
 }

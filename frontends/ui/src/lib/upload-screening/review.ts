@@ -1,5 +1,5 @@
 /**
- * Clearing the quarantine (ADR-0083): who may, what release does, and the
+ * Clearing the quarantine (ADR-0085): who may, what release does, and the
  * reviewers' queue.
  *
  * A quarantined document's bytes are in the tenant's bucket and nothing of it
@@ -33,7 +33,7 @@ import { resolveDocumentFolderPath } from '@/lib/documents/folder-path'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems } from '@/lib/inbox/service'
 import { quarantineReviewersOf } from '@/lib/upload-batches/settle'
-import { auditedQuarantineReasons, parseQuarantine, type QuarantineVerdict } from './quarantine'
+import { parseQuarantine, type QuarantineVerdict } from './quarantine'
 import { mayReviewQuarantine } from './quarantine-reviewers'
 
 export { mayReviewQuarantine }
@@ -72,7 +72,7 @@ export async function releaseQuarantinedDocument(
     throw new ConflictError('This document has no recorded digest, so its release cannot name its bytes')
   }
   // Releasing files the document into its folder for good: a write there
-  // (ADR-0085). A reviewer who may only read the folder sees the document and
+  // (ADR-0087). A reviewer who may only read the folder sees the document and
   // cannot release it (403); an organization admin writes everywhere.
   if (doc.scope === 'project' && doc.projectId) await requireFolderWrite(session, doc.projectId, [doc.folderId])
 
@@ -95,7 +95,7 @@ export async function releaseQuarantinedDocument(
     folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
   })
 
-  const verdict = parseQuarantine(doc.errorMessage)
+  const reasons = parseQuarantine(doc.errorMessage)?.reasons ?? []
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },
@@ -106,8 +106,14 @@ export async function releaseQuarantinedDocument(
     metadata: {
       projectId: doc.projectId ?? '',
       filename: doc.filename.slice(0, 200),
-      // Kinds and terms only: a detector's masked sample stays on the row.
-      reasons: auditedQuarantineReasons(verdict),
+      // Kinds only: a detector's masked sample stays on the row.
+      reasons: [...new Set(reasons.map((reason) => reason.kind))].join(',').slice(0, 200),
+      // The office's words found in the text say what the document holds, so
+      // they go under `terms`, which is withheld with the name when the folder
+      // is restricted (DOCUMENT_NAME_KEYS, ADR-0086).
+      terms: [...new Set(reasons.flatMap((reason) => (reason.kind === 'term' && reason.term ? [reason.term] : [])))]
+        .join(',')
+        .slice(0, 200),
     },
     request,
   })
@@ -122,7 +128,7 @@ export interface ReleaseRequestResult {
 
 /**
  * The uploader asks for their quarantined file to be released („Freigabe
- * anfragen", ADR-0083). It releases nothing: it tells the people who may
+ * anfragen", ADR-0085). It releases nothing: it tells the people who may
  * release it, through the inbox, that somebody is waiting on their decision.
  *
  * Only the uploader asks. Everyone else is told the document does not exist,

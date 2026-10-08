@@ -127,7 +127,7 @@ PNG, JPEG, GIF, WebP, SVG, MP4, MOV and WebM all work.
 | `task fe:screenshots` | `agent-browser screenshot` against a running dev server |
 | `visual/registry.mjs` targets | the `/dev/*` routes themselves; no second list to keep in sync |
 | Committed PNGs under `visual/screenshots/` | attachments on the PR |
-| `visual-coverage` workflow | the **Visual evidence** workflow, which reads the PR BODY for the block rather than counting `.png` files in the diff |
+| `visual-coverage` workflow | nothing but a reviewer reading the attachment |
 | `screenshot-preview` workflow and its bot commits | nothing; nobody commits screenshots |
 | `visual/screenshots.manifest.json` staleness gate | nothing. A capture is taken against the branch under review, so it cannot go stale |
 | `task fe:touch-audit` | **nothing.** It imported the registry, so it went with it |
@@ -144,25 +144,6 @@ discovers routes from `src/app/dev/` rather than from a registry.
 Both skills carry their own instructions and fire on their own. Read them rather
 than this file for command detail; this page is the repo's policy, they are the
 tools' manuals.
-
-**Paused.** The check step in `.github/workflows/visual-evidence.yml` is
-commented out: the job runs and passes, and the capture is a reviewer's ask
-rather than a gate. Restoring the two commented lines re-enables what follows.
-
-When enforced, a PR touching `components/`, `features/`, `app/` or a
-stylesheet fails the **Visual evidence** workflow unless its body carries a
-non-empty `before-and-after` block. That workflow also wakes on a description
-edit, so adding the block clears the check without needing another commit —
-which is the whole reason it is not a step inside `ci.yml`. If the change really moves no
-pixels, say so where the reviewer reads it — the reason is required:
-
-```
-<!-- no-visual-evidence: renamed a prop, no rendered output changes -->
-```
-
-Exempt without asking: specs, mocks, fixtures, `.d.ts`, `/dev/*` previews (they
-are the capture target), and `app/api/**` and `route.ts` handlers, which live
-under `app/` but return JSON.
 
 The one rule that is this repo's and not theirs: **do not commit image files as
 evidence.** If a capture belongs anywhere permanent, it belongs in a doc that

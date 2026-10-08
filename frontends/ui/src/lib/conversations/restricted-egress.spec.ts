@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * What may leave a conversation that drew on a restricted folder (ADR-0084).
+ * What may leave a conversation that drew on a restricted folder (ADR-0086).
  *
  * The decision is driven here with the conversation's record and the folder
  * tree mocked: a run, task or profile patch from a conversation that recorded a
@@ -17,17 +17,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 vi.mock('./restricted-use', () => ({ recordedRestrictedFolders: vi.fn() }))
 vi.mock('@/lib/authz/folder-access-repository', () => ({ listProjectFolderTree: vi.fn() }))
+vi.mock('@/lib/documents/repository', () => ({ findProjectDocumentsByFilenames: vi.fn() }))
 
 import { ConversationConfinedError } from '@/lib/api/errors'
 import type { AccessFolder } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
+import { findProjectDocumentsByFilenames, type DocumentListRow } from '@/lib/documents/repository'
 import { recordedRestrictedFolders } from './restricted-use'
-import { confinementRefusal, folderRestrictsReading, requireMayFileFrom, requireMayLeaveConversation } from './restricted-egress'
+import {
+  confinementRefusal,
+  folderRestrictsReading,
+  requireMayFileFrom,
+  requireMayLeaveConversation,
+  requirePlanDocumentsOpen,
+} from './restricted-egress'
 
 const ORG = 'org_1'
 const PROJECT = '3f8b0d2e-0000-4000-8000-000000000001'
 const COLLECTION = 'proj_3f8b0d2e'
-/** Source folders, by id (ADR-0085): the record names folders, not collections. */
+/** Source folders, by id (ADR-0087): the record names folders, not collections. */
 const VERTRAEGE = 'vertraege'
 const HONORARE = 'honorare'
 const CONV = 's_conv_1'
@@ -176,5 +184,31 @@ describe('folderRestrictsReading — whether a revision task may quote a draft',
     expect(confinementRefusal('revision', 'de').message).toContain('kann Piloti es nicht überarbeiten')
     expect(confinementRefusal('revision', 'en').message).toContain('Piloti cannot revise it')
     expect(confinementRefusal('revision', 'en').details).toEqual({ action: 'revision' })
+  })
+})
+
+describe('requirePlanDocumentsOpen — a run’s Unterlagen', () => {
+  const row = (filename: string, folderId: string | null) =>
+    ({ id: `doc-${filename}`, filename, folderId }) as DocumentListRow
+
+  it('refuses a name any row of which sits below a folder not every member reads, a tombstone included', async () => {
+    for (const folderId of [VERTRAEGE, HONORARE, 'alt', 'unknown-folder']) {
+      vi.mocked(findProjectDocumentsByFilenames).mockResolvedValue([row('a.pdf', 'open'), row('a.pdf', folderId)])
+      const error = await refusal(requirePlanDocumentsOpen(ORG, PROJECT, [{ name: 'a.pdf' }], 'de'))
+      expect(error.details).toEqual({ action: 'planDocument' })
+    }
+  })
+
+  it('passes names that sit in open folders, at the root, or nowhere in the project', async () => {
+    vi.mocked(findProjectDocumentsByFilenames).mockResolvedValue([row('a.pdf', 'open'), row('b.pdf', null)])
+    await expect(
+      requirePlanDocumentsOpen(ORG, PROJECT, [{ name: 'a.pdf' }, { name: 'b.pdf' }, { name: 'c.pdf' }], 'de')
+    ).resolves.toBeUndefined()
+  })
+
+  it('asks for no document when no folder of the project has its own list', async () => {
+    vi.mocked(listProjectFolderTree).mockResolvedValue([{ id: 'open', parentId: null, accessMode: 'inherit', grants: [] }])
+    await requirePlanDocumentsOpen(ORG, PROJECT, [{ name: 'a.pdf', shelf: 'project' }], 'de')
+    expect(findProjectDocumentsByFilenames).not.toHaveBeenCalled()
   })
 })

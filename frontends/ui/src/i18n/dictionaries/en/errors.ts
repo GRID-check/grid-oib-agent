@@ -39,7 +39,7 @@ export const errors = {
   },
   /**
    * A conversation that drew on a folder with restricted access, refusing to
-   * carry its content where others read it (ADR-0084,
+   * carry its content where others read it (ADR-0086,
    * `lib/conversations/restricted-egress.ts`). One sentence per door, relayed
    * as the API error: the agent quotes the German one to the reader.
    */
@@ -53,5 +53,7 @@ export const errors = {
       'This conversation draws on a folder with restricted access, so nothing from it can be filed there: that place is visible to people not cleared for the restricted folder. Filing works only into a folder restricted at least as narrowly.',
     revision:
       'This document is in a folder with restricted access, so Piloti cannot revise it: the task for that would be visible to everyone in the project, including people not cleared for that folder. Request the changes without Piloti.',
+    planDocument:
+      'A document you named sits in a folder with restricted access, so it cannot be handed to a research run: a run’s documents and its report are visible to everyone in the project, including people not cleared for that folder.',
   },
 }
