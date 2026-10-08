@@ -43,14 +43,12 @@ def data_source_registry():
 
 
 @pytest.fixture
-async def submit_app(monkeypatch):
+async def submit_app(monkeypatch, tmp_path):
     """Build a minimal app with async submit routes and patched side effects."""
     import aiq_agent.auth
     import aiq_api.routes.jobs as jobs_routes
 
     submitted_job = AsyncMock(return_value="job-1")
-    monkeypatch.setattr(jobs_routes, "_start_periodic_cleanup", MagicMock())
-
     agent_config = AgentConfig(
         class_path="aiq_agent.agents.deep_researcher.agent.DeepResearcherAgent",
         config_name="deep_research_agent",
@@ -58,10 +56,6 @@ async def submit_app(monkeypatch):
     )
     monkeypatch.setattr(jobs_routes, "get_agent_config", lambda _agent_type: agent_config)
 
-    async def _no_op_reaper(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(jobs_routes, "_reap_ghost_jobs", _no_op_reaper)
     monkeypatch.setattr(aiq_agent.auth, "get_auth_token", lambda: "token-1")
 
     from aiq_api.jobs import access
@@ -78,13 +72,9 @@ async def submit_app(monkeypatch):
     monkeypatch.setattr(submit, "submit_agent_job", submitted_job)
 
     worker = SimpleNamespace(
-        _dask_available=True,
-        _job_store=MagicMock(),
-        _scheduler_address="tcp://localhost:8786",
-        _db_url="sqlite:///./test.db",
+        _db_url=f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
         _config_file_path="config.yml",
         _log_level=20,
-        _use_dask_threads=False,
         _front_end_config=SimpleNamespace(expiry_seconds=86400),
     )
 

@@ -58,13 +58,13 @@ export interface ShelfUploadInput {
   originPath?: string | null
   /**
    * The uploader released this file in the upload dialog although the
-   * organization's name screening excludes it (ADR-0083) — the Bauvertrag in a
+   * organization's name screening excludes it (ADR-0085) — the Bauvertrag in a
    * folder called „Verträge". Honoured and audited; absent means "do not
    * override", so a client that never asks is screened.
    */
   screeningRelease?: boolean
   /**
-   * The upload gesture this file belongs to (migration 0108), as the browser
+   * The upload gesture this file belongs to (migration 0109), as the browser
    * opened it. Recorded on the row when it is the uploader's own open batch
    * for this shelf; anything else is ignored rather than refused.
    */
@@ -342,7 +342,7 @@ async function prepareUpload(
     }
   }
   const originPath = sanitizeOriginPath(input.originPath)
-  // The name gate's server-side repeat (ADR-0083), before a byte is stored.
+  // The name gate's server-side repeat (ADR-0085), before a byte is stored.
   const nameGate = await assertUploadNameAllowed(
     session.organizationId,
     { filename: file.name, originPath, folderPath },

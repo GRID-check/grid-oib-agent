@@ -70,7 +70,7 @@ export const files: typeof en.files = {
     // Erfolg („Zitierbar“ wäre ein Versprechen, das die Suche nicht einlöst)
     // und kein Fehler. Dasselbe Wort wie im Toast nach dem Lauf.
     stored: 'Abgelegt',
-    // Die Inhaltsprüfung (ADR-0083) hat angeschlagen: Die Datei liegt im
+    // Die Inhaltsprüfung (ADR-0085) hat angeschlagen: Die Datei liegt im
     // Projekt, kein Modell hat sie gesehen, und jemand muss entscheiden.
     quarantined: 'In Quarantäne',
     unknown: 'Unbekannt',
@@ -264,7 +264,7 @@ export const files: typeof en.files = {
   },
   screening: {
     // Warum eine Datei zurückgehalten wurde – vom Inhaltsfilter (im Text) oder
-    // vom Namensfilter (im Datei- oder Ordnernamen), ADR-0083.
+    // vom Namensfilter (im Datei- oder Ordnernamen), ADR-0085.
     reasonTerm: '„{term}“ im Text',
     reasonIban: 'IBAN {sample}',
     reasonSvnr: 'Sozialversicherungsnummer {sample}',
@@ -484,7 +484,7 @@ export const files: typeof en.files = {
     collisions: '{count} Dateien teilen sich einen Namen mit einer anderen Datei in diesem Upload',
     collisionsExplain:
       'Ein Projekt hält pro Dateiname ein Dokument, deshalb werden diese nicht hochgeladen. Benennen Sie sie um und legen Sie sie erneut ab.',
-    // Vom Namensfilter des Büros zurückgehalten (ADR-0083): Die Dateien
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0085): Die Dateien
     // verlassen den Rechner nicht, außer jemand gibt eine einzeln frei.
     excluded: '{count} Datei(en) bleiben auf Ihrem Rechner',
     excludedExplain:
@@ -516,7 +516,7 @@ export const files: typeof en.files = {
     uploadFiles: 'Dateien auswählen',
   },
   errors: {
-    // Vom Namensfilter des Büros zurückgehalten (ADR-0083), auf einem Weg ohne
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0085), auf einem Weg ohne
     // Upload-Dialog, etwa im Chat.
     screenedOut: '{count} Datei(en) nicht hochgeladen, weil Ihr Büro sie als sensibel einstuft: {files}',
     screenedOutFile: '„{name}“ ({reason})',

@@ -265,8 +265,15 @@ async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
             return checkpointer
 
         if is_postgres_dsn(checkpoint_db):
+            # Lazy: `aiq_agent.knowledge` imports from this package.
+            from aiq_agent.knowledge.leader_lock import keyed_lock_async
+
             checkpointer = AsyncPostgresSaver(get_checkpoint_pool(checkpoint_db), serde=_build_checkpointer_serde())
-            await checkpointer.setup()
+            # Every role runs `setup()` at start and it is not safe against that: it creates tables and
+            # indexes one statement at a time (CREATE INDEX CONCURRENTLY), so a transaction lock cannot
+            # hold it. A session lock on the direct DSN does (ADR-0083).
+            async with keyed_lock_async("langgraph-setup:checkpointer"):
+                await checkpointer.setup()
             logger.info("Postgres checkpointer initialized via async pool.")
         else:
             conn = await aiosqlite.connect(checkpoint_db)

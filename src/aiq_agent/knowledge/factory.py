@@ -705,7 +705,7 @@ def reconcile_collection_summaries(
 
     Intended to run at the end of every ingestion job (wired into
     ``LlamaIndexIngestor._run_ingestion``) so every caller — the Knowledge API,
-    ``scripts/ingest_oib.py``'s ``oib_sync.sync()``, and any future caller —
+    ``oib_sync.sync()`` (the base-corpus housekeeping), and any future caller —
     gets this backstop automatically.
 
     Args:

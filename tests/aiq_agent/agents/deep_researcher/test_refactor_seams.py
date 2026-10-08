@@ -2,7 +2,7 @@
 
 The first test is the one that matters: the skill resolver is a synchronous
 HTTP round trip to the BFF, and running it on the event loop inside
-``_prepare_run`` stalled the Dask worker's heartbeat for as long as the BFF
+``_prepare_run`` stalled the research worker's heartbeat for as long as the BFF
 took to answer — the ghost reaper then failed healthy jobs
 (``docs/contributing/gotchas.md``). The rest pin the pure functions that were
 carved out of ``_finalize``, ``run``, the batch tool and the middleware.

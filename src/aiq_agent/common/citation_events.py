@@ -435,7 +435,7 @@ def _resolve_context(
 
     Precedence: an explicitly passed ``identity`` wins, then the active
     profiler, then the live request context. The profiler tier is what makes
-    async deep-research jobs work — a Dask worker has no request headers, but
+    async deep-research jobs work — a research worker has no request headers, but
     the job runner hands ``track_agent_profile`` the identity captured at
     submit time. Reusing the profiler's ``turn_id`` also links a citation
     defect to that turn's execution timeline on the platform dashboard.

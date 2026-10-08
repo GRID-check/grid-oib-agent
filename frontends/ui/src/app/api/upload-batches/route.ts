@@ -1,5 +1,5 @@
 /**
- * Open an upload batch (ADR-0083): the browser does this before it sends the
+ * Open an upload batch (ADR-0085): the browser does this before it sends the
  * first file of an upload, so the server can tell the uploader when it has all
  * been read, and keep the project's upload history.
  *

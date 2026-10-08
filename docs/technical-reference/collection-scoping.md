@@ -248,7 +248,7 @@ read **once, at job submit time**, in `piloti/conversation_register.py`, and
 carried through as a `collection_scope` field on the job payload rather than
 as a live header.
 
-When the Dask worker later runs the job, `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
+When the research worker later runs the job, `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
 re-injects it into the worker's own request context **only when present**:
 
 ```python

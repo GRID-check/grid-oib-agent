@@ -1,15 +1,13 @@
 /**
  * API Configuration
  *
- * Server-side: Reads BACKEND_URL env var at runtime (no rebuild needed)
+ * Server-side: Reads BACKEND_URL (the backend's api role: every HTTP call) and
+ * BACKEND_CHAT_URL (its chat role: the WebSocket only) at runtime (no rebuild needed)
  * Client-side: Uses same-origin URLs (proxied through UI server)
  */
 
 interface ApiConfig {
   baseUrl: string
-  chatStreamUrl: string
-  generateStreamUrl: string
-  websocketUrl: string
   healthUrl: string
   timeout: number
   documentsBaseUrl: string
@@ -25,13 +23,16 @@ const getBaseUrl = (): string => {
 
 /**
  * Get WebSocket URL.
- * - Server-side: Returns backend WebSocket URL directly
+ * - Server-side: Returns the chat role's WebSocket URL directly. The chat socket
+ *   is the one thing BACKEND_URL (the api role) does not serve, so there is no
+ *   fallback to it.
  * - Client-side: Returns same-origin URL (proxied through UI server)
  */
 export const getWebSocketUrl = async (): Promise<string> => {
   if (isServer) {
-    const baseUrl = getBaseUrl()
-    return `${baseUrl.replace(/^http/, 'ws')}/websocket`
+    const chatUrl = (process.env.BACKEND_CHAT_URL ?? '').trim().replace(/\/$/, '')
+    if (!chatUrl) throw new Error('BACKEND_CHAT_URL is required to open the chat socket from the server')
+    return `${chatUrl.replace(/^http/, 'ws')}/websocket`
   }
 
   // Browser: connect to same origin, UI server proxies to backend
@@ -41,9 +42,6 @@ export const getWebSocketUrl = async (): Promise<string> => {
 
 export const apiConfig: ApiConfig = {
   baseUrl: getBaseUrl(),
-  chatStreamUrl: `${getBaseUrl()}/chat/stream`,
-  generateStreamUrl: `${getBaseUrl()}/generate/stream`,
-  websocketUrl: `${getBaseUrl().replace(/^http/, 'ws')}/websocket`,
   healthUrl: `${getBaseUrl()}/health`,
   timeout: 30000,
   documentsBaseUrl: `${getBaseUrl()}/v1`,
