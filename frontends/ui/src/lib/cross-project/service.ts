@@ -36,6 +36,7 @@
  */
 
 import 'server-only'
+import { decisionOriginOf } from './decision-origin'
 import { BadRequestError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { clearanceOf, getProjectFolderAccess, readableFolderIdsFor } from '@/lib/authz/folder-access'
@@ -156,7 +157,7 @@ function projectRefOf(project: Project): CrossProjectRef {
  * agent's suggestion from its documents (unconfirmed), else null. A wizard default
  * is no evidence and is not read.
  */
-function oibEditionOf(profile: Project['profile'] | null): CrossProjectListed['oibEdition'] {
+export function oibEditionOf(profile: Project['profile'] | null): CrossProjectListed['oibEdition'] {
   const fact = profile?.facts?.oib_ausgabe?.value
   if (typeof fact === 'string' && fact.trim()) return { value: fact.trim(), confirmed: true }
   const suggestion = profile?.assumptions?.oib_ausgabe
@@ -367,15 +368,6 @@ async function decisionScopes(
       await clearanceOf(session, project.id)
     ),
   }))
-}
-
-/**
- * Who stands behind a recorded decision. A person's confirmation outranks the
- * documents it was read from, which outrank the agent's own note alone.
- */
-export function decisionOriginOf(found: Pick<FoundDecision, 'confirmed' | 'verification'>): CrossProjectDecision['origin'] {
-  if (found.confirmed) return 'person'
-  return found.verification === 'source_grounded' ? 'documents' : 'agent'
 }
 
 function asDecision(found: FoundDecision, byId: ReadonlyMap<string, Project>): CrossProjectDecision | null {

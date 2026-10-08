@@ -24,7 +24,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm'
 import { CROSS_PROJECT_MAX_PERMIT_REQUIREMENTS, CROSS_PROJECT_MAX_PERMITS } from '@/lib/cross-project/types'
 import { getDb } from '@/lib/db'
 import { documentVisibleTo, internalRead, SCREENED_ONLY } from '@/lib/documents/visibility'
@@ -39,6 +39,7 @@ import {
 import { contentTokens, jaccardSimilarity, normalizeContentGerman } from '@/lib/knowledge/consolidation'
 import { cosineSimilaritySql, embedNote, type EmbeddedNote } from '@/lib/knowledge/embeddings'
 import { fuseHybridRelevance } from '@/lib/knowledge/recall-scoring'
+import { memoryVisibleTo } from '@/lib/projects/memory-service'
 import type { LiveFolderAccess } from './live-access'
 
 /** How many records one search returns at most: the wire's bound, so the two cannot drift. */
@@ -365,4 +366,103 @@ export async function searchPermitRequirements(
       })),
     }
   })
+}
+
+/** One permit record as a reader of the project may see it, with its first requirements in document order. */
+export interface ListedPermitRecord {
+  id: string
+  fileName: string
+  kind: PermitRecordKind
+  authority: string | null
+  /** `YYYY-MM-DD`, or null. */
+  issuedOn: string | null
+  requirements: FoundPermitRequirement[]
+}
+
+/**
+ * The newest permit records of one project a reader may see (the restricted
+ * ones only for `readableFolderIds`, judged as memory is), each with its first
+ * `maxPerRecord` requirements in document order. Both bounds are applied in SQL:
+ * the requirements are ranked per record, so a long Bescheid cannot widen the read.
+ */
+export async function listPermitRecordsForProject(
+  organizationId: string,
+  projectId: string,
+  readableFolderIds: readonly string[],
+  { maxRecords, maxPerRecord }: { maxRecords: number; maxPerRecord: number }
+): Promise<ListedPermitRecord[]> {
+  const db = getDb()
+  const records = await db
+    .select({
+      id: permitRecords.id,
+      fileName: permitRecords.fileName,
+      kind: permitRecords.kind,
+      authority: permitRecords.authority,
+      issuedOn: permitRecords.issuedOn,
+    })
+    .from(permitRecords)
+    .where(
+      and(
+        eq(permitRecords.organizationId, organizationId),
+        eq(permitRecords.projectId, projectId),
+        memoryVisibleTo(readableFolderIds, permitRecords.restrictedFolderIds)
+      )
+    )
+    .orderBy(desc(permitRecords.issuedOn), desc(permitRecords.createdAt))
+    .limit(maxRecords)
+  if (records.length === 0) return []
+
+  const ranked = db.$with('ranked_requirements').as(
+    db
+      .select({
+        recordId: permitRequirements.recordId,
+        position: permitRequirements.position,
+        kind: permitRequirements.kind,
+        content: permitRequirements.content,
+        evidence: permitRequirements.evidence,
+        legalBasis: permitRequirements.legalBasis,
+        page: permitRequirements.page,
+        rank: sql<number>`row_number() over (partition by ${permitRequirements.recordId} order by ${permitRequirements.position})`.as(
+          'rank'
+        ),
+      })
+      .from(permitRequirements)
+      .where(
+        and(
+          eq(permitRequirements.organizationId, organizationId),
+          inArray(
+            permitRequirements.recordId,
+            records.map((record) => record.id)
+          ),
+          memoryVisibleTo(readableFolderIds, permitRequirements.restrictedFolderIds)
+        )
+      )
+  )
+  const rows = await db
+    .with(ranked)
+    .select()
+    .from(ranked)
+    .where(lte(ranked.rank, maxPerRecord))
+    .orderBy(asc(ranked.position))
+
+  const byRecord = new Map<string, FoundPermitRequirement[]>()
+  for (const row of rows) {
+    const requirement: FoundPermitRequirement = {
+      kind: row.kind,
+      content: row.content,
+      evidence: row.evidence,
+      legalBasis: row.legalBasis,
+      page: row.page === null ? null : Number(row.page),
+    }
+    byRecord.set(row.recordId, [...(byRecord.get(row.recordId) ?? []), requirement])
+  }
+  // Raw values are not runtime-validated: coerced at the boundary.
+  return records.map((record) => ({
+    id: record.id,
+    fileName: record.fileName,
+    kind: record.kind,
+    authority: record.authority,
+    issuedOn: record.issuedOn === null ? null : String(record.issuedOn),
+    requirements: byRecord.get(record.id) ?? [],
+  }))
 }

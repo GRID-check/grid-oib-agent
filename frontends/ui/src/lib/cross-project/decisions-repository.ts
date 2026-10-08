@@ -27,6 +27,7 @@ import { cosineSimilaritySql, embedNote } from '@/lib/knowledge/embeddings'
 import { fuseHybridRelevance } from '@/lib/knowledge/recall-scoring'
 import { projectMemory, type ProjectMemoryKind, type ProjectMemoryVerification } from '@/lib/db/schema'
 import { memoryVisibleTo } from '@/lib/projects/memory-service'
+import { isConfirmedMemory } from './decision-origin'
 
 /** The memory kinds that are experience another project can use. */
 export const DECISION_KINDS: readonly ProjectMemoryKind[] = ['decision', 'constraint']
@@ -121,7 +122,7 @@ export async function searchProjectDecisions(
       projectId: String(row.projectId),
       kind: row.kind,
       content: row.content,
-      confirmed: row.pinned || row.verification === 'user_confirmed' || row.provenanceType === 'user',
+      confirmed: isConfirmedMemory(row),
       verification: row.verification,
       evidence: row.evidence ?? [],
       updatedAt: new Date(row.updatedAt),

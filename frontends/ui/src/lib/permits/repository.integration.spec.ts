@@ -519,4 +519,42 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
       expect(await search(ORG, '   ')).toEqual([])
     })
   })
+
+  describe('a project’s records as its reader sees them', () => {
+    const list = (projectId: string, readable: string[], options = { maxRecords: 20, maxPerRecord: 4 }) =>
+      inOrg(ORG, () => repo.listPermitRecordsForProject(ORG, projectId, readable, options))
+
+    it('lists only open records to a reader cleared for none of the folders, each with its requirements in document order', async () => {
+      const open = await list(ids.moedling, [])
+      expect(open.map((record) => record.fileName)).toEqual(['Mängelbehebung_Moedling.pdf'])
+      expect(open[0]).toMatchObject({ authority: 'Stadtgemeinde Mödling', issuedOn: '2020-03-14', kind: 'nachforderung' })
+      expect(open[0].requirements.map((item) => item.content)).toEqual([
+        'Fluchtwegbreiten sind in allen Grundrissen zu bemaßen.',
+        'Tragwerk nachweisen.',
+      ])
+    })
+
+    it('adds a restricted record for a reader cleared for its folder, and keeps each record’s requirements apart', async () => {
+      const cleared = await list(ids.moedling, [FOLDER])
+      const byFile = Object.fromEntries(cleared.map((record) => [record.fileName, record.requirements.map((item) => item.content)]))
+      expect(byFile).toEqual({
+        'Mängelbehebung_Moedling.pdf': ['Fluchtwegbreiten sind in allen Grundrissen zu bemaßen.', 'Tragwerk nachweisen.'],
+        'Honorar_Moedling.pdf': ['Das Honorar der Statikerin wurde pauschal vereinbart.'],
+      })
+    })
+
+    it('bounds each record’s requirements and the number of records in SQL', async () => {
+      const perRecord = await list(ids.moedling, [FOLDER], { maxRecords: 20, maxPerRecord: 1 })
+      expect(perRecord.every((record) => record.requirements.length === 1)).toBe(true)
+      expect(perRecord.find((record) => record.fileName === 'Mängelbehebung_Moedling.pdf')?.requirements[0].content).toBe(
+        'Fluchtwegbreiten sind in allen Grundrissen zu bemaßen.'
+      )
+      expect(await list(ids.moedling, [FOLDER], { maxRecords: 1, maxPerRecord: 4 })).toHaveLength(1)
+    })
+
+    it('lists only the project asked about, and no other organization’s records', async () => {
+      expect((await list(ids.baden, [])).map((record) => record.fileName)).toEqual(['Baubescheid_Baden.pdf'])
+      expect(await list(ids.foreign, [])).toEqual([])
+    })
+  })
 })
