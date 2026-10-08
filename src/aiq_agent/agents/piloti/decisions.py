@@ -446,7 +446,11 @@ def prefetch_calls(
     ``project_lookup`` over the CLOSED projects, most alike first. Closed
     only, because a decision may only add: a closed project's content
     narrows nobody who may read the chat, while a running project's would,
-    and that step stays the model's to take.
+    and that step stays the model's to take. Open folders only
+    (``open_folders_only``), for the same reason: in a solo chat the lookup
+    also reaches the asker's cleared restricted folders, and recording one
+    would narrow the chat on a search nobody asked for. A restricted folder
+    is a call the model makes itself.
     """
     if not decisions.decided:
         return [] if previous_message is not None else _undecided_prefetch(question)
@@ -457,7 +461,12 @@ def prefetch_calls(
         return []
     calls = _corpus_prefetch(decisions, query, focus_file_name)
     if reference_projects > 0 and decisions.wants_reference:
-        calls.append({"name": PROJECT_LOOKUP, "args": {"action": "search", "query": query, "scope": "closed"}})
+        calls.append(
+            {
+                "name": PROJECT_LOOKUP,
+                "args": {"action": "search", "query": query, "scope": "closed", "open_folders_only": True},
+            }
+        )
     return calls
 
 

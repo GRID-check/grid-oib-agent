@@ -296,6 +296,42 @@ describe('searchAcrossProjects', () => {
     })
   })
 
+  describe('openFoldersOnly in a solo chat', () => {
+    const FOLDER_COLLECTION = 'proj_1_rabcdef012345'
+
+    function arrange() {
+      const [one] = state.reachable
+      state.folders.set(FOLDER_COLLECTION, 'folder-honorare')
+      state.readable.set(one.id, ['folder-honorare'])
+      state.hits.set(one.id, [hit('honorar', 0.9, { collectionName: FOLDER_COLLECTION }), hit('plan', 0.7)])
+      return one
+    }
+
+    it('returns and records no restricted passage, and asks decisions and permits with no readable folder', async () => {
+      const one = arrange()
+
+      const result = await searchAcrossProjects(caller(), search({ openFoldersOnly: true }))
+
+      expect(result.hits.map((found) => found.filename)).toEqual(['plan.pdf'])
+      expect(state.decisionScopes.length).toBeGreaterThan(0)
+      expect(state.decisionScopes.every((scope) => scope.readableFolderIds.length === 0)).toBe(true)
+      expect(state.permitScopes).toEqual(state.decisionScopes)
+      expect(state.recorded).toEqual([{ projectIds: [one.id], folderIds: [] }])
+    })
+
+    it('still gives the solo chat its restricted passages, decisions and permits without it', async () => {
+      const one = arrange()
+
+      const result = await searchAcrossProjects(caller(), search({}))
+
+      expect(result.hits.map((found) => found.filename)).toEqual(['honorar.pdf', 'plan.pdf'])
+      expect(state.decisionScopes.find((scope) => scope.projectId === one.id)?.readableFolderIds).toEqual(['folder-honorare'])
+      expect(state.permitScopes).toEqual(state.decisionScopes)
+      expect(state.recorded.map((handOut) => [...new Set(handOut.projectIds)])).toEqual([[one.id]])
+      expect(state.recorded.flatMap((handOut) => handOut.folderIds)).toEqual(['folder-honorare'])
+    })
+  })
+
   it('returns nothing when the record refuses: the audience changed while the search ran', async () => {
     const { recordCrossProjectHandOut } = await import('@/lib/conversations/cross-project-use')
     vi.mocked(recordCrossProjectHandOut).mockRejectedValueOnce(new CrossProjectAudienceChangedError('geändert'))

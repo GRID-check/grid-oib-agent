@@ -86,6 +86,9 @@
               "type": "null"
             }
           ]
+        },
+        "openFoldersOnly": {
+          "type": "boolean"
         }
       },
       "required": [
