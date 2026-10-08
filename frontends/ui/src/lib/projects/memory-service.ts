@@ -1,5 +1,6 @@
 import { isUniqueViolation } from '@/lib/db/errors'
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { getDb } from '@/lib/db'
 import { executeRows } from '@/lib/db/execute-rows'
 import { BadRequestError } from '@/lib/api/errors'
@@ -89,12 +90,19 @@ function sameRestriction(restriction: readonly string[] | null) {
  * source folders. `readable` is every folder of the project (tombstones
  * included) the reader may read NOW (`readableFolderIdsFor`); empty is the
  * default everywhere, so a caller that says nothing gets open memory only.
+ *
+ * `column` is the `restricted_folder_ids` column to judge: memory's own unless
+ * another table keeps the same ADR-0081 restriction (the permit records), so
+ * one rule decides what a reader may see of derived content.
  */
-export function memoryVisibleTo(readable: readonly string[] = []) {
+export function memoryVisibleTo(
+  readable: readonly string[] = [],
+  column: AnyPgColumn = projectMemory.restrictedFolderIds
+) {
   const restriction = canonicalRestriction(readable)
   return restriction
-    ? sql`(${projectMemory.restrictedFolderIds} is null or ${projectMemory.restrictedFolderIds} <@ ${arrayLiteral(restriction)}::uuid[])`
-    : isNull(projectMemory.restrictedFolderIds)
+    ? sql`(${column} is null or ${column} <@ ${arrayLiteral(restriction)}::uuid[])`
+    : isNull(column)
 }
 
 /** Digest budget in characters. Kept small: this rides a header on every turn. */

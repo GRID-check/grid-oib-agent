@@ -117,6 +117,11 @@ const BOUNDARY_MIGRATIONS = [
   // through a cross-project lookup (ADR-0085). Keyed directly by its
   // organization: the conversation row may not exist yet.
   '0116_conversation_source_projects.sql',
+  // Adds permit_records and permit_requirements — what a Bescheid says, kept
+  // as rows (ADR-0086). Keyed directly by their organization; the record is
+  // tied to its project by a composite foreign key, the requirements to the
+  // record.
+  '0117_permit_records.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

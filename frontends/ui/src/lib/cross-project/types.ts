@@ -38,7 +38,7 @@ export const CROSS_PROJECT_SCOPES = ['similar', 'closed', 'all', 'named'] as con
 export type CrossProjectScope = (typeof CROSS_PROJECT_SCOPES)[number]
 
 /** A calendar day, `YYYY-MM-DD`, that is a real date. */
-const isoDay = z
+export const isoDay = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value), {
