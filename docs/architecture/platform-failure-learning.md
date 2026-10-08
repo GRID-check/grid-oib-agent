@@ -135,20 +135,31 @@ report means joining `answer_feedback` under the audited platform bypass,
 which is a deliberate second gate: the injectable/visible layer is safe by
 construction, and crossing back to raw is a privileged act.
 
-Before any of them, a down-vote on a conversation that drew on a folder with
-restricted access (any `conversation_restricted_folders` row, ADR-0086) is
-never read: its question and answer may quote a folder some of the tenant's
-own members may not read, and a lesson reaches every tenant. Deleting the chat
-deletes that record but not the vote, so the delete marks the vote
-`restricted_source` (migration 0120) and the filter reads both; a vote whose
-chat was deleted before 0120 cannot be told apart. What a sweep took
-from one before that rule, migration 0119 withdrew once: the report's
-`canonical_summary` is cleared, and a lesson created from it loses its text
-and is retired (`restricted_source`). A lesson the report was only linked to
-keeps its text, since none of it came from there. An `edited` event's
-`previousContent` stays in the trail, which is append-only. The injection
-digest's cache key moved to `platformlessons:digest:v2` with it, so a digest
-cached before 0119 ran is not injected for the rest of its five minutes.
+Before any of them, a down-vote on an answer that drew on a folder with
+restricted access is never read: its question and answer may quote a folder
+some of the tenant's own members may not read, and a lesson reaches every
+tenant. The database decides, from one rule (`grid_feedback_restricted_use`,
+migration 0123, ADR-0091): the vote's message is marked in
+`message_restricted_use`, or the voted message's conversation, or the one the
+vote names, holds a `conversation_restricted_folders` record (written when the
+BFF admits restricted content into a turn) or is a revision thread whose
+document sits where not every member may read. Triggers mark every message of
+such a conversation from its first admission on, and the message id of every
+vote cast in one, whether or not that id names a persisted message. The vote's
+ids are the client's and can only add to the answer. The sweep reads the
+question through the voted message's own conversation. Marks have no foreign
+key, so they stay when the chat is deleted.
+
+What a sweep took before that rule was withdrawn twice: migration 0119 by
+conversation record, 0123 by mark. The report's `canonical_summary` is cleared,
+and a lesson created from it loses its text and is retired
+(`restricted_source`). A lesson the report was only linked to keeps its text,
+since none of it came from there. 0123 also clears the vector embedded from
+every withdrawn lesson's old text and removes `previousContent`, which an
+owner's edit had kept, from its events. Votes whose chat and record were
+deleted before 0120, and reports whose vote was retracted, cannot be matched
+(the 0123 header lists them). The injection digest's cache key is `platformlessons:digest:v3`, so a
+digest cached before 0123 ran is not injected for the rest of its five minutes.
 
 Four defence layers, none trusted alone: deterministic scrub → instructed
 omission (the distiller writes the failure class, not the instance) → auditor

@@ -16,7 +16,11 @@
  * no anchor, and the question is NULL — an honest gap the UI already renders,
  * rather than a confident wrong pairing. The conversation comes from the
  * persisted answer, not from `answer_feedback.conversation_id`, which is
- * whatever text the client sent with its vote.
+ * whatever text the client sent with its vote, and both rows must be in the
+ * vote's organization: a message id is the client's text too, and a vote must
+ * not pull another tenant's answer into a cross-tenant reader (ADR-0091).
+ * A reader that wants the conversation (title, topics) joins it through
+ * `m.conversation_id` in `f.organization_id`, for the same reason.
  *
  * Expects the feedback row aliased `f`; exposes `m.content` (the answer) and
  * `q.content` (the question). LEFT joins throughout: a vote whose turn was
@@ -28,11 +32,13 @@ import { sql } from 'drizzle-orm'
 export const VOTED_TURN_JOINS = sql`
     left join messages m
       on m.id::text = f.message_id
+     and m.organization_id = f.organization_id
      and m.role = 'assistant'
     left join lateral (
       select qm.content
       from messages qm
       where qm.conversation_id = m.conversation_id
+        and qm.organization_id = f.organization_id
         and qm.role = 'user'
         and qm.created_at <= m.created_at
       order by qm.created_at desc

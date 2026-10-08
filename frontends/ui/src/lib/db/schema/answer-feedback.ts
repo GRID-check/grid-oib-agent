@@ -19,6 +19,12 @@ import { projects } from './projects'
  * must not race it. `project_id` keeps a cascading FK (mirrors
  * `conversations.project_id`) so a purged project takes its feedback along.
  * `organization_id` is denormalized for SQL-level tenancy scoping (ADR-0007).
+ *
+ * Whether the answer drew on a folder with restricted access is NOT a column
+ * here: the database marks the vote's `message_id` (`message_restricted_use`,
+ * migration 0123, a trigger on this table among others) and every cross-tenant
+ * reader asks `grid_feedback_restricted_use` of the vote. Both ids are the
+ * client's, so they can only add to that answer, never lift it.
  */
 
 export const ANSWER_FEEDBACK_VERDICTS = ['up', 'down'] as const
@@ -55,13 +61,6 @@ export const answerFeedback = pgTable(
      * excluded from the comparison rather than silently counted as treated.
      */
     lessonsHoldout: boolean('lessons_holdout'),
-    /**
-     * Its conversation drew on a folder with restricted access (migration
-     * 0120). Set by a trigger when the conversation's
-     * `conversation_restricted_folders` row is deleted, so the vote stays out of
-     * every cross-tenant reader after the chat is gone (`OUTSIDE_RESTRICTED_USE`).
-     */
-    restrictedSource: boolean('restricted_source').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

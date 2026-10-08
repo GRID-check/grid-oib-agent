@@ -18,7 +18,10 @@ export interface ProfiledConversationSummary {
   organizationId: string | null
   /** Display name for `organizationId`; null when unknown or unresolvable. */
   organizationName: string | null
+  /** Null when withheld (`titleWithheld`) or the conversation is gone. */
   title: string | null
+  /** The conversation drew on a folder with restricted access (ADR-0091). */
+  titleWithheld: boolean
   turnCount: number
   totalDurationMs: number
   lastActiveAt: string
@@ -37,6 +40,7 @@ export async function listProfiledConversations(query?: string): Promise<{
       organizationId: row.organizationId,
       organizationName: row.organizationId ? (names.get(row.organizationId) ?? null) : null,
       title: row.title,
+      titleWithheld: row.titleWithheld,
       turnCount: row.turnCount,
       totalDurationMs: row.totalDurationMs,
       lastActiveAt: row.lastActiveAt.toISOString(),

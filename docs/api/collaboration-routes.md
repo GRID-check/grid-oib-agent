@@ -287,6 +287,11 @@ For every distinct target on the page — resolved **once per resource**, not on
 per item — access is re-derived; anything unreachable, or already marked inert,
 comes back with `href: null` and `excerpt: null`. Such rows are **redacted, not
 dropped**: a redacted row explains itself, a vanished one looks like a bug.
+A run's row (`job.completed`, `job.failed`, `job.waiting`) targets its project,
+and is also judged by the run it names: a revision task whose document now sits
+in a folder the reader may not read is redacted like a revoked target
+(`unreadableRunIds`, `lib/tasks/subject-access.ts`, ADR-0091), as the task list
+and the run view withhold it.
 
 `InboxItemView` carries `type`, `state` (`unread`/`read`/`resolved`/`archived`/
 `inert`), `actionable`, `count`, `actorName`, `actorUserId`, `subject`,

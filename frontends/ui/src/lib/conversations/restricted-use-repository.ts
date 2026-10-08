@@ -9,12 +9,14 @@
  */
 
 import 'server-only'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import type { DbExecutor } from '@/lib/db/executor'
 import {
   conversationRestrictedFolders,
   conversations,
+  documents,
   resourceShares,
+  taskRuns,
   type ResourceVisibility,
 } from '@/lib/db/schema'
 
@@ -23,6 +25,9 @@ import {
  * project has a handful of restricted folders; the bound is for the query.
  */
 export const RECORDED_FOLDERS_LIMIT = 200
+
+/** Rows read back for a whole list of conversations: a list is at most `CONVERSATION_LIST_LIMIT`, each with a handful of folders. */
+const RECORDED_FOLDERS_BATCH_LIMIT = 5_000
 
 /** How many grantees the audience read returns; the sharing roster cap is far below. */
 const AUDIENCE_GRANT_LIMIT = 500
@@ -49,7 +54,57 @@ export async function lockConversationAudience(
   )
 }
 
-/** The source folders this conversation recorded, sorted. */
+/**
+ * The subject id of a revision run, as a uuid when it is one, else null (a plan
+ * is jsonb). Built when asked rather than at import: narrow schema doubles in
+ * unit specs that import this module carry no `taskRuns`.
+ */
+function subjectDocumentId() {
+  return sql`case
+  when ${taskRuns.plan}->'subject'->>'documentId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  then (${taskRuns.plan}->'subject'->>'documentId')::uuid
+end`
+}
+
+/**
+ * The current folder of every document a revision task written into these
+ * conversations revises (ADR-0091). Read alongside the record: the thread holds
+ * the draft's text and the revised draft, so it is read as a conversation that
+ * drew on the folder the document is in NOW. Not stored: a document moved, or
+ * a folder loosened, changes the answer at the next read. A document that is
+ * gone, or that sits at a project's root, adds nothing.
+ */
+async function listRevisionSubjectFolders(
+  executor: DbExecutor,
+  organizationId: string,
+  conversationIds: readonly string[],
+): Promise<{ conversationId: string; folderId: string }[]> {
+  if (conversationIds.length === 0) return []
+  const rows = await executor
+    .select({ conversationId: taskRuns.conversationId, folderId: documents.folderId })
+    .from(taskRuns)
+    .innerJoin(
+      documents,
+      and(eq(documents.organizationId, taskRuns.organizationId), sql`${documents.id} = ${subjectDocumentId()}`),
+    )
+    .where(
+      and(
+        eq(taskRuns.organizationId, organizationId),
+        eq(taskRuns.kind, 'revision'),
+        inArray(taskRuns.conversationId, [...conversationIds]),
+        isNotNull(documents.folderId),
+      ),
+    )
+    .limit(RECORDED_FOLDERS_BATCH_LIMIT)
+  return rows.flatMap((row) =>
+    row.conversationId && row.folderId ? [{ conversationId: String(row.conversationId), folderId: String(row.folderId) }] : [],
+  )
+}
+
+/**
+ * The source folders this conversation recorded, sorted, with the current
+ * folders of the documents its revision tasks revise.
+ */
 export async function listRecordedSourceFolders(
   executor: DbExecutor,
   organizationId: string,
@@ -66,16 +121,17 @@ export async function listRecordedSourceFolders(
     )
     .orderBy(conversationRestrictedFolders.folderId)
     .limit(RECORDED_FOLDERS_LIMIT)
-  return rows.map((row) => String(row.folderId))
+  const subjects = await listRevisionSubjectFolders(executor, organizationId, [conversationId])
+  return [...new Set([...rows.map((row) => String(row.folderId)), ...subjects.map((row) => row.folderId)])]
+    .sort()
+    .slice(0, RECORDED_FOLDERS_LIMIT)
 }
 
-/** Rows read back for a whole list of conversations: a list is at most `CONVERSATION_LIST_LIMIT`, each with a handful of folders. */
-const RECORDED_FOLDERS_BATCH_LIMIT = 5_000
-
 /**
- * The source folders each of these conversations recorded, for the
- * conversations that recorded any: how a list asks "which of these did
- * restricted content enter" in one read. Absent from the map means none.
+ * The source folders each of these conversations recorded, and the current
+ * folders of the documents their revision tasks revise, for the conversations
+ * with any: how a list asks "which of these did restricted content enter" in
+ * one read per table. Absent from the map means none.
  */
 export async function listRecordedSourceFoldersFor(
   executor: DbExecutor,
@@ -97,9 +153,10 @@ export async function listRecordedSourceFoldersFor(
       ),
     )
     .limit(RECORDED_FOLDERS_BATCH_LIMIT)
-  for (const row of rows) {
+  const subjects = await listRevisionSubjectFolders(executor, organizationId, conversationIds)
+  for (const row of [...rows, ...subjects]) {
     const folders = recorded.get(String(row.conversationId)) ?? []
-    folders.push(String(row.folderId))
+    if (!folders.includes(String(row.folderId))) folders.push(String(row.folderId))
     recorded.set(String(row.conversationId), folders)
   }
   return recorded

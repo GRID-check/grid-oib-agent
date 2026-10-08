@@ -32,25 +32,28 @@ import { likeContains } from '@/lib/text/like-pattern'
 import { isTraceId } from '@/lib/langfuse/config'
 
 /**
- * Leaves out a vote on a conversation that drew on a folder with restricted
- * access: one with any `conversation_restricted_folders` row (ADR-0086,
- * ADR-0087). Its question, answer, comment and expected answer may quote that
+ * Leaves out a vote on an answer whose conversation drew on a folder with
+ * restricted access (`grid_feedback_restricted_use`, migration 0123,
+ * ADR-0091). Its question, answer, comment and expected answer may quote that
  * folder, and every reader of these rows is outside the folder's audience: the
  * platform staff's drill-in and CSV export, the digest's model, the eval-case
  * converter fed by the export, and the lessons distiller that injects into
  * every organization's turns (`platform-lessons/repository.ts`).
  *
- * Any record counts, including one for a folder since opened: these readers
- * are cross-tenant, and the safe direction is to show less. The record goes
- * with a deleted chat while the vote stays, so the vote carries the fact too:
- * deleting the record marks it `restricted_source` (migration 0120), and both
- * are read. Expects the feedback row aliased `f`.
+ * The database answers, from one rule: the vote's message id is marked
+ * (`message_restricted_use`), or the conversation the voted message is in, or
+ * the one the vote names, drew on such a folder now. Marks are written by
+ * triggers when a message is written into such a conversation, when a
+ * conversation is first admitted restricted content (every message it holds
+ * and every vote naming it), and when a vote is cast on either; they have no
+ * foreign key, so they stay when the chat is deleted. The vote's ids are the
+ * client's and only ever add to the answer: a vote whose message id names no
+ * row, cast in a restricted chat, is marked by the chat it names. Any record
+ * counts, including one for a folder since opened: these readers are
+ * cross-tenant, and the safe direction is to show less. Expects the feedback
+ * row aliased `f`.
  */
-export const OUTSIDE_RESTRICTED_USE = sql`not f.restricted_source and not exists (
-  select 1 from conversation_restricted_folders crf
-  where crf.organization_id = f.organization_id
-    and crf.conversation_id = f.conversation_id
-)`
+export const OUTSIDE_RESTRICTED_USE = sql`not grid_feedback_restricted_use(f.organization_id, f.message_id, f.conversation_id)`
 
 /** Hard cap for the per-conversation hydration list. */
 export const CONVERSATION_FEEDBACK_LIST_LIMIT = 200
@@ -648,8 +651,14 @@ export async function getFeedbackHealth(
  * through the digest — both of which sit behind `requirePlatformPermission`.
  *
  * The one content-bearing read here, so it is the one that leaves out votes on
- * a conversation that drew on a restricted folder (`OUTSIDE_RESTRICTED_USE`).
- * The aggregates above still count them: a count quotes nothing.
+ * an answer whose conversation drew on a restricted folder
+ * (`OUTSIDE_RESTRICTED_USE`). The aggregates above still count them: a count
+ * quotes nothing. The answer, its question, the conversation's title and its
+ * topics are read through the voted MESSAGE's own conversation, in the vote's
+ * organization, never through the `conversation_id` the client sent: a vote
+ * naming another chat would otherwise show that chat's title and question. A
+ * vote in a conversation the rule answers yes for is not returned at all, so
+ * no row carries the title the staff profiler withholds.
  */
 export async function listFeedbackTurns(
   filters: FeedbackHealthFilters = {},
@@ -689,7 +698,9 @@ export async function listFeedbackTurns(
       m.metadata->>'trace_id' as trace_id
     from answer_feedback f
     ${VOTED_TURN_JOINS}
-    left join conversations c on c.id = f.conversation_id
+    left join conversations c
+      on c.id = m.conversation_id
+     and c.organization_id = f.organization_id
     where f.verdict = ${verdict}
       and f.created_at >= ${since}::timestamptz
       and ${OUTSIDE_RESTRICTED_USE}

@@ -9,6 +9,7 @@ vi.mock('@/lib/db', () => ({
 }))
 
 import { getDb } from '@/lib/db'
+import { CONVERSATION_TAG_KEYS } from '@/lib/conversations/tags'
 import {
   CONVERSATION_FEEDBACK_LIST_LIMIT,
   FEEDBACK_EXPORT_ROW_CAP,
@@ -208,11 +209,11 @@ describe('listFeedbackTurns', () => {
    * digest's model) is outside that folder's audience. The SQL is checked
    * against Postgres in `restricted-feedback.integration.spec.ts`.
    */
-  it('leaves out votes on a conversation that drew on a restricted folder', async () => {
+  it('leaves out votes the database\'s one rule answers yes for, asked of the whole vote', async () => {
     const execute = capture()
     await listFeedbackTurns({})
     expect(sqlText(execute.mock.calls[0][0])).toMatch(
-      /not exists \(\s*select 1 from conversation_restricted_folders crf\s+where crf\.organization_id = f\.organization_id\s+and crf\.conversation_id = f\.conversation_id/
+      /not grid_feedback_restricted_use\(f\.organization_id, f\.message_id, f\.conversation_id\)/
     )
   })
 
@@ -230,6 +231,22 @@ describe('listFeedbackTurns', () => {
     expect(text).not.toMatch(/m\.created_at is null/)
     expect(text).toContain('qm.conversation_id = m.conversation_id')
     expect(text).toContain('qm.created_at <= m.created_at')
+  })
+
+  /**
+   * The vote's `conversation_id` is whatever the client sent (ADR-0091). Read
+   * through it, a vote naming a restricted chat would show that chat's title
+   * and question under an unmarked answer.
+   */
+  it('reads the title and the question through the voted message, never the vote\'s conversation id', async () => {
+    const execute = capture()
+    await listFeedbackTurns({ topic: CONVERSATION_TAG_KEYS[0] })
+    const text = sqlText(execute.mock.calls[0][0])
+    expect(text).not.toContain('f.conversation_id =')
+    expect(text).not.toContain('= f.conversation_id')
+    expect(text).toMatch(/left join conversations c\s+on c\.id = m\.conversation_id\s+and c\.organization_id = f\.organization_id/)
+    expect(text).toMatch(/on m\.id::text = f\.message_id\s+and m\.organization_id = f\.organization_id/)
+    expect(text).toMatch(/where qm\.conversation_id = m\.conversation_id\s+and qm\.organization_id = f\.organization_id/)
   })
 
   it('coerces the raw row — `sql` results are not runtime-validated', async () => {

@@ -1148,6 +1148,7 @@ export const platform = {
     copyId: 'Copy {id}',
     copied: 'Copied',
     copyFailed: 'Could not copy to the clipboard',
+    titleWithheld: 'Title withheld: restricted folder',
   },
   /**
    * Citation health (citation_events ledger): how often citation verification
