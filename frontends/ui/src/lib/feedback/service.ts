@@ -34,9 +34,12 @@ import {
   listAnswerFeedbackForConversation,
   upsertAnswerFeedback,
   type FeedbackHealth,
+  type FeedbackOrgRollup,
+  type FeedbackTurn,
   type FeedbackWeeklyCount,
   type FeedbackHealthFilters,
 } from './repository'
+import { listOrganizationNames } from '@/lib/organizations/names'
 import { getFeedbackDigest, type FeedbackDigestOptions, type FeedbackDigestResult } from './digest'
 import { resolveLessonsHoldout } from '@/lib/platform-lessons/holdout'
 import { reopenReportForRedistillation } from '@/lib/platform-lessons/service'
@@ -162,19 +165,52 @@ function toView(row: AnswerFeedback): AnswerFeedbackView {
  * quality across tenants, which is the same person the citation-health and
  * profiler surfaces on this page already serve.
  */
+/** One organization's rollup, named for the reader. */
+export interface FeedbackOrgRollupView extends FeedbackOrgRollup {
+  /** The organization's display name; null when the name lookup failed or missed. */
+  organizationName: string | null
+}
+
+/** One voted turn, named for the reader. */
+export interface FeedbackTurnView extends FeedbackTurn {
+  /** The organization's display name; null when the name lookup failed or missed. */
+  organizationName: string | null
+}
+
+/** What the platform quality view is served: the aggregate, with the tenants named. */
+export interface AnswerFeedbackHealthView extends Omit<FeedbackHealth, 'organizations' | 'turns'> {
+  organizations: FeedbackOrgRollupView[]
+  turns: FeedbackTurnView[]
+}
+
 export async function getAnswerFeedbackHealth(
   session: GridSession | null,
   filters: FeedbackHealthFilters = {}
-): Promise<FeedbackHealth> {
+): Promise<AnswerFeedbackHealthView> {
   await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
   // The read groups BY organization across every tenant, so it must not run
   // pinned to the owner's active one — row-level security would quietly return
   // that org's rows, or none at all, and the page would look merely empty
   // rather than broken (ADR-0041). The gate above is the authorization this
   // bypass rests on; it sits here so no caller can reach the data without it.
-  return withPlatformAccess('answer feedback: cross-organization quality view', () =>
-    getFeedbackHealth(filters)
-  )
+  //
+  // Names come from the same resolver citation health uses, so the two cards
+  // never call one tenant two things. It fails soft to an empty map.
+  const [health, names] = await Promise.all([
+    withPlatformAccess('answer feedback: cross-organization quality view', () =>
+      getFeedbackHealth(filters)
+    ),
+    listOrganizationNames(),
+  ])
+  const nameOf = (organizationId: string): string | null => names.get(organizationId) ?? null
+  return {
+    ...health,
+    organizations: health.organizations.map((org) => ({
+      ...org,
+      organizationName: nameOf(org.organizationId),
+    })),
+    turns: health.turns.map((turn) => ({ ...turn, organizationName: nameOf(turn.organizationId) })),
+  }
 }
 
 /**

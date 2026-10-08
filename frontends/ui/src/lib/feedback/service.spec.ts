@@ -24,6 +24,10 @@ vi.mock('@/lib/projects/memory-service', () => ({
 
 vi.mock('./digest', () => ({ getFeedbackDigest: vi.fn() }))
 
+vi.mock('@/lib/organizations/names', () => ({
+  listOrganizationNames: vi.fn(async () => new Map<string, string>()),
+}))
+
 vi.mock('@/lib/authz/platform', () => ({
   requirePlatformPermission: vi.fn(),
   PlatformAccessDeniedError: class PlatformAccessDeniedError extends Error {},
@@ -42,6 +46,7 @@ import {
 } from './repository'
 import { implicateMemoryFromFeedback } from '@/lib/projects/memory-service'
 import { getFeedbackDigest } from './digest'
+import { listOrganizationNames } from '@/lib/organizations/names'
 import {
   getAnswerFeedbackDigest,
   getAnswerFeedbackHealth,
@@ -284,6 +289,32 @@ describe('getAnswerFeedbackHealth', () => {
 
     expect(health.totals).toEqual({ up: 4, down: 1 })
     expect(requirePlatformPermission).toHaveBeenCalledOnce()
+  })
+
+  /** A raw `org_arch_buero` tells the platform owner nothing; the name does. */
+  it('names every organization in the rollup and in the drill-in, null where unknown', async () => {
+    vi.mocked(requirePlatformPermission).mockResolvedValue(undefined)
+    vi.mocked(listOrganizationNames).mockResolvedValue(new Map([['org_arch_buero', 'Architekturbüro Huber']]))
+    vi.mocked(getFeedbackHealth).mockResolvedValue({
+      windowDays: 30,
+      totals: { up: 0, down: 2 },
+      reasons: [],
+      daily: [],
+      organizations: [
+        { organizationId: 'org_arch_buero', up: 0, down: 1, voters: 1 },
+        { organizationId: 'org_gone', up: 0, down: 1, voters: 1 },
+      ],
+      topics: [],
+      turns: [
+        { id: 'fb_1', organizationId: 'org_arch_buero', messageId: 'm1' },
+        { id: 'fb_2', organizationId: 'org_gone', messageId: 'm2' },
+      ],
+    } as never)
+
+    const health = await getAnswerFeedbackHealth({} as never)
+
+    expect(health.organizations.map((org) => org.organizationName)).toEqual(['Architekturbüro Huber', null])
+    expect(health.turns.map((turn) => turn.organizationName)).toEqual(['Architekturbüro Huber', null])
   })
 })
 

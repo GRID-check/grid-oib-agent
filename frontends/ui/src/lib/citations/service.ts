@@ -19,7 +19,7 @@ import {
   type CitationEventSeverity,
   type NewCitationEvent,
 } from '@/lib/db/schema'
-import { getWorkOS } from '@/lib/workos/client'
+import { listOrganizationNames } from '@/lib/organizations/names'
 import { getKnowledgeBaseStatus } from '@/lib/knowledge/service'
 import { getNormRegistry } from '@/lib/norms/service'
 import { buildMissingSourceCandidates, type MissingSourceCandidate } from './missing-sources'
@@ -588,19 +588,6 @@ async function platformInventory(): Promise<{ corpusFileNames: string[]; documen
   }
 }
 
-/**
- * Organization id -> display name, best-effort. A WorkOS outage must degrade
- * the card to bare ids, never fail the whole snapshot.
- */
-async function organizationNames(): Promise<Map<string, string>> {
-  try {
-    const list = await getWorkOS().organizations.listOrganizations({ limit: 100 })
-    return new Map(list.data.map((org) => [org.id, org.name]))
-  } catch {
-    return new Map()
-  }
-}
-
 /** Zero-fill the daily series so a quiet day renders as a gap, not a missing column. */
 function buildDailyTrend(
   kindRows: repository.DailyKindRow[],
@@ -677,7 +664,7 @@ export async function getCitationHealth(options: { days?: number } = {}): Promis
     repository.aggregateUnavailableTools(start),
     repository.aggregateByOrganization(start),
     repository.listRecentDefects(start),
-    organizationNames(),
+    listOrganizationNames(),
     repository.aggregateFailedTargets(start),
     platformInventory(),
   ])
