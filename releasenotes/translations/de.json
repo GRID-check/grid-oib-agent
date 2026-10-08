@@ -2460,6 +2460,10 @@
     "de": "Während die Recherche läuft, zeigt ihr Block je Runde, was schon belegt ist, und „Jetzt schreiben“ beendet die Recherche nach der laufenden Runde und schreibt den Bericht aus dem Vorhandenen."
   },
   {
+    "en": "Who may read and who may edit a project folder now follows the roles in your office. Every file, preview, download and move checks it, and organization admins may read and edit everything.",
+    "de": "Wer einen Projektordner lesen und wer ihn bearbeiten darf, richtet sich jetzt nach den Rollen in Ihrem Büro. Jede Datei, jede Vorschau, jeder Download und jedes Verschieben prüft das, und Organisations-Admins dürfen alles lesen und bearbeiten."
+  },
+  {
     "en": "Whoever commissioned a report can now release it themselves. Piloti files a report in the name of the person who asked for it, and that person was being treated as its author and refused the approval.",
     "de": "Wer einen Bericht in Auftrag gegeben hat, kann ihn jetzt selbst freigeben. Piloti legt den Bericht im Namen der anfordernden Person an, die als Autor des Berichts behandelt wurde und keine Freigabe erhielt."
   },
