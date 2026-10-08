@@ -1,4 +1,4 @@
--- Reverse 0115: no period and no people on a project.
+-- Reverse 0116: no period and no people on a project.
 --
 -- Lossy, and deliberately so: the people of every project are deleted with the
 -- table. They are personal data with no other copy to keep in sync, and an

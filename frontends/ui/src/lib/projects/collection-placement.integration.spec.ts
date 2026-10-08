@@ -60,7 +60,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
     )
   /**
    * Give the folder its own list of `roles` (each `write`), or make it inherit
-   * again with `null`: one statement, so the 0109 trigger sees the finished
+   * again with `null`: one statement, so the 0110 trigger sees the finished
    * list at commit. `everyone` adds `*: read`, a list every member may read.
    */
   const restrict = (roles: string[] | null, everyone = false) =>

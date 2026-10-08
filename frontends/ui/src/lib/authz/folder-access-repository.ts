@@ -3,7 +3,7 @@
  * from the documents repository so the decision point owns its own SQL.
  *
  * The tree includes deleted folders (migration 0110): in the Papierkorb, and
- * purged tombstones (0113). Content derived from a deleted folder is still
+ * purged tombstones (0114). Content derived from a deleted folder is still
  * judged by the access it had, and once it is purged by the organization's
  * „Inhalte aus gelöschten Ordnern" setting, which the tree carries on each
  * purged folder. Every other read here — names, the sweep — is of living
@@ -72,7 +72,7 @@ export async function projectHasCustomOrBinnedFolders(organizationId: string, pr
   return rows.length > 0
 }
 
-/** Most grants one project's folders hold, read back; 20 per custom folder by the 0109 trigger. */
+/** Most grants one project's folders hold, read back; 20 per custom folder by the 0110 trigger. */
 const PROJECT_GRANTS_LIMIT = 20_000
 
 /** The project's whole folder tree, tombstones included, with each custom folder's grants. */
