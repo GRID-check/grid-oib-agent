@@ -102,6 +102,28 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
     await closeDb()
   })
 
+  describe('reason counts', () => {
+    /**
+     * A down-vote with no chip used to group as its own NULL row beside
+     * `other`, and the digest keyed both as `other`, keeping whichever came last.
+     */
+    it('folds a missing reason into `other`, so the rows sum to the down-votes', async () => {
+      const health = await platform(() => repo.getFeedbackHealth({ organizationId: ORG }))
+      const byReason = Object.fromEntries(health.reasons.map((row) => [row.reason, row.count]))
+
+      expect(health.reasons.every((row) => row.reason !== null)).toBe(true)
+      expect(byReason).toEqual({ inaccurate: 1, other: 2 })
+      expect(health.reasons.reduce((sum, row) => sum + row.count, 0)).toBe(health.totals.down)
+    })
+
+    it('lists a chip-less down-vote under the `other` filter', async () => {
+      const turns = await platform(() =>
+        repo.listFeedbackTurns({ organizationId: ORG, verdict: 'down', reason: 'other' }),
+      )
+      expect(turns.map((turn) => turn.messageId).sort()).toEqual([A2, A_MISSING].sort())
+    })
+  })
+
   describe('pairing an answer with its question', () => {
     it('pairs each answer with the user message that preceded it, not the newest one', async () => {
       const turns = await platform(() => repo.listFeedbackTurns({ organizationId: ORG, verdict: 'down' }))

@@ -148,6 +148,15 @@ describe('listFeedbackTurns', () => {
     expect(params(execute.mock.calls[0][0])).toContain(FEEDBACK_EXPORT_ROW_CAP + 1)
   })
 
+  /** A chip-less down-vote counts as `other` in the aggregate, so the filter must find it there too. */
+  it('filters `other` with chip-less down-votes included', async () => {
+    const execute = capture()
+    await listFeedbackTurns({ verdict: 'down', reason: 'other' })
+    const text = new PgDialect().sqlToQuery(execute.mock.calls[0][0]).sql
+
+    expect(text).toContain("coalesce(f.reason, 'other') =")
+  })
+
   it('drops a reason filter on the praised list', async () => {
     const execute = capture()
     await listFeedbackTurns({ verdict: 'up', reason: 'inaccurate' })

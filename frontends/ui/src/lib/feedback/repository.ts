@@ -179,10 +179,19 @@ export interface FeedbackHealthTotals {
   downVoters: number
 }
 
+/**
+ * Down-votes per reason chip. Never a null reason: a down-vote with no chip
+ * (the reason arrives on a later click, or never) counts as `other`, in SQL, so
+ * the rows sum to `totals.down`. Before, NULL and `other` came back as two rows
+ * and every reader that keyed them by reason kept whichever came last.
+ */
 export interface FeedbackReasonCount {
-  reason: AnswerFeedbackReason | null
+  reason: AnswerFeedbackReason
   count: number
 }
+
+/** A down-vote without a reason is an `other`; one expression, used by the count and the filter. */
+const REASON_OR_OTHER = sql<AnswerFeedbackReason>`coalesce(${answerFeedback.reason}, 'other')`
 
 export interface FeedbackDailyPoint {
   day: string
@@ -404,12 +413,12 @@ export async function getFeedbackHealth(
 
   const reasons = await db
     .select({
-      reason: answerFeedback.reason,
+      reason: REASON_OR_OTHER,
       count: sql<string>`count(*)`,
     })
     .from(answerFeedback)
     .where(and(eq(answerFeedback.verdict, 'down'), inWindow, ...scope))
-    .groupBy(answerFeedback.reason)
+    .groupBy(REASON_OR_OTHER)
 
   const daily = await db
     .select({
@@ -470,7 +479,7 @@ export async function getFeedbackHealth(
       voters: Number(totalsRow?.voters ?? 0),
       downVoters: Number(totalsRow?.downVoters ?? 0),
     },
-    reasons: reasons.map((r) => ({ reason: r.reason, count: Number(r.count) })),
+    reasons: reasons.map((r) => ({ reason: String(r.reason) as AnswerFeedbackReason, count: Number(r.count) })),
     daily: daily.map((d) => ({ day: d.day, up: Number(d.up), down: Number(d.down) })),
     organizations: organizations.map((o) => ({
       organizationId: o.organizationId,
@@ -549,7 +558,7 @@ export async function listFeedbackTurns(
       and f.created_at >= ${since}::timestamptz
       ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
       ${topic ? sql`and c.tags @> array[${topic}]::text[]` : sql``}
-      ${reason && verdict === 'down' ? sql`and f.reason = ${reason}` : sql``}
+      ${reason && verdict === 'down' ? sql`and coalesce(f.reason, 'other') = ${reason}` : sql``}
       ${
         query
           ? sql`and (m.content ilike ${'%' + query + '%'} or q.content ilike ${'%' + query + '%'})`
