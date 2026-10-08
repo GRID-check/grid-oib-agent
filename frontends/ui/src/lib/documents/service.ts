@@ -2120,7 +2120,7 @@ export async function renameDocument(
         : 'document.renamed',
     targetType: 'document',
     targetId: documentId,
-    // A document under a folder not every member may read is not named (ADR-0084).
+    // A document under a folder not every member may read is not named (ADR-0086).
     filedIn: filedInOf(doc),
     metadata: {
       filename: doc.filename.slice(0, 200),

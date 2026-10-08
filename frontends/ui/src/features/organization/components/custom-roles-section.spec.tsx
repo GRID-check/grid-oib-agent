@@ -31,7 +31,7 @@ interface Stub {
   roles: OrganizationRole[]
   assignable: AssignablePermission[] | null
   status?: { POST?: number; PATCH?: number; DELETE?: number }
-  /** What `GET …/usage` answers: the folders that name the role (ADR-0085). */
+  /** What `GET …/usage` answers: the folders that name the role (ADR-0087). */
   usage?: {
     total: number
     folders: Array<{ folderId: string; folderName: string; projectId: string; projectName: string; deleted: 'folder' | 'project' | null }>

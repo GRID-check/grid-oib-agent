@@ -336,7 +336,7 @@ drown the admin trail.
   are not organization admins hold it (`org-auditor`, `org-compliance-officer`,
   any custom role given it). So an event emitted about a document filed, at
   that moment, under a folder not every project member may read leaves its name
-  out (ADR-0084): for the actions in `DOCUMENT_NAME_ACTIONS`
+  out (ADR-0086): for the actions in `DOCUMENT_NAME_ACTIONS`
   (`lib/audit/document-names.ts`) the emitter drops `filename`, `previousName`
   and `displayName`, and an upload-screening override's `terms` (the name-gate
   words that matched a piece of the name), and sets `nameWithheld: true`; the

@@ -412,7 +412,7 @@ export async function readableFolderIdsFor(
  * is narrowed to in SQL (the download log's name filter). Each project by the
  * session's clearance in that project ({@link clearanceOf}), so a closed one
  * clears someone who reads it only because it is closed as a member with no
- * role (ADR-0086). A project the list leaves out, past its bound, contributes
+ * role (ADR-0088). A project the list leaves out, past its bound, contributes
  * no folder, so its rows match nothing: the narrowing fails closed.
  */
 export async function readableFoldersOfRestrictedProjects(session: AuthorizedSession): Promise<string[]> {

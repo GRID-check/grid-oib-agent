@@ -129,5 +129,5 @@ through a function it calls or imports by name) before it reads, presigns or
 records, on the path every call takes: a check under a branch, in a `try` that
 swallows it or in a callback does not count. It reads the order of calls, not
 their arguments, so a check on a different document id is for review to catch. Table and
-purge: [`database/schema.md`](../database/schema.md#document_access_log-migration-0112-adr-0085);
+purge: [`database/schema.md`](../database/schema.md#document_access_log-migration-0113-adr-0085);
 routes: [`api/bff-routes.md`](../api/bff-routes.md).
