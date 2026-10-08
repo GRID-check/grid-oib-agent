@@ -300,6 +300,44 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
     await restrict(null)
   })
 
+  // A quarantined row moves with its folder, so the file lands in the right
+  // collection once a reviewer releases it, and stays quarantined: only a
+  // release takes it out (ADR-0085, migration 0121's trigger), so it is
+  // re-pointed without the hand-off to the re-read job, which would set it
+  // `processing`. The release dispatches it into the collection it is in.
+  it('moves a quarantined row without handing it to the re-read, and it stays quarantined', async () => {
+    vi.mocked(purge).mockResolvedValue(true)
+    const held = firstId(
+      await inTenant(() =>
+        db.execute<{ id: string }>(sql`
+          INSERT INTO documents
+            (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id,
+             screening_outcome, content_hash, screened_hash)
+          VALUES (${ORG}, ${USER}, 'Lohnliste.pdf', 'k/Lohnliste.pdf', ${COLLECTION}, 'quarantined', 'project',
+                  ${projectId}::uuid, ${folderId}::uuid, 'quarantined', 'sha256:lohn', 'sha256:lohn')
+          RETURNING id
+        `)
+      )
+    )
+    await restrict(['org-geschaeftsfuehrung'])
+
+    const result = await placement.placeProjectDocuments(ORG, projectId)
+
+    expect(result.failed).toEqual([])
+    expect(await collectionOf(held)).toBe(restrictedCollectionName(COLLECTION, folderId))
+    const handOff = await handOffOf(held)
+    expect(handOff).toMatchObject({ status: 'quarantined', job: null })
+    expect(handOff?.marked).not.toBe(true)
+    await runReingestJob(projectId)
+    expect(vi.mocked(dispatch).mock.calls.map(([input]) => input.documentId)).not.toContain(held)
+
+    await restrict(null)
+    await placement.placeProjectDocuments(ORG, projectId)
+    await runReingestJob(projectId)
+    await ingestSettled(documentId)
+    await inTenant(() => db.execute(sql`DELETE FROM documents WHERE id = ${held}::uuid`))
+  })
+
   describe('completeness', () => {
     const BULK = `${COLLECTION}_bulk`
     let bulkProjectId: string
