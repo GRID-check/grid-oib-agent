@@ -81,7 +81,7 @@ export async function submitAnswerFeedback(
 
   // The comment is typed text, and it goes on to the embedder (memory
   // implication below, the lesson pipeline) and to the distilling model: stored
-  // masked against the office's „Sensible Daten" policy (ADR-0083), like a chat
+  // masked against the office's „Sensible Daten" policy (ADR-0085), like a chat
   // message. Masked before the comparison with `prior`, which was stored masked.
   const comment =
     input.verdict === 'down' && input.comment
@@ -128,7 +128,7 @@ export async function submitAnswerFeedback(
 
 /**
  * Lower the salience of the notes a complaint sits next to, among the notes the
- * voter may see (ADR-0084): a member not cleared for a restricted folder cannot
+ * voter may see (ADR-0086): a member not cleared for a restricted folder cannot
  * see its notes, so their down-vote must not bury them for those who can.
  * Fire-and-forget like the call itself; never throws.
  */

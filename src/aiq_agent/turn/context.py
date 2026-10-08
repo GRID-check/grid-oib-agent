@@ -58,8 +58,8 @@ class TurnContext:
     #: Whether this turn may hand work over (`create_task`). Its own flag, see
     #: :class:`aiq_agent.stages.flags.TurnFlags`.
     tasks_allowed: bool = True
-    #: The restricted-folder collections this turn may draw on (ADR-0084,
-    #: ADR-0085): those of its VERIFIED scope that the asker and everyone the
+    #: The restricted-folder collections this turn may draw on (ADR-0086,
+    #: ADR-0087): those of its VERIFIED scope that the asker and everyone the
     #: conversation is shared with may read now. Non-empty makes the turn
     #: :attr:`confined`.
     restricted_scope: tuple[str, ...] = ()
@@ -70,7 +70,7 @@ class TurnContext:
 
     @property
     def confined(self) -> bool:
-        """The turn may draw on, or the conversation already drew on, a restricted folder (ADR-0084, ADR-0085).
+        """The turn may draw on, or the conversation already drew on, a restricted folder (ADR-0086, ADR-0087).
 
         Such a conversation may not commission a run, hand work over or propose
         a profile patch, because each is read by the whole project, so both
@@ -115,7 +115,7 @@ def user_info_from_principal() -> dict[str, Any] | None:
 
 
 def signed_restricted_collections(request: GridRequestContext) -> list[str]:
-    """The restricted-folder collections this turn may draw on (ADR-0084, ADR-0085).
+    """The restricted-folder collections this turn may draw on (ADR-0086, ADR-0087).
 
     What the live digest may serve restricted memory for. The BFF puts them in a
     scope only for an interactive chat turn of a session cleared for them; of
@@ -191,7 +191,7 @@ async def _bff_context_blocks(request: GridRequestContext, query_text: str) -> C
     """The compact-handshake blocks, with restricted memory when this turn may draw on it.
 
     ``fetch_turn_context`` serves open memory only. A turn whose verified scope
-    carries restricted-folder collections (ADR-0084, ADR-0085) also asks the live
+    carries restricted-folder collections (ADR-0086, ADR-0087) also asks the live
     digest endpoint, the one that admits the restricted notes' folders for the
     conversation, and takes its digest instead: it is a superset of the open one.
     Both run at once so the extra round-trip is not paid in sequence; when the

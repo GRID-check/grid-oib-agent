@@ -1,6 +1,6 @@
 """Register a lightweight ``aiq_api`` package before submodule imports.
 
-Skips ``aiq_api/__init__.py`` (plugin pulls NAT/Dask) so tests can load
+Skips ``aiq_api/__init__.py`` (plugin pulls NAT) so tests can load
 ``aiq_api.auth`` and peers from ``src/`` without the full runtime stack.
 """
 

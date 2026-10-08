@@ -204,7 +204,7 @@ def get_scoped_collections_from_context() -> list[ScopedCollection] | None:
     the raw header is honored only when no valid envelope is present.
 
     In an interactive chat turn whose scope carries restricted-folder
-    collections (ADR-0084, ADR-0085), only the ones the turn may draw on stay:
+    collections (ADR-0086, ADR-0087), only the ones the turn may draw on stay:
     the BFF answered which at turn start
     (:func:`aiq_agent.knowledge.restricted_use.begin_restricted_use`), and every
     read path takes its scope from here, so a conversation shared since the

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Session-cached list of base-corpus files (name + origin) for citation →
+ * Session-cached list of base-corpus files (name + state) for citation →
  * PDF resolution. One fetch per browser session, shared by every card; a
  * failed fetch resolves to an empty list so citations quietly keep their
  * external-link fallback.
@@ -16,9 +16,9 @@ function fetchCorpusFiles(): Promise<CorpusFileCandidate[]> {
   cache ??= fetch('/api/knowledge-base')
     .then((r) => (r.ok ? r.json() : { files: [] }))
     .then((data) =>
-      (Array.isArray(data.files) ? data.files : []).map((f: { fileName?: string; origin?: string }) => ({
+      (Array.isArray(data.files) ? data.files : []).map((f: { fileName?: string; state?: string }) => ({
         fileName: String(f.fileName ?? ''),
-        origin: String(f.origin ?? 'index_only'),
+        state: String(f.state ?? 'removed'),
       })),
     )
     .catch(() => [])

@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * The project overview and the document-role bindings against a REAL Postgres
- * (ADR-0084), through the restricted runtime role:
+ * (ADR-0086), through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/projects/folder-visibility.integration.spec.ts

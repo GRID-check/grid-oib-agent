@@ -27,6 +27,9 @@ export function baseStackConfig(): Record<string, string> {
     "grid-oib:openrouterApiKey": "or", // pragma: allowlist secret
     "grid-oib:dragonflyPassword": "df", // pragma: allowlist secret
     "grid-oib:rateLimitStorePassword": "rl", // pragma: allowlist secret
+    // The DB-claimed research queue is the only execution (ADR-0082 B) and fails
+    // closed without a payload KEK; a test about another knob wants neither.
+    "grid-oib:allowPlaintextJobPayloads": "true",
   };
 }
 

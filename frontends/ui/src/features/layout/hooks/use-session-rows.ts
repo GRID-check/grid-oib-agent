@@ -25,7 +25,7 @@ export interface SessionRow {
   hasActiveDeepResearch: boolean
   /** A run in this thread finished with a report. */
   hasCompletedReport: boolean
-  /** The reader may no longer read this chat (ADR-0085): shown under a neutral title. */
+  /** The reader may no longer read this chat (ADR-0087): shown under a neutral title. */
   contentLocked: boolean
 }
 
