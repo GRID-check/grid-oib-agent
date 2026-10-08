@@ -427,6 +427,14 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         # so the host's own handlers are in place first.
         install_presigned_url_scrubbing()
 
+        # The workflow is built and every route registered: this replica serves
+        # from here, and the meter provider exists to take the boot readings.
+        # Both roles, so the chat tier's cold start is a series too.
+        from aiq_agent.observability import boot_timing
+
+        boot_timing.BootClock(self._role.value).ready()
+        boot_timing.flush()
+
         # Non-blocking startup handshake against the frontend's internal API:
         # surfaces a GRID_INTERNAL_API_TOKEN mismatch / unreachable BFF at deploy
         # time instead of only when the first `remember` tool call fails. Fire-
@@ -473,13 +481,6 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
                 pass
         else:
             logger.info("Debug console disabled by AIQ_ENABLE_DEBUG")
-
-        # The workflow is built and every route registered: this replica serves
-        # from here, and the meter provider exists to take the boot readings.
-        from aiq_agent.observability import boot_timing
-
-        boot_timing.BootClock(self._role.value).ready()
-        boot_timing.flush()
 
     async def _create_chat_session_manager(self, builder: WorkflowBuilder) -> SessionManager:
         """The chat socket's session manager, with NAT's concurrency gate off (``max_concurrency=0``).
