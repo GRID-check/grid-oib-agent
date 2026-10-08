@@ -434,13 +434,13 @@ refused_in() {
 # slug it does not know, holds at most 20 entries; a folder cannot become
 # custom without a grant; a tombstone keeps its list and frees its name. The
 # down removes the tombstones, the grants table and the columns, and puts
-# develop's non-partial name index back; 0109 then re-applies.
+# develop's non-partial name index back; 0110 then re-applies.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0110 grants, their constraints and the down migration on grid_grants"
 migrate_until grid_grants 0110_project_folder_grants
 sql_in grid_grants <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
-VALUES ('aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'Grants 0109', 'user_1', 'proj_0106');
+VALUES ('aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'Grants 0110', 'user_1', 'proj_0106');
 BEGIN;
 INSERT INTO project_folders (id, organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at) VALUES
   ('a1a1a1a1-a1a1-4000-8000-000000000106', 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Verträge', 'Verträge', 'custom', 'user_1', now()),
@@ -488,7 +488,7 @@ check_in grid_grants "SELECT to_regclass('public.project_folder_grants') IS NULL
 check_in grid_grants "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('access_mode', 'access_changed_by', 'access_changed_at', 'deleted_at', 'deleted_by')" "0" "down dropped the new columns"
 check_in grid_grants "SELECT indexdef LIKE '%WHERE%' FROM pg_indexes WHERE indexname = 'uniq_project_folders_parent_name'" "f" "down put develop's non-partial name index back"
 apply_in grid_grants 0110_project_folder_grants.sql
-check_in grid_grants "SELECT string_agg(name || '=' || access_mode, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare=inherit,Personal=inherit,Pläne=inherit,Verträge=inherit" "0109 re-applies, every folder inheriting"
+check_in grid_grants "SELECT string_agg(name || '=' || access_mode, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare=inherit,Personal=inherit,Pläne=inherit,Verträge=inherit" "0110 re-applies, every folder inheriting"
 
 echo "==> 0110 grants, constraints and down migration verified"
 
