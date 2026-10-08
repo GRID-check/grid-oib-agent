@@ -139,7 +139,11 @@ aiq_otel_redaction = "aiq_agent.observability.otel_header_redaction_exporter"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "sources/**/tests"]
-addopts = "--import-mode=importlib"
+# `-m "not live"`: a test that calls a real model runs only when asked for by
+# name (`task be:eval:turn-shapes` passes `-m live`, and a later `-m` replaces
+# this one). A key that happens to be in the shell is not that request: before
+# this, `task verify` spent model tokens on any machine that had one.
+addopts = "--import-mode=importlib -m 'not live'"
 # Makes `from tests.conftest import ...` (the shared provider-contract double)
 # resolve the same way under every invocation — `python -m pytest`, the bare
 # `pytest` console script, and an IDE runner — instead of
@@ -155,10 +159,12 @@ pythonpath = [".", "src"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 markers = [
-  # Calls a real model through OpenRouter. Each such test skips itself without
-  # OPENROUTER_API_KEY, which is how the default run and every PR job stay
-  # model-free; `.github/workflows/turn-shapes-live.yml` runs them with the key.
-  "live: needs a real model behind OPENROUTER_API_KEY; skipped without it",
+  # Calls a real model through OpenRouter. Deselected by `addopts` above, which
+  # is how the default run, `task verify` and every PR job stay model-free
+  # whatever the shell holds; selected with `-m live`, and then each such test
+  # still skips itself without OPENROUTER_API_KEY.
+  # `.github/workflows/turn-shapes-live.yml` runs them with the key.
+  "live: needs a real model behind OPENROUTER_API_KEY; deselected unless -m live",
 ]
 
 

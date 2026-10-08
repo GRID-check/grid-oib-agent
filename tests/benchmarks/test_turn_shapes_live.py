@@ -23,15 +23,20 @@ time either was edited.
 This file is the eval the ADR said those behaviours lacked. It builds the real
 ``PilotiAgent`` on the real system prompt against Piloti's own
 model through OpenRouter, with STUB tools in place of the retrieval stack: the
-stubs record every call and return a plausible hit, so the trace shows exactly
-what the model chose to do and nothing here needs a corpus, a database or a
-RIS connection. The third case is the control: a plain Baurecht question must
+stubs return a plausible hit, so nothing here needs a corpus, a database or a
+RIS connection. The trace the assertions read is the turn's own transcript,
+every tool call the model asked for, the same source the scripted harness
+reads. A recorder inside the stubs cannot see the real drafting verbs, which
+is how this eval once reported „write_file was never called" about a turn that
+had written the file. The third case is the control: a plain Baurecht question must
 still search, or a prompt edit that "fixes" greetings by discouraging retrieval
 would pass the first two cases and break the product.
 
-Runs only with ``OPENROUTER_API_KEY`` set (skips otherwise, so the default
-``pytest`` run and every PR job stay model-free); CI runs it weekly and on
-demand from ``.github/workflows/turn-shapes-live.yml``. Locally:
+Runs only when selected with ``-m live`` (``pyproject.toml`` deselects the
+marker everywhere else, so the default ``pytest`` run, ``task verify`` and every
+PR job stay model-free whatever the shell holds), and then skips without
+``OPENROUTER_API_KEY``. CI runs it weekly and on demand from
+``.github/workflows/turn-shapes-live.yml``. Locally:
 ``task be:eval:turn-shapes``.
 
 The assertions are strict: a behaviour miss fails, with the recorded tool trace
@@ -53,7 +58,11 @@ from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
 from aiq_agent.agents.piloti.agent import PilotiAgent
+from aiq_agent.agents.piloti.answer_pipeline import this_turn
 from aiq_agent.agents.piloti.models import ResearchAgentState
+from aiq_agent.cards.registry import CardRegistry
+from aiq_agent.cards.registry import reset_card_registry
+from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
 from aiq_agent.common.data_source_registry import populate_from_config
@@ -78,10 +87,6 @@ pytestmark = [
         reason="live model eval: needs OPENROUTER_API_KEY (see docs/contributing/testing-and-verification.md)",
     ),
 ]
-
-# Every tool call the stubs received this run, in order: (tool name, query).
-# The trace the assertions read. Cleared per run by ``_run_turn``.
-_CALLS: list[tuple[str, str]] = []
 
 # The data sources the OIB config declares, with the same ids and tool names,
 # so ``source_lookup_attempted`` and source capture gate on them exactly as
@@ -147,18 +152,13 @@ Snippet: Die OIB-Richtlinie 4 regelt Nutzungssicherheit und Barrierefreiheit, da
 """
 
 
-def _record(name: str, query: str, payload: str) -> str:
-    _CALLS.append((name, query))
-    return payload
-
-
 @tool
 def knowledge_search(query: str, file_name: str | None = None) -> str:
     """Search the knowledge base: OIB-Richtlinien, Bürowissen and the project's uploaded documents.
 
     Returns the best matching passages with a Citation line each. Use for any question that needs
     the text of an OIB-Richtlinie, an internal document or a project file."""
-    return _record("knowledge_search", query, _KNOWLEDGE_HIT)
+    return _KNOWLEDGE_HIT
 
 
 @tool
@@ -167,24 +167,22 @@ def ris_search_tool(query: str) -> str:
 
     Use German search terms. Returns hits with document numbers and URLs; fetch the full text with
     ris_fetch_tool."""
-    return _record("ris_search_tool", query, _RIS_HIT)
+    return _RIS_HIT
 
 
 @tool
 def ris_fetch_tool(document_number: str) -> str:
     """Fetch the full text of one RIS document by its document number, for exact wording and citation."""
-    return _record(
-        "ris_fetch_tool",
-        document_number,
+    return (
         "§ 101. (1) Bei Absturzhöhen ab 60 cm sind Absturzsicherungen von mindestens 1,00 m Höhe anzubringen.\n"
-        "URL: https://www.ris.bka.gv.at/Dokumente/LrW/LWI40000234/LWI40000234.html\n",
+        "URL: https://www.ris.bka.gv.at/Dokumente/LrW/LWI40000234/LWI40000234.html\n"
     )
 
 
 @tool
 def web_search_tool(query: str) -> str:
     """Search the web for general facts, news, or when the sources above are silent."""
-    return _record("web_search_tool", query, _WEB_HIT)
+    return _WEB_HIT
 
 
 _TOOLS = [knowledge_search, ris_search_tool, ris_fetch_tool, web_search_tool]
@@ -242,21 +240,39 @@ def _build_agent(extra_tools: list = []) -> PilotiAgent:  # noqa: B006 - read-on
     )
 
 
-async def _run_turn(agent: PilotiAgent, question: str) -> ResearchAgentState:
-    """One turn, with a single rerun for a transport failure only."""
+async def _run_turn(agent: PilotiAgent, question: str, cards: CardRegistry | None = None) -> ResearchAgentState:
+    """One turn, with a single rerun for a transport failure only.
+
+    ``cards`` is bound around the run here, in the coroutine that resets it,
+    the way the conversation layer binds it around a production turn. A token
+    set in one Context cannot be reset from another, and a pytest fixture's
+    teardown does not run in the test's Context.
+    """
     for attempt in (1, 2):
-        _CALLS.clear()
+        token = set_card_registry(cards) if cards is not None else None
         try:
             return await agent.run(ResearchAgentState(messages=[HumanMessage(content=question)]))
         except _TRANSPORT_ERRORS as exc:
             if attempt == 2:
                 raise
             logger.warning("Transport failure on attempt 1 (%s); rerunning once", type(exc).__name__)
+        finally:
+            if token is not None:
+                reset_card_registry(token)
     raise AssertionError("unreachable")
 
 
-def _data_source_calls() -> list[tuple[str, str]]:
-    return [call for call in _CALLS if call[0] in _DATA_SOURCE_TOOL_NAMES]
+def _trace(result: ResearchAgentState) -> list[str]:
+    """Every tool the model asked for this turn, in order, as the shape assertion names it."""
+    return [
+        traced_tool_name(call["name"], call.get("args"))
+        for message in this_turn(result.messages)
+        for call in getattr(message, "tool_calls", None) or []
+    ]
+
+
+def _data_source_calls(result: ResearchAgentState) -> list[str]:
+    return [name for name in _trace(result) if name in _DATA_SOURCE_TOOL_NAMES]
 
 
 def _answer_text(result: ResearchAgentState) -> str:
@@ -287,7 +303,7 @@ async def test_a_greeting_is_answered_directly_without_a_search(agent):
     """
     result = await _run_turn(agent, "Hallo, was kannst du?")
 
-    assert _data_source_calls() == [], f"a greeting searched: {_CALLS}"
+    assert _data_source_calls(result) == [], f"a greeting searched: {_trace(result)}"
     assert result.source_lookup_attempted is False
     assert result.escalation_requested is False, result.answer_escalation_reason
     assert _answer_text(result).strip(), "a greeting produced an empty answer"
@@ -309,7 +325,7 @@ async def test_a_commissioned_report_escalates_before_any_retrieval(agent):
 
     assert result.escalation_requested is True, f"no escalation; answer was: {_answer_text(result)[:400]}"
     assert result.answer_escalation_reason, "escalated without an escalation_reason"
-    assert _data_source_calls() == [], f"a commissioned report retrieved before handing off: {_CALLS}"
+    assert _data_source_calls(result) == [], f"a commissioned report retrieved before handing off: {_trace(result)}"
 
 
 async def test_a_plain_domain_question_still_searches(agent):
@@ -321,7 +337,7 @@ async def test_a_plain_domain_question_still_searches(agent):
     """
     result = await _run_turn(agent, "Wie hoch muss ein Geländer bei einer Absturzhöhe von 2 m sein?")
 
-    assert _data_source_calls(), f"a domain question retrieved nothing; answer was: {_answer_text(result)[:400]}"
+    assert _data_source_calls(result), f"a domain question retrieved nothing; answer was: {_answer_text(result)[:400]}"
     assert result.source_lookup_attempted is True
     assert result.escalation_requested is False, result.answer_escalation_reason
 
@@ -355,8 +371,7 @@ def _filing_stubs(backend):
     from aiq_agent.tools.documents.register import _FILE_DRAFT_DESCRIPTION
 
     async def file_draft(path: str, title: str = "", submit: bool = False, reviewer: str = "") -> str:
-        _CALLS.append((traced_tool_name("file_draft", {"submit": submit}), path))
-        usage = await backend.aread(path)
+        usage = await backend.ausage(path)
         emit_draft_card(
             path=path,
             content=getattr(usage, "content", "") or "",
@@ -384,28 +399,17 @@ def drafting_turn():
     """
     from langgraph.store.memory import InMemoryStore
 
-    from aiq_agent.cards.registry import CardRegistry
-    from aiq_agent.cards.registry import reset_card_registry
-    from aiq_agent.cards.registry import set_card_registry
     from aiq_agent.tools.documents.draft_store import DraftBackend
     from aiq_agent.tools.documents.tools import draft_tools
-
-    registries: list = []
 
     async def _build(case):
         backend = DraftBackend(store=InMemoryStore(), conversation_id="turn-shapes-live")
         for path, content in case.seed.items():
             await backend.awrite(path, content)
-        cards = CardRegistry()
-        registries.append(set_card_registry(cards))
         agent = _build_agent([*draft_tools(backend), *_filing_stubs(backend)])
-        return agent, cards
+        return agent, CardRegistry()
 
-    try:
-        yield _build
-    finally:
-        for token in reversed(registries):
-            reset_card_registry(token)
+    return _build
 
 
 @pytest.mark.parametrize("case", DRAFTING_CASES, ids=[case.id for case in DRAFTING_CASES])
@@ -419,11 +423,11 @@ async def test_a_drafting_turn_keeps_its_shape(case, drafting_turn):
     """
     agent, cards = await drafting_turn(case)
 
-    result = await _run_turn(agent, case.prompt)
+    result = await _run_turn(agent, case.prompt, cards)
 
     assert_turn_shape(
         case,
-        called_tools=[name for name, _query in _CALLS],
+        called_tools=_trace(result),
         cards=cards.snapshot(),
         answer_meta=result.answer_meta,
         escalated=result.escalation_requested,
@@ -438,9 +442,9 @@ async def test_filing_says_the_draft_is_still_a_draft(drafting_turn):
     nobody has reviewed the document and that it is not published. The card
     carries the state; this is the answer prose agreeing with it.
     """
-    agent, _cards = await drafting_turn(FILE)
+    agent, cards = await drafting_turn(FILE)
 
-    result = await _run_turn(agent, FILE.prompt)
+    result = await _run_turn(agent, FILE.prompt, cards)
 
     answer = _answer_text(result).lower()
     assert "entwurf" in answer, f"a filed draft was not called a draft: {answer[:400]}"
