@@ -316,7 +316,7 @@ export function FileWorkspace({
           <List />
         </ToggleGroupItem>
       </ToggleGroup>
-      {/* The Papierkorb: deleted folders, restorable until their purge (ADR-0087). */}
+      {/* The Papierkorb: deleted folders, restorable until their purge (ADR-0088). */}
       {shelf.bin && (
         <Button asChild variant="ghost" size="icon" aria-label={t('workspace.openBin')} title={t('workspace.openBin')}>
           <Link href={shelf.bin.href} data-testid="files-open-bin">

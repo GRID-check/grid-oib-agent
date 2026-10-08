@@ -382,7 +382,7 @@ export const files: typeof en.files = {
       forbidden: 'Nur Projekt-Admins können ändern, wer einen Ordner lesen und bearbeiten darf.',
     },
   },
-  /** The Papierkorb of a project (ADR-0087). */
+  /** The Papierkorb of a project (ADR-0088). */
   bin: {
     title: 'Papierkorb',
     subtitle:

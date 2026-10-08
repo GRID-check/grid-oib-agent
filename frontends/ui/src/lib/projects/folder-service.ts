@@ -7,7 +7,7 @@
  * `project:view` to read, `project:documents:write` or `project:edit` to
  * change). What is left here is the names and signatures a project's callers
  * know, and the one thing only a project's folders have: access per role
- * (ADR-0087). A folder the reader may not read, and everything below it, does
+ * (ADR-0088). A folder the reader may not read, and everything below it, does
  * not exist for them; a write asks `requireFolderWrite` first; a move that
  * changes who reads what needs `project:manage`, is audited, and moves the
  * documents into the collection their new access calls for. A delete is the
@@ -307,7 +307,7 @@ export async function updateProjectFolder(input: UpdateFolderInput, session: Aut
 
 /**
  * Delete a folder: it goes to the Papierkorb with its subfolders and their
- * documents ({@link moveFolderToBin}, ADR-0087), restorable with its access
+ * documents ({@link moveFolderToBin}, ADR-0088), restorable with its access
  * until the purge. Not the shelf's delete (`deleteShelfFolder`), which
  * re-files the contents into the parent: that lifts the folder's own list from
  * them, so for a project it would widen who reads them. The Archiv keeps it.

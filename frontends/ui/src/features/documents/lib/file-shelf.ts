@@ -95,7 +95,7 @@ export interface FileShelf {
    */
   folderAccess?: ShelfFolderAccess
   /**
-   * The shelf's Papierkorb, a project's only (ADR-0087): deleting a folder
+   * The shelf's Papierkorb, a project's only (ADR-0088): deleting a folder
    * moves it there with its subfolders and documents, the toast links to it,
    * and the header carries a way in. Without it (the Archiv) deleting a folder
    * re-files its contents into the parent and removes the folder.

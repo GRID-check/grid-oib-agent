@@ -408,7 +408,7 @@ export const files = {
       forbidden: 'Only project admins can change who may read and edit a folder.',
     },
   },
-  /** The Papierkorb of a project (ADR-0087). */
+  /** The Papierkorb of a project (ADR-0088). */
   bin: {
     title: 'Bin',
     subtitle:

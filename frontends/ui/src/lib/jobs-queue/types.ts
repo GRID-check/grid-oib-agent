@@ -160,7 +160,7 @@ export type PlacementReingestPayload = z.infer<typeof placementReingestPayloadSc
 
 /**
  * `restore_folder_bin`: read the documents of a folder restored from the
- * Papierkorb back into the index (ADR-0087), a page per slice.
+ * Papierkorb back into the index (ADR-0088), a page per slice.
  *
  * The restore stamps every document it brings back `processing` with this
  * job's id (`metadata.bffJobId`) in the transaction that takes the folder out
@@ -183,7 +183,7 @@ export type RestoreFolderBinPayload = z.infer<typeof restoreFolderBinPayloadSche
 
 /**
  * `purge_binned_chunks`: finish the chunk purge of a folder delete whose
- * request did not (ADR-0087). Queued in the transaction that puts the folder in
+ * request did not (ADR-0088). Queued in the transaction that puts the folder in
  * the bin, not before `BIN_PURGE_TAKEOVER_MS`; the request deletes it once its
  * own purge is confirmed, so it runs only when the request died half way.
  *

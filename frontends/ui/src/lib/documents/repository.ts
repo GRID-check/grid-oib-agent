@@ -1166,7 +1166,7 @@ export interface StuckProcessingDocument {
  *
  * A row whose job is still `queued` or `claimed` is left out in the query, so
  * the batch is always rows that need something done. So is a row in a folder
- * that went to the Papierkorb (ADR-0087): it is hidden and its chunks were
+ * that went to the Papierkorb (ADR-0088): it is hidden and its chunks were
  * purged, and restoring the folder marks it `processing` for the restore's
  * job again; a job queued for it here would only parse or convert a document
  * nobody may see. Once restored, a row that job never reached (it died, or its

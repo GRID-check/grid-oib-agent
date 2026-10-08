@@ -371,7 +371,7 @@ Read by `frontends/ui/workers/jobs/index.js`, the entry point of the `bff-jobs` 
 | `LOG_LEVEL` | No | `INFO` | Logging level: DEBUG, INFO, WARNING, ERROR. |
 | `PYTHONWARNINGS` | No | `ignore` | Python warnings filter. |
 | `PROJECT_PURGE_GRACE_DAYS` | No | see `docs/architecture/deletion-pipeline.md` | Grace period before soft-deleted projects are hard-purged (ADR-0011). |
-| `FOLDER_PURGE_GRACE_DAYS` | No | `14` | Days a deleted folder stays in the project's Papierkorb, restorable, before the purger erases its documents and keeps it as a tombstone (ADR-0087). Capped at 23, like every grace period, so an erasure still finishes inside the GDPR's one month; empty or invalid means 14. Read by the BFF when a folder is deleted. |
+| `FOLDER_PURGE_GRACE_DAYS` | No | `14` | Days a deleted folder stays in the project's Papierkorb, restorable, before the purger erases its documents and keeps it as a tombstone (ADR-0088). Capped at 23, like every grace period, so an erasure still finishes inside the GDPR's one month; empty or invalid means 14. Read by the BFF when a folder is deleted. |
 
 ---
 

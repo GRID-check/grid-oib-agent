@@ -2,7 +2,7 @@
  * The reads the folder-access decision makes (ADR-0087, ADR-0088). Kept apart
  * from the documents repository so the decision point owns its own SQL.
  *
- * The tree includes deleted folders (migration 0110): in the Papierkorb, and
+ * The tree includes deleted folders (migration 0111): in the Papierkorb, and
  * purged tombstones (0114). Content derived from a deleted folder is still
  * judged by the access it had, and once it is purged by the organization's
  * „Inhalte aus gelöschten Ordnern" setting, which the tree carries on each

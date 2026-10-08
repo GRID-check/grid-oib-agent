@@ -42,7 +42,7 @@ describe('errorResponse', () => {
   })
 
   it('answers a write into a deleted folder (GFD01) as the folder being gone', async () => {
-    // Migration 0114: a folder went to the Papierkorb between the write check and the insert.
+    // Migration 0115: a folder went to the Papierkorb between the write check and the insert.
     const error = Object.assign(new Error('Failed query: insert into "documents"'), {
       cause: Object.assign(new Error('folder f1 is deleted; nothing may be filed into it'), { code: 'GFD01' }),
     })
