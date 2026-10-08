@@ -17,8 +17,9 @@
  * them would end a twenty-gigabyte import on its third blip, hours and
  * thousands of mails apart. `failure_streak` counts failures since a mail was
  * last filed, and only a streak that runs through every backoff ends the
- * import `failed`. Each ending deletes the staged archive and tells the person
- * in their inbox.
+ * import `failed`. Each ending seals the import's upload batch
+ * (`./upload-batch`), deletes the staged archive and tells the person in their
+ * inbox; the batch's own summary follows once everything filed has been read.
  */
 
 import 'server-only'
@@ -59,6 +60,7 @@ import { archiveFolderName } from './naming'
 import * as repository from './repository'
 import { discardStaging } from './service'
 import { archiveUrlForBackend } from './staging'
+import { openImportBatch, sealImportBatch } from './upload-batch'
 
 /** A reason no retry changes; the import ends `failed` with it. */
 class PermanentImportFailure extends Error {
@@ -208,6 +210,7 @@ async function startSlice(
     archiveFolderId,
     request,
     deadline,
+    uploadBatch: await openImportBatch(session, running),
   })
 }
 
@@ -275,6 +278,7 @@ async function finish(row: MailImport, status: 'completed' | 'failed', failure: 
     inflightFolderId: null,
   })
   if (!ended) return
+  await sealImportBatch(ended)
   try {
     await discardStaging(ended)
   } catch (cause) {
