@@ -8,6 +8,8 @@
 # caller needs. ADR-0044 Amendment 4.
 #
 #   token             the bare JWT
+#   claims            the JWT's decoded payload, for the pre-deploy check in
+#                     docs/deployment/kubernetes.md §9b (aud, client_id, scope)
 #   langfuse-headers  JSON headers for Claude Code's MCP `headersHelper`: the
 #                     WorkOS token for the edge, and Langfuse's own Basic
 #                     credential for Langfuse
@@ -26,13 +28,13 @@ set -euo pipefail
 
 mode="${1:-token}"
 case "$mode" in
-  token) ;;
+  token | claims) ;;
   langfuse-headers)
     : "${LANGFUSE_PUBLIC_KEY:?set LANGFUSE_PUBLIC_KEY (pk-lf-…)}"
     : "${LANGFUSE_SECRET_KEY:?set LANGFUSE_SECRET_KEY (sk-lf-…)}"
     ;;
   *)
-    echo "usage: $0 [token|langfuse-headers]" >&2
+    echo "usage: $0 [token|claims|langfuse-headers]" >&2
     exit 2
     ;;
 esac
@@ -72,6 +74,16 @@ except (ValueError, KeyError):
 
 if [ "$mode" = token ]; then
   printf '%s\n' "$token"
+  exit 0
+fi
+
+if [ "$mode" = claims ]; then
+  # The payload is base64url without padding, which `base64 -d` refuses.
+  printf '%s' "$token" | python3 -c '
+import base64, json, sys
+payload = sys.stdin.read().split(".")[1]
+print(json.dumps(json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))), indent=2))
+'
   exit 0
 fi
 

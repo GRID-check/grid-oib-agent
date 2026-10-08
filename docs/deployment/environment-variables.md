@@ -421,6 +421,22 @@ The Aspire ingestion key is NOT an env var on producers — it lives in the
 Kubernetes Secret `aspire-dashboard-secrets`, referenced only by the collector and the
 dashboard (see `docs/deployment/kubernetes.md` §9).
 
+## Agent access to Langfuse (`scripts/observability-agent-token.sh`, operator machines only)
+
+Read by the script that mints a WorkOS M2M token so a coding agent can pass the
+platform edge without a browser (ADR-0044 Amendment 4; setup in
+`docs/deployment/kubernetes.md` §9b, *Agent access (MCP)*). No service reads
+these.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `WORKOS_AUTHKIT_ISSUER` | Yes | — | The environment's AuthKit domain, `https://<tenant>.authkit.app` (the stack's `otelOidcIssuer`). Must be `https://`: the script refuses anything else, because the client secret travels in the request body. |
+| `WORKOS_AGENT_CLIENT_ID` | Yes | — | Client id (`client_…`) of the agent's WorkOS M2M application. It must also be listed in the stack's `platformAgentClientIds`, or the edge answers 403. |
+| `WORKOS_AGENT_CLIENT_SECRET` | Yes | — | That application's secret. Passed to curl on stdin, never as an argument. |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | `langfuse-headers` mode only | — | The agent's own Langfuse project key pair, sent as `Authorization: Basic`. Mint one per agent rather than reusing the seeded keys. Same names as the service variables below, different holder. |
+
+---
+
 ## Prompt management (Langfuse)
 
 The static half of Piloti's system prompt — the platform prompt — is authored
