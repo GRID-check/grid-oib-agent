@@ -13,7 +13,7 @@
  * the project (pick it) or it is on their machine (drop it, and the binding is
  * made when ingestion accepts it).
  *
- * An upload from here is an upload like any other (ADR-0085): it opens a batch
+ * An upload from here is an upload like any other (ADR-0086): it opens a batch
  * before the first file goes and seals it after the last, so the uploader gets
  * the same inbox notice and summary, and the project's history lists it.
  */

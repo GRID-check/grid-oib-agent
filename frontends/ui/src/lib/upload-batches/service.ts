@@ -158,7 +158,7 @@ export interface UploadSummaryDocument {
    */
   replaced: boolean
   /**
-   * Filed in a folder with its own access list, or below one (ADR-0087):
+   * Filed in a folder with its own access list, or below one (ADR-0088):
    * „geschützt", as ticket „Übersicht" asks. The test the folder's lock in the
    * file browser and the download log apply (`isUnderOwnList`), whatever the
    * list grants: one that lets every member read and limits only who may
@@ -266,7 +266,7 @@ const UNRESTRICTED = (): boolean => false
 
 /**
  * The batch's documents this reader may still see. A folder restricted after
- * the upload hides what was filed in it from its own uploader too (ADR-0086):
+ * the upload hides what was filed in it from its own uploader too (ADR-0087):
  * the summary names files, and a name is what the restriction withholds. Once
  * it hides any of them, the batch's own counts are withheld as well
  * (`batchCounts`), since they may count files in that folder. A file in the
@@ -367,7 +367,7 @@ export interface UploadHistoryPage {
  * project: it says who brought how much in when, and the per-file detail stays
  * in each uploader's summary.
  *
- * What was filed in a folder hidden from the reader (ADR-0086) is left out as
+ * What was filed in a folder hidden from the reader (ADR-0087) is left out as
  * the document listing leaves it out, as if it did not exist. A count is
  * metadata, and „12 Dateien, 3 in Quarantäne" for a folder the reader cannot
  * open says who filed how much there and when. Only a document row carries a
