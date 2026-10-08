@@ -1,5 +1,5 @@
 ---
-fixes:
+incident:
   - >
     A legal hold now prevents every deletion: a held document, Archiv document,
     chat or chat attachment can no longer be deleted. The hold applies when it

@@ -5,6 +5,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { baseStackConfig } from "../test-support/stack-config";
 import { RESEARCH_QUEUE_DEPTH_QUERY } from "./agent-worker";
+import { TRANSFER_HPA_OWNERSHIP } from "./keda-scaling";
 
 // src/app -> src -> deploy/pulumi -> deploy -> repo root
 const repoRoot = join(__dirname, "..", "..", "..", "..");
@@ -68,7 +69,6 @@ describe("the agent-worker tier", () => {
   beforeAll(async () => {
     pulumi.runtime.setAllConfig({
       ...baseStackConfig(),
-      "grid-oib:jobExecution": "db",
       "grid-oib:allowPlaintextJobPayloads": "true",
       "grid-oib:observabilityEnabled": "false",
     });
@@ -88,6 +88,7 @@ describe("the agent-worker tier", () => {
       redisUrl: pulumi.output("redis://dragonfly:6379"),
       seaweedInternalEndpoint: pulumi.output("http://seaweedfs:8333"),
       seaweedPublicEndpoint: pulumi.output("https://s3.example.test"),
+      chromaUrl: pulumi.output("http://chroma:8000"),
       dsn: (opts: { db: string; clusterWide?: boolean }) => pulumi.output(`postgresql://x/${opts.db}`),
       imagePullSecrets: [],
     };
@@ -143,6 +144,18 @@ describe("the agent-worker tier", () => {
       value: 1,
     });
     expect(spec.scaleTargetRef.name).toBe("agent-worker");
+  });
+
+  it("takes over the plain HPA a stack from before KEDA still holds, instead of being refused", async () => {
+    // Pulumi creates the ScaledObject before it deletes the dropped HPA, and
+    // KEDA's webhook refuses a second scaler on one workload: without this the
+    // update fails at the ScaledObject on every deploy (seen on dev).
+    const scaled = find(SCALED_OBJECT, "agent-worker");
+    const metadata = await resolve(scaled.inputs.metadata);
+    const spec = await resolve(scaled.inputs.spec);
+
+    expect(metadata.annotations).toEqual({ [TRANSFER_HPA_OWNERSHIP]: "true" });
+    expect(spec.advanced.horizontalPodAutoscalerConfig.name).toBe("agent-worker");
   });
 
   it("reads the queue through the TriggerAuthentication the ingest tier shares, as the read-only scaler login", async () => {

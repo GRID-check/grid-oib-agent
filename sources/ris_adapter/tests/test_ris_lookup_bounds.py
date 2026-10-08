@@ -21,8 +21,8 @@ pytestmark = pytest.mark.asyncio
 
 def _many_entries(catalog, count: int):
     """A catalog holding ``count`` fetchable Viennese laws on one topic."""
-    from tests.conftest import LookupHarness
-    from tests.conftest import norm_entry
+    from sources.ris_adapter.tests.conftest import LookupHarness
+    from sources.ris_adapter.tests.conftest import norm_entry
 
     return catalog(
         *(
@@ -49,7 +49,7 @@ async def test_a_twelve_hit_catalog_match_reads_at_most_two_documents(lookup, ca
 
 async def test_at_most_three_candidates_are_considered(lookup, catalog, monkeypatch):
     """The miss names what it did not read — and it names at most three."""
-    from tests.conftest import FakePicker
+    from sources.ris_adapter.tests.conftest import FakePicker
 
     _many_entries(catalog, 12)
     lookup.with_llms(monkeypatch, picker=FakePicker())
@@ -61,7 +61,7 @@ async def test_at_most_three_candidates_are_considered(lookup, catalog, monkeypa
 
 
 async def test_a_live_search_of_twenty_hits_considers_three(lookup, monkeypatch):
-    from tests.conftest import FakePlanner
+    from sources.ris_adapter.tests.conftest import FakePlanner
 
     lookup.with_llms(monkeypatch, planner=FakePlanner())
     lookup.client.search_result = RisSearchResult(
@@ -85,7 +85,7 @@ async def test_a_live_search_of_twenty_hits_considers_three(lookup, monkeypatch)
 
 
 async def test_at_most_six_passages_come_back(lookup, catalog, monkeypatch):
-    from tests.conftest import FakePicker
+    from sources.ris_adapter.tests.conftest import FakePicker
 
     lookup.set_text(
         lookup.WIEN_URL,
@@ -99,7 +99,7 @@ async def test_at_most_six_passages_come_back(lookup, catalog, monkeypatch):
 
 
 async def test_passages_come_from_at_most_two_documents(lookup, catalog, monkeypatch):
-    from tests.conftest import FakePicker
+    from sources.ris_adapter.tests.conftest import FakePicker
 
     _many_entries(catalog, 6)
     lookup.with_llms(monkeypatch, picker=FakePicker("§ 63", "§ 64", "§ 60"))

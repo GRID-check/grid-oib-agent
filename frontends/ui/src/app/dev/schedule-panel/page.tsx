@@ -43,7 +43,6 @@ export default function SchedulePanelPreview(): JSX.Element {
       >
         <TasksPanel
           projectId="p1"
-          projectCollection="proj_1"
           canManageJobs
           initialView="timetable"
         />

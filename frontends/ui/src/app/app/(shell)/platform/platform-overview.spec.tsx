@@ -64,6 +64,7 @@ interface SpendWindow {
   tokens: number
   events: number
   ingestCostUsd?: number
+  dictationCostUsd?: number
 }
 
 interface Organization {
@@ -344,5 +345,23 @@ describe('PlatformOverview', () => {
     // Part of the month's cost, not on top of it; today had none, so no hint.
     expect(screen.getByText('of which ingestion $12.50')).toBeDefined()
     expect(screen.getAllByText(/of which ingestion/)).toHaveLength(1)
+  })
+
+  test('shows what voice dictation cost within the headline cost, beside ingestion', async () => {
+    stubFetch(
+      withOrganizations([org({ id: 'org_1', name: 'Baumeister Wien', monthUsd: 40 })], {
+        totals: {
+          ...overview.totals,
+          day: { ...window(1, 4), dictationCostUsd: 0.25 },
+          month: { ...window(45, 42), ingestCostUsd: 12.5, dictationCostUsd: 1.75 },
+        },
+      }),
+    )
+
+    render(<PlatformOverview />)
+
+    await screen.findByTestId('platform-organizations')
+    expect(screen.getByText('of which voice input $0.25')).toBeDefined()
+    expect(screen.getByText(/of which ingestion \$12\.50 · of which voice input \$1\.75/)).toBeDefined()
   })
 })

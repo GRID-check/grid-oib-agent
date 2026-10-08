@@ -3,6 +3,7 @@ fixes:
   - >
     Administrators can invite colleagues to a project again. Invitations failed
     for some administrator roles.
+security:
   - >
     Asking Piloti in a project now needs the chat permission everywhere,
     including in an existing conversation. Replying to a colleague in a shared
