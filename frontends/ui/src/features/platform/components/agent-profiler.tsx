@@ -33,6 +33,8 @@ interface ConversationSummaryDto {
   conversationId: string
   organizationId: string | null
   title: string | null
+  /** The conversation drew on a restricted folder; the server sends no title (ADR-0089). */
+  titleWithheld?: boolean
   turnCount: number
   totalDurationMs: number
   lastActiveAt: string
@@ -250,6 +252,9 @@ export function AgentProfiler(): JSX.Element {
                         >
                           <ItemContent>
                             <ItemTitle>{conversation.title || conversation.conversationId}</ItemTitle>
+                            {conversation.titleWithheld ? (
+                              <ItemDescription>{t('profiler.titleWithheld')}</ItemDescription>
+                            ) : null}
                             <ItemDescription>
                               {conversation.organizationId ?? '—'} · {conversation.turnCount} ·{' '}
                               {formatMs(conversation.totalDurationMs)}

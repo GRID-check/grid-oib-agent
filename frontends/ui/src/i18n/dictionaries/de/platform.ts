@@ -977,6 +977,7 @@ export const platform: typeof en.platform = {
     turnFailed: 'fehlgeschlagen',
     spanCount: '{count} Spans',
     noSpans: 'Keine Spans für diesen Turn erfasst.',
+    titleWithheld: 'Titel zurückgehalten: eingeschränkter Ordner',
   },
   /**
    * Zitations-Qualität (citation_events-Ledger): wie oft die Quellenprüfung in

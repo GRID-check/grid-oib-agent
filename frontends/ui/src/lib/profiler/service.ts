@@ -15,7 +15,10 @@ export async function recordProfilerSpans(spans: NewAgentProfilerSpan[]): Promis
 export interface ProfiledConversationSummary {
   conversationId: string
   organizationId: string | null
+  /** Null when withheld (`titleWithheld`) or the conversation is gone. */
   title: string | null
+  /** The conversation drew on a folder with restricted access (ADR-0089). */
+  titleWithheld: boolean
   turnCount: number
   totalDurationMs: number
   lastActiveAt: string
@@ -32,6 +35,7 @@ export async function listProfiledConversations(query?: string): Promise<{
       conversationId: row.conversationId,
       organizationId: row.organizationId,
       title: row.title,
+      titleWithheld: row.titleWithheld,
       turnCount: row.turnCount,
       totalDurationMs: row.totalDurationMs,
       lastActiveAt: row.lastActiveAt.toISOString(),

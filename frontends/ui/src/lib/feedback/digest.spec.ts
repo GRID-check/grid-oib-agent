@@ -240,6 +240,8 @@ describe('getFeedbackDigest — caching', () => {
   it('does not serve a digest cached before restricted votes were left out', async () => {
     const stale = { headline: 'Zimmerer-Honorar 48.000 EUR falsch.', strengths: [], concerns: [] }
     await store.set('feedback:digest:v1:30:*:*:de', JSON.stringify(stale))
+    // v2 left out votes by conversation only; 0122's marks reach more (ADR-0089).
+    await store.set('feedback:digest:v2:30:*:*:de', JSON.stringify(stale))
 
     const result = await getFeedbackDigest(health(), { windowDays: 30 })
 

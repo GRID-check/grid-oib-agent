@@ -58,6 +58,7 @@ import type { PlanDocument } from './plan-documents'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import * as taskRepository from '@/lib/tasks/repository'
+import { requireMaySeeSubject } from '@/lib/tasks/subject-access'
 import { isActiveTaskRunStatus } from '@/lib/tasks/task-vocabulary'
 import {
   applyRunLedgerAppend,
@@ -447,6 +448,8 @@ export async function getRunView(
   await requireProjectAccess(session, projectId, 'project:view')
   const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
   if (!run) throw new NotFoundError('Unknown run')
+  // A revision task is judged when read: its document's folder as it is now (ADR-0089).
+  await requireMaySeeSubject(session, projectId, run, 'Unknown run')
   return runView(run)
 }
 
@@ -488,6 +491,7 @@ async function requireRunActor(
   const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
   if (!run) throw new NotFoundError('Unknown run')
   if (access.readsBecauseClosed && run.requesterUserId !== session.userId) throw new NotFoundError('Unknown run')
+  await requireMaySeeSubject(session, projectId, run, 'Unknown run')
   return run
 }
 

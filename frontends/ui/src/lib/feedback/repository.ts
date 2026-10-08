@@ -30,24 +30,26 @@ import { isConversationTagKey, type ConversationTagKey } from '@/lib/conversatio
 import { executeRows } from '@/lib/db/execute-rows'
 
 /**
- * Leaves out a vote on a conversation that drew on a folder with restricted
- * access: one with any `conversation_restricted_folders` row (ADR-0084,
- * ADR-0085). Its question, answer, comment and expected answer may quote that
- * folder, and every reader of these rows is outside the folder's audience: the
- * platform staff's drill-in and CSV export, the digest's model, the eval-case
- * converter fed by the export, and the lessons distiller that injects into
- * every organization's turns (`platform-lessons/repository.ts`).
+ * Leaves out a vote on an answer that drew on a folder with restricted access:
+ * one whose message the server marked (`message_restricted_use`, migration
+ * 0122, ADR-0089). Its question, answer, comment and expected answer may quote
+ * that folder, and every reader of these rows is outside the folder's
+ * audience: the platform staff's drill-in and CSV export, the digest's model,
+ * the eval-case converter fed by the export, and the lessons distiller that
+ * injects into every organization's turns (`platform-lessons/repository.ts`).
  *
- * Any record counts, including one for a folder since opened: these readers
- * are cross-tenant, and the safe direction is to show less. The record goes
- * with a deleted chat while the vote stays, so the vote carries the fact too:
- * deleting the record marks it `restricted_source` (migration 0119), and both
- * are read. Expects the feedback row aliased `f`.
+ * Keyed by the vote's `message_id`, the vote's identity, and never by its
+ * `conversation_id`, which is whatever the client sent. The mark is written by
+ * a trigger on `messages` when the answer is persisted while its conversation
+ * holds a restricted-use record, and it has no foreign key, so it stays when
+ * the chat is deleted. Any record counts, including one for a folder since
+ * opened: these readers are cross-tenant, and the safe direction is to show
+ * less. Expects the feedback row aliased `f`.
  */
-export const OUTSIDE_RESTRICTED_USE = sql`not f.restricted_source and not exists (
-  select 1 from conversation_restricted_folders crf
-  where crf.organization_id = f.organization_id
-    and crf.conversation_id = f.conversation_id
+export const OUTSIDE_RESTRICTED_USE = sql`not exists (
+  select 1 from message_restricted_use mr
+  where mr.organization_id = f.organization_id
+    and mr.message_id = f.message_id
 )`
 
 /** Hard cap for the per-conversation hydration list. */
@@ -521,8 +523,12 @@ export async function getFeedbackHealth(
  * through the digest — both of which sit behind `requirePlatformPermission`.
  *
  * The one content-bearing read here, so it is the one that leaves out votes on
- * a conversation that drew on a restricted folder (`OUTSIDE_RESTRICTED_USE`).
- * The aggregates above still count them: a count quotes nothing.
+ * an answer the server marked as drawing on a restricted folder
+ * (`OUTSIDE_RESTRICTED_USE`). The aggregates above still count them: a count
+ * quotes nothing. The answer, its question, the conversation's title and its
+ * topics are read through the voted MESSAGE's own conversation, in the vote's
+ * organization, never through the `conversation_id` the client sent: a vote
+ * naming another chat would otherwise show that chat's title and question.
  */
 export async function listFeedbackTurns(
   filters: FeedbackHealthFilters = {},
@@ -556,14 +562,15 @@ export async function listFeedbackTurns(
       c.title      as conversation_title,
       c.tags       as topics
     from answer_feedback f
-    left join messages m on m.id::text = f.message_id
-    left join conversations c on c.id = f.conversation_id
+    left join messages m on m.id::text = f.message_id and m.organization_id = f.organization_id
+    left join conversations c on c.id = m.conversation_id and c.organization_id = f.organization_id
     left join lateral (
       select content
       from messages
-      where conversation_id = f.conversation_id
+      where conversation_id = m.conversation_id
+        and organization_id = f.organization_id
         and role = 'user'
-        and (m.created_at is null or created_at <= m.created_at)
+        and created_at <= m.created_at
       order by created_at desc
       limit 1
     ) q on true

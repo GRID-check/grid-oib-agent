@@ -86,6 +86,12 @@ const SEES_EVERY_ROW: Record<string, string> = {
   'lib/authz/folder-access-repository.ts#countIfcDocumentsInFolders':
     'Refuses restricting a folder that holds an IFC model, held or not: the guard is about the building data, which exists either way.',
 
+  // --- Judging a revision task by where its document is now (ADR-0089) -------
+  'lib/tasks/repository.ts#findSubjectDocumentPlaces':
+    "A revision task's document's project and folder, never its content: the folder decides who may see the TASK, and a held document's folder decides it as well as a screened one's.",
+  'lib/conversations/restricted-use-repository.ts#listRevisionSubjectFolders':
+    "The current folder of the document a revision task in this thread revises, to judge who may read the THREAD; only the folder id leaves the query, and a held document's folder restricts as well as a screened one's.",
+
   // --- The upload machinery's own bookkeeping --------------------------------
   'lib/upload-batches/repository.ts#batchIdsOfDocuments': 'The settle hook: which batches the rows a reconcile moved belong to. Ids only.',
   'lib/upload-batches/repository.ts#listInFlightBatchDocuments': 'The upload sweep reconciles in-flight rows, held by definition.',

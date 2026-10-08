@@ -65,6 +65,8 @@ describe('listProfiledConversations', () => {
     expect(row.conversationId).toBe('conv_1')
     expect(row.organizationId).toBe('org_1')
     expect(row.title).toBe('Bauantrag Wien')
+    // Absent from the driver row (no restricted use): coerced to a real boolean.
+    expect(row.titleWithheld).toBe(false)
     expect(row.turnCount).toBe(2)
     // Chain terminates at the list cap + 1 probe.
     expect(limit).toHaveBeenCalledWith(201)

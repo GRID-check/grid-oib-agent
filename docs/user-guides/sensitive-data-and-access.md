@@ -319,13 +319,20 @@ not offer, and refuses with a message saying why:
 The same holds for a file in such a folder, whichever chat it came from:
 **Piloti überarbeiten lassen** is refused with the reason, and Änderungen
 anfordern opens no Auftrag for it, because an Auftrag quotes the file and the
-whole project sees it. The comment stays on the version for its author.
+whole project sees it. The comment stays on the version for its author. An
+Auftrag opened for a file before its folder was restricted, or before the file
+moved into such a folder, is no longer listed to people who may not read the
+folder now, and its chat is closed to them; when the file moves back or they
+get the role, they see it again.
 
 Ratings of answers from such a chat (thumbs down, with what the answer should
 have said) are not shown to the people who run Piloti and are not used for the
-lessons Piloti learns across offices, also after the chat is deleted. Only
-their number is counted. Lessons learned from such ratings before this rule
-were withdrawn.
+lessons Piloti learns across offices, also after the chat is deleted. Piloti
+notes this on each answer written after the chat first drew on such a folder,
+so it does not depend on anything the browser sends. Only their number is
+counted. Lessons learned from such ratings before this rule were withdrawn,
+with the earlier wordings kept when a lesson was edited. The people who run
+Piloti also do not see the title of such a chat in their performance view.
 
 Whether a chat drew on such a folder is decided against the folders' lists as
 they are now: when a folder is opened to everyone, the chats and notes that

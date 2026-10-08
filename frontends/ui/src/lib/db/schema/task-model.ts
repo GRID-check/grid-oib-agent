@@ -259,6 +259,11 @@ export const taskRuns = pgTable(
     // The unified Aufgaben list reads project-wide, not per-definition.
     projectCreatedIdx: index('idx_task_runs_project_created').on(table.projectId, table.createdAt),
     orgIdx: index('idx_task_runs_organization_id').on(table.organizationId),
+    // A revision task's thread is judged by its document's current folder
+    // (migration 0122, ADR-0089): looked up by conversation, revisions only.
+    revisionConversationIdx: index('idx_task_runs_revision_conversation')
+      .on(table.organizationId, table.conversationId)
+      .where(sql`${table.kind} = 'revision'`),
     backendJobUidx: uniqueIndex('uniq_task_runs_backend_job_id')
       .on(table.backendJobId)
       .where(sql`${table.backendJobId} IS NOT NULL`),

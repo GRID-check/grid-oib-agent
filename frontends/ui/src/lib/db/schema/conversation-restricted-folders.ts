@@ -14,7 +14,9 @@ import { sql } from 'drizzle-orm'
  * opens the conversation, tightening it closes it, with nothing rewritten.
  *
  * Written only by `admitRestrictedUse`, under the per-conversation lock every
- * widening of the conversation's audience takes too.
+ * widening of the conversation's audience takes too. While a row exists, every
+ * message written into the conversation is marked by a trigger
+ * (`message_restricted_use`, ADR-0089), and that mark outlives the row.
  *
  * No foreign key, on purpose: not to `conversations`, because the first turn of
  * a new chat runs before its row exists (`deleteConversationInOrg` removes the

@@ -65,9 +65,11 @@ export interface UnprocessedDownvote {
  * never persisted is still a report — reason and comment alone can carry the
  * signal.
  *
- * A vote on a conversation that drew on a restricted folder is never a report
- * (`OUTSIDE_RESTRICTED_USE`): a lesson is injected into every organization's
- * turns, so its source text must be one every reader may see.
+ * A vote on an answer the server marked as drawing on a restricted folder is
+ * never a report (`OUTSIDE_RESTRICTED_USE`, keyed by the vote's message id): a
+ * lesson is injected into every organization's turns, so its source text must
+ * be one every reader may see. The question is read from the voted message's
+ * own conversation, never from the `conversation_id` the client sent.
  */
 export async function listUnprocessedDownvotes(limit: number): Promise<UnprocessedDownvote[]> {
   const db = getDb()
@@ -82,13 +84,14 @@ export async function listUnprocessedDownvotes(limit: number): Promise<Unprocess
       q.content     as question
     from answer_feedback f
     left join platform_lesson_reports r on r.feedback_id = f.id
-    left join messages m on m.id::text = f.message_id
+    left join messages m on m.id::text = f.message_id and m.organization_id = f.organization_id
     left join lateral (
       select content
       from messages
-      where conversation_id = f.conversation_id
+      where conversation_id = m.conversation_id
+        and organization_id = f.organization_id
         and role = 'user'
-        and (m.created_at is null or created_at <= m.created_at)
+        and created_at <= m.created_at
       order by created_at desc
       limit 1
     ) q on true

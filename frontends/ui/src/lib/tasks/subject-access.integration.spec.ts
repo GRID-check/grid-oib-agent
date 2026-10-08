@@ -1,0 +1,227 @@
+/**
+ * @vitest-environment node
+ *
+ * A revision task is judged when it is read, by the folder its document is in
+ * NOW (ADR-0089), against a REAL Postgres through the restricted runtime role:
+ *
+ *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
+ *     npx vitest run src/lib/tasks/subject-access.integration.spec.ts
+ *
+ * `task db:test:rls` (scripts/rls-test-db.sh) builds that database and runs it.
+ *
+ * Who holds which WorkOS role, and the project gate, are the things faked; the
+ * folders, the document, the task runs and the thread are real rows. What it
+ * proves, for a task opened while its document sat in an open folder and the
+ * document since moved into a folder only some roles read:
+ *   - the task list leaves it out for a member who may not read that folder,
+ *     and opening it answers 404, while a cleared member sees and opens it;
+ *   - its thread reads as a conversation that drew on that folder, so the
+ *     shared-chat lock closes it for the same member;
+ *   - moving the document back opens both again: nothing was stored.
+ */
+
+import { sql } from 'drizzle-orm'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { NotFoundError } from '@/lib/api/errors'
+import type { AuthorizedSession } from '@/lib/auth/types'
+import type { FolderClearance } from '@/lib/authz/folder-access'
+
+vi.mock('server-only', () => ({}))
+
+const STAMP = Date.now()
+const ORG = `org_subj_${STAMP}`
+const CLEARED = `user_subj_cleared_${STAMP}`
+const UNCLEARED = `user_subj_uncleared_${STAMP}`
+const THREAD = `s_subj_thread_${STAMP}`
+
+const clearances = new Map<string, FolderClearance>([
+  [CLEARED, { roles: ['org-buchhaltung'], seesEverything: false }],
+  [UNCLEARED, { roles: [], seesEverything: false }],
+])
+
+vi.mock('@/lib/authz/folder-access', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/authz/folder-access')>()
+  return {
+    ...actual,
+    clearanceOf: vi.fn(async (session: AuthorizedSession) => clearances.get(session.userId) ?? { roles: [], seesEverything: false }),
+  }
+})
+vi.mock('@/lib/authz/projects', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/authz/projects')>()
+  return { ...actual, requireProjectAccess: vi.fn(async () => ({ closed: false, readsBecauseClosed: false })) }
+})
+
+const url = process.env.GRID_TEST_DATABASE_URL
+
+describe('the revision-subject suite is not silently skipped in CI', () => {
+  it('has a database to run against', () => {
+    if (!process.env.GRID_RLS_SUITE_REQUIRED) return
+    expect(url, 'GRID_TEST_DATABASE_URL is unset while GRID_RLS_SUITE_REQUIRED is set').toBeTruthy()
+  })
+})
+
+function sessionOf(userId: string): AuthorizedSession {
+  return {
+    userId,
+    email: `${userId}@grid.test`,
+    name: userId,
+    accessToken: 'token',
+    organizationId: ORG,
+    organizationMembershipId: `om_${userId}`,
+    role: 'member',
+    roles: [],
+    permissions: [],
+    featureFlags: null,
+  }
+}
+
+describe.skipIf(!url)('revision tasks judged by their document’s current folder, against Postgres', () => {
+  let db: ReturnType<typeof import('@/lib/db').getDb>
+  let withTenant: typeof import('@/lib/db/tenant-context').withTenant
+  let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
+  let projectId = ''
+  let restrictedFolder = ''
+  let openFolder = ''
+  let documentId = ''
+  let revisionRun = ''
+  let plainRun = ''
+
+  const inOrg = <T>(fn: () => PromiseLike<T>) => withTenant({ organizationId: ORG, userId: CLEARED }, fn)
+  const first = <T>(rows: Iterable<T>): T => Array.from(rows)[0]
+
+  const moveDocumentTo = (folderId: string) =>
+    inOrg(() => db.execute(sql`update documents set folder_id = ${folderId}::uuid where id = ${documentId}::uuid`))
+
+  async function seen(userId: string) {
+    const { listTasks } = await import('./service')
+    const { getRunView } = await import('@/lib/runs/service')
+    const { lockedConversationIds } = await import('@/lib/conversations/restricted-use')
+    const session = sessionOf(userId)
+    return inOrg(async () => ({
+      listed: (await listTasks(session, projectId)).map((run) => run.id).sort(),
+      opened: await getRunView(session, projectId, revisionRun).then(
+        () => 'opened',
+        (error: unknown) => (error instanceof NotFoundError ? 'not found' : String(error))
+      ),
+      threadLocked: (await lockedConversationIds(session, [{ id: THREAD, projectId }])).has(THREAD),
+    }))
+  }
+
+  beforeAll(async () => {
+    process.env.GRID_APP_DATABASE_URL = url
+    const context = await import('@/lib/db/tenant-context')
+    withTenant = context.withTenant
+    withPlatformAccess = context.withPlatformAccess
+    db = (await import('@/lib/db')).getDb()
+    const collection = `proj_subj_${STAMP}`
+    projectId = String(
+      first(
+        await inOrg(() =>
+          db.execute<{ id: string }>(sql`
+            insert into projects (organization_id, name, created_by, collection_name)
+            values (${ORG}, 'Revision subjects', ${CLEARED}, ${collection}) returning id`)
+        )
+      ).id
+    )
+    // One statement: the 0109 trigger checks at commit that a custom list is not empty.
+    restrictedFolder = String(
+      first(
+        await inOrg(() =>
+          db.execute<{ id: string }>(sql`
+            with folder as (
+              insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+              values (${ORG}, ${projectId}::uuid, 'Honorare', 'Honorare', 'custom', ${CLEARED}, now())
+              returning id, project_id
+            ), grants as (
+              insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
+              select ${ORG}, project_id, id, 'org-buchhaltung', 'read' from folder
+            )
+            select id from folder`)
+        )
+      ).id
+    )
+    openFolder = String(
+      first(
+        await inOrg(() =>
+          db.execute<{ id: string }>(sql`
+            insert into project_folders (organization_id, project_id, name, path)
+            values (${ORG}, ${projectId}::uuid, 'Pläne', 'Pläne') returning id`)
+        )
+      ).id
+    )
+    documentId = String(
+      first(
+        await inOrg(() =>
+          db.execute<{ id: string }>(sql`
+            insert into documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id)
+            values (${ORG}, ${CLEARED}, 'angebot.md', ${`k/subj/${STAMP}`}, ${collection}, 'completed', 'project', ${projectId}::uuid, ${openFolder}::uuid)
+            returning id`)
+        )
+      ).id
+    )
+    await inOrg(() =>
+      db.execute(sql`
+        insert into conversations (id, organization_id, created_by, project_id, visibility, title)
+        values (${THREAD}, ${ORG}, ${CLEARED}, ${projectId}::uuid, 'project', 'Aufgabe: Überarbeitung')`)
+    )
+    const plan = {
+      prompt: 'Überarbeite den Entwurf: Zimmerer 48.000 EUR',
+      skill: {},
+      dataSources: null,
+      goal: 'Honorar korrigieren',
+      subject: { documentId, versionId: documentId, comment: 'Honorar korrigieren' },
+    }
+    revisionRun = String(
+      first(
+        await inOrg(() =>
+          db.execute<{ id: string }>(sql`
+            insert into task_runs (organization_id, project_id, kind, title, plan, requester_user_id, trigger, status, skill_snapshot, conversation_id)
+            values (${ORG}, ${projectId}::uuid, 'revision', 'Überarbeitung: Honorar korrigieren', ${JSON.stringify(plan)}::jsonb,
+                    ${CLEARED}, 'delegated', 'succeeded', '{}'::jsonb, ${THREAD})
+            returning id`)
+        )
+      ).id
+    )
+    plainRun = String(
+      first(
+        await inOrg(() =>
+          db.execute<{ id: string }>(sql`
+            insert into task_runs (organization_id, project_id, kind, title, plan, requester_user_id, trigger, status, skill_snapshot)
+            values (${ORG}, ${projectId}::uuid, 'document', 'Aktenvermerk', '{"prompt":"Schreibe","skill":{},"dataSources":null}'::jsonb,
+                    ${CLEARED}, 'delegated', 'succeeded', '{}'::jsonb)
+            returning id`)
+        )
+      ).id
+    )
+  })
+
+  afterAll(async () => {
+    if (!db) return
+    await withPlatformAccess('test teardown', async () => {
+      await db.execute(sql`delete from task_runs where organization_id = ${ORG}`)
+      await db.execute(sql`delete from conversations where organization_id = ${ORG}`)
+      await db.execute(sql`delete from documents where organization_id = ${ORG}`)
+      await db.execute(sql`delete from project_folders where project_id = ${projectId}::uuid`)
+      await db.execute(sql`delete from projects where organization_id = ${ORG}`)
+    })
+    const { closeDb } = await import('@/lib/db')
+    await closeDb()
+  })
+
+  it('shows a task to everyone while its document sits in an open folder', async () => {
+    const both = [plainRun, revisionRun].sort()
+    expect(await seen(UNCLEARED)).toEqual({ listed: both, opened: 'opened', threadLocked: false })
+    expect(await seen(CLEARED)).toEqual({ listed: both, opened: 'opened', threadLocked: false })
+  })
+
+  it('withholds it, and closes its thread, once the document moves into a folder the reader may not read', async () => {
+    await moveDocumentTo(restrictedFolder)
+    expect(await seen(UNCLEARED)).toEqual({ listed: [plainRun], opened: 'not found', threadLocked: true })
+    expect(await seen(CLEARED)).toEqual({ listed: [plainRun, revisionRun].sort(), opened: 'opened', threadLocked: false })
+  })
+
+  it('shows it again when the document moves back: nothing was stored', async () => {
+    await moveDocumentTo(openFolder)
+    expect(await seen(UNCLEARED)).toEqual({ listed: [plainRun, revisionRun].sort(), opened: 'opened', threadLocked: false })
+  })
+})

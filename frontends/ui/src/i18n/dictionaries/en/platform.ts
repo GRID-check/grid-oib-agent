@@ -976,6 +976,7 @@ export const platform = {
     turnFailed: 'failed',
     spanCount: '{count} spans',
     noSpans: 'No spans recorded for this turn.',
+    titleWithheld: 'Title withheld: restricted folder',
   },
   /**
    * Citation health (citation_events ledger): how often citation verification

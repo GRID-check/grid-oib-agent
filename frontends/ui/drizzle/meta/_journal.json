@@ -855,6 +855,13 @@
       "when": 1792454400009,
       "tag": "0121_document_screened_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1792454400010,
+      "tag": "0122_message_restricted_use",
+      "breakpoints": true
     }
   ]
 }

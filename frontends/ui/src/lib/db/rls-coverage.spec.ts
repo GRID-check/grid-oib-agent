@@ -118,6 +118,10 @@ const BOUNDARY_MIGRATIONS = [
   // the audit trail until sent. Keyed directly by its organization; no foreign
   // keys, so the row outlives the document it names.
   '0117_document_quarantine_decisions.sql',
+  // Adds message_restricted_use — the server's mark on a message written while
+  // its conversation drew on a restricted folder (ADR-0089). Keyed directly by
+  // its organization; no foreign key, so the mark outlives the chat.
+  '0122_message_restricted_use.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

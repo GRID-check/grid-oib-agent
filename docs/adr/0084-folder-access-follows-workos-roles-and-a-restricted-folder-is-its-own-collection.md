@@ -154,18 +154,20 @@ its conversation: „Piloti überarbeiten lassen" is refused before the swap wit
 a typed 403 (`details.action: revision`), and the `openRevisionTask` effect
 opens none for the version nobody asked about. Giving tasks a folder audience
 instead would be a second visibility model for the task list, the inbox and the
-run thread, for one door.
+run thread, for one door. A task opened before its draft's folder was
+restricted is judged when read by the folder the document is in now, and so is
+its thread (ADR-0089).
 
 Answer feedback is read across tenants: by Piloti staff in the platform
 drill-in and its CSV export (which feeds `scripts/feedback_to_cases.py`), by
 the digest's model, and by the lessons distiller, whose lessons reach every
-organization's turns. A vote on a conversation with any
-`conversation_restricted_folders` row is left out of all of them
-(`OUTSIDE_RESTRICTED_USE`); only the aggregate counts include it. Deleting the
-chat deletes that row and keeps the vote, which has no foreign key to the
-conversation, so deleting the row marks the vote `restricted_source` (a
-trigger, migration 0119) and the filter reads both. The digest's cache key was
-bumped with the filter, so a digest written from such a vote is not served.
+organization's turns. A vote on an answer written while its conversation had
+a `conversation_restricted_folders` row is left out of all of them
+(`OUTSIDE_RESTRICTED_USE`); only the aggregate counts include it. The answer is
+marked by the server, keyed by its message id, and the mark outlives the chat
+(`message_restricted_use`, ADR-0089, which replaced 0119's mark on the vote by
+its client-sent conversation id). The digest's cache key was bumped with the
+filter, so a digest written from such a vote is not served.
 
 The agent does not offer what will be refused: a turn whose signed scope holds a
 restricted collection withdraws deep research and tasks for the turn, its
