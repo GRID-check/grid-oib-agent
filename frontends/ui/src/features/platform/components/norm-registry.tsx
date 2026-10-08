@@ -26,6 +26,7 @@ import {
   BookMarked,
   CircleAlert,
   ClipboardList,
+  Lock,
   Plus,
   RotateCcw,
   Save,
@@ -37,12 +38,31 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { DataToolbar } from '@/components/ui/data-toolbar'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Pagination } from '@/components/ui/pagination'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Spinner } from '@/components/ui/spinner'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { SectionCard } from '@/features/platform/components/section-card'
-import { emptyEntry, isStale, NormEntryEditor } from '@/features/platform/components/norm-entry-editor'
+import { usePlatformCan } from '@/features/platform/platform-access'
+import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
+import {
+  emptyEntry,
+  isStale,
+  NormEntryEditor,
+} from '@/features/platform/components/norm-entry-editor'
 import { useTranslations } from '@/i18n'
 import type { Translator } from '@/i18n'
 import {
@@ -123,6 +143,9 @@ interface EditorTarget {
 
 export function NormRegistry(): JSX.Element {
   const t = useTranslations('platform')
+  // Saving the registry (and verifying an entry) is `settings:manage`. A
+  // read-only viewer gets the table, without the controls that would 403.
+  const canManage = usePlatformCan(PLATFORM_PERMISSIONS.settingsManage)
 
   const [entries, setEntries] = useState<NormEntry[]>([])
   const [version, setVersion] = useState<number>(0)
@@ -130,7 +153,10 @@ export function NormRegistry(): JSX.Element {
   const [corpusCollection, setCorpusCollection] = useState('oib_knowledge')
   // CountryProfile data overrides — no UI surface, but must not be dropped on
   // PUT (a country-#2 registry carries these; see country_profile.py).
-  type ProfileOverrides = Pick<NormsFile, 'language' | 'states' | 'corpus_note' | 'doctrine' | 'parcel_tags'>
+  type ProfileOverrides = Pick<
+    NormsFile,
+    'language' | 'states' | 'corpus_note' | 'doctrine' | 'parcel_tags'
+  >
   const [overrides, setOverrides] = useState<ProfileOverrides>({
     language: '',
     states: {},
@@ -139,6 +165,8 @@ export function NormRegistry(): JSX.Element {
     parcel_tags: [],
   })
   const [isLoading, setIsLoading] = useState(true)
+  /** Set once a load landed: a later reload (after a conflict) keeps the table. */
+  const [hasLoaded, setHasLoaded] = useState(false)
   const [hasError, setHasError] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -173,9 +201,11 @@ export function NormRegistry(): JSX.Element {
         })
         setVersion(data.version)
         setDirty(false)
+        setHasLoaded(true)
       })
       .catch(() => {
         setEntries([])
+        setHasLoaded(false)
         setHasError(true)
       })
       .finally(() => setIsLoading(false))
@@ -186,8 +216,9 @@ export function NormRegistry(): JSX.Element {
   }, [load])
 
   const otherIds = useCallback(
-    (originalId: string | null) => new Set(entries.filter((e) => e.id !== originalId).map((e) => e.id)),
-    [entries],
+    (originalId: string | null) =>
+      new Set(entries.filter((e) => e.id !== originalId).map((e) => e.id)),
+    [entries]
   )
 
   const handleSaveEntry = useCallback((originalId: string | null, entry: NormEntry) => {
@@ -257,7 +288,11 @@ export function NormRegistry(): JSX.Element {
       .filter((entry) => {
         if (rankFilter !== ALL && entry.rank !== rankFilter) return false
         if (scopeFilter === FEDERAL && entry.bundesland.trim() !== '') return false
-        if (scopeFilter !== ALL && scopeFilter !== FEDERAL && entry.bundesland.trim() !== scopeFilter) {
+        if (
+          scopeFilter !== ALL &&
+          scopeFilter !== FEDERAL &&
+          entry.bundesland.trim() !== scopeFilter
+        ) {
           return false
         }
         if (onlyReviews && !hasReview(entry)) return false
@@ -278,11 +313,16 @@ export function NormRegistry(): JSX.Element {
     <>
       <SectionCard
         testId="norm-registry"
-        title={t('norms.title')}
-        description={`${t('norms.description')} ${
-          entries.length === 1 ? t('norms.entryCountOne') : t('norms.entryCount', { count: entries.length })
-        }`}
-        loading={isLoading}
+        // Titled by what it holds: the page header above already says
+        // "norm catalog", and the count is the fact worth a heading.
+        title={
+          entries.length === 1
+            ? t('norms.entryCountOne')
+            : t('norms.entryCount', { count: entries.length })
+        }
+        description={t('norms.description')}
+        loading={isLoading && !hasLoaded}
+        refreshing={isLoading && hasLoaded}
         error={!isLoading && hasError}
         errorMessage={t('norms.loadError')}
         onRetry={() => void load()}
@@ -291,24 +331,36 @@ export function NormRegistry(): JSX.Element {
         emptyTitle={t('norms.empty.title')}
         emptyDescription={t('norms.empty.description')}
         action={
-          <div className="flex flex-wrap items-center gap-2">
-            {dirty && <Badge variant="warning">{t('norms.unsaved')}</Badge>}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setEditor({ entry: emptyEntry(), originalId: null })}
-            >
-              <Plus className="size-3.5" aria-hidden />
-              {t('norms.add')}
-            </Button>
-            <Button size="sm" onClick={handleSave} disabled={!dirty || isSaving || conflict}>
-              {isSaving ? <Spinner className="size-3.5" /> : <Save className="size-3.5" aria-hidden />}
-              {t('norms.save')}
-            </Button>
-          </div>
+          canManage ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {dirty && <Badge variant="warning">{t('norms.unsaved')}</Badge>}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditor({ entry: emptyEntry(), originalId: null })}
+              >
+                <Plus className="size-3.5" aria-hidden />
+                {t('norms.add')}
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={!dirty || isSaving || conflict}>
+                {isSaving ? (
+                  <Spinner className="size-3.5" />
+                ) : (
+                  <Save className="size-3.5" aria-hidden />
+                )}
+                {t('norms.save')}
+              </Button>
+            </div>
+          ) : undefined
         }
       >
         <div className="flex flex-col gap-3">
+          {!canManage ? (
+            <Alert>
+              <Lock aria-hidden />
+              <AlertDescription>{t('norms.readOnly')}</AlertDescription>
+            </Alert>
+          ) : null}
           {conflict && (
             <Alert variant="destructive" data-testid="norm-registry-conflict">
               <AlertCircle className="size-4" aria-hidden />
@@ -402,29 +454,30 @@ export function NormRegistry(): JSX.Element {
               description={t('norms.noMatches.description')}
             />
           ) : (
-            <div className="rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('norms.columns.norm')}</TableHead>
-                    <TableHead>{t('norms.columns.rank')}</TableHead>
-                    <TableHead>{t('norms.columns.scope')}</TableHead>
-                    <TableHead>{t('norms.columns.document')}</TableHead>
-                    <TableHead>{t('norms.columns.verified')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {page.map((entry) => (
-                    <NormRow
-                      key={entry.id}
-                      entry={entry}
-                      t={t}
-                      onOpen={() => setEditor({ entry, originalId: entry.id })}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            // No second border: the card is the container, and a bordered
+            // table inside it read as a card in a card.
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('norms.columns.norm')}</TableHead>
+                  <TableHead className="hidden sm:table-cell">{t('norms.columns.rank')}</TableHead>
+                  <TableHead className="hidden md:table-cell">{t('norms.columns.scope')}</TableHead>
+                  <TableHead>{t('norms.columns.verified')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {page.map((entry) => (
+                  <NormRow
+                    key={entry.id}
+                    entry={entry}
+                    t={t}
+                    onOpen={
+                      canManage ? () => setEditor({ entry, originalId: entry.id }) : undefined
+                    }
+                  />
+                ))}
+              </TableBody>
+            </Table>
           )}
 
           <Pagination
@@ -483,59 +536,79 @@ function NormRow({
   t,
 }: {
   entry: NormEntry
-  onOpen: () => void
+  /** Opens the editor; absent for a viewer who cannot save, so the row is plain text. */
+  onOpen?: () => void
   t: Translator
 }): JSX.Element {
   const stale = isStale(entry.verified_at)
   const review = (entry.review_note ?? '').trim()
+  const scope = entry.bundesland.trim() || t('norms.federal')
   const document = entry.document_number
     ? [entry.application, entry.document_number].filter(Boolean).join(' · ')
     : sourceHost(entry.source_url) || t('norms.row.noFullText')
 
+  const summary = (
+    <>
+      <span className="flex items-center gap-2">
+        <Badge variant="secondary" className="shrink-0">
+          {entry.short}
+        </Badge>
+        {review ? (
+          <ClipboardList
+            className="text-warning size-3.5 shrink-0"
+            aria-label={t('norms.row.review')}
+          />
+        ) : null}
+      </span>
+      <span className="line-clamp-2 text-sm font-medium">{entry.title}</span>
+      {/* The document pointer rides in the norm cell rather than a column of
+          its own: a nowrap identifier column pushed the verification badge
+          off the card at every width this page renders at. */}
+      <span className="text-muted-foreground break-all font-mono text-xs">{document}</span>
+      {/* Rank and scope have their own columns from `sm`/`md`; below that
+          they ride under the title so a phone still sees them. */}
+      <span className="text-muted-foreground block text-xs md:hidden">
+        <span className="sm:hidden">{t(`norms.rankShort.${entry.rank}`)} · </span>
+        {scope}
+      </span>
+      {review ? <span className="text-warning line-clamp-2 text-xs">{review}</span> : null}
+    </>
+  )
+
   return (
     <TableRow>
-      <TableCell>
-        <button
-          type="button"
-          onClick={onOpen}
-          aria-label={t('norms.row.open', { title: entry.title })}
-          className="flex w-full flex-col items-start gap-0.5 text-left hover:underline focus-visible:ring-2 pointer-coarse:min-h-11 focus-visible:ring-ring/60 focus-visible:outline-none"
-        >
-          <span className="flex items-center gap-2">
-            <Badge variant="secondary" className="shrink-0">
-              {entry.short}
-            </Badge>
-            {review && (
-              <span
-                className="inline-block size-2 shrink-0 rounded-full bg-warning"
-                aria-label={t('norms.row.review')}
-                title={t('norms.row.review')}
-              />
-            )}
-          </span>
-          <span className="block max-w-[22rem] truncate text-sm font-medium">{entry.title}</span>
-          {review && (
-            <span className="block max-w-[22rem] truncate text-xs text-warning">{review}</span>
-          )}
-        </button>
+      <TableCell className="whitespace-normal">
+        {onOpen ? (
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-label={t('norms.row.open', { title: entry.title })}
+            className="pointer-coarse:min-h-11 focus-visible:ring-ring/60 flex w-full flex-col items-start gap-0.5 text-left hover:underline focus-visible:outline-none focus-visible:ring-2"
+          >
+            {summary}
+          </button>
+        ) : (
+          <div className="flex flex-col items-start gap-0.5">{summary}</div>
+        )}
       </TableCell>
-      <TableCell>
+      <TableCell className="hidden sm:table-cell">
         <Badge variant="outline">{t(`norms.rankShort.${entry.rank}`)}</Badge>
       </TableCell>
-      <TableCell className="text-sm text-muted-foreground">
-        {entry.bundesland.trim() || t('norms.federal')}
-      </TableCell>
-      <TableCell className="max-w-[16rem] truncate font-mono text-xs text-muted-foreground">
-        {document}
-      </TableCell>
+      <TableCell className="text-muted-foreground hidden text-sm md:table-cell">{scope}</TableCell>
       <TableCell>
         <Badge
           variant={stale ? 'warning' : 'outline'}
           className="gap-1"
           title={stale ? t('norms.row.staleHint') : t('norms.row.verifiedHint')}
         >
-          {stale ? <CircleAlert className="size-3" aria-hidden /> : <BadgeCheck className="size-3" aria-hidden />}
-          {entry.verified_at.trim() || t('norms.row.unverified')}
+          {stale ? (
+            <CircleAlert className="size-3" aria-hidden />
+          ) : (
+            <BadgeCheck className="size-3" aria-hidden />
+          )}
+          <span className="tabular-nums">
+            {entry.verified_at.trim() || t('norms.row.unverified')}
+          </span>
         </Badge>
       </TableCell>
     </TableRow>
