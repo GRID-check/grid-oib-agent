@@ -36,7 +36,7 @@ describe('research runs client', () => {
       total: 1,
     })
 
-    const response = await listResearchRuns({ projectCollection: 'proj_1' })
+    const response = await listResearchRuns({ projectId: 'project-1' })
 
     expect(response.total).toBe(1)
     expect(response.jobs).toEqual([
@@ -48,6 +48,21 @@ describe('research runs client', () => {
         project_collection: 'proj_1',
       },
     ])
+  })
+
+  test('names the project by id through the job proxy, which checks and signs it (ADR-0084)', async () => {
+    stubFetchJson({ jobs: [], total: 0 })
+
+    await listResearchRuns({ projectId: 'project-1', status: 'running', limit: 20 })
+
+    const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit]
+    const parsed = new URL(url, 'https://grid.example')
+    expect(parsed.pathname).toBe('/api/jobs/async/jobs')
+    expect(parsed.searchParams.get('projectId')).toBe('project-1')
+    // A collection name is a project nobody checked; it never leaves the client.
+    expect(parsed.searchParams.has('project_collection')).toBe(false)
+    expect(parsed.searchParams.get('status')).toBe('running')
+    expect(parsed.searchParams.get('limit')).toBe('20')
   })
 
   test('drops malformed entries and defaults missing optional fields', async () => {

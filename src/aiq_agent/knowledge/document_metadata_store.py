@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from aiq_agent.common.db_utils import ensure_schema
+from aiq_agent.common.db_utils import lock_schema
 from aiq_agent.common.db_utils import normalize_db_url as _normalize_db_url
 from aiq_agent.common.db_utils import redact_db_url
 
@@ -199,19 +201,15 @@ class DocumentMetadataStore:
             if self.db_url in DocumentMetadataStore._tables_initialized:
                 return
 
-            migrated = False
-            try:
-                with self._sync_engine.connect() as conn:
-                    migrated = self._run_schema(conn)
-                    conn.commit()
-            except Exception as e:
-                logger.warning("Failed to ensure document_metadata schema (sync): %s", e)
-
             # Only mark the store initialized when the schema is actually ready.
             # A failed migration must NOT be cached as initialized, so the next
             # call retries it instead of writing against a missing column.
-            if migrated:
-                DocumentMetadataStore._tables_initialized.add(self.db_url)
+            try:
+                ensure_schema(self._sync_engine, TABLE_NAME, self._run_schema)
+            except Exception as e:
+                logger.warning("Failed to ensure document_metadata schema (sync): %s", e)
+                return
+            DocumentMetadataStore._tables_initialized.add(self.db_url)
 
     @classmethod
     async def _ensure_table_async(cls, db_url: str):
@@ -225,22 +223,21 @@ class DocumentMetadataStore:
         store = cls.__new__(cls)
         store.db_url = db_url
 
-        migrated = False
         try:
             async with engine.begin() as conn:
-                migrated = await conn.run_sync(store._run_schema)
+                await conn.run_sync(lock_schema, TABLE_NAME)
+                await conn.run_sync(store._run_schema)
         except Exception as e:
             logger.warning("Failed to ensure document_metadata schema (async): %s", e)
+            return
+        cls._tables_initialized.add(db_url)
+        logger.info("Created/migrated document_metadata table (async) in %s", redact_db_url(db_url))
 
-        if migrated:
-            cls._tables_initialized.add(db_url)
-            logger.info("Created/migrated document_metadata table (async) in %s", redact_db_url(db_url))
-
-    def _run_schema(self, conn) -> bool:
+    def _run_schema(self, conn) -> None:
         """Create fresh, rename the legacy table, then backfill missing columns.
 
-        Runs over a live sync connection (the caller owns the transaction/commit).
-        Returns ``True`` when the schema is ready.
+        Runs over a live sync connection (the caller owns the transaction/commit,
+        and has taken the schema lock: the processes of a boot all reach this at once).
         """
         from sqlalchemy import inspect
         from sqlalchemy import text
@@ -249,26 +246,21 @@ class DocumentMetadataStore:
         has_current = inspector.has_table(TABLE_NAME)
         has_legacy = inspector.has_table(LEGACY_TABLE_NAME)
 
-        try:
-            if not has_current and has_legacy:
-                # Preserve every existing row: rename the table in place rather
-                # than recreating it. Postgres and SQLite both support this.
-                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                conn.execute(text(f"ALTER TABLE {LEGACY_TABLE_NAME} RENAME TO {TABLE_NAME}"))
-                logger.info("Migrated legacy '%s' table to '%s' (rows preserved)", LEGACY_TABLE_NAME, TABLE_NAME)
-            elif not has_current:
-                self._create_table(conn)
+        if not has_current and has_legacy:
+            # Preserve every existing row: rename the table in place rather
+            # than recreating it. Postgres and SQLite both support this.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            conn.execute(text(f"ALTER TABLE {LEGACY_TABLE_NAME} RENAME TO {TABLE_NAME}"))
+            logger.info("Migrated legacy '%s' table to '%s' (rows preserved)", LEGACY_TABLE_NAME, TABLE_NAME)
+        elif not has_current:
+            self._create_table(conn)
 
-            # Backfill any optional column that predates the current schema
-            # (covers a just-renamed legacy table and older document_metadata ones).
-            for column in _OPTIONAL_COLUMNS:
-                self._add_column_if_missing(conn, column)
+        # Backfill any optional column that predates the current schema
+        # (covers a just-renamed legacy table and older document_metadata ones).
+        for column in _OPTIONAL_COLUMNS:
+            self._add_column_if_missing(conn, column)
 
-            self._ensure_index(conn)
-            return True
-        except Exception as e:
-            logger.warning("Failed to migrate document_metadata schema: %s", e)
-            return False
+        self._ensure_index(conn)
 
     def _create_table(self, conn) -> None:
         from sqlalchemy import text

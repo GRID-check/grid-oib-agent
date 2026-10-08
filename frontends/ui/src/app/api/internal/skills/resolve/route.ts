@@ -1,8 +1,8 @@
 /**
- * INTERNAL skill resolution endpoint - the backend's /v1/chat/skills path asks
- * the BFF which skills apply to an organization/agent. Shared-token guarded
- * (GRID_INTERNAL_API_TOKEN); the organization comes from the query string, so
- * tenancy is declared from the payload/query rather than a session.
+ * INTERNAL skill resolution endpoint - `src/aiq_agent/skills/resolver.py` (via
+ * FRONTEND_INTERNAL_URL) asks the BFF which skills apply to an organization/agent.
+ * Shared-token guarded (GRID_INTERNAL_API_TOKEN); the organization comes from the
+ * query string, so tenancy is declared from the payload/query rather than a session.
  */
 
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'

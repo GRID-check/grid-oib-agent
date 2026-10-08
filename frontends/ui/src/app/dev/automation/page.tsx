@@ -48,7 +48,6 @@ export default function AutomationDevPage(): JSX.Element {
       >
         <AutomationPanel
           projectId="p1"
-          projectCollection="proj_1"
           canManageOrgSkills
           canManageJobs
           initialTab="tasks"

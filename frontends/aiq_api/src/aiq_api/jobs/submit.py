@@ -1,7 +1,8 @@
 """
 Job submission utilities.
 
-Provides functions to submit agent jobs to the Dask cluster.
+Provides functions to submit agent jobs to the research queue (ADR-0021): the
+submit persists the job and its claimable row, and a research worker claims it.
 """
 
 from __future__ import annotations
@@ -19,42 +20,16 @@ from aiq_api.auth import get_current_trace_tags
 from ..registry import get_agent_config
 from . import queue
 from .access import _make_no_auth_principal
-from .access import count_active_jobs
 from .access import create_job_access
+from .access import derive_project_collection
 from .access import job_exists
 from .access import rollback_job_submission
-from .runner import run_agent_job
-
-
-def job_execution_mode() -> str:
-    """Execution backend for research jobs: ``dask`` (default, per-pod cluster)
-    or ``db`` (DB-claimed workers, ADR-0021 — enables horizontal scaling)."""
-    return os.environ.get("GRID_JOB_EXECUTION", "dask").strip().lower()
-
-
-def async_job_dispatch() -> str | None:
-    """The backend that can run an agent job out of process, or ``None``.
-
-    ``db`` wins when both are configured: it is the queue row, not the cluster,
-    that runs the job. This is THE acceptance condition — ``submit_agent_job``
-    refuses exactly when this returns ``None``, and the chat dispatch gate
-    (``piloti.conversation_register``) imports this same function, so the two
-    cannot drift. They once did: the chat gate read only the scheduler address,
-    which no db-mode deployment sets, and every deployment that actually had
-    workers researched synchronously instead.
-    """
-    if job_execution_mode() == "db":
-        return "db"
-    if os.environ.get("NAT_DASK_SCHEDULER_ADDRESS"):
-        return "dask"
-    return None
 
 
 def _build_run_agent_payload(
     *,
     configure_logging,
     log_level,
-    scheduler_address,
     db_url,
     config_path,
     job_id,
@@ -77,11 +52,10 @@ def _build_run_agent_payload(
     run_id,
     documents=None,
 ) -> dict:
-    """Build the JSON-serializable ``run_agent_job`` kwargs a DB worker replays.
+    """Build the JSON-serializable ``run_agent_job`` kwargs a research worker replays.
 
-    Keys mirror ``run_agent_job``'s signature exactly; ``parent_trace_context``
-    is the 7-tuple expanded positionally in the Dask path. Every value is a
-    plain str/int/bool/list/dict/None, so it round-trips through JSON.
+    Keys mirror ``run_agent_job``'s signature exactly. Every value is a plain
+    str/int/bool/list/dict/None, so it round-trips through JSON.
     """
     (
         parent_span_id,
@@ -95,7 +69,6 @@ def _build_run_agent_payload(
     return {
         "configure_logging": configure_logging,
         "log_level": log_level,
-        "scheduler_address": scheduler_address,
         "db_url": db_url,
         "config_file_path": config_path,
         "job_id": job_id,
@@ -128,10 +101,9 @@ def _build_run_agent_payload(
         # The Unterlagen the reader named on the plan, as the BFF handed them
         # over; the runner sanitises them into the agent state and the ledger.
         "documents": documents,
-        # No owner at submit time (unclaimed): the DB worker fills in its own
-        # worker id at replay for the runner's still-owner publish gate
-        # (hardening item 10). Travels inside the encrypted payload like the
-        # rest; the Dask path leaves it None (no claim table).
+        # No owner at submit time (unclaimed): the research worker fills in its
+        # own worker id at replay for the runner's still-owner publish gate
+        # (hardening item 10). Travels inside the encrypted payload like the rest.
         "claim_owner": None,
     }
 
@@ -148,35 +120,18 @@ logger = logging.getLogger(__name__)
 # choice about how much of the cluster each kind of work may hold — not a race
 # between them.
 #
-# What admission DOES differs by execution mode, because only one of them has a
-# queue (ADR-0079):
-#
-# * `db`: capacity makes a job WAIT, never fail. The worker tier claims fairly
-#   across organizations and holds one organization to `GRID_MAX_ACTIVE_JOBS_PER_ORG`
-#   running at once (`jobs/queue.py`), so a full cluster is a longer queue, and a
-#   scheduled run is no longer skipped for it. The one refusal left is a bound on
-#   how many jobs ONE organization may have waiting (`GRID_MAX_QUEUED_JOBS_PER_ORG`),
-#   which stops a runaway caller and is not capacity management.
-# * `dask`: there is no queue to wait in, so the active-job caps still refuse.
-
-# @environment_variable GRID_MAX_ACTIVE_JOBS
-# @category Server
-# @type int
-# @default 8
-# @required false
-# Dask execution only: maximum non-terminal async jobs accepted across all
-# organizations (admission control, 429 beyond it). With `GRID_JOB_EXECUTION=db`
-# it has no effect: jobs wait in the queue instead. 0 or negative disables the cap.
-MAX_ACTIVE_JOBS = int(os.environ.get("GRID_MAX_ACTIVE_JOBS", "8"))
+# Capacity makes a job WAIT, never fail (ADR-0079). The worker tier claims fairly
+# across organizations and holds one organization to `GRID_MAX_ACTIVE_JOBS_PER_ORG`
+# running at once (`jobs/queue.py`), so a full cluster is a longer queue, and a
+# scheduled run is not skipped for it. The one refusal left is a bound on how many
+# jobs ONE organization may have waiting (`GRID_MAX_QUEUED_JOBS_PER_ORG`), which
+# stops a runaway caller and is not capacity management.
 
 
 async def _enforce_job_admission(db_url: str, organization_id: str | None) -> None:
-    """Refuse a submission the execution mode cannot hold (fail-open on errors)."""
+    """Refuse a submission past its organization's waiting-queue bound (fail-open on errors)."""
     try:
-        if job_execution_mode() == "db":
-            await _enforce_queue_bound(db_url, organization_id)
-        else:
-            await _enforce_active_caps(db_url, organization_id)
+        await _enforce_queue_bound(db_url, organization_id)
     except JobAdmissionError:
         raise
     except Exception:
@@ -186,7 +141,7 @@ async def _enforce_job_admission(db_url: str, organization_id: str | None) -> No
 
 
 async def _enforce_queue_bound(db_url: str, organization_id: str | None) -> None:
-    """DB execution: refuse only an organization whose own waiting queue is past its bound."""
+    """Refuse only an organization whose own waiting queue is past its bound."""
     bound = queue.max_queued_per_org()
     if bound <= 0:
         return
@@ -197,31 +152,6 @@ async def _enforce_queue_bound(db_url: str, organization_id: str | None) -> None
             f"Your organization already has {waiting} research jobs waiting. "
             "Please let some of them start before adding more.",
         )
-
-
-async def _enforce_active_caps(db_url: str, organization_id: str | None) -> None:
-    """Dask execution: refuse past the global and per-organization active-job caps."""
-    per_org = queue.max_active_per_org()
-    if MAX_ACTIVE_JOBS <= 0 and per_org <= 0:
-        return
-
-    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
-
-    terminal = (JobStatus.SUCCESS.value, JobStatus.FAILURE.value, JobStatus.INTERRUPTED.value)
-    loop = asyncio.get_running_loop()
-    if MAX_ACTIVE_JOBS > 0:
-        active = await loop.run_in_executor(None, count_active_jobs, db_url, terminal, None)
-        if active >= MAX_ACTIVE_JOBS:
-            raise JobAdmissionError(
-                f"Research queue is full ({active} jobs active). Please try again in a few minutes.",
-            )
-    if per_org > 0 and organization_id:
-        org_active = await loop.run_in_executor(None, count_active_jobs, db_url, terminal, organization_id)
-        if org_active >= per_org:
-            raise JobAdmissionError(
-                f"Your organization already has {org_active} research jobs running. "
-                "Please wait for one to finish before starting another.",
-            )
 
 
 def _get_disabled_sources() -> set[str]:
@@ -307,48 +237,6 @@ def _get_parent_trace_context() -> tuple[
     )
 
 
-def _base_collection_name() -> str:
-    """Return the configured base/OIB knowledge collection name.
-
-    Mirrors the env var precedence used elsewhere in the codebase
-    (e.g. ``aiq_agent.oib_sync``): ``OIB_COLLECTION_NAME`` wins over the
-    legacy ``COLLECTION_NAME``, defaulting to ``oib_knowledge``.
-    """
-    return os.environ.get("OIB_COLLECTION_NAME") or os.environ.get("COLLECTION_NAME") or "oib_knowledge"
-
-
-def _derive_project_collection(collection_scope: list[str] | None) -> str | None:
-    """Extract the project collection from a request's collection scope.
-
-    The collection scope contains the base/OIB collection, the office Archiv
-    (``archiv_<org>``), the project collection, and an ``s_<conversation>``
-    scoped collection. The project collection is the single remaining entry
-    once those others are excluded. Returns None if no such entry exists (or
-    more than one candidate remains, which indicates an ambiguous scope not
-    worth guessing at).
-    """
-    if not collection_scope:
-        return None
-
-    base_collection = _base_collection_name()
-    candidates = [
-        collection
-        for collection in collection_scope
-        if collection != base_collection and not collection.startswith("s_") and not collection.startswith("archiv_")
-    ]
-    if len(candidates) == 1:
-        return candidates[0]
-    return None
-
-
-class SchedulerNotConfiguredError(RuntimeError):
-    """The Dask scheduler address is not configured (server misconfiguration).
-
-    Subclasses RuntimeError for backwards compatibility, but lets HTTP routes
-    map it to 503 instead of conflating it with authorization failures (403).
-    """
-
-
 class MissingPrincipalError(RuntimeError):
     """No verified principal is available to own the async job.
 
@@ -397,10 +285,11 @@ async def submit_agent_job(
     priority: str | None = None,
 ) -> str:
     """
-    Submit an agent job: to the research queue (``db`` execution) or the Dask cluster.
+    Submit an agent job to the research queue (ADR-0021).
 
     This is the main entry point for submitting async jobs from application code.
-    It looks up the agent configuration from the registry and submits the job.
+    It looks up the agent configuration from the registry, persists the job, and
+    enqueues a claimable row that a research worker runs.
 
     Args:
         agent_type: Agent type identifier (e.g., 'deep_researcher').
@@ -411,7 +300,7 @@ async def submit_agent_job(
         expiry_seconds: Job expiry time in seconds (default 24h).
         available_documents: Optional list of document dicts with file_name and summary.
         data_sources: Optional list of allowed data sources to enforce in the worker.
-        auth_token: Optional auth token to propagate to the Dask worker for
+        auth_token: Optional auth token to propagate to the research worker for
             data sources that require authentication.
         model_overrides: Optional per-org runtime model overrides
             (``{agent_group: openrouter_model_id}``). Auto-captured from the
@@ -436,7 +325,6 @@ async def submit_agent_job(
             organization the queue runs interactive jobs first: a question the
             reader escalated goes before a scheduled sweep of the same
             organization, and never before another organization's. Only the
-            ``db`` execution has a queue to order; Dask ignores it.
         run_id: Optional id of the ``task_runs`` row this job is. Carried into
             the worker so the run can flush its ledger to its own message; a
             job submitted without one still narrates itself on its event
@@ -447,7 +335,6 @@ async def submit_agent_job(
 
     Raises:
         KeyError: If agent_type is not registered.
-        RuntimeError: If Dask scheduler is not configured.
         DuplicateJobIdError: If a caller-supplied job_id collides with an existing job.
 
     Example:
@@ -467,13 +354,6 @@ async def submit_agent_job(
     # Get agent configuration from registry
     agent_config = get_agent_config(agent_type)
 
-    # @environment_variable NAT_DASK_SCHEDULER_ADDRESS
-    # @category Server
-    # @type str
-    # @required true
-    # Dask scheduler address for async job submission.
-    scheduler_address = os.environ.get("NAT_DASK_SCHEDULER_ADDRESS")
-
     # @environment_variable NAT_JOB_STORE_DB_URL
     # @category Server
     # @type str
@@ -486,7 +366,7 @@ async def submit_agent_job(
     # @category Server
     # @type str
     # @required false
-    # Path to NAT workflow config file used by Dask workers.
+    # Path to the NAT workflow config file the research worker loads.
     config_path = os.environ.get("NAT_CONFIG_FILE", "")
 
     # @environment_variable NAT_FASTAPI_LOG_LEVEL
@@ -496,20 +376,6 @@ async def submit_agent_job(
     # @required false
     # Python logging level for FastAPI workers (10=DEBUG, 20=INFO, 30=WARNING).
     log_level = int(os.environ.get("NAT_FASTAPI_LOG_LEVEL", "20"))
-
-    # @environment_variable NAT_USE_DASK_THREADS
-    # @category Server
-    # @type bool
-    # @default 0
-    # @required false
-    # Use Dask thread pool instead of process pool for workers. Set to 1 to enable.
-    use_threads = os.environ.get("NAT_USE_DASK_THREADS", "0") == "1"
-
-    db_execution = job_execution_mode() == "db"
-    if async_job_dispatch() is None:
-        raise SchedulerNotConfiguredError(
-            "Async job submission requires NAT_DASK_SCHEDULER_ADDRESS or GRID_JOB_EXECUTION=db"
-        )
 
     # Auto-capture auth token if not explicitly provided
     if auth_token is None:
@@ -538,7 +404,7 @@ async def submit_agent_job(
         model_overrides = get_model_overrides_from_context() or None
 
     # Org-disabled data sources (ADR-0022): subtracted HERE, at submit time,
-    # so Dask workers need no live flag lookup — the effective data_sources
+    # so research workers need no live flag lookup — the effective data_sources
     # list they receive already excludes anything the organization turned
     # off. A None ("all sources") request is materialized first so the
     # subtraction can apply.
@@ -569,7 +435,9 @@ async def submit_agent_job(
     # no lock) and fail OPEN — a broken count must not take research down.
     await _enforce_job_admission(db_url, organization_id)
 
-    job_store = JobStore(scheduler_address=scheduler_address, db_url=db_url)
+    # NAT's JobStore requires a scheduler address that this path never uses
+    # (ADR-0021): every call here goes to the database.
+    job_store = JobStore(scheduler_address="", db_url=db_url)
     resolved_job_id = job_store.ensure_job_id(job_id)
     loop = asyncio.get_running_loop()
 
@@ -608,79 +476,41 @@ async def submit_agent_job(
     # `GET /v1/jobs/async/jobs?conversation_id=` able to find the run, and the
     # worker payload, which is how the runner knows where to write the answer.
     parent_conversation_id = conversation_id or parent_trace_context[5]
-    project_collection = _derive_project_collection(collection_scope)
+    project_collection = derive_project_collection(collection_scope)
 
     try:
-        if db_execution:
-            # DB-claimed execution (ADR-0021): persist a SUBMITTED job_info row
-            # (no Dask) and enqueue a claimable row carrying the run_agent_job
-            # payload. A worker replica claims and runs it. _create_job reuses
-            # NAT's job_info semantics without the scheduler.
-            payload = _build_run_agent_payload(
-                configure_logging=not use_threads,
-                log_level=log_level,
-                scheduler_address=scheduler_address or "",
-                db_url=db_url,
-                config_path=config_path,
-                job_id=resolved_job_id,
-                input_text=input_text,
-                agent_config=agent_config,
-                parent_trace_context=parent_trace_context,
-                available_documents=available_documents,
-                data_sources=data_sources,
-                auth_token=auth_token,
-                collection_scope=collection_scope,
-                project_context=project_context,
-                project_memory=project_memory,
-                platform_lessons=platform_lessons,
-                model_overrides=model_overrides,
-                usage_context=usage_context,
-                user_info=user_info,
-                clarifier_result=clarifier_result,
-                memory_reflection_enabled=memory_reflection_enabled,
-                memory_reflection_llm=memory_reflection_llm,
-                run_id=run_id,
-                documents=documents,
-            )
-            await job_store._create_job(
-                config_file=config_path or None,
-                job_id=resolved_job_id,
-                expiry_seconds=expiry_seconds,
-            )
-        else:
-            await job_store.submit_job(
-                job_id=resolved_job_id,
-                expiry_seconds=expiry_seconds,
-                job_fn=run_agent_job,
-                job_args=[
-                    not use_threads,  # configure_logging
-                    log_level,
-                    scheduler_address,
-                    db_url,
-                    config_path,
-                    resolved_job_id,
-                    input_text,
-                    agent_config.class_path,
-                    agent_config.config_name,
-                    *parent_trace_context,
-                    available_documents,
-                    data_sources,
-                    auth_token,
-                    collection_scope,
-                    project_context,
-                    project_memory,
-                    platform_lessons,
-                    model_overrides,
-                    usage_context,
-                    user_info,
-                    clarifier_result,
-                    memory_reflection_enabled,
-                    memory_reflection_llm,
-                    None,  # claim_owner: no queue claim on the Dask path (see run_agent_job)
-                    run_id,
-                    documents,
-                ],
-            )
+        # Persist the job's status row and enqueue a claimable row carrying the
+        # run_agent_job payload (ADR-0021). A research worker claims and runs it.
+        payload = _build_run_agent_payload(
+            configure_logging=True,
+            log_level=log_level,
+            db_url=db_url,
+            config_path=config_path,
+            job_id=resolved_job_id,
+            input_text=input_text,
+            agent_config=agent_config,
+            parent_trace_context=parent_trace_context,
+            available_documents=available_documents,
+            data_sources=data_sources,
+            auth_token=auth_token,
+            collection_scope=collection_scope,
+            project_context=project_context,
+            project_memory=project_memory,
+            platform_lessons=platform_lessons,
+            model_overrides=model_overrides,
+            usage_context=usage_context,
+            user_info=user_info,
+            clarifier_result=clarifier_result,
+            memory_reflection_enabled=memory_reflection_enabled,
+            memory_reflection_llm=memory_reflection_llm,
+            run_id=run_id,
+            documents=documents,
+        )
+        await job_store._create_job(
+            config_file=config_path or None,
+            job_id=resolved_job_id,
+            expiry_seconds=expiry_seconds,
+        )
         await loop.run_in_executor(
             None,
             create_job_access,
@@ -691,18 +521,16 @@ async def submit_agent_job(
             project_collection,
             organization_id,
         )
-        if db_execution:
-            # Enqueue the claimable row LAST — only once job_info AND job_access
-            # are fully persisted — so a worker can never claim and run a job
-            # whose ownership/rollback state is still incomplete.
-            await loop.run_in_executor(None, queue.enqueue, db_url, resolved_job_id, payload, organization_id, priority)
+        # Enqueue the claimable row LAST — only once job_info AND job_access
+        # are fully persisted — so a worker can never claim and run a job
+        # whose ownership/rollback state is still incomplete.
+        await loop.run_in_executor(None, queue.enqueue, db_url, resolved_job_id, payload, organization_id, priority)
     except Exception:
-        if db_execution:
-            # Drop any partial queue row so a half-submitted job is never run.
-            try:
-                await loop.run_in_executor(None, queue.mark_done, db_url, resolved_job_id, None)
-            except Exception:
-                logger.warning("Failed to clean up queue row for %s during rollback", resolved_job_id, exc_info=True)
+        # Drop any partial queue row so a half-submitted job is never run.
+        try:
+            await loop.run_in_executor(None, queue.mark_done, db_url, resolved_job_id, None)
+        except Exception:
+            logger.warning("Failed to clean up queue row for %s during rollback", resolved_job_id, exc_info=True)
         if not preexistence_verified:
             # rollback_job_submission deletes job_access, job_events AND
             # job_info. Without positive proof the job ID did not exist before
@@ -716,8 +544,7 @@ async def submit_agent_job(
         try:
             await loop.run_in_executor(None, rollback_job_submission, resolved_job_id, db_url)
             logger.warning(
-                "Rolled back partial async job submission for %s after access persistence failure. "
-                "The Dask worker may still be running and should be investigated if it continues writing state.",
+                "Rolled back partial async job submission for %s after access persistence failure.",
                 resolved_job_id,
             )
         except Exception as cleanup_error:
@@ -737,25 +564,3 @@ async def submit_agent_job(
         principal.sub,
     )
     return resolved_job_id
-
-
-# Backwards compatibility alias
-async def submit_deep_research_job(
-    input_text: str,
-    owner: str,
-    job_id: str | None = None,
-    expiry_seconds: int = 86400,
-) -> str:
-    """
-    Submit a deep research job.
-
-    Legacy function preserved for backwards compatibility.
-    New code should use submit_agent_job(agent_type="deep_researcher", ...).
-    """
-    return await submit_agent_job(
-        agent_type="deep_researcher",
-        input_text=input_text,
-        owner=owner,
-        job_id=job_id,
-        expiry_seconds=expiry_seconds,
-    )

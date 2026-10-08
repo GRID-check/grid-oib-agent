@@ -3,7 +3,7 @@
 Two failure modes are pinned here, both of them about the SSE ``citation_use``
 artifact — the one that tells a reader "the answer actually cites this":
 
-1. Inside a Dask worker the callback had nothing to validate a knowledge-base
+1. Inside a research worker the callback had nothing to validate a knowledge-base
    citation against, so an OIB Richtlinie could never be marked cited.
 2. The cited claim was made from raw streamed model output, i.e. BEFORE
    ``verify_citations`` stripped the fabricated and unverifiable citations —
@@ -135,7 +135,7 @@ class TestADocumentCitationIsMarkableInsideAJob:
     """An OIB Richtlinie the answer cites must be markable as cited IN A JOB.
 
     ``_get_source_registry`` once read the session contextvar and nothing else,
-    and nothing binds that inside a Dask worker — only the synchronous chat
+    and nothing binds that inside a research worker — only the synchronous chat
     entrypoints call ``set_session_registry``. The lookup returned None,
     ``_emit_cited_documents`` early-returned, and no knowledge-base document
     could ever be marked cited: a run citing four Richtlinien and one web page

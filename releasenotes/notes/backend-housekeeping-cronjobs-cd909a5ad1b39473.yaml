@@ -1,0 +1,7 @@
+---
+operators:
+  - >
+    The backend no longer cleans up after itself in every replica. Three
+    Kubernetes CronJobs do it instead: one reaps stalled research runs every
+    two minutes, and two clean up old job events and idle chat history hourly.
+    Docker Compose runs the same schedule in a new housekeeping service.

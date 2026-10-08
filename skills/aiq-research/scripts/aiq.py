@@ -37,6 +37,9 @@ _ALLOWED_METHODS = frozenset({"GET", "POST"})
 
 DEFAULT_SERVER_URL = "http://localhost:8000"
 AIQ_SERVER_URL = os.environ.get("AIQ_SERVER_URL", DEFAULT_SERVER_URL)
+# `chat` POSTs /chat, which only the chat role serves (ADR-0082); the api role on AIQ_SERVER_URL does not.
+DEFAULT_CHAT_URL = "http://localhost:8001"
+AIQ_CHAT_URL = os.environ.get("AIQ_CHAT_URL", DEFAULT_CHAT_URL)
 
 _HEADLESS_HEADERS = {"Content-Type": "application/json", "X-AIQ-Mode": "headless"}
 DEFAULT_AGENT_TYPE = "researcher"
@@ -91,10 +94,15 @@ def _validate_base_url(url: str) -> str:
     return raw.rstrip("/")
 
 
-def _show_query_target(api_path: str) -> None:
+def _resolve_base_url(base_url: str | None) -> str:
+    """Return the role's base URL, or the api role's AIQ_SERVER_URL when no role is named."""
+    return _validate_base_url(AIQ_SERVER_URL if base_url is None else base_url)
+
+
+def _show_query_target(api_path: str, base_url: str | None = None) -> None:
     """Disclose the destination before transmitting user-provided query text."""
     print(
-        f"Sending user query text to configured AI-Q backend: {_validate_base_url(AIQ_SERVER_URL)}{api_path}",
+        f"Sending user query text to configured AI-Q backend: {_resolve_base_url(base_url)}{api_path}",
         file=sys.stderr,
     )
 
@@ -129,13 +137,14 @@ def _api_request(
     body: dict[str, Any] | None = None,
     *,
     timeout: int = DEFAULT_API_TIMEOUT_SECONDS,
+    base_url: str | None = None,
 ) -> dict[str, Any]:
-    """Send a JSON API request to the configured AI-Q backend."""
+    """Send a JSON API request to the configured AI-Q backend (or the given role's base URL)."""
     if method not in _ALLOWED_METHODS:
         raise RuntimeError(f"Unsupported HTTP method: {method!r}")
     _validate_api_path(path)
 
-    url = f"{_validate_base_url(AIQ_SERVER_URL)}{path}"
+    url = f"{_resolve_base_url(base_url)}{path}"
     data = None if body is None else json.dumps(body).encode("utf-8")
     if method == "POST":
         request_payload = {"url": url, "headers": dict(_HEADLESS_HEADERS), "method": method, "data": data}
@@ -183,13 +192,8 @@ def _stream_request(path: str, *, timeout: int = DEFAULT_LONG_HTTP_TIMEOUT_SECON
 
 
 def health() -> dict[str, Any]:
-    """Return the first successful AI-Q health response."""
-    for path in ("/health", "/v1/health"):
-        try:
-            return _api_request("GET", path, timeout=HEALTH_TIMEOUT_SECONDS)
-        except RuntimeError:
-            continue
-    return _api_request("GET", "/", timeout=HEALTH_TIMEOUT_SECONDS)
+    """Return the AI-Q api role's health response."""
+    return _api_request("GET", "/health", timeout=HEALTH_TIMEOUT_SECONDS)
 
 
 def list_agents() -> dict[str, Any]:
@@ -238,8 +242,8 @@ def stream_job(job_id: str) -> None:
 def chat_request(query: str) -> dict[str, Any]:
     """Send a routed chat request that may return a direct answer or job ID."""
     body = {"messages": [{"role": "user", "content": query}]}
-    _show_query_target("/chat")
-    return _api_request("POST", "/chat", body=body, timeout=DEFAULT_LONG_HTTP_TIMEOUT_SECONDS)
+    _show_query_target("/chat", AIQ_CHAT_URL)
+    return _api_request("POST", "/chat", body=body, timeout=DEFAULT_LONG_HTTP_TIMEOUT_SECONDS, base_url=AIQ_CHAT_URL)
 
 
 def poll_until_complete(
@@ -301,7 +305,7 @@ def _print_usage() -> None:
     print()
     print("Commands:")
     print("  health                        Check the local AIQ server")
-    print("  chat <query>                  POST /chat, returns routed response")
+    print("  chat <query>                  POST /chat on AIQ_CHAT_URL (chat role), returns routed response")
     print("  agents                        List available async agent types")
     print("  submit <query> [agent_type]   Submit an async job")
     print("  status <job_id>               Job status plus /state artifacts")
@@ -312,7 +316,8 @@ def _print_usage() -> None:
     print("  research_poll <job_id>        Resume polling an existing async job")
     print("  cancel <job_id>               Cancel a running async job")
     print()
-    print(f"Environment: AIQ_SERVER_URL defaults to {DEFAULT_SERVER_URL}")
+    print(f"Environment: AIQ_SERVER_URL defaults to {DEFAULT_SERVER_URL} (api role; every command but chat)")
+    print(f"             AIQ_CHAT_URL defaults to {DEFAULT_CHAT_URL} (chat role; the chat command only)")
 
 
 def _require_arg(args: list[str], usage: str, *, position: int = FIRST_ARG_POSITION) -> str:

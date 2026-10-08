@@ -269,14 +269,17 @@ the find until the file is retired or discarded. Without it two jobs uploading
 one name at once both collected the same predecessor, both retired it, and both
 new versions stayed. With it the second job waits, finds the first job's new
 version as its predecessor, and replaces it: the version that finishes last is
-the one left. On Postgres (`AIQ_SUMMARY_DB`, else `NAT_JOB_STORE_DB_URL`) it
-is a session advisory lock on a connection of its own, so it holds across
-replicas and is released when a replica dies; with SQLite or no database only
-the in-process lock holds, and an unreachable database lets the file ingest
-unguarded, logged.
+the one left. On Postgres it is a session advisory lock on a connection of its
+own, taken on `AIQ_LOCK_DB_URL`, the direct DSN and never the pooled one
+(ADR-0083), so it holds across replicas and is released when a replica dies;
+with SQLite or no database only the in-process lock holds. With Postgres it
+fails closed: an unreachable lock database raises, logged, and the file
+is marked failed (it does not replace its predecessor unguarded across replicas),
+so the failed-ingestion rescan picks it up. An ingest worker on Postgres with no
+`AIQ_LOCK_DB_URL` refuses to start.
 
-The OIB sync (`src/aiq_agent/oib_sync.py`) relies on the same step and calls no
-`delete_file` before it uploads.
+The base corpus (`src/aiq_agent/oib_sync.py`) relies on the same step: its ingest
+jobs run on the queue like any other and nothing deletes a file before it is ingested again.
 
 ### A document deleted while it indexed takes its chunks back out
 
@@ -408,7 +411,7 @@ Two fixes landed together, both described in
    summary is missing, independent of tag-classification success, and reads a
    wider text sample (first + last chunk).
 2. **Reconciliation backfill** (`42a4fa3`) — `reconcile_collection_summaries()`
-   runs at the end of every ingestion job (this ingestor, `scripts/ingest_oib.py`'s
+   runs at the end of every ingestion job (this ingestor, the base-corpus
    `oib_sync`, and any future caller), diffing indexed-and-successful files
    against the `document_metadata` table and backfilling a fallback summary for any
    gap it finds (logged as a WARNING per backfilled document — a gap still
