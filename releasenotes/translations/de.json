@@ -64,6 +64,10 @@
     "de": "Eine noch laufende Chat-Antwort bricht nicht mehr ab, wenn der Browser-Tab im Hintergrund ist oder das Mobilfunksignal kurz schwächelt."
   },
   {
+    "en": "A chat whose answers drew on a folder not everyone may read can be shared only with colleagues who may read that folder too, and Piloti will not file a draft or diagram from it where others could open it.",
+    "de": "Ein Chat, dessen Antworten aus einem Ordner schöpfen, den nicht alle lesen dürfen, lässt sich nur mit Kolleginnen und Kollegen teilen, die diesen Ordner ebenfalls lesen dürfen, und Piloti legt Entwürfe oder Diagramme daraus nirgends ab, wo andere sie öffnen könnten."
+  },
+  {
     "en": "A chat whose deletion failed because a service was briefly unavailable is now deleted automatically once the service is back, instead of staying hidden until someone deleted it again.",
     "de": "Ein Chat, dessen Löschen fehlgeschlagen ist, weil ein Dienst kurz nicht erreichbar war, wird jetzt automatisch gelöscht, sobald der Dienst wieder verfügbar ist. Bisher blieb er ausgeblendet, bis jemand ihn erneut löschte."
   },
@@ -134,6 +138,10 @@
   {
     "en": "A document can now be moved to another folder with Move to folder in its ⋯ menu. Each destination is listed by its full path, and All Files takes it out of every folder.",
     "de": "Ein Dokument lässt sich jetzt über „In Ordner verschieben“ im ⋯-Menü in einen anderen Ordner legen. Jedes Ziel steht mit seinem vollständigen Pfad da, und „Alle Dateien“ nimmt es aus jedem Ordner heraus."
+  },
+  {
+    "en": "A document from a folder not everyone may read cannot be added to a research run. The list marks it, and Piloti says why if you try.",
+    "de": "Ein Dokument aus einem Ordner, den nicht alle lesen dürfen, lässt sich keinem Rechercheauftrag hinzufügen. Die Liste kennzeichnet es, und Piloti sagt beim Versuch, warum."
   },
   {
     "en": "A document stuck on \"processing\" after an ingestion job was lost can now be retried from its menu instead of deleted and re-uploaded. The retry keeps the document, so sources, chat references and assignments survive, and it refuses while ingestion is genuinely still running.",
@@ -474,6 +482,10 @@
   {
     "en": "Adding a comment to an answer you already marked as unhelpful now gives Piloti a second chance to learn from it — the extra detail is exactly what a bare thumbs-down was missing.",
     "de": "Wenn Sie eine bereits als nicht hilfreich markierte Antwort kommentieren, erhält Piloti nun eine zweite Chance, daraus zu lernen – die zusätzlichen Details fehlten bei einem bloßen Daumen nach unten."
+  },
+  {
+    "en": "Adding a document to a running research run from the run's list of documents now works; until now the run never received it.",
+    "de": "Eine Unterlage aus der Liste eines laufenden Rechercheauftrags hinzuzufügen funktioniert jetzt; bisher kam sie beim Auftrag nie an."
   },
   {
     "en": "Administrators can invite colleagues to a project again. Invitations failed for some administrator roles.",
