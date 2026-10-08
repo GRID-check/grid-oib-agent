@@ -48,7 +48,9 @@ type Outcome<T> = ({ ok: true } & T) | { ok: false; error: string }
 /**
  * A sibling already holds this exact name. Deliberately the one answer for a
  * visible sibling and a hidden one (ADR-0087): it names neither, and says no
- * more than `uniq_project_folders_parent_name` forces anyone to learn.
+ * more than `uniq_project_folders_parent_name` forces anyone to learn. A
+ * constant, because a caller that picks the next free name (the mail import's
+ * ` (2)`) has to tell this refusal from every other one.
  */
 export const FOLDER_NAME_TAKEN = 'A folder with this name already exists here.'
 
@@ -97,13 +99,6 @@ export interface DeleteFolderResult {
 
 const folderOnShelf = (shelf: DocumentShelf, organizationId: string, folderId: string) =>
   and(eq(projectFolders.id, folderId), shelfFolderWhere(shelf, organizationId))
-
-/**
- * The answer when a sibling folder already has the name. A constant, because a
- * caller that picks the next free name (the mail import's ` (2)`) has to tell
- * this refusal from every other one.
- */
-export const FOLDER_NAME_TAKEN = 'A folder with this name already exists here.'
 
 /** One folder of the shelf, or `undefined` — another shelf's or tenant's folder id is simply not found. */
 export async function findShelfFolder(
