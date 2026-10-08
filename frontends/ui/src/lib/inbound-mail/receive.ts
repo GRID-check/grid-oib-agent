@@ -28,6 +28,10 @@
  *  8. The delivery key; a mail already queued, filing or filed is a duplicate
  *     and costs nothing more.
  *  9. The rate limits, after the dedupe, so a redelivery is never refused.
+ *     Then an attachment larger than the organization may upload is skipped as
+ *     `size`, by the gate every upload passes, rather than staged for a filing
+ *     that would refuse it (the delivery key is the whole mail's, so a change
+ *     of the limit does not make a redelivery look new).
  * 10. Stage the selected attachments under the project's prefix.
  * 11. Queue the row, and a job to file it (`./job`). A job that could not be
  *     enqueued is not a refusal: the row is durable, and the sweep gives a
@@ -44,7 +48,7 @@
 
 import 'server-only'
 import { randomUUID } from 'node:crypto'
-import { ApiError, NotFoundError, PayloadTooLargeError } from '@/lib/api/errors'
+import { ApiError, FileTooLargeError, NotFoundError, PayloadTooLargeError } from '@/lib/api/errors'
 import { errorResponse, readBoundedBody } from '@/lib/api/handler'
 import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
 import { TransientAuthzError } from '@/lib/authz/errors'
@@ -55,6 +59,7 @@ import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { enforceLimit, INBOUND_MAIL_ADDRESS_LIMIT, INBOUND_MAIL_ORG_LIMIT } from '@/lib/limits'
 import { mailFolderName } from '@/lib/mail-import/naming'
 import { loadOrganizationDirectory, type DirectoryPerson } from '@/lib/sharing/directory'
+import { assertFileSizeAllowed } from '@/lib/storage/upload-limit'
 import { isProjectMailInboxEnabledForOrg } from '@/lib/workos/feature-flags'
 import { asciiLower, inboundMailDomain, parseInboundAddress } from './address'
 import {
@@ -68,7 +73,7 @@ import { deliveryKey, parseMail } from './mime'
 import { findActiveAddressByToken, findDelivery, queueDelivery, type ResolvedAddress } from './repository'
 import { verifySender } from './sender-auth'
 import { deleteStagedObjects, errorName, stageAttachments } from './staging'
-import type { ParsedMail } from './types'
+import type { ParsedMail, SelectedAttachment } from './types'
 
 /** Envoy's and the Worker's ceiling on one message, in raw bytes. */
 export const MAX_MESSAGE_BYTES = 26 * 1024 * 1024
@@ -320,7 +325,31 @@ async function acceptMessage(delivery: Delivery): Promise<Accepted> {
 
   await enforceLimit(INBOUND_MAIL_ADDRESS_LIMIT, `${address.organizationId}:${address.addressId}`)
   await enforceLimit(INBOUND_MAIL_ORG_LIMIT, address.organizationId)
-  return queueMail(delivery, sender, mail, key)
+  const fitting = await withinUploadLimit(address.organizationId, mail)
+  trail.files = fitting.attachments.length
+  trail.skipped = fitting.skipped.length
+  return queueMail(delivery, sender, fitting, key)
+}
+
+/**
+ * The mail without the attachments its organization may not upload for their
+ * size, each skipped as `size`: the same `assertFileSizeAllowed` the upload
+ * path and the Outlook import ask. A limit that could not be read throws, and
+ * the sending server retries.
+ */
+async function withinUploadLimit(organizationId: string, mail: ParsedMail): Promise<ParsedMail> {
+  const attachments: SelectedAttachment[] = []
+  const skipped = [...mail.skipped]
+  for (const attachment of mail.attachments) {
+    try {
+      await assertFileSizeAllowed(organizationId, attachment.content.byteLength, attachment.filename)
+      attachments.push(attachment)
+    } catch (error) {
+      if (!(error instanceof FileTooLargeError)) throw error
+      skipped.push({ filename: attachment.filename, reason: 'size' })
+    }
+  }
+  return { ...mail, attachments, skipped }
 }
 
 interface AuthorizedSender {

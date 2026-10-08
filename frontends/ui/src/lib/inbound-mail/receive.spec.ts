@@ -31,6 +31,7 @@ vi.mock('./sender-auth', () => ({ verifySender: vi.fn() }))
 vi.mock('./mime', () => ({ parseMail: vi.fn(), deliveryKey: vi.fn() }))
 vi.mock('@/lib/mail-import/naming', () => ({ mailFolderName: vi.fn(() => '2026-09-30 10.15 – Anna Berger') }))
 vi.mock('./job', () => ({ enqueueDelivery: vi.fn() }))
+vi.mock('@/lib/storage/upload-limit', () => ({ assertFileSizeAllowed: vi.fn() }))
 vi.mock('@/lib/sharing/directory', () => ({ loadOrganizationDirectory: vi.fn() }))
 vi.mock('@/lib/auth/pinned-session', () => ({ resolvePinnedRequesterSession: vi.fn() }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
@@ -50,13 +51,14 @@ vi.mock('./staging', async (importOriginal) => ({
   deleteStagedObjects: vi.fn(),
 }))
 
-import { NotFoundError, TooManyRequestsError } from '@/lib/api/errors'
+import { FileTooLargeError, NotFoundError, TooManyRequestsError } from '@/lib/api/errors'
 import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { TransientAuthzError } from '@/lib/authz/errors'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { enforceLimit } from '@/lib/limits'
 import { loadOrganizationDirectory, type DirectoryPerson } from '@/lib/sharing/directory'
+import { assertFileSizeAllowed } from '@/lib/storage/upload-limit'
 import { isProjectMailInboxEnabledForOrg } from '@/lib/workos/feature-flags'
 import { enqueueDelivery } from './job'
 import { deliveryKey, parseMail } from './mime'
@@ -161,6 +163,7 @@ beforeEach(() => {
   }))
   vi.mocked(deleteStagedObjects).mockResolvedValue([])
   vi.mocked(queueDelivery).mockImplementation(async (input) => input.id)
+  vi.mocked(assertFileSizeAllowed).mockReset().mockResolvedValue(undefined)
 })
 
 afterEach(() => {
@@ -178,7 +181,7 @@ describe('accepting a mail', () => {
 
     const [where, staged] = vi.mocked(stageAttachments).mock.calls[0]
     expect(where).toMatchObject({ organizationId: 'org_A', projectId: 'project-a' })
-    expect(staged).toBe(MAIL.attachments)
+    expect(staged).toEqual(MAIL.attachments)
     const row = vi.mocked(queueDelivery).mock.calls[0][0]
     expect(row).toMatchObject({
       ...ADDRESS_A,
@@ -207,6 +210,34 @@ describe('accepting a mail', () => {
     expect(response.status).toBe(202)
     expect(deleteStagedObjects).not.toHaveBeenCalled()
     expect(logs.warn).toEqual([expect.stringContaining('the filing job was not enqueued')])
+  })
+
+  it('skips an attachment over the organization’s upload limit as size, before staging it', async () => {
+    vi.mocked(assertFileSizeAllowed).mockImplementation(async (_org, size, filename) => {
+      if (filename === MAIL.attachments[1].filename) throw new FileTooLargeError({ fileSize: size, maxSizeBytes: 1 })
+    })
+
+    const response = await receiveInboundMail(delivery().request)
+
+    expect(response.status).toBe(202)
+    expect(await response.json()).toEqual({ status: 'queued', files: 1, skipped: 2 })
+    expect(assertFileSizeAllowed).toHaveBeenCalledWith('org_A', MAIL.attachments[0].content.byteLength, MAIL.attachments[0].filename)
+    expect(vi.mocked(stageAttachments).mock.calls[0][1]).toEqual([MAIL.attachments[0]])
+    expect(vi.mocked(queueDelivery).mock.calls[0][0].skipped).toEqual([
+      { filename: 'image001.png', reason: 'embedded' },
+      { filename: MAIL.attachments[1].filename, reason: 'size' },
+    ])
+    // The key is the whole mail's: the limit does not decide what a redelivery is.
+    expect(deliveryKey).toHaveBeenCalledWith(MAIL.messageId, MAIL.attachments.map((a) => a.sha256))
+  })
+
+  it('retries when the upload limit could not be read', async () => {
+    vi.mocked(assertFileSizeAllowed).mockRejectedValueOnce(new Error('database gone'))
+
+    const response = await receiveInboundMail(delivery().request)
+
+    expect(response.status).toBe(503)
+    expect(stageAttachments).not.toHaveBeenCalled()
   })
 
   it('takes the twelve steps in order: token before body, switch before body, dedupe before budgets', async () => {
