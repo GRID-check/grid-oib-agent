@@ -26,6 +26,10 @@ features:
   - >
     Your office can now build its own roles in Piloti, under Organisation →
     Personen & Zugriff → Eigene Rollen.
+  - >
+    Who may read and who may edit a project folder now follows the roles in
+    your office. Every file, preview, download and move checks it, and
+    organization admins may read and edit everything.
 fixes:
   - >
     A chat in a project with a great deal of project information can no longer
