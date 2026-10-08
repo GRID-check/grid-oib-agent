@@ -208,7 +208,6 @@ export default function SessionsPreviewPage() {
           onRenameSession={() => {}}
           showDeepResearchSection={variant === 'research'}
           projectId="p-1"
-          projectCollection={variant === 'research' ? 'preview' : undefined}
         />
       </main>
     </div>

@@ -1,7 +1,7 @@
 import type { en } from '../en'
 
 /**
- * Was ein Upload gebracht hat, und alle Uploads eines Projekts (ADR-0083).
+ * Was ein Upload gebracht hat, und alle Uploads eines Projekts (ADR-0085).
  *
  * Die Statuswörter („Zitierbar", „Wird gelesen", „In Quarantäne",
  * „Fehlgeschlagen", „Abgelegt") stehen NICHT hier: Die Übersicht liest sie aus

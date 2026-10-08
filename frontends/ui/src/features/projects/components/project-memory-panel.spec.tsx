@@ -1,5 +1,5 @@
 /**
- * The Project Memory panel marks a restricted note (ADR-0084) with the folder
+ * The Project Memory panel marks a restricted note (ADR-0086) with the folder
  * lock, naming the folders it came from. The API sends such a note only to a
  * reader cleared for it, so the panel's job is the mark, not the filter.
  */

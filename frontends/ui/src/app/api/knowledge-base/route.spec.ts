@@ -38,6 +38,7 @@ describe('GET /api/knowledge-base', () => {
         ingested: 1,
         stale: 0,
         pending: 0,
+        failed: 0,
         removed: 0,
         inconsistent: 0,
         totalChunks: 7,

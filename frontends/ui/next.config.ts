@@ -22,6 +22,13 @@ const requestBodyLimitMB = Math.ceil(requestBodyLimitBytes(process.env) / (1024 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
+  // The build typechecks production code only: tsconfig.build.json leaves the
+  // specs and test helpers out of its roots, so a type error in a test cannot
+  // fail `next build`. `task fe:types` (tsc on tsconfig.json) still checks them.
+  typescript: {
+    tsconfigPath: 'tsconfig.build.json',
+  },
+
   images: {
     // The optimizer refuses any remote host that is not named here, which is
     // what keeps it from being an open image proxy. Directory avatars are the
@@ -92,7 +99,11 @@ const nextConfig: NextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // The microphone is allowed for our own origin only: voice dictation
+          // in the composer records from it (docs/architecture/voice-dictation.md).
+          // `microphone=()` refused getUserMedia on every page with a
+          // NotAllowedError that reads exactly like a member denying access.
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(self), geolocation=()' },
           // Behind sign-in, so in no search index; the public site is what
           // gets found. Covers non-HTML responses the metadata cannot reach.
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },

@@ -206,4 +206,57 @@ describe.skipIf(!url)('budgets service against live Postgres', () => {
       6
     )
   })
+
+  it('books voice dictation at its real cost, bills nobody and leaves every budget alone', async () => {
+    const { getSpendSummary, getSpendTotals, recordUsageEvents } = await import('./service')
+    const org = `org_dictation_${Date.now()}`
+    const dictation = {
+      organizationId: org,
+      userId: 'user_1',
+      projectId: null,
+      conversationId: null,
+      jobId: null,
+      requestedModel: 'elevenlabs/scribe-v2',
+      model: 'elevenlabs/scribe-v2',
+      generationId: null,
+      promptTokens: 300,
+      completionTokens: 40,
+      totalTokens: 340,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+      costUsd: '0.00420000',
+      costSource: 'usage_field' as const,
+      isByok: false,
+      activity: 'dictation' as const,
+      agentGroup: 'dictation',
+      audioSeconds: '12.40',
+    }
+
+    await inTenant(org, async () => {
+      await recordUsageEvents([dictation])
+
+      // On the ledger at its real cost, priced at nothing.
+      const summary = await getSpendSummary(org)
+      expect(summary.month.costUsd).toBeCloseTo(0.0042, 6)
+      expect(summary.month.dictationCostUsd).toBeCloseTo(0.0042, 6)
+      expect(summary.month.priceUsd).toBe(0)
+      expect(summary.month.credits).toBe(0)
+
+      // The rollup, which is all a budget reads, never saw it.
+      const totals = await getSpendTotals(org, { userId: 'user_1' })
+      expect(totals.month.events).toBe(0)
+      expect(totals.month.tokens).toBe(0)
+    })
+
+    // The database refuses a priced dictation row, whoever writes it.
+    const { getDb } = await import('@/lib/db')
+    const { llmUsageEvents } = await import('@/lib/db/schema')
+    await expect(
+      inTenant(org, () =>
+        getDb()
+          .insert(llmUsageEvents)
+          .values({ ...dictation, priceUsd: '0.01000000', credits: '1.000000' })
+      )
+    ).rejects.toThrow()
+  })
 })

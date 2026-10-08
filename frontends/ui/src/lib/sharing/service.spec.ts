@@ -440,7 +440,7 @@ describe('escalateToOwner (spec SH-10)', () => {
   })
 })
 
-describe('a conversation that drew on a restricted folder reaches only people cleared for it (ADR-0084)', () => {
+describe('a conversation that drew on a restricted folder reaches only people cleared for it (ADR-0086)', () => {
   const notCleared = () =>
     new ConflictError('not cleared', { reason: 'restricted-content', person: 'Ina Praktikantin' })
 

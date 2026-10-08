@@ -32,7 +32,7 @@ const KILL_RESULT = {
   jobsKilled: 6,
   jobsAlreadyFinished: 1,
   runsClosed: 2,
-  failures: [{ id: 'job-4f2c', error: 'dask scheduler unreachable' }],
+  failures: [{ id: 'job-4f2c', error: 'worker unreachable' }],
   truncated: false,
 }
 

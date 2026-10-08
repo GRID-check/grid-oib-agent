@@ -1,8 +1,7 @@
-"""job_info / job_access retention in db-execution mode (ADR-0021).
+"""job_info / job_access retention, the only job_info expiry in either execution mode.
 
-NAT's expiry runs only as a Dask task, so in db mode nothing ages out finished
-jobs. ``expire_terminal_jobs`` fills that gap: it marks terminal rows expired
-past their per-row expiry and hard-deletes rows past the delete grace, always
+``expire_terminal_jobs`` marks terminal rows expired past their per-row expiry
+and hard-deletes rows past both that expiry and the delete grace, always
 keeping the single most-recent finished job and never touching active jobs.
 """
 
@@ -80,3 +79,29 @@ def test_noop_when_no_job_info_table(tmp_path):
     dsn = f"sqlite:///{tmp_path / 'empty.db'}"
     # No tables created -> safe (0, 0), no raise.
     assert expire_terminal_jobs(dsn, delete_grace_seconds=604800) == (0, 0)
+
+
+def test_a_grace_shorter_than_the_expiry_never_deletes_a_job_before_it_expires(tmp_path):
+    dsn = f"sqlite:///{tmp_path / 'jobs.db'}"
+    engine = EventStore._get_or_create_sync_engine(dsn)
+    with engine.connect() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE job_info ("
+                "  job_id TEXT PRIMARY KEY, status TEXT, updated_at DATETIME,"
+                "  expiry_seconds INTEGER, is_expired INTEGER DEFAULT 0)"
+            )
+        )
+        conn.execute(text("CREATE TABLE job_access (job_id TEXT PRIMARY KEY, owner TEXT)"))
+        conn.execute(text("CREATE TABLE job_events (id INTEGER PRIMARY KEY, job_id TEXT)"))
+        # Two days old, a seven-day expiry: past a one-day grace, not past its expiry.
+        for job_id, updated_at in (("long-lived", _iso(2)), ("newest", _iso(0.5))):
+            conn.execute(
+                text(
+                    "INSERT INTO job_info (job_id, status, updated_at, expiry_seconds) VALUES (:j, 'SUCCESS', :u, :e)"
+                ),
+                {"j": job_id, "u": updated_at, "e": 7 * 86400},
+            )
+        conn.commit()
+
+    assert expire_terminal_jobs(dsn, delete_grace_seconds=86400) == (0, 0)

@@ -21,7 +21,7 @@ Key configuration:
 | Env var | Default | Purpose |
 |---|---|---|
 | `PORT` | `3000` | Gateway listen port |
-| `BACKEND_URL` | `http://localhost:8000` | Python backend HTTP URL |
+| `BACKEND_CHAT_URL` | none (required) | The Python backend's `chat` role, which the gateway dials for `/websocket` and for nothing else (ADR-0082). The gateway refuses to start without it and does not fall back to `BACKEND_URL`, which is the `api` role |
 | `NEXT_INTERNAL_URL` | `http://localhost:3001` | Next.js dev server URL |
 
 ## WebSocket upgrade flow
@@ -40,7 +40,7 @@ Client WS connect → server.on('upgrade')
   → else → dev? proxy to Next.js HMR : nextApp.getUpgradeHandler()
 ```
 
-The `BACKEND_WS_URL` is derived from `BACKEND_URL` by replacing `http` with `ws` (e.g., `ws://localhost:8000`).
+The `BACKEND_WS_URL` is derived from `BACKEND_CHAT_URL` by replacing `http` with `ws` (e.g., `ws://localhost:8001`).
 
 ## Scope resolution
 

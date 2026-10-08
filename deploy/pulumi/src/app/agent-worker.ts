@@ -26,12 +26,12 @@ export const QUEUE_TABLE = "research_job_queue";
 export const RESEARCH_QUEUE_DEPTH_QUERY = queueDepthQuery(QUEUE_TABLE);
 
 /**
- * Research worker tier (ADR-0021, ADR-0079) — only deployed when jobExecution = "db".
+ * Research worker tier (ADR-0021, ADR-0079).
  *
  * Dedicated worker replicas (same backend image, `GRID_ROLE=worker`) claim
  * deep-research jobs from Postgres and execute them, so the token-heavy
  * workload scales horizontally and independently of the chat/web tier. No web
- * port, no Dask, no PVC — workers are stateless (vectors live in shared Chroma,
+ * port, no PVC — workers are stateless (vectors live in shared Chroma,
  * job state in Postgres).
  *
  * SCALED ON THE QUEUE, NOT ON CPU. A research job spends its time waiting on
@@ -166,6 +166,9 @@ export function installAgentWorker(
     // The shared TriggerAuthentication (`jobs-queue-auth.ts`): both Python claim
     // queues live in the same database.
     authName: JOBS_QUEUE_AUTH,
+    // Before ADR-0079 this tier was scaled by a plain HPA of the same name, which
+    // a stack upgraded from then still holds when the ScaledObject is created.
+    adoptHpa: "agent-worker",
     dependsOn,
   });
 

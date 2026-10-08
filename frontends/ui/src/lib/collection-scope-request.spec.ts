@@ -117,6 +117,9 @@ describe('a conversationId on the WS upgrade is authorized (F2)', () => {
 
     expect(result.conversationId).toBe('conv_brand_new')
     expect(result.scope).toContain('s_conv_brand_new')
+    // Nobody checked a row that does not exist, so it is never signed as one a
+    // reader may reach a run through (ADR-0084).
+    expect(result.verifiedConversationId).toBeUndefined()
   })
 
   it('allows a conversation the caller created', async () => {
@@ -134,6 +137,7 @@ describe('a conversationId on the WS upgrade is authorized (F2)', () => {
     })
 
     expect(result.conversationId).toBe(CONVERSATION_ID)
+    expect(result.verifiedConversationId).toBe(CONVERSATION_ID)
   })
 
   it('allows a thread shared with the caller by an explicit grant', async () => {

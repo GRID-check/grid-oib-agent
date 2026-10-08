@@ -85,7 +85,7 @@ describe('killAllActiveRuns', () => {
 
   it('names what could not be stopped, and keeps going past it', async () => {
     vi.mocked(killActiveBackendJobs).mockResolvedValue(
-      backend({ killed: ['job-1'], failed: [{ jobId: 'job-2', error: 'dask unreachable' }] }),
+      backend({ killed: ['job-1'], failed: [{ jobId: 'job-2', error: 'worker unreachable' }] }),
     )
     vi.mocked(claimRunsToReconcile).mockResolvedValue([run('run-a'), run('run-b')])
     vi.mocked(recordRunOutcome)
@@ -96,7 +96,7 @@ describe('killAllActiveRuns', () => {
 
     expect(result.runsClosed).toBe(1)
     expect(result.failures).toEqual([
-      { id: 'job-2', error: 'dask unreachable' },
+      { id: 'job-2', error: 'worker unreachable' },
       { id: 'run-a', error: 'db blip' },
     ])
   })

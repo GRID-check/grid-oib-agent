@@ -104,7 +104,7 @@ vi.mock('./version-content', () => ({
   writeVersionContent: vi.fn(),
 }))
 vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
-// The restricted-folder refusal (ADR-0084) is decided in `restricted-egress.ts`
+// The restricted-folder refusal (ADR-0086) is decided in `restricted-egress.ts`
 // and pinned in its own spec; here only the join is under test.
 vi.mock('@/lib/conversations/restricted-egress', () => ({ requireMayFileFrom: vi.fn() }))
 vi.mock('@/lib/projects/repository', async (importOriginal) => ({
@@ -1215,7 +1215,7 @@ describe('replaceVersionContent', () => {
     expect(writeVersionContent).toHaveBeenCalled()
   })
 
-  it('asks the restricted-folder refusal about the document’s own folder before rendering (ADR-0084)', async () => {
+  it('asks the restricted-folder refusal about the document’s own folder before rendering (ADR-0086)', async () => {
     const { requireMayFileFrom } = await import('@/lib/conversations/restricted-egress')
     const { findProjectInOrg } = await import('@/lib/projects/repository')
     const { ConversationConfinedError } = await import('@/lib/api/errors')

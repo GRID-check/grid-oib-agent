@@ -113,7 +113,7 @@ export const organization = {
     },
   },
   /**
-   * Personen & Zugriff → Eigene Rollen (ADR-0084): roles an office builds in
+   * Personen & Zugriff → Eigene Rollen (ADR-0086): roles an office builds in
    * WorkOS, assigned on the People tab, named by restricted folders.
    */
   customRoles: {
@@ -534,7 +534,7 @@ export const organization = {
     open: 'View audit logs',
     error: 'Could not open the audit log viewer.',
   },
-  /** Sensitive data: the lists Piloti checks every upload against (ADR-0083). */
+  /** Sensitive data: the lists Piloti checks every upload against (ADR-0085). */
   screening: {
     title: 'Screening list',
     description:
@@ -576,7 +576,7 @@ export const organization = {
     readOnly: 'Only people with the “Manage organization settings” permission can change these lists.',
     loadError: 'Could not load the lists.',
   },
-  /** Quarantine: files the content check held back (ADR-0083). */
+  /** Quarantine: files the content check held back (ADR-0085). */
   quarantine: {
     listLabel: 'Files held back',
     empty: 'Nothing is waiting for review',

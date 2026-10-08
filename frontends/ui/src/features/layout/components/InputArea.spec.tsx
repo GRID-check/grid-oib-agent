@@ -430,7 +430,7 @@ describe('InputArea', () => {
     await user.tab()
     expect(input).toHaveFocus()
 
-    // Order per the click-dummy composer: scope, the effort dial, then attach + send (the files
+    // Order per the click-dummy composer: scope, the effort dial, dictation, then attach + send (the files
     // counter appears only once files are attached, so it is absent here). The
     // Datengrundlage trigger is withheld with the picker — see the
     // commented-out block in InputArea. Nothing offers to choose deep research:
@@ -442,6 +442,11 @@ describe('InputArea', () => {
     // The Aufwand dial: how hard Piloti thinks, for this chat.
     await user.tab()
     expect(screen.getByRole('button', { name: /effort: medium/i })).toHaveFocus()
+
+    // Dictation. jsdom has no MediaRecorder, so the button is disabled and its
+    // wrapper takes focus instead, which is how a keyboard user reads why.
+    await user.tab()
+    expect(screen.getByTestId('dictation-unavailable')).toHaveFocus()
 
     await user.tab()
     expect(screen.getByRole('button', { name: /attach files/i })).toHaveFocus()

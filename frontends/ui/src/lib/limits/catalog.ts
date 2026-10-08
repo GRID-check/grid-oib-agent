@@ -27,6 +27,7 @@ export const BIM_EXPORT_LIMIT: LimitRule = rules.BIM_EXPORT_LIMIT
 export const RIS_DOCUMENT_LIMIT: LimitRule = rules.RIS_DOCUMENT_LIMIT
 export const DOCUMENT_UPLOAD_LIMIT: LimitRule = rules.DOCUMENT_UPLOAD_LIMIT
 export const FEEDBACK_REPORT_LIMIT: LimitRule = rules.FEEDBACK_REPORT_LIMIT
+export const DICTATION_LIMIT: LimitRule = rules.DICTATION_LIMIT
 
 /**
  * Every rule, for the coverage spec and for anything that wants to enumerate
@@ -47,6 +48,7 @@ export const LIMIT_CATALOG = {
   [RIS_DOCUMENT_LIMIT.name]: RIS_DOCUMENT_LIMIT,
   [DOCUMENT_UPLOAD_LIMIT.name]: DOCUMENT_UPLOAD_LIMIT,
   [FEEDBACK_REPORT_LIMIT.name]: FEEDBACK_REPORT_LIMIT,
+  [DICTATION_LIMIT.name]: DICTATION_LIMIT,
 } as const satisfies Record<string, LimitRule>
 
 /**

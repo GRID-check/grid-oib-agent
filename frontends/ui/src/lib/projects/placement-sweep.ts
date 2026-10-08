@@ -1,6 +1,6 @@
 /**
  * The sweep that finishes a restriction a backend outage interrupted
- * (ADR-0084).
+ * (ADR-0086).
  *
  * Placement purges a document's chunks from its old collection before it
  * re-points the row. When the purge fails the row stays where it was, and so

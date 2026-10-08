@@ -22,7 +22,7 @@ and manual skill runs. It must:
   the public submit route;
 - stay off the AuthMiddleware external-path allowlist (internal-only).
 
-The Dask/JobStore layer is mocked by patching ``submit_agent_job``; no builder
+The JobStore layer is mocked by patching ``submit_agent_job``; no builder
 is registered, so per-agent data-source validation is skipped (the registry
 fallback is exercised explicitly for unknown ids).
 """
@@ -267,16 +267,8 @@ def test_unknown_agent_type_maps_to_400(client, prod_token, submit_mock):
 def test_successful_submit_returns_job_id(client, prod_token, submit_mock):
     resp = _post(client, _valid_body())
     assert resp.status_code == 200
-    assert resp.json() == {"job_id": "job-xyz", "queued": False}
-    submit_mock.assert_awaited_once()
-
-
-def test_a_job_that_waits_for_a_worker_says_so(client, prod_token, submit_mock, monkeypatch):
-    """Under db execution every job starts in the queue, so the BFF records the run as queued."""
-    monkeypatch.setenv("GRID_JOB_EXECUTION", "db")
-    resp = _post(client, _valid_body())
-    assert resp.status_code == 200
     assert resp.json() == {"job_id": "job-xyz", "queued": True}
+    submit_mock.assert_awaited_once()
 
 
 def test_priority_defaults_to_interactive_and_a_scheduled_fire_can_send_bulk(client, prod_token, submit_mock):
@@ -396,14 +388,6 @@ def test_duplicate_job_id_maps_to_409(client, prod_token, submit_mock):
     resp = _post(client, _valid_body(job_id="dup-1"))
     assert resp.status_code == 409
     assert resp.json()["detail"] == "Job ID already exists: dup-1"
-
-
-def test_scheduler_not_configured_maps_to_503(client, prod_token, submit_mock):
-    from aiq_api.jobs.submit import SchedulerNotConfiguredError
-
-    submit_mock.side_effect = SchedulerNotConfiguredError("Async job submission requires NAT_DASK_SCHEDULER_ADDRESS")
-    resp = _post(client, _valid_body())
-    assert resp.status_code == 503
 
 
 # --- middleware exposure ----------------------------------------------------

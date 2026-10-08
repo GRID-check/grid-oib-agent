@@ -57,7 +57,7 @@ export class OrgMemoryDisabledError extends ApiError {
 
 /**
  * 403 — a conversation that drew on a folder with restricted access may not
- * carry its content to where others read it (ADR-0084): a deep-research run, a
+ * carry its content to where others read it (ADR-0086): a deep-research run, a
  * task, the project profile, or a folder not restricted at least as narrowly.
  * Its own code, so a caller (the agent's tools, a card) can tell this refusal
  * from a missing permission; `details.action` says which door refused. The

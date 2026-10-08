@@ -1,5 +1,5 @@
 /**
- * One upload's summary, the hard-load arrival (ADR-0083). An inbox row's
+ * One upload's summary, the hard-load arrival (ADR-0085). An inbox row's
  * soft navigation never reaches this page: `(shell)/@overlay/(.)uploads/[id]`
  * opens the same dialog above whatever page the reader was on. This page
  * serves a pasted or reloaded link, where the dialog stands alone and closing
