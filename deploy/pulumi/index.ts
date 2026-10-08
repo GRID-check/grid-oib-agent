@@ -10,7 +10,7 @@
  *   edge      → Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS,
  *               for the app, the landing site and the public S3 endpoint
  *
- * The agent tier scales VERTICALLY here (resources + Dask knobs + admission
+ * The agent tier scales VERTICALLY here (resources + admission
  * caps); every precondition for later HORIZONTAL scaling is already wired
  * (Postgres DSNs instead of SQLite, a shared Redis/Dragonfly cache). See
  * docs/deployment/kubernetes.md for the scale-out roadmap.
@@ -413,7 +413,6 @@ export const appRoute = routes.app.metadata.name;
 export const webRoute = routes.web.metadata.name;
 export const gatewayName = gatewayResources.gateway.metadata.name;
 export const chromaUrl = chroma.url;
-export const jobExecution = cfg.jobExecution;
 export const pgInstances = cfg.postgres.instances;
 export const pgBackupsEnabled = cfg.postgres.backups.enabled;
 export const networkPoliciesEnabled = cfg.networkPolicies;

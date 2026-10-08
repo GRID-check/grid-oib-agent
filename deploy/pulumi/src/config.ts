@@ -708,14 +708,12 @@ export interface GridConfig {
   backend: {
     resources: ResourceSpec;
     /**
-     * Research jobs one organization runs at once (0 disables). With
-     * `jobExecution: db` it is the workers' per-organization claim cap and a job
-     * over it waits.
+     * Research jobs one organization runs at once (0 disables). It is the
+     * workers' per-organization claim cap: a job over it waits.
      */
     maxActiveJobsPerOrg: number;
     /**
-     * Research jobs one organization may have WAITING (`jobExecution: db`; 0
-     * disables). Abuse protection and the only 429 left: capacity makes a job
+     * Research jobs one organization may have WAITING (0 disables). Abuse protection and the only 429 left: capacity makes a job
      * wait, never fail.
      */
     maxQueuedJobsPerOrg: number;
@@ -789,13 +787,6 @@ export interface GridConfig {
     hpaCpuTargetPercent: number;
   };
 
-  /**
-   * Research execution backend (ADR-0021): DB-claimed workers. The web roles run
-   * no Dask and dedicated agent-worker replicas execute jobs. It is the only
-   * value `loadConfig` accepts (ADR-0082 B), and stays a field because the
-   * backend reads it back as `GRID_JOB_EXECUTION`.
-   */
-  jobExecution: "db";
   /**
    * Enable the Dragonfly pub/sub conversation bus (ADR-0028) so the chat tier is
    * fully stateless — any replica serves any conversation's WebSocket. ON by
@@ -1514,7 +1505,6 @@ export function loadConfig(): GridConfig {
     );
   }
 
-  const jobExecution = assertJobExecutionIsDb(cfg.get("jobExecution") ?? "db");
   const conversationBus = bool(cfg, "conversationBus", true);
 
   // ── Chat tier scale-out (ADR-0080) ────────────────────────────────────────
@@ -2655,7 +2645,6 @@ export function loadConfig(): GridConfig {
       hpaCpuTargetPercent: num(cfg, "webHpaCpuTargetPercent", 70),
     },
 
-    jobExecution,
     conversationBus,
     agentWorker: {
       resources: {
@@ -3242,24 +3231,4 @@ export function assertPgConnectionBudget(cfg: PgBudgetInputs): void {
       `and the direct connections need ${budget.reserveTotal} (${parts.join(", ")}). ` +
       "Lower pgPoolerPoolSize or pgPoolerInstances, or raise POSTGRES_TUNING.maxConnections (and the primary's memory with it).",
   );
-}
-
-/**
- * The only research execution this program deploys is the DB-claimed one.
- *
- * The chat role submits research jobs in its own process and the api role
- * streams and cancels them (ADR-0082 step B). A job on Dask lives on the cluster
- * of the container that submitted it, so the api role could neither cancel nor
- * stream a job that a chat container started. Failing the plan here is the gate;
- * nothing else in this program branches on the value.
- */
-export function assertJobExecutionIsDb(value: string): "db" {
-  if (value !== "db") {
-    throw new Error(
-      `grid-oib:jobExecution=${value} is not deployable: only "db" is (ADR-0082 step B). The api role ` +
-        "cannot cancel or stream a job that lives on a chat container's Dask cluster, so research jobs " +
-        "must be claimed from Postgres by the agent-worker tier. Remove the key or set it to db.",
-    );
-  }
-  return value;
 }

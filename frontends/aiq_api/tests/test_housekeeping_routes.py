@@ -18,9 +18,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", TOKEN)
     monkeypatch.setenv("APP_ENV", "production")
     app = FastAPI()
-    jobs_routes._add_housekeeping_routes(
-        app, job_store=object(), db_url=DB_URL, scheduler_address="", expiry_seconds=86400
-    )
+    jobs_routes._add_housekeeping_routes(app, job_store=object(), db_url=DB_URL, expiry_seconds=86400)
     return TestClient(app)
 
 
@@ -36,15 +34,15 @@ def test_every_housekeeping_route_refuses_a_caller_without_the_internal_token(cl
 def test_ghost_jobs_runs_one_reap_cycle_and_names_what_it_reaped(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     calls = []
 
-    async def reap_once(job_store, db_url, scheduler_address=None):
-        calls.append((db_url, scheduler_address))
+    async def reap_once(job_store, db_url):
+        calls.append(db_url)
         return ["job-1", "job-2"]
 
     monkeypatch.setattr(jobs_routes, "_reap_stale_jobs_once", reap_once)
     response = client.post("/v1/maintenance/housekeeping/ghost-jobs", headers=AUTH)
     assert response.status_code == 200
     assert response.json() == {"reaped": ["job-1", "job-2"]}
-    assert calls == [(DB_URL, "")]
+    assert calls == [DB_URL]
 
 
 def test_job_events_runs_one_cleanup_cycle_with_the_expiry_settings(

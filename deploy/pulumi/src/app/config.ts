@@ -246,7 +246,7 @@ export const BACKEND_CHAT_URL = `http://aiq-agent:${PORT.backend}`;
 /**
  * Backend environment shared by every role of the image. Postgres DSNs
  * everywhere (never SQLite) — the hard precondition for durability and any
- * future replica. The Dask worker/thread knobs and admission caps are the
+ * future replica. The admission caps are the
  * backend's VERTICAL scaling levers (see docs/architecture/scaling-review-2026-07.md
  * §4, §6). `chatEnv`, `apiEnv` and the worker envs add `GRID_ROLE`.
  */
@@ -260,8 +260,6 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "PORT", value: String(PORT.backend) },
     { name: "CONFIG_FILE", value: cfg.backend.configFile },
     { name: "COLLECTION_NAME", value: "oib_knowledge" },
-    // Research execution: DB-claimed workers, the only deployable value (ADR-0082 B).
-    { name: "GRID_JOB_EXECUTION", value: cfg.jobExecution },
     // Encrypts DB-claimed job payloads at rest (empty = plaintext, dev only).
     sref("GRID_JOB_PAYLOAD_KEK"),
     { name: "GRID_NORMS_DIR", value: "configs/norms" },
@@ -388,7 +386,7 @@ export function apiEnv(w: AppWiring): EnvVar[] {
  * Research worker (ADR-0021) environment: the full backend env (DB DSNs, shared
  * Chroma, LLM keys, object storage — the worker runs the same `run_agent_job`)
  * plus the worker role + per-process concurrency. `GRID_ROLE=worker` makes the
- * entrypoint run `python -m aiq_api.jobs.worker` with no web server or Dask.
+ * entrypoint run `python -m aiq_api.jobs.worker` with no web server.
  */
 export function workerEnv(w: AppWiring): EnvVar[] {
   return [

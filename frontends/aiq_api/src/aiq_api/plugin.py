@@ -103,7 +103,7 @@ CHAT_SOCKET_PATH = "/websocket"
 #
 # Registered at IMPORT of this module, because that is what "the front end
 # starts up" means: a process that never loads this front end — a CLI run, a
-# Dask job worker — leaves the sink unset, and a `frame` stage there still runs,
+# research worker — leaves the sink unset, and a `frame` stage there still runs,
 # is still bounded and still records its outcome. It simply has nobody to tell.
 register_stage_frame_sink(send_stage)
 

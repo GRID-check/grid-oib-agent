@@ -4,7 +4,7 @@ Run as a dedicated container: ``python -m aiq_api.jobs.worker``. It claims
 ``research_job_queue`` rows on the claim substrate (``aiq_agent.common.claim_queue``:
 fairly across organizations, interactive before bulk inside one, at most
 ``GRID_MAX_ACTIVE_JOBS_PER_ORG`` of an organization's jobs running at once),
-executes the same ``run_agent_job`` body the Dask path runs, heartbeats the claim
+executes the ``run_agent_job`` body, heartbeats the claim
 so a crash is reclaimed, and marks the row done. Worker replicas scale research
 execution horizontally, independently of the web tier, and KEDA scales them on the
 queue's depth. Cancellation needs nothing special here: the cancel route flips

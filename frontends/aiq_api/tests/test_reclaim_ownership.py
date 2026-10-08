@@ -324,9 +324,9 @@ class TestUserCancelPreserved:
         notify_spy.assert_awaited_once_with(job_id="job-1", usage_context=USAGE, status="interrupted", expect_run=True)
 
     @pytest.mark.asyncio
-    async def test_dask_path_has_no_claim_to_lose(self, db_url, posts, notify_spy):
-        """``claim_owner=None`` (no claim table on the Dask path): the abort is
-        a cancel, never ownership-lost — both GRID_JOB_EXECUTION modes behave."""
+    async def test_an_unclaimed_run_has_no_claim_to_lose(self, db_url, posts, notify_spy):
+        """``claim_owner=None`` (an unclaimed run has no claim to lose): the abort is
+        a cancel, never ownership-lost."""
         _seed_job(db_url, "job-1", "running")
         store = _make_store(db_url)
 

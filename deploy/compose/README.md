@@ -1,7 +1,7 @@
 # NVIDIA AI-Q Blueprint - Docker Compose
 
 Use this guide to deploy the AI-Q blueprint with Docker Compose. The deployment
-starts a FastAPI backend, PostgreSQL for async jobs and checkpoints, and an embedded Dask scheduler and worker for background work.
+starts a FastAPI backend, PostgreSQL for async jobs and checkpoints, and a database-claimed research worker for background work.
 
 ## Prerequisites
 

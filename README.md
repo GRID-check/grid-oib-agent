@@ -59,7 +59,7 @@ flowchart TB
         FAST["FastAPI (aiq_api plugin)"]
         NAT["NeMo Agent Toolkit"]
         LG["LangGraph<br/>Piloti → (escalate?) clarify → deep researcher"]
-        DASK["Dask — async deep-research jobs"]
+        JOBS["Research queue (Postgres) — deep-research jobs"]
         CHROMA["ChromaDB — oib_knowledge + proj_* + mem_*"]
     end
 
@@ -79,7 +79,7 @@ flowchart TB
     BFF <--> DB
     BFF -->|HTTP| FAST
     BFF -->|internal write API| BFF
-    FAST --> NAT --> LG --> DASK
+    FAST --> NAT --> LG --> JOBS
     LG <--> CHROMA
     BFF -->|upload| SEAWEED
     FAST -.->|/v1/ingest| CHROMA
@@ -140,7 +140,7 @@ The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-ini
 |---|---|---|
 | **Frontend** | Next.js 16, React 18, TypeScript, **shadcn/ui + Tailwind v4** | Project-centric chat UI |
 | **Backend** | Python 3.14, FastAPI, Uvicorn | AI endpoint server (`aiq_api` plugin) |
-| **AI Orchestration** | NeMo Agent Toolkit (NAT), LangGraph, Dask | Multi-agent pipeline + async jobs |
+| **AI Orchestration** | NeMo Agent Toolkit (NAT), LangGraph | Multi-agent pipeline + async jobs |
 | **RAG** | ChromaDB, LlamaIndex | Chunking · embeddings · scoped retrieval |
 | **LLM + Embeddings** | **Any OpenAI-compatible endpoint** — reference config: OpenAI GPT-5.6 Luna via OpenRouter | Reasoning, classification, cards, embeddings |
 | **Web Search** | Tavily | Context beyond the OIB corpus |

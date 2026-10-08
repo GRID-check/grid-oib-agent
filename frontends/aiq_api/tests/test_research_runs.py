@@ -181,13 +181,9 @@ async def research_runs_app(db_url, monkeypatch):
     import aiq_api.routes.jobs as jobs_routes
 
     worker = SimpleNamespace(
-        _dask_available=True,
-        _job_store=MagicMock(),
-        _scheduler_address="tcp://localhost:8786",
         _db_url=db_url,
         _config_file_path="config.yml",
         _log_level=20,
-        _use_dask_threads=False,
         _front_end_config=SimpleNamespace(expiry_seconds=86400),
     )
 

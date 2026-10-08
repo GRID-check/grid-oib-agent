@@ -27,7 +27,7 @@
  *     append-only, exact, fail-closed on refusal. If the question is "may this
  *     spend money", it is not a rate limit.
  *   - **Capacity** is admission control in the Python API
- *     (`GRID_MAX_ACTIVE_JOBS*`): concurrent slots, not events per minute. If
+ *     (`GRID_MAX_ACTIVE_JOBS_PER_ORG`): concurrent slots, not events per minute. If
  *     the question is "is there room to run this now", a rate limit is the
  *     wrong shape — it would admit a fourth long run at a steady trickle.
  *

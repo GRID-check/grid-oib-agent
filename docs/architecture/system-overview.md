@@ -90,7 +90,7 @@ flowchart TB
     subgraph Tier2["Tier 2 · Python AI backend (port 8000)"]
         API["FastAPI (aiq_api plugin)"]
         NAT["NeMo Agent Toolkit + LangGraph agents"]
-        DASK["Dask — async deep-research jobs"]
+        JOBS["Research queue (Postgres) — deep-research jobs"]
     end
 
     subgraph Data["Stateful infrastructure"]
@@ -106,7 +106,7 @@ flowchart TB
     BFF <-->|Drizzle| PG
     BFF -->|presign / put| SEAWEED
     GW -->|"proxy WS upgrade + REST"| API
-    API --> NAT --> DASK
+    API --> NAT --> JOBS
     NAT <--> CHROMA
     NAT -->|"job store / checkpoints"| PG
     BFF -.->|"internal memory write API (token)"| BFF
@@ -119,7 +119,7 @@ flowchart TB
 | Container | Tech | Responsibility |
 |---|---|---|
 | **frontend** | Next.js 16, React 18, TypeScript | The UI, the BFF (all `/api/*`), and the `server.js` gateway. System of record for `grid_app`. |
-| **aiq-agent / aiq-api** | Python 3.14, FastAPI, NAT, LangGraph, Dask | Stateless AI orchestration, one image run as separate roles (ADR-0082): `aiq-agent` is the `chat` role (the chat socket), `aiq-api` the `api` role (every other HTTP route), beside the `agent-worker` and `ingest-worker`. Owns the vector store and the job/checkpoint DBs. |
+| **aiq-agent / aiq-api** | Python 3.14, FastAPI, NAT, LangGraph | Stateless AI orchestration, one image run as separate roles (ADR-0082): `aiq-agent` is the `chat` role (the chat socket), `aiq-api` the `api` role (every other HTTP route), beside the `agent-worker` and `ingest-worker`. Owns the vector store and the job/checkpoint DBs. |
 | **postgres** | PostgreSQL 16 | Three logical DBs: `grid_app` (app state), `aiq_jobs` (jobs/events/summaries), `aiq_checkpoints` (LangGraph state). |
 | **seaweedfs** | SeaweedFS (S3-compatible) | Object storage for OIB PDFs and uploaded documents (`grid-documents` bucket). |
 | **ChromaDB** | shared `chroma` server (HTTP) | Vector store (collections persisted to a volume), queried by every backend role. |
@@ -302,7 +302,7 @@ happens in the inbox, where the person was told about the result.
 
 Two naming collisions to keep straight. The `task_definitions`/`task_runs`
 tables live in `grid_app` (the collapsed successor of `jobs`/`job_runs`/
-`tasks`); the backend async/Dask jobs live in `aiq_jobs` (deep-research runs,
+`tasks`); the backend async jobs live in `aiq_jobs` (deep-research runs,
 §5.5) — a `task_runs.backend_job_id` value names one of the latter. And
 `compliance_check` is a **task kind**, not a chat tool or an agent: the
 purpose-built compliance checker is deleted, and a full Soll-Ist runs as a
@@ -380,7 +380,7 @@ frontend start). → `docs/database/`.
 |---|---|
 | Frontend | Next.js 16, React 18, TypeScript, shadcn/ui + Tailwind v4 |
 | BFF / gateway | Next.js app-router API routes + a Node `server.js` WS/HTTP proxy |
-| AI orchestration | NeMo Agent Toolkit (NAT) + LangGraph; Dask for async jobs |
+| AI orchestration | NeMo Agent Toolkit (NAT) + LangGraph; the Postgres research queue for async jobs |
 | LLM | any OpenAI-compatible endpoint (reference boot floor: OpenAI GPT-5.6 Luna via OpenRouter; the served model is an admin decision at runtime) |
 | Embeddings | any OpenAI-compatible endpoint (reference: OpenAI text-embedding-3-large via OpenRouter) |
 | RAG / vector store | ChromaDB (+ LlamaIndex ingestion) |
@@ -410,7 +410,7 @@ the OIB corpus is uploaded after first boot (admin UI or `scripts/upload_oib_cor
   `project` entity type has a registered purger; others are stubbed.
 - **Deep-research cards** — async deep-research jobs generate cards post-hoc
   from the final report in the job runner and deliver them via the job SSE
-  stream and job output; the synchronous inline deep-research path (no Dask)
+  stream and job output; the synchronous inline deep-research path (`use_async_deep_research` off)
   still returns no cards.
 - **Memory** — capture, curation, semantic consolidation and query-relevant
   recall are built (see `architecture/semantic-notes.md`); what remains open

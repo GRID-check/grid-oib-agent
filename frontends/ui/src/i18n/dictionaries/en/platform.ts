@@ -398,7 +398,7 @@ export const platform = {
       'Stop every deep research that is queued or running, in every organization, and close each run as interrupted.',
     whatTitle: 'What it does',
     whatBody:
-      'Every queued or running job in the job store is marked interrupted. Queued jobs are dropped before a worker takes them; running workers see the status and stop, and on Dask their tasks are force-cancelled. Each run then closes as interrupted, so its block stops reading „läuft“ and the person who asked for it gets an inbox notice.',
+      'Every queued or running job in the job store is marked interrupted. Queued jobs are dropped before a worker takes them; running workers see the status and stop. Each run then closes as interrupted, so its block stops reading „läuft“ and the person who asked for it gets an inbox notice.',
     whenTitle: 'When you need it',
     whenBody:
       'When workers are stuck, burning tokens in a loop, or holding every admission slot so nothing new can start. The ghost reaper already clears runs that stopped reporting; this is for the ones that are still reporting and must stop anyway.',

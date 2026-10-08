@@ -46,15 +46,8 @@ docker compose up -d --build
          │      • ENTRYPOINT: python /app/deploy/entrypoint.py
          │      │
          │      │   entrypoint.py:
-         │      │   1. Reads CONFIG_FILE, HOST, PORT, DASK_* env vars
-         │      │   2. Starts dask-scheduler on port 8786
-         │      │   3. Polls scheduler up to 30s until ready
-         │      │   4. Starts dask-worker connecting to scheduler
-         │      │      • nworkers (default 1), nthreads (default 4)
-         │      │      • Optional: memory-limit, lifetime, lifetime-restart
-         │      │   5. Waits 3s for worker to connect
-         │      │   6. Sets NAT_DASK_SCHEDULER_ADDRESS env var
-         │      │   7. Starts python /app/deploy/start_web.py as subprocess
+         │      │   1. Reads CONFIG_FILE, HOST, PORT
+         │      │   2. Starts python /app/deploy/start_web.py as subprocess
          │      │
          │      │   start_web.py:
          │      │   1. Configures logging (LOG_LEVEL, format)
@@ -128,7 +121,7 @@ If a dependency fails its healthcheck within the retry limit, the dependent serv
 
 - **PostgreSQL**: PostgreSQL manages its own connections. The Docker healthcheck runs `pg_isready` on all 3 databases every 5 seconds.
 - **SeaweedFS**: Healthcheck runs `wget http://localhost:9333/cluster/status` every 5 seconds.
-- **aiq-agent**: The Dask scheduler startup has a 30-attempt loop (1s per attempt). After that, the agent relies on Docker's `restart: unless-stopped` for crash recovery. There is no built-in reconnection to PostgreSQL or SeaweedFS if they become unavailable after startup.
+- **aiq-agent**: The agent relies on Docker's `restart: unless-stopped` for crash recovery. There is no built-in reconnection to PostgreSQL or SeaweedFS if they become unavailable after startup.
 - **frontend**: Same `restart: unless-stopped` policy. No built-in reconnection logic beyond Docker restart.
 
 ## Manual Step: Uploading the OIB corpus

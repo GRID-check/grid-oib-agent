@@ -175,9 +175,8 @@ Single-replica workloads deliberately get **no** PDB — `minAvailable: 1` on on
 pod would block the drain forever and deadlock the upgrade. Postgres HA is
 CloudNativePG's own PDB.
 
-**Dask is not deployable.** `loadConfig` refuses any `jobExecution` but `db`
-(ADR-0082 step B): the api role cannot cancel or stream a job that lives on a
-chat container's Dask cluster. Research is claimed from Postgres by the
+**Research runs on the queue only.** Every job lives in Postgres, so the api role
+can cancel and stream any of them. Research is claimed by the
 `agent-worker` tier, so a provider-initiated node drain takes one replica at a
 time and the durable checkpoints survive it.
 
@@ -979,14 +978,12 @@ which inventories exactly what pins work to one process.
 
 ### 6.1 Today: vertical scaling (wired and working)
 
-The agent is a **hard singleton** — it embeds ChromaDB, a private localhost Dask
-cluster, and in-process job/citation state — so you scale it **up**, not out:
+The agent is a **hard singleton** — it embeds ChromaDB and in-process job/citation
+state — so you scale it **up**, not out:
 
 - **CPU / memory:** `backendRequestsCpu/Memory`, `backendLimitsCpu/Memory`.
-- **Research parallelism:** `backendDaskWorkers`, `backendDaskThreads` — the
-  in-process Dask cluster that executes deep-research fan-out.
-- **Admission control (protects the pod under load):** `backendMaxActiveJobs`,
-  `backendMaxActiveJobsPerOrg` bound concurrent deep-research runs;
+- **Admission control (protects the pod under load):** `backendMaxActiveJobsPerOrg`
+  bounds concurrent deep-research runs of one organization;
   `backendIngestMaxWorkers` bounds concurrent ingestion. A burst of users then
   degrades gracefully (429 / friendly message) instead of starving the event
   loop or exhausting provider rate limits.
@@ -1014,10 +1011,9 @@ one user's retrieval stalls every other user's chat stream. Wrapping it in
 between "one slow tenant degrades everyone" and healthy concurrency. This is a
 backend code change, tracked separately from this deployment.
 
-### 6.3 Horizontal research execution — IMPLEMENTED (`jobExecution: db`)
+### 6.3 Horizontal research execution — IMPLEMENTED
 
-The token-heavy workload (deep research) now scales out. Set
-`grid-oib:jobExecution: db` and:
+The token-heavy workload (deep research) now scales out:
 
 - **Research runs on DB-claimed workers** (ADR-0021): submission writes a
   `SUBMITTED` `job_info` row and enqueues a claimable `research_job_queue` row
@@ -1025,7 +1021,7 @@ The token-heavy workload (deep research) now scales out. Set
   replicas (same image, `GRID_ROLE=worker`) claim rows with `FOR UPDATE SKIP
   LOCKED`, run the same `run_agent_job` body, and heartbeat the claim so a crash
   is reclaimed. The claim is fair (below) and KEDA scales the tier on the queue,
-  not on CPU. The web tier runs **no Dask** in this mode.
+  not on CPU. The web tier runs no research jobs.
 - **Cancellation works from any replica** — the cancel route flips `job_info` to
   INTERRUPTED and drops the queue row; the runner's 1 s `CancellationMonitor`
   honors it. No scheduler is involved.
@@ -1036,8 +1032,7 @@ The token-heavy workload (deep research) now scales out. Set
 - **The claim is fair, and a full cluster waits** (ADR-0079). A free worker
   takes the next job of the organisation with the fewest research jobs running
   fleet-wide, then the one served longest ago; inside one office a `bulk` job
-  (a scheduled fire) goes after an `interactive` one. `GRID_MAX_ACTIVE_JOBS` is
-  no longer a 429 in this mode: a job over capacity waits as `queued`, and a
+  (a scheduled fire) goes after an `interactive` one. A job over capacity waits as `queued`, and a
   scheduled task is not skipped for it. `backendMaxActiveJobsPerOrg` is the
   claim's per-organisation cap (jobs running at once). The one refusal left is
   `backendMaxQueuedJobsPerOrg` (default 50), a bound on how many jobs one
@@ -1055,14 +1050,13 @@ The token-heavy workload (deep research) now scales out. Set
   every worker that takes it is kept as a `dead` row for
   `GRID_RESEARCH_DEAD_RETENTION_DAYS`.
 
-`jobExecution` is `db`, its default and the only value the program accepts.
 `agentWorkerMinReplicas` /
 `agentWorkerMaxReplicas` / `agentWorkerConcurrency` size the worker tier.
 
 ### 6.3b Ingestion — a fair queue and a tier KEDA scales on its depth (ADR-0076)
 
 Ingestion used to be two threads per backend process, FIFO across every tenant,
-lost on restart. Now, with `jobExecution: db`:
+lost on restart. Now:
 
 - **`/v1/ingest` jobs go into `ingest_job_queue`** (Postgres, beside the status
   rows). A free worker claims the next job of the organisation with the fewest
@@ -1265,7 +1259,7 @@ Debugging a tier that does not scale: `kubectl describe scaledobject <tier>`
 active), `kubectl -n keda logs deploy/keda-operator` (a refused login or a
 missing table is named there), and `kubectl -n grid logs job/keda-scaler-grants`.
 
-### 6.4 Multi-replica chat tier — IMPLEMENTED (`jobExecution: db`)
+### 6.4 Multi-replica chat tier — IMPLEMENTED
 
 The backend's HTTP routes are the `aiq-api` Deployment's (ADR-0082): it scales
 on CPU between `apiMinReplicas` and `apiMaxReplicas`, holds no volume, and rolls
@@ -1724,7 +1718,7 @@ Three things are true of this whole table and are easy to miss:
 | Store | Encrypted? | Detail |
 |---|---|---|
 | BYOK LLM credentials | **Yes** | WorkOS Vault (`byokSecretBackend`), or AES-256-GCM under `GRID_BYOK_LOCAL_KEK` in the local backend. ADR-0022. |
-| DB-claimed job payloads | **Yes** | AES-256-GCM under `GRID_JOB_PAYLOAD_KEK`; they carry the user auth token. `jobExecution=db` refuses to deploy without the KEK unless `allowPlaintextJobPayloads` opts out. |
+| DB-claimed job payloads | **Yes** | AES-256-GCM under `GRID_JOB_PAYLOAD_KEK`; they carry the user auth token. The deploy refuses to run without the KEK unless `allowPlaintextJobPayloads` opts out. |
 | SeaweedFS chunk data | **Yes — and what it protects depends on the topology** | `-filer.encryptVolumeData` (`seaweedfsEncryptVolumeData`, default **on**). Per-chunk AES-256-GCM, **new writes only** — objects written before it was enabled stay plaintext, and there is no bulk-encrypt tool. The per-chunk keys live in the **filer metadata store**, so where that store is decides what the feature is worth. Under `seaweedfsTopology: single` (and under `split` with `seaweedfsFilerStore: leveldb`) the store sits on a PVC in the same cluster — on `single`, the *same* PVC as the volume data — so anyone who obtains the volume obtains the keys beside it: this is crypto-erasure, not disk-theft protection. Under `split` with the Postgres store the keys move to a separate database on separate disks reachable with a different credential, which is what makes it at-rest protection. `pulumi up` warns in the configurations where it is not. ADR-0042, ADR-0043. |
 | Postgres data files (tables, indexes, WAL on disk) | **No** | Postgres has no native TDE. Confidentiality at rest here is entirely the PVC's (see below). |
 | **Postgres PITR archive** (`pgBackupsEnabled`) | **No by default** | The archive is a byte-for-byte copy of all three databases — every conversation, every LangGraph checkpoint, the whole `grid_app` schema, WAL included. `pgBackupEncryption` (`AES256` \| `aws:kms`) sets CloudNativePG's `barmanObjectStore.{wal,data}.encryption`, which becomes an SSE request header. **It is refused when the destination is the in-cluster SeaweedFS**, because SeaweedFS has no SSE at all on the pinned 3.80 image (SSE-S3/KMS/C first appear in 3.97, and this program configures no KMS for them on any image): it would answer `200` and store plaintext while the Cluster spec read `encryption: AES256`. So the archive is encrypted **only** when it goes to an external S3 destination that documents SSE support *and* `pgBackupEncryption` is set. With the default in-cluster destination it is as protected as the SeaweedFS volumes under it, and no more. `pulumi up` warns on every deploy in that state. |
@@ -1817,7 +1811,7 @@ turns the "automatic" deploy into an approval-gated one).
 
 The full program was smoke-deployed against a real single-node cluster on the
 provider's exact Kubernetes version (**v1.33.9**), with NetworkPolicies
-enforced and prod-shaped config (`jobExecution: db`, backups on, shared
+enforced and prod-shaped config (backups on, shared
 Chroma):
 
 - **Green end-to-end:** namespaces, NetworkPolicies, cert-manager (Gateway

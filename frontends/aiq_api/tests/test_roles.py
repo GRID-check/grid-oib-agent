@@ -146,7 +146,6 @@ def apps(tmp_path_factory: pytest.TempPathFactory) -> dict[str, FastAPI]:
     config_file = root / "config.yml"
     config_file.write_text("{}")
     with pytest.MonkeyPatch.context() as env, contextlib.ExitStack() as stack:
-        env.setenv("GRID_JOB_EXECUTION", "db")
         env.setenv("NAT_JOB_STORE_DB_URL", f"sqlite+aiosqlite:///{root}/jobs.db")
         env.setenv("NAT_CONFIG_FILE", str(config_file))
         env.setenv("AIQ_ENABLE_DEBUG", "true")

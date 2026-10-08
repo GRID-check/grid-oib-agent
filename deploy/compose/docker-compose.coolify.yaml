@@ -99,12 +99,9 @@ services:
       # On by default; fails open to local delivery. Set to 0 to opt out.
       - GRID_CONVERSATION_BUS=${GRID_CONVERSATION_BUS:-1}
       # ── Deep-research execution (ADR-0021), mirroring the Kubernetes topology ──
-      # db = DB-claimed jobs run by the dedicated `agent-worker` service below
-      # (FOR UPDATE SKIP LOCKED), so the token-heavy research workload scales and
-      # crashes independently of the chat tier, and so a job submitted by the chat
-      # role can be streamed and cancelled by the api role: a Dask job would run on
-      # the cluster of the container that submitted it, out of the other's reach.
-      - GRID_JOB_EXECUTION=db
+      # Research jobs are claimed (FOR UPDATE SKIP LOCKED) by the dedicated `agent-worker`
+      # service below, so the token-heavy research workload scales and crashes
+      # independently of the chat tier.
       # Encrypts DB-claimed job payloads at rest (AES-256-GCM). Empty = plaintext
       # (a one-time warning is logged); acceptable on a single trusted node. Set a
       # base64 32-byte key to encrypt: `openssl rand -base64 32`.
@@ -139,13 +136,10 @@ services:
       - CORS_ALLOW_ORIGIN_REGEX=https://${SERVICE_FQDN_FRONTEND}
       - HOST=0.0.0.0
       - PORT=8000
-      - DASK_NWORKERS=${DASK_NWORKERS:-1}
-      - DASK_NTHREADS=${DASK_NTHREADS:-4}
       # ── Ingestion / document extraction (match deploy/.env) ──
       # Tables, images and charts are extracted by default (AIQ_EXTRACT_*, on
       # unless set to false), so no flag is set here.
       # ── Misc runtime tuning (match deploy/.env) ──
-      - DASK_DISTRIBUTED__LOGGING__DISTRIBUTED=${DASK_DISTRIBUTED__LOGGING__DISTRIBUTED:-warning}
       - PYTHONWARNINGS=${PYTHONWARNINGS:-ignore}
       # ── Optional keys (unused by the OpenRouter config; passthrough if set) ──
       # ── Auth / admin control-plane ──
@@ -246,12 +240,12 @@ services:
   # vectors always match), but launched with GRID_ROLE=worker: the entrypoint
   # then execs `python -m aiq_api.jobs.worker` instead of the web server. Workers
   # claim jobs from Postgres (FOR UPDATE SKIP LOCKED) and read/write the shared
-  # Chroma server — no web port, no Dask.
+  # Chroma server — no web port.
   agent-worker:
     extends:
       service: aiq-agent
     environment:
-      # GRID_ROLE flips entrypoint.py to the worker module (no uvicorn, no Dask).
+      # GRID_ROLE flips entrypoint.py to the worker module (no uvicorn).
       - GRID_ROLE=worker
       # Concurrent research jobs claimed per worker process (K8s: agentWorker.concurrency).
       - GRID_RESEARCH_WORKERS=${GRID_RESEARCH_WORKERS:-1}
@@ -315,7 +309,7 @@ services:
   # POST /v1/ingest, served by the api role, only puts a job in the durable
   # queue. This is the one process that claims it, fairly across organizations,
   # and runs it against the shared Chroma. With it stopped, uploads sit pending.
-  # No web port, no Dask.
+  # No web port.
   ingest-worker:
     extends:
       service: aiq-agent

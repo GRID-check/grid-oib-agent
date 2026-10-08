@@ -48,15 +48,14 @@ def report_app(tmp_path, monkeypatch):
 
     job_store = MagicMock()
     job_store.get_job = AsyncMock(return_value=None)
+    from nat.front_ends.fastapi.async_jobs import job_store as nat_job_store
+
+    monkeypatch.setattr(nat_job_store, "JobStore", lambda **kwargs: job_store)
 
     worker = SimpleNamespace(
-        _dask_available=True,
-        _job_store=job_store,
-        _scheduler_address="tcp://localhost:8786",
         _db_url=f"sqlite+aiosqlite:///{tmp_path / 'test_job_report_cards.db'}",
         _config_file_path="config.yml",
         _log_level=20,
-        _use_dask_threads=False,
         _front_end_config=SimpleNamespace(expiry_seconds=86400),
     )
     return SimpleNamespace(app=FastAPI(), builder=MagicMock(), worker=worker, job_store=job_store)

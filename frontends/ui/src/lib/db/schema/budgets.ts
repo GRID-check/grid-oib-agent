@@ -106,7 +106,7 @@ export const llmUsageEvents = pgTable(
     /** Project uuid as text — no FK so ledger rows survive project deletion (audit). */
     projectId: text('project_id'),
     conversationId: text('conversation_id'),
-    /** Async job id when the generation ran inside a Dask worker. */
+    /** Async job id when the generation ran inside a research worker. */
     jobId: text('job_id'),
     /**
      * The chat answer this generation belongs to (migration 0098): every call

@@ -34,7 +34,7 @@ Grid AIQ uses a two-tier architecture consisting of a **Next.js Backend-for-Fron
 │  Tier 2: Python FastAPI Backend (port 8000)                            │
 │                                                                         │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌──────────────────┐   │
-│  │  Dask Scheduler  │    │  Dask Worker(s) │    │  Uvicorn         │   │
+│  │  Research queue  │    │  Worker(s) (NAT)│    │  Uvicorn         │   │
 │  │  (port 8786)     │◄──►│  (NAT runtime)   │    │  FastAPI App    │   │
 │  │  Dashboard:8787  │    │                  │    │  (NAT + custom) │   │
 │  └─────────────────┘    └─────────────────┘    └────────┬─────────┘   │
@@ -65,7 +65,7 @@ Key responsibilities of the BFF:
 
 The backend uses the **NVIDIA NeMo Agent Toolkit (NAT)** framework with a custom startup script:
 
-- **Entrypoint** (`entrypoint.py`): Starts a Dask scheduler (port 8786) and Dask worker, then launches the web server.
+- **Entrypoint** (`entrypoint.py`): Launches the web server; research runs in the separate `GRID_ROLE=worker` container.
 - **Web server** (`start_web.py`): Loads the NAT YAML configuration, sets up environment variables, and runs uvicorn directly (bypassing `nat serve` to avoid asyncio event-loop conflicts).
 - **NAT runtime**: Provides the LangGraph-based pipeline: one answering agent (research) that decides per turn whether to escalate, a clarification step that confirms a research plan, and the deep research agent with citation verification.
 
@@ -127,7 +127,6 @@ Return: job_id for status polling
 | PostgreSQL | postgres:16-alpine | Job metadata, checkpoints, app state |
 | SeaweedFS | chrislusf/seaweedfs:3.80 | S3-compatible document storage |
 | ChromaDB | embedded in Python | Vector storage for embeddings |
-| Dask | NAT-managed | Distributed job execution |
 
 ### Key Design Decisions
 

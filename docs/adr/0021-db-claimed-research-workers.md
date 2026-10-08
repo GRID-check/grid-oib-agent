@@ -1,6 +1,6 @@
 # ADR-0021: DB-claimed workers for deep-research execution (retiring per-pod Dask)
 
-- **Status:** Accepted — implemented behind `GRID_JOB_EXECUTION=db|dask` (default `dask`). See `frontends/aiq_api/src/aiq_api/jobs/{queue,worker}.py`, the submit switch in `jobs/submit.py`, and the `agent-worker` tier in `deploy/pulumi`. The chat/web tier remains single-replica pending the ingest-status + reaper-lock follow-up (docs/deployment/kubernetes.md §6.3).
+- **Status:** Accepted — implemented, and the Dask path removed (see the amendment). See `frontends/aiq_api/src/aiq_api/jobs/{queue,worker}.py`, the submit path in `jobs/submit.py`, and the `agent-worker` tier in `deploy/pulumi`. The chat/web tier remains single-replica pending the ingest-status + reaper-lock follow-up (docs/deployment/kubernetes.md §6.3).
 - **Date:** 2026-07-09
 - **Deciders:** Platform engineering
 - **Related:** ADR-0018 (per-run state), ADR-0011 (deletion pipeline — the pattern source), ../architecture/scaling-review-2026-07.md
@@ -101,8 +101,17 @@ We will replace per-pod Dask execution with **DB-claimed research workers**:
 - Worker sizing default (`GRID_RESEARCH_WORKERS`) vs. the per-run
   `max_research_concurrency` fan-out — one worker ≈ one deep run is the
   starting point.
-- Migration: ship workers alongside Dask behind `GRID_JOB_EXECUTION=db|dask`,
-  flip the default, delete the Dask path.
+- Migration: done 2026-10-08. The Dask path is deleted (see the amendment).
+
+## Amendment (2026-10-08): Dask execution removed
+
+The Dask path is gone. `GRID_JOB_EXECUTION` no longer exists, `NAT_DASK_SCHEDULER_ADDRESS` is no longer read by this code, and the Dask-only cap `GRID_MAX_ACTIVE_JOBS` is deleted. The database-claimed queue in this record is the only way research jobs run.
+
+Why: ADR-0082 step B split the `chat` role, which submits a job, from the `api` role, which streams and cancels it. A job that a chat container submits to its own per-process Dask cluster cannot be streamed or cancelled from the api role, so the Dask path could not run in any deployment that runs both roles, and every deployment does. Keeping it meant a second execution path that no deployment could exercise end to end.
+
+What changed in behaviour: submit persists the job and enqueues its row, and nothing else. Cancel flips `job_info` to INTERRUPTED (and drops an unclaimed row), and the worker's `CancellationMonitor` stops the run. The reaper marks only stale RUNNING jobs, because a queued job has no worker yet and is healthy. Admission only refuses an organization's own waiting queue past `GRID_MAX_QUEUED_JOBS_PER_ORG`.
+
+`dask` and `distributed` stay in `uv.lock`: `nvidia-nat-core`'s `async-endpoints` extra requires them, and that extra provides the `JobStore` whose `job_info` table this path writes.
 
 ## References
 

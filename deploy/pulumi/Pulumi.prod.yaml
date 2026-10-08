@@ -41,7 +41,7 @@
 
 #   # Encrypts DB-claimed job payloads at rest (they carry the user auth token).
 
-#   # REQUIRED whenever jobExecution=db (the deploy fails closed without it; set
+#   # REQUIRED (the deploy fails closed without it; set
 
 #   # grid-oib:allowPlaintextJobPayloads=true to override for dev/single-node):
 
@@ -254,12 +254,8 @@ config:
   grid-oib:backendIngestMaxWorkers: "2"
   # ── Research execution (ADR-0021) ──
 
-  # DB-claimed workers, the only deployable value (the plan fails on anything else, ADR-0082 B):
-
-  # the web roles run no Dask and dedicated agent-worker replicas execute research
-
-  # jobs, scaling the token-heavy workload horizontally. Requires chromaEnabled.
-  grid-oib:jobExecution: db
+  # Dedicated agent-worker replicas execute research jobs, scaling the token-heavy
+  # workload horizontally. Requires chromaEnabled.
   # KEDA scales the tier on research_job_queue (ADR-0079); one worker stays warm.
   grid-oib:agentWorkerMinReplicas: "1"
   grid-oib:agentWorkerMaxReplicas: "3"

@@ -407,7 +407,7 @@ export const platform: typeof en.platform = {
       'Beendet jede Tiefenrecherche, die wartet oder läuft, in allen Organisationen, und schließt jeden Lauf als abgebrochen.',
     whatTitle: 'Was passiert',
     whatBody:
-      'Jeder wartende oder laufende Job im Job-Store wird als abgebrochen markiert. Wartende Jobs werden verworfen, bevor ein Worker sie übernimmt; laufende Worker sehen den Status und hören auf, unter Dask werden ihre Tasks zwangsweise beendet. Danach wird jeder Lauf als abgebrochen geschlossen: sein Block zeigt nicht mehr „läuft“, und wer ihn beauftragt hat, erhält eine Benachrichtigung.',
+      'Jeder wartende oder laufende Job im Job-Store wird als abgebrochen markiert. Wartende Jobs werden verworfen, bevor ein Worker sie übernimmt; laufende Worker sehen den Status und hören auf. Danach wird jeder Lauf als abgebrochen geschlossen: sein Block zeigt nicht mehr „läuft“, und wer ihn beauftragt hat, erhält eine Benachrichtigung.',
     whenTitle: 'Wann Sie das brauchen',
     whenBody:
       'Wenn Worker hängen, in einer Schleife Tokens verbrauchen oder alle Plätze belegen, sodass nichts Neues starten kann. Läufe, die sich nicht mehr melden, räumt der Ghost-Reaper ohnehin auf; dies ist für die, die sich noch melden und trotzdem aufhören müssen.',

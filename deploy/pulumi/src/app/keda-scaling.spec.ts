@@ -69,7 +69,6 @@ const QUEUE_TIERS = ["ingest-worker", "agent-worker", "bff-jobs"];
 const ALL_TIERS = [...QUEUE_TIERS, "aiq-agent"];
 
 const STACK = {
-  "grid-oib:jobExecution": "db",
   "grid-oib:allowPlaintextJobPayloads": "true",
   "grid-oib:chatAffinity": "false",
   "grid-oib:backendReplicas": "1",

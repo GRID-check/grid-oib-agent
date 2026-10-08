@@ -1129,7 +1129,7 @@ flush idempotent.
 | `organization_id` | `text` | Nullable; no FK (ops data outlives tenants) |
 | `conversation_id` | `text` | Client-side chat id; no FK, survives conversation deletion |
 | `turn_id` | `text` | Shared with `agent_profiler_spans.turn_id` — links a defect to its execution timeline |
-| `job_id` | `text` | Async deep-research job id, when the turn ran in a Dask worker |
+| `job_id` | `text` | Async deep-research job id, when the turn ran in a research worker |
 | `agent` | `text` | `shallow` \| `deep` |
 | `kind` | `text` | `turn_verified` \| `citations_removed` \| `quote_unverified` \| `answer_ungrounded` \| `registry_empty` \| `citation_fallback` \| `confidence_capped` |
 | `severity` | `text` | `ok` \| `info` \| `warn` \| `error` — derived from `kind` on the backend, never caller-supplied |
