@@ -186,7 +186,7 @@ recorded folders.
 * `scripts/rls-test-db.sh`: 0110's constraints (empty and 21-entry lists refused, an unknown
   level and a `*`-prefixed slug refused, no custom folder without grants), a list replaced in one
   transaction, a tombstone keeping its list and freeing its name, the down (tombstones, the grants
-  table and the columns removed) and re-apply; 0110's order CHECK, down and re-apply.
+  table and the columns removed) and re-apply; 0111's order CHECK, down and re-apply.
 * `projects/folder-access-settings.spec.ts`: validation (empty, over 20, a role twice, an unknown
   role), `project:manage` first, the audit metadata with levels, the IFC guard only for a list
   that restricts reading; `collection-placement.integration.spec.ts`: a `*` list moves nothing.
