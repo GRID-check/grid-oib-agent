@@ -37,6 +37,7 @@ from fastapi.routing import APIWebSocketRoute
 from pydantic import BaseModel
 from starlette.routing import Route
 
+from aiq_agent.observability import boot_timing
 from aiq_api import plugin
 from aiq_api import routes as routes_package
 from aiq_api.roles import ROLE_ENV
@@ -58,6 +59,19 @@ SHARED = {
 }
 
 _REGISTRAR = re.compile(r"^(add|register)_\w*routes$")
+
+#: The roles whose ``ready`` boot reading the ``apps`` fixture's builds recorded, in build order.
+_READY: list[str] = []
+
+
+class _RecordingBootClock:
+    """Stands in for ``BootClock``: notes which role declared itself ready."""
+
+    def __init__(self, role: str) -> None:
+        self.role = role
+
+    def ready(self) -> None:
+        _READY.append(self.role)
 
 
 class _Schema(BaseModel):
@@ -155,6 +169,8 @@ def apps(tmp_path_factory: pytest.TempPathFactory) -> dict[str, FastAPI]:
         stack.enter_context(patch.object(plugin.AIQAPIWorker, "_schedule_internal_api_check", lambda self: None))
         stack.enter_context(patch.object(plugin.AIQAPIWorker, "_install_signal_handlers", lambda self: None))
         stack.enter_context(patch.object(plugin, "install_presigned_url_scrubbing", lambda: None))
+        stack.enter_context(patch.object(boot_timing, "BootClock", _RecordingBootClock))
+        stack.enter_context(patch.object(boot_timing, "flush", lambda: None))
 
         async def build_all() -> dict[str, FastAPI]:
             chat = _worker("chat")
@@ -290,3 +306,8 @@ def test_each_role_mounts_one_health_route_that_names_the_build_and_the_role(app
     assert len(health) == 1
     assert answer.status_code == 200
     assert answer.json() == {"status": "healthy", "sha": "abc1234", "role": role}
+
+
+def test_each_role_records_its_ready_reading_once_its_routes_are_mounted(apps):
+    """Both tiers' cold starts are series of their own (ADR-0082): chat's went missing once."""
+    assert _READY == ["chat", "api"]
