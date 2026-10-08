@@ -269,6 +269,15 @@ export const collaboration: typeof en.collaboration = {
         title: '„{subject}" ist fertig',
         body: 'Piloti hat den Auftrag ausgeführt. Das Ergebnis liegt im Projekt unter Automatisierung.',
       },
+      // Ein Outlook-Archiv ist importiert. {subject} ist der Dateiname des Archivs.
+      mailImportCompleted: {
+        title: '„{subject}" ist importiert',
+        body: 'Piloti hat die E-Mails und ihre Anhänge im Projekt unter E-Mail-Import abgelegt.',
+      },
+      mailImportFailed: {
+        title: 'Der Import von „{subject}" wurde abgebrochen',
+        body: 'Was bis dahin importiert war, bleibt im Projekt. Die Importliste unter Dateien nennt den Grund.',
+      },
       jobFailed: {
         title: '„{subject}" ist fehlgeschlagen',
         body: 'Der Auftrag konnte nicht abgeschlossen werden. Die Laufhistorie im Projekt nennt den Grund.',

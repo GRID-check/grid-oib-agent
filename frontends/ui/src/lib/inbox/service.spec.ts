@@ -103,6 +103,8 @@ const ALL_TYPES = [
   'document.review_requested',
   'upload.completed',
   'document.quarantined',
+  'mail_import.completed',
+  'mail_import.failed',
 ] as const satisfies readonly InboxItemType[]
 
 /** What a tenant WITHOUT collaboration may see: the operational types only. */
@@ -121,6 +123,10 @@ const OPERATIONAL_TYPES = [
   // are about the office's own files, not about working together.
   'upload.completed',
   'document.quarantined',
+  // An Outlook archive import ended (ADR-0085): an office without
+  // collaboration imports mail too.
+  'mail_import.completed',
+  'mail_import.failed',
 ] as const satisfies readonly InboxItemType[]
 
 const at = new Date('2026-07-29T10:00:00.000Z')

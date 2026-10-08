@@ -113,7 +113,7 @@ vi.mock('../persistence', () => ({
   markSessionHasCollection: (...args: unknown[]) => mockMarkSessionHasCollection(...args),
 }))
 
-// The office's upload screening (ADR-0085): Piloti's suggested list, read
+// The office's upload screening (ADR-0086): Piloti's suggested list, read
 // without a request, so the gate is exercised and nothing else changes.
 vi.mock('@/adapters/api/upload-screening-policy', async () => {
   const { SUGGESTED_SCREENING_POLICY } = await import('@/lib/upload-screening/policy')

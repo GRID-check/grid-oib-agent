@@ -13,6 +13,7 @@ const Progress = React.forwardRef<
     ref={ref}
     data-slot="progress"
     className={cn('bg-secondary relative h-1.5 w-full overflow-hidden rounded-full', className)}
+    value={value}
     {...props}
   >
     <ProgressPrimitive.Indicator

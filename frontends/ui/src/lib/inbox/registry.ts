@@ -215,6 +215,27 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     nobody opened for three months is still on the triage page, which is the
     record; the inbox row is only the announcement.
   */
+  /*
+    An Outlook archive import ended (ADR-0085). The `job.*` shapes, and for the
+    same reasons: informational, one row per import (anchored on its folder),
+    operational because an office without collaboration imports mail too. A
+    failure is the one worth an email: the person may have closed the tab hours
+    ago, and the archive is gone from staging once it ends.
+  */
+  'mail_import.completed': {
+    actionable: false,
+    grouping: 'per-anchor',
+    retentionDays: 30,
+    gate: 'operational',
+    email: IN_APP_ONLY,
+  },
+  'mail_import.failed': {
+    actionable: false,
+    grouping: 'per-anchor',
+    retentionDays: 60,
+    gate: 'operational',
+    email: { send: 'if-unread', afterMinutes: 30 },
+  },
   'feedback.submitted': {
     actionable: false,
     grouping: 'collapse',

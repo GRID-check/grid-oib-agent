@@ -1,5 +1,5 @@
 /**
- * What an organization counts as too sensitive to upload (ADR-0085).
+ * What an organization counts as too sensitive to upload (ADR-0086).
  *
  * One policy, two gates. The NAME gate runs in the browser before a byte is
  * sent, and again in the BFF on receipt (`./name-screen`). The CONTENT gate
