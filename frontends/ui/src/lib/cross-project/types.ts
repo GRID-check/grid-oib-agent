@@ -132,8 +132,16 @@ export const crossProjectDecisionSchema = z.object({
   collection: z.string(),
   kind: z.enum(['decision', 'constraint']),
   content: z.string(),
-  /** A person confirmed, pinned or wrote it, rather than only the agent. */
+  /**
+   * Who stands behind it: a person confirmed, pinned or wrote it (`person`); it
+   * was read from the project's documents at close and nobody confirmed it yet
+   * (`documents`, with its `evidence`); or only the agent noted it (`agent`).
+   */
+  origin: z.enum(['person', 'documents', 'agent']),
+  /** A person confirmed, pinned or wrote it, rather than only the agent: true exactly when `origin` is `person`. */
   confirmed: z.boolean(),
+  /** The documents and pages it was drafted from, kept whoever confirmed it; empty when none. */
+  evidence: z.array(z.object({ fileName: z.string(), page: z.string().nullable() })),
   recordedAt: z.string(),
   /** It came from a folder with its own access list: it narrows who may read the chat, as such a passage does. */
   restricted: z.boolean(),

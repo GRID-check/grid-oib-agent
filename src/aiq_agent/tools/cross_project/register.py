@@ -356,11 +356,35 @@ def _decisions(body: dict[str, Any]) -> list[dict[str, Any]]:
     return [item for item in usable if item.get("content") and item.get("collection")]
 
 
+def _decision_provenance(item: dict[str, Any]) -> str:
+    """Who stands behind a recorded decision: a person, the documents it was read from, or the agent's own note.
+
+    An older BFF sends no `origin`; its `confirmed` flag then says which of the first two it was.
+    """
+    origin = item.get("origin") or ("person" if item.get("confirmed") else "agent")
+    if origin == "person":
+        return "von einer Person bestätigt"
+    if origin == "documents":
+        return "aus den Unterlagen erschlossen" + _evidence_cite(item.get("evidence"))
+    return "von Piloti festgehalten"
+
+
+def _evidence_cite(evidence: Any) -> str:
+    """The first document a decision was read from, as `: Datei S. n`; no page when the document names none.
+
+    No parentheses and no comma of its own: it sits inside the line's `(…, year)`.
+    """
+    first = next((e for e in evidence or [] if isinstance(e, dict) and _text(e.get("fileName"))), None)
+    if first is None:
+        return ""
+    page = _text(first.get("page"))
+    return f": {_text(first['fileName'])}" + (f" S. {page}" if page else "")
+
+
 def _decision_line(item: dict[str, Any]) -> str:
     year = str(item.get("recordedAt") or "")[:4]
     label = _DECISION_KIND.get(str(item.get("kind")), "Entscheidung")
-    who = "von einer Person bestätigt" if item.get("confirmed") else "von Piloti festgehalten"
-    return f"{label} ({who}{', ' + year if year else ''}): {_text(item['content'])}"
+    return f"{label} ({_decision_provenance(item)}{', ' + year if year else ''}): {_text(item['content'])}"
 
 
 def _decision_hits(decisions: list[dict[str, Any]]) -> list[GroundingHit]:

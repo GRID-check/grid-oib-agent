@@ -336,12 +336,15 @@ async def test_project_lookup_admits_what_the_bff_handed_out_and_shuts_the_turns
 
 
 def _decision(content: str, *, status: str = "closed", restricted: bool = False, **extra: Any) -> dict[str, Any]:
+    confirmed = extra.get("confirmed", True)
     return {
         "project": {"id": OTHER, "name": "Wohnbau Graz", "status": status, "bundesland": "steiermark"},
         "collection": OTHER_COLLECTION,
         "kind": "decision",
         "content": content,
-        "confirmed": True,
+        "origin": "person" if confirmed else "agent",
+        "confirmed": confirmed,
+        "evidence": [],
         "recordedAt": "2021-04-02T08:00:00.000Z",
         "restricted": restricted,
         **extra,
@@ -555,6 +558,61 @@ class TestTheRecordedDecisions:
         assert "Entscheidung (von einer Person bestätigt, 2021): Stiegenhaus in Stahlbeton" in result
         assert "Vorgabe (von Piloti festgehalten, 2021): Brandsperre" in result
         assert result.index("Projektgedächtnis") < result.index("Detail Traufe.pdf")
+
+    @pytest.mark.parametrize(
+        ("decision", "marker"),
+        [
+            ({"origin": "person", "confirmed": True}, "(von einer Person bestätigt, 2021): "),
+            ({"origin": "agent", "confirmed": False}, "(von Piloti festgehalten, 2021): "),
+            (
+                {
+                    "origin": "documents",
+                    "confirmed": False,
+                    "evidence": [
+                        {"fileName": "Bescheid.pdf", "page": "3"},
+                        {"fileName": "Gutachten.pdf", "page": "1"},
+                    ],
+                },
+                "(aus den Unterlagen erschlossen: Bescheid.pdf S. 3, 2021): ",
+            ),
+            (
+                {"origin": "documents", "confirmed": False, "evidence": [{"fileName": "Bescheid.pdf", "page": None}]},
+                "(aus den Unterlagen erschlossen: Bescheid.pdf, 2021): ",
+            ),
+            (
+                {"origin": "documents", "confirmed": False, "evidence": []},
+                "(aus den Unterlagen erschlossen, 2021): ",
+            ),
+        ],
+    )
+    async def test_each_origin_prints_its_marker_and_the_first_document_it_was_read_from(
+        self, monkeypatch, calls, turn, schema, decision, marker
+    ) -> None:
+        body = {**SEARCH_BODY, "hits": [], "decisions": [_decision("Stiegenhaus in Stahlbeton.", **decision)]}
+        _validator(schema, "CrossProjectSearchResponse").validate(body)
+        _answering(monkeypatch, calls, body)
+
+        result = await lookup.run_project_lookup("search", query="Stiegenhaus")
+
+        assert f"Entscheidung {marker}Stiegenhaus in Stahlbeton." in result
+
+    @pytest.mark.parametrize(
+        ("confirmed", "marker"), [(True, "von einer Person bestätigt"), (False, "von Piloti festgehalten")]
+    )
+    async def test_an_older_bff_without_origin_is_read_by_its_confirmed_flag(
+        self, monkeypatch, calls, turn, confirmed, marker
+    ) -> None:
+        # An older BFF predates `origin` and `evidence`, so the current schema refuses its answer: it is read as before.
+        older = {
+            k: v
+            for k, v in _decision("Stiegenhaus in Stahlbeton.", confirmed=confirmed).items()
+            if k not in ("origin", "evidence")
+        }
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "decisions": [older]})
+
+        result = await lookup.run_project_lookup("search", query="Stiegenhaus")
+
+        assert f"Entscheidung ({marker}, 2021): Stiegenhaus in Stahlbeton." in result
 
     async def test_decisions_alone_are_still_a_source_so_the_answer_is_not_replaced(self, monkeypatch, calls, turn):
         _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "decisions": [_decision("Holz-Massivbau-Treppe.")]})
