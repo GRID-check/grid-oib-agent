@@ -407,10 +407,12 @@ export async function readableFolderIdsFor(
 
 /**
  * How many projects {@link readableFoldersOfRestrictedProjects} reads at once.
- * Each is a tenancy probe and one transaction for its tree, so this many hold
- * at most this many pool connections (of `GRID_DB_POOL_MAX`, 10 by default):
- * a long list costs a quarter of the round trips one at a time did, and every
- * other request keeps most of the pool.
+ * Each is the session's clearance there ({@link clearanceOf}: for a session
+ * that does not see everything, a tenancy probe, and for a closed project a
+ * WorkOS FGA check too) and one transaction for its tree, so this many hold at
+ * most this many pool connections (of `GRID_DB_POOL_MAX`, 10 by default). The
+ * round trips are as many as one at a time made; a long list waits about a
+ * quarter as long for them, and every other request keeps most of the pool.
  */
 export const RESTRICTED_PROJECT_READS_AT_ONCE = 4
 
