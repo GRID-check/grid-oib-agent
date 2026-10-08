@@ -367,6 +367,17 @@ def test_every_linked_package_is_checked_for_a_foreign_import():
     assert "tavily_web_search" in census.source_packages()
 
 
+def test_the_frontend_plugins_a_run_loads_come_from_this_checkout():
+    # From a worktree, the main checkout's editable `aiq_api` met the worktree's
+    # `aiq_agent` and every turn died, reported as a 0.0 s run.
+    import census
+
+    packages = census.source_packages()
+    for name in ("aiq_api", "aiq_debug"):
+        assert packages[name].is_relative_to(census.ROOT.resolve())
+        assert (packages[name] / "__init__.py").exists()
+
+
 def test_one_failing_run_does_not_sink_the_suite(tmp_path, monkeypatch):
     # A raise in one worker used to discard every result after the paid runs.
     def boom(*args, **kwargs):
