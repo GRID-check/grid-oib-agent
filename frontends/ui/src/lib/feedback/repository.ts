@@ -165,6 +165,26 @@ export async function getAnswerTraceId(messageId: string, organizationId: string
   return isTraceId(traceId) ? traceId : null
 }
 
+/**
+ * Whether a stored vote sits on a conversation that drew on a restricted folder
+ * (`OUTSIDE_RESTRICTED_USE` turned around). The Langfuse score of such a vote
+ * carries its number and reason chip, never the voter's words: those may quote
+ * the folder, and Langfuse's readers are platform staff outside its audience.
+ */
+export async function isRestrictedUseVote(feedbackId: string, organizationId: string): Promise<boolean> {
+  const rows = rowsOf(
+    await getDb().execute(sql`
+      select 1
+      from answer_feedback f
+      where f.id = ${feedbackId}
+        and f.organization_id = ${organizationId}
+        and not (${OUTSIDE_RESTRICTED_USE})
+      limit 1
+    `),
+  )
+  return rows.length > 0
+}
+
 /** The caller's own votes in one conversation (bounded; newest first). */
 export async function listAnswerFeedbackForConversation(
   userId: string,
