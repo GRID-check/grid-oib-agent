@@ -900,6 +900,14 @@ export async function transitionDocumentVersion(
 
   assertGuards(session, version, transition, input)
   await requireTransitionPermission(session, document, transition)
+  // A held document (ADR-0085) opens no review round: the inbox row names it,
+  // with its Auftragssatz, to reviewers who need be neither its uploader nor
+  // one of its quarantine reviewers. Its uploader reaches this path, because
+  // the hold lets them see their own file, so it is refused here, before the
+  // swap, while the version is still a draft they can submit once it passes.
+  if (transition.effects.includes('openReviewInbox') && !hasPassedScreening(document)) {
+    throw new ConflictError('The document has not passed screening yet', { op, reason: 'held' })
+  }
   // Before the swap, so a submission that would reach nobody is refused while
   // the version is still a draft the caller can fix.
   const review = await assertReviewGuards(session, document, version, transition, input)

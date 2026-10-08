@@ -475,6 +475,41 @@ describe('transitionDocumentVersion — guards', () => {
   })
 })
 
+/**
+ * A held document (ADR-0085) opens no review round. The round's inbox row names
+ * the file and carries the Auftragssatz to each reviewer, who need not be its
+ * uploader or one of the people who review its quarantine. Its uploader can
+ * reach the version workflow (the hold lets them see their own file), so the
+ * submit is refused before the swap, while the version is still a draft.
+ */
+describe('transitionDocumentVersion — a held document', () => {
+  it.each([
+    ['still being screened', { status: 'processing', screeningOutcome: null }],
+    ['quarantined', { status: 'quarantined', screeningOutcome: 'quarantined' as const }],
+    ['bytes swapped after its verdict', { contentHash: 'sha256:new', screenedHash: 'sha256:old', screeningOutcome: 'clean' as const }],
+  ])('refuses to submit one %s, and tells nobody', async (_label, held) => {
+    vi.mocked(getAccessibleDocument).mockResolvedValue({ ...document, ...held })
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'in_review' }))
+
+    await expect(
+      transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', { reviewerUserIds: ['user_a'] }),
+    ).rejects.toMatchObject({ status: 409, details: { op: 'submit', reason: 'held' } })
+    expect(compareAndSwapVersionState).not.toHaveBeenCalled()
+    expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+
+  it('submits it once its screening has passed', async () => {
+    vi.mocked(getAccessibleDocument).mockResolvedValue({ ...document, screeningOutcome: 'clean' })
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'in_review' }))
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', { reviewerUserIds: ['user_a'] })
+
+    expect(emitInboxItems).toHaveBeenCalled()
+  })
+})
+
 describe('transitionDocumentVersion — effects', () => {
   it('submit opens an actionable item for each named reviewer, anchored on the version', async () => {
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))

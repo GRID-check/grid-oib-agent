@@ -77,6 +77,17 @@ import { DocumentReviewControls, type ReviewerOption } from './document-review-c
 import { DocumentVersionList } from './document-version-list'
 import { DocumentVersionStateBadge } from './document-version-badge'
 
+/** The submit of a held document (`details.reason`, `lib/documents/lifecycle.ts`). */
+function isHeldRefusal(error: DocumentLifecycleError): boolean {
+  const details = error.details
+  return (
+    error.status === 409 &&
+    typeof details === 'object' &&
+    details !== null &&
+    (details as { reason?: unknown }).reason === 'held'
+  )
+}
+
 export interface DocumentLifecyclePanelProps {
   documentId: string
   /** The file's own name, so „archivieren?" can name what it is about. */
@@ -260,7 +271,11 @@ export function DocumentLifecyclePanel({
         announce(next)
       } catch (error) {
         setListing(previous)
-        if (error instanceof DocumentLifecycleError && error.status === 409) {
+        if (error instanceof DocumentLifecycleError && isHeldRefusal(error)) {
+          // Not a stand that moved: the file is still held by its screening
+          // (ADR-0085), and the draft stays a draft until it passes.
+          toast.error(t('lifecycle.errors.held'))
+        } else if (error instanceof DocumentLifecycleError && error.status === 409) {
           toast.error(t('lifecycle.errors.conflict'))
           await load()
         } else if (error instanceof DocumentLifecycleError && error.code === 'CONVERSATION_CONFINED') {

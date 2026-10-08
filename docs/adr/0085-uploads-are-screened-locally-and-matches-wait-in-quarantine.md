@@ -485,6 +485,15 @@ window in which a file nobody had screened was everybody's.
   conversation subject's version (`readVersionForService`), the revision task's
   source text (`readVersionTextForTask`), the agent's byte and model lookups. A held
   document opens no revision task.
+* **A held document opens no review round.** Its uploader reaches the version
+  workflow, because the hold lets them see their own file, and may fork and edit
+  a draft. Submitting it (the transitions with `openReviewInbox`) answers `409`
+  with `reason: 'held'` before the version moves: the round's inbox row names the
+  file, with its Auftragssatz, to reviewers who need be neither its uploader nor
+  one of its quarantine reviewers. The draft is submitted once the file passes.
+  A round opened before the file was held (a re-upload over a document in review)
+  keeps its rows; they name a file their reviewers already knew and open nothing
+  while it is held.
 * **A quarantined row leaves quarantine through a release and nothing else.** A
   re-screen is a new verdict after a release, never a reset to `pending`.
 * **A file the gate never judged can be released too.** A held file at rest

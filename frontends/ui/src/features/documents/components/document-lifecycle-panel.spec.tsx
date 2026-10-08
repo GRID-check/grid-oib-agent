@@ -352,6 +352,29 @@ describe('DocumentLifecyclePanel — submitting states its order', () => {
   })
 })
 
+describe('DocumentLifecyclePanel — a held file', () => {
+  it('says the file is still being checked, not that the stand moved', async () => {
+    const submit = vi
+      .fn()
+      .mockRejectedValue(new DocumentLifecycleError(409, 'CONFLICT', 'held', { op: 'submit', reason: 'held' }))
+    const client = fakeClient({
+      listVersions: () => Promise.resolve(listing([makeVersion(1, 'draft')])),
+      submit,
+    })
+    render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
+
+    await userEvent.type(await screen.findByTestId('document-review-order'), 'Bitte prüfen.')
+    await userEvent.click(screen.getByTestId('document-lifecycle-submit'))
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        'This file is still being checked. It can be submitted once the check has cleared it.',
+      ),
+    )
+    expect(await screen.findByTestId('document-lifecycle-state')).toHaveTextContent('Draft')
+  })
+})
+
 describe('DocumentLifecyclePanel — publishing is its own act', () => {
   it('publishes from its own section, never beside approval', async () => {
     const publish = vi.fn().mockResolvedValue(makeVersion(1, 'published'))

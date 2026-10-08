@@ -856,6 +856,7 @@ export const files: typeof en.files = {
     },
     errors: {
       conflict: 'Der Stand hat sich geändert – die aktuelle Fassung wird geladen.',
+      held: 'Die Datei wird noch geprüft. Einreichen geht, sobald die Prüfung sie freigegeben hat.',
       actionFailed: 'Das hat nicht geklappt. Es hat sich nichts geändert.',
       loadFailed: 'Die Fassungen konnten nicht geladen werden.',
     },

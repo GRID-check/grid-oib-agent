@@ -907,6 +907,8 @@ export const files = {
     errors: {
       /** The compare-and-swap lost: somebody decided first, so re-read. */
       conflict: 'This has moved on — reloading the current state.',
+      /** The file has not passed its upload screening yet (ADR-0085). */
+      held: 'This file is still being checked. It can be submitted once the check has cleared it.',
       actionFailed: 'That did not go through. Nothing has changed.',
       loadFailed: 'The version history could not be loaded.',
     },
