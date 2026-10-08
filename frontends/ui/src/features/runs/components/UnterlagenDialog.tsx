@@ -15,7 +15,7 @@
  */
 
 import { useMemo, useState, type FC } from 'react'
-import { BookOpen, Ban, Plus, Search } from 'lucide-react'
+import { BookOpen, Ban, Lock, Plus, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
 import {
@@ -33,11 +33,20 @@ import { cn } from '@/lib/utils'
 
 export type UnterlagenRole = 'grundlage' | 'ausgeschlossen' | null
 
+/** A row the picker lists: a plan document, and whether it may be handed to a run at all. */
+export interface PickerDocument extends PlanDocument {
+  /**
+   * In a folder not every project member may read: shown, so the reader is
+   * not left wondering where it went, and never added (ADR-0086).
+   */
+  restricted?: boolean
+}
+
 interface CommonProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** What can be named: the inventory the caller holds. */
-  documents: readonly PlanDocument[]
+  documents: readonly PickerDocument[]
   loading?: boolean
 }
 
@@ -189,6 +198,17 @@ export const UnterlagenDialog: FC<UnterlagenDialogProps> = (props) => {
                 ) : alreadyNamed(doc) ? (
                   <Chip size="sm" variant="muted">
                     {t('unterlagen.alreadyNamed')}
+                  </Chip>
+                ) : doc.restricted ? (
+                  <Chip
+                    size="sm"
+                    variant="muted"
+                    title={t('unterlagen.restrictedReason')}
+                    aria-label={`${t('unterlagen.restricted')}: ${t('unterlagen.restrictedReason')}`}
+                    data-testid="unterlagen-restricted"
+                  >
+                    <Lock className="size-3" aria-hidden />
+                    {t('unterlagen.restricted')}
                   </Chip>
                 ) : (
                   <Button

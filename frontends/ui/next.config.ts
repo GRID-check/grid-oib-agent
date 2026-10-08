@@ -39,8 +39,7 @@ const nextConfig: NextConfig = {
     // same-origin route (`/api/documents/[id]/image`), so they are governed by
     // `localPatterns` below. Presigning them to the object store instead would
     // put them on a per-environment host that resolves to a private IP inside
-    // the compose network — which the optimizer rejects outright — and would
-    // defeat its cache, since every fresh signature is a new cache key.
+    // the compose network, which the optimizer rejects outright.
     remotePatterns: AVATAR_IMAGE_PATTERNS.map((pattern) => ({ ...pattern })),
 
     // Same-origin paths the optimizer may serve. Leaving this unset does NOT
@@ -51,6 +50,28 @@ const nextConfig: NextConfig = {
     // thumbnail in the app. See `optimizable.ts` for the patterns and why the
     // document route is allowed a query string.
     localPatterns: LOCAL_IMAGE_PATTERNS.map((pattern) => ({ ...pattern })),
+
+    // No server-side cache of optimized images. A document image's route
+    // re-checks the token and the reader's folder access on every fetch, and a
+    // cached copy is served WITHOUT that fetch: a hit straight from disk, a
+    // stale entry too while it revalidates, and a failed revalidation (our
+    // 403/404) writes the stale entry back for another `minimumCacheTTL`. So a
+    // picture kept loading, for anyone holding the URL, after its folder was
+    // closed to them and after the token expired. Lowering the TTL does not
+    // close that loop; only switching the cache off does. What it cost: each
+    // request re-encodes. Document URLs carry the person and a five-minute
+    // window, so the cache only ever served that person within those minutes,
+    // mostly to a browser already holding the image; avatars are re-fetched
+    // from workoscdn.com.
+    // `optimizer-cache.spec.ts` runs Next's own cache against this config.
+    maximumDiskCacheSize: 0,
+
+    // The floor on the max-age `/_next/image` sends to the browser, which it
+    // sends as `public` whatever the route said. The default (4 hours) let any
+    // shared cache keep a tenant's picture long after the token had expired.
+    // One token window (`IMAGE_URL_WINDOW_SECONDS`); upstreams that send a
+    // longer max-age, like the avatar CDN, keep theirs.
+    minimumCacheTTL: 300,
   },
 
   experimental: {
