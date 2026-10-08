@@ -8,6 +8,11 @@ import { fireEvent, render, waitFor } from '@/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
 import type { UploadScreeningPolicy } from '@/lib/upload-screening/policy'
+import { en } from '@/i18n/dictionaries/en'
+import {
+  loadUploadScreeningPolicy,
+  UploadScreeningPolicyUnavailableError,
+} from '@/adapters/api/upload-screening-policy'
 import { DocumentRoleField } from './document-role-field'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() } }))
@@ -23,7 +28,8 @@ const policy: UploadScreeningPolicy = {
   contentTerms: [],
   detectors: [],
 }
-vi.mock('@/adapters/api/upload-screening-policy', () => ({
+vi.mock('@/adapters/api/upload-screening-policy', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/adapters/api/upload-screening-policy')>()),
   loadUploadScreeningPolicy: vi.fn(async () => policy),
 }))
 
@@ -58,5 +64,19 @@ describe('DocumentRoleField upload', () => {
     const sent = (uploads[0] as unknown as [string, { body: FormData }])[1].body.get('file') as File
     expect(sent.name).toBe('Lageplan.pdf')
     expect(String(vi.mocked(toast.error).mock.calls[0][0])).toContain('Honorarnote.pdf')
+  })
+
+  it('sends nothing while the office policy cannot be read, and says so', async () => {
+    vi.mocked(loadUploadScreeningPolicy).mockRejectedValueOnce(new UploadScreeningPolicyUnavailableError())
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const { container } = render(<DocumentRoleField projectId="proj-1" role="lageplan" />)
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['plan'], 'Lageplan.pdf', { type: 'application/pdf' })] } })
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(vi.mocked(toast.error).mock.calls[0][0]).toBe(en.files.errors.screeningPolicyUnavailable)
   })
 })

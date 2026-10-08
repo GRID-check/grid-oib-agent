@@ -875,11 +875,15 @@ describe('dispatchDocument — upload screening', () => {
     expect(sentBody().screening).not.toBeNull()
   })
 
-  it('fails closed when the policy cannot be read: screens with the suggestion', async () => {
+  // Piloti's suggestion in its place would let through a document that
+  // matches only a term the office added.
+  it('fails closed when the policy cannot be read: sends nothing, and the row offers a retry', async () => {
     vi.mocked(getOrgSettings).mockRejectedValue(new Error('db down'))
     const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    await dispatchDocument(input('Baubeschreibung.pdf'))
-    expect((sentBody().screening as { detectors: string[] }).detectors).toContain('iban')
+    const result = await dispatchDocument(input('Baubeschreibung.pdf'))
+    expect(result).toEqual({ jobId: null, status: 'failed' })
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(markDocumentIngestFailed).toHaveBeenCalledWith('doc-1', 'org-1', INGEST_DISPATCH_FAILED_MESSAGE)
     errorLog.mockRestore()
   })
 })

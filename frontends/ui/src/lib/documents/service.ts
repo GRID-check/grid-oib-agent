@@ -448,8 +448,15 @@ export async function dispatchIngest(
   const attribution = await findDocumentInOrg(documentId, organizationId).catch(() => null)
   // The content gate's rules (ADR-0083). Every path into the index passes this
   // line — upload, re-ingest, re-index, Archiv, chat, the IFC digest — so the
-  // gate is not something a new caller has to remember.
-  const screening = await ingestScreeningFor(organizationId, attribution)
+  // gate is not something a new caller has to remember. A policy that cannot
+  // be read sends nothing: the row fails with a retry offered.
+  let screening: Awaited<ReturnType<typeof ingestScreeningFor>>
+  try {
+    screening = await ingestScreeningFor(organizationId, attribution)
+  } catch {
+    await markDocumentIngestFailed(documentId, organizationId, INGEST_DISPATCH_FAILED_MESSAGE)
+    return { jobId: null, status: 'failed' }
+  }
 
   const body = JSON.stringify({
     file_ref: presignedUrl,

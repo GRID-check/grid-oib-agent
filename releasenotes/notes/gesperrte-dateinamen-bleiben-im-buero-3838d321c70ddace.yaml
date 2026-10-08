@@ -1,0 +1,14 @@
+---
+fixes:
+  - >
+    The name of a file your office's list holds back no longer leaves your
+    computer: Piloti now checks which files the folder already holds only for
+    the files that passed the list, or that you released.
+  - >
+    If your office's list of sensitive data cannot be loaded, an upload now
+    sends nothing and says so, and a term an admin just saved applies to the
+    very next upload.
+  - >
+    Confirming the upload preview checks your office's list once more before a
+    folder is created; if the preview changed meanwhile, nothing is sent and
+    the dialog shows the new preview to confirm.

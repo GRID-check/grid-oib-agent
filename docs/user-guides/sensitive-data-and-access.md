@@ -28,11 +28,22 @@ can be switched off.
    the name terms hold back and why. Those files are never sent. A single file,
    such as a Bauvertrag in a folder called „Verträge", can be released with one
    tick; the release is recorded in the audit log. The server checks the names
-   again, so a browser that skips the dialog is refused the same way.
+   again, so a browser that skips the dialog is refused the same way. Not even
+   the name of a held-back file is sent: Piloti checks which files the folder
+   already holds only for the files that passed, or that you released. The
+   list is read fresh for every upload, so a term saved a moment ago applies
+   to the next one, and read again when you confirm the dialog: a term saved
+   while it was open holds its files back, and their folders are not created.
+   When anything changes between what the dialog showed and what would be
+   sent, nothing is sent; the dialog shows the new preview to confirm. If your
+   office's list cannot be loaded, nothing is uploaded and Piloti says so; try
+   again a moment later. The server refuses an upload the same way while it
+   cannot read the list.
 2. **On Piloti's own server, before any language model sees the file**, its text
    is read locally and checked against the content terms and number checks. A
    match ends there: the file is stored, read by no model, and waits in
-   quarantine.
+   quarantine. If the list cannot be read at that moment, the file is not read
+   at all; it is marked as failed and can be retried.
 3. A file whose text cannot be read locally (a scan, a plan without a text
    layer, a photo) is **checked by name only**. The summary says so, so nobody
    takes „nothing found" for „nothing there".

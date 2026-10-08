@@ -542,6 +542,7 @@ export const files: typeof en.files = {
     destinationFiles: 'Die Dateien kommen nach „{folder}“.',
     close: 'Schließen',
     compareError: 'Der Bestand konnte nicht verglichen werden. Es wurde nichts hochgeladen.',
+    planChanged: 'Die Vorschau hat sich geändert. Es wurde nichts hochgeladen. Bitte prüfen Sie sie und bestätigen Sie erneut.',
     single: {
       updateTitle: 'Neue Fassung von „{name}“ hochladen?',
       updateExplain:
@@ -612,6 +613,10 @@ export const files: typeof en.files = {
     // Upload-Dialog, etwa im Chat.
     screenedOut: '{count} Datei(en) nicht hochgeladen, weil Ihr Büro sie als sensibel einstuft: {files}',
     screenedOutFile: '„{name}“ ({reason})',
+    // Die Liste des Büros ist nicht lesbar: ohne sie wird nichts gesendet,
+    // auch nicht mit Pilotis Vorschlag (ADR-0083).
+    screeningPolicyUnavailable:
+      'Die Liste sensibler Daten Ihres Büros konnte nicht geladen werden. Es wurde nichts hochgeladen. Versuchen Sie es erneut.',
     validation: {
       duplicateInBatch: '„{name}“ ist mehrfach in dieser Auswahl',
       duplicateExisting: '„{name}“ wurde bereits hinzugefügt',

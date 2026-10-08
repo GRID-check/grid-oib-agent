@@ -73,7 +73,22 @@ German, and explains each verdict.
   before upload and shows what is excluded and why; the uploader may release a
   single file (the Bauvertrag in „Verträge"), which is sent as an explicit,
   audited override. The BFF repeats the check on receipt and refuses a match
-  that carries no override, without storing it.
+  that carries no override, without storing it. The file name is part of what
+  is held back, so the browser screens **before** any request about the drop:
+  the name probe (`POST …/name-matches`) is asked only about the files the
+  screening let through, and about a held-back file only once the uploader
+  releases it. The browser reads the office's policy afresh for every upload
+  (`adapters/api/upload-screening-policy.ts`, sharing only a request already
+  in flight); a policy it cannot read sends nothing and says so, rather than
+  screening with Piloti's suggestion, which would let a term only this office
+  added through. The dialog settles its plan when the uploader confirms: it
+  waits for any release still being asked about, reads the policy again and
+  re-plans before a folder is created, and when that changes what would be
+  sent it shows the new plan instead of applying it. The server's repeat
+  refuses the same way: a policy it cannot read is a 503
+  (`UPLOAD_SCREENING_UNAVAILABLE`), never the suggestion. The chat composer
+  and the chat socket keep the suggestion as their fallback, because masking
+  has no "send nothing" (see the 2026-10-02 amendment).
 - **Content gate.** `dispatchIngest` is the one place the BFF calls
   `/v1/ingest`, and it always sends the policy's content rules as `screening`.
   The job screens the locally extracted text before OCR, captioning,
@@ -113,11 +128,17 @@ German, and explains each verdict.
 * `lib/upload-screening/*.spec.ts` pin the name matcher (compounds, exceptions, umlauts) and the
   server refusal without an override.
 * `dispatchIngest` computes the screening rules itself from the document's organization
-  (`ingestScreeningFor`, failing closed to the suggested list), so no caller can dispatch
+  (`ingestScreeningFor`, failing closed: a policy it cannot read sends nothing and records
+  the dispatch as failed, with a retry offered), so no caller can dispatch
   without them; `service.spec.ts` asserts every dispatch path sends them (5 of 6 cases fail
   with the line removed). A required argument was the first design; it would have had to be
   threaded through eleven callers that cannot know the policy.
 * `settings-ownership.spec.ts` asserts the generic settings save refuses `uploadScreening`.
+* `use-upload-decision.gate-order.spec.ts` drives the planner through the real policy loader
+  and name-probe client against a recording `fetch`, and asserts no request carries a held-back
+  file's name, and nothing but the policy read is sent while the policy cannot be read.
+  `upload-screening-policy.spec.ts` asserts the loader rejects rather than falling back and
+  re-reads for every upload.
 
 ## Pros and Cons of the Options
 

@@ -64,6 +64,12 @@ vi.mock('@/lib/storage/bucket', () => ({
   resolveDocumentBucket: (bucket: string | null) => bucket ?? 'grid-documents',
 }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
+// The upload-screening policy (ADR-0083) the name gate reads: an office on
+// Piloti's suggested list. Unreadable settings refuse the upload outright.
+vi.mock('@/lib/organizations/service', () => ({
+  getOrgSettings: vi.fn(async () => ({ displayName: null, defaultLocale: 'de', settings: {} })),
+  writeDedicatedOrgSetting: vi.fn(),
+}))
 vi.mock('@/lib/sharing/access', () => ({ requireResourceAccess: vi.fn() }))
 vi.mock('@/lib/conversations/service', () => ({
   assertConversationAcceptsUploads: vi.fn(),

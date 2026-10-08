@@ -115,9 +115,12 @@ vi.mock('../persistence', () => ({
 
 // The office's upload screening (ADR-0083): Piloti's suggested list, read
 // without a request, so the gate is exercised and nothing else changes.
-vi.mock('@/adapters/api/upload-screening-policy', async () => {
+vi.mock('@/adapters/api/upload-screening-policy', async (importOriginal) => {
   const { SUGGESTED_SCREENING_POLICY } = await import('@/lib/upload-screening/policy')
-  return { loadUploadScreeningPolicy: vi.fn().mockResolvedValue(SUGGESTED_SCREENING_POLICY) }
+  return {
+    ...(await importOriginal<typeof import('@/adapters/api/upload-screening-policy')>()),
+    loadUploadScreeningPolicy: vi.fn().mockResolvedValue(SUGGESTED_SCREENING_POLICY),
+  }
 })
 
 vi.mock('../validation', () => ({
@@ -558,6 +561,26 @@ describe('useFileUpload — durable document uploads', () => {
     expect(xhr.requests.map((request) => (request.body as FormData).get('file'))).toEqual([plan])
     expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(expect.stringContaining('Schlussrechnung 03.pdf'))
     expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(expect.stringContaining('Rechnung'))
+  })
+
+  test('sends nothing, not even a clean file, while the office policy cannot be read', async () => {
+    const { loadUploadScreeningPolicy, UploadScreeningPolicyUnavailableError } = await import(
+      '@/adapters/api/upload-screening-policy'
+    )
+    vi.mocked(loadUploadScreeningPolicy).mockRejectedValueOnce(new UploadScreeningPolicyUnavailableError())
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    const { result } = renderUpload()
+
+    await act(async () => {
+      await result.current.uploadFiles([new File(['x'], 'Grundriss EG.pdf', { type: 'application/pdf' })])
+    })
+
+    expect(xhr.requests).toHaveLength(0)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(mockClient.getCollection).not.toHaveBeenCalled()
+    expect(mockDocumentsStoreState.trackedFiles).toEqual([])
+    expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(en.files.errors.screeningPolicyUnavailable)
+    fetchSpy.mockRestore()
   })
 
   test('screens against the folder a file lands in', async () => {

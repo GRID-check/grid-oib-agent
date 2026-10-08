@@ -494,7 +494,7 @@ export function FileWorkspace({
         onConfirm={shelfUpload.applyFolderPlan}
         pending={shelfUpload.decision.pending}
         kind={shelfUpload.decision.kind}
-        onReleaseChange={shelfUpload.decision.setReleased}
+        onReleaseChange={shelfUpload.onReleaseChange}
       />
 
       {/* Who may read and write a folder (ADR-0085), a project's only. Saving

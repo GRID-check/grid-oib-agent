@@ -4,11 +4,12 @@
  * before it leaves the browser.
  *
  * Synchronous at send time on purpose. The policy is read once when the
- * composer mounts (`loadUploadScreeningPolicy`, cached per page, never
- * rejects), so pressing Enter is never an await that a second Enter could
- * overtake. Until it has arrived, and whenever it cannot be read, Piloti's
- * suggested list applies: a privacy control fails closed, and the chat socket
- * masks with the office's own list again in any case.
+ * composer mounts (`loadUploadScreeningPolicy`), so pressing Enter is never
+ * an await that a second Enter could overtake. Until it has arrived, and
+ * whenever it cannot be read, Piloti's suggested list applies: a privacy
+ * control fails closed, and the chat socket masks with the office's own list
+ * again in any case. Uploads do not fall back like this; they wait for the
+ * office's list or send nothing.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -29,9 +30,14 @@ export function useChatScreening(): (text: string) => MaskedText {
 
   useEffect(() => {
     let live = true
-    void loadUploadScreeningPolicy().then((policy) => {
-      if (live) setRules(chatScreeningRules(policy))
-    })
+    loadUploadScreeningPolicy().then(
+      (policy) => {
+        if (live) setRules(chatScreeningRules(policy))
+      },
+      () => {
+        // Piloti's suggestion stays in force; see above.
+      }
+    )
     return () => {
       live = false
     }

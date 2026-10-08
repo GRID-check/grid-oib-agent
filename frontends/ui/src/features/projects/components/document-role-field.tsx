@@ -30,6 +30,7 @@ import { useTranslations } from '@/i18n'
 import { loadUploadScreeningPolicy } from '@/adapters/api/upload-screening-policy'
 import { screenUploadName, type NameMatch } from '@/lib/upload-screening/name-screen'
 import { describeScreenedOut } from '@/lib/upload-screening/quarantine'
+import type { UploadScreeningPolicy } from '@/lib/upload-screening/policy'
 import { documentRoleDefinition } from '@/lib/project-profile/document-roles'
 import type { DocumentRole } from '@/lib/project-profile/document-roles'
 import { useDocumentRoles } from '../lib/use-document-roles'
@@ -167,7 +168,14 @@ export function DocumentRoleField({
         // holds back is not sent, exactly as on the Files page. The server
         // repeats the check, but only after the bytes have arrived. The file
         // lands at the project root, so its name is all there is to screen.
-        const policy = await loadUploadScreeningPolicy()
+        // A policy that cannot be read sends nothing.
+        let policy: UploadScreeningPolicy
+        try {
+          policy = await loadUploadScreeningPolicy()
+        } catch {
+          toast.error(tFiles('errors.screeningPolicyUnavailable'))
+          return
+        }
         const screenedOut: Array<{ file: File; matches: NameMatch[] }> = []
         for (const file of list) {
           const verdict = screenUploadName(policy, { filename: file.name })

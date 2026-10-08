@@ -57,11 +57,15 @@ describe('useUploadDecision — upload screening', () => {
     await waitFor(() => expect(result.current.plan?.files[0]?.action).toBe('excluded'))
     expect(result.current.plan?.folders).toEqual([])
 
-    act(() => result.current.setReleased(contract, true))
+    await act(async () => {
+      await result.current.setReleased(contract, true)
+    })
     expect(result.current.plan?.files[0]).toMatchObject({ action: 'new', screeningReleased: true })
     expect(result.current.plan?.folders.map((folder) => folder.path)).toEqual(['Akt', 'Akt/Verträge'])
 
-    act(() => result.current.setReleased(contract, false))
+    await act(async () => {
+      await result.current.setReleased(contract, false)
+    })
     expect(result.current.plan?.files[0]?.action).toBe('excluded')
   })
 

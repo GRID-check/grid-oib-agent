@@ -5,10 +5,11 @@ import { toast } from 'sonner'
 import { useTranslations } from '@/i18n'
 import type { FolderItem } from '../file-types'
 import { takeDroppedFiles } from '../lib/dropped-file-handover'
-import { filesToUpload, type PlannedMove } from '../lib/folder-upload-plan'
+import { filesToUpload, samePlanOutcome, type FolderUploadPlan, type PlannedMove } from '../lib/folder-upload-plan'
 import { isZipArchive } from '../lib/zip-types'
 import type { FileShelf, ShelfEndpoints, ShelfUploadApi } from '../lib/file-shelf'
-import { useUploadDecision } from './use-upload-decision'
+import { useUploadDecision, type SettledPlan } from './use-upload-decision'
+import { UploadScreeningPolicyUnavailableError } from '@/adapters/api/upload-screening-policy'
 
 export interface ShelfUploadOptions {
   shelf: Pick<FileShelf, 'probeNames' | 'handoverKey'> & { endpoints: Pick<ShelfEndpoints, 'folders'> }
@@ -53,7 +54,7 @@ export function useShelfUpload({
 }: ShelfUploadOptions) {
   const t = useTranslations('files')
   const decision = useUploadDecision()
-  const { propose, plan, setOpen, setPending } = decision
+  const { propose, setReleased, settle, plan, setOpen, setPending } = decision
   const { uploadFiles } = upload
   const { probeNames, handoverKey } = shelf
   const ensureUrl = `${shelf.endpoints.folders}/ensure`
@@ -105,9 +106,23 @@ export function useShelfUpload({
             (direct) => void uploadFiles(direct, { folderPathFor: () => currentFolderPath })
           )
         })
-        .catch(() => toast.error(t('folderUpload.compareError')))
+        .catch((error: unknown) =>
+          toast.error(
+            error instanceof UploadScreeningPolicyUnavailableError
+              ? t('errors.screeningPolicyUnavailable')
+              : t('folderUpload.compareError')
+          )
+        )
     },
     [unpackArchives, propose, probeNames, uploadFiles, folders, selectedFolderId, currentFolderPath, t]
+  )
+
+  /** A release asks the name probe about the file; when it cannot, the file stays held back and the reader is told. */
+  const onReleaseChange = useCallback(
+    (file: File, released: boolean) => {
+      setReleased(file, released).catch(() => toast.error(t('folderUpload.compareError')))
+    },
+    [setReleased, t]
   )
 
   // A drop elsewhere in the app brought the reader here (`ProjectFileDrop`).
@@ -169,15 +184,49 @@ export function useShelfUpload({
     [selectedFolderId]
   )
 
+  /**
+   * The plan the reader confirmed, as it may be applied now (`settle`): a
+   * release still being asked about answered, and the office's policy read
+   * afresh, BEFORE the folders are made, because a folder's name is sent with
+   * them. When settling changed what would happen, nothing is sent: the dialog
+   * shows the new plan and the reader confirms that one. Null when nothing may
+   * go, and the reader has been told why.
+   */
+  const settlePlan = useCallback(
+    async (shown: FolderUploadPlan): Promise<SettledPlan | null> => {
+      try {
+        const settled = await settle()
+        if (!settled) return null
+        if (samePlanOutcome(shown, settled.plan)) return settled
+        toast.error(t('folderUpload.planChanged'))
+      } catch (error) {
+        toast.error(
+          error instanceof UploadScreeningPolicyUnavailableError
+            ? t('errors.screeningPolicyUnavailable')
+            : t('folderUpload.compareError')
+        )
+      }
+      return null
+    },
+    [settle, t]
+  )
+
   const applyFolderPlan = useCallback(
     async (includeUpdates: boolean) => {
       if (!plan) return
-      const selected = filesToUpload(plan, includeUpdates)
-      const moves = plan.moves
-      if (selected.length === 0 && moves.length === 0) return
+      if (filesToUpload(plan, includeUpdates).length === 0 && plan.moves.length === 0) return
       setPending(true)
 
-      const byPath = await ensureFolders(plan.folders.map((folder) => folder.path))
+      const settled = await settlePlan(plan)
+      if (!settled) {
+        setPending(false)
+        return
+      }
+      const { policy } = settled
+      const selected = filesToUpload(settled.plan, includeUpdates)
+      const moves = settled.plan.moves
+
+      const byPath = await ensureFolders(settled.plan.folders.map((folder) => folder.path))
       if (byPath === null) return
 
       try {
@@ -205,7 +254,10 @@ export function useShelfUpload({
                 return [currentFolderPath, target].filter(Boolean).join('/') || null
               },
               screeningReleased: (file) => plannedByFile.get(file)?.screeningReleased === true,
-              excludedByScreening: plan.files
+              // The policy this plan was just settled against: read once, so
+              // what the dialog applies and what the upload screens agree.
+              screeningPolicy: policy,
+              excludedByScreening: settled.plan.files
                 .filter((planned) => planned.action === 'excluded')
                 .map((planned) => planned.screening ?? []),
             }
@@ -215,7 +267,7 @@ export function useShelfUpload({
         // only refreshes the listing when it actually uploaded something.
         await loadFolders()
         await loadFiles(true)
-        const counts = { uploaded: String(selected.length), skipped: String(plan.counts.unchanged) }
+        const counts = { uploaded: String(selected.length), skipped: String(settled.plan.counts.unchanged) }
         // A move-only apply uploads nothing, and „0 Dateien hochgeladen" alone
         // would read as a failed gesture over work that was actually done.
         toast.success(
@@ -238,11 +290,12 @@ export function useShelfUpload({
       loadFiles,
       ensureFolders,
       applyMoves,
+      settlePlan,
       t,
       setOpen,
       setPending,
     ]
   )
 
-  return { handleUpload, applyFolderPlan, decision }
+  return { handleUpload, applyFolderPlan, onReleaseChange, decision }
 }
