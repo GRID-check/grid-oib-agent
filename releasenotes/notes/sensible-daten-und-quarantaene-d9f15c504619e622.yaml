@@ -39,6 +39,10 @@ features:
     organization admin, and a demoted admin stops reaching every folder within a
     minute. Review requests go only to people who may read the folder, and the
     projects overview counts only the documents you may read.
+  - >
+    A chat whose answers drew on a folder not everyone may read can be shared
+    only with colleagues who may read that folder too, and Piloti will not file
+    a draft or diagram from it where others could open it.
 fixes:
   - >
     A chat in a project with a great deal of project information can no longer
