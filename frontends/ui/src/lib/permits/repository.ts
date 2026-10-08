@@ -382,11 +382,14 @@ export async function listPermitRecordsForProject(
       issuedOn: permitRecords.issuedOn,
     })
     .from(permitRecords)
+    // As the search: a record answers only while its document still stands where it was read from.
+    .innerJoin(documents, eq(documents.id, permitRecords.documentId))
     .where(
       and(
         eq(permitRecords.organizationId, organizationId),
         eq(permitRecords.projectId, projectId),
-        memoryVisibleTo(readableFolderIds, permitRecords.restrictedFolderIds)
+        memoryVisibleTo(readableFolderIds, permitRecords.restrictedFolderIds),
+        documentServesItsRecord
       )
     )
     .orderBy(desc(permitRecords.issuedOn), desc(permitRecords.createdAt))
