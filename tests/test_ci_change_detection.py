@@ -37,3 +37,13 @@ def test_a_push_to_a_branch_is_never_cancelled_by_a_later_one(name):
     concurrency = load(name)["concurrency"]
 
     assert concurrency["cancel-in-progress"] == CANCEL_ONLY_PULL_REQUESTS
+
+
+@pytest.mark.parametrize("name", DETECTORS)
+def test_each_push_has_its_own_group_so_no_pending_run_is_dropped(name):
+    # GitHub drops a pending run when a newer run joins its group. A push's
+    # group must therefore be keyed by its commit, not shared by the branch.
+    group = load(name)["concurrency"]["group"]
+
+    assert "github.sha" in group
+    assert "github.ref" in group

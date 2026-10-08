@@ -33,10 +33,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: security-${{ github.ref }}
-  # Same rule as ci.yml: a PR's newer push may cancel its older run, because
-  # every PR run diffs the whole PR. Pushes to develop and release/** are not
-  # cancelled, so each push's scan runs to the end.
+  # Same rule as ci.yml: each push has its own group, so no pending scan is
+  # dropped by a newer push. A PR's newer push may cancel its older scan.
+  group: ${{ github.event_name == 'push' && format('security-push-{0}', github.sha) || format('security-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

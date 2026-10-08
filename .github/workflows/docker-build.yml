@@ -39,10 +39,9 @@ permissions:
   packages: read
 
 concurrency:
-  group: docker-build-${{ github.ref }}
-  # Same rule as ci.yml: a PR's newer push may cancel its older build, because
-  # the PR's own diff covers what the cancelled one was for. A push to develop
-  # or release/** runs to the end.
+  # Same rule as ci.yml: each push has its own group, so no pending build is
+  # dropped by a newer push. A PR's newer push may cancel its older build.
+  group: ${{ github.event_name == 'push' && format('docker-build-push-{0}', github.sha) || format('docker-build-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

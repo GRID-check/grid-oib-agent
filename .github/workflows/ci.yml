@@ -16,11 +16,11 @@ permissions:
   pull-requests: write # coverage sticky comments (same-repo PRs)
 
 concurrency:
-  group: ci-${{ github.ref }}
-  # A newer push cancels a PR's older run, and loses nothing: every PR run diffs
-  # the whole PR (`changes` below). A push to develop or release/** is never
-  # cancelled, because its run is the only check that push gets. A cancelled one
-  # left tiers unrun that no later push would ever re-run.
+  # A push gets a group of its own. GitHub drops a pending run when a newer run
+  # joins its group, and that newer run's diff covers only its own push, so the
+  # dropped push's checks would never run. A PR keeps one group: its newer push
+  # may cancel the older run, because every PR run diffs the whole PR (`changes`).
+  group: ${{ github.event_name == 'push' && format('ci-push-{0}', github.sha) || format('ci-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
