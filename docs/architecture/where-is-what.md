@@ -286,6 +286,9 @@ does not exist, so a moved file is caught; a missing row is not.
 
 | Concept | Owning code | Doc of record | Decision |
 |---|---|---|---|
+| Voice dictation in the composer: the button, recording, silence gate, insertion at the caret | `frontends/ui/src/features/dictation/index.ts` — `DictationButton`, `insertTranscript`; recording in `frontends/ui/src/features/dictation/hooks/use-dictation.ts` | [`voice-dictation.md`](voice-dictation.md) | — |
+| Voice dictation server side: bounds, rate limit, the provider call, fallback model, filler removal | `frontends/ui/src/lib/dictation/service.ts` — `transcribeDictation`; `frontends/aiq_api/src/aiq_api/routes/dictation.py` — `transcribe`; `frontends/aiq_api/src/aiq_api/routes/_dictation_text.py` — `clean_transcript` | [`voice-dictation.md`](voice-dictation.md) | — |
+| Spend nobody is billed for (voice dictation): priced at nothing, kept out of the rollups | `frontends/ui/src/lib/db/schema/budgets.ts` — `UNBILLED_USAGE_ACTIVITIES`; `frontends/ui/src/lib/budgets/repository.ts` — `buildRollupIncrements` | [`usage-budgets.md`](usage-budgets.md) | ADR-0019, ADR-0053 |
 | i18n dictionaries | `frontends/ui/src/i18n/dictionaries` | [`backend-message-localization.md`](backend-message-localization.md) | — |
 | Every key the code asks for exists | `frontends/ui/src/i18n/key-coverage.spec.ts` | [`docs/contributing/testing-and-verification.md`](../contributing/testing-and-verification.md) | — |
 | Backend message localization | `src/aiq_agent/common/human_prompt.py` | [`backend-message-localization.md`](backend-message-localization.md) | — |

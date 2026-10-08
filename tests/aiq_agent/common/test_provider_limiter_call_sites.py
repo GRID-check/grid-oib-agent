@@ -70,7 +70,7 @@ NOT_A_CLIENT = re.compile(r"\b(?:Mock|Fake|Stub|Noop)\w*Embedding|\bQueryEmbeddi
 RAW_HTTPX = re.compile(r"\bhttpx\.(?:Async)?Client\(|\bhttpx\.(?:post|request|stream|put|patch)\(")
 #: Signs a file sends requests to a model: an endpoint path, the host, or a body shaped for OpenRouter.
 MODEL_TRAFFIC = re.compile(
-    r"/chat/completions|[\"']/rerank[\"']|/api/alpha/decisions|\.responses\.[\w.]*create\("
+    r"/chat/completions|/audio/transcriptions|[\"']/rerank[\"']|/api/alpha/decisions|\.responses\.[\w.]*create\("
     r"|openrouter\.ai|\brequest_body\(|\bPLATFORM_FIXED\.apply\(|\bZERO_DATA_RETENTION\b"
 )
 RAW_HTTPX_HOMES = {
