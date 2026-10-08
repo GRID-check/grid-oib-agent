@@ -1,5 +1,5 @@
 ---
-fixes:
+incident:
   - >
     If a file is deleted while someone is uploading a new version of it, the
     upload now arrives as a new file in the project or the Archiv. Before, it

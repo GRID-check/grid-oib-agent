@@ -1291,7 +1291,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
         <>
           <AgentResponse
             // An answer removed with its source folder shows the removal note
-            // in the reader's language, not the stored German text (ADR-0085).
+            // in the reader's language, not the stored German text (ADR-0087).
             content={message.erasedAt ? tCommon('derivedSource.erased') : message.content}
             timestamp={message.timestamp}
             answerDurationMs={message.answerDurationMs}

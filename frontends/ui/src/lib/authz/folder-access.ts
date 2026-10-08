@@ -1,6 +1,6 @@
 /**
- * Who may read and who may write which folders of a project (ADR-0084,
- * ADR-0085) — the one place that decides.
+ * Who may read and who may write which folders of a project (ADR-0086,
+ * ADR-0087) — the one place that decides.
  *
  * A folder either inherits its parent's access (`accessMode: 'inherit'`; a root
  * folder inherits the project) or has its own access list (`'custom'`): grants
@@ -20,7 +20,7 @@
  * of its NEAREST such folder. Only a session that may read that folder gets the
  * collection in its signed scope. Write never affects retrieval.
  *
- * Deleted folders stay in the tree (migration 0109): in the Papierkorb, then as
+ * Deleted folders stay in the tree (migration 0110): in the Papierkorb, then as
  * purged tombstones (0113). They are hidden from every listing and from
  * placement, what is filed in them is hidden from everyone, and
  * {@link effectiveFolderLevel} still answers for them, because content derived
@@ -83,7 +83,7 @@ async function anyRoleAdministers(organizationId: string, roles: readonly string
  * long. Only when WorkOS cannot be asked is the token's claim the answer, as it
  * is for the roles.
  *
- * Someone who reads a CLOSED project only because it is closed (ADR-0086: every
+ * Someone who reads a CLOSED project only because it is closed (ADR-0088: every
  * organization member may) clears what a member holding no role clears: the
  * folders open to everyone, and no folder with its own role list. Their roles
  * were never matched against this project's grants before it closed, and
@@ -407,7 +407,7 @@ export async function sourceFoldersOfCollections(
 }
 
 /**
- * When each purged folder of the project was purged (ADR-0085): what a surface
+ * When each purged folder of the project was purged (ADR-0087): what a surface
  * shows as „Quelle gelöscht am …" under content drawn from it. Labels, never a
  * decision: who may see that content is {@link effectiveFolderLevel}'s.
  */

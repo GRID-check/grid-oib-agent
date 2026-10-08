@@ -133,7 +133,7 @@ track_llm_costs()  ──sets──▶  grid_cost_tracker_var (ContextVar)
 
 - **Activation points (the only wiring, 4 total)**:
   - sync chat turn — `piloti/conversation_register.py` around `agent.run(...)`
-  - async Dask job — `aiq_api/jobs/runner.py` around `_run_agent(...)`
+  - async research job — `aiq_api/jobs/runner.py` around `_run_agent(...)`
     (identity + budget captured at submit time via `capture_usage_context()`)
   - background memory reflection — `project_memory/reflection.py` (own
     activation; the turn's tracker is already flushed when it fires)
@@ -151,6 +151,14 @@ track_llm_costs()  ──sets──▶  grid_cost_tracker_var (ContextVar)
   tracker (a no-op outside one), and each event carries its role
   (`ingest_vision`, `ingest_transcription`, `embedding`) into `agent_group`.
   Query-time embeddings in a chat turn are metered by the same wrapper.
+- **Voice dictation** (`aiq_api/routes/dictation.py`) is a single
+  transcription call per recording, outside any turn. It opens its own
+  tracker, books one event with `activity = 'dictation'`, the provider's cost
+  and `audio_seconds`, and flushes it in the background. The BFF prices it at
+  nothing and keeps it out of the rollups (`UNBILLED_USAGE_ACTIVITIES`), so it
+  is never billed and never counts against a budget; migration 0107's CHECK
+  refuses a priced dictation row. `DICTATION_LIMIT` bounds it instead. See
+  [`voice-dictation.md`](voice-dictation.md).
 - **Thread pools lose the tracker**: a `ContextVar` does not follow work into
   `ThreadPoolExecutor.submit`. Submit through `submit_in_context(executor,
   fn, …)`, which runs `fn` in a copy of the caller's context; a plain
@@ -179,7 +187,8 @@ lineage.
 **`llm_usage_events`** — the ledger: org / user / project / conversation /
 job attribution, `agent_group` (the call's role, e.g. `ingest_vision`;
 NULL for an agent turn), `activity` (since 0101: `'ingest'` for document
-ingestion, NULL for a turn; CHECK-constrained), `requested_model` vs `model`
+ingestion, since 0107 `'dictation'` for voice input, NULL for a turn;
+CHECK-constrained), `audio_seconds` (since 0107, for transcription calls), `requested_model` vs `model`
 (served), `generation_id`, token detail (incl. cached + reasoning),
 `cost_usd numeric(14,8)`, `cost_source
 ('usage_field'|'missing'|'generation_api'|'estimate')`, `is_byok`, and since
@@ -190,7 +199,8 @@ ingestion, NULL for a turn; CHECK-constrained), `requested_model` vs `model`
 **`llm_usage_rollups`** (ADR-0019) — the write-through daily aggregate per
 `(org, day, user, project)`, carrying `cost_usd`, `own_key_cost_usd`,
 `price_usd`, `credits`, `tokens` and `events`, incremented in the same
-transaction as the ledger insert.
+transaction as the ledger insert. Unbilled activities (`dictation`) never
+reach it, which is what keeps them out of every budget.
 
 ## Limits & enforcement
 
@@ -283,7 +293,8 @@ of the cost, not on top of it: the cost tiles name its share ("of which
 ingestion …") and the directory has an "Ingestion this month" column, both
 summed from `activity = 'ingest'` rows not on a tenant's own key. The rollup
 does not split by activity, so only the ledger-summed windows carry
-`ingestCostUsd`.
+`ingestCostUsd`. Voice dictation is named the same way ("of which voice input
+…", `dictationCostUsd`); its rows are on the ledger only, never in the rollup.
 
 Each directory row has an **Allowance** action. It opens the organization's
 monthly allowance, daily limit and current usage without switching the
@@ -304,6 +315,7 @@ same limits; this is not a separate platform-only commercial ceiling.
 | What was the tenant charged, and at which price list? | `price_usd`, `credits`, `pricing_version_id` on the same row |
 | Who changed the margin, from what, when? | `platform_pricing_versions` supersede chain + `platform.pricing.updated` audit events |
 | Who spent it? | `user_id`, `project_id`, `conversation_id`, `job_id` per row |
+| What did voice dictation cost, and how much audio? | `activity = 'dictation'`: `cost_usd` and `audio_seconds`, by `user_id` |
 | What did indexing documents cost? | `activity = 'ingest'`, by `job_id` for one upload, `agent_group` for vision vs OCR vs embeddings |
 | Was the charge real? | `generation_id` → `GET /api/v1/generation?id=` |
 | Who set this limit, and what was it before? | `budget_policies.created_by` + `supersedes_id` chain |

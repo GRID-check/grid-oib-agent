@@ -1,5 +1,5 @@
 """The chat entrypoint hands the reflection stage what the turn could take from
-restricted folders (ADR-0084).
+restricted folders (ADR-0086).
 
 ``_finished`` is the one call site for every post-answer stage. What is pinned:
 the restriction evidence on the stage facts comes from the conversation's

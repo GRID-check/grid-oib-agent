@@ -39,7 +39,7 @@ export type ProjectRole = 'project-viewer' | 'project-editor' | 'project-admin'
 /** What {@link requireProjectAccess} grants: the derived role, and how the project's status shaped it. */
 export interface ProjectAccess {
   role: ProjectRole
-  /** The project is closed (ADR-0086): read-only, whatever the role. */
+  /** The project is closed (ADR-0088): read-only, whatever the role. */
   closed: boolean
   /**
    * The caller reads the project only because it is closed: they hold no FGA
@@ -102,7 +102,7 @@ export async function requireProjectAccess(
     throw new NotFoundError()
   }
 
-  // A closed project is read-only (ADR-0086). Decided BEFORE the org-admin
+  // A closed project is read-only (ADR-0088). Decided BEFORE the org-admin
   // bypass below, or an admin would keep writing into it. A request whose every
   // permission is a write is refused outright, with a reason the UI can name;
   // an any-of list keeps only what a closed project still allows.
@@ -150,7 +150,7 @@ export async function requireProjectAccess(
   // Any-of: holding the narrow permission OR the legacy umbrella is enough.
   if (!granted.some(Boolean)) {
     // Every member of the organization reads a closed project and may chat
-    // about it (ADR-0086), as a viewer who clears no restricted folder.
+    // about it (ADR-0088), as a viewer who clears no restricted folder.
     if (readOnly && openToOrganizationWhenClosed(accepted)) {
       return { role: 'project-viewer', closed, readsBecauseClosed: true }
     }

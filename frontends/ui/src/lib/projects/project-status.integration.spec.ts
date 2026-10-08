@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * A closed project (ADR-0086, migration 0114) against a REAL Postgres, through
+ * A closed project (ADR-0088, migration 0115) against a REAL Postgres, through
  * the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \

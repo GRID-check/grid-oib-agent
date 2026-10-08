@@ -31,7 +31,7 @@ What a socket holds, in order of the checks on every client message:
   In a shared conversation (ADR-0032) a colleague is a different subject.
 * **What may reach the model.** The text of a question (and the focus file's
   name it carries), of a colleague's ``context_only`` line and of a typed HITL
-  answer is masked against the office's „Sensible Daten" policy (ADR-0083)
+  answer is masked against the office's „Sensible Daten" policy (ADR-0085)
   before the agent, its history or a relay replica sees it
   (:meth:`ChatSocket._masked`). The composer masks first and asks the person;
   this is the backstop for a client that did not, and it masks rather than
@@ -1471,7 +1471,7 @@ class ChatSocket:
         return screening.rules
 
     async def _masked(self, text: str, message: UserMessage | InteractionResponse) -> str:
-        """A message's free text, masked (ADR-0083). Never refuses: a match is replaced, the turn runs.
+        """A message's free text, masked (ADR-0085). Never refuses: a match is replaced, the turn runs.
 
         Called before anything reads the text: the agent, its history
         (``append_conversation_context``), the HITL answer the turn resumes with,

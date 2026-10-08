@@ -1,5 +1,5 @@
 /**
- * The SQL behind the Papierkorb (migration 0113): moving a folder's subtree to
+ * The SQL behind the Papierkorb (migration 0114): moving a folder's subtree to
  * the bin and back, its queue row, its listing, the purge marker, and the
  * search for what was derived from a folder.
  *

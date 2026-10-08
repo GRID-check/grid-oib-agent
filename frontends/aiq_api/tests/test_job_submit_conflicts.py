@@ -79,13 +79,12 @@ def _insert_job_info(db_url: str, job_id: str, *, status: str = "running") -> No
 def _mock_job_store() -> MagicMock:
     store = MagicMock()
     store.ensure_job_id.side_effect = lambda job_id: job_id or "generated-job-id"
-    store.submit_job = AsyncMock(return_value=None)
+    store._create_job = AsyncMock(return_value=None)
     return store
 
 
 def _submit_env(db_url: str) -> dict[str, str]:
     return {
-        "NAT_DASK_SCHEDULER_ADDRESS": "tcp://localhost:8786",
         "NAT_JOB_STORE_DB_URL": db_url,
     }
 
@@ -133,7 +132,7 @@ class TestSubmitDuplicateJobId:
                         job_id="job-1",
                     )
 
-        job_store.submit_job.assert_not_called()
+        job_store._create_job.assert_not_called()
 
         access = get_job_access("job-1", db_url)
         assert access is not None
@@ -165,7 +164,7 @@ class TestSubmitDuplicateJobId:
                         job_id="job-1",
                     )
 
-        job_store.submit_job.assert_not_called()
+        job_store._create_job.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_auto_generated_job_id_skips_existence_check(self, db_url):
@@ -183,7 +182,7 @@ class TestSubmitDuplicateJobId:
 
         assert result == "generated-job-id"
         job_exists_spy.assert_not_called()
-        job_store.submit_job.assert_called_once()
+        job_store._create_job.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_fresh_custom_job_id_submits_normally(self, db_url):
@@ -199,7 +198,7 @@ class TestSubmitDuplicateJobId:
                 )
 
         assert result == "fresh-job"
-        job_store.submit_job.assert_called_once()
+        job_store._create_job.assert_called_once()
         access = get_job_access("fresh-job", db_url)
         assert access is not None
         assert access["owner_subject"] == "user-1"
@@ -254,12 +253,6 @@ async def submit_conflict_app(db_url, monkeypatch):
     import aiq_api.routes.jobs as jobs_routes
     from aiq_api.jobs import submit
 
-    monkeypatch.setattr(jobs_routes, "_start_periodic_cleanup", MagicMock())
-
-    async def _no_op_reaper(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(jobs_routes, "_reap_ghost_jobs", _no_op_reaper)
     monkeypatch.setattr(
         jobs_routes,
         "require_verified_principal",
@@ -270,13 +263,9 @@ async def submit_conflict_app(db_url, monkeypatch):
     monkeypatch.setattr(submit, "submit_agent_job", submitted_job)
 
     worker = SimpleNamespace(
-        _dask_available=True,
-        _job_store=MagicMock(),
-        _scheduler_address="tcp://localhost:8786",
         _db_url=db_url,
         _config_file_path="config.yml",
         _log_level=20,
-        _use_dask_threads=False,
         _front_end_config=SimpleNamespace(expiry_seconds=86400),
     )
 

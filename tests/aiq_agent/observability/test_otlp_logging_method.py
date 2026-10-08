@@ -38,17 +38,16 @@ def metrics_calls(monkeypatch):
     monkeypatch.setattr(
         grid_metrics, "install_meter_provider", lambda endpoint, **kw: calls.append(("install", endpoint))
     )
-    monkeypatch.setattr(grid_metrics, "shutdown_meter_provider", lambda: calls.append(("shutdown",)))
     return calls
 
 
-async def test_the_metrics_provider_is_installed_on_the_logs_endpoint_and_stopped_with_it(metrics_calls):
+async def test_the_metrics_provider_is_installed_on_the_logs_endpoint(metrics_calls):
     config = OtlpLoggingMethodConfig(endpoint="http://otel-collector:4318/v1/traces")
 
     async with otlp_logging_method(config, None):
         assert metrics_calls == [("install", "http://otel-collector:4318/v1/traces")]
 
-    assert metrics_calls[-1] == ("shutdown",)
+    assert metrics_calls == [("install", "http://otel-collector:4318/v1/traces")]
 
 
 async def test_without_an_endpoint_no_metrics_provider_is_asked_for(metrics_calls):

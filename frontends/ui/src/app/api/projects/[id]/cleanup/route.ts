@@ -1,5 +1,5 @@
 /**
- * „Ausmisten" before a project closes (ADR-0088): the person's decision, which
+ * „Ausmisten" before a project closes (ADR-0090): the person's decision, which
  * puts what they chose into the Papierkorb, all or nothing. The proposal is
  * `./proposal`. Thin handler; the rules live in `cleanup-service`.
  */
