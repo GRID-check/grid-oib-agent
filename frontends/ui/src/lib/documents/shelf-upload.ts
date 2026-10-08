@@ -41,6 +41,8 @@ import { findLiveDocumentByFilename } from './repository'
 import { retryRacedUpload } from './unique-conflicts'
 import { newVersionWriteId, versionWriteKey } from './version-content'
 import { shelfOwner, type DocumentShelf } from './shelf'
+// Type only: `service.ts` imports this module, and a value import would be a cycle.
+import type { IngestPriority } from './service'
 import { requireShelfWrite } from './shelf-authz'
 import { shelfCollectionName } from './shelf-collection'
 
@@ -56,6 +58,12 @@ export interface ShelfUploadInput {
    * override", so a client that never asks is screened.
    */
   screeningRelease?: boolean
+  /**
+   * The ingest queue's priority for these bytes. A person's upload is
+   * `interactive` (the default); a machine filing thousands of files on their
+   * behalf, the mail import (ADR-0085), says `bulk` so it yields to them.
+   */
+  priority?: IngestPriority
 }
 
 export interface UploadDocumentResult {
@@ -408,6 +416,7 @@ export async function uploadToShelf(
     // document under (ADR-0049), so the agent's inventory and
     // `knowledge_search folder=` see the folder from the first ingest onward.
     folderPath,
+    priority: input.priority,
   })
 
   await uploadAuditEvent(session, shelf, request, {

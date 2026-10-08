@@ -804,6 +804,8 @@ export interface UploadDocumentInput {
    * override", so a client that never asks is screened.
    */
   screeningRelease?: boolean
+  /** See `ShelfUploadInput.priority`: `bulk` for a machine filing on a person's behalf. */
+  priority?: IngestPriority
 }
 
 export type { UploadDocumentResult }
