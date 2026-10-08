@@ -219,16 +219,17 @@ if (cfg.auth.requireAuth) {
 }
 
 // ── App workloads ──────────────────────────────────────────────────────────
-const backend = installBackend(wiring, cfg, secrets, [
-  postgres.initJob,
-  postgres.pooler,
-  seaweed.bucketInitJob,
-  dragonfly.service,
-  ...(chroma ? [chroma.service] : []),
-]);
+//
+// Rollout order (ADR-0082 step B): the api tier, then the frontend, then the
+// chat tier. A frontend from before the split sends every HTTP call to
+// `aiq-agent`, and a new `aiq-agent` serves only the chat socket, so the chat
+// tier may change only once the frontend that calls `aiq-api` instead has
+// rolled out; and that frontend needs `aiq-api` to be there. Pulumi awaits a
+// workload's rollout before it creates what depends on it, so the `dependsOn`
+// below is the whole mechanism and no operator sequences anything.
 
-// The api role (ADR-0082 step B): every backend HTTP route but the chat socket,
-// behind the Service BACKEND_URL names.
+// The api role: every backend HTTP route but the chat socket, behind the
+// Service BACKEND_URL names.
 const api = installApi(wiring, cfg, secrets, [
   postgres.initJob,
   seaweed.bucketInitJob,
@@ -236,7 +237,18 @@ const api = installApi(wiring, cfg, secrets, [
   ...(chroma ? [chroma.service] : []),
 ]);
 
-const frontend = installFrontend(wiring, cfg, secrets, [migrations, backend.service, api.service]);
+// Not after `aiq-agent`: the chat tier waits on the frontend (above), so the
+// reverse edge would be a cycle. The old chat pods serve the socket meanwhile.
+const frontend = installFrontend(wiring, cfg, secrets, [migrations, api.service]);
+
+const backend = installBackend(wiring, cfg, secrets, [
+  postgres.initJob,
+  postgres.pooler,
+  seaweed.bucketInitJob,
+  dragonfly.service,
+  ...(chroma ? [chroma.service] : []),
+  frontend.deployment,
+]);
 
 // The pre-A2 base corpus, carried off the old backend data volume once
 // (ADR-0082 A2). Only where that volume exists: see `storage.legacyCorpusClaim`.
