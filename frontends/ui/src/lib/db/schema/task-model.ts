@@ -264,6 +264,10 @@ export const taskRuns = pgTable(
     revisionConversationIdx: index('idx_task_runs_revision_conversation')
       .on(table.organizationId, table.conversationId)
       .where(sql`${table.kind} = 'revision'`),
+    // NOTE: `idx_task_runs_revision_subject`, the same lookup by the plan's
+    // subject document (organization, grid_uuid_or_null(plan->subject->>documentId))
+    // for revisions, is an expression index on a function the drizzle builder
+    // cannot name; it lives in migration 0123 beside the triggers that use it.
     backendJobUidx: uniqueIndex('uniq_task_runs_backend_job_id')
       .on(table.backendJobId)
       .where(sql`${table.backendJobId} IS NOT NULL`),

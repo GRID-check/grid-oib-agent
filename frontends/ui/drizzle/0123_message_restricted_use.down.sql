@@ -4,6 +4,22 @@
 -- out. A message marked after its chat was deleted is still kept out that way.
 -- The lesson text, the vectors and the `previousContent` 0123 withdrew stay
 -- withdrawn: they are not kept anywhere.
+DROP TRIGGER IF EXISTS "task_runs_mark_revision_thread" ON "task_runs";
+--> statement-breakpoint
+DROP FUNCTION IF EXISTS grid_mark_revision_thread_of_task();
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "documents_mark_revision_threads" ON "documents";
+--> statement-breakpoint
+DROP FUNCTION IF EXISTS grid_mark_revision_threads_of_document();
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "project_folders_mark_revision_threads" ON "project_folders";
+--> statement-breakpoint
+DROP FUNCTION IF EXISTS grid_mark_revision_threads_of_folder();
+--> statement-breakpoint
+DROP FUNCTION IF EXISTS grid_mark_revision_thread(text, text);
+--> statement-breakpoint
+DROP INDEX IF EXISTS "idx_task_runs_revision_subject";
+--> statement-breakpoint
 DROP TRIGGER IF EXISTS "messages_mark_restricted_use" ON "messages";
 --> statement-breakpoint
 DROP FUNCTION IF EXISTS grid_mark_message_restricted_use();
@@ -11,6 +27,8 @@ DROP FUNCTION IF EXISTS grid_mark_message_restricted_use();
 DROP TRIGGER IF EXISTS "conversation_restricted_folders_mark_messages" ON "conversation_restricted_folders";
 --> statement-breakpoint
 DROP FUNCTION IF EXISTS grid_mark_conversation_restricted_use();
+--> statement-breakpoint
+DROP FUNCTION IF EXISTS grid_mark_conversation_messages(text, text);
 --> statement-breakpoint
 DROP TRIGGER IF EXISTS "answer_feedback_mark_restricted_use" ON "answer_feedback";
 --> statement-breakpoint

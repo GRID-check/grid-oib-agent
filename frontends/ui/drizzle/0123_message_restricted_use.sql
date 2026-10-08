@@ -18,8 +18,15 @@
 -- `grid_conversation_restricted_use(organization, conversation)`: the
 -- conversation holds a restricted-use record (kept for the conversation's
 -- life, deleted with it), or it is the thread of a revision task whose
--- document sits where not every member may read (below). Three triggers write
--- marks:
+-- document sits where not every member may read (below), or it was marked
+-- before (marks are sticky, below). The server writes marks:
+--
+--   * at admission, by the answer's id: the BFF marks the id of the answer the
+--     turn is writing (`answer_message_id(conversation, turn)`, minted by the
+--     agent, streamed to the browser, persisted under it) in the transaction
+--     that records the folder, and at turn start when an earlier turn already
+--     drew on one (`markAnswerRestrictedUse`). That is before the model reads
+--     anything, and whether or not the answer is ever persisted;
 --
 --   * on `messages`: a row INSERTED, or its `content` rewritten, while its
 --     conversation answers yes. The record is written when the BFF admits
@@ -33,8 +40,11 @@
 --     a later edit of an older vote;
 --   * on `answer_feedback`: a vote written or rewritten while its message's
 --     conversation, or the conversation it names, answers yes marks its message
---     id. That covers a vote on an answer that was never persisted (shallow
---     turns are not, and a persist can fail) and a vote whose ids name nothing.
+--     id: an added reason to hide, never the only one for an answer the server
+--     knew about;
+--   * on `task_runs`, `documents` and `project_folders`: a revision thread
+--     that starts answering yes has every message it holds, and every vote
+--     naming it, marked then (below).
 --
 -- What a client sends can add a mark and never lift one: the message id and
 -- conversation id of a vote are the client's, so they are read only as reasons
@@ -44,9 +54,12 @@
 --
 -- Marks have no foreign key, so deleting the chat (which deletes its messages
 -- and its record) leaves them. They hold ids and a time, no content. A mark's
--- `conversation_id` is a note, never asked: a vote's claimed conversation, or
--- the one 0120 left on a vote, would otherwise make an open chat read as
--- restricted. The
+-- `conversation_id` is the conversation that answered yes when it was written,
+-- never a client's claim alone ('' when unknown, for 0120's column), and the
+-- rule asks it: a conversation once marked keeps answering yes, so marks are
+-- sticky for both kinds of conversation. An ordinary chat already was (any
+-- record counts, a folder since opened included); a revision thread now is
+-- too, after its document moves back, its folder opens or it is deleted. The
 -- runtime role may insert and read marks in its own tenant and may neither
 -- change nor delete one: no tenant-path bug can lift a mark.
 --
@@ -60,9 +73,15 @@
 -- cannot ask a person's clearance, so `grid_conversation_restricted_use` asks a
 -- superset of it: the document sits in another project than the task, or in a
 -- folder of a project that has any folder with its own access list or any
--- folder in the Papierkorb. A thread deleted since (`task_runs.conversation_id`
--- is set null) is no longer found this way; its messages and votes keep the
--- marks written while it was.
+-- folder in the Papierkorb. That branch is asked at read time and forgets a
+-- thread whose document moved back or that was deleted
+-- (`task_runs.conversation_id` is set null), so the moment it starts answering
+-- yes is marked: a trigger on `task_runs` (a task opened, or re-pointed, for a
+-- thread), on `documents` (its folder or project changed) and on
+-- `project_folders` (a folder given its own list, or binned) marks every
+-- message the thread holds and every vote naming it, and the marks keep it
+-- answering yes from then on. The tenant's own views still follow the folder
+-- as it is now.
 --
 -- ## Backfill, and what it cannot recover
 --
@@ -122,16 +141,26 @@ $$;
 -- restricted access. Asked by the triggers that write marks, by every
 -- cross-tenant reader of a vote (`grid_feedback_restricted_use`) and by the
 -- staff profiler. A revision task's thread is asked by its document's place
--- NOW, with a superset of `lib/authz/folder-access.ts`'s rule (see the header).
+-- NOW, with a superset of `lib/authz/folder-access.ts`'s rule (see the header),
+-- and once marked it answers yes for good.
 CREATE OR REPLACE FUNCTION grid_conversation_restricted_use(p_organization_id text, p_conversation_id text)
 RETURNS boolean LANGUAGE sql STABLE
 SET search_path = pg_catalog, public
 AS $$
-  SELECT p_conversation_id IS NOT NULL AND (
+  SELECT p_conversation_id IS NOT NULL AND p_conversation_id <> '' AND (
     EXISTS (
       SELECT 1 FROM "conversation_restricted_folders" crf
       WHERE crf."organization_id" = p_organization_id
         AND crf."conversation_id" = p_conversation_id
+    )
+    -- Sticky: a conversation that answered yes once, and had a message or a
+    -- vote then, keeps answering yes. Every mark names the conversation that
+    -- answered yes when it was written (or none, ''), never a client's claim
+    -- alone, so this cannot make an open chat read as restricted.
+    OR EXISTS (
+      SELECT 1 FROM "message_restricted_use" mr
+      WHERE mr."organization_id" = p_organization_id
+        AND mr."conversation_id" = p_conversation_id
     )
     OR EXISTS (
       SELECT 1
@@ -198,21 +227,31 @@ CREATE TRIGGER "messages_mark_restricted_use"
   AFTER INSERT OR UPDATE OF "content" ON "messages"
   FOR EACH ROW EXECUTE FUNCTION grid_mark_message_restricted_use();
 --> statement-breakpoint
--- An admission marks what the conversation already holds: its messages, and
--- the message id of every vote naming it.
-CREATE OR REPLACE FUNCTION grid_mark_conversation_restricted_use() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
+-- Mark what a conversation that now answers yes already holds: its messages,
+-- and the message id of every vote naming it. Called when it starts answering
+-- yes: a first admission, or a revision thread whose task, document or
+-- project's folders changed (below).
+CREATE OR REPLACE FUNCTION grid_mark_conversation_messages(p_organization_id text, p_conversation_id text)
+RETURNS void LANGUAGE sql
+SET search_path = pg_catalog, public
+AS $$
   INSERT INTO "message_restricted_use" ("organization_id", "message_id", "conversation_id")
   SELECT m."organization_id", m."id"::text, m."conversation_id"
   FROM "messages" m
-  WHERE m."organization_id" = NEW."organization_id"
-    AND m."conversation_id" = NEW."conversation_id"
+  WHERE m."organization_id" = p_organization_id
+    AND m."conversation_id" = p_conversation_id
   UNION
-  SELECT f."organization_id", f."message_id", NEW."conversation_id"
+  SELECT f."organization_id", f."message_id", p_conversation_id
   FROM "answer_feedback" f
-  WHERE f."organization_id" = NEW."organization_id"
-    AND f."conversation_id" = NEW."conversation_id"
-  ON CONFLICT DO NOTHING;
+  WHERE f."organization_id" = p_organization_id
+    AND f."conversation_id" = p_conversation_id
+  ON CONFLICT DO NOTHING
+$$;
+--> statement-breakpoint
+-- An admission marks what the conversation already holds.
+CREATE OR REPLACE FUNCTION grid_mark_conversation_restricted_use() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM grid_mark_conversation_messages(NEW."organization_id", NEW."conversation_id");
   RETURN NULL;
 END
 $$;
@@ -265,6 +304,108 @@ CREATE TRIGGER "answer_feedback_mark_restricted_use"
   AFTER INSERT OR UPDATE ON "answer_feedback"
   FOR EACH ROW EXECUTE FUNCTION grid_mark_feedback_restricted_use();
 --> statement-breakpoint
+-- A revision thread starts answering yes when its task, its document or its
+-- project's folders change, with nothing written into the thread. Marking it
+-- THEN is what makes the answer outlive the change back and the thread's
+-- deletion (the rule's revision branch is asked at read time and forgets a
+-- deleted thread: `task_runs.conversation_id` is set null). Each trigger finds
+-- the threads the change can touch and marks those the rule now answers yes for.
+CREATE OR REPLACE FUNCTION grid_mark_revision_thread(p_organization_id text, p_conversation_id text)
+RETURNS void LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF grid_conversation_restricted_use(p_organization_id, p_conversation_id) THEN
+    PERFORM grid_mark_conversation_messages(p_organization_id, p_conversation_id);
+  END IF;
+END
+$$;
+--> statement-breakpoint
+-- The subject lookup the two triggers below make, by document.
+CREATE INDEX IF NOT EXISTS "idx_task_runs_revision_subject"
+  ON "task_runs" ("organization_id", grid_uuid_or_null("plan"->'subject'->>'documentId'))
+  WHERE "kind" = 'revision';
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION grid_mark_revision_thread_of_task() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW."kind" = 'revision' AND NEW."conversation_id" IS NOT NULL THEN
+    PERFORM grid_mark_revision_thread(NEW."organization_id", NEW."conversation_id");
+  END IF;
+  RETURN NULL;
+END
+$$;
+--> statement-breakpoint
+ALTER FUNCTION grid_mark_revision_thread_of_task() SET search_path = pg_catalog, public;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "task_runs_mark_revision_thread" ON "task_runs";
+--> statement-breakpoint
+CREATE TRIGGER "task_runs_mark_revision_thread"
+  AFTER INSERT OR UPDATE OF "conversation_id", "plan", "kind", "project_id" ON "task_runs"
+  FOR EACH ROW EXECUTE FUNCTION grid_mark_revision_thread_of_task();
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION grid_mark_revision_threads_of_document() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  thread text;
+BEGIN
+  FOR thread IN
+    SELECT DISTINCT r."conversation_id"
+    FROM "task_runs" r
+    WHERE r."organization_id" = NEW."organization_id"
+      AND r."kind" = 'revision'
+      AND grid_uuid_or_null(r."plan"->'subject'->>'documentId') = NEW."id"
+      AND r."conversation_id" IS NOT NULL
+  LOOP
+    PERFORM grid_mark_revision_thread(NEW."organization_id", thread);
+  END LOOP;
+  RETURN NULL;
+END
+$$;
+--> statement-breakpoint
+ALTER FUNCTION grid_mark_revision_threads_of_document() SET search_path = pg_catalog, public;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "documents_mark_revision_threads" ON "documents";
+--> statement-breakpoint
+CREATE TRIGGER "documents_mark_revision_threads"
+  AFTER UPDATE OF "folder_id", "project_id" ON "documents"
+  FOR EACH ROW
+  WHEN (OLD."folder_id" IS DISTINCT FROM NEW."folder_id" OR OLD."project_id" IS DISTINCT FROM NEW."project_id")
+  EXECUTE FUNCTION grid_mark_revision_threads_of_document();
+--> statement-breakpoint
+-- A folder of a project gets its own access list, or goes to the Papierkorb:
+-- every revision thread whose document sits in a folder of that project.
+CREATE OR REPLACE FUNCTION grid_mark_revision_threads_of_folder() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  thread text;
+BEGIN
+  IF NEW."access_mode" IS DISTINCT FROM 'custom' AND NEW."deleted_at" IS NULL THEN
+    RETURN NULL;
+  END IF;
+  FOR thread IN
+    SELECT DISTINCT r."conversation_id"
+    FROM "documents" d
+    JOIN "task_runs" r
+      ON r."organization_id" = d."organization_id"
+     AND r."kind" = 'revision'
+     AND grid_uuid_or_null(r."plan"->'subject'->>'documentId') = d."id"
+    WHERE d."organization_id" = NEW."organization_id"
+      AND d."project_id" = NEW."project_id"
+      AND d."folder_id" IS NOT NULL
+      AND r."conversation_id" IS NOT NULL
+  LOOP
+    PERFORM grid_mark_revision_thread(NEW."organization_id", thread);
+  END LOOP;
+  RETURN NULL;
+END
+$$;
+--> statement-breakpoint
+ALTER FUNCTION grid_mark_revision_threads_of_folder() SET search_path = pg_catalog, public;
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "project_folders_mark_revision_threads" ON "project_folders";
+--> statement-breakpoint
+CREATE TRIGGER "project_folders_mark_revision_threads"
+  AFTER INSERT OR UPDATE OF "access_mode", "deleted_at", "project_id" ON "project_folders"
+  FOR EACH ROW EXECUTE FUNCTION grid_mark_revision_threads_of_folder();
+--> statement-breakpoint
 INSERT INTO "message_restricted_use" ("organization_id", "message_id", "conversation_id")
 SELECT m."organization_id", m."id"::text, m."conversation_id"
 FROM "messages" m
@@ -277,8 +418,11 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'answer_feedback' AND column_name = 'restricted_source'
   ) THEN
+    -- No conversation: the column says the message is to be hidden, not which
+    -- conversation answered yes (after a down and a re-apply it names the
+    -- vote's claim), and a mark's conversation is asked by the rule.
     INSERT INTO "message_restricted_use" ("organization_id", "message_id", "conversation_id")
-    SELECT f."organization_id", f."message_id", coalesce(f."conversation_id", '')
+    SELECT f."organization_id", f."message_id", ''
     FROM "answer_feedback" f
     WHERE f."restricted_source"
     ON CONFLICT DO NOTHING;

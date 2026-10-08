@@ -312,6 +312,11 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
     expect(JSON.stringify(after.turns)).not.toContain('SPENGLER-BBB')
     expect(JSON.stringify(after.reports)).not.toContain('SPENGLER-BBB')
     expect(await scoredWithoutWords(phantom)).toBe(true)
+
+    // The chat and its record are gone; its marks keep it answering yes (sticky).
+    const late = randomUUID()
+    await vote(late, PHANTOM_CHAT, 'SPENGLER-BBB nach dem Löschen', COLLEAGUE)
+    expect(await marksIn(PHANTOM_CHAT)).toContain(late)
   })
 
   /**

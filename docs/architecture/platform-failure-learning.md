@@ -143,12 +143,16 @@ migration 0123, ADR-0091): the vote's message is marked in
 `message_restricted_use`, or the voted message's conversation, or the one the
 vote names, holds a `conversation_restricted_folders` record (written when the
 BFF admits restricted content into a turn) or is a revision thread whose
-document sits where not every member may read. Triggers mark every message of
-such a conversation from its first admission on, and the message id of every
-vote cast in one, whether or not that id names a persisted message. The vote's
-ids are the client's and can only add to the answer. The sweep reads the
-question through the voted message's own conversation. Marks have no foreign
-key, so they stay when the chat is deleted.
+document sits where not every member may read, or was marked before. The BFF
+marks the answer a turn is writing, by the id the agent mints for it, when it
+admits restricted content into the turn, before the model reads it, so a vote
+on an answer that was never persisted is judged by the server's own record.
+Triggers mark every message of such a conversation from its first admission
+on (for a revision thread, from the change that made it answer yes), and the
+message id of every vote cast in one. The vote's ids are the client's and can
+only add to the answer. The sweep reads the question through the voted
+message's own conversation. Marks have no foreign key, so they stay when the
+chat is deleted, and a conversation once marked keeps answering yes.
 
 What a sweep took before that rule was withdrawn twice: migration 0119 by
 conversation record, 0123 by mark. The report's `canonical_summary` is cleared,

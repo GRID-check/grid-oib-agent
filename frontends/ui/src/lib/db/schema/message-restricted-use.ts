@@ -4,14 +4,22 @@ import { index, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core
  * `message_restricted_use` — a message id whose conversation drew on a folder
  * with restricted access (ADR-0091, migration 0123).
  *
- * Written by the DATABASE, never by a client, from one rule
- * (`grid_conversation_restricted_use`): a trigger on `messages` marks a row
- * inserted, or its `content` rewritten, while the conversation answers yes; a
- * trigger on `conversation_restricted_folders` marks, at the first admission,
- * every message the conversation already holds and the message id of every
- * vote naming it; a trigger on `answer_feedback` marks a vote's message id
- * when the voted message's conversation, or the one the vote names, answers
- * yes. A vote's ids are the client's and can only add a mark.
+ * Written by the SERVER, never by a client, from one rule
+ * (`grid_conversation_restricted_use`): the BFF marks the id of the answer a
+ * turn is writing when restricted content is admitted into it, before the
+ * model reads it (`markAnswerRestrictedUse`); a trigger on `messages` marks a
+ * row inserted, or its `content` rewritten, while the conversation answers
+ * yes; a trigger on `conversation_restricted_folders` marks, at the first
+ * admission, every message the conversation already holds and the message id
+ * of every vote naming it; triggers on `task_runs`, `documents` and
+ * `project_folders` do the same for a revision thread when it starts
+ * answering yes; a trigger on `answer_feedback` marks a vote's message id when
+ * the voted message's conversation, or the one the vote names, answers yes. A
+ * vote's ids are the client's and can only add a mark.
+ *
+ * `conversation_id` is the conversation that answered yes when the mark was
+ * written ('' when unknown), and the rule asks it: once marked, a conversation
+ * keeps answering yes (sticky, ADR-0091).
  *
  * Keyed by (organization, message id), because a vote names its answer by
  * message id. No foreign key: deleting the chat deletes its messages and its

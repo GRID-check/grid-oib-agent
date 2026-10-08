@@ -22,7 +22,10 @@
  *   - the staff views ask the database's rule (`grid_conversation_restricted_use`):
  *     a vote in the thread is shown, and the profiler names the thread, while
  *     the document sits at the project's root, and both are withheld once it
- *     sits in a folder of a project with an access list of its own.
+ *     sits in a folder of a project with an access list of its own;
+ *   - that move marks the thread's messages and votes, so the staff views keep
+ *     withholding them, and Langfuse their words, after the document moves
+ *     back and after the thread is deleted (marks are sticky, ADR-0091).
  */
 
 import { sql } from 'drizzle-orm'
@@ -115,6 +118,28 @@ describe.skipIf(!url)('revision tasks judged by their document’s current folde
       reports: reports.map((report) => report.answer),
       profiled: profiled ? { title: profiled.title, titleWithheld: profiled.titleWithheld } : null,
     }
+  }
+
+  const threadMarks = async () =>
+    Number(
+      first(
+        await inOrg(() =>
+          db.execute<{ n: number }>(
+            sql`select count(*)::int as n from message_restricted_use where organization_id = ${ORG} and conversation_id = ${THREAD}`
+          )
+        )
+      ).n
+    )
+
+  /** Whether the thread's vote is scored in Langfuse without its words (`isRestrictedUseVote`, the same rule). */
+  async function scoredWithoutWords(): Promise<boolean> {
+    const { isRestrictedUseVote } = await import('@/lib/feedback/repository')
+    const vote = first(
+      await inOrg(() =>
+        db.execute<{ id: string }>(sql`select id from answer_feedback where organization_id = ${ORG} limit 1`)
+      )
+    )
+    return inOrg(() => isRestrictedUseVote(String(vote.id), ORG))
   }
 
   async function seen(userId: string) {
@@ -277,7 +302,8 @@ describe.skipIf(!url)('revision tasks judged by their document’s current folde
   /**
    * Staff read across organizations and hold no clearance to ask, so the
    * database answers with a superset of the folder rule. Nothing is marked
-   * while the document sits at the project's root; moving it is enough.
+   * while the document sits at the project's root; moving it is enough, and
+   * the move marks the thread.
    */
   it('keeps the thread out of the staff views once its document sits in a folder of a project with an access list', async () => {
     await moveDocumentTo(null)
@@ -306,6 +332,7 @@ describe.skipIf(!url)('revision tasks judged by their document’s current folde
       profiled: { title: 'Aufgabe: Überarbeitung', titleWithheld: false },
     })
 
+    expect(await threadMarks()).toBe(0)
     await moveDocumentTo(restrictedFolder)
     expect(await staffSees()).toEqual({
       answers: [],
@@ -313,5 +340,35 @@ describe.skipIf(!url)('revision tasks judged by their document’s current folde
       reports: [],
       profiled: { title: null, titleWithheld: true },
     })
+    // The question, the answer and the vote's message id: one mark each, the
+    // answer's shared by the message and the vote.
+    expect(await threadMarks()).toBe(2)
+  })
+
+  /**
+   * The rule's revision branch is asked at read time, and forgets the thread
+   * once the document moves back or the thread is deleted (its task's
+   * `conversation_id` is set null). The marks the move wrote do not, and the
+   * rule asks them: ordinary chats and revision threads are both sticky.
+   */
+  it('keeps the thread out of the staff views and Langfuse after the document moves back and the thread is deleted', async () => {
+    const hidden = { answers: [], titles: [], reports: [] }
+    await moveDocumentTo(null)
+    expect(await staffSees()).toEqual({ ...hidden, profiled: { title: null, titleWithheld: true } })
+    expect(await scoredWithoutWords()).toBe(true)
+
+    await inOrg(() => db.execute(sql`delete from conversations where id = ${THREAD}`))
+    expect(
+      Number(
+        first(
+          await inOrg(() =>
+            db.execute<{ n: number }>(sql`select count(*)::int as n from messages where conversation_id = ${THREAD}`)
+          )
+        ).n
+      )
+    ).toBe(0)
+    expect(await staffSees()).toEqual({ ...hidden, profiled: { title: null, titleWithheld: true } })
+    expect(await scoredWithoutWords()).toBe(true)
+    expect(await threadMarks()).toBe(2)
   })
 })

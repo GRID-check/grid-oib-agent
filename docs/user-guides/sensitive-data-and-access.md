@@ -340,16 +340,23 @@ have said) are not shown to the people who run Piloti and are not used for the
 lessons Piloti learns across offices, also after the chat is deleted. This
 covers every answer in the chat, the ones from before it first drew on such a
 folder too, because a rating given afterwards can quote what was read. Piloti
-notes it on the answers and the ratings itself; what the browser sends can
-only add to it. Only their number is counted. Lessons learned from such
+notes it on the answers and the ratings itself, the moment the folder's content
+enters the answer, so it holds even for an answer that was never saved; what
+the browser sends can only add to it. Once noted it stays: opening the folder
+to everyone later, or deleting the chat, does not bring the ratings back. The
+same holds for the chat of an Auftrag whose file moved into such a folder:
+from that moment its ratings stay hidden from the people who run Piloti, also
+after the file moves back or the chat is deleted, while the people in your
+office see the Auftrag again as described above. Only their number is counted. Lessons learned from such
 ratings before this rule were withdrawn, together with earlier wordings an
 edit had kept and the search data computed from them. The people who run
 Piloti also do not see the title of such a chat in their performance view.
 
-Whether a chat drew on such a folder is decided against the folders' lists as
-they are now: when a folder is opened to everyone, the chats and notes that
-drew on it are no longer held back by it; when a list is narrowed, they are
-shown to fewer people. The project context can still be changed by hand, in
+Within your office, whether a chat drew on such a folder is decided against
+the folders' lists as they are now: when a folder is opened to everyone, the
+chats and notes that drew on it are no longer held back by it; when a list is
+narrowed, they are shown to fewer people. What the people who run Piloti may
+see of the ratings stays as described above. The project context can still be changed by hand, in
 the project intake.
 
 **What Piloti remembers from such a chat is restricted too.** Piloti keeps

@@ -845,8 +845,13 @@ echo "==> 0121 quarantine exit, 0122 screened hash and their down migrations ver
 # one, and the mark outlives the conversation. A first admission marks the
 # messages its conversation already holds and the votes naming it; a vote
 # naming a recorded conversation marks its id. The runtime role may not delete
-# or change a mark. The down brings 0120's column back from the marks and
-# drops the rule's functions; 0123 re-applies, twice, without a second event.
+# or change a mark. A revision thread is not restricted while its document
+# sits at the project's root; moving the document into a folder of a project
+# with an access list marks the thread's messages and votes, and the marks
+# keep the thread answering yes after the document moves back and after the
+# thread is deleted. The down brings 0120's column back from the marks and
+# drops the rule's functions, triggers and index; 0123 re-applies, twice,
+# without a second event, and the column it reads back names no conversation.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0123 message mark, its withdrawal and its down migration on grid_lessons"
 apply_in grid_lessons 0121_document_quarantine_exit.sql
@@ -913,16 +918,54 @@ SQL
 check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE conversation_id = 's_0122_late'" "e1e1e1e1-0000-4000-8000-000000000122,e2e2e2e2-0000-4000-8000-000000000122,e3e3e3e3-0000-4000-8000-000000000122" "a first admission marks the messages and the votes already there, and a vote naming the conversation, or on its message, marks its id"
 check_in grid_lessons "SELECT count(*) FROM message_restricted_use WHERE conversation_id = 's_0122_open'" "0" "a vote naming an open conversation on a recorded one's message does not make the open one read as restricted"
 check_in grid_lessons "SELECT has_table_privilege('grid_app_rw', 'message_restricted_use', 'INSERT')::text || ',' || has_table_privilege('grid_app_rw', 'message_restricted_use', 'UPDATE')::text || ',' || has_table_privilege('grid_app_rw', 'message_restricted_use', 'DELETE')::text" "true,false,false" "the runtime role may add a mark and may neither change nor delete one"
+sql_in grid_lessons <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name) VALUES
+  ('b0b0b0b0-0000-4000-8000-000000000123', 'org_0107', 'Revision', 'user_1', 'proj_rev_0123');
+WITH folder AS (
+  INSERT INTO project_folders (id, organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+  VALUES ('b1b1b1b1-0000-4000-8000-000000000123', 'org_0107', 'b0b0b0b0-0000-4000-8000-000000000123', 'Honorare', 'Honorare', 'custom', 'user_1', now())
+  RETURNING id, project_id
+), grants AS (
+  INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
+  SELECT 'org_0107', project_id, id, 'org-buchhaltung', 'read' FROM folder
+)
+SELECT 1 FROM folder;
+INSERT INTO documents (id, organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id) VALUES
+  ('b2b2b2b2-0000-4000-8000-000000000123', 'org_0107', 'user_1', 'angebot.md', 'k/rev/0123', 'proj_rev_0123', 'completed', 'project', 'b0b0b0b0-0000-4000-8000-000000000123', NULL);
+INSERT INTO conversations (id, organization_id, created_by) VALUES ('s_0123_thread', 'org_0107', 'user_1');
+INSERT INTO task_runs (organization_id, project_id, kind, title, plan, requester_user_id, trigger, status, skill_snapshot, conversation_id) VALUES
+  ('org_0107', 'b0b0b0b0-0000-4000-8000-000000000123', 'revision', 'Überarbeitung',
+   '{"prompt": "x", "skill": {}, "dataSources": null, "subject": {"documentId": "b2b2b2b2-0000-4000-8000-000000000123", "versionId": "b2b2b2b2-0000-4000-8000-000000000123"}}',
+   'user_1', 'delegated', 'succeeded', '{}', 's_0123_thread');
+INSERT INTO messages (id, conversation_id, organization_id, role, content) VALUES
+  ('b3b3b3b3-0000-4000-8000-000000000123', 's_0123_thread', 'org_0107', 'assistant', 'Entwurf: Zimmerer 48.000 EUR');
+INSERT INTO answer_feedback (id, organization_id, conversation_id, message_id, user_id, verdict, comment) VALUES
+  ('b4b4b4b4-0000-4000-8000-000000000123', 'org_0107', NULL, 'b3b3b3b3-0000-4000-8000-000000000123', 'user_1', 'down', 'Zimmerer falsch');
+SQL
+check_in grid_lessons "SELECT grid_feedback_restricted_use('org_0107', 'b3b3b3b3-0000-4000-8000-000000000123', NULL)::text || ',' || (SELECT count(*) FROM message_restricted_use WHERE conversation_id = 's_0123_thread')" "false,0" "a revision thread whose document sits at the project's root is not restricted, and nothing is marked"
+sql_in grid_lessons <<'SQL'
+UPDATE documents SET folder_id = 'b1b1b1b1-0000-4000-8000-000000000123' WHERE id = 'b2b2b2b2-0000-4000-8000-000000000123';
+SQL
+check_in grid_lessons "SELECT string_agg(message_id, ',') FROM message_restricted_use WHERE conversation_id = 's_0123_thread'" "b3b3b3b3-0000-4000-8000-000000000123" "moving the document into a folder of a project with an access list marks the thread's messages and votes"
+sql_in grid_lessons <<'SQL'
+UPDATE documents SET folder_id = NULL WHERE id = 'b2b2b2b2-0000-4000-8000-000000000123';
+SQL
+check_in grid_lessons "SELECT grid_conversation_restricted_use('org_0107', 's_0123_thread')::text" "true" "the marks keep the thread restricted after the document moves back"
+sql_in grid_lessons <<'SQL'
+DELETE FROM conversations WHERE id = 's_0123_thread';
+SQL
+check_in grid_lessons "SELECT grid_feedback_restricted_use('org_0107', 'b3b3b3b3-0000-4000-8000-000000000123', NULL)::text || ',' || grid_conversation_restricted_use('org_0107', 's_0123_thread')::text || ',' || (SELECT count(*) FROM task_runs WHERE conversation_id = 's_0123_thread')" "true,true,0" "the vote stays out after the thread is deleted, though its task no longer names it"
 apply_in grid_lessons 0123_message_restricted_use.down.sql
 check_in grid_lessons "SELECT to_regclass('public.message_restricted_use') IS NULL" "t" "down dropped the marks"
 check_in grid_lessons "SELECT string_agg(message_id || ':' || restricted_source::text, ',' ORDER BY message_id) FROM answer_feedback WHERE id IN ('f6f6f6f6-0000-4000-8000-000000000122', 'f7f7f7f7-0000-4000-8000-000000000122')" "c2c2c2c2-0000-4000-8000-000000000122:true,c3c3c3c3-0000-4000-8000-000000000122:false" "down brings 0120's column back from the marks"
 check_in grid_lessons "SELECT count(*) FROM pg_trigger WHERE tgname = 'conversation_restricted_folders_mark_feedback'" "1" "down restores 0120's trigger"
-check_in grid_lessons "SELECT (SELECT count(*) FROM pg_proc WHERE proname IN ('grid_uuid_or_null', 'grid_conversation_restricted_use', 'grid_feedback_restricted_use', 'grid_mark_conversation_restricted_use', 'grid_mark_feedback_restricted_use')) + (SELECT count(*) FROM pg_trigger WHERE tgname IN ('conversation_restricted_folders_mark_messages', 'answer_feedback_mark_restricted_use'))" "0" "down drops the rule's functions and triggers"
+check_in grid_lessons "SELECT (SELECT count(*) FROM pg_proc WHERE proname IN ('grid_uuid_or_null', 'grid_conversation_restricted_use', 'grid_feedback_restricted_use', 'grid_mark_conversation_restricted_use', 'grid_mark_conversation_messages', 'grid_mark_feedback_restricted_use', 'grid_mark_revision_thread', 'grid_mark_revision_thread_of_task', 'grid_mark_revision_threads_of_document', 'grid_mark_revision_threads_of_folder')) + (SELECT count(*) FROM pg_trigger WHERE tgname IN ('conversation_restricted_folders_mark_messages', 'answer_feedback_mark_restricted_use', 'task_runs_mark_revision_thread', 'documents_mark_revision_threads', 'project_folders_mark_revision_threads')) + (SELECT count(*) FROM pg_indexes WHERE indexname IN ('idx_task_runs_revision_conversation', 'idx_task_runs_revision_subject'))" "0" "down drops the rule's functions, triggers and indexes"
 apply_in grid_lessons 0123_message_restricted_use.sql
 apply_in grid_lessons 0123_message_restricted_use.sql
 check_in grid_lessons "SELECT count(*) FROM platform_lesson_events WHERE actor = 'system:migration-0123'" "1" "0123 re-applies, twice, without a second event"
 check_in grid_lessons "SELECT count(*) FROM message_restricted_use WHERE message_id IN ('c2c2c2c2-0000-4000-8000-000000000122', 'm_0118_1')" "2" "the re-applied backfill marks again from the restored column"
-check_in grid_lessons "SELECT (SELECT count(*) FROM message_restricted_use WHERE message_id = 'c3c3c3c3-0000-4000-8000-000000000122')::text || ',' || (SELECT status FROM platform_lessons WHERE id = '55555555-0000-4000-8000-000000000122')" "0,active" "a mark's conversation is never asked: the restored column names the open chat a vote claimed, and the open chat's answer and lesson stay as they were"
+check_in grid_lessons "SELECT conversation_id = '' FROM message_restricted_use WHERE message_id = 'c2c2c2c2-0000-4000-8000-000000000122'" "t" "a mark read back from the restored column names no conversation: the column names the chat a vote claimed"
+check_in grid_lessons "SELECT (SELECT count(*) FROM message_restricted_use WHERE message_id = 'c3c3c3c3-0000-4000-8000-000000000122')::text || ',' || (SELECT status FROM platform_lessons WHERE id = '55555555-0000-4000-8000-000000000122')" "0,active" "so the open chat a vote claimed does not read as restricted, and its answer and lesson stay as they were"
 
 echo "==> 0123 message mark, withdrawal and down migration verified"
 

@@ -793,9 +793,10 @@ conversation and a narrowed one confines it to fewer people.
 | `folder_id` | `uuid` | NOT NULL, PK | No FK: a deleted folder's tombstone (0110) keeps answering, and an unknown id is treated as unreadable |
 | `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | |
 
-`deleteConversationInOrg` deletes the rows with the conversation. The first row
-marks every message the conversation holds and every vote naming it, and while
-a row exists every message written into the conversation is marked too, in
+`deleteConversationInOrg` deletes the rows with the conversation. The admission
+that writes a row marks the answer its turn is writing, the first row marks
+every message the conversation holds and every vote naming it, and from then on
+every message written into the conversation is marked too, in
 `message_restricted_use` (below); the marks stay when the chat goes.
 `listRecordedSourceFolders` also returns the current folder of each document a
 revision task written into the conversation revises (ADR-0091), so the thread is
@@ -1338,13 +1339,21 @@ declares it. `grid_tenant_isolation` is untouched.
 ## message_restricted_use (migration 0123)
 
 A message id whose conversation drew on a folder with restricted access
-(ADR-0091). Written by the DATABASE, from one rule,
+(ADR-0091). Written by the SERVER, from one rule,
 `grid_conversation_restricted_use(organization, conversation)`: the
 conversation has a `conversation_restricted_folders` row, or it is the thread
 of a revision task whose document sits in another project than the task, or in
 a folder of a project that has any custom-access or binned folder (a superset
-of `folder-access.ts`'s restricted folders, for views that hold no clearance).
-Three triggers:
+of `folder-access.ts`'s restricted folders, for views that hold no clearance),
+or a mark names it (marks are sticky: once a conversation answered yes and was
+marked, it keeps answering yes).
+
+- At admission, the BFF marks the id of the answer the turn writes
+  (`answerMessageId`, `answer_message_id(conversation, turn)` on the agent's
+  side) in the transaction that records the folder, and at turn start when the
+  conversation already answers yes (`markAnswerRestrictedUse`,
+  `lib/conversations/restricted-use-repository.ts`). Before the model reads
+  anything, and whether or not the answer is ever persisted.
 
 - `messages_mark_restricted_use` (`AFTER INSERT OR UPDATE OF content` on
   `messages`): a message written while its conversation answers yes. The
@@ -1356,8 +1365,17 @@ Three triggers:
   holds, and the `message_id` of every vote naming it.
 - `answer_feedback_mark_restricted_use` (`AFTER INSERT OR UPDATE` on
   `answer_feedback`): the vote's `message_id`, when the voted message's
-  conversation or the one the vote names answers yes. A vote whose message id
-  names no row is marked this way.
+  conversation or the one the vote names answers yes: a reason added by the
+  client's ids, never the only one for an answer the server admitted content
+  into.
+- `task_runs_mark_revision_thread` (`AFTER INSERT OR UPDATE OF conversation_id,
+  plan, kind, project_id` on `task_runs`), `documents_mark_revision_threads`
+  (`AFTER UPDATE OF folder_id, project_id` on `documents`) and
+  `project_folders_mark_revision_threads` (`AFTER INSERT OR UPDATE OF
+  access_mode, deleted_at, project_id` on `project_folders`): a revision thread
+  the change makes answer yes has every message it holds and every vote naming
+  it marked (`grid_mark_conversation_messages`), so it stays hidden after the
+  document moves back, the folder opens or the thread is deleted.
 
 `grid_feedback_restricted_use(organization, message_id, conversation_id)` asks
 the same of a vote at read time: marked, or either conversation answers yes.
@@ -1367,7 +1385,7 @@ the same of a vote at read time: marked, or either conversation answers yes.
 |--------|------|-------------|-------|
 | `organization_id` | `text` | NOT NULL, PK | RLS: `organization_id = grid_current_org()` |
 | `message_id` | `text` | NOT NULL, PK | `messages.id` as text, the form `answer_feedback.message_id` holds it in. No FK: the mark outlives the chat |
-| `conversation_id` | `text` | NOT NULL | The conversation that answered yes, as a note; no rule asks it. Index `message_restricted_use_conversation_idx` (`organization_id`, `conversation_id`) |
+| `conversation_id` | `text` | NOT NULL | The conversation that answered yes when the mark was written, never a client's claim alone; `''` when unknown (marks read back from 0120's column). The rule asks it, which is what makes marks sticky. Index `message_restricted_use_conversation_idx` (`organization_id`, `conversation_id`) |
 | `marked_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 The runtime role `grid_app_rw` may insert and select, and may neither update nor
@@ -1384,7 +1402,10 @@ withdrawal and the down in `scripts/rls-test-db.sh`.
 
 0123 also adds `idx_task_runs_revision_conversation` on `task_runs`
 (`organization_id`, `conversation_id`) `WHERE kind = 'revision'`, the lookup
-behind judging a revision task's thread by its document's current folder.
+behind judging a revision task's thread by its document's current folder, and
+`idx_task_runs_revision_subject` (`organization_id`,
+`grid_uuid_or_null(plan->'subject'->>'documentId')`) `WHERE kind = 'revision'`,
+the lookup by document the revision-thread triggers make.
 
 ---
 
@@ -1397,8 +1418,10 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   `project_id` (nullable, **cascade FK** to `projects` so a purged project
   takes its feedback along), `conversation_id` (nullable plain text — no FK,
   the vote must not race the async conversation insert), `message_id` (the
-  **client-side** assistant message identifier; shallow chat turns are not
-  persisted as `messages` rows, so no FK), `user_id`, `verdict`
+  answer's id, `answer_message_id(conversation, turn)`, which the agent mints
+  and persists the answer under; the persist is fail-soft and a turn that hands
+  off, is refused or loses its conversation writes no `messages` row, so no
+  FK), `user_id`, `verdict`
   (`up`/`down`), `reason` (nullable, fixed keys
   `inaccurate`/`too_slow`/`wrong_source`/`other`; down-votes only),
   `comment` (nullable free-text on a down-vote; migration 0052),
