@@ -49,8 +49,8 @@ export const permitRecords = pgTable(
      */
     restrictedFolderIds: uuid('restricted_folder_ids').array(),
     kind: text('kind').$type<PermitRecordKind>().notNull(),
-    /** As the document names it („Magistratsabteilung 37", „Stadtgemeinde Mödling"). */
-    authority: text('authority').notNull(),
+    /** As the document names it („Magistratsabteilung 37", „Stadtgemeinde Mödling"); NULL when it does not name the issuer. */
+    authority: text('authority'),
     /** The Gemeinde the procedure is in, as written. */
     municipality: text('municipality'),
     /** Intake token (`wien`, `niederoesterreich`, …) when the document makes it clear. */

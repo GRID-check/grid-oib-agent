@@ -4,8 +4,8 @@
   "records": {
     "doc-baden-bescheid": {
       "kind": "bewilligung",
-      "authority": "",
-      "municipality": null,
+      "authority": "Stadtgemeinde Baden, Baubehörde erster Instanz",
+      "municipality": "Baden",
       "bundesland": null,
       "issuedOn": "2020-09-14",
       "reference": null,
@@ -20,14 +20,14 @@
         {
           "kind": "auflage",
           "content": "Mit der Fertigstellungsanzeige ist eine Bestätigung des Brandschutzplaners über die plan- und gutachtensgemäße Ausführung der Kapselung vorzulegen.",
-          "evidence": "Bestätigung des Brandschutzplaners",
+          "evidence": "Bestätigung des Brandschutzplaners über die plan- und gutachtensgemäße Ausführung der Kapselung",
           "legalBasis": null,
           "page": 1
         },
         {
           "kind": "auflage",
           "content": "Die Brandsperren der Fassade sind vor dem Schließen der Fassade fotografisch zu dokumentieren.",
-          "evidence": "fotografische Dokumentation der Brandsperren der Fassade",
+          "evidence": "Fotografische Dokumentation der Brandsperren der Fassade",
           "legalBasis": null,
           "page": 1
         }
@@ -35,8 +35,8 @@
     },
     "doc-moedling-nachforderung": {
       "kind": "nachforderung",
-      "authority": "",
-      "municipality": null,
+      "authority": "Stadtgemeinde Mödling, Baubehörde erster Instanz",
+      "municipality": "Mödling",
       "bundesland": null,
       "issuedOn": "2019-06-18",
       "reference": null,
@@ -44,7 +44,7 @@
         {
           "kind": "nachforderung",
           "content": "Die Einreichunterlagen sind um den Nachweis der lichten Breite der Fluchtwege im Stiegenhaus von mindestens 1,20 m, bemaßt in den Grundrissen aller Geschoße, zu ergänzen.",
-          "evidence": "Nachweis der lichten Breite, bemaßt in den Grundrissen aller Geschoße",
+          "evidence": "Nachweis der lichten Breite der Fluchtwege im Stiegenhaus, bemaßt in den Grundrissen aller Geschoße",
           "legalBasis": "§ 13 Abs. 3 AVG",
           "page": 1
         },
@@ -66,8 +66,8 @@
     },
     "doc-moedling-bescheid": {
       "kind": "bewilligung",
-      "authority": "",
-      "municipality": null,
+      "authority": "Stadtgemeinde Mödling, Baubehörde erster Instanz",
+      "municipality": "Mödling",
       "bundesland": null,
       "issuedOn": "2019-10-09",
       "reference": null,
@@ -97,23 +97,16 @@
     },
     "doc-wien22-ma37": {
       "kind": "nachforderung",
-      "authority": "MA 37",
-      "municipality": null,
-      "bundesland": null,
+      "authority": "Magistrat der Stadt Wien, Magistratsabteilung 37 – Baupolizei",
+      "municipality": "Wien",
+      "bundesland": "wien",
       "issuedOn": null,
       "reference": null,
       "requirements": [
         {
           "kind": "nachforderung",
-          "content": "Für das Sicherheitstreppenhaus ist vor Erteilung der Baubewilligung ein rechnerischer Nachweis der Druckbelüftung samt Prüfbericht einer akkreditierten Stelle vorzulegen.",
-          "evidence": "Rechnerischer Nachweis der Druckbelüftung samt Prüfbericht einer akkreditierten Stelle",
-          "legalBasis": null,
-          "page": 1
-        },
-        {
-          "kind": "nachforderung",
-          "content": "Die Zuluft- und Abströmöffnungen sind darzustellen.",
-          "evidence": null,
+          "content": "Für das Sicherheitstreppenhaus ist vor Erteilung der Baubewilligung ein rechnerischer Nachweis der Druckbelüftung samt Prüfbericht einer akkreditierten Stelle sowie die Darstellung der Zuluft- und Abströmöffnungen vorzulegen.",
+          "evidence": "Rechnerischer Nachweis der Druckbelüftung, Prüfbericht einer akkreditierten Stelle und Darstellung der Zuluft- und Abströmöffnungen",
           "legalBasis": null,
           "page": 1
         }
@@ -121,9 +114,9 @@
     },
     "doc-wien7-bescheid": {
       "kind": "bewilligung",
-      "authority": "MA 37",
-      "municipality": null,
-      "bundesland": null,
+      "authority": "Magistrat der Stadt Wien, Magistratsabteilung 37 – Baupolizei",
+      "municipality": "Wien",
+      "bundesland": "wien",
       "issuedOn": "2018-05-22",
       "reference": null,
       "requirements": [
@@ -138,15 +131,15 @@
     },
     "doc-hinterbruehl-bescheid": {
       "kind": "bewilligung",
-      "authority": "",
-      "municipality": null,
+      "authority": "Marktgemeinde Hinterbrühl, Baubehörde erster Instanz",
+      "municipality": "Hinterbrühl",
       "bundesland": null,
       "issuedOn": "2012-03-03",
       "reference": null,
       "requirements": [
         {
           "kind": "auflage",
-          "content": "Die Verglasung ist in Sicherheitsglas auszuführen.",
+          "content": "Ausführung der Verglasung in Sicherheitsglas.",
           "evidence": null,
           "legalBasis": null,
           "page": 1

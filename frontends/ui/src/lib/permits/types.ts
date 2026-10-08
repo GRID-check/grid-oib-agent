@@ -26,7 +26,8 @@ export const permitRequirementSchema = z.object({
 
 export const permitRecordSchema = z.object({
   kind: z.enum(PERMIT_RECORD_KINDS),
-  authority: text(300),
+  /** Null when the document does not name the issuing authority (a scan without its letterhead). */
+  authority: text(300).nullable(),
   municipality: text(200).nullable(),
   bundesland: text(50).nullable(),
   issuedOn: isoDay.nullable(),

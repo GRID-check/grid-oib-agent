@@ -61,7 +61,7 @@ ingest (per document, adapter.py loop)
 | `file_name` | text not null | as indexed, for the citation |
 | `restricted_folder_ids` | uuid[] null | the document's restricting folders, canonical (sorted, deduped), null when open; CHECK 1..20 entries when set |
 | `kind` | text not null | CHECK in (`bewilligung`, `nachforderung`, `ablehnung`, `sonstiges`) |
-| `authority` | text not null | as the document names it („Magistratsabteilung 37", „Stadtgemeinde Mödling") |
+| `authority` | text null | as the document names it („Magistratsabteilung 37", „Stadtgemeinde Mödling"); null when the document does not name it (a scan without its letterhead) |
 | `municipality` | text null | the Gemeinde the procedure is in, as written |
 | `bundesland` | text null | intake token (`wien`, `niederoesterreich`, …) when the document makes it clear |
 | `issued_on` | date null | the notice's date |
@@ -107,7 +107,7 @@ Request:
   "model": "…",
   "record": null | {
     "kind": "bewilligung|nachforderung|ablehnung|sonstiges",
-    "authority": "…", "municipality": "…"|null, "bundesland": "…"|null,
+    "authority": "…"|null, "municipality": "…"|null, "bundesland": "…"|null,
     "issuedOn": "YYYY-MM-DD"|null, "reference": "…"|null,
     "requirements": [
       { "kind": "auflage|nachforderung|hinweis", "content": "…",
@@ -117,6 +117,7 @@ Request:
 }
 ```
 
+- `authority` is null when the document does not name it; the record is still stored.
 - The BFF finds the document by `documentId` AND `collection` in that
   organization (as `document-exists`), or, without an id, by `collection` AND
   `fileName` among live documents (a live name is unique per collection: the
@@ -145,13 +146,13 @@ projects, filtered by the reader's folder clearance exactly as
 readable`). The token channel keeps German letters (`normalizeContentGerman`):
 folded to ASCII, „Mödling" became „m" + „dling" and matched every
 requirement in metres. Records are returned with only their matching requirements (≤ 6
-each), best first.
+each), best first. The document-type and discipline filters of a search do not apply to permits, as they do not to decisions.
 
 ```json
 {
   "project": { "id", "name", "status", "bundesland" },
   "collection": "…", "fileName": "…",
-  "kind": "nachforderung", "authority": "…", "municipality": "…"|null,
+  "kind": "nachforderung", "authority": "…"|null, "municipality": "…"|null,
   "issuedOn": "YYYY-MM-DD"|null, "reference": "…"|null,
   "requirements": [{ "kind", "content", "evidence", "legalBasis", "page" }],
   "restricted": false

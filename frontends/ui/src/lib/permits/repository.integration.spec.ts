@@ -217,6 +217,18 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
       expect(row).toMatchObject({ content: 'Zweite Fassung.', authority: 'Land NÖ', position: 0, model: MODEL })
     })
 
+    it('stores a notice whose authority the document does not name, as NULL', async () => {
+      const documentId = await document(ORG, ids.other, 'Scan_ohne_Briefkopf.pdf')
+      await store(ORG, ids.other, documentId, 'Scan_ohne_Briefkopf.pdf', [requirement('Ohne Briefkopf vorzulegen.')], { authority: null })
+
+      const [row] = await inOrg(ORG, () =>
+        db.execute<{ authority: string | null }>(sql`
+          select p.authority from permit_records p where p.document_id = ${documentId}::uuid`)
+      )
+      expect(row).toEqual({ authority: null })
+      expect(await counts(ORG, documentId)).toEqual({ records: 1, requirements: 1 })
+    })
+
     it('keeps the previous record when the replacement fails', async () => {
       const documentId = await document(ORG, ids.other, 'Bleibt.pdf')
       await store(ORG, ids.other, documentId, 'Bleibt.pdf', [requirement('Bleibt bestehen.')])
