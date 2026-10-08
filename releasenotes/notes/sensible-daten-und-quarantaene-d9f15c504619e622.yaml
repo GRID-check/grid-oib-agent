@@ -1,10 +1,4 @@
 ---
-features:
-  - >
-    Piloti now checks the text of every upload on its own server before any
-    language model sees it. A file holding something your office marks as
-    sensitive goes to no model and waits until an office or project admin
-    releases or deletes it.
 fixes:
   - >
     A CSV or text file exported from Excel on Windows previews with its €, „ “
