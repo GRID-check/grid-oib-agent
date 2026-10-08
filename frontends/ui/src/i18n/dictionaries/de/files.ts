@@ -626,7 +626,7 @@ export const files: typeof en.files = {
     errors: {
       unreadable: 'Die Datei konnte nicht als Outlook-Archiv gelesen werden. Exportieren Sie sie in Outlook erneut als .pst-Datei.',
       quota: 'Der Speicher der Organisation ist voll. Was bis dahin importiert war, bleibt.',
-      access: 'Wer den Import gestartet hat, darf in diesem Projekt keine Dokumente mehr ablegen.',
+      access: 'Wer den Import gestartet hat, darf in diesem Projekt oder im Ordner „E-Mail-Import“ keine Dokumente ablegen.',
       requester_left: 'Wer den Import gestartet hat, ist nicht mehr Mitglied der Organisation.',
       stopped: 'Der Import wurde nach wiederholten Fehlern abgebrochen.',
       stalled: 'Der Import ist stehen geblieben, ohne fertig zu werden.',
@@ -637,6 +637,9 @@ export const files: typeof en.files = {
       type: 'Dateityp nicht zugelassen',
       size: 'zu groß',
       unreadable: 'im Archiv beschädigt',
+      screened: 'vom Namensfilter des Büros zurückgehalten',
+      access: 'Ordner nur lesbar',
+      name_taken: 'Name im Projekt schon vergeben',
     },
   },
   upload: {
