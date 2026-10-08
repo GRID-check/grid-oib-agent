@@ -522,6 +522,89 @@ export const files = {
     // is what went wrong, which is a different thing to retry.
     applyError: 'This folder could not be uploaded completely. Check the list and try again.',
   },
+  /**
+   * The Outlook archive import (ADR-0085): a .pst or .ost sent in parts, then
+   * filed by a background job, one folder per mail.
+   */
+  mailImport: {
+    action: 'Import Outlook archive',
+    title: 'Import an Outlook archive',
+    description:
+      'Choose a .pst or .ost file. Each email becomes a folder under “E-Mail-Import” with its attachments and a note holding its text and headers.',
+    privacy:
+      'An archive holds the correspondence of everyone who wrote to this mailbox. Import what the project needs, not a whole mailbox.',
+    choose: 'Choose archive…',
+    maxSize: 'Up to {size}.',
+    notAnArchive: '“{name}” is not an Outlook archive (.pst or .ost).',
+    tooLarge: '“{name}” is larger than {size}.',
+    sending: 'Sending {sent} of {total}…',
+    sendingHint:
+      'You can go on working in Piloti meanwhile; just keep this tab open until the archive is sent. Filing then runs in the background.',
+    sendingLabel: 'Sending “{name}”',
+    joining: 'Sent. Piloti is putting the archive together…',
+    sendErrors: {
+      busy: 'This tab is still sending another archive. Wait until it is sent, then choose this one.',
+      alreadyRunning: 'An import of yours is still running in this project. Continue or cancel it first.',
+      cancelled: 'The import was cancelled while it was being sent.',
+      quota: 'The organization’s storage is full, so the archive cannot be imported.',
+      forbidden: 'You may not add documents to this project.',
+      rejected: 'Piloti did not accept this archive. Check that it is an Outlook .pst or .ost file.',
+      connection: 'The connection broke off. Choose the file again with “Continue sending” to pick up where it stopped.',
+      unknown: 'The archive could not be sent. Try again with “Continue sending”.',
+    },
+    resume: 'Continue sending',
+    resumeNamed: 'Continue sending “{name}”',
+    resumeHint: 'Choose “{name}” again to continue where sending stopped.',
+    resumeMismatch: 'That is not the same file. Choose “{name}” ({size}).',
+    resumeChanged:
+      '“{name}” has changed since sending began, so its parts no longer fit together. Cancel this import and start a new one.',
+    cancel: 'Cancel',
+    cancelNamed: 'Cancel the import of “{name}”',
+    cancelConfirm: {
+      title: 'Cancel this import?',
+      description:
+        'What has been filed so far stays. The archive is deleted from Piloti, so importing the rest means sending “{name}” again.',
+      confirm: 'Cancel import',
+      keep: 'Keep importing',
+    },
+    cancelError: 'The import could not be cancelled.',
+    close: 'Close',
+    history: 'Imports in this project',
+    empty: 'No archive has been imported into this project yet.',
+    loadError: 'The imports could not be loaded.',
+    openFolder: 'Open folder',
+    openFolderNamed: 'Open the folder of “{name}”',
+    importingLabel: 'Importing “{name}”',
+    startedBy: 'Started by {email}',
+    progress: '{done} of {total} items',
+    filed: '{mails, plural, one {# email} other {# emails}}, {files, plural, one {# attachment} other {# attachments}}',
+    skipped: '{count, plural, one {# skipped} other {# skipped}}',
+    skippedItem: '{file} in {mail}: {reason}',
+    skippedMail: '{mail}: {reason}',
+    status: {
+      uploading: 'Sending',
+      queued: 'Waiting',
+      importing: 'Importing',
+      completed: 'Imported',
+      failed: 'Failed',
+      cancelled: 'Cancelled',
+    },
+    errors: {
+      unreadable: 'This file could not be read as an Outlook archive. Export it again from Outlook as a .pst file.',
+      quota: 'The organization’s storage is full. What was imported until then stays.',
+      access: 'The person who started the import may no longer add documents to this project.',
+      requester_left: 'The person who started the import is no longer a member of the organization.',
+      stopped: 'The import stopped after repeated errors.',
+      stalled: 'The import stopped without finishing.',
+      upload_expired: 'The archive was not sent completely within two days.',
+    },
+    reasons: {
+      embedded_message: 'attached email',
+      type: 'file type not accepted',
+      size: 'too large',
+      unreadable: 'damaged in the archive',
+    },
+  },
   upload: {
     uploading: 'Uploading…',
     upload: 'Upload',

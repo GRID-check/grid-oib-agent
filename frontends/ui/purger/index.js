@@ -30,7 +30,7 @@ const {
   reapStranded,
   releaseHeld,
 } = require('./db')
-const { createS3Client, deleteStoragePrefix } = require('./storage')
+const { abortMultipartUploads, createS3Client, deleteStoragePrefix } = require('./storage')
 const { LEGAL_HOLD_CODE, purgeProject } = require('./purge-project')
 const { PERMANENT_FAILURE_CODE, purgeConversation } = require('./purge-conversation')
 const { initOtelLogs } = require('../observability/otel-logs')
@@ -208,6 +208,8 @@ function main() {
     eraseConversationTraces: createConversationTraceEraser({ env: process.env }),
     deleteStoragePrefix: (/** @type {string} */ bucket, /** @type {string} */ prefix) =>
       deleteStoragePrefix(s3, bucket, prefix),
+    abortMultipartUploads: (/** @type {string} */ bucket, /** @type {string} */ prefix) =>
+      abortMultipartUploads(s3, bucket, prefix),
   }
 
   const { tick } = createPurger({

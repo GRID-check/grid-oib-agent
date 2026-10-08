@@ -95,6 +95,10 @@ const BOUNDARY_MIGRATIONS = [
   // whose predicate compares `lane` (not an `organization_id` column) to the
   // active tenant; the runner reads across lanes under the platform role.
   '0104_bff_job_queue.sql',
+  // Adds mail_imports (ADR-0085), an Outlook archive a member is filing into a
+  // project. Keyed by the organization, secured like product_feedback; the
+  // stale-upload sweep reads across tenants under the platform role.
+  '0108_mail_imports.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
