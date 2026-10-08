@@ -129,7 +129,7 @@ export function updateFolderHandler<P extends { folderId: string }>(
  * work that was filed under it.
  *
  * The Archiv's alone. A project folder's delete is the Papierkorb's
- * (`@/lib/projects/folder-bin`, ADR-0085), with its own route body and answer.
+ * (`@/lib/projects/folder-bin`, ADR-0087), with its own route body and answer.
  */
 export function deleteFolderHandler<P extends { folderId: string }>(
   remove: (params: P, session: AuthorizedSession, request: Request) => Promise<Outcome<{ result: DeleteFolderResult }>>,

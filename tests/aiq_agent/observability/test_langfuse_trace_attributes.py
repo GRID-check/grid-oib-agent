@@ -333,7 +333,7 @@ class TestToolContributions:
 class TestContributionIsolation:
     """A reused worker must not hand job N's tags to job N+1, across tenants.
 
-    Dask reuses processes: without a per-job bind/reset in ``finally`` (see
+    Workers reuse processes: without a per-job bind/reset in ``finally`` (see
     ``DeepResearcherAgent.run``) the ContextVar still holds job N's dict when
     job N+1 starts. And without copy-on-write, ``asyncio.create_task`` snapshots
     the var's OBJECT reference, so a later in-place ``update``/``append`` rewrites

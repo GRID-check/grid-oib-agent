@@ -69,23 +69,23 @@ export const projects = pgTable('projects', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID of creator |
 | `collection_name` | `text` | NOT NULL | Milvus collection name for this project's knowledge base |
 | `workos_resource_id` | `text` | UNIQUE | Optional WorkOS FGA resource ID |
-| `status` | `text` | NOT NULL, default `active`, CHECK `IN ('active','closed')` | ADR-0086, migration 0114. A closed project is read-only for files, folders, versions, the profile and project memory, and every organization member may read it |
+| `status` | `text` | NOT NULL, default `active`, CHECK `IN ('active','closed')` | ADR-0088, migration 0115. A closed project is read-only for files, folders, versions, the profile and project memory, and every organization member may read it |
 | `closed_at` | `timestamptz` | set exactly when `status = 'closed'` | When it was closed; cleared on reopen |
 | `closed_by` | `text` | set exactly when `status = 'closed'` | WorkOS user id of whoever closed it |
-| `started_on` | `date` | first of a month, CHECK | Steckbrief Beginn (ADR-0087, migration 0115) |
+| `started_on` | `date` | first of a month, CHECK | Steckbrief Beginn (ADR-0089, migration 0116) |
 | `ended_on` | `date` | first of a month, not before `started_on` | Steckbrief Abschluss; closing fills it with the month of the close when unset |
 | `deleted_at` | `timestamptz` | | Soft delete (ADR-0011) |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
-**Indexes:** `projects_org_deleted_created_idx` on `(organization_id, deleted_at, created_at)` — tenant list queries (migration `0014`). `projects_org_status_idx` on `(organization_id, status) WHERE deleted_at IS NULL` (migration 0114).
+**Indexes:** `projects_org_deleted_created_idx` on `(organization_id, deleted_at, created_at)` — tenant list queries (migration `0014`). `projects_org_status_idx` on `(organization_id, status) WHERE deleted_at IS NULL` (migration 0115).
 
 **Constraints (0114):** `projects_status_check`, and `projects_closed_state_check`: closed exactly when `closed_at` and `closed_by` are both set.
 
-**The closed-project guard (0114).** `grid_refuse_insert_into_closed_project()` runs `BEFORE INSERT` on `documents`, `project_folders`, `document_versions` and `project_memory`, and raises SQLSTATE `GPC01` when the row names a closed project. It reads the project row `FOR SHARE`, so a close and an insert serialize. Updates are not refused. The down migration refuses while any project is closed.
+**The closed-project guard (0115).** `grid_refuse_insert_into_closed_project()` runs `BEFORE INSERT` on `documents`, `project_folders`, `document_versions` and `project_memory`, and raises SQLSTATE `GPC01` when the row names a closed project. It reads the project row `FOR SHARE`, so a close and an insert serialize. Updates are not refused. The down migration refuses while any project is closed.
 
 ---
 
-## project_people (migration 0115, ADR-0087)
+## project_people (migration 0116, ADR-0089)
 
 Everyone who worked on a project, with or without a Piloti account: the Steckbrief's people.
 Personal data of people who mostly never gave it, so: name, function, company, months, an
@@ -278,15 +278,15 @@ export const documents = pgTable('documents', {
 | `display_name` | `text` | | **Migration `0048`**: what a reader sees, once somebody has renamed the document. `NULL` = never renamed → show `filename`, which is what every earlier row means (no backfill). Resolve the pair with `documentDisplayName` (`lib/documents/display-name`) rather than reading the column directly. Written by `PATCH /api/documents/{id}`, which also mirrors the value onto the backend metadata store's `display_title` so citation chips follow the rename without a re-ingestion. Renaming `filename` instead would orphan the document's chunks — the migration spells out why. |
 | `storage_key` | `text` | NOT NULL | Object storage key |
 | `storage_bucket` | `text` | | **ADR-0043** (migration `0033`): the S3 bucket holding this document's bytes. `NULL` means the deployment's shared bucket (`SEAWEED_BUCKET`), which is what every row written before per-organization buckets existed means — and the meaning is fixed, so no backfill is needed or wanted. Recorded rather than derived from `organization_id`: deriving it would make `SEAWEED_PER_ORG_BUCKETS` a cutover, where flipping it makes every earlier object unreachable. `resolveDocumentBucket` in `lib/storage/bucket` is the one place that turns it back into a name. |
-| `collection_name` | `text` | NOT NULL | The retrieval collection holding the document's chunks. For a project document it is the project's `collection_name`, **or, under a restricted folder, that folder's own collection** `<project collection>_r<12 hex of the folder id>` (ADR-0084). Which one is a function of the folder tree: `lib/projects/collection-placement.ts` moves rows when the tree changes (purge, re-point, re-ingest). |
+| `collection_name` | `text` | NOT NULL | The retrieval collection holding the document's chunks. For a project document it is the project's `collection_name`, **or, under a restricted folder, that folder's own collection** `<project collection>_r<12 hex of the folder id>` (ADR-0086). Which one is a function of the folder tree: `lib/projects/collection-placement.ts` moves rows when the tree changes (purge, re-point, re-ingest). |
 | `file_size` | `integer` | | Size in bytes |
 | `content_type` | `text` | | MIME type |
 | `status` | `text` | NOT NULL, DEFAULT `'pending'` | `pending` → `processing` → `processed` / `error`, plus `stored` (migration `0063`). `stored` is TERMINAL and means "the bytes are here and indexing was deliberately skipped" — an agent-authored document, which is never dispatched to `/v1/ingest`. It must stay out of `IN_FLIGHT_STATUSES` in `lib/documents/reconcile-status`, or every read polls a backend that has never heard of the row and then overwrites its status from a file list that will never contain it. Plain `text` with no CHECK, so a new state is a TypeScript change. |
 | `error_message` | `text` | | Error details if status is `error` |
 | `metadata` | `jsonb` | | Flexible metadata |
-| `screening_outcome` | `text` | CHECK `NULL` or `clean`/`partial`/`unchecked`/`quarantined`/`released` | **Migration `0107`, ADR-0083**: what the local content screening found before the first model call. `NULL` = not screened (a row older than the column, or one replaced since: a replacement resets it). `partial` = some pages had no text layer and were checked by name only; `unchecked` = no text could be read locally at all; `quarantined` = a term or detector matched and nothing went to a model. Written by reconciliation from the ingest job's `file_details[].screening`. |
-| `screening_released_hash` / `screening_released_by` / `screening_released_at` | `text` / `text` / `timestamptz` | all three or none (CHECK) | **Migration `0107`**: a reviewer released a quarantined document. The release names the BYTES (`content_hash` at the time), so a replacement under the same id is screened again instead of riding the old release. |
-| `upload_batch_id` | `uuid` | partial index | **Migration `0108`**: the upload gesture this row arrived in (`upload_batches.id`). Recorded only when the batch is the uploader's own, open one for this shelf; anything else is ignored rather than refused. No FK: a batch is history, and pruning it must not touch documents. |
+| `screening_outcome` | `text` | CHECK `NULL` or `clean`/`partial`/`unchecked`/`quarantined`/`released` | **Migration `0108`, ADR-0085**: what the local content screening found before the first model call. `NULL` = not screened (a row older than the column, or one replaced since: a replacement resets it). `partial` = some pages had no text layer and were checked by name only; `unchecked` = no text could be read locally at all; `quarantined` = a term or detector matched and nothing went to a model. Written by reconciliation from the ingest job's `file_details[].screening`. |
+| `screening_released_hash` / `screening_released_by` / `screening_released_at` | `text` / `text` / `timestamptz` | all three or none (CHECK) | **Migration `0108`**: a reviewer released a quarantined document. The release names the BYTES (`content_hash` at the time), so a replacement under the same id is screened again instead of riding the old release. |
+| `upload_batch_id` | `uuid` | partial index | **Migration `0109`**: the upload gesture this row arrived in (`upload_batches.id`). Recorded only when the batch is the uploader's own, open one for this shelf; anything else is ignored rather than refused. No FK: a batch is history, and pruning it must not touch documents. |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
@@ -294,8 +294,8 @@ export const documents = pgTable('documents', {
 - `documents_project_idx` — on `project_id`
 - `documents_collection_idx` — on `collection_name`
 - `documents_status_idx` — on `status`
-- `documents_quarantined_idx` — on (`organization_id`, `updated_at`), **PARTIAL** (`WHERE status = 'quarantined'`) — the quarantine queue (migration `0107`). `quarantined` is a terminal status like `stored`: never in `IN_FLIGHT_STATUSES`, never dispatched until a reviewer releases it.
-- `documents_upload_batch_idx` — on `upload_batch_id`, **PARTIAL** (`WHERE upload_batch_id IS NOT NULL`) — a batch's documents, for its settlement and summary (migration `0108`)
+- `documents_quarantined_idx` — on (`organization_id`, `updated_at`), **PARTIAL** (`WHERE status = 'quarantined'`) — the quarantine queue (migration `0108`). `quarantined` is a terminal status like `stored`: never in `IN_FLIGHT_STATUSES`, never dispatched until a reviewer releases it.
+- `documents_upload_batch_idx` — on `upload_batch_id`, **PARTIAL** (`WHERE upload_batch_id IS NOT NULL`) — a batch's documents, for its settlement and summary (migration `0109`)
 - `documents_org_scope_idx` — on (`organization_id`, `scope`) — bounds the org-wide Archiv listing (ADR-0024)
 - `documents_conversation_idx` — on `conversation_id`, **PARTIAL** (`WHERE conversation_id IS NOT NULL`) — the session-document listing and the composite FK's referencing side (migration `0049`)
 - `documents_agent_authored_idx` — on (`project_id`, `created_at DESC`), **PARTIAL** (`WHERE authored_by = 'agent'`) — makes "everything Piloti wrote in this project" a point query in the listing's own sort order, while carrying no entry for the human uploads that are the overwhelming majority (migration `0063`). The predicate names `agent` rather than `<> 'user'`, so a second producer needs it widened or an index of its own.
@@ -312,7 +312,7 @@ The three `authored_by` partial indexes above live **only in the migration** —
 - `documents_session_requires_conversation` — the scope partition: a `session` row has a conversation, nothing else does, and a `session` row has no project (migration `0049`)
 - `documents_authorship_requires_provenance` — `authored_by = 'user' OR (authored_by_producer IS NOT NULL AND authored_by_ref IS NOT NULL AND authored_by_ref_kind IS NOT NULL)`. A document no person wrote can always say what wrote it, which one, and what kind of identifier that is; one that cannot is an audit trail in appearance only. The third conjunct is migration `0066`'s: the first two were satisfiable by a row whose reference nobody could resolve, because the column's name asserted a job id over a value that was not one. Written against `<> 'user'` rather than against `agent` so a member added to `DOCUMENT_AUTHORS` arrives already constrained instead of arriving as a hole nothing notices (migration `0063`). One-directional: a `user` row carrying all three is legal.
 
-- `documents_screening_outcome_check` and `documents_screening_release_complete_check` — the vocabulary of `screening_outcome`, and a release that is all three columns or none (migration `0107`).
+- `documents_screening_outcome_check` and `documents_screening_release_complete_check` — the vocabulary of `screening_outcome`, and a release that is all three columns or none (migration `0108`).
 - `documents_lifecycle_known` — `lifecycle IN ('active', 'archived')` (migration `0082`). A CHECK where `scope` and `status` deliberately have none, because this column gates a LISTING: a third value nothing knows how to render would silently hide documents, and that looks like data loss to the person whose file vanished.
 
 **Version pointer (migration `0082`, ADR-0054):** `published_version_id` names the `document_versions` row whose bytes the storage columns above mirror, through a composite foreign key on `(published_version_id, id)` → `document_versions (id, document_id)` — so a document can only ever point at a version OF ITSELF. `ON DELETE SET NULL`: discarding a version must not take the item with it. The constraint lives only in the migration, because declaring it in drizzle would make `documents.ts` and `document-versions.ts` import each other.
@@ -693,30 +693,30 @@ export const projectFolders = pgTable('project_folders', {
 | `parent_id` | `uuid` | | `NULL` for a folder at the root of its shelf |
 | `name` | `varchar(255)` | NOT NULL | |
 | `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs and the backend mirror |
-| `access_mode` | `text` | NOT NULL, default `'inherit'`, CHECK `inherit`/`custom` | **Migration `0109`, ADR-0085**: `inherit` takes the parent's access (a root folder the project's); `custom` has its own list in `project_folder_grants`. The rule over a path is one pure function, `effectiveFolderLevel` in `lib/authz/folder-access-rule.ts`: the minimum over the folder and every ancestor with its own list, admins write everywhere, `project:documents:write` caps write. |
+| `access_mode` | `text` | NOT NULL, default `'inherit'`, CHECK `inherit`/`custom` | **Migration `0110`, ADR-0087**: `inherit` takes the parent's access (a root folder the project's); `custom` has its own list in `project_folder_grants`. The rule over a path is one pure function, `effectiveFolderLevel` in `lib/authz/folder-access-rule.ts`: the minimum over the folder and every ancestor with its own list, admins write everywhere, `project:documents:write` caps write. |
 | `access_changed_by` / `access_changed_at` | `text` / `timestamptz` | set whenever `access_mode = 'custom'` (`project_folders_access_custom_check`) | Who set the list, and when. |
-| `deleted_at` / `deleted_by` | `timestamptz` / `text` | project folders only (`project_folders_bin_state_check`, 0113) | **Migration `0109`**: a deleted PROJECT folder keeps its row (an Archiv folder's delete removes it). It keeps its `access_mode` and grants so the access rule still answers for content recorded from it (a conversation's source folders, restricted memory); every listing, the tree, placement and every read path skip it, and since `0113` what is filed in it is hidden from everyone. |
-| `bin_root_id` | `uuid` | CHECK only with `deleted_at` (`project_folders_bin_state_check`) | **Migration `0113`, the Papierkorb**: the folder a person deleted, on every folder that went to the bin with it (itself included); what a restore puts back together. `NULL` for a living folder and a tombstone older than 0113. |
-| `purged_at` | `timestamptz` | CHECK only with `deleted_at` | **Migration `0113`**: the purge has run; the row is a permanent tombstone with its grants, and content derived from it follows the organization's „Inhalte aus gelöschten Ordnern" setting. `deleted_at` set and `purged_at` `NULL` is a folder in the bin. 0113 backfilled every older tombstone as purged (its contents had been moved out). |
+| `deleted_at` / `deleted_by` | `timestamptz` / `text` | project folders only (`project_folders_bin_state_check`, 0114) | **Migration `0110`**: a deleted PROJECT folder keeps its row (an Archiv folder's delete removes it). It keeps its `access_mode` and grants so the access rule still answers for content recorded from it (a conversation's source folders, restricted memory); every listing, the tree, placement and every read path skip it, and since `0114` what is filed in it is hidden from everyone. |
+| `bin_root_id` | `uuid` | CHECK only with `deleted_at` (`project_folders_bin_state_check`) | **Migration `0114`, the Papierkorb**: the folder a person deleted, on every folder that went to the bin with it (itself included); what a restore puts back together. `NULL` for a living folder and a tombstone older than 0114. |
+| `purged_at` | `timestamptz` | CHECK only with `deleted_at` | **Migration `0114`**: the purge has run; the row is a permanent tombstone with its grants, and content derived from it follows the organization's „Inhalte aus gelöschten Ordnern" setting. `deleted_at` set and `purged_at` `NULL` is a folder in the bin. 0114 backfilled every older tombstone as purged (its contents had been moved out). |
 | `created_at` / `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 **Indexes and constraints:**
 - `idx_project_folders_project_id`, `idx_project_folders_parent_id`
 - `project_folders_id_project_id_key` — UNIQUE on (`id`, `project_id`). Redundant on its own (`id` is the PK) and required anyway: a composite FK can only reference a uniquely-constrained column set (migration `0030`).
-- `project_folders_bin_idx` — on `project_id`, **PARTIAL** (`WHERE deleted_at IS NOT NULL AND purged_at IS NULL`): the probe for a folder in the bin on document reads, and the Papierkorb listing (migration `0113`)
-- `project_folders_deleted_parent_guard` and `documents_deleted_folder_guard` — `BEFORE INSERT OR UPDATE OF parent_id` / `folder_id` triggers (`grid_refuse_write_into_deleted_folder`, migration `0113`): filing a document or a folder into a deleted folder raises SQLSTATE `GFD01` (the BFF answers 404). They take the project's bin lock (`grid_folder_bin_lock_key`) shared; moving a folder to or from the bin takes it exclusive, so the check and the insert cannot be split by a deletion.
-- `project_folders_custom_access_idx` — on `project_id`, **PARTIAL** (`WHERE access_mode = 'custom'`): "does this project have any own list" is one probe, the fast path for nearly every project (migration `0109`)
+- `project_folders_bin_idx` — on `project_id`, **PARTIAL** (`WHERE deleted_at IS NOT NULL AND purged_at IS NULL`): the probe for a folder in the bin on document reads, and the Papierkorb listing (migration `0114`)
+- `project_folders_deleted_parent_guard` and `documents_deleted_folder_guard` — `BEFORE INSERT OR UPDATE OF parent_id` / `folder_id` triggers (`grid_refuse_write_into_deleted_folder`, migration `0114`): filing a document or a folder into a deleted folder raises SQLSTATE `GFD01` (the BFF answers 404). They take the project's bin lock (`grid_folder_bin_lock_key`) shared; moving a folder to or from the bin takes it exclusive, so the check and the insert cannot be split by a deletion.
+- `project_folders_custom_access_idx` — on `project_id`, **PARTIAL** (`WHERE access_mode = 'custom'`): "does this project have any own list" is one probe, the fast path for nearly every project (migration `0110`)
 - `project_folders_access_list` — a DEFERRED constraint trigger: at commit a `custom` folder has 1–20 grants (`grid_folder_access_list_check`, error `check_violation`, constraint name `project_folder_grants_custom_list`). A CHECK cannot count rows of another table; deferred so a list can be replaced (delete, insert) in one transaction. "Nobody" is not a setting.
 - `project_folders_id_organization_id_scope_key` — UNIQUE on (`id`, `organization_id`, `scope`), the target of the two shelf keys below (migration `0102`).
 - `project_folders_parent_id_project_id_fkey` — a folder's parent lives in the same project. This replaced an RLS policy that referenced `project_folders` from its own predicate, which Postgres answers with "infinite recursion detected in policy" — and because `documents`' policy joined this table, both became unreadable for the runtime role. MATCH SIMPLE skips an Archiv folder (NULL project); the next key covers it.
 - `project_folders_parent_id_organization_id_scope_fkey` — a folder's parent is on its own **shelf and tenant** (migration `0102`). Skipped for a root folder (NULL parent).
 - `project_folders_scope_check` — `scope IN ('project', 'archiv')`; `project_folders_scope_owner_check` — `(scope = 'project') = (project_id IS NOT NULL)`, so the three columns tell one story.
-- `uniq_project_folders_parent_name` — UNIQUE on (`organization_id`, `COALESCE(project_id, nil uuid)`, `COALESCE(parent_id, nil uuid)`, `name`) (migration `0063`, widened by `0102` from (`project_id`, `COALESCE(parent_id, …)`, `name`)). **PARTIAL** `WHERE deleted_at IS NULL` since `0109`, so a tombstone does not hold its name. One living folder per name per parent **on a shelf**. The `COALESCE`s are load-bearing: `parent_id` is `NULL` at a root and `project_id` is `NULL` for the whole Archiv, `NULL` never equals `NULL` in a unique index, so a plain index would police nested project folders and leave **root** folders — where a fixed, created-on-first-use destination like `Berichte` lands — and every Archiv folder uncontrolled. The nil UUID cannot collide with a real id (`gen_random_uuid()` is v4). Get-or-create is not a transaction, and before this index two runs finishing at once produced two `Berichte` folders with no way to say which was real. Case- and whitespace-sensitive on purpose: it stops a race between identical writes, it does not police folder naming. An EXPRESSION index, so it lives only in the migration; `documents.spec.ts` pins it. Within one tenant a project id determines the organization, so for every row that predates `0107` the widened index rejects exactly what the old one did.
+- `uniq_project_folders_parent_name` — UNIQUE on (`organization_id`, `COALESCE(project_id, nil uuid)`, `COALESCE(parent_id, nil uuid)`, `name`) (migration `0063`, widened by `0102` from (`project_id`, `COALESCE(parent_id, …)`, `name`)). **PARTIAL** `WHERE deleted_at IS NULL` since `0110`, so a tombstone does not hold its name. One living folder per name per parent **on a shelf**. The `COALESCE`s are load-bearing: `parent_id` is `NULL` at a root and `project_id` is `NULL` for the whole Archiv, `NULL` never equals `NULL` in a unique index, so a plain index would police nested project folders and leave **root** folders — where a fixed, created-on-first-use destination like `Berichte` lands — and every Archiv folder uncontrolled. The nil UUID cannot collide with a real id (`gen_random_uuid()` is v4). Get-or-create is not a transaction, and before this index two runs finishing at once produced two `Berichte` folders with no way to say which was real. Case- and whitespace-sensitive on purpose: it stops a race between identical writes, it does not police folder naming. An EXPRESSION index, so it lives only in the migration; `documents.spec.ts` pins it. Within one tenant a project id determines the organization, so for every row that predates `0108` the widened index rejects exactly what the old one did.
 - **RLS:** `grid_tenant_isolation` on `organization_id = grid_current_org()` (`0102`; `0031` joined `projects`). No table read, so no recursion, and cheaper per row.
 
 **Why a row has to state its tenant (ADR-0078).** Before the Archiv had folders, "same project" implied "same organization". An Archiv folder has no project, so the tenant is a column and `documents` references the folder through it: see `documents_folder_id_organization_id_scope_fkey`.
 
-### project_folder_grants (migration 0109, ADR-0085)
+### project_folder_grants (migration 0110, ADR-0087)
 
 One role's access to a folder with its own list.
 
@@ -742,7 +742,7 @@ columns: open every folder in the product first. Proven against Postgres in
 
 ---
 
-## upload_batches (migration 0108, ADR-0083)
+## upload_batches (migration 0109, ADR-0085)
 
 One upload gesture, from the browser's first request to the moment everything
 it brought in has been read. The browser opens it (`POST /api/upload-batches`),
@@ -772,7 +772,7 @@ is proven against Postgres in `upload-batches.integration.spec.ts`.
 
 ---
 
-## conversation_restricted_folders (migration 0110, ADR-0084, ADR-0085)
+## conversation_restricted_folders (migration 0111, ADR-0086, ADR-0087)
 
 A folder not every project member may read whose content this conversation
 drew on: written when the BFF ADMITS that use
@@ -794,7 +794,7 @@ conversation and a narrowed one confines it to fewer people.
 
 `deleteConversationInOrg` deletes the rows with the conversation. Deleting a
 row marks the votes on that conversation `answer_feedback.restricted_source`
-(trigger, migration 0119), so they stay out of the cross-tenant feedback
+(trigger, migration 0120), so they stay out of the cross-tenant feedback
 readers once the record is gone.
 Repository: `lib/conversations/restricted-use-repository.ts`; proven against
 Postgres in `restricted-use.integration.spec.ts`; its CHECK and down in
@@ -804,7 +804,7 @@ project-wide `PROPOSAL_DECISIONS` block.
 
 ---
 
-## document_access_log (migration 0112, ADR-0085)
+## document_access_log (migration 0113, ADR-0087)
 
 The download log: one row per hand-over of a document's bytes to a person,
 written in the request that hands them over (`recordDocumentAccess`,
@@ -848,7 +848,7 @@ re-apply in `scripts/rls-test-db.sh`.
 
 ---
 
-## document_quarantine_decisions (migration 0117, ADR-0083)
+## document_quarantine_decisions (migration 0118, ADR-0085)
 
 The content gate's quarantine decisions, kept until the audit trail has them
 (AI Act). One row per ingest job that quarantined a document, inserted by
@@ -871,7 +871,7 @@ one event. A deployment with the audit log off sends and marks nothing.
 | `decided_at` | `timestamptz` | NOT NULL, `now()` | The event's `occurredAt` |
 | `scope` | `text` | NOT NULL, CHECK `project`/`archiv`/`session` | |
 | `project_id` | `uuid` | | CHECK `(scope = 'project') = (project_id IS NOT NULL)` |
-| `folder_id` | `uuid` | | The folder the document was filed in when quarantined; NULL at a shelf's root. No FK. The event's `filedIn`: under a folder not every project member may read, the name is withheld (`nameWithheld`, ADR-0084) |
+| `folder_id` | `uuid` | | The folder the document was filed in when quarantined; NULL at a shelf's root. No FK. The event's `filedIn`: under a folder not every project member may read, the name is withheld (`nameWithheld`, ADR-0086) |
 | `filename` | `text` | NOT NULL, CHECK 1–500 characters | The name at the time |
 | `reasons` | `text` | NOT NULL, default `''` | Kinds and terms (`term:Lohnzettel,iban`), never a masked sample or text |
 | `checked` | `text` | NOT NULL, default `''` | `full` or `partial` |
@@ -889,7 +889,7 @@ not yet audited.
 
 ---
 
-## project_memory.restricted_folder_ids (migration 0111, ADR-0084, ADR-0085)
+## project_memory.restricted_folder_ids (migration 0112, ADR-0086, ADR-0087)
 
 The table itself is described in
 [`project-memory-design.md`](../architecture/project-memory-design.md) §2; this
@@ -898,7 +898,7 @@ is the column 0111 adds.
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `restricted_folder_ids` | `uuid[]` | NULL, or CHECK 1–20 entries, none NULL, `scope = 'project'` (`project_memory_restricted_folders_check`) | The source folders the note depends on; `NULL` = open. Stored sorted and de-duplicated (`canonicalRestriction`). Served and shown only to a session that may read ALL of them now (`memoryVisibleTo` with `readableFolderIdsFor`, tombstones included); a folder since opened to every member opens the note |
-| `restriction_judge` | `text` | NULL, or CHECK `drawn` / `none` / `failed` AND `restricted_folder_ids IS NOT NULL` (`project_memory_restriction_judge_check`, migration 0116) | The memory judge's verdict when a language model helped decide who may read this restricted note (AI Act); the Projektspeicher's lock says so. Set on insert only. Never on an open note, which readers see who may not know a restricted folder exists: the marker would tell them the chat could list one. Every verdict, open ones included, is in the audit trail as `project.memory.restriction_judged`. Rows before 0116 stay NULL |
+| `restriction_judge` | `text` | NULL, or CHECK `drawn` / `none` / `failed` AND `restricted_folder_ids IS NOT NULL` (`project_memory_restriction_judge_check`, migration 0117) | The memory judge's verdict when a language model helped decide who may read this restricted note (AI Act); the Projektspeicher's lock says so. Set on insert only. Never on an open note, which readers see who may not know a restricted folder exists: the marker would tell them the chat could list one. Every verdict, open ones included, is in the audit trail as `project.memory.restriction_judged`. Rows before 0117 stay NULL |
 
 Index: `uniq_project_memory_project_content_active` keys on
 `(project_id, coalesce(restricted_folder_ids, '{}'), normalized content)`, so an
@@ -988,7 +988,7 @@ This PostgreSQL entrypoint script runs on first container startup and creates tw
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `job_info` | NAT JobStore metadata | `job_id` (PK), `status`, `config_file`, `error`, `output_path`, `created_at`, `updated_at`, `expiry_seconds`, `is_expired` |
-| `job_access` | Job ownership/access control | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email` |
+| `job_access` | Who may reach a job: its owner, and callers whose signed scope matches its organization and project or conversation (ADR-0084) | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email`, `conversation_id`, `project_collection`, `organization_id`, `created_at` |
 | `job_events` | SSE streaming event persistence | `id` (serial PK), `job_id`, `event_type`, `event_data`, `created_at` |
 | `document_metadata` | Per-document metadata (was `summaries`) | `collection` + `filename` (composite PK), `summary`, `tags` (`TEXT`, JSON list; nullable), `doc_class` (`TEXT`; nullable), `display_title` (`TEXT`; nullable), `folder_path` (`TEXT`; nullable — the BFF's materialised `project_folders.path`, ADR-0049), `provenance` (`TEXT`, JSON object; nullable — who wrote a published Piloti document and who released it, ADR-0054; deleted with the chunks by `unregister_summary`) |
 
@@ -1098,7 +1098,8 @@ LLM budgets and the usage ledger (ADR-0015).
   policy per (org, scope, subject).
 - `llm_usage_events`: one row per LLM generation — org/user/project/
   conversation/job attribution, `agent_group` (the call's role, NULL for an
-  agent turn), `activity` (0101: `'ingest'` or NULL), `requested_model`
+  agent turn), `activity` (0101: `'ingest'`; 0107: `'dictation'`; else NULL),
+  `audio_seconds` (0107: seconds a transcription call processed), `requested_model`
   vs served `model`, OpenRouter `generation_id`, token counts (incl. cached +
   reasoning), `cost_usd numeric(14,8)` exactly as OpenRouter reported,
   `cost_source`, `is_byok`, and `message_id` (migration 0098): the chat
@@ -1114,6 +1115,9 @@ LLM budgets and the usage ledger (ADR-0015).
   `cost_usd`, `events`. Incremented in the same transaction as every ledger
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
+  Rows of an unbilled activity (`dictation`) are never added to it, and
+  migration 0107's `llm_usage_events_dictation_unbilled_check` refuses a
+  dictation row with a non-zero `price_usd` or `credits`.
 
 ## skills / jobs / job_runs (migrations 0041, 0043, 0044) — jobs and job_runs LEGACY since 0086
 
@@ -1316,7 +1320,7 @@ declares it. `grid_tenant_isolation` is untouched.
 
 ---
 
-## answer_feedback (migrations 0020, 0119)
+## answer_feedback (migrations 0020, 0120)
 
 Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
 `answer-feedback`). One row per (user, assistant answer).
@@ -1337,7 +1341,7 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   platform-lessons experiment this turn was in; NULL when the holdout is off,
   which is the default, so those votes are excluded from the comparison rather
   than counted as treated),
-  `restricted_source` (boolean, NOT NULL, default `false`, migration 0119 —
+  `restricted_source` (boolean, NOT NULL, default `false`, migration 0120 —
   the conversation drew on a folder with restricted access; see below),
   `created_at`/`updated_at`.
 - `restricted_source` keeps a vote out of every cross-tenant reader
@@ -1386,7 +1390,7 @@ flush idempotent.
 | `organization_id` | `text` | Nullable; no FK (ops data outlives tenants) |
 | `conversation_id` | `text` | Client-side chat id; no FK, survives conversation deletion |
 | `turn_id` | `text` | Shared with `agent_profiler_spans.turn_id` — links a defect to its execution timeline |
-| `job_id` | `text` | Async deep-research job id, when the turn ran in a Dask worker |
+| `job_id` | `text` | Async deep-research job id, when the turn ran in a research worker |
 | `agent` | `text` | `shallow` \| `deep` |
 | `kind` | `text` | `turn_verified` \| `citations_removed` \| `quote_unverified` \| `answer_ungrounded` \| `registry_empty` \| `citation_fallback` \| `confidence_capped` |
 | `severity` | `text` | `ok` \| `info` \| `warn` \| `error` — derived from `kind` on the backend, never caller-supplied |
@@ -1639,7 +1643,7 @@ project-ownership `EXISTS`.
 
 ---
 
-## platform_lessons / platform_lesson_reports / platform_lesson_events (migrations 0068, 0069, 0070, 0118)
+## platform_lessons / platform_lesson_reports / platform_lesson_events (migrations 0068, 0069, 0070, 0119)
 
 The fleet-wide lesson register distilled from answer feedback
 (`docs/architecture/platform-failure-learning.md`). **Global — no
@@ -1664,7 +1668,7 @@ reaches every tenant) and the anonymization boundary.
   carries **no FK** — a user retracting their vote must not erase the
   provenance of a lesson already distilled from it. `org_hash` is sha256 of
   the WorkOS org id: enough to count distinct organizations, nothing more.
-- Migration 0118 changes rows only. It withdraws what a sweep took from a vote
+- Migration 0119 changes rows only. It withdraws what a sweep took from a vote
   on a conversation with a `conversation_restricted_folders` row before the
   sweep stopped reading those (`OUTSIDE_RESTRICTED_USE`): such a report keeps
   its row without its `canonical_summary`, and a lesson CREATED from one gets

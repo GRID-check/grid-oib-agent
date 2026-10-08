@@ -1,0 +1,14 @@
+---
+features:
+  - >
+    You can now dictate a question: press the microphone in the message field
+    and speak, and the text appears where your cursor was, with German and
+    English kept as you said them and hesitations such as „äh“ left out.
+    Dictation is free and never counts against your organization's budget.
+operators:
+  - >
+    Voice dictation runs on GRID_DICTATION_MODEL, falling back to
+    GRID_DICTATION_FALLBACK_MODEL. Its real cost is on the ledger as activity
+    „dictation“, priced at nothing, and Platform → Overview names its share.
+    The defaults were chosen in a live test on synthetic speech; quality on
+    real voices is still to be checked.

@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The Steckbrief card (ADR-0087): the address (from the brief, edited in the
+ * The Steckbrief card (ADR-0089): the address (from the brief, edited in the
  * wizard), the period as Beginn – Abschluss months, and everyone who worked on
  * the project, with or without a Piloti account.
  *

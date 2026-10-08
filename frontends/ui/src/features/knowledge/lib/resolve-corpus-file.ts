@@ -11,8 +11,8 @@ import { canonicalOibFileName } from '@/features/chat/lib/document-names'
 
 export interface CorpusFileCandidate {
   fileName: string
-  /** 'index_only' files have no source PDF on this server (seed deployments). */
-  origin: string
+  /** A 'removed' file is indexed but not in the corpus: it has no source PDF to open. */
+  state: string
 }
 
 const MAIN_DOC_PREFIX = 'oib-rl_'
@@ -21,8 +21,8 @@ export function resolveCorpusFileName(label: string, files: CorpusFileCandidate[
   const norm = label.trim().toLowerCase()
   if (!norm || !/(oib|richtlinie)/.test(norm)) return null
 
-  // Only files whose source actually exists on this server are viewable.
-  const viewable = files.filter((f) => f.origin !== 'index_only').map((f) => f.fileName)
+  // Only files the corpus holds are viewable.
+  const viewable = files.filter((f) => f.state !== 'removed').map((f) => f.fileName)
   // Match on the canonical spelling (OIB-RL 2.2 ships as `oib-richtlinie_2.2_…`),
   // but hand back the name the file actually has on this server.
   const canonical = new Map(viewable.map((f) => [canonicalOibFileName(f), f]))

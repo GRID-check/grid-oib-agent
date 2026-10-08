@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The lock on a folder with its own access list (ADR-0085), with the roles it
+ * The lock on a folder with its own access list (ADR-0087), with the roles it
  * names in a tooltip.
  *
  * It sits INSIDE the tile's open button, so it is not a control of its own:
@@ -30,7 +30,7 @@ export function FolderAccessMark({
   roleNames: readonly string[]
   /**
    * The tooltip, when the mark names something other than a folder's roles —
-   * a memory note restricted to folders (ADR-0084) uses the same lock.
+   * a memory note restricted to folders (ADR-0086) uses the same lock.
    */
   label?: string
   className?: string
@@ -55,7 +55,7 @@ export function FolderAccessMark({
 }
 
 /**
- * „Nur lesen" on a folder the reader may open but not change (ADR-0085), with
+ * „Nur lesen" on a folder the reader may open but not change (ADR-0087), with
  * the reason in a tooltip. Beside the name rather than instead of a control:
  * the write affordances are gone from the menu and the drop target is off, and
  * this is what says why. The server refuses a write anyway; this only reflects

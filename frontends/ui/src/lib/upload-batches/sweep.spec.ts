@@ -84,7 +84,7 @@ describe('sweepUploadBatches', () => {
     warn.mockRestore()
   })
 
-  // The content gate's decisions reach the trail at least once (ADR-0083): a
+  // The content gate's decisions reach the trail at least once (ADR-0085): a
   // send that failed when the row moved is the sweep's, batch or no batch.
   it('sends the quarantine decisions still owed to the audit trail, and counts them', async () => {
     vi.mocked(listOpenBatchesBetween).mockResolvedValue([])

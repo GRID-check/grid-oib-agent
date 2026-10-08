@@ -61,7 +61,6 @@ interface TasksPanelProps {
    * history to the project's live job statuses. Null disables the join; rows
    * keep their recorded state.
    */
-  projectCollection: string | null
   /** Whether this member may create/edit/run/delete tasks (`project:skills:manage`). */
   canManageJobs: boolean
   /**
@@ -123,7 +122,6 @@ function syncStateToUrl(taskId: string | null, scheduleId: string | null, view: 
 
 export function TasksPanel({
   projectId,
-  projectCollection,
   canManageJobs,
   canChatInProject = true,
   initialView = 'list',
@@ -598,7 +596,6 @@ export function TasksPanel({
       />
       <ScheduleDetail
         projectId={projectId}
-        projectCollection={projectCollection}
         job={resolvedSchedule}
         open={selectedSchedule !== null}
         canManage={canManageJobs}

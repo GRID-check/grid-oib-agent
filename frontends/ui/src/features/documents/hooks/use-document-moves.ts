@@ -54,7 +54,7 @@ export function useDocumentMoves(
         toast.success(t('actions.moved', { name: documentDisplayName(file), folder: folderName }))
       } catch (error) {
         moved(documentId, previousFolderId)
-        // 409: an IFC model bound for a restricted folder (ADR-0084). Retrying
+        // 409: an IFC model bound for a restricted folder (ADR-0086). Retrying
         // cannot help, so say why.
         toast.error(
           error instanceof Error && error.cause === 409 ? t('folders.access.ifcRefused') : t('actions.moveError')

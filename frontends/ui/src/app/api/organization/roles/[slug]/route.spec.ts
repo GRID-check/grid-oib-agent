@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * Deleting a custom role that folders name (ADR-0085): the route passes the
+ * Deleting a custom role that folders name (ADR-0087): the route passes the
  * caller's confirmation on to the service and nothing else, and the usage route
  * is the service's answer verbatim. The rule itself is `custom-roles.spec.ts`.
  */

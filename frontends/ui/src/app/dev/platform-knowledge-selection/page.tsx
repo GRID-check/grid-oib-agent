@@ -26,7 +26,6 @@ const FILES = [
   {
     fileName: 'oib-richtlinie-2.pdf',
     state: 'ingested',
-    origin: 'corpus',
     sizeBytes: 1_975_942,
     chunkCount: 214,
     ingestedSha256: null,
@@ -39,7 +38,6 @@ const FILES = [
   {
     fileName: 'oib-richtlinie-6.pdf',
     state: 'ingested',
-    origin: 'corpus',
     sizeBytes: 1_402_118,
     chunkCount: 64,
     ingestedSha256: null,
@@ -52,7 +50,6 @@ const FILES = [
   {
     fileName: 'oenorm-b-1600.pdf',
     state: 'ingested',
-    origin: 'uploaded',
     sizeBytes: 812_004,
     chunkCount: 38,
     ingestedSha256: null,
@@ -73,7 +70,7 @@ const STATUS = {
     ingested: FILES.length,
     stale: 0,
     pending: 0,
-    snapshot: 0,
+    failed: 0,
     removed: 0,
     inconsistent: 0,
     totalChunks: FILES.reduce((sum, file) => sum + file.chunkCount, 0),

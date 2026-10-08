@@ -89,12 +89,20 @@ export const COST_SOURCES = ['usage_field', 'missing', 'generation_api', 'estima
 export type CostSource = (typeof COST_SOURCES)[number]
 
 /**
- * What kind of work a generation served (migration 0101, CHECK-enforced).
- * NULL is everything interactive or unclassified: chat turns, their stages,
- * research jobs and every row from before the column.
+ * What kind of work a generation served (migrations 0101 and 0107,
+ * CHECK-enforced). NULL is everything interactive or unclassified: chat turns,
+ * their stages, research jobs and every row from before the column.
  */
-export const USAGE_ACTIVITIES = ['ingest'] as const
+export const USAGE_ACTIVITIES = ['ingest', 'dictation'] as const
 export type UsageActivity = (typeof USAGE_ACTIVITIES)[number]
+
+/**
+ * Activities nobody is billed for and no budget counts: priced at nothing and
+ * kept out of `llm_usage_rollups`, while the real `cost_usd` stays on the
+ * ledger for the platform. Voice dictation is the one (migration 0107, whose
+ * CHECK refuses a priced dictation row).
+ */
+export const UNBILLED_USAGE_ACTIVITIES: ReadonlySet<UsageActivity> = new Set(['dictation'])
 
 export const llmUsageEvents = pgTable(
   'llm_usage_events',
@@ -106,7 +114,7 @@ export const llmUsageEvents = pgTable(
     /** Project uuid as text — no FK so ledger rows survive project deletion (audit). */
     projectId: text('project_id'),
     conversationId: text('conversation_id'),
-    /** Async job id when the generation ran inside a Dask worker. */
+    /** Async job id when the generation ran inside a research worker. */
     jobId: text('job_id'),
     /**
      * The chat answer this generation belongs to (migration 0098): every call
@@ -120,8 +128,10 @@ export const llmUsageEvents = pgTable(
      * `ingest_embedding`, …). NULL for an agent's own calls.
      */
     agentGroup: text('agent_group'),
-    /** {@link USAGE_ACTIVITIES}: `ingest` for a document ingestion job's spend, else NULL. */
+    /** {@link USAGE_ACTIVITIES}: `ingest` for a document ingestion job, `dictation` for voice input, else NULL. */
     activity: text('activity').$type<UsageActivity>(),
+    /** Seconds of audio a transcription call processed (migration 0107); NULL for every other call. */
+    audioSeconds: numeric('audio_seconds', { precision: 10, scale: 2 }),
     /** Model id the request asked for (post-override). */
     requestedModel: text('requested_model'),
     /** Model id OpenRouter actually served (from the response). */

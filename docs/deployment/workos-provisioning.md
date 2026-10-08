@@ -131,7 +131,7 @@ Organization.
 | `org:budgets:manage` | LLM budgets + org-wide usage (ADR-0015) |
 | `org:compliance:manage` | Legal holds + deletion queue |
 | `org:audit:view` | Open the org's native audit-log viewer (Admin Portal) |
-| `org:downloads:view` | Read the download log: who took which document out, and who opened one under a folder with its own access list (ADR-0085). **New 2026-10-06: run `bun run provision:authz --apply` against every environment** before a custom role can hold it; `admin` holds it through the catalog. Reading the log is audited (`download_log.viewed`, needs `npm run provision:audit-schemas -- --apply`). |
+| `org:downloads:view` | Read the download log: who took which document out, and who opened one under a folder with its own access list (ADR-0087). **New 2026-10-06: run `bun run provision:authz --apply` against every environment** before a custom role can hold it; `admin` holds it through the catalog. Reading the log is audited (`download_log.viewed`, needs `npm run provision:audit-schemas -- --apply`). |
 | `org:archiv:manage` | Upload/delete/reingest/retag in the org-wide document Archiv (ADR-0024). Reads are open to any member, so only mutations need it. |
 | `org:skills:manage` | Author, edit, clone and delete skills in the organization toolbox (Agent Skills). Reads are open to any member. |
 | `org:projects:create` | Create projects. Held by **Member** by default; withhold it to make project creation admin-only. |
@@ -336,7 +336,7 @@ drown the admin trail.
   are not organization admins hold it (`org-auditor`, `org-compliance-officer`,
   any custom role given it). So an event emitted about a document filed, at
   that moment, under a folder not every project member may read leaves its name
-  out (ADR-0084): for the actions in `DOCUMENT_NAME_ACTIONS`
+  out (ADR-0086): for the actions in `DOCUMENT_NAME_ACTIONS`
   (`lib/audit/document-names.ts`) the emitter drops `filename`, `previousName`
   and `displayName`, and an upload-screening override's `terms` (the name-gate
   words that matched a piece of the name), and sets `nameWithheld: true`; the
@@ -517,7 +517,7 @@ conversation graph refuses the escalation even when the model asks anyway. So a
 tenant without deep research is never shown a plan, and one without tasks is
 never told an Auftrag was created.
 
-The same answer carries a closed project (ADR-0086): the turn sends its
+The same answer carries a closed project (ADR-0088): the turn sends its
 `projectId`, and a closed project answers `deepResearch: false` and
 `tasks: false` whatever the flags say, because both file into the project.
 

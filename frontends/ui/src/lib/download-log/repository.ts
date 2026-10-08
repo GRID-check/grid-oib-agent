@@ -117,7 +117,7 @@ export interface AccessLogRow {
   scope: DownloadLogScope
   projectId: string | null
   projectName: string | null
-  /** The project's status now (ADR-0086); null outside a project or once it is gone. */
+  /** The project's status now (ADR-0088); null outside a project or once it is gone. */
   projectStatus: ProjectStatus | null
   documentId: string
   documentName: string

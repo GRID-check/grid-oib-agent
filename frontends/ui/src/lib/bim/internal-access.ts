@@ -121,7 +121,7 @@ export async function resolveInternalModel(
     // fact about the page size, and the `readable.length === 1` auto-selection
     // below picks from a clipped list without saying so.
     limit: 200,
-    // A model under a restricted folder is not the agent's to read (ADR-0084).
+    // A model under a restricted folder is not the agent's to read (ADR-0086).
     // There is no session here to clear, and a model's building data is keyed
     // by project rather than by collection, so the answer is the one for a
     // reader who holds no role: every restricted subtree is hidden, and a

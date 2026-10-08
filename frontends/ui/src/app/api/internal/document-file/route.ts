@@ -10,7 +10,7 @@
  * returns the storage key AND its bucket, not the bytes (the backend fetches
  * those itself from SeaweedFS).
  *
- * ## Which collections it answers for (ADR-0085)
+ * ## Which collections it answers for (ADR-0087)
  *
  * The collection is an argument the MODEL chose, so its name is not a boundary.
  * A chat turn's tool echoes the signed request-context envelope the BFF minted

@@ -268,7 +268,7 @@ def delimited_documents(text: str, extension: str, base: dict[str, Any], label: 
     if not rows:
         return []
     # Cells the length bound shortens are read by nothing, the upload screen
-    # included; counted so the file can only claim a partial check (ADR-0083).
+    # included; counted so the file can only claim a partial check (ADR-0085).
     cut = sum(
         1
         for record in csv.reader(io.StringIO(text, newline=""), _dialect(text[:8192], extension))

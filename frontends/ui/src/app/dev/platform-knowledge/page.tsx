@@ -45,7 +45,6 @@ const TITLES = [
 const FILES = TITLES.map((title, index) => ({
   fileName: `base-dokument-${String(index + 1).padStart(2, '0')}.pdf`,
   state: index === 3 ? 'pending' : index === 8 ? 'stale' : 'ingested',
-  origin: index >= 11 ? 'uploaded' : 'corpus',
   sizeBytes: 240_000 + index * 61_000,
   chunkCount: index === 3 ? 0 : 38 + index * 11,
   ingestedSha256: null,
@@ -65,7 +64,7 @@ const STATUS = {
     ingested: FILES.filter((f) => f.state === 'ingested').length,
     stale: FILES.filter((f) => f.state === 'stale').length,
     pending: FILES.filter((f) => f.state === 'pending').length,
-    snapshot: 0,
+    failed: FILES.filter((f) => f.state === 'failed').length,
     removed: 0,
     inconsistent: 0,
     totalChunks: FILES.reduce((sum, f) => sum + f.chunkCount, 0),

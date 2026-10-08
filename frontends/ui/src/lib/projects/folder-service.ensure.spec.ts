@@ -244,7 +244,7 @@ describe('ensureProjectFolderPaths', () => {
   })
 })
 
-describe('ensureProjectFolderPaths and folders the reader may not see (ADR-0084)', () => {
+describe('ensureProjectFolderPaths and folders the reader may not see (ADR-0086)', () => {
   const HIDDEN = 'f-honorare'
   /** `Honorare` is restricted to a role this session does not hold. */
   const hiding = (...ids: string[]): ProjectFolderAccess => ({
@@ -335,7 +335,7 @@ describe('ensureProjectFolderPaths and folders the reader may not see (ADR-0084)
   })
 })
 
-describe('ensureProjectFolderPaths and folders the reader may only read (ADR-0085)', () => {
+describe('ensureProjectFolderPaths and folders the reader may only read (ADR-0087)', () => {
   const READ_ONLY = 'f-plaene'
 
   beforeEach(() => {

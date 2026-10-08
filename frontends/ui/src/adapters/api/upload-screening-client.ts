@@ -1,5 +1,5 @@
 /**
- * Upload screening client (ADR-0083): the organization's policy and the
+ * Upload screening client (ADR-0085): the organization's policy and the
  * quarantine queue, through their first-party BFF routes.
  *
  *   - policy  → `GET|PUT /api/organization/upload-screening`

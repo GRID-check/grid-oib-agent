@@ -1,5 +1,5 @@
 /**
- * Clearing the quarantine (ADR-0083): who may, what release does, and the
+ * Clearing the quarantine (ADR-0085): who may, what release does, and the
  * reviewers' queue.
  *
  * A quarantined document's bytes are in the tenant's bucket and nothing of it
@@ -67,7 +67,7 @@ export async function releaseQuarantinedDocument(
     throw new ConflictError('This document has no recorded digest, so its release cannot name its bytes')
   }
   // Releasing files the document into its folder for good: a write there
-  // (ADR-0085). A reviewer who may only read the folder sees the document and
+  // (ADR-0087). A reviewer who may only read the folder sees the document and
   // cannot release it (403); an organization admin writes everywhere.
   if (doc.scope === 'project' && doc.projectId) await requireFolderWrite(session, doc.projectId, [doc.folderId])
 

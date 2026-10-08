@@ -223,7 +223,7 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     email: { send: 'if-unread', afterMinutes: 0 },
   },
   /*
-    An upload of yours has been read (ADR-0083). `per-anchor` on the batch id:
+    An upload of yours has been read (ADR-0085). `per-anchor` on the batch id:
     two uploads are two summaries. Informational and in-app only: nothing waits
     on the reader, and the files already show their status where they live.
   */
@@ -235,7 +235,7 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     email: IN_APP_ONLY,
   },
   /*
-    The content check held files back (ADR-0083). `collapse` per organization:
+    The content check held files back (ADR-0085). `collapse` per organization:
     a folder of payslips is one row reading "7 Dateien warten", not seven.
     Informational rather than actionable, because the queue page is where the
     decision is made and a row nothing can resolve would sit in the badge.

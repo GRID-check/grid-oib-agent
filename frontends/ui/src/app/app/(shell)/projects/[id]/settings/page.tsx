@@ -44,10 +44,10 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
     }
 
     // A closed project's role is unchanged, but nothing it lets one change is
-    // open (ADR-0086): only closing and reopening, and the members.
+    // open (ADR-0088): only closing and reopening, and the members.
     const managesProject = role === 'project-admin'
     const canManageProject = managesProject && !closed
-    // Folders whose roles were deleted since (ADR-0085). Asked only of a
+    // Folders whose roles were deleted since (ADR-0087). Asked only of a
     // project manager, who is the one who can set a role again.
     const foldersWithoutRole = canManageProject ? await listFoldersWithoutValidRole(session, id) : []
     const steckbrief = await getSteckbrief(session, id)
