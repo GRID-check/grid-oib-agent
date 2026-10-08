@@ -84,6 +84,40 @@ export const projects = {
     saved: 'Saved.',
     error: 'That did not work. Please try again.',
   },
+  cleanup: {
+    title: 'Close project',
+    intro:
+      'Before closing, Piloti can clear out working copies, superseded versions, duplicates, temporary files and drafts that were never published. You decide about every item.',
+    loading: 'Piloti is going through the files …',
+    aiNotice:
+      'AI proposal: made by Piloti from file names, folders, types and the existing summaries, without reading the files again. Check every item.',
+    aiUnavailable:
+      'The AI check was not available just now. The proposals come from fixed rules only, such as lock files, "Copy of …" or older version numbers.',
+    considered: '{count} files checked that you may edit.',
+    none: 'Piloti proposes nothing to remove.',
+    unavailable: 'The proposals could not be loaded. You can still close the project.',
+    binNote: 'What you select goes to the bin for 14 days and can be restored from there.',
+    aiChip: 'AI proposal',
+    selectAll: 'Select all',
+    confirm: 'Move {count} to the bin and close',
+    closeOnly: 'Close without removing anything',
+    cancel: 'Cancel',
+    removed: '{count} files moved to the bin.',
+    error: 'Clearing out did not work; the project is still open.',
+    /** The clean-out failed and could not be fully undone (ADR-0088): where to look. */
+    partial:
+      'Clearing out did not work and could not be fully undone. Some files may still be in a folder „{folders}“ inside their folder, or in the Papierkorb. The project is still open.',
+    rules: {
+      'lock-file': 'Lock file of an Office program',
+      'temp-file': 'Temporary file',
+      'system-file': 'System file',
+      'copy-name': 'Working copy (name)',
+      'old-name': 'Marked as old (name)',
+      'same-content': 'Same content as an older file',
+      'older-version': 'Older version; a newer one is in the same folder',
+      'unpublished-draft': 'Draft by Piloti, never published',
+    },
+  },
   lifecycle: {
     fileChip: '{name} · closed',
     fileChipNoName: 'Closed project',
@@ -105,10 +139,8 @@ export const projects = {
       reopen: 'Reopen project',
     },
     closeDialog: {
-      title: 'Close this project?',
       description:
         'Afterwards nobody can change its files, folders, brief or project memory, and deep research and tasks stop running. Everyone in the office can read it and ask about it. You can reopen it at any time. If the project profile has no completion yet, the current month is entered.',
-      confirm: 'Close project',
     },
     reopenDialog: {
       title: 'Reopen this project?',

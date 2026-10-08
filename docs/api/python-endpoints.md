@@ -95,6 +95,10 @@ The retriever is a **cached singleton** (`get_active_retriever` in `aiq_agent.kn
 
 **Best-effort by design**: always returns HTTP `200`. Any failure (no resolvable LLM key → `error=llm_not_configured`; upstream LLM error/transport failure → `llm_request_failed`; unparseable/odd-shaped LLM output → `llm_response_malformed`) yields `findings: null` + an `error` code so the wizard can save anyway. Empty free text short-circuits to `findings: []`. The LLM is resolved from `CONSISTENCY_LLM_MODEL` / `CONSISTENCY_LLM_API_KEY` / `CONSISTENCY_LLM_BASE_URL` (falling back to `LLM_*` then the OpenRouter/OpenAI defaults — see the environment-variables reference). Proxied by the BFF `POST /api/projects/{id}/consistency-check` (which adds `project:edit` authorization).
 
+| Method | Path | Description | Request | Response | Handler |
+|---|---|---|---|---|---|
+| `POST` | `/v1/cleanup-proposal` | „Ausmisten" at a project's close (ADR-0088): proposes which documents are working copies, superseded, duplicates, temporary or never-published drafts, from their indexed METADATA only. A document entry with any field beyond those listed is refused (422), so no content can ride along. Ids the model invents are dropped. Best-effort like the check above: `200` with `candidates: []` and `error` (`llm_not_configured`, `llm_request_failed`, `llm_response_malformed`) on any failure; the BFF then falls back to its rules. Same LLM resolution as `/v1/generate-summary` (`SUMMARY_LLM_*`, then `LLM_*`, BYOK through `x-grid-organization-id`); the call queues for an `interactive` provider slot (ADR-0081). Called by the BFF's `POST /api/projects/{id}/cleanup/proposal`, which sends only documents whose screening passed. | `{ documents: [{ id, filename, folder_path?, content_type?, tags?, summary?, version_state?, authored_by?, uploaded_at? }] (≤ 2000), locale? }` | `{ candidates: [{ id, category, reason }], model?, error? }` | `add_cleanup_proposal_routes` in `aiq_api.routes.cleanup_proposal` |
+
 ## Conversations
 
 | Method | Path | Description | Request | Response | Handler |

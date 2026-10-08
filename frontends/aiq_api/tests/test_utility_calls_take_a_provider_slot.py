@@ -7,13 +7,16 @@ These tests send a request through the real route and watch the pool, so a route
 rewired to a bare ``httpx.AsyncClient`` fails here even when its tests still mock
 the client.
 
-Interactive: summary, consistency check, title, skill review. Bulk: feedback
-digest and lesson distillation, which run in the background and must yield.
+Interactive: summary, consistency check, title, skill review, the „Ausmisten"
+proposal. Bulk: feedback digest and lesson distillation, which run in the
+background and must yield. And no route module builds a bare client for a model
+call, so a route added later cannot skip the slot by being left out of this list.
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import fakeredis
 import httpx
@@ -23,7 +26,9 @@ from fastapi import FastAPI
 from httpx import ASGITransport
 from httpx import AsyncClient
 
+import aiq_api.routes as routes_package
 from aiq_agent.common import provider_limiter as pl
+from aiq_api.routes.cleanup_proposal import add_cleanup_proposal_routes
 from aiq_api.routes.consistency_check import add_consistency_check_routes
 from aiq_api.routes.feedback_digest import add_feedback_digest_routes
 from aiq_api.routes.generate_conversation_title import add_generate_conversation_title_routes
@@ -57,6 +62,12 @@ _ROUTES = {
         add_skill_review_routes,
         "/v1/skills/review",
         {"name": "demo", "description": "A demo skill.", "body": "Do the thing."},
+        pl.INTERACTIVE,
+    ),
+    "cleanup-proposal": (
+        add_cleanup_proposal_routes,
+        "/v1/cleanup-proposal",
+        {"documents": [{"id": "d1", "filename": "Kopie von Plan.pdf"}], "locale": "de"},
         pl.INTERACTIVE,
     ),
     "feedback-digest": (
@@ -158,3 +169,13 @@ async def test_the_limited_client_does_not_force_the_data_policy(pool, monkeypat
     async with limited_async_http_client(cls=pl.INTERACTIVE) as client:
         await client.post("https://openrouter.ai/api/v1/chat/completions", json={"model": "vendor/m"})
     assert sent == [{"model": "vendor/m"}]
+
+
+def test_no_route_calls_a_model_over_a_bare_client():
+    """A model call from a route goes through ``limited_async_http_client``, never a bare ``httpx.AsyncClient``."""
+    bare = [
+        path.name
+        for path in sorted(Path(routes_package.__file__).parent.glob("*.py"))
+        if "/chat/completions" in (text := path.read_text(encoding="utf-8")) and "httpx.AsyncClient(" in text
+    ]
+    assert bare == [], f"these routes call a model outside the provider limiter: {bare}"

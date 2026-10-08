@@ -556,14 +556,17 @@ that chat, research, ingestion and embeddings all draw from
   the pinned transport in `common/openrouter.py`, which holds a slot from the
   request to the end of the response body. A call that shapes its own JSON body
   uses `limited_async_http_client` from the same module: the BFF-called utility
-  routes `generate_summary`, `consistency_check`, `generate_conversation_title`
-  and `skill_review` (`interactive`), the background `feedback_digest` and
+  routes `generate_summary`, `consistency_check`, `generate_conversation_title`,
+  `skill_review` and `cleanup_proposal` („Ausmisten", `interactive`), the
+  background `feedback_digest` and
   `lesson_distill` (`bulk`), and the decision model (`common/decisions.py`) and
   the reranker (`knowledge_layer/cross_encoder.py`), which take the class of the
   task that makes them. It is the same transport without the zero-data-retention
   pin: those bodies already carry the organization's own policy
   (`ResolvedCredential.request_body`), and an organization that switched ZDR off
-  keeps that choice. A call to a host that is not OpenRouter takes no slot. The
+  keeps that choice. No route module builds a bare `httpx.AsyncClient` for a
+  model call (`test_no_route_calls_a_model_over_a_bare_client`). A call to a
+  host that is not OpenRouter takes no slot. The
   VLM pool of L3b stays outside it: a vision call has the right to call before it
   waits for a provider slot.
 - **A 429 waits outside the slot.** The slot is released first and the

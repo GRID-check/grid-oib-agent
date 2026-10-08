@@ -101,7 +101,7 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, restricted memory, Papierkorb, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, download-log, closed-project and Steckbrief suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, restricted memory, Papierkorb, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, download-log, closed-project, Steckbrief and Ausmisten suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
@@ -126,7 +126,8 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/runs/reconcile.integration.spec.ts \
     src/lib/budgets/service.integration.spec.ts \
     src/lib/projects/project-status.integration.spec.ts \
-    src/lib/projects/steckbrief.integration.spec.ts
+    src/lib/projects/steckbrief.integration.spec.ts \
+    src/lib/projects/cleanup.integration.spec.ts
 
 # The job-queue suites claim from ONE table, whichever lane a job is in, so run
 # in parallel they claim each other's seeded jobs. One file at a time.
