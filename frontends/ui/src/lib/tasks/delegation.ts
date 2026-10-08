@@ -52,7 +52,8 @@ import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
 import { createTaskThread, submitAgentRun } from '@/lib/jobs/service'
 import { JobSubmitError, JobSubmitSkippedError } from '@/lib/jobs/backend-client'
 import { minIntervalMinutesFromEnv, nextOccurrence, validateCron } from '@/lib/jobs/schedule'
-import { emptySkillSnapshot } from '@/lib/jobs/types'
+import { AGENT_RUN_INPUT_MAX_CHARS, emptySkillSnapshot } from '@/lib/jobs/types'
+import { formatCount } from '@/lib/format'
 import { isEmptyPlanDocuments, type PlanDocuments } from '@/lib/runs/plan-documents'
 import * as repository from './repository'
 import { submittedRunStatus } from './task-vocabulary'
@@ -61,16 +62,6 @@ import { TASK_GOAL_MAX_CHARS } from './wire'
 // Re-exported so a caller reaching for the bound has one place to look, while
 // the DECLARATION stays in the wire module the route parses with.
 export { TASK_GOAL_MAX_CHARS }
-
-/**
- * How much of the version being revised is quoted into the revision prompt.
- *
- * A ceiling and not a summary: the run needs the document it is revising, and a
- * summarised document is a different document. Past this the prompt says so and
- * the run reads the rest from the working directory, which is where the bytes
- * are put for it.
- */
-export const REVISION_SOURCE_MAX_CHARS = 60_000
 
 /**
  * What it takes to hand Piloti work in a project.
@@ -314,9 +305,11 @@ export async function delegateTask(
   }
 
   const engine = TASK_ENGINES[input.kind]
-  const prompt = [engine.instruction(goal), sourceBlock(input.sourceText)]
-    .filter(Boolean)
-    .join('\n\n')
+  const instruction = engine.instruction(goal)
+  const source = quoteSource(instruction, input.sourceText)
+  const prompt = source.block ? `${instruction}${PROMPT_SEPARATOR}${source.block}` : instruction
+  // A schedule has no run yet to carry the refusal, so the caller gets it.
+  if (source.refusal && input.cadence) throw new UnprocessableError(source.refusal)
   const requester = input.requester ?? { userId: session.userId, email: session.email }
   const title = engine.title(goal).slice(0, 200)
 
@@ -398,6 +391,15 @@ export async function delegateTask(
     metadata: { projectId: input.projectId, kind: input.kind, trigger: 'delegated' },
   })
 
+  // A document too long to quote is refused ON the run, where the Aufträge list
+  // shows it: the lifecycle effect that delegates a revision swallows a throw,
+  // so a refusal raised before the row existed would reach nobody.
+  if (source.refusal) {
+    return {
+      definition,
+      run: await recordRun(run, { status: 'failed', error: source.refusal, finishedAt: new Date() }),
+    }
+  }
   return { definition, run: await dispatchRun(definition, run, input.conversationId ?? null) }
 }
 
@@ -655,24 +657,55 @@ async function recordRun(run: TaskRun, patch: Partial<TaskRun>): Promise<TaskRun
   }
 }
 
+/** Between the instruction and the quoted document. */
+const PROMPT_SEPARATOR = '\n\n'
+
+/** The version being revised as the prompt quotes it, or why it cannot be quoted. */
+interface QuotedSource {
+  /** The fenced document, or `''` when there is none to quote. */
+  block: string
+  /** Why the document was not quoted, for the run row. Null when it was, or when there was none. */
+  refusal: string | null
+}
+
 /**
- * The document being revised, quoted into the prompt.
+ * The document being revised, quoted into the prompt whole, or refused.
  *
- * Fenced, so the model can tell the document from the instruction around it, and
- * truncated with a sentence that says so — a silently cut document reads as one
- * that ends mid-paragraph, and the model then "fixes" an ending nobody wrote.
+ * Fenced, so the model can tell the document from the instruction around it.
+ * Its budget is what {@link AGENT_RUN_INPUT_MAX_CHARS} leaves after the
+ * instruction and the fence, so the backend can never be handed a prompt it
+ * rejects. It used to have a ceiling of its own (60,000 characters) above the
+ * backend's (48,000), and every document between the two failed at submission
+ * with a validation dump on the run.
+ *
+ * Whole or not at all, never cut: the run's answer REPLACES the open version's
+ * bytes (`fileResultFor` → `replaceVersionContent`), and the run has no other
+ * way to read the version — the worker holds no envelope, and the revision's
+ * thread has no subject document to load into a working directory. A run
+ * handed the first part files the first part, and the rest is gone from the
+ * version the reviewer sent back.
  */
-function sourceBlock(text: string | null | undefined): string {
+function quoteSource(instruction: string, text: string | null | undefined): QuotedSource {
   const body = (text ?? '').trim()
-  if (!body) return ''
-  const cut = body.length > REVISION_SOURCE_MAX_CHARS
-  const shown = cut ? body.slice(0, REVISION_SOURCE_MAX_CHARS) : body
+  if (!body) return { block: '', refusal: null }
+  const block = ['Die bisherige Fassung, wörtlich:', '', '```markdown', body, '```'].join('\n')
+  const room = AGENT_RUN_INPUT_MAX_CHARS - instruction.length - PROMPT_SEPARATOR.length
+  if (block.length <= room) return { block, refusal: null }
+  const budget = Math.max(0, room - (block.length - body.length))
+  return { block: '', refusal: tooLongToRevise(body.length, budget) }
+}
+
+/**
+ * The run row's reason, in German because the task card shows it verbatim.
+ *
+ * It names the way that does work: „Besprechen" loads the open version into
+ * that conversation's working directory, where Piloti edits it in place and no
+ * prompt ceiling applies (`src/aiq_agent/turn/subject_document.py`).
+ */
+function tooLongToRevise(length: number, budget: number): string {
   return [
-    'Die bisherige Fassung, wörtlich:',
-    '',
-    '```markdown',
-    shown,
-    '```',
-    ...(cut ? ['', 'Diese Fassung ist hier gekürzt; der Rest steht unverändert im Projekt.'] : []),
-  ].join('\n')
+    `Das Dokument ist mit ${formatCount(length, 'de-AT')} Zeichen zu lang für einen Überarbeitungsauftrag`,
+    `(höchstens ${formatCount(budget, 'de-AT')} Zeichen). Die zurückgegebene Fassung bleibt unverändert;`,
+    'über „Besprechen“ am Dokument lässt sie sich mit Piloti abschnittsweise überarbeiten.',
+  ].join(' ')
 }

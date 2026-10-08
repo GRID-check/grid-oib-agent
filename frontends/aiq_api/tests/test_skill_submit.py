@@ -29,6 +29,8 @@ fallback is exercised explicitly for unknown ids).
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -132,6 +134,21 @@ def test_missing_organization_id_422(client, prod_token):
 def test_oversized_input_422(client, prod_token):
     resp = _post(client, _valid_body(input="x" * 48001))
     assert resp.status_code == 422
+
+
+def test_the_bff_budgets_prompts_against_this_ceiling():
+    """The BFF's copy of the ceiling is the number every prompt budget there derives from.
+
+    A revision quote once had a ceiling of its own above this one, and every
+    document between the two failed at submission. Equal, or the BFF composes
+    prompts this route refuses (or refuses prompts it would accept).
+    """
+    from aiq_api.routes.skills import SUBMIT_INPUT_MAX_CHARS
+
+    types_ts = Path(__file__).resolve().parents[3] / "frontends" / "ui" / "src" / "lib" / "jobs" / "types.ts"
+    match = re.search(r"export const AGENT_RUN_INPUT_MAX_CHARS = ([\d_]+)", types_ts.read_text(encoding="utf-8"))
+    assert match, f"AGENT_RUN_INPUT_MAX_CHARS not found in {types_ts}"
+    assert int(match.group(1).replace("_", "")) == SUBMIT_INPUT_MAX_CHARS
 
 
 def test_composed_input_above_the_old_skill_body_limit_is_accepted(client, prod_token, submit_mock):
