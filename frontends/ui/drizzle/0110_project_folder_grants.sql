@@ -56,7 +56,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "uniq_project_folders_parent_name"
   WHERE "deleted_at" IS NULL;
 --> statement-breakpoint
 COMMENT ON INDEX "uniq_project_folders_parent_name" IS
-  'One LIVING folder per (organization, project, parent, name) - project is NULL for an Archiv folder (0063, 0102; partial since 0109, so a deleted folder''s tombstone does not hold its name). COALESCE to the nil UUID over project_id and parent_id because NULL never equals NULL in a unique index, which would leave root folders and every Archiv folder uncontrolled.';
+  'One LIVING folder per (organization, project, parent, name) - project is NULL for an Archiv folder (0063, 0102; partial since 0110, so a deleted folder''s tombstone does not hold its name). COALESCE to the nil UUID over project_id and parent_id because NULL never equals NULL in a unique index, which would leave root folders and every Archiv folder uncontrolled.';
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "project_folder_grants" (
   "organization_id" text NOT NULL,
