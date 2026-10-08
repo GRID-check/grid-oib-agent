@@ -244,6 +244,7 @@ export async function deletePermitRecord(organizationId: string, documentId: str
  */
 const documentServesItsRecord = and(
   eq(documents.organizationId, permitRecords.organizationId),
+  eq(documents.projectId, permitRecords.projectId),
   sql`${documents.status} <> 'quarantined'`,
   eq(documents.lifecycle, 'active'),
   sql`NOT EXISTS (SELECT 1 FROM project_folders f WHERE f.id = ${documents.folderId} AND f.deleted_at IS NOT NULL)`
@@ -283,8 +284,9 @@ export async function searchPermitRequirements(
       page: permitRequirements.page,
       embeddingModel: permitRequirements.embeddingModel,
       relevance,
-      collectionName: permitRecords.collectionName,
-      fileName: permitRecords.fileName,
+      // The document's, not the record's: after placement the record's names the collection it left.
+      collectionName: documents.collectionName,
+      fileName: documents.filename,
       folderId: documents.folderId,
       recordKind: permitRecords.kind,
       authority: permitRecords.authority,
