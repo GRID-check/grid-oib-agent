@@ -5,10 +5,10 @@ export const files: typeof en.files = {
   uploadZone: {
     clickToUpload: 'Zum Hochladen klicken',
     orDragAndDrop: ' oder per Drag-and-drop ablegen',
-    maxSize: 'Bis zu {size} MB',
+    maxSize: 'Bis zu {size} pro Datei',
     accepts: 'Zulässig: {types}',
     dragOrBrowse: 'Dateien hierher ziehen oder auswählen',
-    maxSizeShort: 'max. {size} MB',
+    maxSizeShort: 'max. {size} pro Datei',
   },
   // Die Upload-Leiste. Die Formulierungen folgen der Regel der Oberfläche:
   // Eine Zahl steht nur dort, wo tatsächlich gemessen wurde. „Wird gelesen“

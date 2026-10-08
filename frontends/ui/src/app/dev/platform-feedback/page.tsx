@@ -16,18 +16,20 @@ import type { JSX } from 'react'
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 
-import { I18nProvider } from '@/i18n'
-import { FeedbackTriage, type FeedbackTriageClient } from '@/features/product-feedback/components/feedback-triage'
-import type {
-  ProductFeedbackReportView,
-  ProductFeedbackStatus,
-} from '@/lib/product-feedback/types'
+import { PageHeader } from '@/components/ui/page-header'
+import { I18nProvider, useTranslations } from '@/i18n'
+import {
+  FeedbackTriage,
+  type FeedbackTriageClient,
+} from '@/features/product-feedback/components/feedback-triage'
+import type { ProductFeedbackReportView, ProductFeedbackStatus } from '@/lib/product-feedback/types'
 
 const now = Date.now()
 const ago = (minutes: number): string => new Date(now - minutes * 60_000).toISOString()
 
 const CONTEXT = {
-  userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 Version/17.5 Safari/605.1.15',
+  userAgent:
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 Version/17.5 Safari/605.1.15',
   viewport: '1512×864',
   locale: 'de-AT',
   timeZone: 'Europe/Vienna',
@@ -72,7 +74,8 @@ const SEED: ProductFeedbackReportView[] = [
     id: 'f3',
     kind: 'praise',
     status: 'new',
-    message: 'Die Herleitung der OIB-2-Anforderungen hat uns heute einen halben Tag gespart. Danke!',
+    message:
+      'Die Herleitung der OIB-2-Anforderungen hat uns heute einen halben Tag gespart. Danke!',
     pagePath: '/app/projects/9c1d/chat',
     context: {},
     allowContact: false,
@@ -88,7 +91,8 @@ const SEED: ProductFeedbackReportView[] = [
     id: 'f4',
     kind: 'question',
     status: 'in_progress',
-    message: 'Kann ich eigene Normen (z. B. ÖNORM B 1600) hochladen, damit Piloti sie berücksichtigt?',
+    message:
+      'Kann ich eigene Normen (z. B. ÖNORM B 1600) hochladen, damit Piloti sie berücksichtigt?',
     pagePath: '/app/archiv',
     context: CONTEXT,
     allowContact: true,
@@ -107,12 +111,12 @@ function memoryClient(empty: boolean): FeedbackTriageClient {
   const counts = () =>
     reports.reduce<Record<ProductFeedbackStatus, number>>(
       (acc, report) => ({ ...acc, [report.status]: acc[report.status] + 1 }),
-      { new: 0, in_progress: 0, resolved: 0, dismissed: 0 },
+      { new: 0, in_progress: 0, resolved: 0, dismissed: 0 }
     )
   return {
     list: async ({ status, kind }) => ({
       reports: reports.filter(
-        (report) => (!status || report.status === status) && (!kind || report.kind === kind),
+        (report) => (!status || report.status === status) && (!kind || report.kind === kind)
       ),
       counts: counts(),
       nextCursor: null,
@@ -120,7 +124,9 @@ function memoryClient(empty: boolean): FeedbackTriageClient {
     get: async (id) => reports.find((report) => report.id === id) ?? null,
     triage: async (id, status) => {
       reports = reports.map((report) =>
-        report.id === id ? { ...report, status, triagedBy: 'owner@piloti.at', triagedAt: new Date().toISOString() } : report,
+        report.id === id
+          ? { ...report, status, triagedBy: 'owner@piloti.at', triagedAt: new Date().toISOString() }
+          : report
       )
       const updated = reports.find((report) => report.id === id)
       if (!updated) throw new Error('unknown')
@@ -129,14 +135,23 @@ function memoryClient(empty: boolean): FeedbackTriageClient {
   }
 }
 
+/** The real page's header, so the capture shows the card in its context. */
+function PreviewHeader(): JSX.Element {
+  const t = useTranslations('platform')
+  return (
+    <PageHeader title={t('sections.feedback.title')} subtitle={t('sections.feedback.subtitle')} />
+  )
+}
+
 function Preview(): JSX.Element {
   const params = useSearchParams()
   const empty = params.get('empty') === '1'
   const client = React.useMemo(() => memoryClient(empty), [empty])
   return (
     <I18nProvider initialLocale={params.get('lang') === 'en' ? 'en' : 'de'} fixedLocale>
-      <div className="bg-background min-h-dvh p-6">
-        <div className="mx-auto max-w-4xl">
+      <div className="bg-background min-h-dvh px-4 py-8 md:px-8">
+        <div className="mx-auto flex max-w-4xl flex-col gap-6">
+          <PreviewHeader />
           <FeedbackTriage
             canTriage={params.get('readonly') !== '1'}
             focusReportId={params.get('focus')}
