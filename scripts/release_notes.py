@@ -154,6 +154,17 @@ OPERATOR_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+# Phrasing that marks a note as a security or severe fix. The public changelog is
+# product news: a vulnerability or a data-loss bug belongs in `security` or
+# `incident`, which are kept and never published. Deliberately short: each word
+# here blocks an author, so only phrases that cannot describe an ordinary fix.
+SEVERE_PATTERNS = re.compile(
+    r"(vulnerab\w*|Sicherheitsl(ü|ue)cke\w*|remote code|\bCVE-\d|\bexploit\w*"
+    r"|permissions? (check )?bypass\w*|bypass\w* (the |a )?permissions?|Berechtigung\w* umgangen"
+    r"|data loss|Datenverlust\w*)",
+    re.IGNORECASE,
+)
+
 # reStructuredText that reno tolerates and the changelog page would render as
 # literal punctuation: directives, comments, roles, literal markup, code fences.
 RST_PATTERNS = [
@@ -685,6 +696,11 @@ def lint_text(
         issues.append(
             "reads as a note for the people who run the platform. Fix: move it to the `operators` "
             "section, which stays off the public changelog; or rewrite it for the architect using Piloti."
+        )
+    if public and SEVERE_PATTERNS.search(text):
+        issues.append(
+            "reads as a security or severe fix. Fix: move it to `security` (a vulnerability or hardening) "
+            "or `incident` (data lost, a permission that did not hold); both are kept and never published."
         )
     if len(text) < MIN_LENGTH:
         issues.append(f"too short ({len(text)} chars) to mean anything to a reader. Fix: say what changed for them.")

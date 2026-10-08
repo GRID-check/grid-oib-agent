@@ -162,6 +162,35 @@ def test_operator_notes_are_sent_to_the_operators_section(text):
     assert rn.lint_note("note.yaml", note_yaml, SECTION_KEYS) == []
 
 
+@pytest.mark.parametrize(
+    ("section", "text"),
+    [
+        ("security", "Langfuse moves to a release that fixes a remote code execution flaw in a bundled library."),
+        ("security", "The telemetry dashboard picks up upstream fixes for vulnerabilities in its bundled code."),
+        ("security", "A dependency is updated for CVE-2026-1234, which affected file previews."),
+        ("security", "A viewer could bypass the permission check by opening a conversation directly."),
+        ("incident", "Opening a conversation during a reload no longer causes data loss on another device."),
+    ],
+)
+def test_security_and_severe_fixes_are_sent_to_an_internal_section(section, text):
+    problems = lint_entry(text)
+    assert any("security or severe fix" in problem for problem in problems), problems
+    assert rn.lint_note("note.yaml", yaml.safe_dump({section: [text]}), SECTION_KEYS) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Deleting a folder now asks first, and its documents stay in the Archiv.",
+        "Project admins can create and run scheduled skills again after a permission was renamed.",
+        "A security officer can now be named in the project settings, next to the site manager.",
+        "Data from the IFC model now loads twice as fast on large projects.",
+    ],
+)
+def test_ordinary_fixes_do_not_trip_the_severe_fix_check(text):
+    assert lint_entry(text) == []
+
+
 def test_every_lint_message_names_the_fix():
     problems = lint_entry("Fixed #12 in `x.py`")
     assert problems and all("Fix:" in problem for problem in problems)
