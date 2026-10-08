@@ -43,8 +43,10 @@ _SIGNALS = [
     r"\bused to be\b",
     r"\b(originally|formerly|historically)\b",
     r"\bfound by (an? )?(independent )?(re-?review|review|reviewer|audit)\b",
-    r"\b(was|were) (renamed|removed|deleted|replaced|moved|introduced|rewritten|reverted) (in|by|on|when|with)\b",
-    r"\bthe old (code|version|rule|behaviou?r|path|implementation|name|route|approach|matcher)\b",
+    r"\b(was|were) (renamed|removed|deleted|replaced|moved|introduced|rewritten|reverted) "
+    r"(in|by|during) (the |this |a |an )?"
+    r"(refactor|rewrite|cleanup|clean-up|PR|pull request|commit|release|ticket|review|migration to)\b",
+    r"\bthe old (code|rule|behaviou?r|implementation|approach|matcher)\b",
     r"\bbefore (ticket|this change|this fix|this commit|the fix)\b",
     r"\bcommit [0-9a-f]{7,40}\b",
     r"\bPR #\d+\b",
@@ -55,7 +57,7 @@ HISTORY_IN_TESTS = re.compile("|".join(_SIGNALS), re.IGNORECASE)
 #: `--broad`: for finding the files to clean, never for the gate. These read as history as often
 #: as not ("the secret used to sign", "a token no longer valid"); a reader decides, not a regex.
 BROAD = re.compile("|".join(_SIGNALS + _ANY_DAY + [r"\bused to\b", r"\bno longer\b", r"\bpreviously\b"]), re.IGNORECASE)
-_TEST = re.compile(r"(^|/)(tests?/|__tests__/)|\.(spec|test)\.[jt]sx?$|(^|/)test_[^/]*\.py$")
+_TEST = re.compile(r"(^|/)(tests?/|__tests__/)|\.(spec|test)\.[cm]?[jt]sx?$|(^|/)test_[^/]*\.py$")
 
 
 def _python_comments(text: str) -> list[tuple[int, str]]:
@@ -121,13 +123,15 @@ def comments_of(path: Path) -> list[tuple[int, str]]:
     return []
 
 
-_QUOTED = re.compile(r"`[^`]*`|\"[^\"]*\"|„[^“\"]*[“\"]")
+_QUOTED = re.compile(r"``[^`]*``|`[^`]*`|\"[^\"]*\"|„[^“\"]*[“\"]")
+#: A path names a file; a date inside its name is part of the name, not a change date.
+_PATH = re.compile(r"\S*/\S*\.[a-z]{1,5}\b")
 
 
 def history_in(path: Path, *, broad: bool = False) -> list[tuple[int, str]]:
-    """The comment lines that narrate history; a quoted span (an example, a cited string) is not read."""
+    """The comment lines that narrate history; a quoted span (an example, a cited string) or a path is not read."""
     pattern = BROAD if broad else HISTORY_IN_TESTS if _TEST.search(str(path)) else HISTORY
-    return [(n, c.strip()) for n, c in comments_of(path) if pattern.search(_QUOTED.sub("", c))]
+    return [(n, c.strip()) for n, c in comments_of(path) if pattern.search(_PATH.sub("", _QUOTED.sub("", c)))]
 
 
 def _tracked() -> list[str]:

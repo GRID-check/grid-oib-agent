@@ -18,6 +18,13 @@ Keep the reason, drop the story. „A stale generated module type-checks
 perfectly, so only CI would notice" is a reason and stays; „this broke the build
 three times" is the story around it.
 
+Not history, and allowed: a date that is a domain or fixture fact, an example
+in quotes or backticks, a file path, a measurement that justifies a current
+bound, and stored data that live code still reads („a legacy row"). A test's
+name follows the same rule: it states the behaviour it pins, with no ticket, PR
+or „no longer" in it. The decision is
+[ADR-0089](../adr/0089-comments-state-the-present-history-lives-in-commits-and-adrs.md).
+
 `scripts/check_history_comments.py` runs as a pre-commit hook and in CI's
 repo-lint. It reads comments and docstrings only, so a date in a fixture or a
 German prompt is not its business, and it refuses the unmistakable signals: a

@@ -196,6 +196,17 @@ repos:
         pass_filenames: false
         files: ^docs/architecture/where-is-what\.md$|^scripts/check_doc_paths\.py$
 
+      - id: history-comments
+        name: comments say what is true now, not how the code got here
+        # An agent acts on the comment in front of it. One that narrates the
+        # past competes with what is true for that attention and is stale the
+        # day it lands; the commit message and the ADR hold the history.
+        # Reads comments and docstrings only, never strings or code.
+        entry: python3 scripts/check_history_comments.py
+        language: system
+        files: \.(py|ts|tsx|js|mjs|cjs|ya?ml|sh|toml)$
+        exclude: (^|/)(drizzle|docs|releasenotes)/
+
       - id: validate-skills
         name: skill bundles are well-formed
         # The script existed and nothing ran it — not pre-commit, not the

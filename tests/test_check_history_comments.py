@@ -40,6 +40,14 @@ def test_a_python_comment_that_narrates_history_is_refused(tmp_path, comment):
     assert _hits(tmp_path, "m.py", f"x = 1  {comment}\n")
 
 
+def test_a_double_backtick_example_is_quoted(tmp_path):
+    assert _hits(tmp_path, "m.py", 'def f():\n    """``2026-09-01`` reads as a machine field."""\n') == []
+
+
+def test_a_javascript_module_spec_is_a_test(tmp_path):
+    assert _hits(tmp_path, "cron.spec.mjs", "// 09:00 on Mon 2026-07-20 is 13:00 UTC.\n") == []
+
+
 def test_a_docstring_is_read_like_a_comment(tmp_path):
     assert _hits(tmp_path, "m.py", 'def f():\n    """It used to sleep here."""\n    return 1\n')
 
@@ -51,6 +59,10 @@ def test_a_docstring_is_read_like_a_comment(tmp_path):
         "/* What the queue is used to order. */",
         "// The example value `2026-10-01` parses as local midnight.",
         "// A write is refused (ADR-0085).",
+        "// Decision 10 of docs/superpowers/specs/2026-08-20-agent-authored-documents-design.md.",
+        "// The document was renamed in the pane's header menu.",
+        "// A failed ingest leaves the old version whole.",
+        "// Rows carrying the old name outlive the rename.",
     ],
 )
 def test_a_present_tense_comment_passes(tmp_path, comment):
