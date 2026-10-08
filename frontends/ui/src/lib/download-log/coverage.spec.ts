@@ -75,8 +75,11 @@ const OBJECT_READERS: Record<string, Disposition> = {
   'lib/documents/rendition.ts::readOriginal': { exempt: 'server-side conversion of an office file to its PDF rendition.' },
   'lib/documents/service.ts::dispatchIngest': { exempt: 'presigns the file for the ingest backend, a machine.' },
   'lib/documents/service.ts::signedRenditionRef': { exempt: 'presigns the rendition for the ingest backend, a machine.' },
-  'lib/documents/service.ts::presignDocumentImageUpload': { exempt: 'signs a PUT slot for an upload; it reads no document.' },
   'lib/storage/bucket.ts::readClaimOwner': { exempt: 'reads a bucket-claim marker object, not a document.' },
+  'lib/s3.ts::presignForBackend': {
+    exempt:
+      'signs, against the in-network endpoint, the command its caller built for the backend, a machine. A caller that reads builds the GetObjectCommand itself and is classified here in its own right.',
+  },
 }
 
 /**
