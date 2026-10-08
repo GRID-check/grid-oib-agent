@@ -502,12 +502,26 @@ jobs:
       # Escape hatch: the `no-release-note` label, for a PR that genuinely changes
       # nothing a user can observe. A push has no PR to label, so this step runs
       # on pull requests only.
+      #
+      # The label is read from the PR as it is now, not from the event payload.
+      # The payload is the label set at push time, and a re-run replays that same
+      # payload, so a label added after the push never counted and the only way
+      # through was another commit. This workflow does not run on `labeled`
+      # (the auto-labeler would re-run all of CI on every PR), so: add the label,
+      # then re-run this job.
       - name: Require a note for user-visible changes
-        if: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'no-release-note') }}
+        if: ${{ github.event_name == 'pull_request' }}
         env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 ci/require_release_note.py "$BASE_SHA" "$HEAD_SHA"
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.labels[].name' | grep -qx 'no-release-note'; then
+            echo "Labelled no-release-note: no note required."
+            exit 0
+          fi
+          python3 ci/require_release_note.py "$BASE_SHA" "$HEAD_SHA"
 
   ci-ok:
     name: CI OK

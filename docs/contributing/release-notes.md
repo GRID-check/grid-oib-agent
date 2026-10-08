@@ -17,7 +17,9 @@ register.
   no note fails. A note in any section counts, an internal one included, so a
   security or severe fix satisfies the check without reaching the page. A
   change no user can notice, a comment or a refactor, takes the
-  `no-release-note` label instead.
+  `no-release-note` label instead. The job reads the label when it runs, so
+  a label added after the push needs only a re-run of the **Release note**
+  job, not a new commit.
 - **Destination:** `https://piloti.at/changelog` (de) and `/en/changelog` (en).
 - **Reader:** the architect using Piloti. Not the reviewer of your diff, and not
   the people who run the platform.
