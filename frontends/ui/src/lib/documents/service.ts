@@ -789,6 +789,8 @@ export interface UploadDocumentInput {
    * for why this is not Piloti's own folder path.
    */
   originPath?: string | null
+  /** See `ShelfUploadInput.priority`: `bulk` for a machine filing on a person's behalf. */
+  priority?: IngestPriority
 }
 
 export type { UploadDocumentResult }
