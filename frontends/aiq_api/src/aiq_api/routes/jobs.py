@@ -40,7 +40,10 @@ from aiq_agent.common.db_utils import redact_db_url
 from aiq_agent.common.job_admission import JobAdmissionError
 from nat.plugin_api import LLMFrameworkEnum
 
+from ..jobs.access import JobCaller
+from ..jobs.access import job_visibility_clause
 from ..jobs.access import require_verified_principal
+from ..jobs.access import signed_job_scope
 from ..registry import AGENT_REGISTRY
 from ..registry import get_agent_config
 
@@ -419,6 +422,12 @@ class InternalJobOutcomeResponse(BaseModel):
     )
 
 
+def _job_caller(request: Request) -> JobCaller:
+    """The verified principal, and the job scope its request's signed envelope grants (ADR-0084)."""
+    principal = require_verified_principal()
+    return JobCaller(principal=principal, scope=signed_job_scope(request.headers, principal))
+
+
 def _job_status_value(status: Any) -> str:
     """The job store's status as its lowercase wire word, enum or string alike."""
     return str(getattr(status, "value", status)).lower()
@@ -729,10 +738,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         description="Get the current status of an async job by its ID.",
         responses={404: {"description": "Job not found"}},
     )
-    async def get_job_status(job_id: str) -> JobStatusResponse:
+    async def get_job_status(job_id: str, request: Request) -> JobStatusResponse:
         """Get the current status of a job."""
-        principal = require_verified_principal()
-        job = await authorize_job_access(job_store, db_url, job_id, principal)
+        job = await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "read")
 
         return JobStatusResponse(
             job_id=job_id,
@@ -751,10 +759,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         ),
         responses={404: {"description": "Job not found"}},
     )
-    async def stream_job_events(job_id: str) -> StreamingResponse:
+    async def stream_job_events(job_id: str, request: Request) -> StreamingResponse:
         """SSE stream for job events from beginning."""
-        principal = require_verified_principal()
-        await authorize_job_access(job_store, db_url, job_id, principal)
+        await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "read")
 
         return StreamingResponse(
             _sse_generator(job_store, job_id, db_url, start_event_id=0),
@@ -769,10 +776,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         description="Resume an SSE stream from a specific event ID. Use for reconnection after network interruption.",
         responses={404: {"description": "Job not found"}},
     )
-    async def stream_job_events_from(job_id: str, last_event_id: int) -> StreamingResponse:
+    async def stream_job_events_from(job_id: str, last_event_id: int, request: Request) -> StreamingResponse:
         """SSE stream for job events from specific event ID (for reconnection)."""
-        principal = require_verified_principal()
-        await authorize_job_access(job_store, db_url, job_id, principal)
+        await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "read")
 
         return StreamingResponse(
             _sse_generator(job_store, job_id, db_url, start_event_id=last_event_id),
@@ -790,10 +796,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             404: {"description": "Job not found"},
         },
     )
-    async def cancel_job(job_id: str) -> dict:
+    async def cancel_job(job_id: str, request: Request) -> dict:
         """Cancel a submitted or running job."""
-        principal = require_verified_principal()
-        job = await authorize_job_access(job_store, db_url, job_id, principal)
+        job = await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "control")
 
         # SUBMITTED is cancellable too: a job stuck before its first status
         # transition would otherwise be un-cancellable while still consuming
@@ -830,10 +835,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             404: {"description": "Job not found"},
         },
     )
-    async def write_now(job_id: str) -> dict:
+    async def write_now(job_id: str, request: Request) -> dict:
         """Ask a running job to write its report now."""
-        principal = require_verified_principal()
-        job = await authorize_job_access(job_store, db_url, job_id, principal)
+        job = await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "control")
 
         if job.status != JobStatus.RUNNING.value:
             raise HTTPException(400, f"Job is not running: {job_id} (status: {job.status})")
@@ -858,10 +862,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             404: {"description": "Job not found"},
         },
     )
-    async def add_document(job_id: str, body: JobDocumentRequest) -> dict:
+    async def add_document(job_id: str, body: JobDocumentRequest, request: Request) -> dict:
         """Add one document to the Grundlage of a running job."""
-        principal = require_verified_principal()
-        job = await authorize_job_access(job_store, db_url, job_id, principal)
+        job = await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "control")
 
         if job.status != JobStatus.RUNNING.value:
             raise HTTPException(400, f"Job is not running: {job_id} (status: {job.status})")
@@ -883,10 +886,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         description="Get tool calls, outputs, and sources collected during job execution.",
         responses={404: {"description": "Job not found"}},
     )
-    async def get_job_state(job_id: str) -> JobStateResponse:
+    async def get_job_state(job_id: str, request: Request) -> JobStateResponse:
         """Get artifacts from event store."""
-        principal = require_verified_principal()
-        await authorize_job_access(job_store, db_url, job_id, principal)
+        await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "read")
 
         artifacts = await _get_job_artifacts(db_url, job_id)
         return JobStateResponse(
@@ -904,10 +906,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         description="Get the final research report from a completed job.",
         responses={404: {"description": "Job not found"}},
     )
-    async def get_job_report(job_id: str) -> JobReportResponse:
+    async def get_job_report(job_id: str, request: Request) -> JobReportResponse:
         """Get the final report from a completed job."""
-        principal = require_verified_principal()
-        job = await authorize_job_access(job_store, db_url, job_id, principal)
+        job = await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "read")
 
         report = None
         cards = None
@@ -963,8 +964,8 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         tags=["async jobs", "internal"],
         summary="A job's verdict for the BFF's run reconciler (internal)",
         description=(
-            "Service-token guarded. The run reconciler holds no user token, and the job's owner "
-            "is whoever asked for the run, so the owner-scoped status route cannot answer it."
+            "Service-token guarded. The run reconciler holds no user token and no signed envelope, "
+            "so the user-scoped status route cannot answer it."
         ),
         responses={403: {"description": "Missing or invalid internal token"}, 404: {"description": "Job not found"}},
     )
@@ -982,11 +983,13 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         summary="List research runs",
         description=(
             "List async job runs (research runs), optionally filtered by project collection, "
-            "conversation, and/or status. Scoped to the caller's own jobs, consistent with "
-            "single-job access checks elsewhere in this API."
+            "conversation, and/or status. Scoped to the runs a single-job read would open: the "
+            "caller's own, and those in the project or conversation its signed envelope names "
+            "(ADR-0084)."
         ),
     )
     async def list_research_runs(
+        request: Request,
         project_collection: str | None = None,
         conversation_id: str | None = None,
         status: str | None = None,
@@ -994,22 +997,20 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         offset: int = 0,
     ) -> ResearchRunsResponse:
         """List research runs matching the given filters, newest first."""
-        principal = require_verified_principal()
+        caller = _job_caller(request)
 
         clamped_limit = max(1, min(limit, 200))
         clamped_offset = max(0, offset)
 
-        # Mirrors authorize_job_access: ownership is only enforced when REQUIRE_AUTH=true.
-        enforce_owner = os.environ.get("REQUIRE_AUTH", "false").lower() == "true"
+        # Mirrors authorize_job_access: access is only enforced when REQUIRE_AUTH=true.
+        visible_to = caller if os.environ.get("REQUIRE_AUTH", "false").lower() == "true" else None
 
         loop = asyncio.get_running_loop()
         rows, total = await loop.run_in_executor(
             None,
             _find_research_runs,
             db_url,
-            enforce_owner,
-            principal.type,
-            principal.sub,
+            visible_to,
             project_collection,
             conversation_id,
             status,
@@ -1232,9 +1233,7 @@ def _format_created_at(value: Any) -> str | None:
 
 def _find_research_runs(
     db_url: str,
-    enforce_owner: bool,
-    owner_auth_type: str | None,
-    owner_subject: str | None,
+    visible_to: JobCaller | None,
     project_collection: str | None,
     conversation_id: str | None,
     status: str | None,
@@ -1247,11 +1246,12 @@ def _find_research_runs(
     Runs in a thread via run_in_executor to avoid blocking the event loop with DB I/O.
     Mirrors the raw-SQL, sync-engine query pattern used by ``_find_stale_jobs`` above.
 
-    When ``enforce_owner`` is True (REQUIRE_AUTH=true), results are scoped to the
-    given owner_auth_type/owner_subject pair -- the same principal match performed
-    by ``authorize_job_access``. When False (auth disabled), ownership is not
-    enforced, consistent with how ``authorize_job_access`` treats no-auth
-    deployments.
+    With ``visible_to`` (REQUIRE_AUTH=true), results are the runs that caller may
+    read: its own, and those its signed scope reaches (``job_visibility_clause``,
+    the listing's form of the rule ``authorize_job_access`` applies). The
+    filters below narrow that set and never widen it. With None (auth disabled),
+    access is not enforced, consistent with how ``authorize_job_access`` treats
+    no-auth deployments.
     """
     from sqlalchemy import inspect
     from sqlalchemy import text
@@ -1271,10 +1271,10 @@ def _find_research_runs(
     conditions: list[str] = []
     params: dict[str, Any] = {}
 
-    if enforce_owner:
-        conditions.append("ja.owner_auth_type = :owner_auth_type AND ja.owner_subject = :owner_subject")
-        params["owner_auth_type"] = owner_auth_type
-        params["owner_subject"] = owner_subject
+    if visible_to is not None:
+        visibility, visibility_params = job_visibility_clause(visible_to)
+        conditions.append(visibility)
+        params.update(visibility_params)
     if project_collection is not None:
         conditions.append("ja.project_collection = :project_collection")
         params["project_collection"] = project_collection

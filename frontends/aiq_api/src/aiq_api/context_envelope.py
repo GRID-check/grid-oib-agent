@@ -68,10 +68,11 @@ EXEMPT (enforcement never applies):
   elsewhere in this codebase — ``routes/internal_auth.py`` and
   ``routes/config_info.py`` respectively);
 - the ``ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES``: health, collection/document
-  management and ingestion status, the data-source listing, the async job
-  reads/controls on an already-admitted job (the SUBMIT stays enforced) and
-  the drafts reader. Adding a path here is a statement that it cannot start
-  an agent turn.
+  management and ingestion status, the data-source listing, the agent-type
+  listing and the drafts reader. Adding a path here is a statement that it
+  cannot start an agent turn and decides nothing from the envelope. The job
+  routes fail the second half: they authorize a job by the scope the envelope
+  signs (ADR-0084), so they are enforced like the submit.
 
 Fail-open note (dev): when ``GRID_INTERNAL_API_TOKEN`` is unset,
 ``GridRequestContext.from_envelope`` skips HMAC verification but still
@@ -115,19 +116,19 @@ logger = logging.getLogger(__name__)
 #   - /v1/collections, /v1/documents   the v1 proxy's collection, upload,
 #                                      listing and ingestion-status routes;
 #   - /v1/data_sources                 the source picker;
-#   - /v1/jobs/async/jobs, .../job,    the jobs proxy's listing, status, stream,
-#     .../agents                       report, cancel and write-now on a job that
-#                                      was admitted WITH an envelope at submit
-#                                      (write-now resumes that job's own run; it
-#                                      cannot start one);
+#   - /v1/jobs/async/agents            the agent-type listing;
 #   - /v1/drafts                       the draft preview (`draft-preview.ts`).
+#
+# The job reads and controls (`/v1/jobs/async/job/...`) and the run listing
+# (`/v1/jobs/async/jobs`) used to be here. They are not any more: their
+# routes authorize a job by the scope the envelope signs (ADR-0084), and the
+# BFF sends one on every method, so a JWT call without one is a caller this
+# tier cannot place.
 ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES: tuple[str, ...] = (
     "/health",
     "/v1/collections",
     "/v1/documents",
     "/v1/data_sources",
-    "/v1/jobs/async/jobs",
-    "/v1/jobs/async/job",
     "/v1/jobs/async/agents",
     "/v1/drafts",
 )

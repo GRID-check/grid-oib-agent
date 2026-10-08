@@ -21,6 +21,7 @@ from ..registry import get_agent_config
 from . import queue
 from .access import _make_no_auth_principal
 from .access import create_job_access
+from .access import derive_project_collection
 from .access import job_exists
 from .access import rollback_job_submission
 
@@ -234,40 +235,6 @@ def _get_parent_trace_context() -> tuple[
         parent_conversation_id,
         get_current_trace_tags(),
     )
-
-
-def _base_collection_name() -> str:
-    """Return the configured base/OIB knowledge collection name.
-
-    Mirrors the env var precedence used elsewhere in the codebase
-    (e.g. ``aiq_agent.oib_sync``): ``OIB_COLLECTION_NAME`` wins over the
-    legacy ``COLLECTION_NAME``, defaulting to ``oib_knowledge``.
-    """
-    return os.environ.get("OIB_COLLECTION_NAME") or os.environ.get("COLLECTION_NAME") or "oib_knowledge"
-
-
-def _derive_project_collection(collection_scope: list[str] | None) -> str | None:
-    """Extract the project collection from a request's collection scope.
-
-    The collection scope contains the base/OIB collection, the office Archiv
-    (``archiv_<org>``), the project collection, and an ``s_<conversation>``
-    scoped collection. The project collection is the single remaining entry
-    once those others are excluded. Returns None if no such entry exists (or
-    more than one candidate remains, which indicates an ambiguous scope not
-    worth guessing at).
-    """
-    if not collection_scope:
-        return None
-
-    base_collection = _base_collection_name()
-    candidates = [
-        collection
-        for collection in collection_scope
-        if collection != base_collection and not collection.startswith("s_") and not collection.startswith("archiv_")
-    ]
-    if len(candidates) == 1:
-        return candidates[0]
-    return None
 
 
 class MissingPrincipalError(RuntimeError):
@@ -509,7 +476,7 @@ async def submit_agent_job(
     # `GET /v1/jobs/async/jobs?conversation_id=` able to find the run, and the
     # worker payload, which is how the runner knows where to write the answer.
     parent_conversation_id = conversation_id or parent_trace_context[5]
-    project_collection = _derive_project_collection(collection_scope)
+    project_collection = derive_project_collection(collection_scope)
 
     try:
         # Persist the job's status row and enqueue a claimable row carrying the
