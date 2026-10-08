@@ -137,6 +137,53 @@ export async function sealOwnUploadBatch(
   await settleUploadBatches(session.organizationId, [batchId])
 }
 
+/** A batch as a server-side job filing into it sees it; see {@link findJobUploadBatch}. */
+export type JobUploadBatchState =
+  | { status: 'missing' | 'foreign' | 'sealed' }
+  | { status: 'open'; documents: number }
+
+/**
+ * A batch a server-side job files into on a person's behalf (the mail import,
+ * ADR-0085): missing, someone else's, sealed, or open with how many documents
+ * carry it. The job opens it with {@link openUploadBatch} as that person.
+ */
+export async function findJobUploadBatch(
+  organizationId: string,
+  batchId: string,
+  createdBy: string
+): Promise<JobUploadBatchState> {
+  const batch = await findUploadBatch(organizationId, batchId)
+  if (!batch) return { status: 'missing' }
+  if (batch.createdBy !== createdBy) return { status: 'foreign' }
+  if (batch.sealedAt) return { status: 'sealed' }
+  return { status: 'open', documents: await countUploadBatchDocuments(organizationId, batchId, createdBy) }
+}
+
+/**
+ * Every document in the job's batch, held ones included: the job files as the
+ * person who opened it, so their own reader sees all of it (ADR-0086).
+ */
+async function countUploadBatchDocuments(organizationId: string, batchId: string, createdBy: string): Promise<number> {
+  const counts = await countBatchDocumentsByStatus(organizationId, [batchId], { reader: memberReader(createdBy) })
+  return counts.reduce((sum, row) => sum + row.count, 0)
+}
+
+/**
+ * Seal a batch a job filed into, once it has nothing more to send. The job
+ * did not know up front how much it would send, so it opened the batch
+ * announcing nothing and the seal announces the documents that carry it.
+ * Needs no session: the job may be ending because its person left. A missing,
+ * foreign or sealed batch is left alone.
+ */
+export async function sealJobUploadBatch(organizationId: string, batchId: string, createdBy: string): Promise<void> {
+  const state = await findJobUploadBatch(organizationId, batchId, createdBy)
+  if (state.status !== 'open') return
+  const expected = Math.min(state.documents, UPLOAD_BATCH_MAX_FILES)
+  await sealUploadBatch(organizationId, batchId, createdBy, { unchanged: 0, failed: 0, expected }, new Date())
+  const { settleUploadBatches } = await import('./settle')
+  await settleUploadBatches(organizationId, [batchId])
+}
+
 /** What one document of an upload became, as the summary shows it. */
 export interface UploadSummaryDocument {
   id: string

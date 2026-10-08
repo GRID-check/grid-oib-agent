@@ -45,19 +45,24 @@ export async function findUploadBatch(organizationId: string, batchId: string): 
   return row ?? null
 }
 
-/** Seal a batch its creator finished sending. Only the creator, and only once. */
+/**
+ * Seal a batch its creator finished sending. Only the creator, and only once.
+ * `expected` rewrites the announced count, for a job that could not know it
+ * when it opened the batch (the mail import).
+ */
 export async function sealUploadBatch(
   organizationId: string,
   batchId: string,
   createdBy: string,
-  counts: { unchanged: number; failed: number },
+  counts: { unchanged: number; failed: number; expected?: number },
   sealedAt: Date
 ): Promise<boolean> {
   const db = getDb()
+  const expected = counts.expected === undefined ? {} : { expectedCount: counts.expected }
   const rows = await withTenant({ organizationId }, () =>
     db
       .update(uploadBatches)
-      .set({ unchangedCount: counts.unchanged, failedCount: counts.failed, sealedAt })
+      .set({ unchangedCount: counts.unchanged, failedCount: counts.failed, sealedAt, ...expected })
       .where(
         and(
           eq(uploadBatches.id, batchId),
@@ -289,6 +294,18 @@ export async function listOpenBatchesBetween(
     )
     .orderBy(desc(uploadBatches.createdAt))
     .limit(limit)
+}
+
+/** When the newest document carrying this batch came in, or null when none has. */
+export async function latestBatchDocumentAt(organizationId: string, batchId: string): Promise<Date | null> {
+  const db = getDb()
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select({ at: sql<Date | string | null>`max(${documents.createdAt})` })
+      .from(documents)
+      .where(and(eq(documents.organizationId, organizationId), eq(documents.uploadBatchId, batchId)))
+  )
+  return row?.at ? new Date(row.at) : null
 }
 
 /** Seal, on the sweep's authority, a batch whose browser never came back to seal it. */

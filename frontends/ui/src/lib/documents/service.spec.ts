@@ -884,18 +884,21 @@ describe('joinHitsToFiles', () => {
     createdAt: new Date('2026-01-01T00:00:00Z'),
     id: 'old',
     authoredBy: 'user',
+    collectionName: 'c',
   }
   const newer = {
     filename: 'plan.pdf',
     createdAt: new Date('2026-02-01T00:00:00Z'),
     id: 'new',
     authoredBy: 'user',
+    collectionName: 'c',
   }
   const other = {
     filename: 'permit.pdf',
     createdAt: new Date('2026-01-05T00:00:00Z'),
     id: 'permit',
     authoredBy: 'user',
+    collectionName: 'c',
   }
 
   it('joins by filename and augments each row with snippet/page/score', () => {
@@ -955,6 +958,7 @@ describe('joinHitsToFiles', () => {
       createdAt: new Date('2026-03-01T00:00:00Z'),
       id: 'generated',
       authoredBy: 'agent',
+      collectionName: 'c',
     }
     const hits = [
       { file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: 2, collection: 'c' },
@@ -971,6 +975,7 @@ describe('joinHitsToFiles', () => {
       createdAt: new Date('2026-03-01T00:00:00Z'),
       id: 'generated',
       authoredBy: 'agent',
+      collectionName: 'c',
     }
     const hits = [
       { file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' },
@@ -990,6 +995,7 @@ describe('joinHitsToFiles', () => {
       createdAt: new Date('2026-06-01T00:00:00Z'),
       id: 'imported',
       authoredBy: 'import',
+      collectionName: 'c',
     }
     const hits = [
       { file_name: 'plan.pdf', score: 0.7, snippet: 'x', page_number: null, collection: 'c' },
@@ -1009,12 +1015,68 @@ describe('joinHitsToFiles', () => {
       createdAt: new Date('2026-06-01T00:00:00Z'),
       id: 'generated',
       authoredBy: 'agent',
+      collectionName: 'c',
     }
     const hits = [
       { file_name: 'plan.pdf', score: 0.9, snippet: 'a', page_number: null, collection: 'c' },
       { file_name: 'permit.pdf', score: 0.4, snippet: 'x', page_number: null, collection: 'c' },
     ]
     expect(joinHitsToFiles(hits, [older, generated]).map((r) => r.id)).toEqual(['old'])
+  })
+
+  // Filenames are unique per collection, and a project has several (its own plus
+  // one per restricted folder). The hit names the collection it was found in; a
+  // row of another collection is somebody else's document, however recent.
+  describe('the collection is part of the identity', () => {
+    const open = {
+      filename: 'Protokoll.pdf',
+      createdAt: new Date('2026-09-01T00:00:00Z'),
+      id: 'open-root',
+      authoredBy: 'user',
+      collectionName: 'proj_abc',
+    }
+    const restricted = {
+      filename: 'Protokoll.pdf',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      id: 'gf-intern',
+      authoredBy: 'user',
+      collectionName: 'proj_abc_rabcdef012345',
+    }
+    const hitIn = (collection: string, score = 0.8) => ({
+      file_name: 'Protokoll.pdf',
+      score,
+      snippet: `aus ${collection}`,
+      page_number: 1,
+      collection,
+    })
+
+    it('does not hand a restricted hit to a newer same-named row of another collection', () => {
+      const result = joinHitsToFiles([hitIn('proj_abc_rabcdef012345')], [restricted, open])
+      expect(result.map((r) => r.id)).toEqual(['gf-intern'])
+      expect(result[0].collectionName).toBe('proj_abc_rabcdef012345')
+    })
+
+    it('drops a hit whose own collection has no row, rather than falling back to the name', () => {
+      expect(joinHitsToFiles([hitIn('proj_abc_rabcdef012345')], [open])).toEqual([])
+    })
+
+    it('joins the open hit to the open row when the restricted row is the newer one', () => {
+      const newerRestricted = { ...restricted, createdAt: new Date('2026-10-01T00:00:00Z') }
+      expect(joinHitsToFiles([hitIn('proj_abc')], [open, newerRestricted]).map((r) => r.id)).toEqual(['open-root'])
+    })
+
+    it('gives two hits on one name in two collections two rows, each its own', () => {
+      const result = joinHitsToFiles([hitIn('proj_abc', 0.9), hitIn('proj_abc_rabcdef012345', 0.5)], [open, restricted])
+      expect(result.map((r) => [r.id, r.snippet])).toEqual([
+        ['open-root', 'aus proj_abc'],
+        ['gf-intern', 'aus proj_abc_rabcdef012345'],
+      ])
+    })
+
+    it('still resolves a collision inside one collection to the most-recent row', () => {
+      const reuploaded = { ...open, id: 'open-older', createdAt: new Date('2026-02-01T00:00:00Z') }
+      expect(joinHitsToFiles([hitIn('proj_abc')], [reuploaded, open]).map((r) => r.id)).toEqual(['open-root'])
+    })
   })
 })
 
@@ -3428,6 +3490,75 @@ describe('restricted folders (ADR-0087)', () => {
       .map(([, init]) => JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>)
     expect(bodies.filter((body) => body.snippet_max_chars === 900)).toHaveLength(2)
     expect(bodies.filter((body) => !('snippet_max_chars' in body))).toHaveLength(2)
+  })
+
+  // Filenames are unique per collection. This search reads the project's own
+  // collection and every cleared restricted folder's, so the same name in both
+  // must resolve to two rows, each the row of the collection the hit came from,
+  // whichever is newer. The hits are shaped as the backend answers: `collection`
+  // is a chunk's own metadata, the searched collection only its fallback.
+  describe('a name held by both the open and a restricted collection', () => {
+    const rowIn = (id: string, collectionName: string, createdAt: string) => ({
+      id,
+      filename: 'Protokoll.pdf',
+      createdAt: new Date(createdAt),
+      status: 'completed',
+      collectionName,
+      errorMessage: null,
+      authoredBy: 'user',
+      publishedVersionId: null,
+      metadata: {},
+    })
+
+    function backendAnswers(echoedCollection: (searched: string) => string | undefined) {
+      mockFetch.mockImplementation(async (url: string) => {
+        const searched = decodeURIComponent(String(url).split('/collections/')[1].replace('/search', ''))
+        return {
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              hits: [
+                {
+                  file_name: 'Protokoll.pdf',
+                  score: searched === RESTRICTED_COLLECTION ? 0.9 : 0.5,
+                  snippet: `aus ${searched}`,
+                  page_number: 1,
+                  collection: echoedCollection(searched),
+                },
+              ],
+            }),
+        }
+      })
+      vi.mocked(findProjectDocumentsByFilenames).mockResolvedValue([])
+      vi.mocked(reconcileDocumentStatuses).mockResolvedValue([
+        // The open root row is the NEWER one: a join on the name alone takes it for both hits.
+        rowIn('protokoll-gf', RESTRICTED_COLLECTION, '2026-01-01T00:00:00Z'),
+        rowIn('protokoll-root', 'proj_abc', '2026-09-01T00:00:00Z'),
+      ] as unknown as Awaited<ReturnType<typeof reconcileDocumentStatuses>>)
+    }
+
+    it('labels a restricted passage with its restricted document, never the open one', async () => {
+      backendAnswers((searched) => searched)
+
+      const { hits } = await searchProjectDocuments(session, 'proj-1', 'Honorar', 10)
+
+      expect(hits.map((hit) => [hit.id, hit.collectionName, hit.snippet])).toEqual([
+        ['protokoll-gf', RESTRICTED_COLLECTION, `aus ${RESTRICTED_COLLECTION}`],
+        ['protokoll-root', 'proj_abc', 'aus proj_abc'],
+      ])
+    })
+
+    it('trusts the collection that was searched, not the one a chunk’s metadata claims', async () => {
+      // Every hit is stamped with the collection this call was signed for, so a
+      // chunk that says otherwise (or says nothing) cannot move a hit onto
+      // another collection's row.
+      backendAnswers((searched) => (searched === RESTRICTED_COLLECTION ? 'proj_abc' : undefined))
+
+      const { hits } = await searchProjectDocuments(session, 'proj-1', 'Honorar', 10)
+
+      expect(hits.map((hit) => hit.id)).toEqual(['protokoll-gf', 'protokoll-root'])
+    })
   })
 
   it('files an upload into the collection its folder puts it in', async () => {
