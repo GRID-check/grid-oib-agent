@@ -330,7 +330,7 @@ async function prepareUpload(
 
   await requireShelfWrite(session, shelf)
   await assertUploadTypeAllowed(session, file.name)
-  assertFileSizeAllowed(file.size, file.name)
+  await assertFileSizeAllowed(session.organizationId, file.size, file.name)
   // Org-wide ceiling, checked after the per-file one so the caller gets the more
   // specific complaint first, and BEFORE any bytes reach SeaweedFS so a refusal
   // leaves no orphan object behind (ADR-0042).

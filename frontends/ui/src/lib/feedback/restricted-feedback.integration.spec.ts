@@ -16,7 +16,8 @@
  *     digest's model;
  *   - `listUnprocessedDownvotes`, the lessons distiller's input, whose output
  *     is injected into every organization's turns.
- * The aggregates still count the vote: a count quotes nothing. The vote stays
+ * The aggregates still count the vote: a count quotes nothing. Its Langfuse
+ * score carries no words either (`isRestrictedUseVote`). The vote stays
  * out after its chat is deleted, which takes the record with it but not the
  * vote (migration 0120).
  */
@@ -81,6 +82,18 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
     })
   }
 
+  /** Whether the vote on `chat` is scored in Langfuse without its words (`isRestrictedUseVote`). */
+  async function scoredWithoutWords(chat: string): Promise<boolean> {
+    const { withTenant } = await import('@/lib/db/tenant-context')
+    const { isRestrictedUseVote } = await import('./repository')
+    return withTenant({ organizationId: ORG, userId: USER }, async () => {
+      const [vote] = executeRows<{ id: string }>(
+        await (await db()).execute(sql`select id from answer_feedback where conversation_id = ${chat}`)
+      )
+      return isRestrictedUseVote(String(vote.id), ORG)
+    })
+  }
+
   async function seed() {
     await seedVotedChat(OPEN_CHAT, 'Wie hoch muss die Brüstung sein?', OPEN_ANSWER, false)
     await seedVotedChat(RESTRICTED_CHAT, 'Was kostet der Zimmerer laut Angebot?', RESTRICTED_ANSWER, true)
@@ -109,6 +122,9 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
       getFeedbackHealth({ organizationId: ORG, limit: 0 })
     )
     expect(health.totals.down).toBe(2)
+
+    expect(await scoredWithoutWords(RESTRICTED_CHAT)).toBe(true)
+    expect(await scoredWithoutWords(OPEN_CHAT)).toBe(false)
   })
 
   /**
@@ -147,5 +163,6 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
       getFeedbackHealth({ organizationId: ORG, limit: 0 })
     )
     expect(health.totals.down).toBe(3)
+    expect(await scoredWithoutWords(DELETED_CHAT)).toBe(true)
   })
 })

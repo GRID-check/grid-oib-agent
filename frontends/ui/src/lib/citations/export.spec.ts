@@ -21,7 +21,7 @@ vi.mock('./repository', () => ({
   listRecentDefects: vi.fn(),
 }))
 
-vi.mock('@/lib/workos/client', () => ({ getWorkOS: vi.fn() }))
+vi.mock('@/lib/organizations/display-names', () => ({ getOrganizationDisplayNames: vi.fn() }))
 
 vi.mock('@/lib/knowledge/service', () => ({
   getKnowledgeBaseStatus: vi.fn().mockResolvedValue({ files: [] }),
@@ -32,7 +32,7 @@ vi.mock('@/lib/norms/service', () => ({
 }))
 
 import * as repository from './repository'
-import { getWorkOS } from '@/lib/workos/client'
+import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
 import { getCitationExport } from './service'
 import type { CitationEvent } from '@/lib/db/schema'
 
@@ -68,16 +68,20 @@ beforeEach(() => {
   vi.mocked(repository.aggregateDailyTurns).mockResolvedValue([])
   vi.mocked(repository.aggregateReasons).mockResolvedValue([])
   vi.mocked(repository.aggregateDefectiveSourceMix).mockResolvedValue([])
-  vi.mocked(repository.aggregateUnavailableTools).mockResolvedValue([])
-  vi.mocked(repository.aggregateFailedTargets).mockResolvedValue([])
+  vi.mocked(repository.aggregateUnavailableTools).mockResolvedValue({ rows: [], total: 0 })
+  vi.mocked(repository.aggregateFailedTargets).mockResolvedValue({ rows: [], total: 0 })
   vi.mocked(repository.countTurnsForTargets).mockResolvedValue(0)
-  vi.mocked(repository.aggregateByOrganization).mockResolvedValue([
-    { organizationId: 'org_1', turns: 2, defectTurns: 1, errorTurns: 0 },
-  ])
+  vi.mocked(repository.aggregateByOrganization).mockResolvedValue({
+    rows: [{ organizationId: 'org_1', turns: 2, defectTurns: 1, errorTurns: 0 }],
+    total: 1,
+  })
   vi.mocked(repository.listRecentDefects).mockResolvedValue([])
-  vi.mocked(getWorkOS).mockReturnValue({
-    organizations: { listOrganizations: vi.fn().mockResolvedValue({ data: [{ id: 'org_1', name: 'Bauwerk' }] }) },
-  } as unknown as ReturnType<typeof getWorkOS>)
+  vi.mocked(getOrganizationDisplayNames).mockImplementation(async (ids) => {
+    const known: Record<string, string> = { org_1: 'Bauwerk', org_far: 'Fernbau' }
+    return new Map(
+      [...ids].flatMap((id) => (id && known[id] ? [[id, known[id]] as [string, string]] : []))
+    )
+  })
   listEventsForExport.mockResolvedValue([])
 })
 
@@ -94,6 +98,72 @@ describe('getCitationExport', () => {
     expect(bundle.generatedAt).toBe('2026-07-28T12:00:00.000Z')
     // An agent reading the file cold must be able to interpret every kind.
     expect(Object.keys(bundle.glossary)).toContain('answer_ungrounded')
+  })
+
+  it('explains every confidence reason the emitter can write', async () => {
+    // The five `CappedReason` values in agents/piloti/markers.py. The glossary
+    // used to say there were two, so an agent reading `measurement_only` had
+    // nothing to interpret it with.
+    const { glossary } = await getCitationExport()
+    for (const reason of [
+      'ungrounded',
+      'quote_unverified',
+      'normative_claim_uncited',
+      'measurement_only',
+      'citation_fallback',
+    ]) {
+      expect(glossary[`confidence.${reason}`]).toBeTruthy()
+    }
+  })
+
+  it('carries every field its glossary describes', async () => {
+    // The glossary described retrieval_precision counts and registry_empty's
+    // unavailable tools, but the export carried neither.
+    listEventsForExport.mockResolvedValue([
+      event({
+        id: 'p',
+        kind: 'retrieval_precision',
+        severity: 'info',
+        detail: {
+          retrieved_count: 5,
+          cited_count: 2,
+          uncited_count: 3,
+          uncited_sources: ['a.pdf', 'b.pdf', 'c.pdf'],
+        },
+      }),
+      event({
+        id: 'e',
+        kind: 'registry_empty',
+        severity: 'error',
+        detail: { unavailable_tools: ['ris_search_tool'] },
+      }),
+    ])
+
+    const bundle = await getCitationExport()
+    const turn = bundle.turns[0]
+    expect(turn.precision).toEqual({
+      retrievedCount: 5,
+      citedCount: 2,
+      uncitedCount: 3,
+      uncitedSources: ['a.pdf', 'b.pdf', 'c.pdf'],
+    })
+    expect(turn.problems[0].unavailableTools).toEqual(['ris_search_tool'])
+    expect(bundle.glossary.precision).toContain('turns[].precision')
+    expect(bundle.glossary.registry_empty).toContain('problems[].unavailableTools')
+  })
+
+  it('reports no precision for a turn that recorded none', async () => {
+    listEventsForExport.mockResolvedValue([event({ kind: 'citations_removed', severity: 'warn' })])
+    expect((await getCitationExport()).turns[0].precision).toBeNull()
+  })
+
+  it('names organizations outside the dashboard top list', async () => {
+    // The name used to come from the snapshot's organization list, so a turn
+    // from an organization outside it exported with organization: null.
+    listEventsForExport.mockResolvedValue([
+      event({ organizationId: 'org_far', kind: 'citations_removed', severity: 'warn' }),
+    ])
+    expect((await getCitationExport()).turns[0].organization).toBe('Fernbau')
   })
 
   it('joins each flagged turn to its sources and its problems', async () => {
@@ -146,7 +216,12 @@ describe('getCitationExport', () => {
         severity: 'error',
         detail: { retrieved_sources: ['OIB-RL6.pdf, p.3', 'https://ris.bka.gv.at/x'] },
       }),
-      event({ id: 'c', kind: 'quote_unverified', severity: 'warn', detail: { cited_sources: ['OIB-RL6.pdf, p.3'] } }),
+      event({
+        id: 'c',
+        kind: 'quote_unverified',
+        severity: 'warn',
+        detail: { cited_sources: ['OIB-RL6.pdf, p.3'] },
+      }),
     ])
 
     const turn = (await getCitationExport()).turns[0]

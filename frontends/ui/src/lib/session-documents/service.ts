@@ -169,7 +169,7 @@ export async function uploadSessionDocument(
     input.screeningRelease === true,
   )
   await assertUploadTypeAllowed(session, file.name)
-  assertFileSizeAllowed(file.size, file.name)
+  await assertFileSizeAllowed(session.organizationId, file.size, file.name)
   // The same org ceiling as every other shelf: a chat attachment is bytes in
   // the tenant's bucket, so it must not be the way around the quota (ADR-0042).
   await assertWithinStorageQuota(session.organizationId, file.size)

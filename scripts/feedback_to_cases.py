@@ -59,12 +59,25 @@ def slug(question: str) -> str:
     return "-".join([*words, digest]).strip("-")
 
 
+#: The export prefixes a cell starting with one of these with an apostrophe, so a
+#: spreadsheet opens it as text (``frontends/ui/src/lib/text/csv-cell.ts``).
+_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
+
+
+def cell(row: dict[str, str], column: str) -> str:
+    """A column's text, stripped, with the export's formula-neutralising apostrophe removed."""
+    value = (row.get(column) or "").strip()
+    if value.startswith("'") and value[1:].startswith(_FORMULA_LEAD):
+        return value[1:]
+    return value
+
+
 def draft_cases(rows: Iterable[dict[str, str]]) -> list[dict[str, Any]]:
     """One draft per down-vote that has a question and an expected answer; duplicates by question dropped."""
     cases: dict[str, dict[str, Any]] = {}
     for row in rows:
-        question = (row.get("question") or "").strip()
-        expected = (row.get("expected_answer") or "").strip()
+        question = cell(row, "question")
+        expected = cell(row, "expected_answer")
         if (row.get("verdict") or "").strip().casefold() not in DOWN_VERDICTS or not question or not expected:
             continue
         case_id = slug(question)
@@ -102,7 +115,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("csv", type=Path, help="the feedback export")
     parser.add_argument("--out", type=Path, required=True, help="where to write the draft cases")
     args = parser.parse_args(argv)
-    with args.csv.open(encoding="utf-8", newline="") as handle:
+    # utf-8-sig: the export starts with a BOM (for Excel), which plain utf-8 would
+    # leave glued to the first header, so `created_at` never matched.
+    with args.csv.open(encoding="utf-8-sig", newline="") as handle:
         cases = draft_cases(csv.DictReader(handle))
     args.out.write_text(render(cases), encoding="utf-8")
     print(f"{len(cases)} draft case(s) written to {args.out}")
