@@ -7,6 +7,7 @@ import { apiRoute, parseFormData } from '@/lib/api/handler'
 import { DOCUMENT_UPLOAD_LIMIT } from '@/lib/limits'
 import { BadRequestError } from '@/lib/api/errors'
 import { uploadDocument } from '@/lib/documents/service'
+import { readScreeningRelease } from '@/lib/upload-screening/service'
 
 export const POST = apiRoute(
   async ({ session, request }) => {
@@ -29,6 +30,7 @@ export const POST = apiRoute(
         folderId: typeof folderId === 'string' && folderId ? folderId : null,
         file,
         originPath: typeof originPath === 'string' ? originPath : null,
+        screeningRelease: readScreeningRelease(formData.get('screeningRelease')),
       },
       request
     )

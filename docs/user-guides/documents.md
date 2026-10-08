@@ -62,6 +62,8 @@ Files are validated before anything leaves the browser: type, individual size, t
 
 A partially rejected batch still uploads: the valid files go, and the panel says how many were skipped and why.
 
+Your office's sensitive-data list can also hold files back, by name before they are sent or by content before any model reads them: see [Sensitive data, quarantine and roles](sensitive-data-and-access.md).
+
 ### Supported File Types
 
 The accepted file types are configured via `FILE_UPLOAD_ACCEPTED_TYPES` (default: `.pdf,.docx,.txt,.md,.csv,.xlsx,.pptx`).

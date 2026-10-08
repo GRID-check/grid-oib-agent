@@ -29,6 +29,8 @@ export const APP_ROUTE_URLS: readonly string[] = [
   '/app/organization/compliance',
   '/app/organization/enterprise',
   '/app/organization/models',
+  '/app/organization/quarantine',
+  '/app/organization/screening',
   '/app/organization/storage',
   '/app/platform',
   '/app/platform/cards',

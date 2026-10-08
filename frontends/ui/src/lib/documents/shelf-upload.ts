@@ -14,6 +14,8 @@
  *   3. the object key's owner prefix (`uploadStorageKey`),
  *   4. the audit action and what it records (`uploadAuditEvent`).
  *
+ * Both shelves also run the organization's name screening (ADR-0083).
+ *
  * `@/lib/documents/service#uploadDocument` and
  * `@/lib/archiv/service#uploadArchivDocument` are the names the two shelves'
  * routes call; both are one line over this.
@@ -24,6 +26,7 @@ import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { s3Client, bucketAdminS3Client, buildArchivStorageKey, buildStorageKey } from '@/lib/s3'
 import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
 import { NotFoundError } from '@/lib/api/errors'
+import { assertUploadNameAllowed, auditScreeningOverride } from '@/lib/upload-screening/service'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
@@ -46,6 +49,13 @@ export interface ShelfUploadInput {
   file: File
   folderId: string | null
   originPath?: string | null
+  /**
+   * The uploader released this file in the upload dialog although the
+   * organization's name screening excludes it (ADR-0083) — the Bauvertrag in a
+   * folder called „Verträge". Honoured and audited; absent means "do not
+   * override", so a client that never asks is screened.
+   */
+  screeningRelease?: boolean
 }
 
 export interface UploadDocumentResult {
@@ -125,6 +135,8 @@ interface PlaceUploadInput {
   bytes: Buffer
   contentHash: string
   storageBucket: string
+  /** The screening matches the uploader released (ADR-0083), audited once stored. */
+  screeningOverridden: Awaited<ReturnType<typeof assertUploadNameAllowed>>['overridden']
 }
 
 type Placed =
@@ -303,6 +315,14 @@ async function prepareUpload(
 
   const collectionName = await shelfCollectionName(shelf, session.organizationId)
   if (!collectionName) throw new NotFoundError('Project not found')
+  const originPath = sanitizeOriginPath(input.originPath)
+  // The name gate's server-side repeat (ADR-0083), before a byte is stored.
+  const nameGate = await assertUploadNameAllowed(
+    session.organizationId,
+    { filename: file.name, originPath, folderPath },
+    input.screeningRelease === true,
+  )
+  const filename = documentNameKey(file.name)
 
   // Create the organization's bucket if this is its first upload (ADR-0043). A
   // no-op when per-org buckets are off. Done before the PUT so a provisioning
@@ -322,16 +342,17 @@ async function prepareUpload(
      * apart from the first. `findLiveDocumentByFilename` still looks for both
      * forms, because rows written before this line exist. See `./name-match`.
      */
-    filename: documentNameKey(file.name),
+    filename,
     folderId,
     folderPath,
-    originPath: sanitizeOriginPath(input.originPath),
+    originPath,
     file,
     bytes,
     // The digest of the bytes this tier actually wrote — what makes a folder
     // RE-upload cheap. Its shape lives in `./content-digest`.
     contentHash: contentDigest(bytes),
     storageBucket,
+    screeningOverridden: nameGate.overridden,
   }
 }
 
@@ -396,6 +417,16 @@ export async function uploadToShelf(
     collectionName,
     replaced: placed.replaced,
   })
+  await auditScreeningOverride(
+    session,
+    {
+      documentId,
+      projectId: shelf.kind === 'project' ? shelf.projectId : null,
+      filename,
+      overridden: upload.screeningOverridden,
+    },
+    request,
+  )
 
   return { documentId, jobId, status, filename }
 }

@@ -31,7 +31,7 @@ import { ForbiddenError } from '@/lib/api/errors'
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
 import { PLATFORM_OWNED_SETTINGS } from '@/lib/db/schema'
 import type { GridSession } from '@/lib/auth/types'
-import { updateOrgSettings, updatePlatformOwnedOrgSettings } from './service'
+import { updateOrgSettings, updatePlatformOwnedOrgSettings, writeDedicatedOrgSetting } from './service'
 
 const OWNER = { userId: 'user-1', email: 'ops@grid.example' } as GridSession
 const TENANT_ADMIN = { userId: 'user-2', email: 'admin@tenant.example' } as GridSession
@@ -99,6 +99,25 @@ describe('platform-owned settings keys', () => {
       )
     }
     expect(upsertOrganization).not.toHaveBeenCalled()
+  })
+
+  // ADR-0083: a malformed policy saved through the generic merge would read as
+  // the suggested one, but an `enabled: false` with no audit trail would not.
+  it('refuses the upload-screening policy from the generic merge', async () => {
+    await expect(
+      updateOrgSettings('org-1', { settings: { uploadScreening: { enabled: false } } })
+    ).rejects.toThrow(/upload-screening/)
+    expect(upsertOrganization).not.toHaveBeenCalled()
+  })
+
+  it('writes a dedicated key through its own door, and only a declared one', async () => {
+    await writeDedicatedOrgSetting('org-1', 'uploadScreening', { enabled: true })
+    expect(upsertOrganization).toHaveBeenCalledWith(
+      expect.objectContaining({ settings: { uploadScreening: { enabled: true } } })
+    )
+    await expect(
+      writeDedicatedOrgSetting('org-1', 'storageQuotaBytes' as unknown as 'zdrOnly', 1)
+    ).rejects.toThrow(/not a dedicated setting/)
   })
 
   it('accepts a patch with no settings bag at all', async () => {

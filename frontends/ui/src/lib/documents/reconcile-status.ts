@@ -12,6 +12,8 @@
  * wiped the in-memory job registry) and terminal states are written back.
  */
 
+import { QUARANTINED_PREFIX } from '@/lib/upload-screening/quarantine'
+import type { DocumentScreeningOutcome } from '@/lib/db/schema/documents'
 import type { DocumentAuthor } from '@/lib/db/schema'
 import { collectionFileRef, type CollectionFileRef } from './collection-file-ref'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
@@ -141,8 +143,14 @@ export interface DocumentMetadata {
 }
 
 interface TerminalResolution {
-  status: 'completed' | 'failed'
+  status: 'completed' | 'failed' | 'quarantined'
   errorMessage: string | null
+  /**
+   * What the job's content gate concluded (ADR-0083), when it ran. Absent
+   * leaves the column as it is: a job dispatched without screening (released,
+   * or screening off) has nothing to say, and must not erase a `released`.
+   */
+  screeningOutcome?: DocumentScreeningOutcome
 }
 
 /**
@@ -184,7 +192,28 @@ interface BackendJobStatus {
   error_message?: string | null
   /** `queue_ahead`: the backend's count for a job still in the durable queue. */
   metadata?: { queue_ahead?: unknown } | null
-  file_details?: Array<{ status?: string; error_message?: string | null }>
+  /** `screening`: the content gate's per-file outcome (ADR-0083), null when the job carried no rules. */
+  file_details?: Array<{ status?: string; error_message?: string | null; screening?: string | null }>
+}
+
+/**
+ * A failure the content gate reported is not a failure: the job stopped on
+ * purpose, before any model call, and the row goes to quarantine (ADR-0083).
+ */
+const failedOrQuarantined = (errorMessage: string | null): TerminalResolution =>
+  errorMessage?.startsWith(QUARANTINED_PREFIX)
+    ? { status: 'quarantined', errorMessage, screeningOutcome: 'quarantined' }
+    : { status: 'failed', errorMessage }
+
+const SCREENING_OUTCOMES_FROM_JOB = new Set<DocumentScreeningOutcome>(['clean', 'partial', 'unchecked'])
+
+/** The outcome a successful single-file job reports, when it screened at all. */
+const completedOutcome = (job: BackendJobStatus): TerminalResolution => {
+  const reported = job.file_details?.length === 1 ? job.file_details[0]?.screening : null
+  const outcome = SCREENING_OUTCOMES_FROM_JOB.has(reported as DocumentScreeningOutcome)
+    ? (reported as DocumentScreeningOutcome)
+    : undefined
+  return { status: 'completed', errorMessage: null, ...(outcome ? { screeningOutcome: outcome } : {}) }
 }
 
 /**
@@ -214,16 +243,13 @@ const resolveFromJobStatus = (job: BackendJobStatus | null | undefined): JobReso
     // failed; surface that as a failure rather than a false 'completed'.
     const failedFile = job.file_details?.find((f) => f.status === 'failed')
     if (failedFile && job.file_details?.length === 1) {
-      return {
-        kind: 'terminal',
-        resolution: { status: 'failed', errorMessage: failedFile.error_message ?? null },
-      }
+      return { kind: 'terminal', resolution: failedOrQuarantined(failedFile.error_message ?? null) }
     }
-    return { kind: 'terminal', resolution: { status: 'completed', errorMessage: null } }
+    return { kind: 'terminal', resolution: completedOutcome(job) }
   }
   if (job.status === 'failed') {
     const errorMessage = job.error_message ?? job.file_details?.find((f) => f.error_message)?.error_message ?? null
-    return { kind: 'terminal', resolution: { status: 'failed', errorMessage } }
+    return { kind: 'terminal', resolution: failedOrQuarantined(errorMessage) }
   }
   const ahead = job.metadata?.queue_ahead
   return { kind: 'in_progress', queueAhead: typeof ahead === 'number' && ahead >= 0 ? ahead : null }
@@ -378,7 +404,7 @@ const resolveFromCollection = (
   const file = files?.byName.get(ref.filename)
   if (!file) return null
   if (file.status === 'success') return { status: 'completed', errorMessage: null }
-  if (file.status === 'failed') return { status: 'failed', errorMessage: file.error_message ?? null }
+  if (file.status === 'failed') return failedOrQuarantined(file.error_message ?? null)
   return null
 }
 

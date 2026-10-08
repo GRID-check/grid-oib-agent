@@ -663,7 +663,10 @@ describe('ArchivWorkspace — a file the Archiv already holds', () => {
 
     await user.click(within(dialog).getByTestId('folder-upload-confirm'))
     await waitFor(() =>
-      expect(mockUploadFiles).toHaveBeenCalledWith([revised], { folderIdFor: expect.any(Function) })
+      expect(mockUploadFiles).toHaveBeenCalledWith(
+        [revised],
+        expect.objectContaining({ folderIdFor: expect.any(Function), screeningReleased: expect.any(Function) })
+      )
     )
     expect(probed).toEqual([['brandschutz-gutachten.pdf']])
   })
@@ -690,7 +693,10 @@ describe('ArchivWorkspace — a file the Archiv already holds', () => {
     const fresh = new File(['x'], 'neu.pdf', { type: 'application/pdf' })
     pick(fresh)
 
-    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([fresh]))
+    // The folder it lands in rides along for the upload screening (ADR-0083).
+    await waitFor(() =>
+      expect(mockUploadFiles).toHaveBeenCalledWith([fresh], expect.objectContaining({ folderPathFor: expect.any(Function) }))
+    )
     expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
   })
 })

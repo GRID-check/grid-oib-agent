@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState } from 'react'
+import { loadUploadScreeningPolicy } from '@/adapters/api/upload-screening-policy'
 import { digestFiles } from '../lib/content-digest'
 import {
   buildFolderUploadPlan,
@@ -32,9 +33,22 @@ export interface UploadDecision {
    * could touch rather than against the page of the listing on screen.
    */
   propose: (
-    input: Omit<FolderUploadPlanInput, 'documents' | 'digests'> & { documents: PlanDocumentSource },
+    input: Omit<FolderUploadPlanInput, 'documents' | 'digests' | 'screening'> & {
+      documents: PlanDocumentSource
+      /**
+       * The path of the folder the reader stands in, from the shelf root, or
+       * null at the root: files are screened against where they land too.
+       */
+      screeningBasePath?: string | null
+    },
     sendDirect: (files: File[]) => void
   ) => Promise<void>
+  /**
+   * The reader's answer for one file the upload screening excluded (ADR-0083):
+   * upload it anyway, or not. Re-plans, because a released file can create a
+   * folder and claim a name the excluded one did not.
+   */
+  setReleased: (file: File, released: boolean) => void
   plan: FolderUploadPlan | null
   kind: UploadDecisionKind
   open: boolean
@@ -70,20 +84,31 @@ export function useUploadDecision(): UploadDecision {
    * long, which is ample time to drop another.
    */
   const generation = useRef(0)
+  /** The last plan's input, digests included, so a release re-plans without re-reading anything. */
+  const lastInput = useRef<FolderUploadPlanInput | null>(null)
 
   const propose = useCallback<UploadDecision['propose']>(async (input, sendDirect) => {
     const current = ++generation.current
     const isFolder = isFolderUpload(input.files)
-    const documents =
+    const { screeningBasePath, ...planInput } = input
+    const [documents, policy] = await Promise.all([
       typeof input.documents === 'function'
-        ? await input.documents([...new Set(input.files.map((file) => file.name))])
-        : input.documents
+        ? input.documents([...new Set(input.files.map((file) => file.name))])
+        : Promise.resolve(input.documents),
+      loadUploadScreeningPolicy(),
+    ])
     if (current !== generation.current) return
-    const base: FolderUploadPlanInput = { ...input, documents }
+    const base: FolderUploadPlanInput = {
+      ...planInput,
+      documents,
+      screening: { policy, basePath: screeningBasePath ?? null, released: new Set<File>() },
+    }
     // First pass names the plausible duplicates; only those are read into
-    // memory. Everything else is an upload either way.
+    // memory. Everything else is an upload either way. An excluded file is not
+    // `new`, so the reader is always shown what the screening held back.
     const first = buildFolderUploadPlan(base)
     if (!isFolder && !needsUploadDecision(first)) {
+      lastInput.current = null
       sendDirect([...input.files])
       return
     }
@@ -93,8 +118,19 @@ export function useUploadDecision(): UploadDecision {
     setOpen(true)
     const digests = await digestFiles(first.hashCandidates)
     if (current !== generation.current) return
-    setPlan(buildFolderUploadPlan({ ...base, digests }))
+    lastInput.current = { ...base, digests }
+    setPlan(buildFolderUploadPlan(lastInput.current))
   }, [])
 
-  return { propose, plan, kind, open, setOpen, pending, setPending }
+  const setReleased = useCallback<UploadDecision['setReleased']>((file, released) => {
+    const input = lastInput.current
+    if (!input?.screening) return
+    const next = new Set(input.screening.released)
+    if (released) next.add(file)
+    else next.delete(file)
+    lastInput.current = { ...input, screening: { ...input.screening, released: next } }
+    setPlan(buildFolderUploadPlan(lastInput.current))
+  }, [])
+
+  return { propose, setReleased, plan, kind, open, setOpen, pending, setPending }
 }

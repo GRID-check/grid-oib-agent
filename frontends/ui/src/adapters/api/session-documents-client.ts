@@ -42,13 +42,15 @@ export type SessionDocumentRow = z.infer<typeof SessionDocumentRowSchema>
 /**
  * A document row's status in the tracked-file vocabulary. Derived from the one
  * status table (`lib/documents/document-status`): in flight is `ingesting`,
- * a failure is `failed`, anything else at rest is `success`. An undeclared
+ * a failure or a quarantine is `failed`, anything else at rest is `success`. An undeclared
  * status is at rest: reading it as in flight would poll it forever.
  */
 export function sessionDocumentFileStatus(status: string): DocumentFileStatus {
   const facts = documentStatusFacts(status)
   if (facts?.phase === 'in-flight') return 'ingesting'
-  return facts?.variant === 'destructive' ? 'failed' : 'success'
+  // A quarantined attachment (ADR-0083) is not readable either, and saying
+  // „success" would tell the chat it can be asked about.
+  return facts?.variant === 'destructive' || facts?.variant === 'warning' ? 'failed' : 'success'
 }
 
 /** A session document row in the shape the documents store reads. */

@@ -14,6 +14,8 @@ export const organization: typeof en.organization = {
     models: 'Modelle',
     budgets: 'Nutzung & Budgets',
     storage: 'Speicher',
+    screening: 'Sensible Daten',
+    quarantine: 'Quarantäne',
     compliance: 'Compliance',
     enterprise: 'Enterprise',
   },
@@ -43,6 +45,15 @@ export const organization: typeof en.organization = {
       title: 'Speicher',
       subtitle:
         'Wie viel Dokumentenspeicher diese Organisation belegt und welches Kontingent ihn begrenzt.',
+    },
+    screening: {
+      title: 'Sensible Daten',
+      subtitle: 'Was Ihr Büro keinem Sprachmodell zeigen will, und woran Piloti es erkennt.',
+    },
+    quarantine: {
+      title: 'Quarantäne',
+      subtitle:
+        'Dateien, die die Inhaltsprüfung zurückgehalten hat. Kein Modell hat sie gelesen. Wer sie prüfen darf, gibt sie hier frei oder löscht sie.',
     },
     compliance: {
       title: 'Compliance',
@@ -427,5 +438,74 @@ export const organization: typeof en.organization = {
       'Jede privilegierte Änderung — Budgets, Modellkonfiguration, Einstellungen, Legal Holds — wird im WorkOS-Audit-Trail Ihrer Organisation erfasst. Der Viewer öffnet sich in einem neuen Tab und kann Ereignisse exportieren.',
     open: 'Audit-Logs ansehen',
     error: 'Der Audit-Log-Viewer konnte nicht geöffnet werden.',
+  },
+  /** Sensible Daten: die Liste, gegen die Piloti jeden Upload prüft (ADR-0083). */
+  screening: {
+    title: 'Prüfliste',
+    description: 'Piloti prüft jeden Upload gegen diese Listen. Was anschlägt, liest kein Modell.',
+    enabled: 'Uploads prüfen',
+    enabledHint: 'Ausgeschaltet prüft Piloti nichts. Ihre Listen bleiben gespeichert.',
+    suggestedTitle: 'Es gilt der Vorschlag von Piloti',
+    suggestedBody:
+      'Ihr Büro hat noch keine eigene Liste gespeichert. Bis dahin prüft Piloti mit dieser. Sobald Sie speichern, gilt Ihre.',
+    namesTitle: 'Vor dem Hochladen: Datei- und Ordnernamen',
+    namesHint:
+      'Der Browser prüft die Namen, bevor er etwas sendet. Eine passende Datei wird nicht gesendet, außer die Person, die hochlädt, gibt sie einzeln frei.',
+    nameTerms: 'Namensbegriffe',
+    nameTermsHint: 'Trifft auch Wortteile: „Rechnung“ findet „Schlussrechnung“.',
+    nameExceptions: 'Ausnahmen',
+    nameExceptionsHint: 'Wörter, die einen Begriff enthalten, aber etwas anderes meinen: „Berechnung“ enthält „Rechnung“.',
+    contentTitle: 'Nach dem Hochladen: Inhalt',
+    contentHint:
+      'Piloti liest den Text auf dem eigenen Server und prüft ihn, bevor ein Modell ihn sieht. Treffer warten in der Quarantäne, bis jemand sie freigibt oder löscht.',
+    contentTerms: 'Inhaltsbegriffe',
+    contentTermsHint: 'Trifft Wörter, die so beginnen: „Honorar“ findet „Honorarnote“.',
+    detectors: 'Nummern erkennen',
+    detectorsHint: 'Piloti rechnet die Prüfziffer nach. Eine Zahl, die nur so aussieht, schlägt nicht an.',
+    detector: {
+      iban: 'IBAN',
+      at_svnr: 'Sozialversicherungsnummer (AT)',
+      credit_card: 'Kreditkartennummer',
+    },
+    limits:
+      'Die Prüfung sieht Wörter und Nummern, keine Bedeutung. Eine Honorarvereinbarung, die keinen Ihrer Begriffe enthält, kommt durch. Gescannte Seiten und Bilder ohne Textebene prüft Piloti nur am Namen.',
+    termPlaceholder: 'Begriff eingeben, Enter drücken',
+    removeTerm: '„{term}“ entfernen',
+    emptyList: 'Keine Begriffe',
+    useSuggestion: 'Vorschlag übernehmen',
+    saved: 'Liste gespeichert. Sie gilt ab dem nächsten Upload.',
+    saveError: 'Die Liste konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
+    saveForbidden:
+      'Sie können diese Liste nicht ändern. Dafür brauchen Sie die Berechtigung „Organisationseinstellungen verwalten“.',
+    invalid: 'Ein Begriff ist zu lang. Ein Begriff hat höchstens 80 Zeichen.',
+    readOnly: 'Ändern können diese Listen nur Personen mit der Berechtigung „Organisationseinstellungen verwalten“.',
+    loadError: 'Die Listen konnten gerade nicht geladen werden.',
+  },
+  /** Quarantäne: Dateien, die die Inhaltsprüfung zurückgehalten hat (ADR-0083). */
+  quarantine: {
+    listLabel: 'Zurückgehaltene Dateien',
+    empty: 'Nichts wartet auf Prüfung',
+    emptyHint:
+      'Hält die Inhaltsprüfung eine Datei zurück, erscheint sie hier. Sie sehen die Dateien, die Sie freigeben dürfen.',
+    whereProject: 'Projekt {name}',
+    whereProjectUnknown: 'Ein Projekt',
+    whereArchiv: 'Archiv',
+    whereSession: 'Chat-Anhang',
+    reasonsLabel: 'Gründe',
+    noReason: 'Grund nicht lesbar',
+    release: 'Freigeben',
+    releaseTitle: '„{name}“ freigeben?',
+    releaseDescription:
+      'Piloti liest die Datei dann wie jeden anderen Upload: Sprachmodelle sehen ihren Inhalt, und die Suche findet sie. Die Freigabe wird mit Ihrem Namen protokolliert.',
+    released: '„{name}“ ist freigegeben und wird gelesen.',
+    releaseError: 'Die Datei konnte nicht freigegeben werden. Bitte versuchen Sie es erneut.',
+    changed: 'Jemand hat diese Datei schon bearbeitet. Die Liste ist jetzt aktuell.',
+    delete: 'Löschen',
+    deleteTitle: '„{name}“ löschen?',
+    deleteDescription: 'Die Datei wird aus Piloti entfernt. Das lässt sich nicht rückgängig machen.',
+    deleted: '„{name}“ ist gelöscht.',
+    deleteError: 'Die Datei konnte nicht gelöscht werden. Bitte versuchen Sie es erneut.',
+    deleteErrorSession: 'Einen Chat-Anhang können nur Personen löschen, die an diesem Chat beteiligt sind.',
+    loadError: 'Die Quarantäne konnte gerade nicht geladen werden.',
   },
 }

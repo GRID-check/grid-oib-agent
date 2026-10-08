@@ -8,6 +8,7 @@
  * Failures are signalled with typed errors from `@/lib/api/errors`.
  */
 
+import { ingestScreeningFor } from '@/lib/upload-screening/service'
 import 'server-only'
 import {
   GetObjectCommand,
@@ -438,6 +439,10 @@ export async function dispatchIngest(
   // Read from the row rather than threaded through every caller; a failed read
   // books the spend to the organization alone, never fails the dispatch.
   const attribution = await findDocumentInOrg(documentId, organizationId).catch(() => null)
+  // The content gate's rules (ADR-0083). Every path into the index passes this
+  // line — upload, re-ingest, re-index, Archiv, chat, the IFC digest — so the
+  // gate is not something a new caller has to remember.
+  const screening = await ingestScreeningFor(organizationId, attribution)
 
   const body = JSON.stringify({
     file_ref: presignedUrl,
@@ -457,6 +462,9 @@ export async function dispatchIngest(
     // only the bytes read differ, never the identity.
     extraction_ref: extras.extractionRef ?? null,
     folder_path: folderPath,
+    // Null when screening is off for the organization or a reviewer released
+    // these exact bytes from quarantine; the job then reads as it always did.
+    screening,
     // The document's IDENTITY inside the collection, stated rather than
     // left to be derived. Without it the backend reads the name off the
     // presigned URL's last path segment, which is the OBJECT KEY's
@@ -790,6 +798,13 @@ export interface UploadDocumentInput {
    * for why this is not Piloti's own folder path.
    */
   originPath?: string | null
+  /**
+   * The uploader released this file in the upload dialog although the
+   * organization's name screening excludes it (ADR-0083) — the Bauvertrag in a
+   * folder called „Verträge". Honoured and audited; absent means "do not
+   * override", so a client that never asks is screened.
+   */
+  screeningRelease?: boolean
 }
 
 export type { UploadDocumentResult }

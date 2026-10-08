@@ -43,7 +43,11 @@ export default async function OrganizationLayout({
     // Storage joins the overview and budgets as a section every member sees:
     // a member whose upload was just refused needs to be able to find out why,
     // and the quota itself is only editable with `org:settings:manage`.
-    const sections: OrganizationSectionKey[] = ['overview', 'budgets', 'storage']
+    // Sensitive data and quarantine are open to every member too (ADR-0083): an
+    // uploader whose file was held back needs to see the list that caught it,
+    // and the quarantine queue is filtered per row on the server, so a member
+    // who may review nothing gets an honest empty list rather than a 403.
+    const sections: OrganizationSectionKey[] = ['overview', 'budgets', 'storage', 'screening', 'quarantine']
     if (canManageMembers(session)) sections.push('access')
     if (canManageModels(session)) sections.push('models')
     // Audit-view ONLY, matching `/api/organization/audit-portal`, which gates on
