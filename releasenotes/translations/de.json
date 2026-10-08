@@ -244,8 +244,16 @@
     "de": "Eine fertige Aufgabe, die kein Dokument abgelegt und keinen Chat eröffnet hat, öffnet jetzt den Bericht ihres Laufs, eine fehlgeschlagene ihren Gedankengang."
   },
   {
+    "en": "A folder deleted before this release stays deleted for good. A project folder can no longer be deleted while it holds a subfolder you may not edit; folders in the Archiv delete as before.",
+    "de": "Ein vor diesem Release gelöschter Ordner bleibt endgültig gelöscht. Ein Projektordner lässt sich nicht mehr löschen, solange er einen Unterordner enthält, den Sie nicht bearbeiten dürfen; Ordner im Archiv werden wie bisher gelöscht."
+  },
+  {
     "en": "A folder holding subfolders you cannot read can only be moved by an organization admin, and a demoted admin stops reaching every folder within a minute. Review requests go only to people who may read the folder, and the projects overview counts only the documents you may read.",
     "de": "Einen Ordner mit Unterordnern, die Sie nicht lesen dürfen, kann nur ein Organisations-Admin verschieben, und wer kein Admin mehr ist, erreicht binnen einer Minute nicht mehr jeden Ordner. Prüfanfragen gehen nur an Personen, die den Ordner lesen dürfen, und die Projektübersicht zählt nur die Dokumente, die Sie lesen dürfen."
+  },
+  {
+    "en": "A folder upload into a project with a restricted folder no longer refuses the subfolders of a folder it has just created.",
+    "de": "Ein Ordner-Upload in ein Projekt mit einem eingeschränkten Ordner lehnt die Unterordner eines gerade erst angelegten Ordners nicht mehr ab."
   },
   {
     "en": "A follow-up like \"kürze Punkt 3\" changes that document in place instead of producing a second version of it, so the conversation keeps working on one draft rather than on a growing pile of near-copies.",
@@ -920,6 +928,10 @@
     "de": "Beim Löschen eines Dokuments mit mehr als 500 Versionen werden jetzt die Dateien aller Versionen entfernt, nicht nur die der ersten 500."
   },
   {
+    "en": "Deleting a folder in a project now moves it to the project's Papierkorb with its subfolders and documents. It disappears from lists, search and answers at once and can be restored with its access for 14 days.",
+    "de": "Wer einen Ordner in einem Projekt löscht, verschiebt ihn jetzt samt Unterordnern und Dokumenten in den Papierkorb des Projekts. Er verschwindet sofort aus Listen, Suche und Antworten und lässt sich 14 Tage lang mit seinen Zugriffsrechten wiederherstellen."
+  },
+  {
     "en": "Deleting a folder never deletes what was filed in it. The confirmation names where things go — \"Its 4 documents and 1 subfolder are not deleted — they move to Brandschutz\" — and the documents and any subfolders are re-filed into the folder above before the folder itself is removed, with a toast afterwards repeating the count.",
     "de": "Das Löschen eines Ordners löscht niemals, was darin abgelegt ist. In der Bestätigung steht, wohin die Inhalte verschoben werden: „Die 4 Dokumente und der 1 Unterordner werden nicht gelöscht – sie werden in den Ordner Brandschutz verschoben.“ Bevor der Ordner selbst entfernt wird, werden die Dokumente und etwaige Unterordner in den übergeordneten Ordner verschoben. Eine anschließende Toast-Meldung wiederholt die Anzahl."
   },
@@ -1444,6 +1456,10 @@
     "de": "Organisationsadmins können unter Organisation, Enterprise jetzt alle fehlgeschlagenen Einlesevorgänge auf einmal erneut scannen: Jede Datei, die nicht gelesen werden konnte, wird unter ihrem eigenen Namen erneut eingelesen."
   },
   {
+    "en": "Organization admins choose who still sees chats, answers and notes drawn from a deleted folder, under Sensible Daten. Such content shows „Quelle gelöscht am …“, or is removed with the folder if they choose so.",
+    "de": "Organisations-Admins legen unter Sensible Daten fest, wer Chats, Antworten und Notizen aus einem gelöschten Ordner noch sieht. Solche Inhalte zeigen „Quelle gelöscht am …“ oder werden, wenn sie es so wählen, mit dem Ordner entfernt."
+  },
+  {
     "en": "Organizations that use Piloti with their own provider key see tokens instead of points, and can set their limits in tokens.",
     "de": "Organisationen, die Piloti mit einem eigenen Anbieterschlüssel nutzen, sehen Tokens statt Punkten und können ihre Limits in Tokens festlegen."
   },
@@ -1606,6 +1622,10 @@
   {
     "en": "Project admins can create and run scheduled skills again. Only organization admins could do so after a permission was renamed.",
     "de": "Projekt-Admins können geplante Skills wieder anlegen und ausführen. Nach der Umbenennung einer Berechtigung ging das nur noch für Organisations-Admins."
+  },
+  {
+    "en": "Project admins can delete a folder in the Papierkorb for good at once. A legal hold on the folder, its project or a document in it prevents that.",
+    "de": "Projekt-Admins können einen Ordner im Papierkorb sofort endgültig löschen. Eine rechtliche Sperre auf dem Ordner, seinem Projekt oder einem Dokument darin verhindert das."
   },
   {
     "en": "Project and archive uploads are no longer capped at 100 MB per upload, so a full Einreichung goes through; only your organization's storage quota applies.",
