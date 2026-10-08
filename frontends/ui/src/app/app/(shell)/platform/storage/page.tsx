@@ -2,13 +2,14 @@
  * Platform → storage. Every tenant's consumption, and the quota that bounds it.
  *
  * Owner gate, shell chrome and section nav live in the shared `layout.tsx`;
- * this page only names its section and renders it.
+ * this page only names its section and renders it. The card under the header
+ * says what it holds (usage by organization) rather than repeating the page
+ * title.
  */
 
 import type { JSX } from 'react'
-import { HardDrive } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/ui/page-header'
+import { SectionCard } from '@/features/platform/components/section-card'
 import { getTranslations } from '@/i18n/server'
 import { PlatformStorageTable } from '../storage-table'
 
@@ -18,18 +19,13 @@ export default async function PlatformStoragePage(): Promise<JSX.Element> {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title={t('sections.storage.title')} subtitle={t('sections.storage.subtitle')} />
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <HardDrive className="text-muted-foreground size-4" aria-hidden />
-            {t('storage.title')}
-          </CardTitle>
-          <CardDescription>{t('storage.description')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <PlatformStorageTable />
-        </CardContent>
-      </Card>
+      <SectionCard
+        title={t('storage.title')}
+        description={t('storage.description')}
+        testId="platform-storage-card"
+      >
+        <PlatformStorageTable />
+      </SectionCard>
     </div>
   )
 }

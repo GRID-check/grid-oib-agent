@@ -21,8 +21,8 @@ vi.mock('./repository', () => ({
   listRecentDefects: vi.fn(),
 }))
 
-vi.mock('@/lib/workos/client', () => ({
-  getWorkOS: vi.fn(),
+vi.mock('@/lib/organizations/display-names', () => ({
+  getOrganizationDisplayNames: vi.fn(),
 }))
 
 vi.mock('@/lib/knowledge/service', () => ({
@@ -34,7 +34,9 @@ vi.mock('@/lib/norms/service', () => ({
 }))
 
 import * as repository from './repository'
-import { getWorkOS } from '@/lib/workos/client'
+import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
+import { getKnowledgeBaseStatus } from '@/lib/knowledge/service'
+import { getNormRegistry } from '@/lib/norms/service'
 import { clampWindowDays, getCitationHealth, recordCitationEvents } from './service'
 import type { CitationEvent } from '@/lib/db/schema'
 
@@ -53,7 +55,16 @@ const mocked = {
   byOrg: vi.mocked(repository.aggregateByOrganization),
   recent: vi.mocked(repository.listRecentDefects),
 }
-const mockGetWorkOS = vi.mocked(getWorkOS)
+const mockNames = vi.mocked(getOrganizationDisplayNames)
+
+/** Resolve names from a fixed directory, the way the real resolver would. */
+function withNames(directory: Record<string, string>): void {
+  mockNames.mockImplementation(async (ids) => {
+    const names = new Map<string, string>()
+    for (const id of ids) if (id && directory[id]) names.set(id, directory[id])
+    return names
+  })
+}
 
 /** Every repository call resolves empty unless a test overrides it. */
 function withEmptyRepository(): void {
@@ -64,14 +75,14 @@ function withEmptyRepository(): void {
   mocked.dailyTurns.mockResolvedValue([])
   mocked.reasons.mockResolvedValue([])
   mocked.sourceMix.mockResolvedValue([])
-  mocked.unavailableTools.mockResolvedValue([])
-  mocked.failedTargets.mockResolvedValue([])
+  mocked.unavailableTools.mockResolvedValue({ rows: [], total: 0 })
+  mocked.failedTargets.mockResolvedValue({ rows: [], total: 0 })
   mocked.targetTurns.mockResolvedValue(0)
-  mocked.byOrg.mockResolvedValue([])
+  mocked.byOrg.mockResolvedValue({ rows: [], total: 0 })
   mocked.recent.mockResolvedValue([])
-  mockGetWorkOS.mockReturnValue({
-    organizations: { listOrganizations: vi.fn().mockResolvedValue({ data: [] }) },
-  } as unknown as ReturnType<typeof getWorkOS>)
+  withNames({})
+  vi.mocked(getKnowledgeBaseStatus).mockResolvedValue({ files: [] } as never)
+  vi.mocked(getNormRegistry).mockResolvedValue({ registry: { entries: [] } } as never)
 }
 
 function event(overrides: Partial<CitationEvent> = {}): CitationEvent {
@@ -167,12 +178,15 @@ describe('getCitationHealth', () => {
     ])
 
     const snapshot = await getCitationHealth()
-    expect(snapshot.byKind.map((row) => row.kind)).toEqual(['citations_removed', 'quote_unverified'])
+    expect(snapshot.byKind.map((row) => row.kind)).toEqual([
+      'citations_removed',
+      'quote_unverified',
+    ])
     expect(snapshot.byKind[0].share).toBeCloseTo(11 / 50)
   })
 
   it('zero-fills the daily trend and excludes the baseline row from the stack', async () => {
-    mocked.dailyTurns.mockResolvedValue([{ day: '2026-07-27', turns: 12 }])
+    mocked.dailyTurns.mockResolvedValue([{ day: '2026-07-27', turns: 12, defectTurns: 5 }])
     mocked.dailyKind.mockResolvedValue([
       { day: '2026-07-27', kind: 'turn_verified', turns: 12 },
       { day: '2026-07-27', kind: 'citations_removed', turns: 4 },
@@ -180,23 +194,38 @@ describe('getCitationHealth', () => {
     ])
 
     const snapshot = await getCitationHealth({ days: 3 })
-    expect(snapshot.dailyTrend.map((point) => point.day)).toEqual(['2026-07-26', '2026-07-27', '2026-07-28'])
-    expect(snapshot.dailyTrend[0]).toEqual({ day: '2026-07-26', turns: 0, defectTurns: 0, byKind: {} })
+    expect(snapshot.dailyTrend.map((point) => point.day)).toEqual([
+      '2026-07-26',
+      '2026-07-27',
+      '2026-07-28',
+    ])
+    expect(snapshot.dailyTrend[0]).toEqual({
+      day: '2026-07-26',
+      turns: 0,
+      defectTurns: 0,
+      byKind: {},
+    })
     const busy = snapshot.dailyTrend[1]
     expect(busy.byKind).toEqual({ citations_removed: 4, quote_unverified: 2 })
-    // Defects are not additive across kinds — one turn can carry several.
-    expect(busy.defectTurns).toBe(4)
+    expect(busy.defectTurns).toBe(5)
   })
 
-  it('never reports more defective turns than turns observed that day', async () => {
-    mocked.dailyTurns.mockResolvedValue([{ day: '2026-07-28', turns: 3 }])
-    mocked.dailyKind.mockResolvedValue([{ day: '2026-07-28', kind: 'citations_removed', turns: 9 }])
+  it('reports the distinct defective turns per day, not a bound from the per-kind counts', async () => {
+    // Regression: the day's figure was max(per-kind turns), a lower bound shown
+    // as exact. Four removal turns and two quote turns that are different turns
+    // are six bad turns, which only the database can know.
+    mocked.dailyTurns.mockResolvedValue([{ day: '2026-07-28', turns: 10, defectTurns: 6 }])
+    mocked.dailyKind.mockResolvedValue([
+      { day: '2026-07-28', kind: 'citations_removed', turns: 4 },
+      { day: '2026-07-28', kind: 'quote_unverified', turns: 2 },
+    ])
 
     const snapshot = await getCitationHealth({ days: 1 })
-    expect(snapshot.dailyTrend[0].defectTurns).toBe(3)
+    expect(snapshot.dailyTrend[0].defectTurns).toBe(6)
   })
 
-  it('computes each reason’s share of all reason occurrences', async () => {
+  it('computes each reason’s share of its own kind’s items', async () => {
+    mocked.byKind.mockResolvedValue([{ kind: 'citations_removed', turns: 10, items: 40 }])
     mocked.reasons.mockResolvedValue([
       { kind: 'citations_removed', reason: 'url_not_in_registry', occurrences: 30 },
       { kind: 'citations_removed', reason: 'duplicate', occurrences: 10 },
@@ -207,34 +236,177 @@ describe('getCitationHealth', () => {
     expect(snapshot.reasons[1].share).toBeCloseTo(0.25)
   })
 
-  it('resolves organization names and sorts by defect volume before rate', async () => {
-    mocked.byOrg.mockResolvedValue([
-      { organizationId: 'org_big', turns: 500, defectTurns: 50, errorTurns: 4 },
-      { organizationId: 'org_small', turns: 2, defectTurns: 2, errorTurns: 0 },
+  it('does not let confidence_capped reasons dilute the removed-citation shares', async () => {
+    // Regression: shares were taken over every reason of every kind, so 60
+    // capped answers turned "75 % of removals were invented" into 30 % and
+    // suppressed the citations_invented finding.
+    mocked.observed.mockResolvedValue(100)
+    mocked.defective.mockResolvedValue(80)
+    mocked.byKind.mockResolvedValue([
+      { kind: 'citations_removed', turns: 40, items: 40 },
+      { kind: 'confidence_capped', turns: 60, items: 60 },
     ])
-    mockGetWorkOS.mockReturnValue({
-      organizations: {
-        listOrganizations: vi.fn().mockResolvedValue({ data: [{ id: 'org_big', name: 'Bauwerk' }] }),
-      },
-    } as unknown as ReturnType<typeof getWorkOS>)
+    mocked.reasons.mockResolvedValue([
+      { kind: 'confidence_capped', reason: 'ungrounded', occurrences: 60 },
+      { kind: 'citations_removed', reason: 'url_not_in_registry', occurrences: 30 },
+      { kind: 'citations_removed', reason: 'duplicate', occurrences: 10 },
+    ])
+
+    const snapshot = await getCitationHealth()
+    const removed = snapshot.reasons.find((row) => row.reason === 'url_not_in_registry')
+    expect(removed?.share).toBeCloseTo(0.75)
+    expect(snapshot.reasons.find((row) => row.kind === 'confidence_capped')?.share).toBeCloseTo(1)
+    const invented = snapshot.findings.find((finding) => finding.id === 'citations_invented')
+    expect(invented?.metrics.share).toBeCloseTo(0.75)
+  })
+
+  it('resolves organization names and sorts by defect volume before rate', async () => {
+    mocked.byOrg.mockResolvedValue({
+      rows: [
+        { organizationId: 'org_big', turns: 500, defectTurns: 50, errorTurns: 4 },
+        { organizationId: 'org_small', turns: 2, defectTurns: 2, errorTurns: 0 },
+      ],
+      total: 2,
+    })
+    withNames({ org_big: 'Bauwerk' })
 
     const snapshot = await getCitationHealth()
     // A single bad turn at 100 % must not outrank 50 bad turns at 10 %.
-    expect(snapshot.organizations.map((org) => org.organizationId)).toEqual(['org_big', 'org_small'])
+    expect(snapshot.organizations.map((org) => org.organizationId)).toEqual([
+      'org_big',
+      'org_small',
+    ])
     expect(snapshot.organizations[0].name).toBe('Bauwerk')
     expect(snapshot.organizations[0].defectRate).toBeCloseTo(0.1)
-    // Unknown to WorkOS — degrades to a null name, never throws.
+    // Unknown to the resolver — degrades to a null name, never throws.
     expect(snapshot.organizations[1].name).toBeNull()
+    expect(snapshot.organizationsTotal).toBe(2)
   })
 
-  it('degrades to bare organization ids when WorkOS is unavailable', async () => {
-    mocked.byOrg.mockResolvedValue([{ organizationId: 'org_1', turns: 10, defectTurns: 1, errorTurns: 0 }])
-    mockGetWorkOS.mockReturnValue({
-      organizations: { listOrganizations: vi.fn().mockRejectedValue(new Error('workos down')) },
-    } as unknown as ReturnType<typeof getWorkOS>)
+  it('lists the top 50 organizations, reports the total, and still finds the outlier below them', async () => {
+    // Regression: the SQL list stopped at 50, so an organization at five times
+    // the platform rate but with few defect turns never reached the outlier
+    // rule; and names came from the first WorkOS page of 100 organizations.
+    const busy = Array.from({ length: 60 }, (_, index) => ({
+      organizationId: `org_${index}`,
+      turns: 1000,
+      defectTurns: 100,
+      errorTurns: 0,
+    }))
+    const outlier = { organizationId: 'org_outlier', turns: 40, defectTurns: 30, errorTurns: 0 }
+    mocked.observed.mockResolvedValue(60_040)
+    mocked.defective.mockResolvedValue(6_030)
+    mocked.byOrg.mockResolvedValue({ rows: [...busy, outlier], total: 61 })
+    withNames({ org_outlier: 'Statik Nord' })
 
     const snapshot = await getCitationHealth()
-    expect(snapshot.organizations[0].name).toBeNull()
+    expect(snapshot.organizations).toHaveLength(50)
+    expect(snapshot.organizationsTotal).toBe(61)
+    const finding = snapshot.findings.find((entry) => entry.id === 'organization_outlier')
+    expect(finding?.subject).toEqual({ type: 'organization', label: 'Statik Nord' })
+    // Only the listed organizations and the outlier are resolved.
+    const requested = [...(mockNames.mock.calls[0][0] as Iterable<string>)]
+    expect(requested).toHaveLength(51)
+    expect(requested).toContain('org_outlier')
+  })
+
+  it('lists the top 25 missing sources but counts every scanned one in the findings', async () => {
+    // Regression: only 25 targets were read, and the finding's "{sources}
+    // sources" was the length of that list, worded as a total.
+    const rows = Array.from({ length: 30 }, (_, index) => ({
+      target: `missing-${index}.pdf`,
+      reason: 'citation_key_not_in_registry',
+      turns: 30 - index,
+      organizations: 1,
+      lastSeenAt: new Date('2026-07-27T10:00:00.000Z'),
+    }))
+    mocked.observed.mockResolvedValue(100)
+    mocked.defective.mockResolvedValue(40)
+    mocked.failedTargets.mockResolvedValue({ rows, total: 1200 })
+    mocked.targetTurns.mockResolvedValue(40)
+
+    const snapshot = await getCitationHealth()
+    expect(snapshot.missingSources).toHaveLength(25)
+    expect(snapshot.missingSourcesTotal).toBe(1200)
+    const missing = snapshot.findings.find((entry) => entry.id === 'sources_missing')
+    expect(missing?.metrics.sources).toBe(30)
+  })
+
+  it('counts every unavailable tool, not just the listed ones', async () => {
+    mocked.observed.mockResolvedValue(10)
+    mocked.defective.mockResolvedValue(3)
+    mocked.byKind.mockResolvedValue([{ kind: 'registry_empty', turns: 3, items: 3 }])
+    mocked.unavailableTools.mockResolvedValue({
+      rows: [{ tool: 'ris_search_tool', turns: 3 }],
+      total: 11,
+    })
+
+    const snapshot = await getCitationHealth()
+    expect(
+      snapshot.findings.find((entry) => entry.id === 'retrieval_unavailable')?.metrics.tools
+    ).toBe(11)
+  })
+
+  describe('platform inventory', () => {
+    const heldDocument = {
+      target: 'OIB-RL6-2023.pdf, p.12',
+      reason: 'citation_key_not_in_registry',
+      turns: 9,
+      organizations: 2,
+      lastSeenAt: new Date('2026-07-27T10:00:00.000Z'),
+    }
+
+    it('reports a known inventory when both backends answer', async () => {
+      vi.mocked(getKnowledgeBaseStatus).mockResolvedValue({
+        files: [{ fileName: 'OIB-RL6-2023.pdf' }],
+      } as never)
+      mocked.failedTargets.mockResolvedValue({ rows: [heldDocument], total: 1 })
+
+      const snapshot = await getCitationHealth()
+      expect(snapshot.inventoryKnown).toBe(true)
+      expect(snapshot.missingSources[0]).toMatchObject({
+        present: true,
+        action: 'investigate_retrieval',
+      })
+    })
+
+    it('fails closed when the corpus cannot be read: no upload is offered for a document it may hold', async () => {
+      // Regression: an unreachable knowledge backend read as an empty corpus,
+      // so every held document was offered for upload again.
+      vi.mocked(getKnowledgeBaseStatus).mockRejectedValue(new Error('backend down'))
+      mocked.observed.mockResolvedValue(10)
+      mocked.defective.mockResolvedValue(9)
+      mocked.failedTargets.mockResolvedValue({ rows: [heldDocument], total: 1 })
+
+      const snapshot = await getCitationHealth()
+      expect(snapshot.inventoryKnown).toBe(false)
+      expect(snapshot.missingSources[0]).toMatchObject({
+        present: null,
+        action: 'inventory_unknown',
+      })
+      expect(snapshot.findings.map((entry) => entry.id)).not.toContain('sources_missing')
+      expect(snapshot.findings.map((entry) => entry.id)).not.toContain('sources_unretrievable')
+    })
+
+    it('still classifies RIS pointers when only the corpus is down', async () => {
+      vi.mocked(getKnowledgeBaseStatus).mockRejectedValue(new Error('backend down'))
+      mocked.failedTargets.mockResolvedValue({
+        rows: [
+          {
+            ...heldDocument,
+            target: 'https://ris.bka.gv.at/Dokument.wxe?Dokumentnummer=NOR40021234',
+          },
+        ],
+        total: 1,
+      })
+
+      const snapshot = await getCitationHealth()
+      expect(snapshot.inventoryKnown).toBe(false)
+      expect(snapshot.missingSources[0]).toMatchObject({
+        present: false,
+        action: 'add_to_norm_catalog',
+      })
+    })
   })
 
   it('serializes recent defects with ISO timestamps and the profiler turn id', async () => {
