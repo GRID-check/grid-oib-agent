@@ -7,9 +7,12 @@
  * scheduler therefore calls this every tick (`scheduler/index.js`), as it does
  * the run reconciler.
  *
- *  - A batch the browser never sealed (the tab closed mid-upload) is sealed on
- *    its behalf after {@link ABANDONED_AFTER_MS}: whatever reached the server
- *    is the upload.
+ *  - A batch nobody sealed (the tab closed mid-upload) is sealed on its behalf
+ *    once no file has come into it for {@link ABANDONED_AFTER_MS}: whatever
+ *    reached the server is the upload. Idle, not old: a folder of thousands
+ *    of files, or a mail import filing for hours (ADR-0085), is still being
+ *    uploaded long after half an hour, and sealing it then would stamp the
+ *    rest of its files with no batch at all.
  *  - Its documents still in flight are reconciled, which persists their status
  *    and settles the batch through the same hook a reader's read uses.
  *  - A quarantine whose audit event did not go out when its row moved is sent
@@ -26,12 +29,18 @@ import 'server-only'
 import { withTenant } from '@/lib/db/tenant-context'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { pruneSpentQuarantines, sweepOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
-import { listInFlightBatchDocuments, listOpenBatchesBetween, sealAbandonedBatch } from './repository'
+import type { UploadBatch } from '@/lib/db/schema'
+import {
+  latestBatchDocumentAt,
+  listInFlightBatchDocuments,
+  listOpenBatchesBetween,
+  sealAbandonedBatch,
+} from './repository'
 import { settleUploadBatches } from './settle'
 
 /** A batch younger than this is still being uploaded; its browser settles it. */
 const SETTLE_GRACE_MS = 60_000
-/** A batch unsealed for this long was abandoned by its browser. */
+/** A batch unsealed and without a new file for this long was abandoned by its uploader. */
 export const ABANDONED_AFTER_MS = 30 * 60_000
 /** Older than this, a batch is left alone: a document stuck in flight for a week is not news. */
 const SWEEP_WINDOW_MS = 7 * 24 * 60 * 60_000
@@ -66,7 +75,7 @@ export async function sweepUploadBatches(now: Date = new Date()): Promise<Upload
   for (const batch of open) {
     try {
       await withTenant({ organizationId: batch.organizationId }, async () => {
-        if (!batch.sealedAt && now.getTime() - new Date(batch.createdAt).getTime() > ABANDONED_AFTER_MS) {
+        if (!batch.sealedAt && (await isAbandoned(batch, now))) {
           await sealAbandonedBatch(batch.organizationId, batch.id, now)
           result.sealed += 1
         }
@@ -95,4 +104,12 @@ export async function sweepUploadBatches(now: Date = new Date()): Promise<Upload
     console.warn('[upload-batches] sweep could not delete the spent quarantine decisions:', error)
   }
   return result
+}
+
+/** Unsealed, and nothing has come into it for {@link ABANDONED_AFTER_MS}, counted from its opening when nothing has. */
+async function isAbandoned(batch: UploadBatch, now: Date): Promise<boolean> {
+  const idleSince = (at: Date) => now.getTime() - at.getTime() > ABANDONED_AFTER_MS
+  if (!idleSince(new Date(batch.createdAt))) return false
+  const latest = await latestBatchDocumentAt(batch.organizationId, batch.id)
+  return latest === null || idleSince(latest)
 }
