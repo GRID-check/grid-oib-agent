@@ -119,6 +119,9 @@ export function installTriggerAuth(
   );
 }
 
+/** KEDA's annotation for adopting an HPA that already scales the workload (KEDA >= 2.12). */
+export const TRANSFER_HPA_OWNERSHIP = "scaledobject.keda.sh/transfer-hpa-ownership";
+
 export interface QueueScaledTier {
   /** Name of the ScaledObject; the Deployment it moves has the same name. */
   name: string;
@@ -132,6 +135,19 @@ export interface QueueScaledTier {
   table: string;
   /** The TriggerAuthentication carrying the scaler's DSN. */
   authName: pulumi.Input<string>;
+  /**
+   * An HPA of this name that a stack may still hold from before the tier moved
+   * to KEDA, for the ScaledObject to take over (`transfer-hpa-ownership`).
+   *
+   * Pulumi creates the ScaledObject before it deletes a resource the program
+   * dropped, and KEDA's admission webhook refuses a ScaledObject whose workload
+   * another HPA already scales. Without the takeover the update fails at the
+   * ScaledObject, the old HPA is never deleted, and every later deploy fails the
+   * same way. With it KEDA adopts the HPA under this name; when Pulumi then
+   * deletes its old record of it, KEDA recreates its own on the next reconcile.
+   * On a stack without that HPA the annotation is inert.
+   */
+  adoptHpa?: string;
   dependsOn: pulumi.Resource[];
 }
 
@@ -149,7 +165,12 @@ export function installQueueScaledObject(w: AppWiring, tier: QueueScaledTier): k
     {
       apiVersion: "keda.sh/v1alpha1",
       kind: "ScaledObject",
-      metadata: { name: tier.name, namespace: w.namespace, labels: tier.labels },
+      metadata: {
+        name: tier.name,
+        namespace: w.namespace,
+        labels: tier.labels,
+        ...(tier.adoptHpa ? { annotations: { [TRANSFER_HPA_OWNERSHIP]: "true" } } : {}),
+      },
       spec: {
         scaleTargetRef: { name: tier.deployment.metadata.name },
         minReplicaCount: tier.minReplicas,
@@ -157,7 +178,12 @@ export function installQueueScaledObject(w: AppWiring, tier: QueueScaledTier): k
         pollingInterval: SCALER_POLLING_SECONDS,
         cooldownPeriod: SCALER_COOLDOWN_SECONDS,
         fallback: scalerFallback(tier.minReplicas, tier.maxReplicas),
-        advanced: { horizontalPodAutoscalerConfig: { behavior: QUEUE_SCALE_BEHAVIOR } },
+        advanced: {
+          horizontalPodAutoscalerConfig: {
+            ...(tier.adoptHpa ? { name: tier.adoptHpa } : {}),
+            behavior: QUEUE_SCALE_BEHAVIOR,
+          },
+        },
         triggers: [
           {
             type: "postgresql",
