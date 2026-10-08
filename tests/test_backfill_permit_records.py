@@ -195,3 +195,15 @@ def test_the_document_id_file_must_be_a_flat_string_map(tmp_path):
 def test_organization_and_collection_are_required(argv):
     with pytest.raises(SystemExit):
         backfill._parse_args(argv)
+
+
+def test_the_extraction_model_takes_a_provider_slot_on_every_call(monkeypatch):
+    # Built outside NAT, so the script wraps it in the request contract itself: the seam
+    # where every chat call queues for its provider slot (ADR-0081). Without it a backfill
+    # over a whole office would call the provider ungated, beside live chat.
+    from aiq_agent.common import llm_factory
+
+    monkeypatch.setenv("BACKFILL_SUMMARY_API_KEY", "test-key")  # pragma: allowlist secret
+    llm = backfill.build_extraction_llm()
+
+    assert getattr(type(llm), llm_factory._CONTRACT_MARKER, False)

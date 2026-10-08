@@ -81,11 +81,17 @@ StoreFn = Callable[..., bool]
 
 
 def build_extraction_llm():
-    """The platform-fixed chat model the ingest's summary step uses, built outside NAT."""
+    """The platform-fixed chat model the ingest's summary step uses, built outside NAT.
+
+    Wrapped in the request contract (``enforce_chat_request_contract``), the seam
+    where every chat call takes its provider slot (ADR-0081), so a backfill queues
+    behind chat like any other model call.
+    """
     from langchain_openai import ChatOpenAI
 
     from aiq_agent.common.credential_resolution import resolve_llm_credential
     from aiq_agent.common.llm_factory import apply_openrouter_structured_defaults
+    from aiq_agent.common.llm_factory import enforce_chat_request_contract
     from aiq_agent.common.openrouter import PLATFORM_FIXED
     from aiq_agent.common.openrouter import pin_chat_model
 
@@ -105,7 +111,7 @@ def build_extraction_llm():
         )
     logger.info("Extraction LLM: model=%s base_url=%s", cred.model, cred.base_url)
     llm = ChatOpenAI(model=cred.model, api_key=cred.api_key, base_url=cred.base_url, temperature=0, timeout=120)
-    return pin_chat_model(apply_openrouter_structured_defaults(llm), PLATFORM_FIXED)
+    return pin_chat_model(enforce_chat_request_contract(apply_openrouter_structured_defaults(llm)), PLATFORM_FIXED)
 
 
 def _page_sort_key(item: tuple[str | None, str]) -> int:
