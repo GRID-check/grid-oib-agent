@@ -63,6 +63,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from aiq_agent.knowledge.collection_pages import read_pages
 from aiq_agent.knowledge.permit_extraction import extract_permit_record
 from aiq_agent.knowledge.permit_extraction import is_bescheid
 from aiq_agent.knowledge.permit_extraction import llm_model_name
@@ -114,14 +115,6 @@ def build_extraction_llm():
     return pin_chat_model(enforce_chat_request_contract(apply_openrouter_structured_defaults(llm)), PLATFORM_FIXED)
 
 
-def _page_sort_key(item: tuple[str | None, str]) -> int:
-    """Numeric page order; a chunk without a readable page label sorts first (Python sorts stably)."""
-    try:
-        return int(item[0] or 0)
-    except ValueError:
-        return 0
-
-
 def make_page_fetcher(chroma_dir: str) -> PageFetcher | None:
     """A per-file fetcher of ``(page_label, chunk text)`` over the Chroma store, or None without one."""
     try:
@@ -139,18 +132,7 @@ def make_page_fetcher(chroma_dir: str) -> PageFetcher | None:
         return None
 
     def fetch(collection: str, file_name: str) -> list[tuple[str | None, str]] | None:
-        try:
-            result = client.get_collection(name=collection).get(
-                where={"file_name": file_name}, include=["documents", "metadatas"]
-            )
-        except Exception:  # noqa: BLE001 - a missing collection or file is a per-document failure
-            return None
-        documents = (result or {}).get("documents") or []
-        metadatas = (result or {}).get("metadatas") or [None] * len(documents)
-        pages = [
-            ((meta or {}).get("page_label"), text) for text, meta in zip(documents, metadatas, strict=False) if text
-        ]
-        return sorted(pages, key=_page_sort_key) or None
+        return read_pages(client, collection, file_name)
 
     return fetch
 

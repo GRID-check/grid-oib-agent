@@ -1,0 +1,129 @@
+# What a closed project knows: fingerprint, decisions, edition
+
+Status: building (ticket 3, slice F). Roadmap: `docs/roadmap/office-experience.md`.
+
+Every other project can be searched safely (ADR-0093), but what a closed project
+*knows about itself* is thin: its fingerprint comes only from the intake wizard,
+its decisions only from what somebody wrote to memory while it ran, and nobody
+knows under which OIB edition it was planned. This slice reads that from the
+project's own documents, once, as suggestions a person confirms.
+
+## The shape
+
+```
+close dialog ──POST /api/projects/{id}/experience──▶ BFF (lib/project-experience)
+                                                      │  vocabulary from the intake definition
+                                                      ▼
+                         POST {backend}/v1/internal/project-experience   (aiq_api)
+                                                      │  the ingest's summary model, the project's collection
+                         choose documents ─▶ fingerprint pen ─▶ decision pen
+                                                      │
+BFF writes ◀──────── fingerprint + decisions, each with evidence (file, page, quote)
+  profile assumptions (agent_suggested)  ·  project_memory rows (distillation, source_grounded)
+```
+
+* **One extractor, two callers.** The close dialog calls it now; the archive
+  import calls the same backend route per imported project. Nothing runs on
+  its own when a project closes (closing is one UPDATE and stays one).
+* **Runs while the project is active.** A closed project refuses memory inserts
+  (migration 0116 trigger) and profile writes. An already-closed project is
+  reopened, read, and closed again; the import imports as active, reads, then
+  closes. No closed-project rule changes.
+* **Only open folders.** The backend reads the project's main collection. A
+  restricted folder is its own collection (`…_r<hex>`), so nothing a folder
+  restricts reaches the profile, which every member reads.
+* **The model decides meaning; code checks facts.** Which documents to read is
+  a model's choice from the inventory, never a list of file-name words. Every
+  value must be a token of the vocabulary the BFF sent and carry evidence; a
+  value without a quote, or outside the vocabulary, is dropped in code.
+* **Suggested, then confirmed.** Fingerprint values land as profile
+  `assumptions` (`source: agent_suggested`, `status: unconfirmed`, the evidence
+  as `reason`). Accepting one writes the fact through the ordinary patch route,
+  which retires the assumption (`pruneResolvedAssumptions`). Decisions land as
+  memory rows with `provenanceType: distillation` and
+  `verification: source_grounded` and their evidence; the debrief confirms
+  (`user_confirmed`) or dismisses (`status: dismissed`) each.
+* **Confirmed beats suggested, suggested beats nothing.** The similarity
+  ranking reads a confirmed fact first and a suggested one only where no fact
+  exists; the agent is told which is which.
+
+## Wire contract: `POST {backend}/v1/internal/project-experience`
+
+Internal token (`x-grid-internal-token`), like `/v1/note-embeddings`. Never
+answers non-200 for an extraction failure: `error` says why and the lists are
+empty.
+
+Request:
+
+```json
+{
+  "organizationId": "org_…",
+  "projectId": "uuid",
+  "collection": "the project's main collection",
+  "vocabulary": {
+    "bundesland":     { "multiple": false, "options": [{ "token": "niederoesterreich", "label": "Niederösterreich" }] },
+    "gebaeudeklasse": { "multiple": false, "options": [{ "token": "4", "label": "GK 4" }] },
+    "bauweise":       { "multiple": true,  "options": [{ "token": "holzbau", "label": "Holzbau" }] },
+    "nutzungen":      { "multiple": true,  "options": [] },
+    "vorhabensart":   { "multiple": true,  "options": [] },
+    "oib_ausgabe":    { "multiple": false, "options": [{ "token": "2019", "label": "OIB-Richtlinien 2019" }] }
+  },
+  "knownFacts": ["bundesland"],
+  "knownDecisions": ["Brandsperre je Geschoß aus 1 mm Stahlblech …"]
+}
+```
+
+`knownFacts` are keys a person already confirmed: the pen is not asked for
+them. `knownDecisions` (at most 60, each at most 300 characters) are the
+project's active decisions and constraints, so the pen drafts only new ones.
+
+Response:
+
+```json
+{
+  "model": "provider/model",
+  "documentsRead": ["Baubeschreibung.pdf"],
+  "fingerprint": [
+    { "key": "gebaeudeklasse", "value": "4",
+      "evidence": [{ "fileName": "Baubeschreibung.pdf", "page": "2", "quote": "Gebäudeklasse 4" }] }
+  ],
+  "decisions": [
+    { "kind": "decision",
+      "content": "Fluchttreppe außen in Stahl statt eines zweiten Stiegenhauses, weil …",
+      "outcome": "accepted",
+      "evidence": [{ "fileName": "Bescheid.pdf", "page": "3", "quote": "…" }] }
+  ],
+  "error": null
+}
+```
+
+* `value` is a token string, or a list of tokens when the key is `multiple`.
+* `kind`: `decision` (a choice the project made) or `constraint` (a condition
+  it had to meet, an Auflage among them). `outcome`: `accepted`, `auflage`
+  (accepted with a condition), `rejected`, `unknown`.
+* At most 12 decisions; `content` at most 600 characters, German, naming what
+  was asked, what was done and why.
+* `quote` at most 300 characters, verbatim from the document.
+* `error`: `null`, or one of `no_documents`, `no_model`, `extraction_failed`.
+
+## What the agent and people see
+
+* `project_lookup` find and brief print a project's Bundesland and the OIB
+  edition it was planned under, marked „aus den Unterlagen, unbestätigt" when
+  only suggested. A decision line says „aus den Unterlagen erschlossen (Datei,
+  S. n)" for a source-grounded row.
+* A hit from another project carries the lane „Präzedenz" within the kind
+  `projekt` (`common/source_kinds.py`, mirrored in
+  `features/chat/lib/source-kinds.ts`), and the prompt asks an answer that
+  uses one to keep Norm, Büro and Präzedenz apart.
+* `/app/projects/{id}/referenzen` shows a person the closed projects most like
+  this one that they may open, with what they share, their Auflagen and their
+  decisions, under the same access rules as the agent.
+
+## Not here
+
+* An in-force table of OIB editions per Land and date. The agent's data has
+  none; the only one in the repo is marketing copy, and the norm registry marks
+  the Wien case open. The edition a project was *planned under* is read from
+  its documents instead, which is evidence rather than a lookup.
+* A closed-project exception to the insert trigger.

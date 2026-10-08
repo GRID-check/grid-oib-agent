@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from aiq_agent.knowledge.collection_pages import page_sort_key
 from aiq_agent.knowledge.schema import AvailableDocument
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -175,7 +176,7 @@ def test_the_pages_reach_the_model_in_page_order_under_their_markers():
 
 
 def test_chunks_are_ordered_by_numeric_page_label():
-    ordered = sorted([("10", "c"), ("2", "b"), (None, "a"), ("1", "z")], key=backfill._page_sort_key)
+    ordered = sorted([("10", "c"), ("2", "b"), (None, "a"), ("1", "z")], key=page_sort_key)
     assert [text for _, text in ordered] == ["a", "z", "b", "c"]
 
 
