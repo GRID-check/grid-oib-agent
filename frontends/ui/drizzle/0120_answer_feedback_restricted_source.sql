@@ -1,4 +1,4 @@
--- 0119: a vote keeps knowing that its conversation drew on a restricted folder,
+-- 0120: a vote keeps knowing that its conversation drew on a restricted folder,
 -- after the conversation is gone (ADR-0086, ADR-0087).
 --
 -- `OUTSIDE_RESTRICTED_USE` (lib/feedback/repository.ts) leaves a vote out of
@@ -28,7 +28,7 @@ ALTER TABLE "answer_feedback"
   ADD COLUMN IF NOT EXISTS "restricted_source" boolean DEFAULT false NOT NULL;
 --> statement-breakpoint
 COMMENT ON COLUMN "answer_feedback"."restricted_source" IS
-  'The conversation drew on a folder with restricted access, recorded when its conversation_restricted_folders row was deleted (0119). Never read across tenants (OUTSIDE_RESTRICTED_USE).';
+  'The conversation drew on a folder with restricted access, recorded when its conversation_restricted_folders row was deleted (0120). Never read across tenants (OUTSIDE_RESTRICTED_USE).';
 --> statement-breakpoint
 UPDATE "answer_feedback" f
 SET "restricted_source" = true

@@ -1357,8 +1357,8 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   has no FK to the conversation and stays counted; the
   `conversation_restricted_folders_mark_feedback` trigger
   (`BEFORE DELETE` on that table, `grid_feedback_keeps_restricted_source`)
-  marks every vote on the conversation as a row goes. 0119 backfilled the votes
-  on conversations with a row; a vote whose chat was deleted before 0119
+  marks every vote on the conversation as a row goes. 0120 backfilled the votes
+  on conversations with a row; a vote whose chat was deleted before 0120
   cannot be told apart.
 - Voting model (the simplest honest one): **re-vote = upsert** on the unique
   `(user_id, message_id)` index (`answer_feedback_user_message_uidx`);

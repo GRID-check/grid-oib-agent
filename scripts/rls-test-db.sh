@@ -687,7 +687,7 @@ echo "==> 0118 quarantine decisions and down migration verified"
 # Migration 0119: what the lessons pipeline took from a restricted
 # conversation before OUTSIDE_RESTRICTED_USE, withdrawn, and its DOWN.
 #
-# On a database of its own (grid_lessons), migrated through 0117 and seeded
+# On a database of its own (grid_lessons), migrated through 0118 and seeded
 # as a sweep before the rule left it:
 # an ACTIVE lesson created from a vote on a conversation with a
 # conversation_restricted_folders row, a lesson created from an open vote with
@@ -695,7 +695,7 @@ echo "==> 0118 quarantine decisions and down migration verified"
 # a lesson created from a restricted vote that was already retired. Every
 # restricted report loses its summary, the open one keeps it; the restricted
 # lessons lose their text, and only the live one is retired, with one event;
-# the open lesson stays active. The down changes nothing, and 0118 re-applies
+# the open lesson stays active. The down changes nothing, and 0119 re-applies
 # without a second event.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0119 lesson withdrawal and its down migration on grid_lessons"
@@ -710,9 +710,9 @@ INSERT INTO answer_feedback (id, organization_id, conversation_id, message_id, u
   ('f4f4f4f4-0000-4000-8000-000000000118', 'org_0107', 's_0118_open', 'm_0118_4', 'user_1', 'down', 'inaccurate', 'Brüstung falsch'),
   ('f5f5f5f5-0000-4000-8000-000000000118', 'org_0107', 's_0118_restricted', 'm_0118_5', 'user_1', 'down', 'inaccurate', 'Angebot falsch');
 INSERT INTO platform_lessons (id, content, category, status, activated_at, activated_by, retired_at, retired_by, retired_reason) VALUES
-  ('11111111-0000-4000-8000-000000000118', 'Honorare aus Angeboten nur mit Quelle nennen 0118', 'inaccurate', 'active', now(), 'system:distiller', NULL, NULL, NULL),
-  ('22222222-0000-4000-8000-000000000118', 'Brüstungshöhen nach OIB-RL 4 prüfen 0118', 'inaccurate', 'active', now(), 'system:distiller', NULL, NULL, NULL),
-  ('33333333-0000-4000-8000-000000000118', 'Angebotssummen nicht runden 0118', 'inaccurate', 'retired', now(), 'system:distiller', now(), 'system:distiller', 'evicted_capacity');
+  ('11111111-0000-4000-8000-000000000118', 'Honorare aus Angeboten nur mit Quelle nennen 0119', 'inaccurate', 'active', now(), 'system:distiller', NULL, NULL, NULL),
+  ('22222222-0000-4000-8000-000000000118', 'Brüstungshöhen nach OIB-RL 4 prüfen 0119', 'inaccurate', 'active', now(), 'system:distiller', NULL, NULL, NULL),
+  ('33333333-0000-4000-8000-000000000118', 'Angebotssummen nicht runden 0119', 'inaccurate', 'retired', now(), 'system:distiller', now(), 'system:distiller', 'evicted_capacity');
 INSERT INTO platform_lesson_reports (feedback_id, lesson_id, outcome, skip_reason, org_hash, canonical_summary) VALUES
   ('f1f1f1f1-0000-4000-8000-000000000118', '11111111-0000-4000-8000-000000000118', 'created', NULL, 'hash_0118', 'Zimmerer-Honorar 48.000 EUR falsch genannt'),
   ('f2f2f2f2-0000-4000-8000-000000000118', '22222222-0000-4000-8000-000000000118', 'linked', NULL, 'hash_0118', 'Dachdecker-Honorar falsch genannt'),
@@ -723,7 +723,7 @@ SQL
 apply_in grid_lessons 0119_withdraw_restricted_lesson_reports.sql
 check_in grid_lessons "SELECT string_agg(feedback_id::text, ',' ORDER BY feedback_id) FROM platform_lesson_reports WHERE org_hash = 'hash_0118' AND canonical_summary IS NOT NULL" "f4f4f4f4-0000-4000-8000-000000000118" "only the open report keeps its summary, whatever the outcome"
 check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || retired_by || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '11111111-0000-4000-8000-000000000118'" "retired,restricted_source,system:migration-0119,true" "a live lesson created from a restricted report is retired, its text replaced"
-check_in grid_lessons "SELECT status || ',' || content FROM platform_lessons WHERE id = '22222222-0000-4000-8000-000000000118'" "active,Brüstungshöhen nach OIB-RL 4 prüfen 0118" "a lesson only LINKED to a restricted report stays as it was"
+check_in grid_lessons "SELECT status || ',' || content FROM platform_lessons WHERE id = '22222222-0000-4000-8000-000000000118'" "active,Brüstungshöhen nach OIB-RL 4 prüfen 0119" "a lesson only LINKED to a restricted report stays as it was"
 check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '33333333-0000-4000-8000-000000000118'" "retired,evicted_capacity,true" "an already retired one loses its text and keeps its retirement"
 check_in grid_lessons "SELECT string_agg(lesson_id::text || ':' || action || ':' || (detail->>'reason'), ',') FROM platform_lesson_events WHERE actor = 'system:migration-0119'" "11111111-0000-4000-8000-000000000118:retired:restricted_source" "one retirement event, for the lesson that was live"
 apply_in grid_lessons 0119_withdraw_restricted_lesson_reports.down.sql
@@ -737,11 +737,11 @@ echo "==> 0119 lesson withdrawal and down migration verified"
 # Migration 0120: a vote keeps its conversation's restricted use after the
 # record goes, and its DOWN.
 #
-# On grid_lessons, after 0118: the backfill marks the votes on the 0118
+# On grid_lessons, after 0119: the backfill marks the votes on the 0119
 # restricted conversation (it has a record) and not the open one; a vote cast
-# after 0119 on a conversation whose record is then deleted is marked by the
+# after 0120 on a conversation whose record is then deleted is marked by the
 # trigger, and a vote on another conversation is not. The down drops the
-# column, the trigger and the function; 0119 re-applies.
+# column, the trigger and the function; 0120 re-applies.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0120 feedback marker, its trigger and its down migration on grid_lessons"
 apply_in grid_lessons 0120_answer_feedback_restricted_source.sql
@@ -759,7 +759,7 @@ check_in grid_lessons "SELECT string_agg(conversation_id || ':' || restricted_so
 apply_in grid_lessons 0120_answer_feedback_restricted_source.down.sql
 check_in grid_lessons "SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name = 'answer_feedback' AND column_name = 'restricted_source') + (SELECT count(*) FROM pg_trigger WHERE tgname = 'conversation_restricted_folders_mark_feedback') + (SELECT count(*) FROM pg_proc WHERE proname = 'grid_feedback_keeps_restricted_source')" "0" "down dropped the column, the trigger and the function"
 apply_in grid_lessons 0120_answer_feedback_restricted_source.sql
-check_in grid_lessons "SELECT count(*) FILTER (WHERE restricted_source) FROM answer_feedback WHERE message_id LIKE 'm_0118_%' OR message_id LIKE 'm_0119_%'" "4" "0119 re-applies; the marker set by a delete before the down is gone with its column"
+check_in grid_lessons "SELECT count(*) FILTER (WHERE restricted_source) FROM answer_feedback WHERE message_id LIKE 'm_0118_%' OR message_id LIKE 'm_0119_%'" "4" "0120 re-applies; the marker set by a delete before the down is gone with its column"
 
 echo "==> 0120 feedback marker, trigger and down migration verified"
 
