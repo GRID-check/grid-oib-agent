@@ -1,6 +1,7 @@
 /**
  * @vitest-environment node
  */
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/db', () => ({
@@ -147,6 +148,22 @@ describe('listFeedbackTurns', () => {
 
     await listFeedbackTurns({ verdict: 'down', reason: 'inaccurate' })
     expect(params(execute.mock.calls[1][0])).toContain('inaccurate')
+  })
+
+  /**
+   * The question used to be "the newest user message at or before the answer —
+   * or ANY, when the answer row is missing", so an unpersisted answer was shown
+   * under whatever was asked last. The behaviour is proven against Postgres in
+   * `repository.integration.spec.ts`; this pins that the anchor stays the answer.
+   */
+  it('anchors the question to the answer row, never to "any user message"', async () => {
+    const execute = capture()
+    await listFeedbackTurns({})
+    const text = new PgDialect().sqlToQuery(execute.mock.calls[0][0]).sql
+
+    expect(text).not.toMatch(/m\.created_at is null/)
+    expect(text).toContain('qm.conversation_id = m.conversation_id')
+    expect(text).toContain('qm.created_at <= m.created_at')
   })
 
   it('coerces the raw row — `sql` results are not runtime-validated', async () => {

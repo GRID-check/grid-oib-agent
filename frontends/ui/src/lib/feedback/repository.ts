@@ -28,6 +28,7 @@ import {
 } from '@/lib/db/schema'
 import { isConversationTagKey, type ConversationTagKey } from '@/lib/conversations/tags'
 import { executeRows } from '@/lib/db/execute-rows'
+import { VOTED_TURN_JOINS } from './turn-join'
 
 /** Hard cap for the per-conversation hydration list. */
 export const CONVERSATION_FEEDBACK_LIST_LIMIT = 200
@@ -489,8 +490,8 @@ export async function getFeedbackHealth(
  *
  * LEFT JOINs throughout: a vote whose turn was never persisted still has to
  * appear, because unexplained feedback is precisely what the surface exists to
- * show. The question is the newest user turn before the answer — a lateral, so
- * one row per vote rather than a fan-out over the conversation.
+ * show. The answer and its question come from `VOTED_TURN_JOINS` (`./turn-join`),
+ * shared with the lesson sweep: no answer row, no question.
  *
  * `verdict` is a parameter rather than a literal so the praised list and the
  * failed list are the SAME query. Two near-identical queries would drift, and
@@ -531,17 +532,8 @@ export async function listFeedbackTurns(
       c.title      as conversation_title,
       c.tags       as topics
     from answer_feedback f
-    left join messages m on m.id::text = f.message_id
+    ${VOTED_TURN_JOINS}
     left join conversations c on c.id = f.conversation_id
-    left join lateral (
-      select content
-      from messages
-      where conversation_id = f.conversation_id
-        and role = 'user'
-        and (m.created_at is null or created_at <= m.created_at)
-      order by created_at desc
-      limit 1
-    ) q on true
     where f.verdict = ${verdict}
       and f.created_at >= ${since}::timestamptz
       ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
