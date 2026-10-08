@@ -269,7 +269,7 @@ requires-dist = [
     { name = "pytest-env", marker = "extra == 'dev'", specifier = ">=1.1.0" },
     { name = "python-multipart", specifier = ">=0.0.27,<0.1" },
     { name = "redis", specifier = ">=5.0.0,<7" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.15.21,<0.17.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = "~=0.16.9" },
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=7.0" },
     { name = "sphinx-autobuild", marker = "extra == 'docs'", specifier = ">=2025.8.25" },
     { name = "sphinx-copybutton", marker = "extra == 'docs'", specifier = ">=0.5" },
@@ -296,7 +296,7 @@ dev = [
     { name = "pytest-env", specifier = ">=1.1.0" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "ris-adapter", editable = "sources/ris_adapter" },
-    { name = "ruff", specifier = ">=0.15.21,<0.17.0" },
+    { name = "ruff", specifier = "~=0.16.9" },
     { name = "tavily-web-search", editable = "sources/tavily_web_search" },
     { name = "yapf", specifier = ">=0.40.0" },
 ]

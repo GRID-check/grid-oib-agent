@@ -274,6 +274,7 @@ my_provider = "mypackage.auth:get_validators"
 # mypackage/auth.py
 def get_validators() -> list:
     from aiq_api.auth.jwt_validator import JWTValidator
+
     return [JWTValidator(issuer_url="https://your-identity-provider.com")]
 ```
 
@@ -290,7 +291,7 @@ to return a non-`None` result wins.
 ```python
 class MyValidator:
     async def validate(self, token: str) -> dict | None:
-        payload = verify_token(token)   # your verification logic
+        payload = verify_token(token)  # your verification logic
         if payload is None:
             return None
         return {"type": "my_provider", "sub": payload["sub"], "token": token}

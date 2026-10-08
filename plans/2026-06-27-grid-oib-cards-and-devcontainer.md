@@ -319,6 +319,8 @@ class ChatResearcherState(BaseModel):
 
 Near the other node functions, add:
 
+<!-- Indented to sit inside the graph-building method; ruff format would dedent it. -->
+<!-- fmt:off -->
 ```python
         async def card_generator_node(state: ChatResearcherState) -> dict[str, Any]:
             """Generate structured response cards from the final research context."""
@@ -379,6 +381,7 @@ Near the other node functions, add:
                 logger.exception("Card generation failed: %s", e)
                 return {"cards": None}
 ```
+<!-- fmt:on -->
 
 Also add imports at the top of `agent.py`:
 

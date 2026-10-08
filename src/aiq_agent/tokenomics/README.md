@@ -135,6 +135,7 @@ from aiq_agent.tokenomics import parse_trace, PricingRegistry
 
 # Load pricing from the tokenomics YAML (not the nat eval config)
 import yaml
+
 with open("frontends/benchmarks/deepresearch_bench/configs/config_tokenomics_pricing.yml") as f:
     config = yaml.safe_load(f)
 pricing = PricingRegistry.from_dict(config["tokenomics"]["pricing"])
@@ -143,9 +144,11 @@ pricing = PricingRegistry.from_dict(config["tokenomics"]["pricing"])
 profiles = parse_trace("results/all_requests_profiler_traces.json", pricing)
 
 for prof in profiles:
-    print(f"Query {prof.request_index}: ${prof.total_cost_usd:.4f}, "
-          f"{prof.total_prompt_tokens:,} ISL, {prof.total_completion_tokens:,} OSL, "
-          f"{prof.cache_hit_rate:.1%} cache hit")
+    print(
+        f"Query {prof.request_index}: ${prof.total_cost_usd:.4f}, "
+        f"{prof.total_prompt_tokens:,} ISL, {prof.total_completion_tokens:,} OSL, "
+        f"{prof.cache_hit_rate:.1%} cache hit"
+    )
 
     for ps in prof.phases:
         print(f"  {ps.phase} / {ps.model}: {ps.llm_calls} calls, ${ps.cost_usd:.4f}")

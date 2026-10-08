@@ -393,13 +393,13 @@ Backends register themselves using decorators when their module is imported:
 # In adapter.py
 from aiq_agent.knowledge.factory import register_retriever, register_ingestor
 
+
 @register_retriever("my_backend")  # Registration name used in config
-class MyRetriever(BaseRetriever):
-    ...
+class MyRetriever(BaseRetriever): ...
+
 
 @register_ingestor("my_backend")
-class MyIngestor(BaseIngestor):
-    ...
+class MyIngestor(BaseIngestor): ...
 ```
 
 The registration name (e.g., `"my_backend"`) is what factory calls use:
@@ -452,14 +452,13 @@ The `register.py` defines `KnowledgeRetrievalConfig` which maps YAML config to b
 ```python
 from aiq_agent.knowledge.schema import (
     # Retrieval
-    Chunk,           # Retrieved content piece (15+ fields)
-    RetrievalResult, # Query result container
-    ContentType,     # TEXT, IMAGE, TABLE, CHART
-
+    Chunk,  # Retrieved content piece (15+ fields)
+    RetrievalResult,  # Query result container
+    ContentType,  # TEXT, IMAGE, TABLE, CHART
     # Ingestion
     CollectionInfo,  # Collection metadata
-    FileInfo,        # File/job status
-    FileStatus,      # UPLOADING, INGESTING, SUCCESS, FAILED
+    FileInfo,  # File/job status
+    FileStatus,  # UPLOADING, INGESTING, SUCCESS, FAILED
     IngestionJobStatus,  # Batch job tracking
 )
 ```
@@ -469,14 +468,14 @@ from aiq_agent.knowledge.schema import (
 ```python
 class Chunk(BaseModel):
     # Core content
-    chunk_id: str              # Unique ID for citation tracking
-    content: str               # Main text (or caption for visuals)
-    score: float               # Similarity score 0.0-1.0
+    chunk_id: str  # Unique ID for citation tracking
+    content: str  # Main text (or caption for visuals)
+    score: float  # Similarity score 0.0-1.0
 
     # Citation (required)
-    file_name: str             # Original filename
-    page_number: Optional[int] # Page number (1-based)
-    display_citation: str      # User-facing citation label
+    file_name: str  # Original filename
+    page_number: Optional[int]  # Page number (1-based)
+    display_citation: str  # User-facing citation label
 
     # Content typing (required)
     content_type: ContentType  # TEXT, TABLE, CHART, IMAGE
@@ -484,8 +483,8 @@ class Chunk(BaseModel):
 
     # Optional rich data
     structured_data: Optional[str]  # Raw data for tables/charts
-    image_url: Optional[str]        # Presigned URL for images
-    metadata: Dict[str, Any]        # Passthrough metadata
+    image_url: Optional[str]  # Presigned URL for images
+    metadata: Dict[str, Any]  # Passthrough metadata
 ```
 
 ---

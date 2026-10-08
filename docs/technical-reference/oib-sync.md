@@ -183,6 +183,7 @@ which sends each PDF through `POST /v1/admin/oib/documents` (header `X-Admin-Tok
 
 ```python
 from aiq_agent.knowledge.factory import get_ingestor
+
 ingestor = get_ingestor("llamaindex", {"persist_dir": CHROMA_DIR})
 ```
 

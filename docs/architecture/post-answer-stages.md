@@ -348,16 +348,16 @@ New package `src/aiq_agent/stages/`. One frozen declaration per stage:
 ```python
 @dataclass(frozen=True)
 class StageSpec:
-    id: str                      # stable wire identity, e.g. "follow_ups"
-    agent_group: AgentGroup      # model selection, org override, BYOK credential
-    flag_slug: str               # WorkOS slug, e.g. "post-answer-follow-ups"
-    env_default: str             # e.g. "GRID_STAGE_FOLLOW_UPS_ENABLED"
-    timeout_s: float             # HARD asyncio bound on the whole handler
-    gate: Callable[[TurnFacts], GateDecision]     # deterministic; no LLM
+    id: str  # stable wire identity, e.g. "follow_ups"
+    agent_group: AgentGroup  # model selection, org override, BYOK credential
+    flag_slug: str  # WorkOS slug, e.g. "post-answer-follow-ups"
+    env_default: str  # e.g. "GRID_STAGE_FOLLOW_UPS_ENABLED"
+    timeout_s: float  # HARD asyncio bound on the whole handler
+    gate: Callable[[TurnFacts], GateDecision]  # deterministic; no LLM
     handler: Callable[[StageContext], Awaitable[StagePayload | None]]
-    payload_model: type[BaseModel] | None         # validated before delivery
+    payload_model: type[BaseModel] | None  # validated before delivery
     delivery: Literal["frame", "silent"]
-    max_output_tokens: int       # cost ceiling, per §7.5
+    max_output_tokens: int  # cost ceiling, per §7.5
 ```
 
 > **[as built]** `max_output_tokens` is `int | None`, with no default, so a stage
@@ -409,8 +409,8 @@ the handler, where the request context is gone.
 class StageOutcome:
     stage_id: str
     status: Literal["ready", "empty", "skipped", "failed", "timeout", "disabled"]
-    reason: str | None        # required for skipped/failed; a machine key, never prose
-    payload: dict | None      # only when status == "ready"
+    reason: str | None  # required for skipped/failed; a machine key, never prose
+    payload: dict | None  # only when status == "ready"
     duration_ms: int
 ```
 
@@ -508,7 +508,9 @@ owns the graph".
 So: `src/aiq_agent/stages/delivery.py` declares
 
 ```python
-StageFrameSink = Callable[[str, dict], Awaitable[bool]]   # (conversation_id, frame) -> delivered
+StageFrameSink = Callable[[str, dict], Awaitable[bool]]  # (conversation_id, frame) -> delivered
+
+
 def register_stage_frame_sink(sink: StageFrameSink) -> None: ...
 ```
 
@@ -564,8 +566,10 @@ Everything in §7.1 follows from three lines that exist once, in
 
 ```python
 async with _stage_semaphore(loop):
-    with track_agent_profile(agent_name=f"stage:{spec.id}", identity=ident), \
-         track_llm_costs(identity=ident, budget=BudgetSnapshot()):
+    with (
+        track_agent_profile(agent_name=f"stage:{spec.id}", identity=ident),
+        track_llm_costs(identity=ident, budget=BudgetSnapshot()),
+    ):
         payload = await asyncio.wait_for(spec.handler(ctx), timeout=spec.timeout_s)
 ```
 
@@ -763,7 +767,7 @@ transfer of authority. `grid_app` stays single-writer.
 ```python
 FOLLOW_UPS = StageSpec(
     id="follow_ups",
-    agent_group=AgentGroup.FOLLOW_UPS,      # new member; mirror in agent-groups.ts
+    agent_group=AgentGroup.FOLLOW_UPS,  # new member; mirror in agent-groups.ts
     flag_slug="post-answer-follow-ups",
     env_default="GRID_STAGE_FOLLOW_UPS_ENABLED",
     timeout_s=20.0,

@@ -135,9 +135,9 @@ the other.
 
 ```python
 Provenance = Literal[
-    "dimension_string",   # read off the drawing; the draughtsman's own number
-    "vector_exact",       # PDF path coordinates
-    "raster_estimated",   # rendered or scanned; carries a real interval
+    "dimension_string",  # read off the drawing; the draughtsman's own number
+    "vector_exact",  # PDF path coordinates
+    "raster_estimated",  # rendered or scanned; carries a real interval
 ]
 ```
 

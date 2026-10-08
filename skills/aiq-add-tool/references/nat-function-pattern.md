@@ -52,6 +52,7 @@ async def my_tool(tool_config: MyToolConfig, builder: Builder):
         tool_config.my_api_key.get_secret_value() if tool_config.my_api_key else None
     )
     if not api_key:
+
         async def _stub(query: str) -> str:
             """Tool unavailable - missing MY_API_KEY."""
             return "Error: my_tool is unavailable because MY_API_KEY is not set."

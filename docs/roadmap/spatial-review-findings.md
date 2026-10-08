@@ -11,10 +11,17 @@ Reproduction harness used throughout (paths absolute):
 # save as /tmp/d3.py, run with `uv run python` from the repo root
 from ifc_spatial.tools import create_tools, call as tcall
 from aiq_agent.tools.bim.measure_register import _render, _decimals, _num
-F = '/home/user/grid-oib-agent/packages/ifc-spatial/test/fixtures/'
+
+F = "/home/user/grid-oib-agent/packages/ifc-spatial/test/fixtures/"
 TOOLS = create_tools()
-def call(name, **args): return tcall(TOOLS, name, args)
-def render(op, payload): print(_render(op, payload))
+
+
+def call(name, **args):
+    return tcall(TOOLS, name, args)
+
+
+def render(op, payload):
+    print(_render(op, payload))
 ```
 
 Severity language: **A** = would change a number an architect signs. **B** =
@@ -59,9 +66,9 @@ was authored specifically to pin this down; its own header comment says:
 Reproduce:
 
 ```python
-r = call('open_model', path=F+'geschossdecke-und-fenster.ifc'); h = r['model']
-render('relations', call('relations', model=h, globalId='4Decke00000Space00001',
-                         relation='adjacentSpaces'))
+r = call("open_model", path=F + "geschossdecke-und-fenster.ifc")
+h = r["model"]
+render("relations", call("relations", model=h, globalId="4Decke00000Space00001", relation="adjacentSpaces"))
 ```
 
 Output:
@@ -118,14 +125,21 @@ Reproduce (adds two boundary rows for one window, as a 2nd-level exporter would)
 
 ```python
 import ifcopenshell
-f = ifcopenshell.open(F+'Ifc4_SampleHouse.ifc')
-sp  = f.by_guid('3w0zWKm7n8SB1qbfwUzt0J')   # Bedroom
-win = f.by_guid('3cUkl32yn9qRSPvBJVyWcE')   # its only window
+
+f = ifcopenshell.open(F + "Ifc4_SampleHouse.ifc")
+sp = f.by_guid("3w0zWKm7n8SB1qbfwUzt0J")  # Bedroom
+win = f.by_guid("3cUkl32yn9qRSPvBJVyWcE")  # its only window
 for i in (1, 2):
-    f.create_entity('IfcRelSpaceBoundary', GlobalId=ifcopenshell.guid.new(),
-        Name=f'Bedroom-Window-part{i}', RelatingSpace=sp, RelatedBuildingElement=win,
-        PhysicalOrVirtualBoundary='PHYSICAL', InternalOrExternalBoundary='EXTERNAL')
-f.write('/tmp/split-boundary.ifc')
+    f.create_entity(
+        "IfcRelSpaceBoundary",
+        GlobalId=ifcopenshell.guid.new(),
+        Name=f"Bedroom-Window-part{i}",
+        RelatingSpace=sp,
+        RelatedBuildingElement=win,
+        PhysicalOrVirtualBoundary="PHYSICAL",
+        InternalOrExternalBoundary="EXTERNAL",
+    )
+f.write("/tmp/split-boundary.ifc")
 ```
 
 ```
@@ -156,9 +170,10 @@ z = 0…3.36 m) are credited **in full** to the Living room (z = 0…2.5) and **
 in full** to the `Roof` loft (z = 2.5…3.5, 1.00 m tall):
 
 ```python
-r = call('open_model', path=F+'Ifc4_SampleHouse.ifc'); h = r['model']
-render('measure', call('measure', model=h, globalId='3w0zWKm7n8SB1qbfwUzt0U', measure='lightEntryArea'))  # Living
-render('measure', call('measure', model=h, globalId='09J5N7xMHBfQZeQGAEMota', measure='lightEntryArea'))  # Roof
+r = call("open_model", path=F + "Ifc4_SampleHouse.ifc")
+h = r["model"]
+render("measure", call("measure", model=h, globalId="3w0zWKm7n8SB1qbfwUzt0U", measure="lightEntryArea"))  # Living
+render("measure", call("measure", model=h, globalId="09J5N7xMHBfQZeQGAEMota", measure="lightEntryArea"))  # Roof
 ```
 
 ```
@@ -216,10 +231,11 @@ Reproduce on the code as it stood (rename the two `IsExternal` properties the
 file carries):
 
 ```python
-f = ifcopenshell.open(F+'Ifc4_SampleHouse.ifc')
-for p in f.by_type('IfcPropertySingleValue'):
-    if p.Name == 'IsExternal': p.Name = 'IsExternalXX'
-f.write('/tmp/no-isexternal.ifc')
+f = ifcopenshell.open(F + "Ifc4_SampleHouse.ifc")
+for p in f.by_type("IfcPropertySingleValue"):
+    if p.Name == "IsExternal":
+        p.Name = "IsExternalXX"
+f.write("/tmp/no-isexternal.ifc")
 ```
 
 ```
@@ -248,7 +264,7 @@ The template assumes `what` is a noun phrase. Two producers break it.
 fact missing from the file"; the renderer then says the opposite.
 
 ```python
-render('measure', call('measure', model=h, globalId='3cUkl32yn9qRSPvBJVyW_5', measure='clearWidth'))
+render("measure", call("measure", model=h, globalId="3cUkl32yn9qRSPvBJVyW_5", measure="clearWidth"))
 ```
 
 ```
@@ -267,8 +283,9 @@ it to the architect.
 so the template produces a sentence that means the opposite of what is intended:
 
 ```python
-r = call('open_model', path=F+'einheiten-fuss.ifc'); h = r['model']
-render('measure', call('measure', model=h, globalId='3Fuss000000Wall000001', measure='extent'))
+r = call("open_model", path=F + "einheiten-fuss.ifc")
+h = r["model"]
+render("measure", call("measure", model=h, globalId="3Fuss000000Wall000001", measure="extent"))
 ```
 
 ```
@@ -365,11 +382,13 @@ End to end, on a **self-consistent** file (prefix set to CENTI *and* every
 reality):
 
 ```python
-f = ifcopenshell.open(F+'Ifc4_SampleHouse.ifc')
-for u in f.by_type('IfcUnitAssignment')[0].Units:
-    if u.is_a('IfcSIUnit') and u.UnitType == 'AREAUNIT': u.Prefix = 'CENTI'
-for q in f.by_type('IfcQuantityArea'): q.AreaValue = float(q.AreaValue) * 10000.0
-f.write('/tmp/centi-clean.ifc')
+f = ifcopenshell.open(F + "Ifc4_SampleHouse.ifc")
+for u in f.by_type("IfcUnitAssignment")[0].Units:
+    if u.is_a("IfcSIUnit") and u.UnitType == "AREAUNIT":
+        u.Prefix = "CENTI"
+for q in f.by_type("IfcQuantityArea"):
+    q.AreaValue = float(q.AreaValue) * 10000.0
+f.write("/tmp/centi-clean.ifc")
 # then: render('measure', call('measure', model=h, globalId='3w0zWKm7n8SB1qbfwUzt0J', measure='floorArea'))
 ```
 
@@ -445,7 +464,7 @@ crossing the 1.2 m cut passes the guard and renders a page containing one filled
 rectangle. `_image_blocks` never puts `elementsDrawn` in the caption.
 
 ```python
-v = call('view', model=h, storey='Roof')   # sample house
+v = call("view", model=h, storey="Roof")  # sample house
 # elementsDrawn: 0, rooms: ['Roof'], and a PNG showing a bare outline
 ```
 
@@ -469,7 +488,7 @@ GlobalId was supplied.
 `briefing.inventory` then does `GERMAN_KIND[kind]` with no validation.
 
 ```python
-call('room_inventory', model=h)         # sample house
+call("room_inventory", model=h)  # sample house
 # KeyError: ''  — briefing.py:799
 ```
 
@@ -520,7 +539,7 @@ alone gives ≈43 400 px/m, so the 1 m bar is drawn to x ≈ 43 450 on a 1 400 p
 canvas and the „1 m" label lands off-image:
 
 ```python
-call('view', model=h, storey='Ground Floor', only=['09J5N7xMHBfQZeQGAEMom0'])
+call("view", model=h, storey="Ground Floor", only=["09J5N7xMHBfQZeQGAEMom0"])
 ```
 
 The result is a page with an unlabelled full-width rule and a small square — the
