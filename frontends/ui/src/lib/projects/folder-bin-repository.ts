@@ -14,7 +14,7 @@
  */
 
 import 'server-only'
-import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import type { DbExecutor } from '@/lib/db/executor'
 import { executeRows } from '@/lib/db/execute-rows'
@@ -154,14 +154,90 @@ export async function markFoldersBinned(
     )
 }
 
-/** Take the folders of one bin entry out of the bin; the caller holds the bin lock. */
-export async function unbinFolders(tx: DbExecutor, projectId: string, rootId: string, at: Date): Promise<number> {
+/** Take the folders of one bin entry out of the bin, by id; the caller holds the bin lock. */
+export async function unbinFolders(tx: DbExecutor, projectId: string, rootId: string, at: Date): Promise<string[]> {
   const rows = await tx
     .update(projectFolders)
     .set({ deletedAt: null, deletedBy: null, binRootId: null, updatedAt: at })
     .where(and(eq(projectFolders.projectId, projectId), eq(projectFolders.binRootId, rootId), isNull(projectFolders.purgedAt)))
     .returning({ id: projectFolders.id })
+  return rows.map((row) => row.id)
+}
+
+/**
+ * Mark the documents of restored folders `processing`, owned by the restore's
+ * job: in the transaction that takes them out of the bin, so a restore never
+ * leaves a document that reads indexed while its chunks are gone (they were
+ * purged when the folder went to the bin). The job re-ingests them; a row it
+ * never reaches is one the stuck-processing sweep finds, because its job is
+ * gone or dead.
+ *
+ * Not every row: a quarantined file waits on a reviewer and was never
+ * indexed, an upload still writing its bytes finishes on its own, and a
+ * machine's document with no published version owns no chunks to restore.
+ * The previous ingest's job id goes; the restore's goes in its place.
+ */
+export async function markDocumentsRestoring(
+  tx: DbExecutor,
+  organizationId: string,
+  projectId: string,
+  folderIds: readonly string[],
+  jobId: string,
+  at: Date
+): Promise<number> {
+  if (folderIds.length === 0) return 0
+  const rows = await tx
+    .update(documents)
+    .set({
+      status: 'processing',
+      errorMessage: null,
+      metadata: sql`(coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId') || ${JSON.stringify({ bffJobId: jobId })}::text::jsonb`,
+      updatedAt: at,
+    })
+    .where(
+      and(
+        eq(documents.organizationId, organizationId),
+        eq(documents.projectId, projectId),
+        inArray(documents.folderId, [...folderIds]),
+        notInArray(documents.status, ['quarantined', 'uploading']),
+        or(eq(documents.authoredBy, 'user'), isNotNull(documents.publishedVersionId))
+      )
+    )
+    .returning({ id: documents.id })
   return rows.length
+}
+
+/**
+ * One page of the documents a restore job still owns, by id after `afterId`:
+ * `processing` and stamped with the job's id, in a folder that is not (again)
+ * in the bin. A row the job has dispatched has moved on and drops out.
+ */
+export async function listRestoringDocumentPage(
+  organizationId: string,
+  projectId: string,
+  jobId: string,
+  afterId: string | null,
+  limit: number
+): Promise<Document[]> {
+  const db = getDb()
+  return withTenant({ organizationId }, () =>
+    db
+      .select({ document: documents })
+      .from(documents)
+      .innerJoin(projectFolders, eq(projectFolders.id, documents.folderId))
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.projectId, projectId),
+          eq(documents.status, 'processing'),
+          sql`${documents.metadata}->>'bffJobId' = ${jobId}`,
+          isNull(projectFolders.deletedAt),
+          ...(afterId ? [gt(documents.id, afterId)] : [])
+        )
+      )
+      .orderBy(asc(documents.id))
+      .limit(limit)
+  ).then((rows) => rows.map((row) => row.document))
 }
 
 /** Re-home a restored folder (its parent gone, or its path stale) and rewrite every path below it. */
@@ -215,30 +291,41 @@ export async function listDocumentsInFolders(
   projectId: string,
   folderIds: readonly string[]
 ): Promise<Document[]> {
-  if (folderIds.length === 0) return []
-  const db = getDb()
   const found: Document[] = []
   let afterId: string | null = null
   for (;;) {
-    const page: Document[] = await withTenant({ organizationId }, () =>
-      db
-        .select()
-        .from(documents)
-        .where(
-          and(
-            eq(documents.organizationId, organizationId),
-            eq(documents.projectId, projectId),
-            inArray(documents.folderId, [...folderIds]),
-            ...(afterId ? [gt(documents.id, afterId)] : [])
-          )
-        )
-        .orderBy(asc(documents.id))
-        .limit(DOCUMENT_PAGE)
-    )
+    const page: Document[] = await listDocumentPageInFolders(organizationId, projectId, folderIds, afterId, DOCUMENT_PAGE)
     found.push(...page)
     if (page.length < DOCUMENT_PAGE) return found
     afterId = page[page.length - 1].id
   }
+}
+
+/** One page of the documents filed in these folders, by id after `afterId`: what a sliced job reads. */
+export async function listDocumentPageInFolders(
+  organizationId: string,
+  projectId: string,
+  folderIds: readonly string[],
+  afterId: string | null,
+  limit: number
+): Promise<Document[]> {
+  if (folderIds.length === 0) return []
+  const db = getDb()
+  return withTenant({ organizationId }, () =>
+    db
+      .select()
+      .from(documents)
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.projectId, projectId),
+          inArray(documents.folderId, [...folderIds]),
+          ...(afterId ? [gt(documents.id, afterId)] : [])
+        )
+      )
+      .orderBy(asc(documents.id))
+      .limit(limit)
+  )
 }
 
 /** Point a document at the collection a restore puts it in. */
@@ -257,6 +344,12 @@ export interface FolderBinPayload {
   projectId: string
   folderIds: string[]
   documents: number
+  /**
+   * When every document's chunks were confirmed purged. Absent while the
+   * delete's purge is unfinished: the request that binned the folder died
+   * before it was done, and its `purge_binned_chunks` job finishes it.
+   */
+  chunksPurgedAt?: string
   /** Set when the purge removed what was derived from the folder („Mit dem Ordner entfernen"): the ids. */
   derivedRemoval?: DerivedRemovalRecord
   /** What a purge removed, counted. */
@@ -294,16 +387,35 @@ export async function insertFolderBinEntry(
     purgeAfter: Date
     payload: FolderBinPayload
   }
-): Promise<void> {
-  await tx.insert(deletionQueue).values({
-    entityType: 'folder',
-    entityId: entry.folderId,
-    displayName: entry.displayName,
-    organizationId: entry.organizationId,
-    requestedBy: entry.requestedBy,
-    purgeAfter: entry.purgeAfter,
-    payload: { ...entry.payload },
-  })
+): Promise<string> {
+  const [row] = await tx
+    .insert(deletionQueue)
+    .values({
+      entityType: 'folder',
+      entityId: entry.folderId,
+      displayName: entry.displayName,
+      organizationId: entry.organizationId,
+      requestedBy: entry.requestedBy,
+      purgeAfter: entry.purgeAfter,
+      payload: { ...entry.payload },
+    })
+    .returning({ id: deletionQueue.id })
+  return row.id
+}
+
+/** A bin entry's queue row by its id, in any state; null when it is not the organization's folder entry. */
+export async function findBinEntryById(organizationId: string, entryId: string): Promise<FolderQueueRow | null> {
+  const db = getDb()
+  const [row] = await withTenant({ organizationId }, () =>
+    db
+      .select()
+      .from(deletionQueue)
+      .where(
+        and(eq(deletionQueue.id, entryId), eq(deletionQueue.entityType, 'folder'), eq(deletionQueue.organizationId, organizationId))
+      )
+      .limit(1)
+  )
+  return row ?? null
 }
 
 export type FolderQueueRow = typeof deletionQueue.$inferSelect
@@ -409,6 +521,43 @@ export async function releaseBinEntry(organizationId: string, folderId: string, 
     db
       .update(deletionQueue)
       .set({ status: 'pending', lastError: error.slice(0, 2000) })
+      .where(
+        and(
+          eq(deletionQueue.entityType, 'folder'),
+          eq(deletionQueue.entityId, folderId),
+          eq(deletionQueue.organizationId, organizationId),
+          eq(deletionQueue.status, 'purging')
+        )
+      )
+  )
+}
+
+/**
+ * Give a claimed bin entry whose purge is done to the purger, for the one step
+ * the BFF does not take: erasing the Langfuse traces of the conversations the
+ * removal touched. The BFF has neither Langfuse's credentials nor a network
+ * path to it (`deploy/pulumi`); the purger has both. Due now and never claimed
+ * (no backoff, the attempt refunded), so the purger takes it on its next tick:
+ * its purge call finds the folder purged and answers with the conversations
+ * whose traces are owed (`purgeBinnedFolder`), and it closes the row.
+ */
+export async function handBinEntryToPurger(
+  organizationId: string,
+  folderId: string,
+  payload: Partial<FolderBinPayload>
+): Promise<void> {
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(deletionQueue)
+      .set({
+        status: 'pending',
+        purgeAfter: sql`least(${deletionQueue.purgeAfter}, now())`,
+        claimedAt: null,
+        attempts: sql`greatest(${deletionQueue.attempts} - 1, 0)`,
+        lastError: null,
+        payload: sql`coalesce(${deletionQueue.payload}, '{}'::jsonb) || ${JSON.stringify(payload)}::jsonb`,
+      })
       .where(
         and(
           eq(deletionQueue.entityType, 'folder'),

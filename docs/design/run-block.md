@@ -159,10 +159,19 @@ things sit beside it rather than instead of it:
   `unterbrochen` with a banner that says it was the reader's choice.
 - **„Dokument hinzufügen"**, while the run is *researching*, when a caller
   offers it: a dialog over the thread lists the project's and the Archiv's
-  documents, and one press names one as Grundlage. The addition travels as a
-  job event (`POST /v1/jobs/async/job/{id}/documents`), the research tool
+  documents, and one press names one as Grundlage. The addition goes through
+  the run primitive (`POST /api/projects/{id}/runs/{runId}/documents`, never
+  the async proxy), which refuses a document from a folder not every project
+  member may read (ADR-0086), and travels as a job event
+  (`POST /v1/jobs/async/job/{id}/documents`), the research tool
   plans it into its next batch, and the receipt shows the row at once, unread
-  until a round reaches it. A row already named offers no second add.
+  until a round reaches it. A row already named offers no second add. A row
+  indexed in a restricted folder's collection is listed with an
+  „eingeschränkt" chip and the reason, and offers no add. An add that does not
+  take is said under the status line, in red, until the next try: the API's
+  own sentence for a restricted-folder refusal, „Die Unterlage hat den Auftrag
+  nicht erreicht" for anything else. The picker has closed by then, and a
+  silent failure would read as a document the run is about to read.
 - **„Bericht fortschreiben"**, on a finished or interrupted run, when a caller
   offers it: a new run on the same subject, briefed with this report's
   findings, so a changed project fact re-reads the Befunde instead of starting

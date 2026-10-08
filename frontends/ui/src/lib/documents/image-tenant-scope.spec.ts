@@ -133,6 +133,7 @@ vi.mock('@/lib/images/signed-image-url', () => ({
     claims: { organizationId: 'org-from-signature', userId: 'user-from-signature', documentId: 'doc-1', variant: 'original', exp: 0 },
   }),
   buildDocumentImageUrl: () => null,
+  DOCUMENT_IMAGE_CACHE_CONTROL: 'private, max-age=300',
 }))
 
 import { getTenantContext, runWithTenantSlot } from '@/lib/db/tenant-context'
