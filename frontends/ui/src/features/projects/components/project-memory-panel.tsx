@@ -53,9 +53,9 @@ type MemoryItem = Omit<ProjectMemoryItem, 'createdAt' | 'updatedAt' | 'lastRefer
   createdAt: string
   updatedAt: string
   lastReferencedAt: string | null
-  /** The folders a restricted note (ADR-0086) is restricted to; only ever sent to a cleared reader. */
+  /** The folders a restricted note (ADR-0087) is restricted to; only ever sent to a cleared reader. */
   restrictedFolderNames?: string[]
-  /** When a folder the note came from was purged (ADR-0087): „Quelle gelöscht am …". */
+  /** When a folder the note came from was purged (ADR-0088): „Quelle gelöscht am …". */
   sourceDeletedAt?: string
 }
 
@@ -69,7 +69,7 @@ function restrictionTitle(item: MemoryItem, t: Translator): string {
 
 interface ProjectMemoryPanelProps {
   projectId: string
-  /** A closed project's memory is read-only (ADR-0088): no add, edit, pin or remove. */
+  /** A closed project's memory is read-only (ADR-0089): no add, edit, pin or remove. */
   readOnly?: boolean
 }
 

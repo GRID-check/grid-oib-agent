@@ -23,7 +23,7 @@ export interface InventoryDocument extends PlanDocument {
   file: FileItem
   source: 'projekt' | 'buero'
   /**
-   * Filed under a folder not every project member may read (ADR-0086): its row
+   * Filed under a folder not every project member may read (ADR-0087): its row
    * sits in that folder's restricted collection. Listed to a cleared reader,
    * and never handed to a run, whose Unterlagen the whole project reads; the
    * picker says so instead of offering it. The server refuses it either way

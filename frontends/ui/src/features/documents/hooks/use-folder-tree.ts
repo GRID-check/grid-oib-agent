@@ -15,7 +15,7 @@ export interface FolderTreeOptions {
   /** The tree as the server already read it, for the first paint. */
   initialFolders?: readonly FolderItem[]
   /**
-   * What the reader may do at the shelf's root for the first paint (ADR-0087).
+   * What the reader may do at the shelf's root for the first paint (ADR-0088).
    * Absent means `write`; every listing read refreshes it from `rootAccess`.
    * Only a project's listing reports it; the Archiv's root is `write` here and
    * `canManage` decides.
@@ -28,7 +28,7 @@ export interface FolderTreeOptions {
   /** Re-read the documents after a change that moved some (a delete re-files them). */
   reloadFiles: (quiet?: boolean) => Promise<unknown>
   /**
-   * The shelf's Papierkorb (a project's, ADR-0087). With it, a delete moves the
+   * The shelf's Papierkorb (a project's, ADR-0088). With it, a delete moves the
    * folder there with its contents and the toast links to it; without it (the
    * Archiv), a delete re-files the contents into the parent.
    */
@@ -63,7 +63,7 @@ export function useFolderTree({
   const [folders, setFolders] = useState<FolderItem[]>(() => [...(initialFolders ?? [])])
   const [isLoading, setIsLoading] = useState(initialFolders === undefined)
   const [error, setError] = useState(false)
-  /** What the reader may do at the root (ADR-0087); each folder carries its own `access`. */
+  /** What the reader may do at the root (ADR-0088); each folder carries its own `access`. */
   const [rootAccess, setRootAccess] = useState<FolderAccessLevel>(initialRootAccess)
 
   const load = useCallback(() => {
@@ -166,7 +166,7 @@ export function useFolderTree({
       } catch (error) {
         setParent(previousParentId)
         // 409: the folder holds an IFC model and the destination is restricted
-        // (ADR-0086). Retrying cannot help, so say why.
+        // (ADR-0087). Retrying cannot help, so say why.
         toast.error(
           error instanceof Error && error.cause === 409 ? t('folders.access.ifcRefused') : t('folders.moveFolderError')
         )

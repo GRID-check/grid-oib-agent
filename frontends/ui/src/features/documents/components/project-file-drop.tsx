@@ -42,7 +42,7 @@ export function ProjectFileDrop({
   children,
 }: {
   projectId: string
-  /** No drop target at all: a closed project takes no files (ADR-0088). */
+  /** No drop target at all: a closed project takes no files (ADR-0089). */
   disabled?: boolean
   children: ReactNode
 }) {

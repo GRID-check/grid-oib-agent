@@ -1,5 +1,5 @@
 /**
- * How long a custom role's name and description may be (ADR-0086). Shared by
+ * How long a custom role's name and description may be (ADR-0087). Shared by
  * the routes that validate them and the editor that counts them, so a name the
  * field accepts is one the route accepts.
  */

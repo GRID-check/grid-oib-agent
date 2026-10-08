@@ -1084,6 +1084,18 @@ export interface GridConfig {
     enabled: boolean;
   };
 
+  mailImport: {
+    /**
+     * Dark-launch gate for the Outlook archive import (ADR-0085). Reaches the
+     * frontend as `GRID_MAIL_IMPORT_ENABLED`, which the BFF only consults while
+     * `enforceFeatureFlags` is off; with enforcement on, the per-org
+     * `mail-import` WorkOS flag decides instead. Default-deny: an archive is the
+     * correspondence of everyone who wrote to a mailbox, so an operator turns
+     * the import on deliberately.
+     */
+    enabled: boolean;
+  };
+
   collaboration: {
     /**
      * Dark-launch gate for collaboration (ADR-0032…0035: shared chats,
@@ -2782,6 +2794,10 @@ export function loadConfig(): GridConfig {
 
     collaboration: {
       enabled: bool(cfg, "collaborationEnabled", false),
+    },
+
+    mailImport: {
+      enabled: bool(cfg, "mailImportEnabled", false),
     },
 
     agentAuthoredDocuments: {

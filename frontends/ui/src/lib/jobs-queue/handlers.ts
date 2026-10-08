@@ -30,11 +30,13 @@ import {
 } from '@/lib/documents/service'
 import { runPurgeBinnedChunksSlice, runRestoreFolderSlice } from '@/lib/projects/folder-bin-jobs'
 import { runPlacementReingestSlice } from '@/lib/projects/collection-placement'
+import { runMailImportSlice } from '@/lib/mail-import/job'
 import { runReportFilingJob } from '@/lib/tasks/service'
 import { isLastAttempt } from './attempts'
 import {
   bimExtractPayloadSchema,
   fileResearchReportPayloadSchema,
+  mailImportPayloadSchema,
   officeRenditionPayloadSchema,
   placementReingestPayloadSchema,
   purgeBinnedChunksPayloadSchema,
@@ -114,6 +116,18 @@ function systemSliceHandler<TPayload extends object>(
     slice(organizationId, schema.parse(payload), { last: isLastAttempt(attempts) })
 }
 
+/**
+ * The mail import's walk. Not {@link handler}: a requester who left must END
+ * the import with a reason, because it is a row the person sees, not a quiet
+ * no-op. Its retries are its own (`lib/mail-import/job.ts`), not the queue's.
+ */
+const mailImportHandler: JobHandler = async ({ organizationId, payload }) => {
+  const parsed = mailImportPayloadSchema.parse(payload)
+  const { userId, email } = parsed.requester
+  const session = await resolvePinnedRequesterSession({ userId, email, organizationId })
+  return runMailImportSlice(session, parsed, organizationId)
+}
+
 /** One handler per kind; the record's type makes a kind without one a compile error. */
 export const JOB_HANDLERS: Record<BffJobKind, JobHandler> = {
   reindex_project: handler(reindexProjectPayloadSchema, runReindexSlice),
@@ -124,4 +138,5 @@ export const JOB_HANDLERS: Record<BffJobKind, JobHandler> = {
   bim_extract: systemHandler(bimExtractPayloadSchema, runBimExtractJob),
   office_rendition: systemHandler(officeRenditionPayloadSchema, runOfficeRenditionJob),
   file_research_report: systemHandler(fileResearchReportPayloadSchema, runReportFilingJob),
+  mail_import: mailImportHandler,
 }

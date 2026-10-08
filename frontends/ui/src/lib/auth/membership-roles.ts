@@ -1,5 +1,5 @@
 /**
- * The roles a person holds in an organization, as WorkOS says NOW (ADR-0087).
+ * The roles a person holds in an organization, as WorkOS says NOW (ADR-0088).
  *
  * A folder's access list names roles, so the roles that decide it must follow
  * WorkOS within a minute: a role taken away in the People tab stops opening a

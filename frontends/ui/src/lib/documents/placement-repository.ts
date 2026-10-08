@@ -1,5 +1,5 @@
 /**
- * The SQL of collection placement (ADR-0086, ADR-0017): reading the rows that
+ * The SQL of collection placement (ADR-0087, ADR-0017): reading the rows that
  * can be in the wrong collection, re-pointing one, and the hand-off of a moved
  * row's re-read to the `placement_reingest` job. The decisions are
  * `lib/projects/collection-placement.ts`'s; it lives here because it authors a

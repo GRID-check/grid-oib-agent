@@ -2,7 +2,7 @@
 
 /**
  * Dev preview for read/write folder access in the project Files view
- * (ADR-0087).
+ * (ADR-0088).
  *
  * The REAL `FileBrowserPane`, three times, as three people see one project:
  * a writer (Projektleitung), a person who may only read two of the folders
@@ -47,7 +47,7 @@ const ROLES: OrganizationRoles = {
 }
 
 /**
- * The tree, with each folder's own list (ADR-0087):
+ * The tree, with each folder's own list (ADR-0088):
  *
  *   Pläne      — inherits the project
  *   Verträge   — Geschäftsführung: Bearbeiten, Projektleitung: Bearbeiten, Buchhaltung: Lesen
@@ -192,7 +192,7 @@ function FolderAccessPreview(): JSX.Element {
       <div>
         <h1 className="text-lg font-semibold">Dateien — Lesen und Bearbeiten pro Ordner</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          ADR-0087: „Verträge“, „Honorare“ und „Statik“ haben eigene Zugriffsrechte. Hover a lock for the list;
+          ADR-0088: „Verträge“, „Honorare“ und „Statik“ haben eigene Zugriffsrechte. Hover a lock for the list;
           „Nur lesen“ marks a folder the person may open but not change. ⋯ → „Zugriff…“ edits the list.
         </p>
       </div>

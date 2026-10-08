@@ -122,7 +122,7 @@ def _target_collections(
     When ``scoped`` entries carry a stated shelf (ADR-0047), that shelf wins
     and the collection-id prefix is not inspected.
 
-    A restricted folder's collection is never a target (ADR-0086, ADR-0087):
+    A restricted folder's collection is never a target (ADR-0087, ADR-0088):
     a card listing its files would put their names in front of the model and
     the conversation without an admission. Searching it is admitted per tool
     round instead.

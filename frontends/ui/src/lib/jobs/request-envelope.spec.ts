@@ -2,7 +2,7 @@
  * The job envelope signs the project only for a caller who may steer its runs.
  *
  * ADR-0084 lets anyone signed into a project's scope read and control that
- * project's jobs. A closed project is readable by the whole office (ADR-0088),
+ * project's jobs. A closed project is readable by the whole office (ADR-0089),
  * but steering somebody else's run stays a member's: a caller who reads the
  * project only because it is closed is signed no project, so the backend lets
  * them reach their own jobs and nothing more through it.

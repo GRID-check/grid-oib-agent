@@ -246,7 +246,7 @@ describe('authorize() denial shapes', () => {
   })
 })
 
-describe('a closed project (ADR-0088)', () => {
+describe('a closed project (ADR-0089)', () => {
   it('a write is a named denial, not an error, so a capability flag reads false', async () => {
     const { projectClosedError } = await import('@/lib/projects/project-status')
     requireProjectAccess.mockRejectedValue(projectClosedError())

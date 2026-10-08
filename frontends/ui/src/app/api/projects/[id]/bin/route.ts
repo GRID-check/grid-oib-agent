@@ -1,5 +1,5 @@
 /**
- * A project's Papierkorb (ADR-0087): the deleted folders the reader may read,
+ * A project's Papierkorb (ADR-0088): the deleted folders the reader may read,
  * who deleted each and when, when its purge runs, and what the reader may do
  * about it. Thin handler; `@/lib/projects/folder-bin` decides.
  */
