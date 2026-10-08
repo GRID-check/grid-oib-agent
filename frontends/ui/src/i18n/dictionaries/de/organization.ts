@@ -536,7 +536,7 @@ export const organization: typeof en.organization = {
     open: 'Audit-Logs ansehen',
     error: 'Der Audit-Log-Viewer konnte nicht geöffnet werden.',
   },
-  /** Sensible Daten: die Liste, gegen die Piloti jeden Upload prüft (ADR-0085). */
+  /** Sensible Daten: die Liste, gegen die Piloti jeden Upload prüft (ADR-0086). */
   screening: {
     title: 'Prüfliste',
     description:
@@ -579,7 +579,7 @@ export const organization: typeof en.organization = {
     readOnly: 'Ändern können diese Listen nur Personen mit der Berechtigung „Organisationseinstellungen verwalten“.',
     loadError: 'Die Listen konnten gerade nicht geladen werden.',
   },
-  /** Quarantäne: Dateien, die die Inhaltsprüfung zurückgehalten hat (ADR-0085). */
+  /** Quarantäne: Dateien, die die Inhaltsprüfung zurückgehalten hat (ADR-0086). */
   quarantine: {
     listLabel: 'Zurückgehaltene Dateien',
     empty: 'Nichts wartet auf Prüfung',

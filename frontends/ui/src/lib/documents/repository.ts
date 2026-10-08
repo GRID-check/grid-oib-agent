@@ -1258,7 +1258,7 @@ export async function setDocumentReconciledStatus(
       .set({
         status: resolution.status,
         errorMessage: resolution.errorMessage,
-        // Only when the job said something (ADR-0085): an unscreened job must
+        // Only when the job said something (ADR-0086): an unscreened job must
         // not erase a reviewer's `released`.
         ...(resolution.screeningOutcome ? { screeningOutcome: resolution.screeningOutcome } : {}),
         updatedAt: new Date(),
@@ -1268,7 +1268,7 @@ export async function setDocumentReconciledStatus(
 }
 
 /**
- * A reviewer's release of a quarantined document (ADR-0085): who, when, and
+ * A reviewer's release of a quarantined document (ADR-0086): who, when, and
  * which bytes. Guarded on the row still being quarantined with the bytes the
  * reviewer saw, so a release that raced a re-upload releases nothing. Returns
  * whether it took.

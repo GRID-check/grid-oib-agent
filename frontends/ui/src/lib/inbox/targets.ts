@@ -197,6 +197,13 @@ const projectTarget: InboxTargetDescriptor = {
     }
     return {
       deepLink: (context) => {
+        // A mail import lands on the folder it filed into: the row's anchor,
+        // unless the import ended before making one (anchored `import:<id>`).
+        if (context.itemType === 'mail_import.completed' || context.itemType === 'mail_import.failed') {
+          const anchor = context.anchorId?.trim()
+          const folder = anchor && !anchor.startsWith('import:') ? anchor : null
+          return `/app/projects/${resourceId}/files${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`
+        }
         if (context.run) return runDeepLink(resourceId, context.run)
         const taskId = context.taskId?.trim() ? context.taskId.trim() : null
         if (taskId) {
@@ -238,7 +245,7 @@ const productFeedbackTarget: InboxTargetDescriptor = {
 }
 
 /**
- * One upload gesture — the target of `upload.completed` (ADR-0085).
+ * One upload gesture — the target of `upload.completed` (ADR-0086).
  *
  * Its summary is its uploader's: it lists what they sent and what the office's
  * screening kept on their machine. Access is therefore "you made this upload",

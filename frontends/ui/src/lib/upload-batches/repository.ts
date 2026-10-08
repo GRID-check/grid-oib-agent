@@ -1,5 +1,5 @@
 /**
- * SQL for upload batches (migration 0109). Every function names its
+ * SQL for upload batches (migration 0110). Every function names its
  * organization and runs inside `withTenant`, except the sweep's discovery,
  * which is cross-tenant by design and says so where it is called.
  */
