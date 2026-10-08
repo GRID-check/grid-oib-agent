@@ -60,6 +60,9 @@ services:
       # fails here and not first in production.
       NAT_JOB_STORE_DB_URL: ${NAT_JOB_STORE_DB_URL:-postgresql+asyncpg://aiq:aiq_dev@pgbouncer:5432/aiq_jobs}  # pragma: allowlist secret (local compose default, same class as POSTGRES_PASSWORD below)
       AIQ_CHECKPOINT_DB: ${AIQ_CHECKPOINT_DB:-postgresql://aiq:aiq_dev@pgbouncer:5432/aiq_checkpoints}  # pragma: allowlist secret (local compose default, same class as POSTGRES_PASSWORD below)
+      # A research job's deep checkpoint, so one that loses its worker resumes where it
+      # was instead of starting over. Kubernetes sets the same (deploy/pulumi config.ts).
+      AIQ_DEEP_CHECKPOINT_DB: ${AIQ_DEEP_CHECKPOINT_DB:-postgresql://aiq:aiq_dev@pgbouncer:5432/aiq_checkpoints}  # pragma: allowlist secret (local compose default, same class as POSTGRES_PASSWORD below)
       AIQ_SUMMARY_DB: ${AIQ_SUMMARY_DB:-postgresql+psycopg://aiq:aiq_dev@pgbouncer:5432/aiq_jobs}  # pragma: allowlist secret (local compose default, same class as POSTGRES_PASSWORD below)
       # SSE LISTEN/NOTIFY: a notification reaches the one server session that ran
       # LISTEN, which a transaction pooler does not keep for the client.

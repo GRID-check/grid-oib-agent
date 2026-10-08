@@ -84,6 +84,8 @@ services:
       # statements goes straight to `postgres`.
       - NAT_JOB_STORE_DB_URL=postgresql+asyncpg://aiq:${SERVICE_PASSWORD_POSTGRES}@pgbouncer:5432/aiq_jobs
       - AIQ_CHECKPOINT_DB=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@pgbouncer:5432/aiq_checkpoints
+      # A research job's deep checkpoint: resume on another worker instead of starting over.
+      - AIQ_DEEP_CHECKPOINT_DB=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@pgbouncer:5432/aiq_checkpoints
       - AIQ_SUMMARY_DB=postgresql+psycopg://aiq:${SERVICE_PASSWORD_POSTGRES}@pgbouncer:5432/aiq_jobs
       # SSE LISTEN/NOTIFY: a notification reaches the one server session that ran
       # LISTEN, which a transaction pooler does not keep for the client.
@@ -156,6 +158,9 @@ services:
       # internal frontend->backend calls are always classified internal, so this
       # never breaks in-cluster traffic.
       - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      # The validator REQUIRE_AUTH needs: without it the backend refuses to start
+      # (aiq_api.plugin), because the WorkOS validator loads only when this is set.
+      - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID:-}
       # The commit this deployment is running. Stamped into the image as a
       # build arg by publish-images.yml, so it is normally already set inside
       # the container and this line only matters for a locally built or

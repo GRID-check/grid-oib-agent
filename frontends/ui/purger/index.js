@@ -196,7 +196,10 @@ function main() {
     // the organization id — see the note in `purge-project.js` step 2. That is
     // why this process needs no bucket-naming rule and no feature flag.
     bucket: sharedBucket,
-    workos: new WorkOS(process.env.WORKOS_API_KEY),
+    // The SDK throws at construction without a key, which crash-looped the purger
+    // in every stack without WorkOS. Such a stack never created an FGA resource
+    // (the BFF needs the key for that too), so there is nothing to delete.
+    workos: process.env.WORKOS_API_KEY ? new WorkOS(process.env.WORKOS_API_KEY) : null,
     deleteStoragePrefix: (/** @type {string} */ bucket, /** @type {string} */ prefix) =>
       deleteStoragePrefix(s3, bucket, prefix),
   }
