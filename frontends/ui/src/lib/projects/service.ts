@@ -130,7 +130,7 @@ export async function getProjectsGridData(
   // the documents in folders they may not read are left out of it (ADR-0087).
   const hiddenFolderIds = (await Promise.all(visibleIds.map((id) => getHiddenFolderIds(session, id)))).flat()
   // Nor does it count a held file the viewer neither uploaded nor reviews
-  // (ADR-0083); each project asks its own reviewers.
+  // (ADR-0085); each project asks its own reviewers.
   const readers = await Promise.all(visibleIds.map((projectId) => shelfReaderFor(session, { scope: 'project', projectId })))
   const reviewedProjectIds = visibleIds.filter((_, index) => readers[index].kind === 'reviewer')
   const [documentCounts, viewerActivity] = await Promise.all([
@@ -362,8 +362,8 @@ export async function restoreProject(
 
 /**
  * What the overview's count, size and recent list leave out for this session:
- * the folders hidden from it (ADR-0084) and the held files it neither
- * uploaded nor reviews (ADR-0083). One answer for every page that renders the
+ * the folders hidden from it (ADR-0086) and the held files it neither
+ * uploaded nor reviews (ADR-0085). One answer for every page that renders the
  * overview data, so a second reader dimension cannot reach one and miss the other.
  */
 export async function projectOverviewReader(

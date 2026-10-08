@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * A held document in the listings and on the agent's byte path (ADR-0083),
+ * A held document in the listings and on the agent's byte path (ADR-0085),
  * against a REAL Postgres: a quarantined one, and one still on its way through
  * the gate (`pending`, no verdict), which the 2026-10-08 amendment holds too.
  *

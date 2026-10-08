@@ -85,7 +85,7 @@ export async function listSessionDocuments(
 ): Promise<SessionDocumentListResult> {
   await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
 
-  // A held file is listed for its uploader and the organization's admins only (ADR-0083).
+  // A held file is listed for its uploader and the organization's admins only (ADR-0085).
   const reader = await shelfReaderFor(session, { scope: 'session', projectId: null })
   const rows = await listSessionDocumentRows(conversationId, session.organizationId, reader, SESSION_DOCUMENT_LIST_LIMIT)
   // Narrowed again after the reconcile, by the same rule: a row the query let
@@ -361,7 +361,7 @@ export async function deleteSessionDocument(
   documentId: string,
   request: Request,
 ): Promise<void> {
-  // Through the hold (ADR-0083): somebody else's unscreened attachment is not
+  // Through the hold (ADR-0085): somebody else's unscreened attachment is not
   // there to delete for a participant who is not its uploader or a reviewer.
   const doc = await findSessionDocument(
     documentId,

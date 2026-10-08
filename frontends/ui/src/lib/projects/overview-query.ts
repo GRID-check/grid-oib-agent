@@ -15,7 +15,7 @@ export interface ProjectOverviewReader {
    */
   hiddenFolderIds: readonly string[]
   /**
-   * How this person reads the project (ADR-0083), from `shelfReaderFor`: a
+   * How this person reads the project (ADR-0085), from `shelfReaderFor`: a
    * member or a reviewer of its quarantine. Required for the same reason as
    * the key above: a held file is not there for anyone else, by name or in a
    * number.

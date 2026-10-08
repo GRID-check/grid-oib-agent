@@ -41,7 +41,7 @@ const repo = vi.hoisted(() => ({
   profile: emptyProfile() as ProjectProfile | null,
 }))
 
-// How the session reads the project's held files (ADR-0083): a member here.
+// How the session reads the project's held files (ADR-0085): a member here.
 vi.mock('@/lib/upload-screening/quarantine-reviewers', () => ({
   shelfReaderFor: vi.fn(async () => ({ kind: 'member', userId: 'user-1' })),
 }))

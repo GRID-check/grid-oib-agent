@@ -1,5 +1,5 @@
--- 0120: a quarantined document leaves quarantine through a release, and through
--- no other write (ADR-0083, amended 2026-10-08).
+-- 0121: a quarantined document leaves quarantine through a release, and through
+-- no other write (ADR-0085, amended 2026-10-08).
 --
 -- Three repair rounds found writers that moved a `quarantined` row on as if it
 -- were an ordinary upload: a re-dispatch set it `pending` (`setDocumentIngestJob`),
@@ -20,7 +20,7 @@ BEGIN
      AND NEW.screening_released_hash = NEW.content_hash THEN
     RETURN NEW;
   END IF;
-  RAISE EXCEPTION 'document % is quarantined: only a release takes it out of quarantine (ADR-0083)', OLD.id
+  RAISE EXCEPTION 'document % is quarantined: only a release takes it out of quarantine (ADR-0085)', OLD.id
     USING ERRCODE = 'GQH01';
 END
 $$;

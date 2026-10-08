@@ -646,7 +646,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
       expect((await queueRow(folder.verwaltung))[0]?.status).toBe('restored')
     })
 
-    it("counts a colleague's held upload only for the people who may see it (ADR-0083)", async () => {
+    it("counts a colleague's held upload only for the people who may see it (ADR-0085)", async () => {
       // Still being screened, uploaded by somebody else: not the project's yet.
       await inOrg(() =>
         db.execute(sql`

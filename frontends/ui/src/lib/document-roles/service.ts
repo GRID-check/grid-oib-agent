@@ -78,7 +78,7 @@ function requireBauwerk(projectId: string, bauwerkId: string) {
 }
 
 
-/** The reader a session reads a project's bindings as: its folders (ADR-0084) and the hold (ADR-0083). */
+/** The reader a session reads a project's bindings as: its folders (ADR-0086) and the hold (ADR-0085). */
 async function sessionRoleReader(session: AuthorizedSession, projectId: string): Promise<DocumentRoleReader> {
   const [hiddenFolderIds, documents] = await Promise.all([
     getHiddenFolderIds(session, projectId),
@@ -89,7 +89,7 @@ async function sessionRoleReader(session: AuthorizedSession, projectId: string):
 
 /**
  * A binding to a document in a folder this session may not see is not listed
- * (ADR-0084), nor one to a held file it neither uploaded nor reviews (ADR-0083).
+ * (ADR-0086), nor one to a held file it neither uploaded nor reviews (ADR-0085).
  */
 export async function listDocumentRoles(
   projectId: string,
@@ -154,7 +154,7 @@ export async function declareDocumentRole(
   // cannot see.
   //
   // A document in a folder this session may not see is answered the same way
-  // (ADR-0084), and so is a held file it may not see (ADR-0083): binding it
+  // (ADR-0086), and so is a held file it may not see (ADR-0085): binding it
   // would put its filename back in front of them.
   const reader = await sessionRoleReader(session, input.projectId)
   if (!(await documentBelongsToProject(input.documentId, input.projectId, reader))) {

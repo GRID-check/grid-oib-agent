@@ -40,7 +40,7 @@ vi.mock('@/lib/documents/move-to-folder', () => ({ moveDocumentToFolder: mocks.m
 vi.mock('@/lib/documents/shelf-folders', () => ({ FOLDER_NAME_TAKEN: 'A folder with this name already exists here.' }))
 vi.mock('./folder-bin', () => ({ moveFolderToBin: mocks.moveFolderToBin, restoreFolderFromBin: mocks.restoreFolderFromBin }))
 vi.mock('./cleanup-repository', () => ({ deleteEmptyCreatedFolder: mocks.deleteEmptyCreatedFolder }))
-// The closer reads the project as a member (ADR-0083): screened files, and the held ones they uploaded.
+// The closer reads the project as a member (ADR-0085): screened files, and the held ones they uploaded.
 vi.mock('@/lib/upload-screening/quarantine-reviewers', () => ({
   shelfReaderFor: vi.fn(async () => ({ kind: 'member', userId: 'user_pl' })),
 }))

@@ -531,7 +531,7 @@ describe('readVersionForService — the conversation is part of the predicate', 
 
   // Held from upload until the screen passes, not from the verdict: a person's
   // upload still on its way through the gate is no model's subject either.
-  it('answers 404 for an upload whose screening has not passed yet (ADR-0083)', async () => {
+  it('answers 404 for an upload whose screening has not passed yet (ADR-0085)', async () => {
     vi.mocked(findConversationInOrg).mockResolvedValue({
       subjectResourceType: 'document',
       subjectResourceId: 'doc_1',
@@ -676,7 +676,7 @@ describe('reading a version’s text, and the download log', () => {
   })
 
   // A model reads this text, so a document whose screening has not passed
-  // answers 404 to its reviewer too (ADR-0083): no held text in a task.
+  // answers 404 to its reviewer too (ADR-0085): no held text in a task.
   it.each([
     ['quarantined', { status: 'quarantined', screeningOutcome: 'quarantined' as const }],
     ['still being screened', { status: 'processing', screeningOutcome: null }],

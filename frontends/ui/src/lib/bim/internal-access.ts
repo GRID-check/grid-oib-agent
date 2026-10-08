@@ -128,7 +128,7 @@ export async function resolveInternalModel(
     // reader who holds no role: every restricted subtree is hidden, and a
     // `modelId` naming a model inside one is not found.
     hiddenFolderIds: input.projectId ? await getRestrictedFolderIds(input.organizationId, input.projectId) : [],
-    // Nor is a held file's model (ADR-0083): nothing of it reaches a model
+    // Nor is a held file's model (ADR-0085): nothing of it reaches a model
     // until its screening passes, its building data included.
     reader: SCREENED_ONLY,
   })
@@ -248,7 +248,7 @@ export async function getInternalModelSource(
   model: BimModelHeader,
   organizationId: string
 ): Promise<InternalModelSource> {
-  // The agent's byte path: a held file's bytes reach no model (ADR-0083).
+  // The agent's byte path: a held file's bytes reach no model (ADR-0085).
   const document = await findDocumentInOrg(model.documentId, organizationId, SCREENED_ONLY)
   if (!document?.storageKey) throw new NotFoundError('Model file not available')
 

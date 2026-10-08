@@ -63,7 +63,7 @@ vi.mock('@/lib/db', () => ({
   }),
 }))
 
-// The document is loaded through the hold (`findDocumentForSession`, ADR-0083):
+// The document is loaded through the hold (`findDocumentForSession`, ADR-0085):
 // here it answers the first queued row, as the query would for a visible one.
 // `visibility.integration.spec.ts` holds the rule itself against Postgres.
 vi.mock('./access', () => ({

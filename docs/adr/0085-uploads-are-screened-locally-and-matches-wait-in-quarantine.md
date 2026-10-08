@@ -146,7 +146,7 @@ German, and explains each verdict.
   quarantined row for nobody, so a restore from the Papierkorb, a placement
   move when a folder's access changes and „Projekt neu indizieren" leave it
   quarantined; the status writers carry `status <> 'quarantined'`, and
-  migration 0120's trigger refuses any other UPDATE that tries. The listings
+  migration 0121's trigger refuses any other UPDATE that tries. The listings
   narrow again after their reconcile (`keepReadable`), because a read can find
   a row on an earlier pass and the reconcile turns it.
 - **Held from upload until the screen passes** (amended 2026-10-08, replacing
@@ -205,7 +205,7 @@ German, and explains each verdict.
   compose `documentVisibleTo`, unless its allowlist says why that query sees every row;
   `documents/visibility.integration.spec.ts` holds the SQL predicate and its in-memory twin to
   the same answer for every status, verdict, author and reader against Postgres, and proves the
-  trigger of migration 0120.
+  trigger of migration 0121.
 * `documents/dispatch.spec.ts` proves a quarantined row is dispatched for nobody;
   `quarantine-access.spec.ts`, `archiv/service.spec.ts` and `session-documents/service.spec.ts`
   that a row the listing's reconcile turns quarantined is narrowed again.
@@ -426,7 +426,7 @@ window in which a file nobody had screened was everybody's.
   before screening existed. Piloti's own documents were never an upload and are not
   held. `uploaded`, `pending`, `processing`, `failed` and `error` without a verdict
   are held.
-* **A verdict names the bytes it judged** (migration 0121). `screened_hash` is the
+* **A verdict names the bytes it judged** (migration 0122). `screened_hash` is the
   `content_hash` of the bytes the verdict (or, with screening off, the completed
   read) was about: the dispatch records the hash beside its job id, the reconcile
   writes it with the verdict, a release writes the hash it released. A person's

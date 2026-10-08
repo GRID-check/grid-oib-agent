@@ -63,7 +63,7 @@ export function findArchivDocumentsByNames(
   return findDocumentsByNames(ARCHIV_SHELF, organizationId, names, options)
 }
 
-/** Load one Archiv document by id, scoped to its organization, as `reader` may see it (ADR-0083). */
+/** Load one Archiv document by id, scoped to its organization, as `reader` may see it (ADR-0085). */
 export async function findArchivDocument(
   documentId: string,
   organizationId: string,

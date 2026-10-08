@@ -22,7 +22,7 @@ vi.mock('@/lib/authz/folder-access', async () => ({
   loadCustomFolderTree: vi.fn(),
   clearanceOf: vi.fn(),
 }))
-// The reader's hold (ADR-0083): a member, who sees screened files and their own held ones.
+// The reader's hold (ADR-0085): a member, who sees screened files and their own held ones.
 vi.mock('@/lib/upload-screening/quarantine-reviewers', () => ({
   shelfReaderFor: vi.fn(async () => ({ kind: 'member', userId: 'user-1' })),
 }))

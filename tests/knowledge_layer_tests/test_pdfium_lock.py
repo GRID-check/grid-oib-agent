@@ -2,7 +2,7 @@
 
 PDFium is not thread-safe, and this process calls it from the ingest pool's
 workers (the route no longer renders a thumbnail itself: the job draws it after
-the file's screening, ADR-0083). Every call site goes
+the file's screening, ADR-0085). Every call site goes
 through ``knowledge_layer.llamaindex.pdfium_lock``; these tests run the call
 sites concurrently over a fake PDFium that records how many threads are inside
 it at once.

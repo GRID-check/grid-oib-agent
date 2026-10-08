@@ -101,7 +101,7 @@ async function writableFacts(session: AuthorizedSession, projectId: string): Pro
     listProjectFolders(projectId, session),
   ])
   const pathOf = new Map(folders.map((folder) => [folder.id, folder.path]))
-  // The closer's own reader (ADR-0083): screened files, and the held ones they
+  // The closer's own reader (ADR-0085): screened files, and the held ones they
   // uploaded or review. Only `screeningPassed` facts reach the model below.
   const reader = await shelfReaderFor(session, { scope: 'project', projectId })
   const rows = await listAllDocuments(projectId, session.organizationId, [...access.hiddenFolderIds], reader)
@@ -131,7 +131,7 @@ async function writableFacts(session: AuthorizedSession, projectId: string): Pro
     authoredBy: row.authoredBy,
     contentHash: row.contentHash ?? null,
     createdAt: new Date(row.createdAt).toISOString(),
-    // The one definition of "screened" (ADR-0083), the same that lets a file
+    // The one definition of "screened" (ADR-0085), the same that lets a file
     // reach every member and the retrieval index: what a reader may already ask
     // Piloti about may be named to the clean-out's model too.
     screeningPassed: hasPassedScreening(row),

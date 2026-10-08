@@ -3908,7 +3908,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     def _thumbnail_after_screen(self, thumbnail_upload_url: str | None, image_path: str | None) -> None:
         """Draw the file card's thumbnail, called only once the file's screening passed.
 
-        Upload screening (ADR-0083) holds a file back until its content gate
+        Upload screening (ADR-0085) holds a file back until its content gate
         passes, and a thumbnail is a derivative of that content: a first-page
         render of a fee agreement shows the fee. It used to be drawn first, for
         speed, so a quarantined file had one before its verdict, and the route
@@ -4452,7 +4452,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             job.file_details[i].progress_percent = (i / len(file_paths)) * 100
 
                     # The card's thumbnail is drawn once the file's screening
-                    # has passed, never before (ADR-0083): a thumbnail is a
+                    # has passed, never before (ADR-0085): a thumbnail is a
                     # derivative of the content, and a quarantined file has
                     # none. See `_thumbnail_after_screen`.
                     thumbnail_upload_url = config.get("thumbnail_upload_url")

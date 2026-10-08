@@ -100,7 +100,7 @@ async function assertDocumentReadable(
   document: Document,
   notFoundMessage: string
 ): Promise<void> {
-  // A held file's model is its uploader's and its reviewers' only (ADR-0083):
+  // A held file's model is its uploader's and its reviewers' only (ADR-0085):
   // the caller loaded `document` through `findDocumentForSession`.
   switch (document.scope) {
     case 'archiv':
@@ -140,7 +140,7 @@ export async function getAccessibleModel(
 ): Promise<BimModelHeader> {
   assertIfcModelsEnabled(session)
   // The header only names the document; the document is what the hold and the
-  // shelf decide about (ADR-0083), and it goes through the session's rule.
+  // shelf decide about (ADR-0085), and it goes through the session's rule.
   const model = await findBimModelById(modelId, session.organizationId, internalRead('resolve-document'))
   if (!model) throw new NotFoundError('Model not found')
 
@@ -319,7 +319,7 @@ async function revisionSiblingIds(
 ): Promise<string[]> {
   const series = revisionSeriesKey(model.filename)
   // The revisions this person may see: a held revision is not theirs to sign
-  // for or withdraw a signature from (ADR-0083).
+  // for or withdraw a signature from (ADR-0085).
   const models = await listBimModels(session.organizationId, {
     projectId,
     includeArchiv: true,

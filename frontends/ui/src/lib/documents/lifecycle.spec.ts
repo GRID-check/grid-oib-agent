@@ -780,7 +780,7 @@ describe('transitionDocumentVersion — effects', () => {
 
   it('dispatches nothing on publish for bytes of a PERSON\'s document the gate already judged', async () => {
     // A draft forked and published unedited: the same bytes the verdict on
-    // record is about (migration 0121). Sending them again would screen and
+    // record is about (migration 0122). Sending them again would screen and
     // index what is already screened and indexed.
     vi.mocked(getAccessibleDocument).mockResolvedValue(
       makeDocument({ id: 'doc_1', projectId: 'proj_1', contentHash: 'sha256:abc', screeningOutcome: 'clean' }),
@@ -797,7 +797,7 @@ describe('transitionDocumentVersion — effects', () => {
   it('screens and indexes the new bytes of a PERSON\'s document published from a draft', async () => {
     // The item's bytes are swapped by the promote; nothing else dispatches
     // them, and the verdict on record is about the bytes they replaced. Before
-    // 0121 they were served to every member under that `clean`, unscreened.
+    // 0122 they were served to every member under that `clean`, unscreened.
     vi.mocked(getAccessibleDocument).mockResolvedValue(
       makeDocument({ id: 'doc_1', projectId: 'proj_1', contentHash: 'sha256:before', screeningOutcome: 'clean' }),
     )
@@ -1360,7 +1360,7 @@ describe('request_changes and the revision task', () => {
   })
 
   // The run hands the text to a model and the task is listed to the whole
-  // project: a held document opens none (ADR-0083).
+  // project: a held document opens none (ADR-0085).
   it('opens no task for a document whose screening has not passed', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const held = { ...document, status: 'quarantined', screeningOutcome: 'quarantined' as const }

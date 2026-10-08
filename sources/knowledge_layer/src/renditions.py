@@ -111,7 +111,7 @@ def resolve_preview(config: dict[str, Any], index: int, downloaded: list[str]) -
 
     Sent for an office original indexed from its own bytes (a spreadsheet),
     whose pages the job cannot rasterise. Downloaded only once the file's
-    screening has passed (ADR-0083): the route used to draw it in the request,
+    screening has passed (ADR-0085): the route used to draw it in the request,
     before the job had read a word of the file.
     """
     return _resolve(config, "preview_paths", index, downloaded)

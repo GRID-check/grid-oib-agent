@@ -94,7 +94,7 @@ const SELECTION = {
  * - `unfiledOnly`: no tenant to read the folder tree in (an anonymous
  *   deployment), so no folder can be decided and none is shown.
  *
- * And by the hold (ADR-0083), `documents`: a held file's binding is its
+ * And by the hold (ADR-0085), `documents`: a held file's binding is its
  * uploader's and its reviewers' (`shelfReaderFor`), and the agent's prompt
  * names none (`screened-only`).
  */

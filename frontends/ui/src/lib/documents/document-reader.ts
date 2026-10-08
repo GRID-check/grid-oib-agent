@@ -1,5 +1,5 @@
 /**
- * Who reads a document, and whether a document has been screened (ADR-0083).
+ * Who reads a document, and whether a document has been screened (ADR-0085).
  *
  * A person's upload is held back from everyone but its uploader and the people
  * who review the quarantine from the moment it is stored until the content
@@ -21,7 +21,7 @@ import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
  * The verdicts that let a person's upload reach everyone who may read its
  * folder. `partial` and `unchecked` pass: a file with no readable text (a scan,
  * a photo) is screened by its name alone, which the product owner chose over
- * holding every scan (ADR-0083, "What is not screened"). `quarantined` is the
+ * holding every scan (ADR-0085, "What is not screened"). `quarantined` is the
  * one verdict that holds a file, and NULL is no verdict at all.
  */
 export const SCREENING_PASSED_OUTCOMES = ['clean', 'partial', 'unchecked', 'released'] as const satisfies
@@ -30,7 +30,7 @@ export const SCREENING_PASSED_OUTCOMES = ['clean', 'partial', 'unchecked', 'rele
 /**
  * The statuses at which a file that carries NO verdict has been read to the
  * end: its job ran with screening switched off (`enabled: false`), or it was
- * indexed before screening existed (migration 0107). Every other verdict-less
+ * indexed before screening existed (migration 0108). Every other verdict-less
  * row is still on its way through the gate (`uploaded`, `pending`,
  * `processing`) or never made it (`failed`, `error`), and is held: nothing
  * has said its content may be read. Lowercase, as every writer writes them.
@@ -44,7 +44,7 @@ export interface ScreeningFacts {
   screeningOutcome: DocumentScreeningOutcome | null
   /** The digest of the bytes the row holds now. */
   contentHash: string | null
-  /** The digest of the bytes the verdict judged (migration 0121). */
+  /** The digest of the bytes the verdict judged (migration 0122). */
   screenedHash: string | null
 }
 

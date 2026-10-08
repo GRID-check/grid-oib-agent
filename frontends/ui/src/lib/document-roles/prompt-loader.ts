@@ -31,7 +31,7 @@ async function readerFor(
   projectId: string,
   organizationId: string | null | undefined
 ): Promise<DocumentRoleReader> {
-  // Nor a held file (ADR-0083): its name reaches no model until it is screened.
+  // Nor a held file (ADR-0085): its name reaches no model until it is screened.
   if (!organizationId) return { unfiledOnly: true, documents: SCREENED_ONLY }
   return { hiddenFolderIds: await getRestrictedFolderIds(organizationId, projectId), documents: SCREENED_ONLY }
 }

@@ -407,7 +407,7 @@ export const documents = pgTable('documents', {
    */
   screeningOutcome: text('screening_outcome').$type<DocumentScreeningOutcome>(),
   /**
-   * The `content_hash` of the bytes `screening_outcome` judged (migration 0121):
+   * The `content_hash` of the bytes `screening_outcome` judged (migration 0122):
    * written with the verdict from the hash its dispatch recorded, or with a
    * release. A person's upload passes the hold only while this equals
    * `content_hash`, so a writer that swaps the bytes and leaves the verdict
