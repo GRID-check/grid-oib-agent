@@ -1,10 +1,10 @@
 /**
  * @vitest-environment node
  *
- * An answer written while its conversation drew on a restricted folder is
- * marked by the database, and every cross-tenant reader keys on that mark by
- * the vote's message id (ADR-0089, ADR-0084, ADR-0085), against a REAL Postgres
- * through the restricted runtime role:
+ * A conversation that drew on a restricted folder has its messages and the
+ * votes on them marked by the database, and every cross-tenant reader asks the
+ * database's one rule of each vote (ADR-0089, ADR-0084, ADR-0085), against a
+ * REAL Postgres through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/feedback/restricted-feedback.integration.spec.ts
@@ -18,21 +18,37 @@
  *   - `listUnprocessedDownvotes`, the lessons distiller's input, whose output
  *     is injected into every organization's turns;
  *   - `listProfiledConversations`, the staff profiler's list and search.
- * The aggregates still count the vote: a count quotes nothing. The mark is
- * written by a trigger on `messages` (migration 0122), survives the chat's
- * deletion, cannot be lifted by the runtime role, and never reads the
- * `conversation_id` a vote's client sent.
+ * The aggregates still count the vote: a count quotes nothing. Marks are
+ * written by triggers (migration 0122): on a message written into such a
+ * conversation, on its first admission (every message it holds, every vote
+ * naming it), and on a vote cast on either. They survive the chat's deletion
+ * and cannot be lifted by the runtime role. The ids a vote's client sends can
+ * only add a mark: a vote whose message id names no row, cast in a restricted
+ * chat through the vote service itself, stays out.
  */
 
+import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
+import type { AuthorizedSession } from '@/lib/auth/types'
 import { executeRows } from '@/lib/db/execute-rows'
 
 vi.mock('server-only', () => ({}))
+// What the vote service does besides writing the vote: none of it is the
+// question here, and each would reach for a model, a cache or a setting.
+vi.mock('@/lib/upload-screening/service', () => ({
+  maskChatText: vi.fn(async (_organizationId: string, text: string) => ({ text })),
+}))
+vi.mock('@/lib/platform-lessons/holdout', () => ({ resolveLessonsHoldout: vi.fn(async () => null) }))
+vi.mock('@/lib/platform-lessons/service', () => ({ reopenReportForRedistillation: vi.fn(async () => undefined) }))
+vi.mock('@/lib/projects/memory-service', () => ({ implicateMemoryFromFeedback: vi.fn(async () => undefined) }))
 
 const STAMP = Date.now()
 const ORG = `org_rfb_${STAMP}`
 const USER = `user_rfb_${STAMP}`
+const COLLEAGUE = `user_rfb_colleague_${STAMP}`
+const RESTRICTED_TITLE = `Honorare Zimmerer AAA ${STAMP}`
+const PHANTOM_CHAT = `s_rfb_phantom_${STAMP}`
 const OPEN_CHAT = `s_rfb_open_${STAMP}`
 const RESTRICTED_CHAT = `s_rfb_restricted_${STAMP}`
 const OPEN_ANSWER = `Die Brüstung ist 1,00 m hoch ${STAMP}`
@@ -103,11 +119,11 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
   }
 
   /** A down-vote quoting the answer; `claimedChat` is the conversation id the client sent. */
-  async function vote(messageId: string, claimedChat: string | null, answer: string) {
+  async function vote(messageId: string, claimedChat: string | null, answer: string, voter = USER) {
     await inOrg((executor) =>
       executor.execute(sql`
         insert into answer_feedback (organization_id, conversation_id, message_id, user_id, verdict, reason, comment, expected_answer)
-        values (${ORG}, ${claimedChat}, ${messageId}, ${USER}, 'down', 'inaccurate', ${`Kommentar ${answer}`}, ${`Erwartet ${answer}`})`)
+        values (${ORG}, ${claimedChat}, ${messageId}, ${voter}, 'down', 'inaccurate', ${`Kommentar ${answer}`}, ${`Erwartet ${answer}`})`)
     )
   }
 
@@ -147,37 +163,61 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
     return { turns, reports, health }
   }
 
-  it('marks the answer of the turn that drew on the folder, and leaves it out of the drill-in, the export and the lessons input', async () => {
+  /**
+   * A vote cast after the admission on an answer from before it is typed by
+   * someone who has read the restricted content, and its comment can quote it.
+   * The first admission marks every message the conversation already holds.
+   */
+  it('marks every message of the conversation from its first admission, and leaves their votes out of the drill-in, the export and the lessons input', async () => {
     await seedVotedChat(OPEN_CHAT, 'Wie hoch muss die Brüstung sein?', OPEN_ANSWER, false)
     // An earlier turn of the restricted chat, before anything restricted entered it.
-    await conversation(RESTRICTED_CHAT)
-    await message(RESTRICTED_CHAT, 'user', 'Wie lang darf der Fluchtweg sein?', 10)
+    await conversation(RESTRICTED_CHAT, RESTRICTED_TITLE)
+    const firstQuestion = await message(RESTRICTED_CHAT, 'user', 'Wie lang darf der Fluchtweg sein?', 10)
     const earlier = await message(RESTRICTED_CHAT, 'assistant', EARLIER_ANSWER, 9)
     await vote(earlier, RESTRICTED_CHAT, EARLIER_ANSWER)
-    await message(RESTRICTED_CHAT, 'user', 'Was kostet der Zimmerer laut Angebot?', 3)
+    const secondQuestion = await message(RESTRICTED_CHAT, 'user', 'Was kostet der Zimmerer laut Angebot?', 3)
+    expect(await marksIn(RESTRICTED_CHAT)).toEqual([])
     await admit(RESTRICTED_CHAT)
     const answer = await message(RESTRICTED_CHAT, 'assistant', RESTRICTED_ANSWER, 2)
     await vote(answer, RESTRICTED_CHAT, RESTRICTED_ANSWER)
+    // After the admission a colleague down-votes the EARLIER answer, quoting the offer.
+    await vote(earlier, RESTRICTED_CHAT, 'Falsch, laut Angebot ZIMMERER-AAA 48.000 EUR', COLLEAGUE)
 
-    expect(await marksIn(RESTRICTED_CHAT)).toEqual([answer])
+    expect(await marksIn(RESTRICTED_CHAT)).toEqual([firstQuestion, earlier, secondQuestion, answer].sort())
     expect(await marksIn(OPEN_CHAT)).toEqual([])
 
     const { turns, reports, health } = await readers()
-    expect(turns.map((turn) => turn.answer).sort()).toEqual([EARLIER_ANSWER, OPEN_ANSWER].sort())
-    expect(JSON.stringify(turns)).not.toContain('Zimmerer')
-    expect(reports.map((report) => report.answer).sort()).toEqual([EARLIER_ANSWER, OPEN_ANSWER].sort())
-    expect(JSON.stringify(reports)).not.toContain('Zimmerer')
+    expect(turns.map((turn) => turn.answer)).toEqual([OPEN_ANSWER])
+    for (const quoted of ['Zimmerer', 'ZIMMERER-AAA', 'Fluchtweg', RESTRICTED_TITLE]) {
+      expect(JSON.stringify(turns)).not.toContain(quoted)
+      expect(JSON.stringify(reports)).not.toContain(quoted)
+    }
+    expect(reports.map((report) => report.answer)).toEqual([OPEN_ANSWER])
     // Counted, never quoted.
-    expect(health.totals.down).toBe(3)
+    expect(health.totals.down).toBe(4)
   })
 
   /**
-   * Deleting the chat deletes its messages and its record. The vote has no
-   * foreign key and stays to be counted; its comment and expected answer
-   * still quote the folder. The mark has none either, and stays with it.
+   * Deleting the chat deletes its messages and its record. The votes have no
+   * foreign key and stay to be counted; their comments and expected answers
+   * still quote the folder. The marks have none either, and stay with them:
+   * the answer written after the admission, and the earlier answer, whose
+   * vote from before the admission was edited after it to quote the offer.
    */
-  it('keeps the vote out after the restricted conversation is deleted', async () => {
-    const answer = await seedVotedChat(DELETED_CHAT, 'Was kostet der Spengler laut Angebot?', DELETED_ANSWER, true)
+  it('keeps the votes out after the restricted conversation is deleted, the earlier answer\'s included', async () => {
+    await conversation(DELETED_CHAT)
+    const firstQuestion = await message(DELETED_CHAT, 'user', 'Wie hoch ist die Attika?', 10)
+    const earlier = await message(DELETED_CHAT, 'assistant', `Die Attika ist 0,90 m hoch ${STAMP}`, 9)
+    await vote(earlier, DELETED_CHAT, 'Attika')
+    await message(DELETED_CHAT, 'user', 'Was kostet der Spengler laut Angebot?', 3)
+    await admit(DELETED_CHAT)
+    const answer = await message(DELETED_CHAT, 'assistant', DELETED_ANSWER, 2)
+    await vote(answer, DELETED_CHAT, DELETED_ANSWER)
+    await inOrg((executor) =>
+      executor.execute(sql`
+        update answer_feedback set comment = 'Falsch, laut Angebot Spengler 31.000 EUR'
+        where organization_id = ${ORG} and message_id = ${earlier} and user_id = ${USER}`)
+    )
     const { deleteConversationInOrg } = await import('@/lib/conversations/repository')
 
     await inOrg(() => deleteConversationInOrg(DELETED_CHAT, ORG))
@@ -190,22 +230,76 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
             (select count(*)::int from answer_feedback where conversation_id = ${DELETED_CHAT}) as votes`)
       )
     )
-    expect(left).toEqual({ records: 0, messages: 0, votes: 1 })
-    expect(await marksIn(DELETED_CHAT)).toEqual([answer])
+    expect(left).toEqual({ records: 0, messages: 0, votes: 2 })
+    // Every message the conversation held at its admission, and the answer written after it.
+    const marks = await marksIn(DELETED_CHAT)
+    expect(marks).toHaveLength(4)
+    expect(marks).toEqual(expect.arrayContaining([firstQuestion, earlier, answer]))
 
     const { turns, reports, health } = await readers()
-    expect(JSON.stringify(turns)).not.toContain('Spengler')
-    expect(JSON.stringify(reports)).not.toContain('Spengler')
-    expect(health.totals.down).toBe(4)
+    for (const quoted of ['Spengler', 'Attika']) {
+      expect(JSON.stringify(turns)).not.toContain(quoted)
+      expect(JSON.stringify(reports)).not.toContain(quoted)
+    }
+    expect(health.totals.down).toBe(6)
   })
 
   /**
-   * The vote's `conversation_id` is the client's. A vote on a marked answer
-   * that names an open chat stays out; a vote on an open answer that names a
-   * restricted chat is shown with ITS conversation's question and title, never
-   * the named chat's.
+   * `messages.id` is minted by the client, and a shallow turn, or one whose
+   * persist failed, has no row. A vote whose id names nothing is judged by the
+   * chat it was cast in: through the vote service itself, the way every vote
+   * is written, it marks its own id, and the mark outlives the chat.
    */
-  it('never trusts the conversation id a vote was sent with', async () => {
+  it('keeps out a vote whose message id names no row, cast in a restricted chat, before and after the chat is deleted', async () => {
+    await conversation(PHANTOM_CHAT)
+    await message(PHANTOM_CHAT, 'user', 'Was kostet der Spengler laut Angebot?', 3)
+    await admit(PHANTOM_CHAT)
+    const phantom = randomUUID()
+    const { submitAnswerFeedback } = await import('./service')
+    const session: AuthorizedSession = {
+      userId: USER,
+      email: `${USER}@grid.test`,
+      name: USER,
+      accessToken: 'token',
+      organizationId: ORG,
+      organizationMembershipId: `om_${USER}`,
+      role: 'member',
+      roles: [],
+      permissions: [],
+      featureFlags: null,
+    }
+    await inOrg(() =>
+      submitAnswerFeedback(session, {
+        messageId: phantom,
+        conversationId: PHANTOM_CHAT,
+        verdict: 'down',
+        reason: 'inaccurate',
+        comment: 'Erwartet SPENGLER-BBB 31.000 EUR',
+        expectedAnswer: 'SPENGLER-BBB 31.000 EUR',
+      })
+    )
+    expect(await marksIn(PHANTOM_CHAT)).toContain(phantom)
+
+    const before = await readers()
+    expect(JSON.stringify(before.turns)).not.toContain('SPENGLER-BBB')
+    expect(JSON.stringify(before.reports)).not.toContain('SPENGLER-BBB')
+
+    const { deleteConversationInOrg } = await import('@/lib/conversations/repository')
+    await inOrg(() => deleteConversationInOrg(PHANTOM_CHAT, ORG))
+    const after = await readers()
+    expect(JSON.stringify(after.turns)).not.toContain('SPENGLER-BBB')
+    expect(JSON.stringify(after.reports)).not.toContain('SPENGLER-BBB')
+  })
+
+  /**
+   * The vote's `conversation_id` is the client's, and it can only add to the
+   * answer. A vote on a marked answer that names an open chat stays out. A vote
+   * on an open answer that names a restricted chat stays out too, since its
+   * comment was typed where the client says; the mark names the restricted
+   * chat, so the open chat does not read as restricted, and an honest vote in
+   * it is shown with ITS question and title.
+   */
+  it('lets the conversation id a vote was sent with add to the answer, never lift it', async () => {
     await conversation(NAMING_CHAT)
     await message(NAMING_CHAT, 'user', 'Was kostet der Maler laut Angebot?', 3)
     await admit(NAMING_CHAT)
@@ -213,17 +307,23 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
     await vote(marked, OPEN_CHAT, NAMING_ANSWER)
 
     await conversation(NAMED_CHAT, `Treppen ${STAMP}`)
-    await message(NAMED_CHAT, 'user', 'Wie viele Stufen hat die Treppe?', 3)
-    const open = await message(NAMED_CHAT, 'assistant', NAMED_ANSWER, 2)
-    await vote(open, RESTRICTED_CHAT, NAMED_ANSWER)
+    await message(NAMED_CHAT, 'user', 'Wie viele Stufen hat die Treppe?', 5)
+    const open = await message(NAMED_CHAT, 'assistant', NAMED_ANSWER, 4)
+    await vote(open, RESTRICTED_CHAT, `${NAMED_ANSWER} laut Angebot Maler`)
+    await message(NAMED_CHAT, 'user', 'Wie breit ist die Treppe?', 3)
+    const honest = await message(NAMED_CHAT, 'assistant', `Die Treppe ist 1,20 m breit ${STAMP}`, 2)
+    await vote(honest, NAMED_CHAT, 'Breite')
 
+    expect(await marksIn(NAMED_CHAT)).toEqual([])
     const { turns, reports } = await readers()
     expect(JSON.stringify(turns)).not.toContain('Maler')
     expect(JSON.stringify(reports)).not.toContain('Maler')
-    const named = turns.find((turn) => turn.answer === NAMED_ANSWER)
-    expect(named?.question).toBe('Wie viele Stufen hat die Treppe?')
-    expect(named?.conversationTitle).toBe(`Treppen ${STAMP}`)
-    expect(reports.find((report) => report.answer === NAMED_ANSWER)?.question).toBe('Wie viele Stufen hat die Treppe?')
+    const shown = turns.find((turn) => turn.answer === `Die Treppe ist 1,20 m breit ${STAMP}`)
+    expect(shown?.question).toBe('Wie breit ist die Treppe?')
+    expect(shown?.conversationTitle).toBe(`Treppen ${STAMP}`)
+    expect(reports.find((report) => report.answer === `Die Treppe ist 1,20 m breit ${STAMP}`)?.question).toBe(
+      'Wie breit ist die Treppe?'
+    )
   })
 
   /** A run's message is created empty at dispatch and its report written into it after the run. */

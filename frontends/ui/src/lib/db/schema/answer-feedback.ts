@@ -21,9 +21,10 @@ import { projects } from './projects'
  * `organization_id` is denormalized for SQL-level tenancy scoping (ADR-0007).
  *
  * Whether the answer drew on a folder with restricted access is NOT a column
- * here: the server marks the message (`message_restricted_use`, migration 0122)
- * and every cross-tenant reader looks the vote's `message_id` up there. The
- * `conversation_id` is the client's and is never trusted for that question.
+ * here: the database marks the vote's `message_id` (`message_restricted_use`,
+ * migration 0122, a trigger on this table among others) and every cross-tenant
+ * reader asks `grid_feedback_restricted_use` of the vote. Both ids are the
+ * client's, so they can only add to that answer, never lift it.
  */
 
 export const ANSWER_FEEDBACK_VERDICTS = ['up', 'down'] as const

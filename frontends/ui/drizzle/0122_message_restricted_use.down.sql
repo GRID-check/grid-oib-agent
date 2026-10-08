@@ -2,11 +2,19 @@
 -- whose message was marked is marked `restricted_source`, so an older build,
 -- which matches by the vote's conversation and that column, still leaves it
 -- out. A message marked after its chat was deleted is still kept out that way.
--- The lesson text and the `previousContent` 0122 withdrew stay withdrawn: they
--- are not kept anywhere.
+-- The lesson text, the vectors and the `previousContent` 0122 withdrew stay
+-- withdrawn: they are not kept anywhere.
 DROP TRIGGER IF EXISTS "messages_mark_restricted_use" ON "messages";
 --> statement-breakpoint
 DROP FUNCTION IF EXISTS grid_mark_message_restricted_use();
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "conversation_restricted_folders_mark_messages" ON "conversation_restricted_folders";
+--> statement-breakpoint
+DROP FUNCTION IF EXISTS grid_mark_conversation_restricted_use();
+--> statement-breakpoint
+DROP TRIGGER IF EXISTS "answer_feedback_mark_restricted_use" ON "answer_feedback";
+--> statement-breakpoint
+DROP FUNCTION IF EXISTS grid_mark_feedback_restricted_use();
 --> statement-breakpoint
 ALTER TABLE "answer_feedback"
   ADD COLUMN IF NOT EXISTS "restricted_source" boolean DEFAULT false NOT NULL;
@@ -41,5 +49,11 @@ CREATE TRIGGER "conversation_restricted_folders_mark_feedback"
   FOR EACH ROW EXECUTE FUNCTION grid_feedback_keeps_restricted_source();
 --> statement-breakpoint
 DROP INDEX IF EXISTS "idx_task_runs_revision_conversation";
+--> statement-breakpoint
+DROP FUNCTION IF EXISTS grid_feedback_restricted_use(text, text, text);
+--> statement-breakpoint
+DROP FUNCTION IF EXISTS grid_conversation_restricted_use(text, text);
+--> statement-breakpoint
+DROP FUNCTION IF EXISTS grid_uuid_or_null(text);
 --> statement-breakpoint
 DROP TABLE IF EXISTS "message_restricted_use";

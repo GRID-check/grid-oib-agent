@@ -138,23 +138,27 @@ construction, and crossing back to raw is a privileged act.
 Before any of them, a down-vote on an answer that drew on a folder with
 restricted access is never read: its question and answer may quote a folder
 some of the tenant's own members may not read, and a lesson reaches every
-tenant. The server marks such an answer itself (`message_restricted_use`,
-migration 0122, ADR-0089): a trigger on `messages` marks every message written
-while its conversation holds a `conversation_restricted_folders` record, which
-the BFF writes when it admits restricted content into a turn. The sweep keys on
-the mark by the vote's `message_id`, never on the `conversation_id` the client
-sent, and reads the question through the voted message's own conversation. The
-mark has no foreign key, so it stays when the chat is deleted.
+tenant. The database decides, from one rule (`grid_feedback_restricted_use`,
+migration 0122, ADR-0089): the vote's message is marked in
+`message_restricted_use`, or the voted message's conversation, or the one the
+vote names, holds a `conversation_restricted_folders` record (written when the
+BFF admits restricted content into a turn) or is a revision thread whose
+document sits where not every member may read. Triggers mark every message of
+such a conversation from its first admission on, and the message id of every
+vote cast in one, whether or not that id names a persisted message. The vote's
+ids are the client's and can only add to the answer. The sweep reads the
+question through the voted message's own conversation. Marks have no foreign
+key, so they stay when the chat is deleted.
 
 What a sweep took before that rule was withdrawn twice: migration 0118 by
 conversation record, 0122 by mark. The report's `canonical_summary` is cleared,
 and a lesson created from it loses its text and is retired
 (`restricted_source`). A lesson the report was only linked to keeps its text,
-since none of it came from there. 0122 also removes `previousContent` from the
-events of every withdrawn lesson, which an owner's edit had kept. Votes whose
-chat and record were deleted before 0119, votes on answers never persisted and
-reports whose vote was retracted cannot be matched (the 0122 header lists
-them). The injection digest's cache key is `platformlessons:digest:v3`, so a
+since none of it came from there. 0122 also clears the vector embedded from
+every withdrawn lesson's old text and removes `previousContent`, which an
+owner's edit had kept, from its events. Votes whose chat and record were
+deleted before 0119, and reports whose vote was retracted, cannot be matched
+(the 0122 header lists them). The injection digest's cache key is `platformlessons:digest:v3`, so a
 digest cached before 0122 ran is not injected for the rest of its five minutes.
 
 Four defence layers, none trusted alone: deterministic scrub → instructed

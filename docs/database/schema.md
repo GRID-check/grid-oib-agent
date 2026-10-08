@@ -793,9 +793,10 @@ conversation and a narrowed one confines it to fewer people.
 | `folder_id` | `uuid` | NOT NULL, PK | No FK: a deleted folder's tombstone (0109) keeps answering, and an unknown id is treated as unreadable |
 | `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | |
 
-`deleteConversationInOrg` deletes the rows with the conversation. While a row
-exists, every message written into the conversation is marked in
-`message_restricted_use` (below), and the mark stays when the chat goes.
+`deleteConversationInOrg` deletes the rows with the conversation. The first row
+marks every message the conversation holds and every vote naming it, and while
+a row exists every message written into the conversation is marked too, in
+`message_restricted_use` (below); the marks stay when the chat goes.
 `listRecordedSourceFolders` also returns the current folder of each document a
 revision task written into the conversation revises (ADR-0089), so the thread is
 judged like a chat that drew on that folder; nothing of that is stored here.
@@ -1321,29 +1322,48 @@ declares it. `grid_tenant_isolation` is untouched.
 
 ## message_restricted_use (migration 0122)
 
-A message written while its conversation drew on a folder with restricted
-access (ADR-0089). Written by the DATABASE: the trigger
-`messages_mark_restricted_use` (`AFTER INSERT OR UPDATE OF content` on
-`messages`, `grid_mark_message_restricted_use`) inserts a row when the message's
-conversation has a `conversation_restricted_folders` row. The record is written
-when the BFF admits restricted content into a turn, before the answer is
-persisted, so the answer of that turn and every later message is marked; a run's
-report, written into its message after the run, is marked by the update.
+A message id whose conversation drew on a folder with restricted access
+(ADR-0089). Written by the DATABASE, from one rule,
+`grid_conversation_restricted_use(organization, conversation)`: the
+conversation has a `conversation_restricted_folders` row, or it is the thread
+of a revision task whose document sits in another project than the task, or in
+a folder of a project that has any custom-access or binned folder (a superset
+of `folder-access.ts`'s restricted folders, for views that hold no clearance).
+Three triggers:
+
+- `messages_mark_restricted_use` (`AFTER INSERT OR UPDATE OF content` on
+  `messages`): a message written while its conversation answers yes. The
+  record is written when the BFF admits restricted content into a turn, before
+  the answer is persisted; a run's report, written into its message after the
+  run, is marked by the update.
+- `conversation_restricted_folders_mark_messages` (`AFTER INSERT` on
+  `conversation_restricted_folders`): every message the conversation already
+  holds, and the `message_id` of every vote naming it.
+- `answer_feedback_mark_restricted_use` (`AFTER INSERT OR UPDATE` on
+  `answer_feedback`): the vote's `message_id`, when the voted message's
+  conversation or the one the vote names answers yes. A vote whose message id
+  names no row is marked this way.
+
+`grid_feedback_restricted_use(organization, message_id, conversation_id)` asks
+the same of a vote at read time: marked, or either conversation answers yes.
+`grid_uuid_or_null(text)` casts a text id for an index lookup.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `organization_id` | `text` | NOT NULL, PK | RLS: `organization_id = grid_current_org()` |
 | `message_id` | `text` | NOT NULL, PK | `messages.id` as text, the form `answer_feedback.message_id` holds it in. No FK: the mark outlives the chat |
-| `conversation_id` | `text` | NOT NULL | Index `message_restricted_use_conversation_idx` (`organization_id`, `conversation_id`), for the profiler |
+| `conversation_id` | `text` | NOT NULL | The conversation that answered yes, as a note; no rule asks it. Index `message_restricted_use_conversation_idx` (`organization_id`, `conversation_id`) |
 | `marked_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 The runtime role `grid_app_rw` may insert and select, and may neither update nor
 delete: no tenant-path bug can lift a mark. Every cross-tenant reader of answer
-feedback keys on it by the vote's `message_id` (`OUTSIDE_RESTRICTED_USE`), and
-the staff profiler withholds the title of a conversation with a mark or a
-record. 0122 backfilled every message of a conversation with a record and the
-message of every vote 0119 had marked, dropped 0119's column and trigger, and
-withdrew the reports and lessons derived from marked messages (below). Proven in
+feedback asks `grid_feedback_restricted_use` of the vote
+(`OUTSIDE_RESTRICTED_USE`), and the staff profiler withholds the title of a
+conversation the rule answers yes for. 0122 backfilled every message of such a
+conversation, the message id of every vote the rule answers yes for and of
+every vote 0119 had marked, dropped 0119's column and trigger, and withdrew the
+reports and lessons derived from marked messages, with the vectors of the
+withdrawn lessons (below). Proven in
 `lib/feedback/restricted-feedback.integration.spec.ts`; the backfill, the
 withdrawal and the down in `scripts/rls-test-db.sh`.
 
@@ -1376,12 +1396,14 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   than counted as treated),
   `created_at`/`updated_at`.
 - Whether the answer drew on a folder with restricted access is not a column:
-  every cross-tenant reader (`OUTSIDE_RESTRICTED_USE`) looks the vote's
-  `message_id` up in `message_restricted_use`. The `conversation_id` is the
-  client's and is never used for that question, nor to find the question, the
-  title or the topics a staff view shows: those are read through the voted
-  message's own conversation. Migration 0119's `restricted_source` column and
-  its trigger were folded into marks and dropped by 0122.
+  every cross-tenant reader (`OUTSIDE_RESTRICTED_USE`) asks
+  `grid_feedback_restricted_use` of the vote, and the trigger
+  `answer_feedback_mark_restricted_use` marks the vote's `message_id` in
+  `message_restricted_use` when the answer is yes. The `message_id` and
+  `conversation_id` are the client's: they can only add to that answer, and
+  the question, the title and the topics a staff view shows are read through
+  the voted message's own conversation. Migration 0119's `restricted_source`
+  column and its trigger were folded into marks and dropped by 0122.
 - Voting model (the simplest honest one): **re-vote = upsert** on the unique
   `(user_id, message_id)` index (`answer_feedback_user_message_uidx`);
   **toggle-off = delete** — no "retracted" tombstone state.
@@ -1705,8 +1727,9 @@ reaches every tenant) and the anonymization boundary.
   (`retired_reason = 'restricted_source'`, one `retired` event). Its down
   migration cannot bring the text back. Migration 0122 does the same for every
   report whose vote's message is marked (`message_restricted_use`), whatever
-  conversation the vote named, and removes `previousContent` from the events of
-  every withdrawn lesson, 0118's included (`previousContentWithdrawn: true`).
+  conversation the vote named, clears `embedding`, `embedding_model` and
+  `embedded_at` of every withdrawn lesson, 0118's included, and removes
+  `previousContent` from their events (`previousContentWithdrawn: true`).
 - `platform_lesson_events`: append-only trail of every transition, whether the
   actor was the pipeline (`system:distiller`) or a platform owner. 0070 adds
   the action `flagged_ineffective`: the sweep's per-lesson effectiveness

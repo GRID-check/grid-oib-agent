@@ -65,10 +65,11 @@ export interface UnprocessedDownvote {
  * never persisted is still a report — reason and comment alone can carry the
  * signal.
  *
- * A vote on an answer the server marked as drawing on a restricted folder is
- * never a report (`OUTSIDE_RESTRICTED_USE`, keyed by the vote's message id): a
- * lesson is injected into every organization's turns, so its source text must
- * be one every reader may see. The question is read from the voted message's
+ * A vote on an answer whose conversation drew on a restricted folder is never
+ * a report (`OUTSIDE_RESTRICTED_USE`: the database's one rule, by the vote's
+ * message, the voted message's conversation and the conversation the vote
+ * names): a lesson is injected into every organization's turns, so its source
+ * text must be one every reader may see. The question is read from the voted message's
  * own conversation, never from the `conversation_id` the client sent.
  */
 export async function listUnprocessedDownvotes(limit: number): Promise<UnprocessedDownvote[]> {

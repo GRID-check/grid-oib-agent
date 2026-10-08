@@ -165,11 +165,11 @@ describe('listFeedbackTurns', () => {
    * digest's model) is outside that folder's audience. The SQL is checked
    * against Postgres in `restricted-feedback.integration.spec.ts`.
    */
-  it('leaves out votes on an answer the server marked, by the vote\'s message id', async () => {
+  it('leaves out votes the database\'s one rule answers yes for, asked of the whole vote', async () => {
     const execute = capture()
     await listFeedbackTurns({})
     expect(sqlText(execute.mock.calls[0][0])).toMatch(
-      /not exists \(\s*select 1 from message_restricted_use mr\s+where mr\.organization_id = f\.organization_id\s+and mr\.message_id = f\.message_id/
+      /not grid_feedback_restricted_use\(f\.organization_id, f\.message_id, f\.conversation_id\)/
     )
   })
 

@@ -48,23 +48,17 @@ const CONVERSATION_LIST_CAP = 200
 const SPAN_ORGANIZATION = sql`coalesce(${conversations.organizationId}, ${agentProfilerSpans.organizationId})`
 
 /**
- * The span's conversation drew on a folder with restricted access: it holds a
- * restricted-use record, or the server marked one of its messages (ADR-0089,
- * migration 0122). Its title is a person's words about that conversation, often
- * the first question, and the profiler is a cross-organization staff view
- * outside the folder's audience: the title is withheld from the list and from
- * the search, which would otherwise confirm a word of it. The id stays, the
- * operator's handle on the timeline.
+ * The span's conversation drew on a folder with restricted access, as the
+ * database's one rule answers it (`grid_conversation_restricted_use`,
+ * migration 0122, ADR-0089): a restricted-use record, or a revision task
+ * whose document now sits where not every member may read. Its
+ * title is a person's words about that conversation, often the first question,
+ * and the profiler is a cross-organization staff view outside the folder's
+ * audience: the title is withheld from the list and from the search, which
+ * would otherwise confirm a word of it. The id stays, the operator's handle on
+ * the timeline.
  */
-const RESTRICTED_USE = sql`(exists (
-    select 1 from conversation_restricted_folders crf
-    where crf.organization_id = ${SPAN_ORGANIZATION}
-      and crf.conversation_id = ${agentProfilerSpans.conversationId}
-  ) or exists (
-    select 1 from message_restricted_use mr
-    where mr.organization_id = ${SPAN_ORGANIZATION}
-      and mr.conversation_id = ${agentProfilerSpans.conversationId}
-  ))`
+const RESTRICTED_USE = sql`grid_conversation_restricted_use(${SPAN_ORGANIZATION}, ${agentProfilerSpans.conversationId})`
 
 /**
  * Cross-org conversation directory, most recently active first — the same

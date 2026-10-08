@@ -1,20 +1,23 @@
 import { index, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
 
 /**
- * `message_restricted_use` — a message written while its conversation drew on
- * a folder with restricted access (ADR-0089, migration 0122).
+ * `message_restricted_use` — a message id whose conversation drew on a folder
+ * with restricted access (ADR-0089, migration 0122).
  *
- * Written by the DATABASE, never by a client: a trigger on `messages` marks a
- * row when it is inserted, or its `content` rewritten, while the conversation
- * holds a `conversation_restricted_folders` record. The record is written when
- * the BFF admits restricted content into a turn, before the answer is
- * persisted, so the answer of that turn and every later message is marked.
+ * Written by the DATABASE, never by a client, from one rule
+ * (`grid_conversation_restricted_use`): a trigger on `messages` marks a row
+ * inserted, or its `content` rewritten, while the conversation answers yes; a
+ * trigger on `conversation_restricted_folders` marks, at the first admission,
+ * every message the conversation already holds and the message id of every
+ * vote naming it; a trigger on `answer_feedback` marks a vote's message id
+ * when the voted message's conversation, or the one the vote names, answers
+ * yes. A vote's ids are the client's and can only add a mark.
  *
  * Keyed by (organization, message id), because a vote names its answer by
- * message id and its conversation id is whatever the client sent. No foreign
- * key: deleting the chat deletes its messages and its record, and the mark
- * stays so the votes on it stay out of every cross-tenant reader
- * (`OUTSIDE_RESTRICTED_USE`). The runtime role may not update or delete one.
+ * message id. No foreign key: deleting the chat deletes its messages and its
+ * record, and the mark stays so the votes on it stay out of every cross-tenant
+ * reader (`OUTSIDE_RESTRICTED_USE`). The runtime role may not update or delete
+ * one.
  */
 export const messageRestrictedUse = pgTable(
   'message_restricted_use',

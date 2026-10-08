@@ -14,10 +14,15 @@
  * proves, for a task opened while its document sat in an open folder and the
  * document since moved into a folder only some roles read:
  *   - the task list leaves it out for a member who may not read that folder,
- *     and opening it answers 404, while a cleared member sees and opens it;
+ *     opening it answers 404, and the inbox redacts the rows naming its run,
+ *     while a cleared member sees and opens it;
  *   - its thread reads as a conversation that drew on that folder, so the
  *     shared-chat lock closes it for the same member;
- *   - moving the document back opens both again: nothing was stored.
+ *   - moving the document back opens both again: nothing was stored;
+ *   - the staff views ask the database's rule (`grid_conversation_restricted_use`):
+ *     a vote in the thread is shown, and the profiler names the thread, while
+ *     the document sits at the project's root, and both are withheld once it
+ *     sits in a folder of a project with an access list of its own.
  */
 
 import { sql } from 'drizzle-orm'
@@ -89,16 +94,43 @@ describe.skipIf(!url)('revision tasks judged by their document’s current folde
   const inOrg = <T>(fn: () => PromiseLike<T>) => withTenant({ organizationId: ORG, userId: CLEARED }, fn)
   const first = <T>(rows: Iterable<T>): T => Array.from(rows)[0]
 
-  const moveDocumentTo = (folderId: string) =>
+  const moveDocumentTo = (folderId: string | null) =>
     inOrg(() => db.execute(sql`update documents set folder_id = ${folderId}::uuid where id = ${documentId}::uuid`))
+
+  /** What platform staff read of this organization: the drill-in, the lessons input, the profiler row of the thread. */
+  async function staffSees() {
+    const { listFeedbackTurns } = await import('@/lib/feedback/repository')
+    const { listUnprocessedDownvotes } = await import('@/lib/platform-lessons/repository')
+    const { listProfiledConversations } = await import('@/lib/profiler/repository')
+    const turns = await withPlatformAccess('test: feedback drill-in', () =>
+      listFeedbackTurns({ organizationId: ORG, verdict: 'down' })
+    )
+    const reports = (await withPlatformAccess('test: lessons sweep input', () => listUnprocessedDownvotes(500))).filter(
+      (report) => report.organizationId === ORG
+    )
+    const profiled = (await listProfiledConversations(THREAD)).rows.find((row) => row.conversationId === THREAD)
+    return {
+      answers: turns.map((turn) => turn.answer),
+      titles: turns.map((turn) => turn.conversationTitle),
+      reports: reports.map((report) => report.answer),
+      profiled: profiled ? { title: profiled.title, titleWithheld: profiled.titleWithheld } : null,
+    }
+  }
 
   async function seen(userId: string) {
     const { listTasks } = await import('./service')
     const { getRunView } = await import('@/lib/runs/service')
     const { lockedConversationIds } = await import('@/lib/conversations/restricted-use')
+    const { unreadableRunIds } = await import('./subject-access')
     const session = sessionOf(userId)
     return inOrg(async () => ({
       listed: (await listTasks(session, projectId)).map((run) => run.id).sort(),
+      inboxWithheld: [
+        ...(await unreadableRunIds(session, [
+          { projectId, runId: revisionRun },
+          { projectId, runId: plainRun },
+        ])),
+      ],
       opened: await getRunView(session, projectId, revisionRun).then(
         () => 'opened',
         (error: unknown) => (error instanceof NotFoundError ? 'not found' : String(error))
@@ -198,6 +230,8 @@ describe.skipIf(!url)('revision tasks judged by their document’s current folde
   afterAll(async () => {
     if (!db) return
     await withPlatformAccess('test teardown', async () => {
+      await db.execute(sql`delete from answer_feedback where organization_id = ${ORG}`)
+      await db.execute(sql`delete from agent_profiler_spans where organization_id = ${ORG}`)
       await db.execute(sql`delete from task_runs where organization_id = ${ORG}`)
       await db.execute(sql`delete from conversations where organization_id = ${ORG}`)
       await db.execute(sql`delete from documents where organization_id = ${ORG}`)
@@ -210,18 +244,74 @@ describe.skipIf(!url)('revision tasks judged by their document’s current folde
 
   it('shows a task to everyone while its document sits in an open folder', async () => {
     const both = [plainRun, revisionRun].sort()
-    expect(await seen(UNCLEARED)).toEqual({ listed: both, opened: 'opened', threadLocked: false })
-    expect(await seen(CLEARED)).toEqual({ listed: both, opened: 'opened', threadLocked: false })
+    expect(await seen(UNCLEARED)).toEqual({ listed: both, inboxWithheld: [], opened: 'opened', threadLocked: false })
+    expect(await seen(CLEARED)).toEqual({ listed: both, inboxWithheld: [], opened: 'opened', threadLocked: false })
   })
 
   it('withholds it, and closes its thread, once the document moves into a folder the reader may not read', async () => {
     await moveDocumentTo(restrictedFolder)
-    expect(await seen(UNCLEARED)).toEqual({ listed: [plainRun], opened: 'not found', threadLocked: true })
-    expect(await seen(CLEARED)).toEqual({ listed: [plainRun, revisionRun].sort(), opened: 'opened', threadLocked: false })
+    expect(await seen(UNCLEARED)).toEqual({
+      listed: [plainRun],
+      inboxWithheld: [revisionRun],
+      opened: 'not found',
+      threadLocked: true,
+    })
+    expect(await seen(CLEARED)).toEqual({
+      listed: [plainRun, revisionRun].sort(),
+      inboxWithheld: [],
+      opened: 'opened',
+      threadLocked: false,
+    })
   })
 
   it('shows it again when the document moves back: nothing was stored', async () => {
     await moveDocumentTo(openFolder)
-    expect(await seen(UNCLEARED)).toEqual({ listed: [plainRun, revisionRun].sort(), opened: 'opened', threadLocked: false })
+    expect(await seen(UNCLEARED)).toEqual({
+      listed: [plainRun, revisionRun].sort(),
+      inboxWithheld: [],
+      opened: 'opened',
+      threadLocked: false,
+    })
+  })
+
+  /**
+   * Staff read across organizations and hold no clearance to ask, so the
+   * database answers with a superset of the folder rule. Nothing is marked
+   * while the document sits at the project's root; moving it is enough.
+   */
+  it('keeps the thread out of the staff views once its document sits in a folder of a project with an access list', async () => {
+    await moveDocumentTo(null)
+    const draft = `Überarbeiteter Entwurf: Zimmerer 48.000 EUR ${STAMP}`
+    await inOrg(async () => {
+      await db.execute(sql`
+        insert into messages (conversation_id, organization_id, role, content, created_at)
+        values (${THREAD}, ${ORG}, 'user', 'Bitte das Honorar prüfen', now() - interval '2 minutes')`)
+      const answer = first(
+        await db.execute<{ id: string }>(sql`
+          insert into messages (conversation_id, organization_id, role, content, created_at)
+          values (${THREAD}, ${ORG}, 'assistant', ${draft}, now() - interval '1 minute') returning id`)
+      )
+      await db.execute(sql`
+        insert into answer_feedback (organization_id, conversation_id, message_id, user_id, verdict, reason, comment)
+        values (${ORG}, ${THREAD}, ${String(answer.id)}, ${CLEARED}, 'down', 'inaccurate', 'Honorar Zimmerer falsch')`)
+      await db.execute(sql`
+        insert into agent_profiler_spans (organization_id, conversation_id, turn_id, span_id, kind, name, started_at, ended_at, duration_ms)
+        values (${ORG}, ${THREAD}, ${`turn_${THREAD}`}, ${`span_${THREAD}`}, 'turn', 'turn', now(), now(), 10)`)
+    })
+
+    expect(await staffSees()).toEqual({
+      answers: [draft],
+      titles: ['Aufgabe: Überarbeitung'],
+      reports: [draft],
+      profiled: { title: 'Aufgabe: Überarbeitung', titleWithheld: false },
+    })
+
+    await moveDocumentTo(restrictedFolder)
+    expect(await staffSees()).toEqual({
+      answers: [],
+      titles: [],
+      reports: [],
+      profiled: { title: null, titleWithheld: true },
+    })
   })
 })

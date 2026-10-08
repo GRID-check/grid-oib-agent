@@ -305,6 +305,22 @@ export async function findSubjectDocumentPlaces(
   return new Map(rows.map((row) => [String(row.id), { projectId: row.projectId ?? null, folderId: row.folderId ?? null }]))
 }
 
+/**
+ * The runs among these ids, in this organization: what the inbox reads to judge
+ * a run's row by its subject (`subject-access.ts`). Ids that are not uuids are
+ * left out rather than cast: they come from an inbox payload.
+ */
+export async function listRunsByIds(organizationId: string, runIds: readonly string[]): Promise<TaskRun[]> {
+  const uuids = [...new Set(runIds)].filter((id) => UUID_PATTERN.test(id)).slice(0, SUBJECT_LOOKUP_LIMIT)
+  if (uuids.length === 0) return []
+  const db = getDb()
+  return db
+    .select()
+    .from(taskRuns)
+    .where(and(eq(taskRuns.organizationId, organizationId), inArray(taskRuns.id, uuids)))
+    .limit(SUBJECT_LOOKUP_LIMIT)
+}
+
 export async function insertRun(values: NewTaskRun): Promise<TaskRun> {
   const db = getDb()
   const [row] = await db.insert(taskRuns).values(values).returning()

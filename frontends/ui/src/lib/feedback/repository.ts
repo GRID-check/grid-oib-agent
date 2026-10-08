@@ -30,27 +30,28 @@ import { isConversationTagKey, type ConversationTagKey } from '@/lib/conversatio
 import { executeRows } from '@/lib/db/execute-rows'
 
 /**
- * Leaves out a vote on an answer that drew on a folder with restricted access:
- * one whose message the server marked (`message_restricted_use`, migration
- * 0122, ADR-0089). Its question, answer, comment and expected answer may quote
- * that folder, and every reader of these rows is outside the folder's
- * audience: the platform staff's drill-in and CSV export, the digest's model,
- * the eval-case converter fed by the export, and the lessons distiller that
- * injects into every organization's turns (`platform-lessons/repository.ts`).
+ * Leaves out a vote on an answer whose conversation drew on a folder with
+ * restricted access (`grid_feedback_restricted_use`, migration 0122,
+ * ADR-0089). Its question, answer, comment and expected answer may quote that
+ * folder, and every reader of these rows is outside the folder's audience: the
+ * platform staff's drill-in and CSV export, the digest's model, the eval-case
+ * converter fed by the export, and the lessons distiller that injects into
+ * every organization's turns (`platform-lessons/repository.ts`).
  *
- * Keyed by the vote's `message_id`, the vote's identity, and never by its
- * `conversation_id`, which is whatever the client sent. The mark is written by
- * a trigger on `messages` when the answer is persisted while its conversation
- * holds a restricted-use record, and it has no foreign key, so it stays when
- * the chat is deleted. Any record counts, including one for a folder since
- * opened: these readers are cross-tenant, and the safe direction is to show
- * less. Expects the feedback row aliased `f`.
+ * The database answers, from one rule: the vote's message id is marked
+ * (`message_restricted_use`), or the conversation the voted message is in, or
+ * the one the vote names, drew on such a folder now. Marks are written by
+ * triggers when a message is written into such a conversation, when a
+ * conversation is first admitted restricted content (every message it holds
+ * and every vote naming it), and when a vote is cast on either; they have no
+ * foreign key, so they stay when the chat is deleted. The vote's ids are the
+ * client's and only ever add to the answer: a vote whose message id names no
+ * row, cast in a restricted chat, is marked by the chat it names. Any record
+ * counts, including one for a folder since opened: these readers are
+ * cross-tenant, and the safe direction is to show less. Expects the feedback
+ * row aliased `f`.
  */
-export const OUTSIDE_RESTRICTED_USE = sql`not exists (
-  select 1 from message_restricted_use mr
-  where mr.organization_id = f.organization_id
-    and mr.message_id = f.message_id
-)`
+export const OUTSIDE_RESTRICTED_USE = sql`not grid_feedback_restricted_use(f.organization_id, f.message_id, f.conversation_id)`
 
 /** Hard cap for the per-conversation hydration list. */
 export const CONVERSATION_FEEDBACK_LIST_LIMIT = 200
@@ -523,12 +524,14 @@ export async function getFeedbackHealth(
  * through the digest — both of which sit behind `requirePlatformPermission`.
  *
  * The one content-bearing read here, so it is the one that leaves out votes on
- * an answer the server marked as drawing on a restricted folder
+ * an answer whose conversation drew on a restricted folder
  * (`OUTSIDE_RESTRICTED_USE`). The aggregates above still count them: a count
  * quotes nothing. The answer, its question, the conversation's title and its
  * topics are read through the voted MESSAGE's own conversation, in the vote's
  * organization, never through the `conversation_id` the client sent: a vote
- * naming another chat would otherwise show that chat's title and question.
+ * naming another chat would otherwise show that chat's title and question. A
+ * vote in a conversation the rule answers yes for is not returned at all, so
+ * no row carries the title the staff profiler withholds.
  */
 export async function listFeedbackTurns(
   filters: FeedbackHealthFilters = {},

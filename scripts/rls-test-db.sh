@@ -817,15 +817,19 @@ echo "==> 0120 quarantine exit, 0121 screened hash and their down migrations ver
 # seeded with a recorded conversation whose answer was voted on with ANOTHER
 # conversation's id, a lesson created from that vote with an owner's edit
 # keeping the old text in `previousContent`, the same kind of edit on the
-# lesson 0118 withdrew, and an open conversation with its own lesson and edit.
-# The backfill marks every message of the recorded conversation and the
-# messages 0119 had marked by vote; the lesson from the marked answer is
-# retired with its text replaced and one event; every withdrawn lesson's
-# events lose `previousContent`, the open one keeps it. The trigger marks a
-# message written into the recorded conversation and not one written into the
-# open one, and the mark outlives the conversation. The runtime role may not
-# delete or change a mark. The down brings 0119's column back from the marks;
-# 0122 re-applies, twice, without a second event.
+# lesson 0118 withdrew, and an open conversation with its own lesson and edit,
+# a vote naming the recorded conversation whose message id names no row, and
+# vectors on every lesson. The backfill marks every message of the recorded
+# conversation, the fabricated id, and the messages 0119 had marked by vote;
+# the lesson from the marked answer is retired with its text replaced and one
+# event; every withdrawn lesson loses its vector and its events lose
+# `previousContent`, the open one keeps both. The trigger marks a message
+# written into the recorded conversation and not one written into the open
+# one, and the mark outlives the conversation. A first admission marks the
+# messages its conversation already holds and the votes naming it; a vote
+# naming a recorded conversation marks its id. The runtime role may not delete
+# or change a mark. The down brings 0119's column back from the marks and
+# drops the rule's functions; 0122 re-applies, twice, without a second event.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0122 message mark, its withdrawal and its down migration on grid_lessons"
 apply_in grid_lessons 0120_document_quarantine_exit.sql
@@ -842,10 +846,13 @@ INSERT INTO messages (id, conversation_id, organization_id, role, content) VALUE
   ('c3c3c3c3-0000-4000-8000-000000000122', 's_0122_open', 'org_0107', 'assistant', 'Die Brüstung ist 1,00 m hoch.');
 INSERT INTO answer_feedback (id, organization_id, conversation_id, message_id, user_id, verdict, reason, comment) VALUES
   ('f6f6f6f6-0000-4000-8000-000000000122', 'org_0107', 's_0122_open', 'c2c2c2c2-0000-4000-8000-000000000122', 'user_1', 'down', 'inaccurate', 'Zimmerer falsch'),
-  ('f7f7f7f7-0000-4000-8000-000000000122', 'org_0107', 's_0122_open', 'c3c3c3c3-0000-4000-8000-000000000122', 'user_1', 'down', 'inaccurate', 'Brüstung falsch');
-INSERT INTO platform_lessons (id, content, category, status, activated_at, activated_by) VALUES
-  ('44444444-0000-4000-8000-000000000122', 'Honorare nur mit Angebotsdatum nennen 0122', 'inaccurate', 'active', now(), 'system:distiller'),
-  ('55555555-0000-4000-8000-000000000122', 'Brüstungshöhen mit Quelle nennen 0122', 'inaccurate', 'active', now(), 'system:distiller');
+  ('f7f7f7f7-0000-4000-8000-000000000122', 'org_0107', 's_0122_open', 'c3c3c3c3-0000-4000-8000-000000000122', 'user_1', 'down', 'inaccurate', 'Brüstung falsch'),
+  ('f8f8f8f8-0000-4000-8000-000000000122', 'org_0107', 's_0122_restricted', 'd8d8d8d8-0000-4000-8000-000000000122', 'user_1', 'down', 'inaccurate', 'Erwartet Spengler 31.000 EUR');
+INSERT INTO platform_lessons (id, content, category, status, activated_at, activated_by, embedding, embedding_model, embedded_at) VALUES
+  ('44444444-0000-4000-8000-000000000122', 'Honorare nur mit Angebotsdatum nennen 0122', 'inaccurate', 'active', now(), 'system:distiller', '{0.1,0.2}', 'model_0122', now()),
+  ('55555555-0000-4000-8000-000000000122', 'Brüstungshöhen mit Quelle nennen 0122', 'inaccurate', 'active', now(), 'system:distiller', '{0.3,0.4}', 'model_0122', now());
+UPDATE platform_lessons SET embedding = '{0.5,0.6}', embedding_model = 'model_0122', embedded_at = now()
+WHERE id = '11111111-0000-4000-8000-000000000118';
 INSERT INTO platform_lesson_reports (feedback_id, lesson_id, outcome, org_hash, canonical_summary) VALUES
   ('f6f6f6f6-0000-4000-8000-000000000122', '44444444-0000-4000-8000-000000000122', 'created', 'hash_0122', 'Zimmerer-Honorar falsch genannt'),
   ('f7f7f7f7-0000-4000-8000-000000000122', '55555555-0000-4000-8000-000000000122', 'created', 'hash_0122', 'Brüstungshöhe falsch genannt');
@@ -855,7 +862,8 @@ INSERT INTO platform_lesson_events (lesson_id, action, actor, detail) VALUES
   ('55555555-0000-4000-8000-000000000122', 'edited', 'user_owner', '{"previousContent": "Brüstung 1,00 m"}');
 SQL
 apply_in grid_lessons 0122_message_restricted_use.sql
-check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE conversation_id LIKE 's_0122_%'" "c1c1c1c1-0000-4000-8000-000000000122,c2c2c2c2-0000-4000-8000-000000000122" "the backfill marks every message of a recorded conversation, and none of an open one"
+check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE conversation_id LIKE 's_0122_%'" "c1c1c1c1-0000-4000-8000-000000000122,c2c2c2c2-0000-4000-8000-000000000122,d8d8d8d8-0000-4000-8000-000000000122" "the backfill marks every message of a recorded conversation and the id of a vote naming it, and none of an open one"
+check_in grid_lessons "SELECT string_agg(id::text || '=' || (embedding IS NULL)::text || '/' || coalesce(embedding_model, '-') || '/' || (embedded_at IS NULL)::text, ',' ORDER BY id) FROM platform_lessons WHERE id IN ('11111111-0000-4000-8000-000000000118', '44444444-0000-4000-8000-000000000122', '55555555-0000-4000-8000-000000000122')" "11111111-0000-4000-8000-000000000118=true/-/true,44444444-0000-4000-8000-000000000122=true/-/true,55555555-0000-4000-8000-000000000122=false/model_0122/false" "every withdrawn lesson, 0118's included, loses the vector of its old text; the open one keeps it"
 check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE message_id LIKE 'm_01%'" "m_0118_1,m_0118_2,m_0118_3,m_0118_5" "every vote 0119 marked marks its message"
 check_in grid_lessons "SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name = 'answer_feedback' AND column_name = 'restricted_source') + (SELECT count(*) FROM pg_trigger WHERE tgname = 'conversation_restricted_folders_mark_feedback') + (SELECT count(*) FROM pg_proc WHERE proname = 'grid_feedback_keeps_restricted_source')" "0" "0119's column, trigger and function are folded into marks and gone"
 check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || retired_by || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '44444444-0000-4000-8000-000000000122'" "retired,restricted_source,system:migration-0122,true" "a lesson created from a vote on a marked answer is retired, its text replaced, whatever conversation the vote named"
@@ -869,16 +877,35 @@ INSERT INTO messages (id, conversation_id, organization_id, role, content) VALUE
   ('c5c5c5c5-0000-4000-8000-000000000122', 's_0122_open', 'org_0107', 'assistant', 'Die Treppe hat 18 Stufen.');
 DELETE FROM conversations WHERE id = 's_0122_restricted';
 SQL
-check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE conversation_id LIKE 's_0122_%'" "c1c1c1c1-0000-4000-8000-000000000122,c2c2c2c2-0000-4000-8000-000000000122,c4c4c4c4-0000-4000-8000-000000000122" "the trigger marks a message written into a recorded conversation only, and the marks outlive it"
+check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE conversation_id LIKE 's_0122_%'" "c1c1c1c1-0000-4000-8000-000000000122,c2c2c2c2-0000-4000-8000-000000000122,c4c4c4c4-0000-4000-8000-000000000122,d8d8d8d8-0000-4000-8000-000000000122" "the trigger marks a message written into a recorded conversation only, and the marks outlive it"
+sql_in grid_lessons <<'SQL'
+INSERT INTO conversations (id, organization_id, created_by) VALUES ('s_0122_late', 'org_0107', 'user_1');
+INSERT INTO messages (id, conversation_id, organization_id, role, content) VALUES
+  ('e1e1e1e1-0000-4000-8000-000000000122', 's_0122_late', 'org_0107', 'assistant', 'Die Fluchtweglänge beträgt 40 m.');
+INSERT INTO answer_feedback (id, organization_id, conversation_id, message_id, user_id, verdict) VALUES
+  ('fafafafa-0000-4000-8000-000000000122', 'org_0107', 's_0122_late', 'e2e2e2e2-0000-4000-8000-000000000122', 'user_1', 'down');
+SQL
+check_in grid_lessons "SELECT count(*) FROM message_restricted_use WHERE conversation_id = 's_0122_late'" "0" "nothing in a conversation before its first admission is marked"
+sql_in grid_lessons <<'SQL'
+INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id) VALUES
+  ('org_0107', 's_0122_late', 'a1a1a1a1-a1a1-4000-8000-000000000107');
+INSERT INTO answer_feedback (id, organization_id, conversation_id, message_id, user_id, verdict, comment) VALUES
+  ('fbfbfbfb-0000-4000-8000-000000000122', 'org_0107', 's_0122_open', 'e1e1e1e1-0000-4000-8000-000000000122', 'user_2', 'down', 'Falsch, laut Angebot 48.000 EUR'),
+  ('fcfcfcfc-0000-4000-8000-000000000122', 'org_0107', 's_0122_late', 'e3e3e3e3-0000-4000-8000-000000000122', 'user_1', 'down', 'Erwartet Spengler 31.000 EUR');
+SQL
+check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE conversation_id = 's_0122_late'" "e1e1e1e1-0000-4000-8000-000000000122,e2e2e2e2-0000-4000-8000-000000000122,e3e3e3e3-0000-4000-8000-000000000122" "a first admission marks the messages and the votes already there, and a vote naming the conversation, or on its message, marks its id"
+check_in grid_lessons "SELECT count(*) FROM message_restricted_use WHERE conversation_id = 's_0122_open'" "0" "a vote naming an open conversation on a recorded one's message does not make the open one read as restricted"
 check_in grid_lessons "SELECT has_table_privilege('grid_app_rw', 'message_restricted_use', 'INSERT')::text || ',' || has_table_privilege('grid_app_rw', 'message_restricted_use', 'UPDATE')::text || ',' || has_table_privilege('grid_app_rw', 'message_restricted_use', 'DELETE')::text" "true,false,false" "the runtime role may add a mark and may neither change nor delete one"
 apply_in grid_lessons 0122_message_restricted_use.down.sql
 check_in grid_lessons "SELECT to_regclass('public.message_restricted_use') IS NULL" "t" "down dropped the marks"
 check_in grid_lessons "SELECT string_agg(message_id || ':' || restricted_source::text, ',' ORDER BY message_id) FROM answer_feedback WHERE id IN ('f6f6f6f6-0000-4000-8000-000000000122', 'f7f7f7f7-0000-4000-8000-000000000122')" "c2c2c2c2-0000-4000-8000-000000000122:true,c3c3c3c3-0000-4000-8000-000000000122:false" "down brings 0119's column back from the marks"
 check_in grid_lessons "SELECT count(*) FROM pg_trigger WHERE tgname = 'conversation_restricted_folders_mark_feedback'" "1" "down restores 0119's trigger"
+check_in grid_lessons "SELECT (SELECT count(*) FROM pg_proc WHERE proname IN ('grid_uuid_or_null', 'grid_conversation_restricted_use', 'grid_feedback_restricted_use', 'grid_mark_conversation_restricted_use', 'grid_mark_feedback_restricted_use')) + (SELECT count(*) FROM pg_trigger WHERE tgname IN ('conversation_restricted_folders_mark_messages', 'answer_feedback_mark_restricted_use'))" "0" "down drops the rule's functions and triggers"
 apply_in grid_lessons 0122_message_restricted_use.sql
 apply_in grid_lessons 0122_message_restricted_use.sql
 check_in grid_lessons "SELECT count(*) FROM platform_lesson_events WHERE actor = 'system:migration-0122'" "1" "0122 re-applies, twice, without a second event"
 check_in grid_lessons "SELECT count(*) FROM message_restricted_use WHERE message_id IN ('c2c2c2c2-0000-4000-8000-000000000122', 'm_0118_1')" "2" "the re-applied backfill marks again from the restored column"
+check_in grid_lessons "SELECT (SELECT count(*) FROM message_restricted_use WHERE message_id = 'c3c3c3c3-0000-4000-8000-000000000122')::text || ',' || (SELECT status FROM platform_lessons WHERE id = '55555555-0000-4000-8000-000000000122')" "0,active" "a mark's conversation is never asked: the restored column names the open chat a vote claimed, and the open chat's answer and lesson stay as they were"
 
 echo "==> 0122 message mark, withdrawal and down migration verified"
 
