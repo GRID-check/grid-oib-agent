@@ -14,9 +14,9 @@
  *   3. the object key's owner prefix (`uploadStorageKey`),
  *   4. the audit action and what it records (`uploadAuditEvent`).
  *
- * Two gates run on both shelves: the organization's name screening (ADR-0085)
+ * Two gates run on both shelves: the organization's name screening (ADR-0086)
  * and the upload batch the browser opened. One runs on the project shelf only:
- * the folder's access per role (`projectFolderGate`, ADR-0087), which also picks
+ * the folder's access per role (`projectFolderGate`, ADR-0088), which also picks
  * the collection a restricted folder's documents live in. The Archiv has no
  * per-role folder access; `requireShelfWrite` is its whole gate.
  *
@@ -159,7 +159,7 @@ interface PlaceUploadInput {
   uploadBatchId: string | null
   /** Whether the session may write into a folder of this shelf (a superseded document's). */
   mayWriteFolder: (folderId: string | null) => boolean
-  /** The screening matches the uploader released (ADR-0085), audited once stored. */
+  /** The screening matches the uploader released (ADR-0086), audited once stored. */
   screeningOverridden: Awaited<ReturnType<typeof assertUploadNameAllowed>>['overridden']
 }
 
@@ -178,7 +178,7 @@ function placeUpload(session: AuthorizedSession, input: PlaceUploadInput): Promi
   return retryRacedUpload(async (): Promise<Placed> => {
     const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
     // A re-upload is a new version of the document it supersedes, and files it
-    // where this upload goes: a write on the folder it is in now, too (ADR-0087).
+    // where this upload goes: a write on the folder it is in now, too (ADR-0088).
     if (superseded && !input.mayWriteFolder(superseded.folderId ?? null)) throw folderReadOnlyError()
     const documentId = superseded?.id ?? crypto.randomUUID()
     /*
@@ -402,9 +402,9 @@ interface FolderGate {
 }
 
 /**
- * The project shelf's folder gate (ADR-0087). A folder the uploader may not
+ * The project shelf's folder gate (ADR-0088). A folder the uploader may not
  * read is not found; one they may only read refuses (403) before a byte is
- * stored; and the folder decides the collection (ADR-0086): a restricted
+ * stored; and the folder decides the collection (ADR-0087): a restricted
  * folder's documents live in its own, which holds no IFC model until the
  * building data is partitioned. The Archiv has no per-role folder access.
  */
@@ -426,7 +426,7 @@ async function projectFolderGate(
 
 /**
  * One document per name in a project, whichever collection holds it
- * (ADR-0086). A re-upload into the collection that already holds the name
+ * (ADR-0087). A re-upload into the collection that already holds the name
  * replaces it, as before; the same name filed under a different restriction is
  * refused, because replacing it would move it across the boundary unseen. The
  * message names no folder: the other one may be one this person cannot see.

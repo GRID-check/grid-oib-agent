@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Read/write folder access against a REAL Postgres (ADR-0087, migration 0110),
+ * Read/write folder access against a REAL Postgres (ADR-0088, migration 0111),
  * through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -254,7 +254,7 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
 })
 
 /**
- * Restricted folders do not hold IFC models (ADR-0086). The unit specs prove
+ * Restricted folders do not hold IFC models (ADR-0087). The unit specs prove
  * the guard asks for the count; this proves the query that answers it.
  */
 describe.skipIf(!url)('IFC models and restricted folders against Postgres', () => {

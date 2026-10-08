@@ -137,7 +137,7 @@ export type ReingestFailedPayload = z.infer<typeof reingestFailedPayloadSchema>
 
 /**
  * `placement_reingest`: re-read the documents collection placement moved in one
- * project (ADR-0086), a page per slice. Its whole state is the project: the
+ * project (ADR-0087), a page per slice. Its whole state is the project: the
  * rows it takes are marked on the row (`documents/placement-repository.ts`),
  * so a job already queued serves rows marked after it.
  */

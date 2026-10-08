@@ -146,7 +146,7 @@ export interface ListProjectDocumentsOptions {
    */
   includeArchived?: boolean
   /**
-   * Folders whose documents this reader may not see (ADR-0086), from
+   * Folders whose documents this reader may not see (ADR-0087), from
    * `getHiddenFolderIds`. Their rows are left out as if they did not exist.
    */
   hiddenFolderIds?: readonly string[]
@@ -806,7 +806,7 @@ export async function findLiveDocumentByFilename(
  * The retrieval collections of this project that already hold a live,
  * person-uploaded document of this name — either Unicode form, as
  * {@link findLiveDocumentByFilename} reads it. A project keeps one document
- * per name across all its collections (ADR-0086); the database only enforces
+ * per name across all its collections (ADR-0087); the database only enforces
  * it per collection.
  */
 export async function findProjectCollectionsHoldingFilename(
@@ -1070,7 +1070,7 @@ export async function setDocumentIngestJob(
 /**
  * The `documents.metadata` key of a row placement purged and re-pointed whose
  * re-read into its new collection is the `placement_reingest` job's to do
- * (`lib/projects/collection-placement.ts`, ADR-0086). Only ever set beside
+ * (`lib/projects/collection-placement.ts`, ADR-0087). Only ever set beside
  * `status = 'processing'`; the job removes it when it takes the row, and every
  * other writer of `processing` or of an ingest job id drops it.
  */
