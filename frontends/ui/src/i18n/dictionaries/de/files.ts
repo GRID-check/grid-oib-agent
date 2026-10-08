@@ -70,7 +70,7 @@ export const files: typeof en.files = {
     // Erfolg („Zitierbar“ wäre ein Versprechen, das die Suche nicht einlöst)
     // und kein Fehler. Dasselbe Wort wie im Toast nach dem Lauf.
     stored: 'Abgelegt',
-    // Die Inhaltsprüfung (ADR-0085) hat angeschlagen: Die Datei liegt im
+    // Die Inhaltsprüfung (ADR-0086) hat angeschlagen: Die Datei liegt im
     // Projekt, kein Modell hat sie gesehen, und jemand muss entscheiden.
     quarantined: 'In Quarantäne',
     unknown: 'Unbekannt',
@@ -264,7 +264,7 @@ export const files: typeof en.files = {
   },
   screening: {
     // Warum eine Datei zurückgehalten wurde – vom Inhaltsfilter (im Text) oder
-    // vom Namensfilter (im Datei- oder Ordnernamen), ADR-0085.
+    // vom Namensfilter (im Datei- oder Ordnernamen), ADR-0086.
     reasonTerm: '„{term}“ im Text',
     reasonIban: 'IBAN {sample}',
     reasonSvnr: 'Sozialversicherungsnummer {sample}',
@@ -331,7 +331,7 @@ export const files: typeof en.files = {
     breadcrumb: 'Ordnerpfad',
     movedFolder: '„{name}“ nach „{parent}“ verschoben.',
     moveFolderError: 'Der Ordner konnte nicht verschoben werden. Bitte erneut versuchen.',
-    /** Ordnerzugriff (ADR-0086): einen Ordner auf Rollen einschränken. */
+    /** Ordnerzugriff (ADR-0087): einen Ordner auf Rollen einschränken. */
     access: {
       menu: 'Zugriff …',
       restrictedTo: 'Eigene Zugriffsrechte: {roles}',
@@ -363,7 +363,7 @@ export const files: typeof en.files = {
         'Ändert sich, wer lesen darf, verschiebt Piloti die Dokumente des Ordners und liest sie neu ein. Bei einem großen Ordner dauert das einige Minuten; so lange stehen die Dokumente auf „Wird gelesen“.',
       ifcNotice:
         'Ordner, die nicht alle Projektmitglieder lesen dürfen, können noch keine Gebäudemodelle (IFC) enthalten. Legen Sie IFC-Modelle in Ordner, die alle lesen dürfen.',
-      /** Der 409 der IFC-Sperre (ADR-0086): einschränken, hochladen oder verschieben in einen eingeschränkten Ordner. */
+      /** Der 409 der IFC-Sperre (ADR-0087): einschränken, hochladen oder verschieben in einen eingeschränkten Ordner. */
       ifcRefused:
         'Gebäudemodelle (IFC) können noch nicht in einem Ordner liegen, den nicht alle lesen dürfen: Ihre Gebäudedaten schützt der Ordnerzugriff nicht. Legen Sie IFC-Modelle in Ordner, die alle lesen dürfen.',
       readOnlyBadge: 'Nur lesen',
@@ -382,7 +382,7 @@ export const files: typeof en.files = {
       forbidden: 'Nur Projekt-Admins können ändern, wer einen Ordner lesen und bearbeiten darf.',
     },
   },
-  /** The Papierkorb of a project (ADR-0087). */
+  /** The Papierkorb of a project (ADR-0088). */
   bin: {
     title: 'Papierkorb',
     subtitle:
@@ -576,7 +576,7 @@ export const files: typeof en.files = {
     collisions: '{count} Dateien teilen sich einen Namen mit einer anderen Datei in diesem Upload',
     collisionsExplain:
       'Ein Projekt hält pro Dateiname ein Dokument, deshalb werden diese nicht hochgeladen. Benennen Sie sie um und legen Sie sie erneut ab.',
-    // Vom Namensfilter des Büros zurückgehalten (ADR-0085): Die Dateien
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0086): Die Dateien
     // verlassen den Rechner nicht, außer jemand gibt eine einzeln frei.
     excluded: '{count} Datei(en) bleiben auf Ihrem Rechner',
     excludedExplain:
@@ -601,6 +601,86 @@ export const files: typeof en.files = {
     foldersError: 'Die Ordner für diesen Upload konnten nicht angelegt werden. Es wurde nichts hochgeladen.',
     applyError: 'Dieser Ordner konnte nicht vollständig hochgeladen werden. Prüfen Sie die Liste und versuchen Sie es erneut.',
   },
+  mailImport: {
+    action: 'Outlook-Archiv importieren',
+    title: 'Outlook-Archiv importieren',
+    description:
+      'Wählen Sie eine .pst- oder .ost-Datei. Jede E-Mail wird ein Ordner unter „E-Mail-Import“ mit ihren Anhängen und einer Notiz mit Text und Kopfzeilen.',
+    privacy:
+      'Ein Archiv enthält die Korrespondenz aller, die diesem Postfach geschrieben haben. Importieren Sie, was das Projekt braucht, nicht ein ganzes Postfach.',
+    choose: 'Archiv auswählen…',
+    maxSize: 'Bis {size}.',
+    notAnArchive: '„{name}“ ist kein Outlook-Archiv (.pst oder .ost).',
+    tooLarge: '„{name}“ ist größer als {size}.',
+    sending: '{sent} von {total} gesendet…',
+    sendingHint:
+      'Sie können in Piloti inzwischen weiterarbeiten; lassen Sie nur diesen Tab offen, bis das Archiv gesendet ist. Das Ablegen läuft danach im Hintergrund.',
+    sendingLabel: '„{name}“ wird gesendet',
+    joining: 'Gesendet. Piloti setzt das Archiv zusammen…',
+    sendErrors: {
+      busy: 'Dieser Tab sendet noch ein anderes Archiv. Warten Sie, bis es gesendet ist, und wählen Sie dann dieses.',
+      alreadyRunning: 'Ein Import von Ihnen läuft in diesem Projekt noch. Setzen Sie ihn zuerst fort oder brechen Sie ihn ab.',
+      cancelled: 'Der Import wurde abgebrochen, während er gesendet wurde.',
+      quota: 'Der Speicher der Organisation ist voll, daher kann das Archiv nicht importiert werden.',
+      forbidden: 'Sie dürfen diesem Projekt keine Dokumente hinzufügen.',
+      rejected: 'Piloti hat dieses Archiv nicht angenommen. Prüfen Sie, ob es eine Outlook-.pst- oder -.ost-Datei ist.',
+      connection:
+        'Die Verbindung ist abgebrochen. Wählen Sie die Datei mit „Weiter senden“ erneut, um dort fortzusetzen, wo es aufgehört hat.',
+      unknown: 'Das Archiv konnte nicht gesendet werden. Versuchen Sie es mit „Weiter senden“ erneut.',
+    },
+    resume: 'Weiter senden',
+    resumeNamed: '„{name}“ weiter senden',
+    resumeHint: 'Wählen Sie „{name}“ erneut, um dort weiterzusenden, wo es abgebrochen ist.',
+    resumeMismatch: 'Das ist nicht dieselbe Datei. Wählen Sie „{name}“ ({size}).',
+    resumeChanged:
+      '„{name}“ hat sich geändert, seit das Senden begonnen hat, daher passen seine Teile nicht mehr zusammen. Brechen Sie diesen Import ab und starten Sie einen neuen.',
+    cancel: 'Abbrechen',
+    cancelNamed: 'Import von „{name}“ abbrechen',
+    cancelConfirm: {
+      title: 'Diesen Import abbrechen?',
+      description:
+        'Was bisher abgelegt wurde, bleibt. Das Archiv wird aus Piloti gelöscht; für den Rest müsste „{name}“ erneut gesendet werden.',
+      confirm: 'Import abbrechen',
+      keep: 'Weiter importieren',
+    },
+    cancelError: 'Der Import konnte nicht abgebrochen werden.',
+    close: 'Schließen',
+    history: 'Importe in diesem Projekt',
+    empty: 'In dieses Projekt wurde noch kein Archiv importiert.',
+    loadError: 'Die Importe konnten nicht geladen werden.',
+    openFolder: 'Ordner öffnen',
+    openFolderNamed: 'Ordner von „{name}“ öffnen',
+    importingLabel: '„{name}“ wird importiert',
+    startedBy: 'Gestartet von {email}',
+    progress: '{done} von {total} Einträgen',
+    filed: '{mails, plural, one {# E-Mail} other {# E-Mails}}, {files, plural, one {# Anhang} other {# Anhänge}}',
+    skipped: '{count, plural, one {# übersprungen} other {# übersprungen}}',
+    skippedItem: '{file} in {mail}: {reason}',
+    skippedMail: '{mail}: {reason}',
+    status: {
+      uploading: 'Wird gesendet',
+      queued: 'Wartet',
+      importing: 'Wird importiert',
+      completed: 'Importiert',
+      failed: 'Fehlgeschlagen',
+      cancelled: 'Abgebrochen',
+    },
+    errors: {
+      unreadable: 'Die Datei konnte nicht als Outlook-Archiv gelesen werden. Exportieren Sie sie in Outlook erneut als .pst-Datei.',
+      quota: 'Der Speicher der Organisation ist voll. Was bis dahin importiert war, bleibt.',
+      access: 'Wer den Import gestartet hat, darf in diesem Projekt keine Dokumente mehr ablegen.',
+      requester_left: 'Wer den Import gestartet hat, ist nicht mehr Mitglied der Organisation.',
+      stopped: 'Der Import wurde nach wiederholten Fehlern abgebrochen.',
+      stalled: 'Der Import ist stehen geblieben, ohne fertig zu werden.',
+      upload_expired: 'Das Archiv wurde nicht innerhalb von zwei Tagen vollständig gesendet.',
+    },
+    reasons: {
+      embedded_message: 'angehängte E-Mail',
+      type: 'Dateityp nicht zugelassen',
+      size: 'zu groß',
+      unreadable: 'im Archiv beschädigt',
+    },
+  },
   upload: {
     uploading: 'Wird hochgeladen …',
     upload: 'Hochladen',
@@ -609,7 +689,7 @@ export const files: typeof en.files = {
   },
   errors: {
     projectClosed: 'Dieses Projekt ist abgeschlossen und schreibgeschützt. Wer es verwaltet, kann es in den Einstellungen wieder öffnen.',
-    // Vom Namensfilter des Büros zurückgehalten (ADR-0085), auf einem Weg ohne
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0086), auf einem Weg ohne
     // Upload-Dialog, etwa im Chat.
     screenedOut: '{count} Datei(en) nicht hochgeladen, weil Ihr Büro sie als sensibel einstuft: {files}',
     screenedOutFile: '„{name}“ ({reason})',

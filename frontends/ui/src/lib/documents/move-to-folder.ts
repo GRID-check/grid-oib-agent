@@ -90,7 +90,7 @@ export async function moveDocumentToFolder(
 
   await requireShelfWrite(session, shelf)
 
-  // A project's folders have access per role (ADR-0086, ADR-0087); the
+  // A project's folders have access per role (ADR-0087, ADR-0088); the
   // Archiv's do not. Both ends must be visible to the mover: a document in a
   // folder they may not read does not exist for them, and neither does such a
   // destination. Moving out of a folder and into another is a write on both: a

@@ -1,4 +1,4 @@
-"""A chat turn's use of restricted folders, the agent's half (ADR-0086, ADR-0087).
+"""A chat turn's use of restricted folders, the agent's half (ADR-0087, ADR-0088).
 
 The BFF decides; these pin that the agent asks before anything reads the
 scope, keeps only what it may draw on, admits a tool round's restricted content
@@ -138,7 +138,7 @@ def _result(text: str, call_id: str = "call-1") -> ToolMessage:
 
 class TestAToolRoundIsAdmittedBeforeTheModelReadsIt:
     async def test_restricted_content_outside_a_restricted_turn_is_withheld_without_asking(self, bff):
-        """No use bound: nothing could admit it, so it fails closed (ADR-0087)."""
+        """No use bound: nothing could admit it, so it fails closed (ADR-0088)."""
         messages = [_result(f"Collection: {VERTRAEGE}\nHonorar pauschal")]
         with bound(None):
             out = await admit_tool_results(messages)

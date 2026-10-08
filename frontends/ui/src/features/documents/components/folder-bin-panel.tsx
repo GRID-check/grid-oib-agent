@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * A project's Papierkorb (ADR-0087): the folders deleted in it, who deleted
+ * A project's Papierkorb (ADR-0088): the folders deleted in it, who deleted
  * each and when, when its purge runs, and what the reader may do — restore
  * (with its access, its subfolders and documents), and „Endgültig löschen"
  * for project admins.

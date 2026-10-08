@@ -3,7 +3,7 @@
  * the admin page and the retention form read the same constants the service
  * and the migration's CHECKs are written from.
  *
- * Why the log exists, and its limits (ADR-0087, "The download log"): it answers
+ * Why the log exists, and its limits (ADR-0088, "The download log"): it answers
  * "who took this document out, and who opened it in a folder with its own
  * access list". Purpose: security and accountability. It is not an activity
  * report, and nothing here aggregates by person.

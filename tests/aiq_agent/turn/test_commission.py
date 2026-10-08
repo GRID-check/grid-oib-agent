@@ -150,7 +150,7 @@ class TestWhatItRefuses:
         assert refusal.value.reason == reason
 
     async def test_a_conversation_that_drew_on_a_restricted_folder_is_its_own_refusal(self, monkeypatch):
-        """ADR-0086: the BFF's typed 403, told apart from a tenant without deep research."""
+        """ADR-0087: the BFF's typed 403, told apart from a tenant without deep research."""
         _refusing(
             monkeypatch,
             DelegationError("Aus dieser Unterhaltung …", status=403, code="CONVERSATION_CONFINED"),
