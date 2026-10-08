@@ -1013,6 +1013,32 @@ check_in grid_cross_project "SELECT count(*) FROM permit_records" "0" "0126 re-a
 echo "==> 0126 permit records and down migration verified"
 
 # ---------------------------------------------------------------------------
+# Migration 0127: the evidence a drafted decision was read from (ADR-0095),
+# and its DOWN.
+#
+# On grid_cross_project, after 0126: project_memory is already secured, so the
+# column adds nothing to the boundary; what 0127 owns is its CHECK (an array
+# when set). The down drops the column and its CHECK and keeps the note, and
+# 0127 re-applies with the evidence gone (NULL), the lossy direction.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0127 memory evidence, its CHECK and the down migration on grid_cross_project"
+apply_in grid_cross_project 0127_project_memory_evidence.sql
+sql_in grid_cross_project <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name)
+VALUES ('aaaaaaaa-0000-4000-8000-000000000127', 'org_0127', 'Evidenz', 'user_1', 'proj_0127');
+INSERT INTO project_memory (scope, project_id, organization_id, kind, content, provenance_type, verification, evidence)
+VALUES ('project', 'aaaaaaaa-0000-4000-8000-000000000127', 'org_0127', 'decision', 'Fassade hinterlüftet 0127', 'distillation', 'source_grounded',
+        '[{"fileName": "Baubeschreibung.pdf", "page": "4"}]');
+SQL
+refused_in grid_cross_project "UPDATE project_memory SET evidence = '{\"fileName\": \"a.pdf\"}' WHERE organization_id = 'org_0127';" "project_memory_evidence_check" "evidence is an array when it is set"
+check_in grid_cross_project "SELECT relrowsecurity FROM pg_class WHERE relname = 'project_memory'" "t" "the column sits on a table under row-level security"
+apply_in grid_cross_project 0127_project_memory_evidence.down.sql
+check_in grid_cross_project "SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'evidence')::text || ',' || (SELECT count(*) FROM pg_constraint WHERE conname = 'project_memory_evidence_check')::text || ',' || (SELECT count(*) FROM project_memory WHERE organization_id = 'org_0127')::text" "0,0,1" "down drops the column and its CHECK, and keeps the note"
+apply_in grid_cross_project 0127_project_memory_evidence.sql
+check_in grid_cross_project "SELECT (evidence IS NULL)::text || ',' || (SELECT count(*) FROM pg_constraint WHERE conname = 'project_memory_evidence_check')::text FROM project_memory WHERE organization_id = 'org_0127'" "true,1" "0127 re-applies, the evidence gone"
+echo "==> 0127 memory evidence and down migration verified"
+
+# ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),
 # and its DOWN migration.
 #
