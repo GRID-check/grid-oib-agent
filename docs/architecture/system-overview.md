@@ -125,7 +125,7 @@ flowchart TB
 | **ChromaDB** | in-process in aiq-agent | Vector store (collections persisted to a volume). Not a separate container. |
 | **purger** | same image as frontend, `node purger/index.js` | Scheduled worker that hard-deletes soft-deleted projects after the grace period. |
 | **dragonfly** | Dragonfly (Redis protocol) | Shared cache (ADR-0020): read-through caches, WS-upgrade rate limiting, citation-registry snapshots. Cache-only; both tiers fail open to in-process fallbacks. |
-| *(one-shot)* | alpine / mc | `aiq-data-permissions` (volume chown) and `seaweedfs-init` (bucket create). |
+| *(one-shot)* | alpine / mc | `chroma-data-permissions` (volume chown) and `seaweedfs-init` (bucket create). |
 
 The **gateway (`server.js`)** is the seam that makes the two-tier model work:
 on each WebSocket upgrade (and REST proxy) it calls an internal BFF endpoint to
@@ -395,10 +395,10 @@ frontend start). → `docs/database/`.
 ## 10. Deployment topology
 
 Seven Compose services on one bridge network: `postgres`, `seaweedfs` (+ `seaweedfs-init`),
-`aiq-agent` (+ one-shot `aiq-data-permissions`), `frontend`, and `purger`.
+`aiq-agent` (+ one-shot `chroma-data-permissions`), `frontend`, and `purger`.
 Frontend on `:3000` (the only public port for the app), backend on `:8000`,
 Postgres `:5432`, SeaweedFS `:8333/:8888`. Migrations run on frontend start; OIB
-ingestion is a one-time `scripts/ingest_oib.py` after first boot. → `docs/deployment/`.
+the OIB corpus is uploaded after first boot (admin UI or `scripts/upload_oib_corpus.py`) and ingested by the ingest workers, from jobs the upload and the base-corpus housekeeping queue. → `docs/deployment/`.
 
 ---
 
@@ -448,6 +448,6 @@ What lives where in the checkout.
 | `deploy/` | Docker Compose assets and environment templates; `deploy/pulumi/` holds the Pulumi (TypeScript) Kubernetes deployment (see `docs/deployment/kubernetes.md`) |
 | `docs/architecture/` | Architecture docs (see `backend-deep-dive.md`, `project-memory-design.md`, `citation-system-audit-2026-07.md` for the citation pipeline as built) |
 | `skills/` | API-consumer skill examples |
-| `scripts/` | Utility scripts, including `scripts/ingest_oib.py` |
+| `scripts/` | Utility scripts, including `scripts/upload_oib_corpus.py` |
 | `releasenotes/` | reno release notes — one YAML file per user-visible change, published to piloti.at/changelog |
-| `data/oib/` | Where the OIB Richtlinien PDFs go. Operator-provided and gitignored: the directory ships empty and is filled by an admin upload or by dropping files in before first boot |
+| `data/oib/` | A local, gitignored copy of the OIB Richtlinien PDFs for the evals and tests. The platform does not read it: the base corpus is uploaded through the admin UI into object storage |

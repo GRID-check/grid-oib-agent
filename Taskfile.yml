@@ -511,7 +511,7 @@ tasks:
       - '{{.PY}} scripts/turn_census/census.py {{.CLI_ARGS}}'
 
   be:eval:answer-suite:
-    desc: 'Answer suite — the reference questions through the real agent, timed and checked, with a report (NEEDS OPENROUTER_API_KEY and the corpus ingested; -- --ingest syncs it first)'
+    desc: 'Answer suite — the reference questions through the real agent, timed and checked, with a report (NEEDS OPENROUTER_API_KEY and the corpus ingested; -- --ingest ingests it first, in the suite process)'
     env:
       PYTHONPATH: src
     cmds:

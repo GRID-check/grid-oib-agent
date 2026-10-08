@@ -14,8 +14,8 @@ export interface AppWiring {
   redisUrl: pulumi.Output<string>;
   seaweedInternalEndpoint: pulumi.Output<string>;
   seaweedPublicEndpoint: pulumi.Output<string>;
-  /** Shared Chroma server URL (set when cfg.chroma.enabled). */
-  chromaUrl?: pulumi.Output<string>;
+  /** Shared Chroma server URL: the backend keeps no volume, so there is no embedded store. */
+  chromaUrl: pulumi.Output<string>;
   /** Office → PDF converter URL (set when cfg.gotenberg.enabled, ADR-0070). */
   gotenbergUrl?: pulumi.Output<string>;
   /** Every DSN states its route (`via`), pooled or direct: see `PgRoute` in `data/postgres.ts`. */
@@ -251,9 +251,6 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "GRID_JOB_EXECUTION", value: cfg.jobExecution },
     // Encrypts DB-claimed job payloads at rest (empty = plaintext, dev only).
     sref("GRID_JOB_PAYLOAD_KEK"),
-    // Embedded fallback dir (used only when AIQ_CHROMA_URL is unset).
-    { name: "AIQ_CHROMA_DIR", value: cfg.backend.chromaDir },
-    { name: "OIB_UPLOADS_DIR", value: "/app/data/oib_uploads" },
     { name: "GRID_NORMS_DIR", value: "configs/norms" },
     // Databases (Postgres, not SQLite).
     sref("NAT_JOB_STORE_DB_URL"),
@@ -315,6 +312,9 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     // (ADR-0076); their pool still runs the jobs with local files.
     { name: "GRID_INGEST_QUEUE_CLAIM", value: String(!cfg.ingestWorker.enabled) },
     { name: "GRID_INGEST_MAX_PER_ORG", value: String(cfg.ingestWorker.maxPerOrg) },
+    // No env for the base corpus: it lives in SeaweedFS and the knowledge
+    // database (ADR-0082 step A2), and the per-replica cache defaults to
+    // /tmp/base-corpus (GRID_BASE_CORPUS_CACHE_DIR), a place the pod may lose.
     // LLM / embeddings / VLM (all via OpenRouter).
     sref("OPENROUTER_API_KEY"),
     sref("TAVILY_API_KEY"),
@@ -350,11 +350,9 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     srefAs("SEAWEED_SECRET_KEY", "SEAWEED_BACKEND_READ_SECRET_KEY"),
     { name: "SEAWEED_BUCKET", value: cfg.seaweedfs.bucket },
   ];
-  // Shared Chroma server (horizontal scaling): when set, the adapter uses an
-  // HttpClient instead of the embedded per-pod store.
-  if (w.chromaUrl) {
-    env.push({ name: "AIQ_CHROMA_URL", value: w.chromaUrl });
-  }
+  // The shared Chroma server. There is no embedded store to fall back to: it
+  // would live on a disk the pod loses at every restart.
+  env.push({ name: "AIQ_CHROMA_URL", value: w.chromaUrl });
   return env;
 }
 

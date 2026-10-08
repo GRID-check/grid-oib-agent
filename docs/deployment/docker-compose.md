@@ -8,7 +8,10 @@ the core ones; the observability stack (`dragonfly`, `clickhouse`, the three
 with their own comments and are not covered here. `housekeeping` is the
 backend's housekeeping clock (ADR-0082 step A1): the backend runs no cleanup
 loop of its own, and this calls its `/v1/maintenance/housekeeping/*` routes on
-the cadences Kubernetes runs as CronJobs. `bff-jobs` (ADR-0079) is the frontend image
+the cadences Kubernetes runs as CronJobs. One of them is the base-corpus sync
+(`base-corpus`, every ten minutes), which queues an ingest job for each uploaded OIB PDF that is
+not indexed yet (the `aiq-agent` container claims and runs it; Compose has no separate
+ingest worker); the backend does no sync at boot. `bff-jobs` (ADR-0079) is the frontend image
 running `workers/jobs/index.js`: the BFF plus the claim loop that runs the jobs
 in `bff_job_queue` (project reindex, failed-ingestion rescan, IFC extraction,
 Office rendition through `gotenberg`, research-report filing), with no
@@ -75,9 +78,17 @@ The Python backend service running NAT + FastAPI.
 | Mount | Purpose |
 |-------|---------|
 | `../../configs:/app/configs:ro` | NAT workflow YAML configs |
-| `../../data/oib:/app/data/oib:ro` | OIB Richtlinien PDFs. Operator-provided — the directory is gitignored and ships empty (`data/oib/README.md`); an empty corpus boots fine and answers nothing until it is filled |
-| `aiq-data:/app/data` | Persistent data (summaries DB, job DB) |
-| `chroma_data:/app/data/chroma_data` | ChromaDB vector persistence |
+| `chroma_data:/app/data/chroma_data` | The embedded ChromaDB vector store. The only thing the backend keeps on disk here |
+
+There is no mount for the OIB Richtlinien PDFs: the base corpus lives in SeaweedFS
+and the `oib_corpus_files` table (ADR-0082 step A2). Upload it in the admin UI, or
+`scripts/upload_oib_corpus.py <directory>`; an empty corpus boots fine and answers
+nothing until it is filled. A stack upgraded from before A2 needs neither: the
+one-shot `legacy-corpus-import` service reads the old `aiq-data` volume and
+`data/oib` read-only and stores what they held, and the base-corpus housekeeping
+route indexes it. Remove the `aiq-data` volume once the knowledge view lists the
+corpus. The one-shot `chroma-data-permissions` service chowns
+the Chroma volume for the backend's user before `aiq-agent` starts.
 
 **Healthcheck**: `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"` — interval 15s, timeout 10s, retries 10, start period 30s.
 
@@ -369,7 +380,6 @@ Langfuse's `DATABASE_URL` go straight to `postgres`, as in Kubernetes.
 
 | Name | Driver | Mounted By |
 |------|--------|------------|
-| `aiq-data` | local | aiq-agent (`/app/data`) |
 | `chroma_data` | local | aiq-agent (`/app/data/chroma_data`) |
 | `seaweedfs-data` | local | seaweedfs (`/data`) |
 | `postgres-data` | local | postgres (`/var/lib/postgresql/data`) |

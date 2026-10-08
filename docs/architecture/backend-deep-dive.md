@@ -794,7 +794,7 @@ together:
    chunk) so a sparse first chunk can't starve it.
 2. **Reconciliation backfill (`42a4fa3`)**: `reconcile_collection_summaries()`
    (knowledge-layer factory) runs at the end of every `LlamaIndexIngestor`
-   ingestion job — the Knowledge API, `scripts/ingest_oib.py`'s `oib_sync`,
+   ingestion job — the Knowledge API, the base-corpus sync (`oib_sync`),
    and any future caller get it for free. It diffs a collection's indexed,
    successfully-ingested files (`BaseIngestor.list_files`) against the
    `document_metadata` table and registers a deterministic fallback summary for any
@@ -1297,7 +1297,9 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    knowledge image to the VLM **as an image block during a research turn** —
    not just at ingestion. Three source shapes: **PDF pages** are re-rendered on
    demand with pypdfium2 (long edge `AIQ_PAGE_RENDER_MAX_DIM`, default 2048) —
-   base-corpus PDFs from disk (`OIB_UPLOADS_DIR` / repo corpus), project/Archiv
+   base-corpus PDFs from this replica's cache of the corpus, which
+   `corpus_store.ensure_local` fills from SeaweedFS on demand (the
+   `oib_corpus_files` table says what a base-corpus file is), project/Archiv
    PDFs from SeaweedFS bytes; **standalone image uploads** (PNG/JPG
    project/Archiv documents) are fetched from SeaweedFS and re-encoded to JPEG
    directly; and **stored embedded rasters** — the images
@@ -1386,8 +1388,8 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   the pointer, downloads the law and returns the answering §§ as citable
   passages: `sources/ris_adapter/src/lookup/`), and by `ris_fetch_document` in
   deep research, which still drives the three older RIS tools itself.
-- **The OIB corpus is not in the catalog.** `data/oib/` → `oib_knowledge` is
-  its own source of truth; what a corpus file *is* (Richtlinie / Leitfaden /
+- **The OIB corpus is not in the catalog.** The `oib_corpus_files` table and its
+  objects → `oib_knowledge` are its own source of truth; what a corpus file *is* (Richtlinie / Leitfaden /
   Erläuterung / Begriffsbestimmungen / Zitierte Normen / Änderungsdokument)
   derives from the filename (`norm_registry.oib_doc_class`). The 15
   `aenderungen_*` diff files and the superseded `zitierte_normen` revision are

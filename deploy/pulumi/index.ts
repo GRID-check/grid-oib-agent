@@ -33,6 +33,7 @@ import { installChroma } from "./src/data/chroma";
 import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildScalerSecret, buildSecrets } from "./src/app/config";
 import { runMigrations } from "./src/app/migrations-job";
 import { reconcileAuditSchemas } from "./src/app/audit-schemas-job";
+import { importLegacyCorpus } from "./src/app/legacy-corpus-import-job";
 import { installBackend } from "./src/app/backend";
 import { installBackendScaling } from "./src/app/backend-scaling";
 import { installFrontend } from "./src/app/frontend";
@@ -169,7 +170,7 @@ const langfuseQueue = cfg.langfuse.enabled
 const rateLimitStore = cfg.rateLimit.enabled
   ? installRateLimitStore(cfg, provider, namespace)
   : undefined;
-const chroma = cfg.chroma.enabled ? installChroma(cfg, provider, namespace) : undefined;
+const chroma = installChroma(cfg, provider, namespace);
 // Office → PDF converter for the document viewer (ADR-0070). Stateless and
 // fail-open, so nothing waits on it; its NetworkPolicies admit the frontend
 // alone and deny it every egress.
@@ -187,7 +188,7 @@ const wiring: AppWiring = {
   redisUrl: dragonfly.url,
   seaweedInternalEndpoint: seaweed.internalEndpoint,
   seaweedPublicEndpoint: seaweed.publicEndpoint,
-  chromaUrl: chroma?.url,
+  chromaUrl: chroma.url,
   gotenbergUrl: gotenberg?.url,
   dsn: postgres.dsn,
   imagePullSecrets: pullSecret ? [{ name: PULL_SECRET_NAME }] : [],
@@ -226,6 +227,15 @@ const backend = installBackend(wiring, cfg, secrets, [
 ]);
 
 const frontend = installFrontend(wiring, cfg, secrets, [migrations, backend.service]);
+
+// The pre-A2 base corpus, carried off the old backend data volume once
+// (ADR-0082 A2). Only where that volume exists: see `storage.legacyCorpusClaim`.
+if (cfg.storage.legacyCorpusClaim) {
+  importLegacyCorpus(wiring, cfg, secrets, cfg.storage.legacyCorpusClaim, [
+    backend.statefulSet,
+    frontend.deployment,
+  ]);
+}
 const workers = installWorkers(wiring, cfg, secrets, [migrations]);
 // Landing site + blog (Astro, frontends/web) — static-first, no app secrets,
 // but it pulls from the same registry, so it gets the pull Secret too.
@@ -427,7 +437,7 @@ export const schedulerDeployment = workers.scheduler.metadata.name;
 export const appRoute = routes.app.metadata.name;
 export const webRoute = routes.web.metadata.name;
 export const gatewayName = gatewayResources.gateway.metadata.name;
-export const chromaUrl = chroma ? chroma.url : pulumi.output("embedded");
+export const chromaUrl = chroma.url;
 export const jobExecution = cfg.jobExecution;
 export const pgInstances = cfg.postgres.instances;
 export const pgBackupsEnabled = cfg.postgres.backups.enabled;

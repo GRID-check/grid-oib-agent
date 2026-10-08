@@ -223,7 +223,7 @@ async def leader_lock_async(lock_id: int):
 _KEYED_LOCK_NAMESPACE = 0x41495152
 
 # One per key, for the life of the process: bounded by the document names this
-# process has ingested, the same bound as oib_sync's per-basename locks.
+# process has ingested, the same bound as oib_sync's per-file locks.
 _PROCESS_LOCKS: dict[str, threading.Lock] = {}
 _PROCESS_LOCKS_GUARD = threading.Lock()
 

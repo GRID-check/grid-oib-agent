@@ -14,9 +14,11 @@ from datetime import datetime
 
 import pytest
 
+from aiq_agent.common import claim_queue
 from aiq_agent.knowledge import ingest_queue
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.base import PreparedIngestJob
+from aiq_agent.knowledge.ingest_scheduler import PLATFORM_LANE
 from aiq_agent.knowledge.schema import IngestionJobStatus
 from aiq_agent.knowledge.schema import JobState
 from aiq_api.jobs import ingest_dispatch
@@ -644,3 +646,100 @@ async def test_the_web_tier_stops_claiming_before_its_chat_drain_and_gives_back_
 
     assert order == ["detached", "chat drained"]
     assert _queue_rows(db) == {"job-1": ("queued", 0, 0), "job-2": ("queued", 0, 0)}  # no attempt spent
+
+
+# ---------------------------------------------------------------------------
+# The base corpus's jobs: queued or not at all, and a download that carries no URL
+# ---------------------------------------------------------------------------
+
+
+def _corpus_job(job_id: str = "oib-1") -> PreparedIngestJob:
+    from aiq_agent.corpus_store import CorpusObjectDownload
+
+    prepared = _prepared(job_id, files=[CorpusObjectDownload("base-corpus/plan.pdf", "ab" * 32)], org=None)
+    prepared.config.pop("extraction_paths")
+    prepared.config.pop("thumbnail_upload_url")
+    prepared.config["priority"] = "bulk"
+    return prepared
+
+
+def test_a_corpus_object_download_is_a_durable_file_and_round_trips_without_a_url():
+    prepared = _corpus_job()
+
+    assert ingest_dispatch.durable(prepared) is True
+    decoded = ingest_dispatch.decode(ingest_dispatch.encode(prepared))
+
+    (download,) = decoded.file_paths
+    assert download.to_payload() == {"storage_key": "base-corpus/plan.pdf", "sha256": "ab" * 32}
+    assert "http" not in ingest_dispatch.encode(prepared)
+
+
+def test_a_worker_refuses_a_corpus_download_for_something_that_is_not_a_corpus_object(db):
+    from aiq_api.jobs import payload_crypto
+
+    data = payload_crypto.deserialize(ingest_dispatch.encode(_corpus_job()))
+    data["file_paths"][0]["__corpus_object__"]["storage_key"] = "elsewhere/plan.pdf"
+    forged = payload_crypto.serialize(data)
+
+    with pytest.raises(Exception, match="not a corpus object key"):
+        ingest_dispatch.decode(forged)
+
+
+def test_enqueue_only_stores_a_corpus_job_and_names_it_bulk_in_the_platform_lane(db):
+    assert ingest_dispatch.enqueue_only(_corpus_job()) is True
+
+    rows = _queue_rows(db)
+    assert set(rows) == {"oib-1"}
+    claim = ingest_queue.claim_next("w1", stale_seconds=180, max_attempts=3)
+    assert claim.lane == PLATFORM_LANE  # a job with no organisation
+    assert claim.priority == claim_queue.priority_rank("bulk")
+
+
+def test_enqueue_only_stores_one_job_for_one_id(db):
+    assert ingest_dispatch.enqueue_only(_corpus_job()) is True
+    assert ingest_dispatch.enqueue_only(_corpus_job()) is False
+    assert ingest_queue.counts()["queued"] == 1
+
+
+def test_enqueue_only_never_falls_back_to_running_the_job_here(db, monkeypatch):
+    monkeypatch.setenv("GRID_INGEST_QUEUE", "off")
+
+    with pytest.raises(ingest_dispatch.QueueUnavailable, match="ingest queue is off"):
+        ingest_dispatch.enqueue_only(_corpus_job())
+
+
+def test_enqueue_only_without_a_database_raises(monkeypatch):
+    monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
+    monkeypatch.delenv("NAT_JOB_STORE_DB_URL", raising=False)
+
+    with pytest.raises(ingest_dispatch.QueueUnavailable):
+        ingest_dispatch.enqueue_only(_corpus_job())
+
+
+def test_enqueue_only_refuses_a_job_with_a_local_file(db, tmp_path):
+    local = _prepared("oib-local", files=[str(tmp_path / "upload.pdf")])
+
+    with pytest.raises(ingest_dispatch.QueueUnavailable, match="cannot run in another process"):
+        ingest_dispatch.enqueue_only(local)
+    assert ingest_queue.counts()["queued"] == 0
+
+
+def test_enqueue_only_refuses_a_job_that_was_not_accepted(db):
+    rejected = _corpus_job()
+    rejected.status.status = JobState.FAILED
+    rejected.status.error_message = "No valid file paths provided"
+
+    with pytest.raises(ingest_dispatch.QueueUnavailable, match="No valid file paths"):
+        ingest_dispatch.enqueue_only(rejected)
+
+
+def test_a_queue_error_does_not_leak_the_payload(db, monkeypatch):
+    def refuse(*_args):
+        raise ConnectionError("could not connect with http://seaweedfs.test/x?X-Amz-Signature=secret")
+
+    monkeypatch.setattr(ingest_queue, "enqueue", refuse)
+
+    with pytest.raises(ingest_dispatch.QueueUnavailable) as raised:
+        ingest_dispatch.enqueue_only(_corpus_job())
+
+    assert "secret" not in str(raised.value)

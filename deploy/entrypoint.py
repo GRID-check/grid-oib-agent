@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 import os
-import shutil
 import signal
 import subprocess
 import sys
-import threading
 import time
-from pathlib import Path
 
 
 def _terminate_process(proc: subprocess.Popen[str] | None) -> None:
@@ -54,50 +50,6 @@ def _wait_for_scheduler(port: int) -> None:
             time.sleep(1)
 
 
-def _clear_directory_contents(path: Path) -> None:
-    """Clear a directory without removing the directory itself.
-
-    Docker Compose mounts ``AIQ_CHROMA_DIR`` as a volume root, so removing the
-    root path raises ``Device or resource busy``.  Clearing children preserves
-    the mount point while still forcing Chroma to rebuild its persisted state.
-    """
-    for child in path.iterdir():
-        if child.is_dir() and not child.is_symlink():
-            shutil.rmtree(child)
-        else:
-            child.unlink()
-
-
-def _run_oib_sync_background() -> None:
-    """Run OIB PDF ingestion in the background after the server starts."""
-    # The entrypoint process never configures logging, so oib_sync's INFO
-    # progress logs are invisible without this.
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)-8s - %(name)s - %(message)s",
-        stream=sys.stdout,
-    )
-    time.sleep(5)
-
-    if os.environ.get("OIB_FORCE_REINGEST", "").lower() in ("1", "true", "yes"):
-        registry = Path(os.environ.get("OIB_REGISTRY_PATH", "data/oib_registry.json"))
-        if registry.exists():
-            registry.unlink()
-            print("OIB_FORCE_REINGEST: deleted registry", flush=True)
-        chroma_dir = Path(os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data"))
-        if chroma_dir.exists():
-            _clear_directory_contents(chroma_dir)
-            print(f"OIB_FORCE_REINGEST: cleared Chroma data at {chroma_dir}", flush=True)
-
-    try:
-        from aiq_agent.oib_sync import sync  # noqa: PLC0415
-
-        added, total = sync()
-        print(f"OIB sync: {added} added/changed, {total} total", flush=True)
-    except Exception as exc:
-        print(f"OIB sync failed (non-fatal): {exc}", flush=True)
-
-
 def main() -> int:
     if len(sys.argv) > 1:
         os.execvp(sys.argv[1], sys.argv[1:])
@@ -131,7 +83,6 @@ def main() -> int:
         print(f"API:    http://{host}:{port}", flush=True)
         print("============================================", flush=True)
         web_proc = subprocess.Popen(["python", "/app/deploy/start_web.py"])
-        threading.Thread(target=_run_oib_sync_background, daemon=True).start()
 
         def _handle_web_signal(_signum: int, _frame: object) -> None:
             print("Shutting down...", flush=True)
@@ -203,17 +154,10 @@ def main() -> int:
     print("--------------------------------------------", flush=True)
     print("", flush=True)
 
-    # The OIB knowledge base is purely volume-based: it persists on the mounted
-    # data volume across redeploys, and there is no baked seed to restore. The
-    # corpus is operator-provided (data/oib/README.md): the sync below ingests
-    # whatever it finds in OIB_DOCUMENTS_DIR and OIB_UPLOADS_DIR, and finds
-    # nothing on a fresh volume until the platform owner uploads the PDFs or
-    # drops them into the bind-mounted directory. An empty corpus is not an
-    # error -- discover_pdfs() skips a directory that does not exist -- so the
-    # server starts either way and the sync logs a zero-file run.
+    # The base corpus is not synced from here: it lives in object storage and a
+    # table (ADR-0082), and one sync cycle runs as the base-corpus housekeeping
+    # route, on a schedule outside this process.
     web_proc = subprocess.Popen(["python", "/app/deploy/start_web.py"])
-
-    threading.Thread(target=_run_oib_sync_background, daemon=True).start()
 
     _install_signal_handlers(scheduler_proc, worker_proc, web_proc)
 

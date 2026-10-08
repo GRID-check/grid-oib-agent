@@ -118,6 +118,7 @@ describe("the program's ScaledObjects", () => {
       redisUrl: pulumi.output("redis://dragonfly:6379"),
       seaweedInternalEndpoint: pulumi.output("http://seaweedfs:8333"),
       seaweedPublicEndpoint: pulumi.output("https://s3.example.test"),
+      chromaUrl: pulumi.output("http://chroma:8000"),
       dsn: (opts: Record<string, any>) => {
         dsnRequests.push(opts);
         return pulumi.output(`postgresql://x/${opts.db}`);

@@ -2857,8 +2857,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         file_paths: list[str | Callable[[], str]],
         collection_name: str,
         config: dict[str, Any] | None = None,
+        job_id: str | None = None,
     ) -> PreparedIngestJob:
         """Validate a job and record it PENDING in the shared store, without running it.
+
+        ``job_id`` is the id the caller chose for this work (the base corpus derives
+        one from the file's name, hash and chunk-format version, so asking twice is
+        asking once); a fresh uuid otherwise. Re-using an id overwrites that job's
+        status, so a caller that chooses ids looks the status up first.
 
         What runs it is the caller's choice: ``submit_prepared`` queues it in
         this process, and the durable queue (``aiq_api.jobs.ingest_queue``)
@@ -2869,7 +2875,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         """
         from knowledge_layer.deferred_files import is_deferred
 
-        job_id = str(uuid.uuid4())
+        job_id = job_id or str(uuid.uuid4())
         # The REQUEST's config only: it travels with the job (the durable queue
         # stores it), and this ingestor's own config holds live objects, the
         # summary LLM among them. `_job_config` merges the two where it runs.
@@ -4395,7 +4401,19 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     row_doc_class = get_document_doc_class(collection_name, file_name)
                     stored_doc_class = row_doc_class or preserved.get("doc_class")
                     base_corpus = legacy_shelf_for_collection_name(collection_name) is None
-                    doc_class = stored_doc_class or (guess_doc_class(file_name) if base_corpus else None)
+                    # The Dokumentart an admin chose at upload (`config["doc_class"]`, validated
+                    # by the route) beats a stored one and the guess: choosing is the point.
+                    from aiq_agent.knowledge.document_classification import is_valid_doc_class
+
+                    requested_doc_class = config.get("doc_class")
+                    explicit_doc_class = (
+                        requested_doc_class
+                        if isinstance(requested_doc_class, str) and is_valid_doc_class(requested_doc_class)
+                        else None
+                    )
+                    doc_class = (
+                        explicit_doc_class or stored_doc_class or (guess_doc_class(file_name) if base_corpus else None)
+                    )
                     is_pdf = (
                         rendition is not None
                         or file_name.lower().endswith(".pdf")
@@ -4762,7 +4780,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # for the platform owner to accept (ADR-0064, use 8).
                         from aiq_agent.knowledge.document_classification import DEFAULT_DOC_CLASS
 
-                        if stored_doc_class is None and base_corpus and doc_class == DEFAULT_DOC_CLASS:
+                        if (
+                            stored_doc_class is None
+                            and explicit_doc_class is None
+                            and base_corpus
+                            and doc_class == DEFAULT_DOC_CLASS
+                        ):
                             from aiq_agent.knowledge.document_classification import suggest_doc_class
 
                             doc_class_future = submit_in_context(
@@ -4983,7 +5006,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # only stamp the guess when none was stored. The class
                         # carried from a row under another spelling is written
                         # here too: that row goes when its version is retired.
-                        if row_doc_class is None:
+                        if row_doc_class is None or explicit_doc_class is not None:
                             set_document_doc_class(collection_name, file_name, doc_class)
                         suggestion = _future_result(doc_class_future, "Dokumentart suggestion", file_name)
                         # A replaced version's row is kept under the same
@@ -5008,6 +5031,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             from aiq_agent.knowledge import set_document_display_title
 
                             set_document_display_title(collection_name, file_name, preserved["display_title"])
+                        elif base_corpus:
+                            # The starting name an admin can override: derived from the OIB file
+                            # name convention, nothing for a name that gives no confident default.
+                            from aiq_agent.common.norm_registry import guess_display_title
+                            from aiq_agent.knowledge import set_document_display_title
+
+                            default_title = guess_display_title(file_name)
+                            if default_title:
+                                set_document_display_title(collection_name, file_name, default_title)
 
                         # The same four keys on the document metadata row, so a
                         # surface that reads the row rather than a chunk — the
@@ -5119,7 +5151,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # silently failed to register — e.g. both the LLM summary and tag
             # classification calls failed. Runs at the end of every ingestion
             # job inside the knowledge layer, so every caller (the Knowledge
-            # API, scripts/ingest_oib.py's oib_sync, and any future caller)
+            # API, oib_sync, and any future caller)
             # gets this for free without having to remember to call it. Scoped
             # to THIS job's successful files: the unscoped mode's list_files
             # reads every chunk metadata in the collection — O(collection) per

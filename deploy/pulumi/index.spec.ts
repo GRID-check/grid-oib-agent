@@ -113,6 +113,7 @@ describe("the program constructs in the split topology", () => {
     const cronJobs = RESOURCES.filter((r) => r.type === "kubernetes:batch/v1:CronJob");
     const housekeeping = cronJobs.filter((r) => r.name.startsWith("housekeeping-"));
     expect(housekeeping.map((r) => r.name).sort()).toEqual([
+      "housekeeping-base-corpus",
       "housekeeping-chat-checkpoints",
       "housekeeping-ghost-jobs",
       "housekeeping-job-events",
@@ -123,6 +124,28 @@ describe("the program constructs in the split topology", () => {
       expect(url).toBe(`http://aiq-agent:8000/v1/maintenance/housekeeping/${job.name.replace("housekeeping-", "")}`);
       expect(job.inputs.spec?.concurrencyPolicy).toBe("Forbid");
     }
+  });
+
+  it("keeps no files on the web role: no volume claim, nothing mounted at /app/data", () => {
+    // ADR-0082 step A2's gate. The base corpus is in the object store and a
+    // table, the vectors in the shared Chroma; a claim here would bring back the
+    // one replica's disk an upload could land on.
+    const web = RESOURCES.find((r) => r.type === "kubernetes:apps/v1:StatefulSet" && r.name === "aiq-agent");
+    const spec = web?.inputs.spec;
+    expect(spec).toBeDefined();
+    expect(spec?.volumeClaimTemplates).toBeUndefined();
+    expect(spec?.persistentVolumeClaimRetentionPolicy).toBeUndefined();
+    const containers = spec?.template?.spec.containers ?? [];
+    expect(containers.length).toBeGreaterThan(0);
+    for (const container of containers) {
+      expect(container.volumeMounts ?? []).toEqual([]);
+      const env = container.env ?? [];
+      expect(env.find((e) => e.name === "AIQ_CHROMA_URL")?.value).toBeDefined();
+      for (const gone of ["AIQ_CHROMA_DIR", "OIB_UPLOADS_DIR", "GRID_BASE_CORPUS_STORE"]) {
+        expect(env.find((e) => e.name === gone)).toBeUndefined();
+      }
+    }
+    expect(spec?.template?.spec.volumes ?? []).toEqual([]);
   });
 
   it("creates the scheduler even with Agent Skills off, because it is the run reconciler's clock", () => {

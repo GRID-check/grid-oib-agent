@@ -48,6 +48,10 @@ config:
   # `lightbits` is the VolumeSnapshotClass, not a StorageClass. All reclaim
   # `Delete` (PVC delete = data gone). Staging can use the cheaper single-replica.
   grid-oib:storageClass: single-replica
+  # The pre-A2 backend's data volume, which still holds the base corpus. The
+  # one-shot legacy-corpus-import Job carries it into SeaweedFS and the corpus
+  # table (ADR-0082 A2). Remove this key with the importer once it has run here.
+  grid-oib:legacyCorpusClaim: data-aiq-agent-0
   # ── Ingress / TLS ── One key moves every public host: app./s3./otel. derive
   # from baseDomain (per-host appDomain/s3Domain/otelDomain keys remain as overrides).
   grid-oib:baseDomain: dev.piloti.at
@@ -126,7 +130,6 @@ config:
   grid-oib:backendMaxActiveJobs: "4"
   grid-oib:backendMaxActiveJobsPerOrg: "2"
   grid-oib:backendIngestMaxWorkers: "2"
-  grid-oib:backendDataStorageSize: 10Gi
   # ── Research execution ──
   grid-oib:jobExecution: db
   # KEDA scales the tier on research_job_queue (ADR-0079): zero while no job waits.

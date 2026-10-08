@@ -18,7 +18,7 @@ their own namespaces.
 
 | Workload | k8s object | Replicas | Storage | Scales by |
 |---|---|---|---|---|
-| `aiq-agent` (agent web tier) | **StatefulSet** | 1 (dask) / N (db, default 2) | RWO PVC `/app/data` per replica | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4; with `chatAffinity: false` a KEDA ScaledObject on running turns, `backendReplicas`→`backendMaxReplicas` (§6.4b; prod stays at 1) |
+| `aiq-agent` (agent web tier) | **StatefulSet** | 1 (dask) / N (db, default 2) | none (no PVC; ADR-0082 step A2) | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4; with `chatAffinity: false` a KEDA ScaledObject on running turns, `backendReplicas`→`backendMaxReplicas` (§6.4b; prod stays at 1) |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | `frontendMinReplicas`→`frontendMaxReplicas` (default 2→6; prod and dev 1→3) | — | Horizontally (CPU HPA) |
 | `agent-worker` (research, `jobExecution: db`) | Deployment + KEDA ScaledObject | `agentWorkerMinReplicas`→`agentWorkerMaxReplicas` (default 1→8; prod 1→3, dev 0→3) | — | Horizontally, on `research_job_queue` depth (§6.3) |
 | `ingest-worker` (ingestion, `jobExecution: db`) | Deployment + KEDA ScaledObject | `ingestWorkerMinReplicas`→`ingestWorkerMaxReplicas` (default 1→5; prod 1→5, dev 0→3) | — | Horizontally, on `ingest_job_queue` depth; the ceiling is held to the provider budget (§6.3b, §6.3d) |
@@ -132,8 +132,7 @@ an object store. So:
   `lightbits` is the **VolumeSnapshotClass** name (driver
   `csi.lightbitslabs.com`), *not* a StorageClass — don't set `storageClass` to it.
 - **Only ReadWriteOnce** — no RWX. Every PVC here is RWO and each is mounted by a
-  single pod (Postgres, SeaweedFS, Chroma, and the agent's per-replica
-  `/app/data`), so this is a non-issue; just don't add an RWX volume expecting
+  single pod (Postgres, SeaweedFS, Chroma), so this is a non-issue; just don't add an RWX volume expecting
   shared mounts. Because the CSI is network-attached (NVMe/TCP), an RWO volume
   still re-attaches to a *replacement* node after a node loss.
 - **Reclaim policy is `Delete` on every class:** deleting a PVC destroys the
@@ -311,10 +310,11 @@ Then:
    `pulumi up` for a trusted cert.
 4. Verify: `kubectl -n grid get pods,pvc,httproute,gateway,cluster`.
 
-The base OIB corpus is **not** shipped in the image or from git — it is
-volume-based. Load it through the platform-admin upload UI once the stack is up;
-it persists on the agent's `/app/data` PVC and is embedded into Chroma on the
-fly.
+The base OIB corpus is **not** shipped in the image or from git. Load it through
+the platform-admin upload UI once the stack is up: the PDFs are stored in
+SeaweedFS, listed in a table in the knowledge database, and ingested into Chroma
+by the base-corpus housekeeping CronJob (every ten minutes; an upload also queues
+its own ingestion at once).
 
 ---
 
@@ -1289,16 +1289,38 @@ In `db` mode the `aiq-agent` web tier now runs `backendReplicas` replicas
   are not in the web replicas at all**: they run only as the `housekeeping-*`
   CronJobs, each a call to a one-cycle backend route (ADR-0082 step A1).
 
-It stays a StatefulSet (stable identity + a per-replica RWO PVC on Lightbits).
+It stays a StatefulSet, with no PVC: chat affinity hashes a conversation onto a
+pod ordinal (ADR-0028, ADR-0080), which needs the stable per-pod DNS and ordinals
+only a StatefulSet gives. It becomes a Deployment when the chat tier stops
+depending on that routing (ADR-0082).
 
-**One documented caveat — base-corpus admin upload.** The platform-owner
-base-corpus upload writes PDFs to a per-replica `OIB_UPLOADS_DIR`; the uploaded
-file (and a later re-sync of *that file*) lives only on the replica that
-received it. The vectors it produces are ingested into shared Chroma and are
-searchable from every replica, so **chat is unaffected** — only re-ingesting or
-removing that specific source PDF is replica-local. Route `OIB_UPLOADS_DIR`
-through SeaweedFS to make that admin flow fully replica-agnostic (scoped
-follow-up); high-traffic chat/retrieval does not need it.
+**The backend keeps no files (ADR-0082 step A2).** The base corpus is objects in
+SeaweedFS (`base-corpus/<file name>` in `SEAWEED_BUCKET`) plus one table,
+`oib_corpus_files`, in the knowledge database; the vectors are in the shared
+Chroma server, which is required (`chromaEnabled: false` fails the plan: an
+embedded store would be wiped at every restart). What a replica holds on disk is
+a cache of corpus files in `/tmp/base-corpus`, filled on demand and free to
+vanish, so every replica lists, serves, exports and re-ingests the same corpus
+and an upload is no longer lost to the replica that received it. What is
+not yet indexed becomes a job on the durable ingest queue, queued by an upload or
+by the `housekeeping-base-corpus` CronJob and run by the ingest-worker tier (the web
+pods claim where that tier does not run); there is no thread at boot and no
+ingestion in the web process. See [`oib-sync.md`](../technical-reference/oib-sync.md).
+
+**Rolling this out on a cluster that has the PVC.** The StatefulSet loses its
+`volumeClaimTemplates`, an immutable field, so the first `pulumi up` plans a
+**replace** of `aiq-agent` (delete-before-replace: a short outage of the chat
+tier). The old `data-aiq-agent-*` claims are retained by Kubernetes and nothing
+the new pods mount them. The `legacy-corpus-import` Job carries the corpus off
+`data-aiq-agent-0` instead: once the new StatefulSet and the frontend are up, it
+mounts the claim read-only and stores every operator PDF (minus the exclusions)
+and admin upload through the same path an admin upload takes
+(`aiq_agent.legacy_corpus_import`); the next `housekeeping-base-corpus` run
+queues their ingestion. It runs where the stack names the claim
+(`grid-oib:legacyCorpusClaim`, set in `Pulumi.prod.yaml` and `Pulumi.dev.yaml`;
+a fresh stack has none) and stores nothing on a rerun. Delete the old claims
+once the knowledge view lists the corpus; then remove the key, the Job and the
+importer.
 
 ### 6.4b Chat scale-out: affinity off, KEDA on running turns (ADR-0080)
 
@@ -1363,10 +1385,10 @@ What lives on a replica, and what that means for scale-in: the in-process socket
 registry, the clarifier future and the running LangGraph task belong to a turn
 that is running, and the drain waits for it. An idle conversation has none of
 them, and its checkpoints are in Postgres, so the next question on any replica
-picks it up. The data PVC holds only the base-corpus admin upload
-(`OIB_UPLOADS_DIR`, above); scale-in keeps the PVC (`whenScaled: Retain`), so
-that source PDF is unreachable while its ordinal is gone and returns with it.
-Chat never reads it.
+picks it up. A replica holds no files that matter: the corpus is in SeaweedFS and
+a table, and its cache of corpus files is rebuilt on demand, so no replica's
+disappearance makes a document unreachable. Chat reads the cache only through
+`view_knowledge_image`, which fetches a missing PDF on demand.
 
 ### 6.5 Frontend tier — what actually bounds it
 
@@ -1690,8 +1712,8 @@ Three things are true of this whole table and are easy to miss:
 - **Encryption at rest and encryption in transit are different questions.** A
   store can be authenticated and still speak cleartext on the wire.
 - **The PVCs underneath everything are the base layer.** If they are not
-  encrypted (see below), then "at rest" for Postgres, SeaweedFS, Chroma and the
-  agent's `/app/data` all bottom out at the same unencrypted disk.
+  encrypted (see below), then "at rest" for Postgres, SeaweedFS and Chroma all
+  bottom out at the same unencrypted disk.
 
 ### At rest
 

@@ -99,6 +99,7 @@ describe("the bff-jobs pool", () => {
       redisUrl: pulumi.output("redis://dragonfly:6379"),
       seaweedInternalEndpoint: pulumi.output("http://seaweedfs:8333"),
       seaweedPublicEndpoint: pulumi.output("https://s3.example.test"),
+      chromaUrl: pulumi.output("http://chroma:8000"),
       dsn: (opts: { db: string; clusterWide?: boolean }) => {
         dsnRequests.push({ db: opts.db, clusterWide: opts.clusterWide });
         return pulumi.output(`postgresql://x/${opts.db}`);

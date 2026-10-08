@@ -122,13 +122,11 @@ services:
       - SEAWEED_BUCKET=grid-documents
       # ── Knowledge base (shared Chroma server, ADR-0021) ──
       # Every replica and the agent-worker talk to ONE Chroma server over HTTP
-      # (the `chroma` service below), so the vector store is no longer pinned to a
-      # single container's disk — the precondition for db-mode workers. AIQ_CHROMA_DIR
-      # remains the embedded fallback, used only if AIQ_CHROMA_URL is unset (e.g.
-      # GRID_JOB_EXECUTION=dask). The OIB corpus is (re-)embedded into the server on
-      # first boot; keep AIQ_EMBED_MODEL stable so stored + query vectors match.
+      # (the `chroma` service below), so the vector store is not pinned to a
+      # single container's disk — the precondition for db-mode workers. There is no
+      # embedded fallback: the backend keeps no volume (ADR-0082). Keep
+      # AIQ_EMBED_MODEL stable so stored + query vectors match.
       - AIQ_CHROMA_URL=${AIQ_CHROMA_URL:-http://chroma:8000}
-      - AIQ_CHROMA_DIR=/app/data/chroma_data
       - COLLECTION_NAME=${COLLECTION_NAME:-oib_knowledge}
       - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
       # Allow the browser-facing frontend origin through the API's CORS filter.
@@ -140,9 +138,6 @@ services:
       # ── Ingestion / document extraction (match deploy/.env) ──
       # Tables, images and charts are extracted by default (AIQ_EXTRACT_*, on
       # unless set to false), so no flag is set here.
-      # Leave false in normal operation — true wipes the persistent Chroma volume
-      # and re-embeds the whole OIB corpus on every boot.
-      - OIB_FORCE_REINGEST=${OIB_FORCE_REINGEST:-false}
       # ── Misc runtime tuning (match deploy/.env) ──
       - DASK_DISTRIBUTED__LOGGING__DISTRIBUTED=${DASK_DISTRIBUTED__LOGGING__DISTRIBUTED:-warning}
       - PYTHONWARNINGS=${PYTHONWARNINGS:-ignore}
@@ -171,26 +166,17 @@ services:
       - AIQ_EXTERNAL_HOSTNAMES=${SERVICE_FQDN_FRONTEND}
     expose:
       - "8000"
-    volumes:
-      # Operator-provided OIB corpus; the directory ships empty
-      # (data/oib/README.md). An empty or absent corpus is not an error: the app
-      # boots and the sync logs a zero-file run until the platform owner uploads
-      # the PDFs through the admin UI or drops them in here.
-      - ./data/oib:/app/data/oib:ro
-      - aiq-data:/app/data
-      - chroma_data:/app/data/chroma_data
+    # No volumes: the base corpus lives in SeaweedFS and a table (ADR-0082), and
+    # an empty corpus is not an error — the platform owner uploads the PDFs
+    # through the admin UI, and the base-corpus housekeeping ingests them.
     depends_on:
-      aiq-data-permissions:
-        condition: service_completed_successfully
       seaweedfs:
         condition: service_healthy
       postgres:
         condition: service_healthy
       pgbouncer:
         condition: service_healthy
-      # Shared vector store must be up before the agent boots (it embeds the OIB
-      # corpus into it on first start). Only gates when db mode uses AIQ_CHROMA_URL;
-      # in dask mode chroma still runs but the embedded dir is used instead.
+      # Shared vector store must be up before the agent boots.
       chroma:
         condition: service_healthy
       # service_started, NOT service_healthy: the cache is optional by design
@@ -204,14 +190,6 @@ services:
       retries: 10
       start_period: 40s
     restart: unless-stopped
-
-  aiq-data-permissions:
-    image: alpine:3.20
-    command: ["sh", "-c", "chown -R 1000:1000 /app/data"]
-    volumes:
-      - aiq-data:/app/data
-      - chroma_data:/app/data/chroma_data
-    restart: "no"
 
   # ── Shared ChromaDB server (ADR-0021), the docker-compose mirror of the
   #    Kubernetes StatefulSet in deploy/pulumi/src/data/chroma.ts ──
@@ -236,9 +214,6 @@ services:
       # PersistentClient. The 1.5.9 server uses the SAME on-disk persist format,
       # so pointing its persist dir (/data) at that volume brings every existing
       # collection back with ZERO re-embedding — no migration script needed.
-      # (aiq-agent also mounts this volume at /app/data/chroma_data, but in db
-      # mode it talks to the server over HTTP and never opens the dir, so the
-      # server is the only writer.)
       - chroma_data:/data
     healthcheck:
       # The 1.x image is near-distroless (no python/curl), but ships bash — so
@@ -274,8 +249,6 @@ services:
       - GRID_RESEARCH_WORKERS=${GRID_RESEARCH_WORKERS:-1}
     # extends does NOT carry depends_on — declare the worker's own start ordering.
     depends_on:
-      aiq-data-permissions:
-        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       pgbouncer:
@@ -302,6 +275,31 @@ services:
       retries: 3
       start_period: 300s
     restart: unless-stopped
+
+  legacy-corpus-import:
+    # One-shot (ADR-0082 A2): carries the pre-A2 base corpus into SeaweedFS and
+    # the corpus table, so an upgrade re-uploads nothing by hand. It reads the
+    # old backend volume (`aiq-data`: admin uploads, exclusions) and the repo's
+    # data/oib (operator PDFs), both read-only, and stores what the corpus does
+    # not hold yet; the base-corpus housekeeping route then queues ingestion. A
+    # fresh install has an empty volume, and the run stores nothing. Remove this
+    # service, the `aiq-data` volume and aiq_agent/legacy_corpus_import.py
+    # together once every installation has run it.
+    extends:
+      service: aiq-agent
+    entrypoint: ["python", "-m", "aiq_agent.legacy_corpus_import"]
+    command: ["/legacy/data", "/legacy/oib"]
+    volumes:
+      - aiq-data:/legacy/data:ro
+      - ./data/oib:/legacy/oib:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: "no"
 
   seaweedfs:
     # SeaweedFS S3-compatible object storage (replaces MinIO). One
@@ -376,7 +374,7 @@ services:
         i=0; until echo 'cluster.ps' | weed shell -master=seaweedfs:9333 2>/dev/null | grep -q ':8888';
         do i=$$((i+1)); [ $$i -ge 60 ] && { echo 'the filer never registered with the master'; exit 1; }; sleep 1; done;
         echo 's3.bucket.create -name grid-documents' | weed shell -master=seaweedfs:9333 || true;
-        echo 's3.bucket.list' | weed shell -master=seaweedfs:9333 | grep -q grid-documents
+        echo 's3.bucket.list' | weed shell -master=seaweedfs:9333 | grep -qE '(^|[[:space:]])grid-documents[[:space:]]'
         || { echo 'bucket grid-documents missing after init'; exit 1; };
         echo 'bucket present: grid-documents'
     depends_on:
@@ -876,13 +874,11 @@ services:
     restart: unless-stopped
 
 volumes:
-  aiq-data:
-    driver: local
-  # The vector store. Written originally by the embedded chromadb 1.5.9
-  # PersistentClient (aiq-agent, /app/data/chroma_data) and now ALSO served by
-  # the `chroma` 1.5.9 server (mounted at /data) — same version, same on-disk
-  # format, so the existing corpus is reused with no re-embedding.
+  # The vector store, served by the `chroma` server (mounted at /data).
   chroma_data:
+    driver: local
+  # The pre-A2 backend volume, read once by legacy-corpus-import and by nothing else.
+  aiq-data:
     driver: local
   seaweedfs-data:
     driver: local
