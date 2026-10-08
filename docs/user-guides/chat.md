@@ -401,10 +401,11 @@ Stahlbeton, weil das Gutachten nur so die Abweichung zuließ"). These often
 say why, which a document rarely does. They come first in the answer, cited
 as „Projektgedächtnis · ‹Projekt›". Every source from another project names
 that project on its chip
-(„Detail Traufe · Wohnbau Graz"), says „Abgeschlossenes Projekt" when it is
-closed, and opens the document in that project. Piloti treats such a source as
-a precedent, not as a rule, and says when the regulations may have changed
-since.
+(„Detail Traufe · Wohnbau Graz"), and opens the document in that project. Its
+preview labels it „Präzedenzfall" rather than „Projektwissen", with that project's
+status („laufend" or „abgeschlossen") and its Bundesland, and warns when the Land
+is not this project's. Piloti treats such a source as a precedent, not as a
+rule, and says when the regulations may have changed since.
 
 What it may look at is decided by Piloti's server, never by the model, and by
 **everyone who reads the chat**, not just by you:

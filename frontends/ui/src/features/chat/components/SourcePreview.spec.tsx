@@ -640,3 +640,41 @@ describe('a document read at several pages', () => {
     expect(within(dialog).queryByText('Cited passage')).toBeNull()
   })
 })
+
+describe('a source from another project (ADR-0085)', () => {
+  // The chat's own project is 'project-1' (the store mock above).
+  const traufe = {
+    kind: 'projekt' as const,
+    content: '[KB] Detail Traufe.pdf (Wohnbau Graz), p.3\nDie Traufe ist hinterlüftet ausgeführt.',
+    citationKey: 'Detail Traufe.pdf (Wohnbau Graz), p.3',
+    fileName: 'Detail Traufe.pdf',
+  }
+
+  test('its popover says Precedent, where a file of the chat’s own project says Project knowledge', async () => {
+    const user = userEvent.setup()
+    render(
+      <SourcePreviewChip
+        citation={ref({ ...traufe, project: { id: 'project-9', name: 'Wohnbau Graz', status: 'closed' } })}
+      />
+    )
+
+    await user.click(await screen.findByRole('button', { name: /Preview source/ }))
+
+    expect(await screen.findByText('Precedent')).toBeInTheDocument()
+    expect(screen.queryByText('Project knowledge')).toBeNull()
+  })
+
+  test('a file named with the chat’s own project is still its own, and says Project knowledge', async () => {
+    const user = userEvent.setup()
+    render(
+      <SourcePreviewChip
+        citation={ref({ ...traufe, project: { id: 'project-1', name: 'Seestadt D12', status: 'active' } })}
+      />
+    )
+
+    await user.click(await screen.findByRole('button', { name: /Preview source/ }))
+
+    expect(await screen.findByText('Project knowledge')).toBeInTheDocument()
+    expect(screen.queryByText('Precedent')).toBeNull()
+  })
+})

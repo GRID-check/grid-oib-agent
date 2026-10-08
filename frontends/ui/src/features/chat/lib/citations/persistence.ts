@@ -82,7 +82,14 @@ const wireSourceSchema = z
      */
     regions: z.array(z.unknown()).nullish(),
     /** The other project a cross-project lookup found it in (ADR-0085); validated by `projectFromWire`. */
-    project: z.object({ id: z.string(), name: z.string(), status: z.string() }).nullish(),
+    project: z
+      .object({
+        id: z.string(),
+        name: z.string(),
+        status: z.string(),
+        landNote: z.string().nullish(),
+      })
+      .nullish(),
     /** Whether the answer cited this source, as opposed to merely retrieving it. */
     is_cited: z.boolean().nullish(),
   })

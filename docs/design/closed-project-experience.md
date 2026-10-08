@@ -116,12 +116,13 @@ Response:
 
 * `project_lookup` find and brief print a project's Bundesland and the OIB
   edition it was planned under, marked „aus den Unterlagen, unbestätigt" when
-  only suggested. A decision line says „aus den Unterlagen erschlossen (Datei,
-  S. n)" for a source-grounded row.
-* A hit from another project carries the lane „Präzedenz" within the kind
-  `projekt` (`common/source_kinds.py`, mirrored in
-  `features/chat/lib/source-kinds.ts`), and the prompt asks an answer that
-  uses one to keep Norm, Büro and Präzedenz apart.
+  only suggested. A decision line says „aus den Unterlagen erschlossen: Datei
+  S. n" for a source-grounded row.
+* A hit from another project stays kind `projekt`; what marks it is the
+  project it carries (`SourceProject`, on the wire `{id, name, status,
+  landNote}`). The answer's source chips label it „Präzedenzfall" with the
+  project's status and Bundesland (`features/chat/lib/precedent.ts`), and the
+  prompt asks an answer that uses one to keep Norm, Büro and Präzedenz apart.
 * `/app/projects/{id}/referenzen` shows a person the closed projects most like
   this one that they may open, with what they share, their Auflagen and their
   decisions, under the same access rules as the agent.

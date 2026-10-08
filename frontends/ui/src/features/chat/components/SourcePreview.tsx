@@ -62,6 +62,7 @@ import type { SourceTint } from '@/features/layout/lib/source-presets'
 import { useChatStore } from '../store'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { CitationPeek } from './CitationPeek'
+import { isPrecedent } from '../lib/precedent'
 import { CopySourceCitationButton } from './CopyCitation'
 import { toQuoteList } from '../lib/source-citation'
 import { CopyCitationLinkButton } from './CopyCitationLink'
@@ -1382,6 +1383,8 @@ const InfoPreviewChip: FC<{
    * it showed a RIS badge and a Baurecht lane — the same source, contradicted.
    */
   kind: SourceKind
+  /** A precedent from another project (ADR-0085): its kind line says „Präzedenzfall“, not the coarse kind's label. */
+  precedent?: boolean
   /** Outbound link (RIS sources) shown as an "open" button inside the popover. */
   url?: string
   className?: string
@@ -1416,6 +1419,7 @@ const InfoPreviewChip: FC<{
   citation,
   trailing,
   kind,
+  precedent,
   detail,
   onDownload,
   downloadPending,
@@ -1445,7 +1449,9 @@ const InfoPreviewChip: FC<{
       </button>
       <HoverPeekPanel peek={peek} className="w-80 space-y-2 p-3">
         <div className="flex flex-wrap items-center gap-1.5">
-          <SourceSignalChip signal={signal}>{t(`sourcePreview.kinds.${kind}`)}</SourceSignalChip>
+          <SourceSignalChip signal={signal}>
+            {t(precedent ? 'sourcePreview.kinds.praezedenz' : `sourcePreview.kinds.${kind}`)}
+          </SourceSignalChip>
           {tier && <span className="text-muted-foreground text-xs font-medium">{tier}</span>}
         </div>
         {/* The written source list's payload, one click away: the citation
@@ -1560,6 +1566,7 @@ export interface SourcePreviewChipProps {
 export const documentProjectId = (doc: CitedDocument, chatProjectId: string | null): string | null =>
   doc.project?.id ?? chatProjectId
 
+
 /** A chip's label: the document, and the other project it is from when it is from one (ADR-0085). */
 export const citationLabel = (doc: CitedDocument): string =>
   doc.project?.name ? `${doc.title} · ${doc.project.name}` : doc.title
@@ -1609,6 +1616,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
       : resolved
 
   const label = citationLabel(doc)
+  const precedent = isPrecedent(doc, projectId)
   // A chip stands for a DOCUMENT, so it names every marker that document
   // carries — "2, 7", not an arbitrary one of them. A chip narrowed to a locus
   // names only that locus's marker.
@@ -1627,6 +1635,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
     trailing,
     detail,
     kind: doc.kind,
+    precedent,
   }
 
   if (target.kind === 'url') {
