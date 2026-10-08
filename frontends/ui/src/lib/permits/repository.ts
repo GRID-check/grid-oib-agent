@@ -39,7 +39,6 @@ import {
 import { contentTokens, jaccardSimilarity, normalizeContentGerman } from '@/lib/knowledge/consolidation'
 import { cosineSimilaritySql, embedNote, type EmbeddedNote } from '@/lib/knowledge/embeddings'
 import { fuseHybridRelevance } from '@/lib/knowledge/recall-scoring'
-import { memoryVisibleTo } from '@/lib/projects/memory-service'
 import type { LiveFolderAccess } from './live-access'
 
 /** How many records one search returns at most: the wire's bound, so the two cannot drift. */
@@ -380,15 +379,15 @@ export interface ListedPermitRecord {
 }
 
 /**
- * The newest permit records of one project a reader may see (the restricted
- * ones only for `readableFolderIds`, judged as memory is), each with its first
+ * The newest permit records of one project a reader may see (judged from each
+ * document's live folder, `visibleFolderIds` from `liveFolderAccess`), each with its first
  * `maxPerRecord` requirements in document order. Both bounds are applied in SQL:
  * the requirements are ranked per record, so a long Bescheid cannot widen the read.
  */
 export async function listPermitRecordsForProject(
   organizationId: string,
   projectId: string,
-  readableFolderIds: readonly string[],
+  visibleFolderIds: readonly string[] | null,
   { maxRecords, maxPerRecord }: { maxRecords: number; maxPerRecord: number }
 ): Promise<ListedPermitRecord[]> {
   const db = getDb()
@@ -407,7 +406,7 @@ export async function listPermitRecordsForProject(
       and(
         eq(permitRecords.organizationId, organizationId),
         eq(permitRecords.projectId, projectId),
-        memoryVisibleTo(readableFolderIds, permitRecords.restrictedFolderIds),
+        servedFrom(visibleFolderIds),
         documentServesItsRecord
       )
     )
@@ -436,8 +435,8 @@ export async function listPermitRecordsForProject(
           inArray(
             permitRequirements.recordId,
             records.map((record) => record.id)
-          ),
-          memoryVisibleTo(readableFolderIds, permitRequirements.restrictedFolderIds)
+          )
+          // Their records were judged above; a requirement goes where its record goes.
         )
       )
   )

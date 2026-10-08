@@ -521,8 +521,12 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
   })
 
   describe('a project’s records as its reader sees them', () => {
+    // As the page asks: the reader's cleared folders, judged against each document's live folder.
     const list = (projectId: string, readable: string[], options = { maxRecords: 20, maxPerRecord: 4 }) =>
-      inOrg(ORG, () => repo.listPermitRecordsForProject(ORG, projectId, readable, options))
+      inOrg(ORG, async () => {
+        const access = await live.liveFolderAccess(ORG, projectId, readable)
+        return repo.listPermitRecordsForProject(ORG, projectId, access.visibleFolderIds, options)
+      })
 
     it('lists only open records to a reader cleared for none of the folders, each with its requirements in document order', async () => {
       const open = await list(ids.moedling, [])
@@ -575,7 +579,9 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
       )
 
       const change = (statement: ReturnType<typeof sql>) => inOrg(ORG, () => db.execute(statement))
-      await change(sql`update documents set collection_name = ${`proj_prm_${own}_r0123456789ab`} where id = ${moved}::uuid`)
+      // Moved into a folder with its own list; placement has not re-pointed its collection yet.
+      const restricted = await customFolder(own, `Vertraulich_list_${STAMP}`)
+      await change(sql`update documents set folder_id = ${restricted}::uuid where id = ${moved}::uuid`)
       const [folder] = await change(sql`
         insert into project_folders (organization_id, project_id, name, path)
         values (${ORG}, ${own}::uuid, ${`Bin_list_${STAMP}`}, ${`Bin_list_${STAMP}`}) returning id`)
