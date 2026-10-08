@@ -26,11 +26,13 @@ import {
   runReindexSlice,
   runReingestFailedSlice,
 } from '@/lib/documents/service'
+import { runMailImportSlice } from '@/lib/mail-import/job'
 import { runReportFilingJob } from '@/lib/tasks/service'
 import { isLastAttempt } from './attempts'
 import {
   bimExtractPayloadSchema,
   fileResearchReportPayloadSchema,
+  mailImportPayloadSchema,
   officeRenditionPayloadSchema,
   reindexProjectPayloadSchema,
   reingestFailedPayloadSchema,
@@ -93,6 +95,20 @@ function systemHandler<TPayload extends object>(
   }
 }
 
+/**
+ * The mail import's walk. Not {@link handler}, for two reasons it does not
+ * share with the reindex walks: a requester who left must END the import with
+ * a reason (it is a row the person sees, not a quiet no-op), and the slice has
+ * to know when its attempt is the last, so a failing archive ends `failed`
+ * instead of reading `importing` after the queue gave up.
+ */
+const mailImportHandler: JobHandler = async ({ organizationId, payload, attempts }) => {
+  const parsed = mailImportPayloadSchema.parse(payload)
+  const { userId, email } = parsed.requester
+  const session = await resolvePinnedRequesterSession({ userId, email, organizationId })
+  return runMailImportSlice(session, parsed, { last: isLastAttempt(attempts) }, organizationId)
+}
+
 /** One handler per kind; the record's type makes a kind without one a compile error. */
 export const JOB_HANDLERS: Record<BffJobKind, JobHandler> = {
   reindex_project: handler(reindexProjectPayloadSchema, runReindexSlice),
@@ -100,4 +116,5 @@ export const JOB_HANDLERS: Record<BffJobKind, JobHandler> = {
   bim_extract: systemHandler(bimExtractPayloadSchema, runBimExtractJob),
   office_rendition: systemHandler(officeRenditionPayloadSchema, runOfficeRenditionJob),
   file_research_report: systemHandler(fileResearchReportPayloadSchema, runReportFilingJob),
+  mail_import: mailImportHandler,
 }

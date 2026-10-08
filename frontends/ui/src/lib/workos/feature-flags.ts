@@ -79,6 +79,21 @@ async function enabledSlugsForOrg(organizationId: string): Promise<Set<string>> 
 }
 
 /**
+ * Every flag enabled for `organizationId`, for a session built without a token
+ * (`lib/auth/pinned-session.ts`): the set a live session's JWT claim would
+ * carry. Fails closed to none, like {@link isOrgFeatureEnabled} does per flag.
+ */
+export async function enabledFlagsForOrganization(organizationId: string): Promise<string[]> {
+  if (!process.env.WORKOS_API_KEY) return []
+  try {
+    return [...(await enabledSlugsForOrg(organizationId))]
+  } catch (error) {
+    console.warn(`[FeatureFlags] listing the flags of ${organizationId} failed; treating none as on`, error)
+    return []
+  }
+}
+
+/**
  * Whether `slug` is enabled for `organizationId`. Returns `defaultValue` when
  * there is no org, no WorkOS API key, or evaluation fails (fail-closed).
  */

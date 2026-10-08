@@ -69,6 +69,13 @@ export interface DeleteFolderResult {
 const folderOnShelf = (shelf: DocumentShelf, organizationId: string, folderId: string) =>
   and(eq(projectFolders.id, folderId), shelfFolderWhere(shelf, organizationId))
 
+/**
+ * The answer when a sibling folder already has the name. A constant, because a
+ * caller that picks the next free name (the mail import's ` (2)`) has to tell
+ * this refusal from every other one.
+ */
+export const FOLDER_NAME_TAKEN = 'A folder with this name already exists here.'
+
 /** One folder of the shelf, or `undefined` — another shelf's or tenant's folder id is simply not found. */
 export async function findShelfFolder(
   shelf: DocumentShelf,
@@ -134,7 +141,7 @@ export async function createShelfFolder(
    * what keeps that true at the surface the human touches: the same rejection
    * arrives as the validation result the caller already knows how to render.
    */
-  if ('conflict' in inserted) return { ok: false, error: 'A folder with this name already exists here.' }
+  if ('conflict' in inserted) return { ok: false, error: FOLDER_NAME_TAKEN }
   return { ok: true, folder: toFolderRow(inserted.row) }
 }
 
@@ -378,7 +385,7 @@ async function getOrCreateChild(
   // into it rather than failing an upload nobody did anything wrong in.
   const winner = await findSibling(db, shelf, organizationId, parent?.id ?? null, name)
   if (winner) return { ok: true, folder: toFolderRow(winner) }
-  return { ok: false, error: 'A folder with this name already exists here.' }
+  return { ok: false, error: FOLDER_NAME_TAKEN }
 }
 
 /**
