@@ -139,6 +139,9 @@ describe.skipIf(!url)('Ausmisten against Postgres', () => {
 
   afterAll(async () => {
     vi.unstubAllGlobals()
+    // The restore below queues a `restore_folder_bin` job in this lane, and the
+    // job-queue suites claim across lanes: leave none of ours behind for them.
+    await inOrg(() => db.execute(sql`DELETE FROM bff_job_queue WHERE lane = ${ORG}`))
     await inOrg(() => db.execute(sql`DELETE FROM deletion_queue WHERE organization_id = ${ORG}`))
     await inOrg(() => db.execute(sql`DELETE FROM documents WHERE organization_id = ${ORG}`))
     await inOrg(() => db.execute(sql`DELETE FROM projects WHERE organization_id = ${ORG}`))
