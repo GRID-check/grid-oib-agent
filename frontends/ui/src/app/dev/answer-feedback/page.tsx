@@ -23,13 +23,55 @@
  * that ships whoever captures it.
  */
 
+import { useState } from 'react'
 import { notFound } from 'next/navigation'
 
 import { AnswerFeedback } from '@/features/chat/components/AnswerFeedback'
 import { AnswerFeedbackHealth } from '@/features/platform/components/answer-feedback-health'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { I18nProvider } from '@/i18n'
 
-const ago = (minutes: number): string => new Date(Date.parse('2026-07-30T10:00:00Z') - minutes * 60_000).toISOString()
+const ago = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString()
+
+/**
+ * The trend fills its window back from TODAY, so the fixture's days are
+ * relative too: dated fixtures fell out of the window and the chart rendered
+ * as "not enough days" in every capture taken a month later.
+ */
+const daysAgo = (n: number): string =>
+  new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10)
+
+const DAILY_SHAPE: [number, number, number][] = [
+  [29, 7, 3],
+  [28, 8, 3],
+  [27, 5, 1],
+  [26, 5, 1],
+  [25, 2, 0],
+  [24, 7, 1],
+  [23, 9, 2],
+  [20, 7, 1],
+  [19, 10, 1],
+  [18, 5, 1],
+  [17, 2, 0],
+  [16, 10, 1],
+  [15, 7, 1],
+  [14, 6, 1],
+  [13, 6, 1],
+  [12, 8, 1],
+  [11, 6, 1],
+  [10, 7, 1],
+  [8, 5, 1],
+  [7, 7, 1],
+  [6, 9, 2],
+  [5, 11, 1],
+  [4, 11, 1],
+  [3, 7, 1],
+  [2, 8, 0],
+  [1, 8, 1],
+  [0, 9, 1],
+]
+
+const TRACE = (id: string): string => `https://cloud.langfuse.com/project/piloti-prod/traces/${id}`
 
 const FIXTURE = {
   windowDays: 30,
@@ -40,42 +82,29 @@ const FIXTURE = {
   reasons: [
     { reason: 'inaccurate', count: 11 },
     { reason: 'wrong_source', count: 5 },
-    { reason: 'other', count: 3 },
+    // A NULL reason and an explicit 'other' both mean "other": the bar adds them.
+    { reason: 'other', count: 2 },
+    { reason: null, count: 1 },
   ],
-  daily: [
-    { day: '2026-07-01', up: 7, down: 3 },
-    { day: '2026-07-02', up: 8, down: 3 },
-    { day: '2026-07-03', up: 5, down: 1 },
-    { day: '2026-07-04', up: 5, down: 1 },
-    { day: '2026-07-05', up: 2, down: 0 },
-    { day: '2026-07-06', up: 7, down: 1 },
-    { day: '2026-07-07', up: 9, down: 2 },
-    { day: '2026-07-10', up: 7, down: 1 },
-    { day: '2026-07-11', up: 10, down: 1 },
-    { day: '2026-07-12', up: 5, down: 1 },
-    { day: '2026-07-13', up: 2, down: 0 },
-    { day: '2026-07-14', up: 10, down: 1 },
-    { day: '2026-07-15', up: 7, down: 1 },
-    { day: '2026-07-16', up: 6, down: 1 },
-    { day: '2026-07-17', up: 6, down: 1 },
-    { day: '2026-07-18', up: 8, down: 1 },
-    { day: '2026-07-19', up: 6, down: 1 },
-    { day: '2026-07-20', up: 7, down: 1 },
-    { day: '2026-07-22', up: 5, down: 1 },
-    { day: '2026-07-23', up: 7, down: 1 },
-    { day: '2026-07-24', up: 9, down: 2 },
-    { day: '2026-07-25', up: 11, down: 1 },
-    { day: '2026-07-26', up: 11, down: 1 },
-    { day: '2026-07-27', up: 7, down: 1 },
-    { day: '2026-07-28', up: 8, down: 0 },
-    { day: '2026-07-29', up: 8, down: 1 },
-    { day: '2026-07-30', up: 9, down: 1 },
-  ],
+  daily: DAILY_SHAPE.map(([n, up, down]) => ({ day: daysAgo(n), up, down })),
   organizations: [
-    { organizationId: 'org_arch_buero', up: 120, down: 17, voters: 28 },
+    {
+      organizationId: 'org_arch_buero',
+      organizationName: 'Architekturbüro Hofer & Partner',
+      up: 120,
+      down: 17,
+      voters: 28,
+    },
     // Deliberately below the floor: one vote either way is 0% or 100%, which
     // would otherwise sort near the top looking like a verdict.
-    { organizationId: 'org_planwerk', up: 1, down: 1, voters: 1 },
+    {
+      organizationId: 'org_planwerk',
+      organizationName: 'Planwerk Graz',
+      up: 1,
+      down: 1,
+      voters: 1,
+    },
+    // No name from the server: the row falls back to the id, in mono.
     { organizationId: 'org_stadtplan', up: 7, down: 1, voters: 3 },
   ],
   topics: [
@@ -90,6 +119,7 @@ const FIXTURE = {
     {
       id: 'f-1',
       organizationId: 'org_arch_buero',
+      organizationName: 'Architekturbüro Hofer & Partner',
       projectId: null,
       conversationId: 'c-atrium',
       messageId: 'm-1',
@@ -99,12 +129,18 @@ const FIXTURE = {
       question: 'Gilt die 40-m-Grenze für Fluchtweglängen auch für das nördliche Treppenhaus?',
       answer:
         'Die maximale Fluchtweglänge beträgt 40 m. Für das nördliche Treppenhaus gilt dieselbe Grenze, da es als notwendiger Treppenraum ausgeführt ist.',
-      conversationTitle: 'Atrium — Rauchabschnitte GK 4',
+      conversationTitle: 'Atrium, Rauchabschnitte GK 4',
       topics: ['brandschutz'],
+      comment:
+        'Das nördliche Treppenhaus ist ein Sicherheitstreppenhaus, da gilt eine andere Regel.',
+      expectedAnswer:
+        'Bei Sicherheitstreppenhäusern darf die Fluchtweglänge laut OIB-RL 2, Punkt 5.1.3 bis zu 50 m betragen.',
+      langfuseTraceUrl: TRACE('7c1e2f04a9'),
     },
     {
       id: 'f-2',
       organizationId: 'org_arch_buero',
+      organizationName: 'Architekturbüro Hofer & Partner',
       projectId: null,
       conversationId: 'c-brand',
       messageId: 'm-2',
@@ -115,10 +151,14 @@ const FIXTURE = {
       answer: 'Das ist in OIB-Richtlinie 2 geregelt, Punkt 3.1.',
       conversationTitle: 'Brandabschnitte',
       topics: ['brandschutz', 'allgemein'],
+      comment: null,
+      expectedAnswer: 'OIB-RL 2, Tabelle 1b, nicht Punkt 3.1.',
+      langfuseTraceUrl: TRACE('b31d9e6c20'),
     },
     {
       id: 'f-3',
       organizationId: 'org_planwerk',
+      organizationName: 'Planwerk Graz',
       projectId: null,
       conversationId: null,
       messageId: 'm-unpersisted',
@@ -131,8 +171,13 @@ const FIXTURE = {
       answer: null,
       conversationTitle: null,
       topics: [],
+      comment: null,
+      expectedAnswer: null,
+      // No trace either: the Langfuse button must not appear for this one.
+      langfuseTraceUrl: null,
     },
   ],
+  langfuse: { projectUrl: 'https://cloud.langfuse.com/project/piloti-prod' },
 }
 
 /** The praised half, served when the drill-in is switched to `verdict=up`. */
@@ -140,6 +185,7 @@ const LANDED = [
   {
     id: 'g-1',
     organizationId: 'org_arch_buero',
+    organizationName: 'Architekturbüro Hofer & Partner',
     projectId: null,
     conversationId: 'c-u-wert',
     messageId: 'm-11',
@@ -149,8 +195,11 @@ const LANDED = [
     question: 'Welcher U-Wert gilt für Außenwände bei einer thermischen Sanierung im Bestand?',
     answer:
       'Für Außenwände gegen Außenluft fordert OIB-Richtlinie 6 einen U-Wert von höchstens 0,35 W/(m²·K); im Bestand gilt dieser Wert bei einer größeren Renovierung.',
-    conversationTitle: 'Sanierung Gründerzeit — Wärmeschutz',
+    conversationTitle: 'Sanierung Gründerzeit, Wärmeschutz',
     topics: ['energie'],
+    comment: null,
+    expectedAnswer: null,
+    langfuseTraceUrl: TRACE('e90a11c7d2'),
   },
   {
     id: 'g-2',
@@ -164,7 +213,7 @@ const LANDED = [
     question: 'Ab wann ist ein Aufzug barrierefrei erforderlich?',
     answer:
       'OIB-Richtlinie 4 verlangt einen Aufzug, sobald mehr als eine Geschoßebene barrierefrei erschlossen werden muss.',
-    conversationTitle: 'Wohnbau Nord — Erschließung',
+    conversationTitle: 'Wohnbau Nord, Erschließung',
     topics: ['barrierefreiheit'],
   },
 ]
@@ -179,7 +228,7 @@ const DIGEST = {
     ],
     concerns: [
       'Die meisten negativen Bewertungen betreffen Fluchtweg- und Brandabschnittsfragen und sind als „ungenau" begründet.',
-      'Fast alle negativen Stimmen stammen aus einer einzigen Organisation — die Quote der übrigen ist unauffällig.',
+      'Fast alle negativen Stimmen stammen aus einer einzigen Organisation, die Quote der übrigen ist unauffällig.',
     ],
     recommendation:
       'Die als ungenau markierten Brandschutz-Antworten durchsehen und prüfen, ob die zitierte Stelle der OIB-Richtlinie 2 jeweils die richtige ist.',
@@ -198,7 +247,10 @@ const DIGEST = {
  * one page in five different states — no props, no test hooks, the same code
  * path a real answer takes.
  */
-const TURN_STATES: Record<string, { messageId: string; verdict: string; reason: string | null; comment: string | null }[]> = {
+const TURN_STATES: Record<
+  string,
+  { messageId: string; verdict: string; reason: string | null; comment: string | null }[]
+> = {
   'af-rest': [],
   'af-up': [{ messageId: 'af-msg', verdict: 'up', reason: null, comment: null }],
   'af-down': [{ messageId: 'af-msg', verdict: 'down', reason: null, comment: null }],
@@ -233,8 +285,22 @@ if (typeof window !== 'undefined') {
       })
     }
     if (url.includes('/api/platform/answer-feedback')) {
-      const landed = url.includes('verdict=up')
-      return new Response(JSON.stringify({ ...FIXTURE, turns: landed ? LANDED : FIXTURE.turns }), {
+      // Enough of the server's filtering that every control in the preview does
+      // something visible: the window trims the days, the drill-in filters trim
+      // the rows. The aggregates stay whole, which is what the server does for
+      // reason and free text.
+      const params = new URL(url, 'http://x').searchParams
+      const windowDays = Number(params.get('days') ?? 30)
+      const q = (params.get('q') ?? '').toLowerCase()
+      const turns = (params.get('verdict') === 'up' ? LANDED : FIXTURE.turns).filter(
+        (turn) =>
+          (!params.get('reason') || turn.reason === params.get('reason')) &&
+          (!params.get('org') || turn.organizationId === params.get('org')) &&
+          (!params.get('topic') || (turn.topics as string[]).includes(params.get('topic') ?? '')) &&
+          (!q || `${turn.question ?? ''} ${turn.answer ?? ''}`.toLowerCase().includes(q))
+      )
+      const daily = FIXTURE.daily.filter((point) => point.day >= daysAgo(windowDays - 1))
+      return new Response(JSON.stringify({ ...FIXTURE, windowDays, daily, turns }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
@@ -291,6 +357,10 @@ const FOOTNOTE_STATES = [
 ] as const
 
 export default function AnswerFeedbackPreviewPage() {
+  // The window belongs to the page (the quality workspace); this stands in for
+  // its control so the preview exercises the `days` prop the way the page does.
+  const [days, setDays] = useState(30)
+
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
@@ -299,35 +369,53 @@ export default function AnswerFeedbackPreviewPage() {
     <I18nProvider initialLocale="de" fixedLocale>
       <main
         data-testid="answer-feedback-preview"
-        className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6 md:p-8"
+        className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-4 py-6 md:px-8 md:py-8"
       >
-        <header>
-          <h1 className="text-xl font-semibold tracking-tight">Antwort-Feedback</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Was Nutzer von ihren Antworten hielten — was gelungen ist, was nicht, und die Fragen dahinter.
-          </p>
-        </header>
+        <section className="flex flex-col gap-4">
+          <header className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-semibold tracking-tight">Antwort-Feedback</h1>
+              <p className="text-muted-foreground mt-1 text-sm">
+                Plattform → Antwortqualität → Bewertungen, aus Fixtures.
+              </p>
+            </div>
+            <ToggleGroup
+              type="single"
+              size="sm"
+              value={String(days)}
+              onValueChange={(value) => value && setDays(Number(value))}
+              aria-label="Zeitraum"
+            >
+              {[7, 30, 90].map((option) => (
+                <ToggleGroupItem key={option} value={String(option)}>
+                  {option} Tage
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </header>
+          <AnswerFeedbackHealth days={days} />
+        </section>
 
         <section data-testid="answer-feedback-states" className="space-y-3">
-          <h2 className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+          <h2 className="text-muted-foreground text-[10.5px] font-medium uppercase tracking-wider">
             Die Fußnote unter der Antwort — jeder Zustand
           </h2>
           <div className="grid gap-3 md:grid-cols-2">
             {FOOTNOTE_STATES.map((state) => (
               <div
                 key={state.id}
-                className={`flex flex-col gap-2 rounded-lg border bg-card p-4 ${state.wide ? 'md:col-span-2' : ''}`}
+                className={`bg-card flex flex-col gap-2 rounded-lg border p-4 ${state.wide ? 'md:col-span-2' : ''}`}
               >
-                <p className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+                <p className="text-muted-foreground text-[10.5px] font-medium uppercase tracking-wider">
                   {state.label}
                 </p>
-                <div className="rounded-lg border bg-background px-4 py-3">
-                  <p className="text-sm leading-relaxed text-foreground">{state.answer}</p>
+                <div className="bg-background rounded-lg border px-4 py-3">
+                  <p className="text-foreground text-sm leading-relaxed">{state.answer}</p>
                   <div className="mt-2.5">
                     <AnswerFeedback messageId="af-msg" conversationId={state.id} />
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">{state.caption}</p>
+                <p className="text-muted-foreground text-xs">{state.caption}</p>
               </div>
             ))}
 
@@ -339,13 +427,13 @@ export default function AnswerFeedbackPreviewPage() {
                 on a row that no longer exists, and the open disclosure — the
                 state that actually broke the footer's layout — was never on it.
                 The real thing, in the real card, is one route away. */}
-            <div className="flex flex-col gap-2 rounded-lg border bg-card p-4">
-              <p className="text-[10.5px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="bg-card flex flex-col gap-2 rounded-lg border p-4">
+              <p className="text-muted-foreground text-[10.5px] font-medium uppercase tracking-wider">
                 Kompakt — in der Meta-Zeile der Antwort
               </p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
+              <p className="text-muted-foreground text-xs leading-relaxed">
                 Die Fußnote in der echten Antwort-Fußzeile, in Ruhe und offen:{' '}
-                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+                <code className="bg-muted rounded px-1 py-0.5 font-mono text-[11px]">
                   /dev/chat-turn?variant=feedback-open
                 </code>
                 . Hier steht die Komponente für sich — die Zeile, die sie tragen muss, steht dort.
@@ -353,8 +441,6 @@ export default function AnswerFeedbackPreviewPage() {
             </div>
           </div>
         </section>
-
-        <AnswerFeedbackHealth />
       </main>
     </I18nProvider>
   )
