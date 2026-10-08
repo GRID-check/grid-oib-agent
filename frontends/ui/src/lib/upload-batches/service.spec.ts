@@ -49,6 +49,8 @@ import {
 } from './repository'
 import {
   acceptedUploadBatchId,
+  findJobUploadBatch,
+  sealJobUploadBatch,
   getUploadSummary,
   listProjectUploadHistory,
   openUploadBatch,
@@ -171,6 +173,38 @@ describe('sealOwnUploadBatch', () => {
   it("does not let anyone else seal it", async () => {
     vi.mocked(findUploadBatch).mockResolvedValue(batch({ createdBy: 'someone-else' }))
     await expect(sealOwnUploadBatch(session, BATCH_ID, { unchanged: 0, failed: 0 })).rejects.toBeInstanceOf(NotFoundError)
+    expect(sealUploadBatch).not.toHaveBeenCalled()
+  })
+})
+
+describe('sealJobUploadBatch', () => {
+  it('seals a job\'s open batch announcing the documents that carry it, then settles it', async () => {
+    vi.mocked(findUploadBatch).mockResolvedValue(batch({ expectedCount: 0 }))
+    vi.mocked(countBatchDocumentsByStatus).mockResolvedValue([
+      { batchId: BATCH_ID, status: 'pending', count: 3 },
+      { batchId: BATCH_ID, status: 'completed', count: 4 },
+    ])
+    vi.mocked(sealUploadBatch).mockResolvedValue(true)
+
+    await sealJobUploadBatch('org-1', BATCH_ID, 'uploader')
+
+    expect(sealUploadBatch).toHaveBeenCalledWith(
+      'org-1',
+      BATCH_ID,
+      'uploader',
+      { unchanged: 0, failed: 0, expected: 7 },
+      expect.any(Date)
+    )
+    expect(settleUploadBatches).toHaveBeenCalledWith('org-1', [BATCH_ID])
+  })
+
+  it('leaves a sealed, missing or foreign batch alone, and tells them apart', async () => {
+    vi.mocked(findUploadBatch).mockResolvedValueOnce(batch({ sealedAt: new Date() }))
+    await sealJobUploadBatch('org-1', BATCH_ID, 'uploader')
+    vi.mocked(findUploadBatch).mockResolvedValueOnce(null)
+    expect(await findJobUploadBatch('org-1', BATCH_ID, 'uploader')).toEqual({ status: 'missing' })
+    vi.mocked(findUploadBatch).mockResolvedValueOnce(batch({ createdBy: 'someone-else' }))
+    expect(await findJobUploadBatch('org-1', BATCH_ID, 'uploader')).toEqual({ status: 'foreign' })
     expect(sealUploadBatch).not.toHaveBeenCalled()
   })
 })
