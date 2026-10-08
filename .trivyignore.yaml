@@ -116,6 +116,25 @@ vulnerabilities:
       2026-10-08 (tags listed, 5,243 total). Re-check on every Langfuse bump and
       drop this entry when an image ships @modelcontextprotocol/sdk >= 1.31.0.
 
+  # ── ClickHouse (Langfuse telemetry store) ─────────────────────────────────
+  #
+  # Pinned at 26.8.15.10 LTS in deploy/pulumi/src/config.ts. The newest 26.8
+  # release published on Docker Hub, 26.8.20.9, still ships libssl3
+  # 3.0.2-0ubuntu1.29; its openssl package is 1.30. So no bump clears it yet.
+
+  - id: CVE-2026-84782
+    expired_at: 2026-11-08
+    statement: |
+      OpenSSL (libssl3 and openssl, Ubuntu 22.04), information disclosure via
+      DTLS handshake retransmission. Fixed in 3.0.2-0ubuntu1.30.
+
+      The defect is in DTLS, the UDP form of TLS. Its only network path is TCP:
+      deploy/pulumi/src/platform/network-policies.ts allows the HTTP and native
+      ports (TCP) and nothing else into ClickHouse, and only from Langfuse.
+      Not verified: whether the image's ClickHouse build links or enables a
+      DTLS listener. Drop when a ClickHouse 26.8 build ships libssl3 >=
+      3.0.2-0ubuntu1.30, and re-check on every bump.
+
   # ── err2issue (ADR-0031) ──────────────────────────────────────────────────
   #
   # Digest-pinned in deploy/pulumi/src/config.ts. Eight findings from its Debian
