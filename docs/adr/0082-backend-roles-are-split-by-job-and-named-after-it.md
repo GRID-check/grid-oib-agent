@@ -96,7 +96,8 @@ Option 2 was rejected: it multiplies builds, scans and cached layers for a size
 saving nobody has measured. Role-scoped boot (each role builds only what it
 uses) is the lever for cold start, to be pulled once cold start is measured.
 `grid.boot.phase_seconds{role,phase}` measures it
-(`aiq_agent.observability.boot_timing`): each role's `load_config`,
+(`aiq_agent.observability.boot_timing`; `role` is `chat`, `api`, `research-worker`
+or `ingest-worker`): each role's `load_config`,
 `workflow_build` and `ready` (process age when it can work), and the research
 worker's per-job build under `role="research-job"`, which every job pays.
 
@@ -162,9 +163,9 @@ Each step adds its own gate as it lands:
   (`tests/test_entrypoint_roles.py`, `test_roles.py`). B assumes
   `GRID_JOB_EXECUTION=db`: the chat role submits research jobs in process and the
   api role streams and cancels them, which a per-process Dask cluster cannot do
-  across two processes. B also removes in-process ingestion claiming
-  (`GRID_INGEST_QUEUE_CLAIM`): the `ingest-worker` tier is the only claimer, and a
-  stack that deploys none switches the queue off.
+  across two processes, so Pulumi refuses any `jobExecution` but `db`. B also
+  removes in-process ingestion claiming: the `ingest-worker` tier is the only
+  claimer, and both Compose files and the Pulumi program always run it.
 
 ## More Information
 

@@ -2345,7 +2345,8 @@ developing against the Langfuse UI and API, not for reproducing ingestion.
 - **Capping the job SSE streams.** Each open stream holds one direct `LISTEN`
   connection for as long as its job runs (§5). The budget reserves 20 for them,
   an allowance: nothing in the code caps the streams, and running jobs are
-  bounded only by the research tier (3 in prod) times the viewers each has. If
+  bounded only by the research tier (3 in prod) times the viewers each has. The
+  `api` role holds them, so its replica count spreads them without adding any. If
   the allowance is ever the thing that fails, cap streams per replica rather than
   raising the reserve.
 - **A rehearsed SeaweedFS split-topology cutover.** The `split` layout exists

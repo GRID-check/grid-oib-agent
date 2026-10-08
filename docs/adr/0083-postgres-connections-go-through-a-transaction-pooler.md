@@ -95,9 +95,9 @@ The rules:
   with no Postgres at all keeps its in-process behaviour, which is a
   configuration and not a fallback.
 * **A missing direct DSN stops the boot, once.** `require_direct_dsns` runs at
-  start in the web tier (both DSNs, it serves the SSE streams and takes locks),
-  the research worker and the ingest worker (the lock DSN only; they never
-  LISTEN). There is no default to the pooled job-store URL, so a deployment that
+  start in the `api` role (both DSNs, it serves the SSE streams and takes locks),
+  the `chat` role, the research worker and the ingest worker (the lock DSN only;
+  they never LISTEN). There is no default to the pooled job-store URL, so a deployment that
   was never given its direct DSN fails to start instead of failing every request.
   Transaction-scoped locks (`pg_advisory_xact_lock`) and `FOR UPDATE SKIP LOCKED`
   work through the pooler and are unchanged.

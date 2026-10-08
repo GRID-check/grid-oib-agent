@@ -142,7 +142,7 @@ GRID_ADMIN_TOKEN=... uv run python scripts/upload_oib_corpus.py data/oib --url h
 ```
 
 Each upload stores the file and queues its ingest job at once; the ingest workers
-(in Compose, the `aiq-agent` container, which claims by default) run it. Anything
+(the `ingest-worker` tier, in Compose and on Kubernetes alike) run it. Anything
 that has no job yet (a chunking change, a job that could not be queued) is picked up by the
 `base-corpus` housekeeping route, which the `housekeeping` service calls every ten
 minutes (a CronJob on Kubernetes), and an admin can run a cycle by hand with

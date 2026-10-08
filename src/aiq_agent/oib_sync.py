@@ -7,9 +7,9 @@ from its current bytes by the current chunking pipeline
 
 Ingestion is never run here. A file that needs it becomes ONE job on the durable
 ingest queue (ADR-0076): the same queue ``POST /v1/ingest`` uses, in the platform
-lane at ``bulk`` priority, claimed and run by the ingest workers (or, where no
-such tier runs, by the claiming web tier), with the queue's attempts, dead rows,
-fairness and drain behaviour. There is no in-process fallback: when the queue
+lane at ``bulk`` priority, claimed and run by the ingest workers (the only
+process that claims), with the queue's attempts, dead rows, fairness and drain
+behaviour. There is no in-process fallback: when the queue
 cannot take the job, the call that wanted it raises.
 
 The job's id is a function of the file's name, hash and chunk-format version, so
