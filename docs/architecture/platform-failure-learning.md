@@ -139,7 +139,7 @@ Before any of them, a down-vote on an answer that drew on a folder with
 restricted access is never read: its question and answer may quote a folder
 some of the tenant's own members may not read, and a lesson reaches every
 tenant. The database decides, from one rule (`grid_feedback_restricted_use`,
-migration 0123, ADR-0091): the vote's message is marked in
+migration 0124, ADR-0092): the vote's message is marked in
 `message_restricted_use`, or the voted message's conversation, or the one the
 vote names, holds a `conversation_restricted_folders` record (written when the
 BFF admits restricted content into a turn) or is a revision thread whose
@@ -154,7 +154,7 @@ only add to the answer. The sweep reads the question through the voted
 message's own conversation. Marks have no foreign key, so they stay when the
 chat is deleted, and a conversation once marked keeps answering yes.
 
-What a sweep took before that rule was withdrawn twice: migration 0119 by
+What a sweep took before that rule was withdrawn twice: migration 0120 by
 conversation record, 0123 by mark. The report's `canonical_summary` is cleared,
 and a lesson created from it loses its text and is retired
 (`restricted_source`). A lesson the report was only linked to keeps its text,

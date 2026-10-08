@@ -22,7 +22,7 @@ import { projects } from './projects'
  *
  * Whether the answer drew on a folder with restricted access is NOT a column
  * here: the database marks the vote's `message_id` (`message_restricted_use`,
- * migration 0123, a trigger on this table among others) and every cross-tenant
+ * migration 0124, a trigger on this table among others) and every cross-tenant
  * reader asks `grid_feedback_restricted_use` of the vote. Both ids are the
  * client's, so they can only add to that answer, never lift it.
  */

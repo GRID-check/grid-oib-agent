@@ -337,7 +337,7 @@ describe('buildPlatformLessonsDigest', () => {
   })
 
   /**
-   * Migrations 0119 and 0123 retire the lessons created from a vote on an
+   * Migrations 0120 and 0124 retire the lessons created from a vote on an
    * answer that drew on a restricted folder. A digest cached before they ran
    * still holds them, and is shared by every replica: it must not be injected
    * for the rest of its TTL.

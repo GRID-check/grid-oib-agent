@@ -395,7 +395,7 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
 echo "==> 0097 step rewrite and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migrations 0110 to 0114 and 0117 to 0123: each on a database of its own.
+# Migrations 0111 to 0115 and 0118 to 0124: each on a database of its own.
 #
 # `migrate_until <db> <tag>` creates <db> and applies the journal up to and
 # including <tag>, so every section below starts from exactly the chain it
@@ -827,7 +827,7 @@ check_in grid_hold "SELECT count(*) FROM documents WHERE organization_id = 'org_
 echo "==> 0122 quarantine exit, 0123 screened hash and their down migrations verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0123: the server marks the message, the votes and lessons from
+# Migration 0124: the server marks the message, the votes and lessons from
 # before are withdrawn by that mark, and its DOWN.
 #
 # On grid_lessons, after 0120 (and 0121, 0122, which touch nothing here),
@@ -853,9 +853,9 @@ echo "==> 0122 quarantine exit, 0123 screened hash and their down migrations ver
 # drops the rule's functions, triggers and index; 0123 re-applies, twice,
 # without a second event, and the column it reads back names no conversation.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0123 message mark, its withdrawal and its down migration on grid_lessons"
-apply_in grid_lessons 0121_document_quarantine_exit.sql
-apply_in grid_lessons 0122_document_screened_hash.sql
+echo "==> verifying the 0124 message mark, its withdrawal and its down migration on grid_lessons"
+apply_in grid_lessons 0122_document_quarantine_exit.sql
+apply_in grid_lessons 0123_document_screened_hash.sql
 sql_in grid_lessons <<'SQL'
 INSERT INTO conversations (id, organization_id, created_by) VALUES
   ('s_0122_restricted', 'org_0107', 'user_1'),
@@ -883,16 +883,16 @@ INSERT INTO platform_lesson_events (lesson_id, action, actor, detail) VALUES
   ('11111111-0000-4000-8000-000000000118', 'edited', 'user_owner', '{"previousContent": "Zimmerer-Honorar 48.000 EUR"}'),
   ('55555555-0000-4000-8000-000000000122', 'edited', 'user_owner', '{"previousContent": "Brüstung 1,00 m"}');
 SQL
-apply_in grid_lessons 0123_message_restricted_use.sql
+apply_in grid_lessons 0124_message_restricted_use.sql
 check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE conversation_id LIKE 's_0122_%'" "c1c1c1c1-0000-4000-8000-000000000122,c2c2c2c2-0000-4000-8000-000000000122,d8d8d8d8-0000-4000-8000-000000000122" "the backfill marks every message of a recorded conversation and the id of a vote naming it, and none of an open one"
 check_in grid_lessons "SELECT string_agg(id::text || '=' || (embedding IS NULL)::text || '/' || coalesce(embedding_model, '-') || '/' || (embedded_at IS NULL)::text, ',' ORDER BY id) FROM platform_lessons WHERE id IN ('11111111-0000-4000-8000-000000000118', '44444444-0000-4000-8000-000000000122', '55555555-0000-4000-8000-000000000122')" "11111111-0000-4000-8000-000000000118=true/-/true,44444444-0000-4000-8000-000000000122=true/-/true,55555555-0000-4000-8000-000000000122=false/model_0122/false" "every withdrawn lesson, 0119's included, loses the vector of its old text; the open one keeps it"
 check_in grid_lessons "SELECT string_agg(message_id, ',' ORDER BY message_id) FROM message_restricted_use WHERE message_id LIKE 'm_01%'" "m_0118_1,m_0118_2,m_0118_3,m_0118_5" "every vote 0120 marked marks its message"
 check_in grid_lessons "SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name = 'answer_feedback' AND column_name = 'restricted_source') + (SELECT count(*) FROM pg_trigger WHERE tgname = 'conversation_restricted_folders_mark_feedback') + (SELECT count(*) FROM pg_proc WHERE proname = 'grid_feedback_keeps_restricted_source')" "0" "0120's column, trigger and function are folded into marks and gone"
-check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || retired_by || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '44444444-0000-4000-8000-000000000122'" "retired,restricted_source,system:migration-0123,true" "a lesson created from a vote on a marked answer is retired, its text replaced, whatever conversation the vote named"
+check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || retired_by || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '44444444-0000-4000-8000-000000000122'" "retired,restricted_source,system:migration-0124,true" "a lesson created from a vote on a marked answer is retired, its text replaced, whatever conversation the vote named"
 check_in grid_lessons "SELECT status || ',' || content FROM platform_lessons WHERE id = '55555555-0000-4000-8000-000000000122'" "active,Brüstungshöhen mit Quelle nennen 0123" "the open lesson stays as it was"
 check_in grid_lessons "SELECT string_agg(feedback_id::text || '=' || coalesce(canonical_summary, '-'), ',' ORDER BY feedback_id) FROM platform_lesson_reports WHERE org_hash = 'hash_0122'" "f6f6f6f6-0000-4000-8000-000000000122=-,f7f7f7f7-0000-4000-8000-000000000122=Brüstungshöhe falsch genannt" "the marked report loses its summary, the open one keeps it"
 check_in grid_lessons "SELECT string_agg(lesson_id::text || '=' || coalesce(detail->>'previousContent', '-') || '/' || coalesce(detail->>'previousContentWithdrawn', '-'), ',' ORDER BY lesson_id) FROM platform_lesson_events WHERE action = 'edited'" "11111111-0000-4000-8000-000000000118=-/true,44444444-0000-4000-8000-000000000122=-/true,55555555-0000-4000-8000-000000000122=Brüstung 1,00 m/-" "every withdrawn lesson's edits lose previousContent, 0119's included; the open one keeps it"
-check_in grid_lessons "SELECT count(*) FROM platform_lesson_events WHERE actor = 'system:migration-0123'" "1" "one retirement event, for the lesson that was live"
+check_in grid_lessons "SELECT count(*) FROM platform_lesson_events WHERE actor = 'system:migration-0124'" "1" "one retirement event, for the lesson that was live"
 sql_in grid_lessons <<'SQL'
 INSERT INTO messages (id, conversation_id, organization_id, role, content) VALUES
   ('c4c4c4c4-0000-4000-8000-000000000122', 's_0122_restricted', 'org_0107', 'assistant', 'Und der Dachdecker 31.000 EUR.'),
@@ -955,19 +955,19 @@ sql_in grid_lessons <<'SQL'
 DELETE FROM conversations WHERE id = 's_0123_thread';
 SQL
 check_in grid_lessons "SELECT grid_feedback_restricted_use('org_0107', 'b3b3b3b3-0000-4000-8000-000000000123', NULL)::text || ',' || grid_conversation_restricted_use('org_0107', 's_0123_thread')::text || ',' || (SELECT count(*) FROM task_runs WHERE conversation_id = 's_0123_thread')" "true,true,0" "the vote stays out after the thread is deleted, though its task no longer names it"
-apply_in grid_lessons 0123_message_restricted_use.down.sql
+apply_in grid_lessons 0124_message_restricted_use.down.sql
 check_in grid_lessons "SELECT to_regclass('public.message_restricted_use') IS NULL" "t" "down dropped the marks"
 check_in grid_lessons "SELECT string_agg(message_id || ':' || restricted_source::text, ',' ORDER BY message_id) FROM answer_feedback WHERE id IN ('f6f6f6f6-0000-4000-8000-000000000122', 'f7f7f7f7-0000-4000-8000-000000000122')" "c2c2c2c2-0000-4000-8000-000000000122:true,c3c3c3c3-0000-4000-8000-000000000122:false" "down brings 0120's column back from the marks"
 check_in grid_lessons "SELECT count(*) FROM pg_trigger WHERE tgname = 'conversation_restricted_folders_mark_feedback'" "1" "down restores 0120's trigger"
 check_in grid_lessons "SELECT (SELECT count(*) FROM pg_proc WHERE proname IN ('grid_uuid_or_null', 'grid_conversation_restricted_use', 'grid_feedback_restricted_use', 'grid_mark_conversation_restricted_use', 'grid_mark_conversation_messages', 'grid_mark_feedback_restricted_use', 'grid_mark_revision_thread', 'grid_mark_revision_thread_of_task', 'grid_mark_revision_threads_of_document', 'grid_mark_revision_threads_of_folder')) + (SELECT count(*) FROM pg_trigger WHERE tgname IN ('conversation_restricted_folders_mark_messages', 'answer_feedback_mark_restricted_use', 'task_runs_mark_revision_thread', 'documents_mark_revision_threads', 'project_folders_mark_revision_threads')) + (SELECT count(*) FROM pg_indexes WHERE indexname IN ('idx_task_runs_revision_conversation', 'idx_task_runs_revision_subject'))" "0" "down drops the rule's functions, triggers and indexes"
-apply_in grid_lessons 0123_message_restricted_use.sql
-apply_in grid_lessons 0123_message_restricted_use.sql
-check_in grid_lessons "SELECT count(*) FROM platform_lesson_events WHERE actor = 'system:migration-0123'" "1" "0123 re-applies, twice, without a second event"
+apply_in grid_lessons 0124_message_restricted_use.sql
+apply_in grid_lessons 0124_message_restricted_use.sql
+check_in grid_lessons "SELECT count(*) FROM platform_lesson_events WHERE actor = 'system:migration-0124'" "1" "0124 re-applies, twice, without a second event"
 check_in grid_lessons "SELECT count(*) FROM message_restricted_use WHERE message_id IN ('c2c2c2c2-0000-4000-8000-000000000122', 'm_0118_1')" "2" "the re-applied backfill marks again from the restored column"
 check_in grid_lessons "SELECT conversation_id = '' FROM message_restricted_use WHERE message_id = 'c2c2c2c2-0000-4000-8000-000000000122'" "t" "a mark read back from the restored column names no conversation: the column names the chat a vote claimed"
 check_in grid_lessons "SELECT (SELECT count(*) FROM message_restricted_use WHERE message_id = 'c3c3c3c3-0000-4000-8000-000000000122')::text || ',' || (SELECT status FROM platform_lessons WHERE id = '55555555-0000-4000-8000-000000000122')" "0,active" "so the open chat a vote claimed does not read as restricted, and its answer and lesson stay as they were"
 
-echo "==> 0123 message mark, withdrawal and down migration verified"
+echo "==> 0124 message mark, withdrawal and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

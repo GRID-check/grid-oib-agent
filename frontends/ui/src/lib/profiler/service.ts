@@ -20,7 +20,7 @@ export interface ProfiledConversationSummary {
   organizationName: string | null
   /** Null when withheld (`titleWithheld`) or the conversation is gone. */
   title: string | null
-  /** The conversation drew on a folder with restricted access (ADR-0091). */
+  /** The conversation drew on a folder with restricted access (ADR-0092). */
   titleWithheld: boolean
   turnCount: number
   totalDurationMs: number

@@ -799,7 +799,7 @@ every message the conversation holds and every vote naming it, and from then on
 every message written into the conversation is marked too, in
 `message_restricted_use` (below); the marks stay when the chat goes.
 `listRecordedSourceFolders` also returns the current folder of each document a
-revision task written into the conversation revises (ADR-0091), so the thread is
+revision task written into the conversation revises (ADR-0092), so the thread is
 judged like a chat that drew on that folder; nothing of that is stored here.
 Repository: `lib/conversations/restricted-use-repository.ts`; proven against
 Postgres in `restricted-use.integration.spec.ts`; its CHECK and down in
@@ -1336,10 +1336,10 @@ declares it. `grid_tenant_isolation` is untouched.
 
 ---
 
-## message_restricted_use (migration 0123)
+## message_restricted_use (migration 0124)
 
 A message id whose conversation drew on a folder with restricted access
-(ADR-0091). Written by the SERVER, from one rule,
+(ADR-0092). Written by the SERVER, from one rule,
 `grid_conversation_restricted_use(organization, conversation)`: the
 conversation has a `conversation_restricted_folders` row, or it is the thread
 of a revision task whose document sits in another project than the task, or in
@@ -1409,7 +1409,7 @@ the lookup by document the revision-thread triggers make.
 
 ---
 
-## answer_feedback (migrations 0020, 0120, 0123)
+## answer_feedback (migrations 0020, 0121, 0124)
 
 Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
 `answer-feedback`). One row per (user, assistant answer).
@@ -1440,7 +1440,7 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   `message_restricted_use` when the answer is yes. The `message_id` and
   `conversation_id` are the client's: they can only add to that answer, and
   the question, the title and the topics a staff view shows are read through
-  the voted message's own conversation. Migration 0120's `restricted_source`
+  the voted message's own conversation. Migration 0121's `restricted_source`
   column and its trigger were folded into marks and dropped by 0123.
 - Voting model (the simplest honest one): **re-vote = upsert** on the unique
   `(user_id, message_id)` index (`answer_feedback_user_message_uidx`);
@@ -1763,7 +1763,7 @@ reaches every tenant) and the anonymization boundary.
   its row without its `canonical_summary`, and a lesson CREATED from one gets
   a withdrawal note as its `content` and, if it was live, is retired
   (`retired_reason = 'restricted_source'`, one `retired` event). Its down
-  migration cannot bring the text back. Migration 0123 does the same for every
+  migration cannot bring the text back. Migration 0124 does the same for every
   report whose vote's message is marked (`message_restricted_use`), whatever
   conversation the vote named, clears `embedding`, `embedding_model` and
   `embedded_at` of every withdrawn lesson, 0119's included, and removes

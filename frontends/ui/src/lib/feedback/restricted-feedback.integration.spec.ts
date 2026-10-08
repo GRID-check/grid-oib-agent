@@ -3,7 +3,7 @@
  *
  * A conversation that drew on a restricted folder has its messages and the
  * votes on them marked by the database, and every cross-tenant reader asks the
- * database's one rule of each vote (ADR-0091, ADR-0086, ADR-0087), against a
+ * database's one rule of each vote (ADR-0092, ADR-0087, ADR-0088), against a
  * REAL Postgres through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -21,7 +21,7 @@
  *   - `isRestrictedUseVote`, which decides whether a vote's Langfuse score
  *     carries its comment and expected answer.
  * The aggregates still count the vote: a count quotes nothing. Marks are
- * written by triggers (migration 0123): on a message written into such a
+ * written by triggers (migration 0124): on a message written into such a
  * conversation, on its first admission (every message it holds, every vote
  * naming it), and on a vote cast on either. They survive the chat's deletion
  * and cannot be lifted by the runtime role. The ids a vote's client sends can

@@ -391,7 +391,7 @@ nobody could be served.
   folders, AND the conversation admits them against everyone it is shared with
   (`admitSourceFolders`): a restricted note in the prompt is use of its
   folders, recorded in `conversation_restricted_folders` (with the turn's
-  `answerMessageId` marked in the same transaction, ADR-0091), and the response's
+  `answerMessageId` marked in the same transaction, ADR-0092), and the response's
   `restrictedFoldersServed` tells the agent the conversation is confined. Deep
   research, scheduled runs and the job worker send none and get open notes,
   including those whose folders every member may read again;

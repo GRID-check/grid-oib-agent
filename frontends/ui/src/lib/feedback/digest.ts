@@ -72,7 +72,7 @@ const DIGEST_TIMEOUT_MS = 50_000
  * entries do not linger. v2: the sampled turns leave out votes on a
  * conversation that drew on a restricted folder (`OUTSIDE_RESTRICTED_USE`), and
  * a v1 digest may restate one for up to six hours. v3: they leave out votes on
- * a MESSAGE the server marked (migration 0123), which reaches votes the
+ * a MESSAGE the server marked (migration 0124), which reaches votes the
  * conversation match missed.
  */
 const CACHE_VERSION = 'v3'

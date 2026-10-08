@@ -164,7 +164,7 @@ export function resetLessonSweepStateForTests(): void {
 /**
  * v2: migration 0120 retired the lessons created from a conversation that drew
  * on a restricted folder, and a v1 digest written before it ran may still
- * inject one for the rest of its TTL. v3: migration 0123 retired the lessons
+ * inject one for the rest of its TTL. v3: migration 0124 retired the lessons
  * created from a vote on a marked message, for the same reason.
  */
 const DIGEST_CACHE_KEY = 'platformlessons:digest:v3'

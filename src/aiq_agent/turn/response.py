@@ -50,7 +50,7 @@ def turn_answer_message_id(conversation_id: str | None) -> str:
     """The id of the answer the running turn writes: :func:`answer_message_id` of its NAT context.
 
     For a caller that must name the answer before it exists: the BFF marks it
-    when restricted content is admitted into the turn (ADR-0091), so a vote on
+    when restricted content is admitted into the turn (ADR-0092), so a vote on
     it is judged by the server's record whether or not the answer is persisted.
     """
     from aiq_agent.project_context import get_user_message_id_from_context

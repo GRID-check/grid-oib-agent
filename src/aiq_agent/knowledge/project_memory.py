@@ -246,7 +246,7 @@ def fetch_memory_digest(
     use = current_restricted_use()
     if restricted and use is not None and use.answer_message_id:
         # The answer this turn writes: marked when a restricted note is
-        # admitted, in the same transaction (ADR-0091).
+        # admitted, in the same transaction (ADR-0092).
         params["answerMessageId"] = use.answer_message_id
     query_string = urllib.parse.urlencode(params)
 

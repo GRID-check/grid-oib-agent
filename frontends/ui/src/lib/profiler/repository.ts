@@ -54,7 +54,7 @@ const SPAN_ORGANIZATION = sql`coalesce(${conversations.organizationId}, ${agentP
 /**
  * The span's conversation drew on a folder with restricted access, as the
  * database's one rule answers it (`grid_conversation_restricted_use`,
- * migration 0123, ADR-0091): a restricted-use record, or a revision task
+ * migration 0124, ADR-0092): a restricted-use record, or a revision task
  * whose document now sits where not every member may read. Its
  * title is a person's words about that conversation, often the first question,
  * and the profiler is a cross-organization staff view outside the folder's

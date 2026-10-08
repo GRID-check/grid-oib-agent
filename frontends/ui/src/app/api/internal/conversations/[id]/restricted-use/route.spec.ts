@@ -103,7 +103,7 @@ describe('POST /api/internal/conversations/[id]/restricted-use', () => {
   })
 
   /**
-   * The answer id is the server's key for the mark (ADR-0091): the turn start
+   * The answer id is the server's key for the mark (ADR-0092): the turn start
    * marks it when an earlier turn drew on a restricted folder, the admission in
    * the transaction that records the folder. Both before the model reads.
    */

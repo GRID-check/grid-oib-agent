@@ -63,7 +63,7 @@ const querySchema = z.object({
   /**
    * The answer the turn is writing (`answer_message_id(conversation, turn)`
    * on the agent's side). When reading the subject admits a restricted folder,
-   * that answer is marked in the same transaction (ADR-0091).
+   * that answer is marked in the same transaction (ADR-0092).
    */
   answerMessageId: z.string().uuid().optional(),
 })

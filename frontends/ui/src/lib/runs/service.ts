@@ -453,7 +453,7 @@ export async function getRunView(
   await requireProjectAccess(session, projectId, 'project:view')
   const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
   if (!run) throw new NotFoundError('Unknown run')
-  // A revision task is judged when read: its document's folder as it is now (ADR-0091).
+  // A revision task is judged when read: its document's folder as it is now (ADR-0092).
   await requireMaySeeSubject(session, projectId, run, 'Unknown run')
   return runView(run)
 }

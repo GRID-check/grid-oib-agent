@@ -117,11 +117,11 @@ const BOUNDARY_MIGRATIONS = [
   // Adds document_quarantine_decisions — the content gate's decisions, owed to
   // the audit trail until sent. Keyed directly by its organization; no foreign
   // keys, so the row outlives the document it names.
-  '0118_document_quarantine_decisions.sql',
+  '0119_document_quarantine_decisions.sql',
   // Adds message_restricted_use — the server's mark on a message written while
-  // its conversation drew on a restricted folder (ADR-0091). Keyed directly by
+  // its conversation drew on a restricted folder (ADR-0092). Keyed directly by
   // its organization; no foreign key, so the mark outlives the chat.
-  '0123_message_restricted_use.sql',
+  '0124_message_restricted_use.sql',
   // Adds mail_imports (ADR-0085), an Outlook archive a member is filing into a
   // project. Keyed by the organization, secured like product_feedback; the
   // stale-upload sweep reads across tenants under the platform role.

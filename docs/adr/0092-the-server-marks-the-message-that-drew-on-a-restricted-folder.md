@@ -10,7 +10,7 @@ informed: everyone working in this repo
 
 ## Context and Problem Statement
 
-ADR-0086 and ADR-0087 keep a conversation that drew on a folder some project
+ADR-0087 and ADR-0088 keep a conversation that drew on a folder some project
 members may not read away from everyone outside that folder's audience. The
 fact lives in `conversation_restricted_folders`, one row per conversation and
 folder, written when the BFF admits restricted content into a turn. Three repair
@@ -23,7 +23,7 @@ wrong thing.
   `conversation_id`. The client sends that id with the vote. A vote that named
   another chat, or none, passed with a comment quoting the folder, and the
   drill-in then showed the named chat's title and question.
-* Deleting a chat deletes its record. Migration 0120 copied the fact onto the
+* Deleting a chat deletes its record. Migration 0121 copied the fact onto the
   vote when the record went, matched by that same client-sent id.
 * Votes, reports, lessons and lesson events written before the filter stayed as
   they were; an owner's edit had kept a withdrawn lesson's old text in
@@ -43,7 +43,7 @@ wrong thing.
 * It must be keyed by what readers hold: a vote names its answer by message id.
 * What was derived before the fix must be withdrawn, and the migration must say
   what it cannot find.
-* Access to what a person can open stays judged at read time (ADR-0087), not
+* Access to what a person can open stays judged at read time (ADR-0088), not
   stored.
 
 ## Considered Options
@@ -63,7 +63,7 @@ server, holds for an answer that was never persisted, outlives the chat and is
 keyed the way every reader looks things up.
 
 **The rule.** `grid_conversation_restricted_use(organization, conversation)`
-(migration 0123): the conversation holds a `conversation_restricted_folders`
+(migration 0124): the conversation holds a `conversation_restricted_folders`
 record, or it is the thread of a revision task whose document now sits where
 not every member may read (below), or a mark names it. The record is written
 when the BFF admits restricted content into a turn, before the model reads it,
@@ -195,7 +195,7 @@ search of its title; its id still finds it.
 * Bad, because a turn whose signed scope carries no restricted collection asks the BFF nothing, so its answer in a conversation that drew on a folder earlier is marked only when it is persisted, or by the conversation id its vote names. Such a turn can only arise after the folder was opened or the asker lost the role, and the conversation is locked for them in the second case.
 * Bad, because the document, folder and task triggers do work on every move of a document and every change to a folder's list: an indexed lookup of the revision tasks that name it (`idx_task_runs_revision_subject`).
 * Bad, because a message whose content is rewritten after its conversation first drew on a restricted folder is marked even if that edit added nothing restricted; that errs on the side of hiding.
-* Neutral: a revision task whose document was deleted is shown as before; the draft text it quotes was the project's when the task was opened, since ADR-0086 refuses a task for a draft in a restricted folder.
+* Neutral: a revision task whose document was deleted is shown as before; the draft text it quotes was the project's when the task was opened, since ADR-0087 refuses a task for a draft in a restricted folder.
 
 ### Confirmation
 
@@ -253,5 +253,5 @@ from it before the turn runs.
 
 ## More Information
 
-* [ADR-0086](0086-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md), [ADR-0087](0087-folder-access-is-read-write-per-role.md).
+* [ADR-0087](0087-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md), [ADR-0088](0088-folder-access-is-read-write-per-role.md).
 * [`docs/architecture/platform-failure-learning.md`](../architecture/platform-failure-learning.md), [`docs/database/schema.md`](../database/schema.md).

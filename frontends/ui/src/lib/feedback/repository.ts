@@ -33,8 +33,8 @@ import { isTraceId } from '@/lib/langfuse/config'
 
 /**
  * Leaves out a vote on an answer whose conversation drew on a folder with
- * restricted access (`grid_feedback_restricted_use`, migration 0123,
- * ADR-0091). Its question, answer, comment and expected answer may quote that
+ * restricted access (`grid_feedback_restricted_use`, migration 0124,
+ * ADR-0092). Its question, answer, comment and expected answer may quote that
  * folder, and every reader of these rows is outside the folder's audience: the
  * platform staff's drill-in and CSV export, the digest's model, the eval-case
  * converter fed by the export, and the lessons distiller that injects into

@@ -182,7 +182,7 @@ export async function recordedRestrictedFolders(conversationId: string, organiza
 /**
  * Mark the answer a turn is writing when its conversation already drew on a
  * folder with restricted access, by the database's rule
- * (`grid_conversation_restricted_use`, ADR-0091). Asked at turn start, before
+ * (`grid_conversation_restricted_use`, ADR-0092). Asked at turn start, before
  * the model reads the conversation's history: the answer can quote what an
  * earlier turn admitted, and a vote on it names it by this id whether or not
  * the answer is ever persisted. Without an answer id, nothing to mark.
@@ -307,7 +307,7 @@ export interface RestrictedUseRequest {
    * agent derives it from the conversation and the turn
    * (`aiq_agent.turn.response.answer_message_id`), the same id it streams and
    * persists, so the server can mark that answer at admission, before the
-   * model reads anything (ADR-0091). Absent off the chat path.
+   * model reads anything (ADR-0092). Absent off the chat path.
    */
   answerMessageId?: string | null
 }

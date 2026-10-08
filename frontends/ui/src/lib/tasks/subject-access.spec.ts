@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The rule behind `subject-access.ts` (ADR-0091), with the folder tree, the
+ * The rule behind `subject-access.ts` (ADR-0092), with the folder tree, the
  * document lookup and the clearance faked. The SQL and the wiring into the
  * task list, the run view and the thread are proved against Postgres in
  * `subject-access.integration.spec.ts`.

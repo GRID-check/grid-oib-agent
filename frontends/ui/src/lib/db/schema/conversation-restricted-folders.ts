@@ -17,7 +17,7 @@ import { sql } from 'drizzle-orm'
  * widening of the conversation's audience takes too. The first row marks every
  * message the conversation holds and every vote naming it, and while a row
  * exists every message written into the conversation is marked too, by
- * triggers (`message_restricted_use`, ADR-0091); the marks outlive the row.
+ * triggers (`message_restricted_use`, ADR-0092); the marks outlive the row.
  *
  * No foreign key, on purpose: not to `conversations`, because the first turn of
  * a new chat runs before its row exists (`deleteConversationInOrg` removes the

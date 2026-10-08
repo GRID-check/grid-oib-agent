@@ -3,7 +3,7 @@
  */
 /**
  * Every cross-tenant reader of a vote's words asks the database's one rule
- * (ADR-0091).
+ * (ADR-0092).
  *
  * A vote's `comment` and `expected_answer` can quote a folder with restricted
  * access, and every reader outside the voter's tenant (platform staff, the
@@ -206,7 +206,7 @@ function reachedFromPlatformAccess({ units, byName }: Scan): Set<string> {
   return reached
 }
 
-describe("every reader of a vote's words outside its tenant asks the rule (ADR-0091)", () => {
+describe("every reader of a vote's words outside its tenant asks the rule (ADR-0092)", () => {
   const found = scan()
   const crossTenant = reachedFromPlatformAccess(found)
 

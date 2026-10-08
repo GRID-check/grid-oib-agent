@@ -62,7 +62,7 @@ interface ConversationSummaryDto {
   /** Resolved display name; absent on servers that predate it. */
   organizationName?: string | null
   title: string | null
-  /** The conversation drew on a restricted folder; the server sends no title (ADR-0091). */
+  /** The conversation drew on a restricted folder; the server sends no title (ADR-0092). */
   titleWithheld?: boolean
   turnCount: number
   totalDurationMs: number

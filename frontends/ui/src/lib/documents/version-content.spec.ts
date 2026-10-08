@@ -626,7 +626,7 @@ describe('readVersionForService — the conversation is part of the predicate', 
           conversationId: 'conv_1',
           userId: 'user_asker',
           projectId: 'proj_1',
-          // Marked in the admission's transaction, before the bytes leave (ADR-0091).
+          // Marked in the admission's transaction, before the bytes leave (ADR-0092).
           answerMessageId: ANSWER_ID,
         },
         [RESTRICTED],

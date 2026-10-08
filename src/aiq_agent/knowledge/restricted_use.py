@@ -88,7 +88,7 @@ class RestrictedUse:
     #: The id of the answer this turn writes (``turn.response.answer_message_id``).
     #: Sent with every question, so the BFF marks that answer when the
     #: conversation drew on a restricted folder, before the model reads anything
-    #: (ADR-0091). ``None`` when the caller has no turn to name.
+    #: (ADR-0092). ``None`` when the caller has no turn to name.
     answer_message_id: str | None = None
 
     def allows(self, collection: str) -> bool:

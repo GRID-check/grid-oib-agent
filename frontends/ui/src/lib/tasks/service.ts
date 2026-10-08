@@ -436,7 +436,7 @@ export async function recordRunOutcome(
 /**
  * A project's runs, newest first. `project:view`, like the definition list,
  * without the revision tasks whose document the reader may not read now
- * (`subject-access.ts`, ADR-0091).
+ * (`subject-access.ts`, ADR-0092).
  */
 export async function listTasks(session: AuthorizedSession, projectId: string): Promise<TaskRun[]> {
   await requireProjectAccess(session, projectId, 'project:view')

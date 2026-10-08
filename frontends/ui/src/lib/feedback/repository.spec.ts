@@ -234,7 +234,7 @@ describe('listFeedbackTurns', () => {
   })
 
   /**
-   * The vote's `conversation_id` is whatever the client sent (ADR-0091). Read
+   * The vote's `conversation_id` is whatever the client sent (ADR-0092). Read
    * through it, a vote naming a restricted chat would show that chat's title
    * and question under an unmarked answer.
    */

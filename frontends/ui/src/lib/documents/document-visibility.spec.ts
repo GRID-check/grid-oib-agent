@@ -91,7 +91,7 @@ const SEES_EVERY_ROW: Record<string, string> = {
   'lib/authz/folder-access-repository.ts#countIfcDocumentsInFolders':
     'Refuses restricting a folder that holds an IFC model, held or not: the guard is about the building data, which exists either way.',
 
-  // --- Judging a revision task by where its document is now (ADR-0091) -------
+  // --- Judging a revision task by where its document is now (ADR-0092) -------
   'lib/tasks/repository.ts#findSubjectDocumentPlaces':
     "A revision task's document's project and folder, never its content: the folder decides who may see the TASK, and a held document's folder decides it as well as a screened one's.",
   'lib/conversations/restricted-use-repository.ts#listRevisionSubjectFolders':

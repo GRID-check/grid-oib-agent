@@ -1,6 +1,6 @@
 -- 0123: the server marks a message whose conversation drew on a folder with
--- restricted access, and the mark outlives the chat (ADR-0091, ADR-0086,
--- ADR-0087).
+-- restricted access, and the mark outlives the chat (ADR-0092, ADR-0087,
+-- ADR-0088).
 --
 -- ## Why the mark moves from the conversation to the message
 --
@@ -91,7 +91,7 @@
 --   * every vote that answers yes marks its message id, and every vote 0120
 --     marked `restricted_source` does;
 --   * a conversation deleted before 0120, and a restricted-use record deleted
---     before this migration whose votes 0120 did not reach, left nothing to
+--     before this migration whose votes 0121 did not reach, left nothing to
 --     match: those votes stay unmarked.
 --
 -- ## Withdrawal
@@ -117,7 +117,7 @@ CREATE INDEX IF NOT EXISTS "message_restricted_use_conversation_idx"
   ON "message_restricted_use" ("organization_id", "conversation_id");
 --> statement-breakpoint
 COMMENT ON TABLE "message_restricted_use" IS
-  'A message id whose conversation drew on a folder with restricted access (ADR-0091). Written by triggers on messages, conversation_restricted_folders and answer_feedback, never by a client; no foreign key, so it outlives the chat. Every cross-tenant reader of a vote asks grid_feedback_restricted_use, which reads this.';
+  'A message id whose conversation drew on a folder with restricted access (ADR-0092). Written by triggers on messages, conversation_restricted_folders and answer_feedback, never by a client; no foreign key, so it outlives the chat. Every cross-tenant reader of a vote asks grid_feedback_restricted_use, which reads this.';
 --> statement-breakpoint
 SELECT grid_secure_table('message_restricted_use', 'organization_id = grid_current_org()');
 --> statement-breakpoint
@@ -137,7 +137,7 @@ CREATE OR REPLACE FUNCTION grid_uuid_or_null(value text) RETURNS uuid LANGUAGE s
   END
 $$;
 --> statement-breakpoint
--- THE question (ADR-0091): did this conversation draw on a folder with
+-- THE question (ADR-0092): did this conversation draw on a folder with
 -- restricted access. Asked by the triggers that write marks, by every
 -- cross-tenant reader of a vote (`grid_feedback_restricted_use`) and by the
 -- staff profiler. A revision task's thread is asked by its document's place
@@ -479,7 +479,7 @@ WITH "marked" AS (
       "content" = 'Zurückgezogen: aus einem Chat gelernt, der einen Ordner mit eingeschränktem Zugriff verwendet hat.',
       "held_reason" = NULL,
       "retired_at" = CASE WHEN x."was_live" THEN now() ELSE l."retired_at" END,
-      "retired_by" = CASE WHEN x."was_live" THEN 'system:migration-0123' ELSE l."retired_by" END,
+      "retired_by" = CASE WHEN x."was_live" THEN 'system:migration-0124' ELSE l."retired_by" END,
       "retired_reason" = CASE WHEN x."was_live" THEN 'restricted_source' ELSE l."retired_reason" END,
       "updated_at" = now()
   FROM "lessons" x
@@ -487,7 +487,7 @@ WITH "marked" AS (
   RETURNING l."id"
 )
 INSERT INTO "platform_lesson_events" ("lesson_id", "action", "actor", "detail")
-SELECT x."id", 'retired', 'system:migration-0123', '{"reason": "restricted_source", "automatic": true}'::jsonb
+SELECT x."id", 'retired', 'system:migration-0124', '{"reason": "restricted_source", "automatic": true}'::jsonb
 FROM "lessons" x
 WHERE x."was_live";
 --> statement-breakpoint

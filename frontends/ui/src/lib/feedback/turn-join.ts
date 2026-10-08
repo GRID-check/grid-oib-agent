@@ -18,7 +18,7 @@
  * persisted answer, not from `answer_feedback.conversation_id`, which is
  * whatever text the client sent with its vote, and both rows must be in the
  * vote's organization: a message id is the client's text too, and a vote must
- * not pull another tenant's answer into a cross-tenant reader (ADR-0091).
+ * not pull another tenant's answer into a cross-tenant reader (ADR-0092).
  * A reader that wants the conversation (title, topics) joins it through
  * `m.conversation_id` in `f.organization_id`, for the same reason.
  *

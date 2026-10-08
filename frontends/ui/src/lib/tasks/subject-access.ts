@@ -1,10 +1,10 @@
 /**
  * Whether a person may see a revision task: whether they may read the folder
- * its document is in NOW (ADR-0091, ADR-0087).
+ * its document is in NOW (ADR-0092, ADR-0088).
  *
  * A `revision` task quotes its draft's text into the run, its title and goal
  * are the reviewer's words about that draft, and its thread holds the revised
- * draft. Since ADR-0086 a draft in a folder some member may not read gets no
+ * draft. Since ADR-0087 a draft in a folder some member may not read gets no
  * task (`openRevisionTask`), but a task opened before its folder was
  * restricted, or before the document moved into such a folder, stayed listed
  * to the whole project. So a task is judged when it is READ, like a shared

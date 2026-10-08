@@ -448,7 +448,7 @@ export async function readVersionTextForTask(
 export interface ServiceReader {
   /** The turn's asker, as signed; needed only for a document in a restricted folder. */
   askerUserId: string | null
-  /** The answer the turn writes; marked when the read admits a restricted folder (ADR-0091). */
+  /** The answer the turn writes; marked when the read admits a restricted folder (ADR-0092). */
   answerMessageId: string | null
 }
 
