@@ -61,6 +61,8 @@ export const makeMemoryItem = (
   sourceConversationId: null,
   supersedesId: null,
   conflictsWithId: null,
+  // Open memory unless a test restricts it (ADR-0084, migration 0111).
+  restrictedFolderIds: null,
   salience: 0.5,
   pinned: false,
   createdBy: null,

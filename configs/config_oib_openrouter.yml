@@ -606,6 +606,11 @@ functions:
   # Available in project-scoped chats; no-ops (with a clear error) elsewhere.
   remember:
     _type: project_memory_remember
+    # Judges, in a turn with restricted folders in scope (ADR-0084), whether a
+    # finding draws on a restricted document it did not read. The same model
+    # and agent group as memory_reflection_llm; unset fails closed (the finding
+    # is restricted to every restricted folder in scope).
+    judge_llm: card_llm
 
   # Rich UI cards, deep research only: its writer calls emit_card mid-answer
   # when a structured element (legal basis, dimension/stair diagram, summary)

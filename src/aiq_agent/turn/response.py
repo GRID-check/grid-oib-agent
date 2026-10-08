@@ -26,7 +26,10 @@ from aiq_agent.common.wire_v2 import RunFinishedBody
 from aiq_agent.common.wire_v2 import RunHandoff
 from aiq_agent.common.wire_v2 import TurnResult
 from aiq_agent.common.wire_v2 import card_key
-from aiq_agent.knowledge.restricted_collections import restricted_collections_in
+from aiq_agent.memory.restriction import RestrictionEvidence
+from aiq_agent.memory.restriction import restricted_digest_notes
+from aiq_agent.memory.restriction import restriction_evidence
+from aiq_agent.memory.shown_notes import ShownNotes
 from aiq_agent.stages import TurnFacts
 
 if TYPE_CHECKING:
@@ -109,6 +112,49 @@ def emitted_card_types(cards: object) -> frozenset[str]:
     return frozenset(types)
 
 
+def _source_collections(sources: object) -> list[str]:
+    """The ``collection`` of each wire source dict; defensive about the shape."""
+    collections: list[str] = []
+    for source in sources or ():
+        collection = source.get("collection") if isinstance(source, dict) else getattr(source, "collection", None)
+        if isinstance(collection, str) and collection:
+            collections.append(collection)
+    return collections
+
+
+def turn_restriction_evidence(
+    state: ConversationState,
+    *,
+    registry_collections: tuple[str, ...] = (),
+    listed_documents: tuple[Any, ...] = (),
+    restricted_notes: tuple[str, ...] = (),
+    earlier_notes: ShownNotes | None = None,
+) -> RestrictionEvidence:
+    """What the finished turn could have taken from restricted folders (ADR-0084).
+
+    Read: what it cited and what it read without citing, plus the collections
+    of the conversation's citation registry (``registry_collections``), whose
+    passages sit in the history the turn answered from. Listed: every inventory
+    row the turn could name (``listed_documents``, uncapped, as ``list_files``
+    sees them), else the capped rows its prompt carried. Notes: restricted
+    memory the prompt carried (``restricted_notes``) and that earlier turns
+    of the conversation were shown (``earlier_notes``).
+    """
+    earlier = earlier_notes or ShownNotes()
+    return restriction_evidence(
+        state.collection_scope,
+        source_collections=[
+            *_source_collections(state.verified_sources),
+            *_source_collections(state.read_sources),
+            *registry_collections,
+        ],
+        listed_documents=listed_documents or state.available_documents or (),
+        restricted_notes=restricted_notes,
+        earlier_notes=earlier.notes,
+        always=earlier.overflowed,
+    )
+
+
 def post_answer_turn_facts(
     request_facts: TurnFacts,
     *,
@@ -116,6 +162,10 @@ def post_answer_turn_facts(
     query_text: str,
     cards: object,
     remembered_this_turn: tuple[str, ...] = (),
+    registry_collections: tuple[str, ...] = (),
+    listed_documents: tuple[Any, ...] = (),
+    restricted_memory_writes: tuple[str, ...] = (),
+    earlier_restricted_notes: ShownNotes | None = None,
 ) -> TurnFacts:
     """Complete the turn's :class:`TurnFacts` from the finished graph state.
 
@@ -132,6 +182,13 @@ def post_answer_turn_facts(
         emitted_card_types=emitted_card_types(cards),
         answer_confidence=state.answer_confidence,
         remembered_this_turn=remembered_this_turn,
-        # ADR-0084: a turn that could read a restricted folder writes no memory.
-        read_restricted=bool(restricted_collections_in(state.collection_scope)) or bool(state.confined),
+        restriction=turn_restriction_evidence(
+            state,
+            registry_collections=registry_collections,
+            listed_documents=listed_documents,
+            # The digest the agent was shown, and what the tool stored as
+            # restricted this turn: restricted memory in the prompt.
+            restricted_notes=(*restricted_digest_notes(request_facts.memory_digest), *restricted_memory_writes),
+            earlier_notes=earlier_restricted_notes,
+        ),
     )

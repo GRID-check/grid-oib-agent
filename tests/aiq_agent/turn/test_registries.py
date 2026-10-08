@@ -48,6 +48,18 @@ class TestTurnRegistries:
         await _settle()
         assert persisted == ["conv-1"]
 
+    async def test_the_registrys_collections_are_read_back_at_exit(self, persisted):
+        """ADR-0084: the memory restriction decision reads what the conversation read."""
+        from aiq_agent.common.citation_verification import SourceEntry
+
+        session = SourceRegistry()
+        async with turn_registries("conv-5", session) as registries:
+            session.add(SourceEntry(citation_key="a.pdf", collection="proj_1_r0123456789ab"))
+            session.add(SourceEntry(citation_key="b.pdf", collection="proj_1"))
+            session.add(SourceEntry(url="https://example.org"))
+        assert registries.source_collections == ("proj_1_r0123456789ab", "proj_1")
+        await _settle()
+
     async def test_cards_from_the_previous_turn_are_cleared(self, persisted):
         get_or_create_card_registry("conv-2").add({"type": "checklist"})
         async with turn_registries("conv-2", SourceRegistry()) as registries:

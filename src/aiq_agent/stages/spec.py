@@ -30,6 +30,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from aiq_agent.common.model_overrides import AgentGroup
+from aiq_agent.memory.restriction import RestrictionEvidence
 
 #: Terminal states a stage run can end in. Every one of them is recorded, so
 #: "how often did this stage fire, succeed, time out, or skip and why" is a
@@ -82,11 +83,11 @@ class TurnFacts:
     #: What the ``remember`` tool wrote DURING the turn, after that digest was
     #: built. Reflection must treat these as already recorded.
     remembered_this_turn: tuple[str, ...] = ()
-    #: The turn's scope held a restricted folder's collection, or its
-    #: conversation already drew on one (ADR-0084), so its prompt and its
-    #: retrieval could carry content not everyone in the project may see.
-    #: Nothing that outlives the turn may be written from it.
-    read_restricted: bool = False
+    #: What the turn could have taken from restricted folders (ADR-0084): the
+    #: restricted collections in its scope, the ones it cited or read, and the
+    #: restricted documents its prompt listed. Memory written from the turn is
+    #: restricted accordingly (``memory/restriction.py``); empty for an open turn.
+    restriction: RestrictionEvidence = RestrictionEvidence()
     bundesland: str | None = None
 
     #: Which path the turn took, observed after the answer (``meta`` for a

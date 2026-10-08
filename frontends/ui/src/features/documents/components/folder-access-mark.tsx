@@ -22,16 +22,22 @@ import { cn } from '@/lib/utils'
 
 export function FolderAccessMark({
   roleNames,
+  label: labelOverride,
   className,
   testId,
 }: {
   /** The names of the roles the folder's own list names, each with what it may do. */
   roleNames: readonly string[]
+  /**
+   * The tooltip, when the mark names something other than a folder's roles —
+   * a memory note restricted to folders (ADR-0084) uses the same lock.
+   */
+  label?: string
   className?: string
   testId?: string
 }): JSX.Element {
   const t = useTranslations('files')
-  const label = t('folders.access.restrictedTo', { roles: roleNames.join(', ') })
+  const label = labelOverride ?? t('folders.access.restrictedTo', { roles: roleNames.join(', ') })
   return (
     <Tooltip>
       <TooltipTrigger asChild>

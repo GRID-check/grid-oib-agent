@@ -34,6 +34,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
 | `conversation-restricted-folders.ts` | `conversation_restricted_folders` |
+| `project-memory.ts` | `project_memory` (documented in [`project-memory-design.md`](../architecture/project-memory-design.md); the restricted-memory column below) |
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
@@ -655,7 +656,7 @@ export const projectFolders = pgTable('project_folders', {
 | `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs and the backend mirror |
 | `access_mode` | `text` | NOT NULL, default `'inherit'`, CHECK `inherit`/`custom` | **Migration `0109`, ADR-0085**: `inherit` takes the parent's access (a root folder the project's); `custom` has its own list in `project_folder_grants`. The rule over a path is one pure function, `effectiveFolderLevel` in `lib/authz/folder-access-rule.ts`: the minimum over the folder and every ancestor with its own list, admins write everywhere, `project:documents:write` caps write. |
 | `access_changed_by` / `access_changed_at` | `text` / `timestamptz` | set whenever `access_mode = 'custom'` (`project_folders_access_custom_check`) | Who set the list, and when. |
-| `deleted_at` / `deleted_by` | `timestamptz` / `text` | | **Migration `0109`**: a deleted project folder is a TOMBSTONE (an Archiv folder's delete removes its row). The row keeps its `access_mode` and grants so the access rule still answers for content recorded from it (a conversation's source folders); every listing, the tree, placement and every read path filter `deleted_at IS NULL`. |
+| `deleted_at` / `deleted_by` | `timestamptz` / `text` | | **Migration `0109`**: a deleted project folder is a TOMBSTONE (an Archiv folder's delete removes its row). The row keeps its `access_mode` and grants so the access rule still answers for content recorded from it (a conversation's source folders, restricted memory); every listing, the tree, placement and every read path filter `deleted_at IS NULL`. |
 | `created_at` / `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 **Indexes and constraints:**
@@ -733,8 +734,8 @@ is proven against Postgres in `upload-batches.integration.spec.ts`.
 A folder not every project member may read whose content this conversation
 drew on: written when the BFF ADMITS that use
 (`POST /api/internal/conversations/[id]/restricted-use`, asked by the agent
-before a tool round's restricted results reach the model, and by the subject
-read), atomically with every widening
+before a tool round's restricted results reach the model, by the memory digest
+for restricted notes, and by the subject read), atomically with every widening
 of the conversation's audience. Keyed by the SOURCE FOLDER, never by collection
 or role: who may read the conversation is decided when it is read, against the
 folders' access as it is then (`recordedRestrictedFolders`,
@@ -751,7 +752,28 @@ conversation and a narrowed one confines it to fewer people.
 `deleteConversationInOrg` deletes the rows with the conversation.
 Repository: `lib/conversations/restricted-use-repository.ts`; proven against
 Postgres in `restricted-use.integration.spec.ts`; its CHECK and down in
-`scripts/rls-test-db.sh`.
+`scripts/rls-test-db.sh`. `listRecentMessagesWithCardDecisions` also reads it:
+a conversation with a row here keeps its card decisions out of the
+project-wide `PROPOSAL_DECISIONS` block.
+
+---
+
+## project_memory.restricted_folder_ids (migration 0111, ADR-0084, ADR-0085)
+
+The table itself is described in
+[`project-memory-design.md`](../architecture/project-memory-design.md) §2; this
+is the column 0111 adds.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `restricted_folder_ids` | `uuid[]` | NULL, or CHECK 1–20 entries, none NULL, `scope = 'project'` (`project_memory_restricted_folders_check`) | The source folders the note depends on; `NULL` = open. Stored sorted and de-duplicated (`canonicalRestriction`). Served and shown only to a session that may read ALL of them now (`memoryVisibleTo` with `readableFolderIdsFor`, tombstones included); a folder since opened to every member opens the note |
+
+Index: `uniq_project_memory_project_content_active` keys on
+`(project_id, coalesce(restricted_folder_ids, '{}'), normalized content)`, so an
+open and a restricted note with the same text can both be live; consolidation
+never crosses a restriction. The 0111 down DELETES restricted notes rather than
+opening them. Proven against Postgres in `memory-restricted.integration.spec.ts`;
+the index, the CHECK and the down in `scripts/rls-test-db.sh`.
 
 ---
 

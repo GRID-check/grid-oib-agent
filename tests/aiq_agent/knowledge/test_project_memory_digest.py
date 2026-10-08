@@ -100,3 +100,65 @@ def test_timeout_error_propagates_for_failopen(monkeypatch):
     with _patched_opener(monkeypatch, error=TimeoutError("timed out")):
         with pytest.raises(TimeoutError):
             pm.fetch_memory_digest(project_id="p1", organization_id=None)
+
+
+def test_the_turns_restricted_collections_ride_the_query(monkeypatch):
+    """ADR-0084: restricted memory is served only for these."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    with _patched_opener(monkeypatch, body={"digest": "d"}) as captured:
+        pm.fetch_memory_digest(
+            project_id="p1",
+            organization_id="o1",
+            conversation_id="",
+            restricted_collections=["proj_p1_raaaaaaaaaaaa", " ", "proj_p1_rbbbbbbbbbbbb"],
+        )
+    assert "restrictedCollections=proj_p1_raaaaaaaaaaaa%2Cproj_p1_rbbbbbbbbbbbb" in captured["url"]
+
+
+def test_no_restricted_collections_no_param(monkeypatch):
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    with _patched_opener(monkeypatch, body={"digest": "d"}) as captured:
+        pm.fetch_memory_digest(project_id="p1", organization_id="o1", conversation_id="")
+    assert "restrictedCollections" not in captured["url"]
+
+
+def test_the_asker_travels_and_served_restricted_notes_confine_the_turn(monkeypatch):
+    """ADR-0085: restricted notes in the digest are use of their folders, recorded by the BFF."""
+    from aiq_agent.knowledge.restricted_use import RestrictedUse
+    from aiq_agent.knowledge.restricted_use import bind_restricted_use
+    from aiq_agent.knowledge.restricted_use import reset_restricted_use
+
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    use = RestrictedUse(organization_id="o1", user_id="u1", conversation_id="c1", project_id="p1")
+    token = bind_restricted_use(use)
+    try:
+        body = {"digest": "PROJECT_MEMORY v1\n- x", "restrictedFoldersServed": ["f-1"]}
+        with _patched_opener(monkeypatch, body=body) as captured:
+            pm.fetch_memory_digest(
+                project_id="p1",
+                organization_id="o1",
+                conversation_id="c1",
+                user_id="u1",
+                restricted_collections=["proj_p1_r0123456789ab"],
+            )
+    finally:
+        reset_restricted_use(token)
+    assert "userId=u1" in captured["url"]
+    assert "restrictedCollections=proj_p1_r0123456789ab" in captured["url"]  # pragma: allowlist secret
+    assert use.confined is True
+
+
+def test_a_digest_without_restricted_notes_leaves_the_turn_open(monkeypatch):
+    from aiq_agent.knowledge.restricted_use import RestrictedUse
+    from aiq_agent.knowledge.restricted_use import bind_restricted_use
+    from aiq_agent.knowledge.restricted_use import reset_restricted_use
+
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    use = RestrictedUse(organization_id="o1", user_id="u1", conversation_id="c1", project_id="p1")
+    token = bind_restricted_use(use)
+    try:
+        with _patched_opener(monkeypatch, body={"digest": "x", "restrictedFoldersServed": []}):
+            pm.fetch_memory_digest(project_id="p1", organization_id="o1", conversation_id="c1")
+    finally:
+        reset_restricted_use(token)
+    assert use.confined is False

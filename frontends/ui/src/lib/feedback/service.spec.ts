@@ -22,6 +22,11 @@ vi.mock('@/lib/projects/memory-service', () => ({
   implicateMemoryFromFeedback: vi.fn(async () => 0),
 }))
 
+// The voter's folder clearance (ADR-0084), decided in the projects service.
+vi.mock('@/lib/projects/service', () => ({
+  memoryClearance: vi.fn(async () => ({ cleared: ['00000000-0000-4000-8000-0000000000aa'] })),
+}))
+
 // The office's chat screening (ADR-0083): the REAL matcher over Piloti's
 // suggested list, with no database behind it.
 vi.mock('@/lib/upload-screening/service', async () => {
@@ -53,6 +58,7 @@ import {
   upsertAnswerFeedback,
 } from './repository'
 import { implicateMemoryFromFeedback } from '@/lib/projects/memory-service'
+import { memoryClearance } from '@/lib/projects/service'
 import { getFeedbackDigest } from './digest'
 import {
   getAnswerFeedbackDigest,
@@ -163,11 +169,25 @@ describe('submitAnswerFeedback', () => {
       comment: 'OIB 4 falsch zitiert',
       projectId: 'proj_1',
     })
-    expect(mockImplicate).toHaveBeenCalledWith({
-      organizationId: 'org_1',
-      projectId: 'proj_1',
-      comment: 'OIB 4 falsch zitiert',
-    })
+    // Among the notes this voter may see (ADR-0084): their clearance rides along.
+    await vi.waitFor(() =>
+      expect(mockImplicate).toHaveBeenCalledWith({
+        organizationId: 'org_1',
+        projectId: 'proj_1',
+        comment: 'OIB 4 falsch zitiert',
+        readableFolderIds: ['00000000-0000-4000-8000-0000000000aa'],
+      })
+    )
+    expect(memoryClearance).toHaveBeenCalledWith(session, 'proj_1')
+  })
+
+  it('implicates open organization notes only for a vote outside a project', async () => {
+    mockUpsert.mockResolvedValue({ ...storedRow, verdict: 'down', comment: 'falsch' })
+    await submitAnswerFeedback(session, { messageId: 'msg_1', verdict: 'down', comment: 'falsch' })
+    await vi.waitFor(() =>
+      expect(mockImplicate).toHaveBeenCalledWith(expect.objectContaining({ readableFolderIds: [] }))
+    )
+    expect(memoryClearance).not.toHaveBeenCalled()
   })
 
   it("stores a down-vote comment masked against the office's policy (ADR-0083)", async () => {

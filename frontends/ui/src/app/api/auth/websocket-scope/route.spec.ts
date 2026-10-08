@@ -128,6 +128,25 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
     })
   })
 
+  it('names no document of a restricted folder in the legacy inline project context and serves open memory only, whatever the scope carries (ADR-0084, ADR-0085)', async () => {
+    // Listing is not use: the shared, cached prompt view names no restricted
+    // document for anyone, and restricted memory reaches a turn only through
+    // the live per-turn digest, which admits its folders for the conversation.
+    // The authenticated handshake loads no prompt block at all, so the only
+    // inline copy left is the anonymous legacy one.
+    isAuthRequired.mockReturnValue(false)
+    getGridSession.mockResolvedValue(null)
+    const restricted = 'proj_proj_q_r0123456789ab'
+    buildCollectionScopeFromRequest.mockResolvedValue({
+      ...scopeReturning('proj_q'),
+      scope: ['base', 'proj_proj_q', restricted],
+    })
+
+    await upgrade('?projectId=proj_q&conversationId=s_mine')
+    expect(loadProjectPromptView).toHaveBeenCalledWith('proj_q', undefined)
+    expect(buildProjectMemoryDigest).toHaveBeenCalledWith('proj_q', undefined)
+  })
+
   it('returns 403 without firing the project lookups when the budget is blocked', async () => {
     getBudgetStatus.mockResolvedValue({ ...OPEN_BUDGET, blocked: true, blockedScope: 'org' })
 

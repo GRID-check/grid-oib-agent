@@ -11,10 +11,26 @@ vi.mock('@/lib/auth/require-auth', () => ({
 
 vi.mock('@/lib/projects/memory-service', () => ({
   buildProjectMemoryDigest: vi.fn(),
+  PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS: 20,
   resolveProjectOrganization: vi.fn(),
 }))
 
 vi.mock('@/lib/documents/review-decisions', () => ({ buildReviewDecisionsBlock: vi.fn() }))
+vi.mock('@/lib/authz/folder-access', () => ({
+  ANY_MEMBER: { roles: [], seesEverything: false },
+  clearanceOfMember: vi.fn(async () => ({ roles: ['org-gf'], seesEverything: false })),
+  // Every member reads OPEN; the asker (org-gf) reads OPEN and SECRET.
+  readableFolderIdsFor: vi.fn(async (_org: string, _project: string, clearance: { roles: string[] }) =>
+    clearance.roles.includes('org-gf') ? ['folder-open', 'folder-secret'] : ['folder-open']
+  ),
+}))
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  admitSourceFolders: vi.fn(async (_request: unknown, folderIds: string[]) => ({
+    admitted: folderIds,
+    refused: [],
+    recorded: folderIds,
+  })),
+}))
 vi.mock('@/lib/projects/proposal-decisions', () => ({
   buildProposalDecisionsBlock: vi.fn(async () => null),
   // The real function's shape, three blocks on one channel — kept in step with
@@ -27,6 +43,8 @@ vi.mock('@/lib/projects/proposal-decisions', () => ({
 import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
 import { buildProposalDecisionsBlock } from '@/lib/projects/proposal-decisions'
 import { buildReviewDecisionsBlock } from '@/lib/documents/review-decisions'
+import { clearanceOfMember, readableFolderIdsFor } from '@/lib/authz/folder-access'
+import { admitSourceFolders } from '@/lib/conversations/restricted-use'
 import { GET } from './route'
 
 const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
@@ -94,6 +112,8 @@ describe('GET /api/internal/memory/digest', () => {
     expect(body.digest).toContain('PROJECT_MEMORY v1')
     expect(buildProjectMemoryDigest).toHaveBeenCalledWith(PROJECT_ID, ORG_ID, {
       query: undefined,
+      readableFolderIds: expect.any(Array),
+      admitRestricted: expect.any(Function),
     })
   })
 
@@ -108,6 +128,8 @@ describe('GET /api/internal/memory/digest', () => {
     expect(body.digest).toBeNull()
     expect(buildProjectMemoryDigest).toHaveBeenCalledWith(undefined, ORG_ID, {
       query: undefined,
+      readableFolderIds: expect.any(Array),
+      admitRestricted: expect.any(Function),
     })
   })
 
@@ -140,6 +162,8 @@ describe('GET /api/internal/memory/digest', () => {
       // made the read unscoped.
       expect(buildProjectMemoryDigest).toHaveBeenCalledWith(PROJECT_ID, ORG_ID, {
       query: undefined,
+      readableFolderIds: expect.any(Array),
+      admitRestricted: expect.any(Function),
     })
     })
 
@@ -177,6 +201,7 @@ describe('the decisions the project made about earlier proposals', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       digest: 'PROJECT_MEMORY v1\n- [decision | high | user_confirmed] "x"\n\nPROPOSAL_DECISIONS v1\n- [abgelehnt | Profil | 2026-09-01] "y"',
+      restrictedFoldersServed: [],
     })
     expect(buildProposalDecisionsBlock).toHaveBeenCalledWith(PROJECT_ID, ORG_ID)
   })
@@ -196,6 +221,7 @@ describe('what a person decided about the drafts this conversation filed', () =>
 
     expect(await response.json()).toEqual({
       digest: 'REVIEW_DECISIONS v1\n- [Änderungen angefordert | Befund | v2] "Die Länge stimmt nicht"',
+      restrictedFoldersServed: [],
     })
     expect(buildReviewDecisionsBlock).toHaveBeenCalledWith('s_conv_1', ORG_ID)
   })
@@ -220,6 +246,72 @@ describe('what a person decided about the drafts this conversation filed', () =>
     vi.mocked(buildReviewDecisionsBlock).mockRejectedValue(new Error('db down'))
 
     const response = await GET(makeRequest(`?projectId=${PROJECT_ID}&conversationId=s_conv_1`, REAL_TOKEN))
-    expect(await response.json()).toEqual({ digest: 'PROJECT_MEMORY v1\n- x' })
+    expect(await response.json()).toEqual({ digest: 'PROJECT_MEMORY v1\n- x', restrictedFoldersServed: [] })
+  })
+})
+
+/**
+ * ADR-0084, ADR-0085: restricted memory names its source folders and is judged
+ * at read time. An interactive chat turn (one that sends the restricted
+ * collections it may draw on) is served the notes whose folders its ASKER may
+ * read now, each admitted for the conversation before it is printed; any other
+ * caller only the notes whose folders every member may read now.
+ */
+describe('restricted memory in the per-turn digest', () => {
+  const DRAWABLE = 'proj_x_raaaaaaaaaaaa'
+  const options = () => vi.mocked(buildProjectMemoryDigest).mock.calls[0][2] ?? {}
+
+  it("serves an interactive turn the notes its asker may read, admitting each note's folders for the conversation", async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(buildProjectMemoryDigest).mockImplementation(async (_project, _org, opts) => {
+      const admitted = await opts?.admitRestricted?.(['folder-secret'])
+      return admitted?.has('folder-secret') ? 'PROJECT_MEMORY v1\n- [restricted | decision] "Honorar"' : null
+    })
+
+    const response = await GET(
+      makeRequest(
+        `?projectId=${PROJECT_ID}&organizationId=${ORG_ID}&conversationId=s_conv_1&userId=user_gf&restrictedCollections=${DRAWABLE}`,
+        REAL_TOKEN
+      )
+    )
+
+    expect(response.status).toBe(200)
+    expect(clearanceOfMember).toHaveBeenCalledWith(ORG_ID, 'user_gf')
+    expect(options().readableFolderIds).toEqual(['folder-open', 'folder-secret'])
+    expect(admitSourceFolders).toHaveBeenCalledWith(
+      { organizationId: ORG_ID, conversationId: 's_conv_1', userId: 'user_gf', projectId: PROJECT_ID },
+      ['folder-secret']
+    )
+    // The agent counts the served folders as this turn's use.
+    expect(await response.json()).toMatchObject({ restrictedFoldersServed: ['folder-secret'] })
+  })
+
+  it('serves a turn without restricted scope only notes every member may read now, and records nothing', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    let admitted: ReadonlySet<string> | undefined
+    vi.mocked(buildProjectMemoryDigest).mockImplementation(async (_project, _org, opts) => {
+      admitted = await opts?.admitRestricted?.(['folder-open', 'folder-secret'])
+      return null
+    })
+
+    const response = await GET(
+      makeRequest(`?projectId=${PROJECT_ID}&organizationId=${ORG_ID}&conversationId=s_conv_1&userId=user_gf`, REAL_TOKEN)
+    )
+
+    expect(options().readableFolderIds).toEqual(['folder-open'])
+    expect([...(admitted ?? [])]).toEqual(['folder-open'])
+    expect(admitSourceFolders).not.toHaveBeenCalled()
+    expect(clearanceOfMember).not.toHaveBeenCalled()
+    expect(await response.json()).toMatchObject({ restrictedFoldersServed: [] })
+  })
+
+  it('serves nothing restricted to an organization-only digest', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(buildProjectMemoryDigest).mockResolvedValue(null)
+
+    await GET(makeRequest(`?organizationId=${ORG_ID}&restrictedCollections=${DRAWABLE}`, REAL_TOKEN))
+
+    expect(readableFolderIdsFor).not.toHaveBeenCalled()
+    expect(options().readableFolderIds).toEqual([])
   })
 })

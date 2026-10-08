@@ -11,9 +11,9 @@ informed: everyone working in this repo
 > **Partly superseded by [ADR-0085](0085-folder-access-is-read-write-per-role.md)** (2026-10-06):
 > who may see a folder (a role list on `restricted_roles`, replaced by per-role read/write
 > grants that only narrow when nested), the per-conversation mark and the per-socket
-> confinement check (replaced by a per-person record of source folders, judged at read time).
-> The retrieval collection per restricted folder, the egress refusals, the memory rule and the
-> IFC rule below still hold. Paragraphs marked
+> confinement check (replaced by a per-person record of source folders, judged at read time),
+> and restricted memory keyed by collection (now by folder). The retrieval collection per
+> restricted folder, the egress refusals and the IFC rule below still hold. Paragraphs marked
 > „Superseded" below say which.
 
 ## Context and Problem Statement
@@ -154,15 +154,43 @@ runner's reflection carries no restricted-scope check: a run's scope is never
 restricted, so such a check could not fire, and the input that could carry
 restricted content is refused where the run is commissioned.
 
-**Nothing from a restricted turn is remembered.** Project memory is read by
-everyone on the project, and organization memory by every project, so a turn
-whose scope holds a restricted collection it may draw on, or whose
-conversation already drew on a restricted folder, writes no memory: the
-`remember` tool refuses (project and organization scope alike) and emits no
-`memory_proposal` card, because accepting a card is the same write by another
-door, and the reflection stage skips the turn (`restricted_content`). The test
-is the scope and the conversation's record, not the hits: the history the turn
-answers from may already hold what an earlier turn read.
+**Memory from a restricted turn is restricted memory** *(storage by collection superseded
+by ADR-0085: notes record their source folder ids and follow the folders' current access)*
+(product owner,
+2026-10-02: Piloti should remember as it always does; restricted must not feel
+like amnesia). A memory written in a turn whose scope holds restricted
+collections carries the restricted collections it depends on, and only a
+session cleared for all of them is ever served it or shown it. Which collections:
+
+- What the conversation read decides first: this turn's citations and reads,
+  and the citation registry of its earlier turns.
+- A restricted document the turn could list (the inventory block or
+  `list_files`) but did not read goes to a model judge, with its name and
+  summary. The judge also sees the restricted memory the conversation was
+  shown: this turn's digest lines and restricted writes, and the lines earlier
+  turns were shown (`memory/shown_notes.py`, kept per conversation beside the
+  citation registry, because the digest is re-ranked per turn and capped at
+  1,800 characters). A note drawing on one of those is restricted to the
+  restricted collections of the scope that line was shown under, because a
+  digest line does not say which folder it came from. Without that, a
+  paraphrase of a restricted note would be stored as open memory.
+- Before the judge, and whatever it answers, a note whose normalized text
+  substantially reproduces a restricted line is restricted to that line's
+  collections (`restriction.reproduces`: containment either way with at least
+  three significant tokens, or at least 60 % of the line's significant tokens
+  repeated).
+- Every failure fails closed to every restricted collection in scope: no judge
+  model, a timeout, a reply that does not parse strictly, an unknown inventory,
+  more than 150 unread restricted entries.
+
+Memory meant for the whole organization that depends on restricted content is
+kept as restricted project memory instead, and a restricted finding never
+becomes a `memory_proposal` card, because accepting a card writes open memory.
+Open and restricted notes never consolidate with each other. The decision is
+one function, `src/aiq_agent/memory/restriction.py`, shared by the `remember`
+tool and the reflection stage; the BFF stores only collections that are
+currently restricted collections of the project (as first designed; migration 0111
+ships the column keyed by folder, ADR-0085).
 
 **Re-classified here as "roles outside WorkOS"** and fixed: third-party
 permission checks (invitations, quarantine reviewers, storage alerts) consulted
@@ -180,9 +208,9 @@ to them. They now ask WorkOS for the organization's roles first.
 * Bad, because a WebSocket's signed scope is fixed for the socket's lifetime, so a withdrawn
   role takes effect on the next connection, not mid-conversation. (A thread shared mid-socket
   is caught: the per-turn confinement check closes the socket.)
-* Bad, because a conversation that can read a restricted folder remembers nothing. Every chat
-  of a cleared member in a project with a restricted folder is such a conversation, so for
-  them Piloti's memory is off in chat in that project: the safe direction, but a loss.
+* Bad, because a memory restricted to a folder whose restriction is later lifted or whose
+  folder is deleted names a collection that no longer exists, and is then shown to nobody
+  until a person re-files it: the safe direction, but a loss.
 * Bad, because nothing a whole project reads can come out of a restricted conversation: no
   deep-research run, task or profile patch, and no filing except into a folder restricted as
   narrowly as every restricted folder of the project. The scope builder gives a cleared member's
@@ -196,6 +224,11 @@ to them. They now ask WorkOS for the organization's roles first.
 * Bad, because a `project_profile_patch` card and a diagram name their conversation in the
   request body. A client that leaves it out writes what it sends as a person would by hand; the
   refusal holds for the card and the diagram button, not for a caller writing its own request.
+* Bad, because restricted memory over-restricts: once a conversation has read folder A, every
+  later note from it is restricted to A, and a note drawing on a restricted digest line is
+  restricted to every restricted folder in scope. Colleagues not cleared lose such a note; the
+  cleared author keeps it. A `remember` call that needs the judge waits for it (about 3 s, at
+  most 12 s).
 * Bad, because a move whose purge fails (backend unreachable), a document whose ingest is
   still running, and a restriction over more documents than one call moves (100) leave
   documents in the open collection until a later call or the scheduler's placement sweep
@@ -249,9 +282,13 @@ to them. They now ask WorkOS for the organization's roles first.
   withdraws deep research and tasks, renders the shut-doors block and refuses a
   `project_profile_patch` card; `test_commission.py` and `test_deep_research_gate.py` prove a
   confined refusal is told as such and never run in process.
-* `tests/aiq_agent/memory/test_register.py`, `stages/test_memory_reflection_stage.py` and
-  `turn/test_response.py` prove a turn with a restricted collection in scope, or whose
-  conversation drew on a restricted folder, writes no memory and offers no card.
+* `tests/aiq_agent/memory/test_restriction.py` pins the restriction decision and each
+  fail-closed case, the reproduction check (a verbatim copy is restricted when the judge says
+  nothing) and earlier-turn notes as evidence; `test_shown_notes.py` pins the per-conversation
+  record, its bound and that a turn writes what it was shown; `memory-restricted.integration.spec.ts` proves against Postgres that a
+  restricted note is served only to a cleared session, never consolidates with an open one, and
+  that migration 0111's CHECK and index hold; `rls-test-db.sh` checks its down migration deletes
+  restricted notes rather than opening them.
 * `authz-coverage.spec.ts` covers the new routes.
 * Nothing enforces yet that a NEW read path asks `folder-access.ts`; review is the gate for that.
 

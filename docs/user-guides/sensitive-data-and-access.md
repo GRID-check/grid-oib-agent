@@ -194,12 +194,13 @@ away, and the projects overview counts only the documents you may read.
 
 **Deleting a folder** moves its documents and subfolders into the folder above,
 as before. The folder keeps its access list out of sight, so what Piloti
-recorded from it in a chat stays visible only to the people who could read it.
+recorded from it, in a chat or in its memory, stays visible only to the people
+who could read it.
 
 **A chat that draws on a folder not everyone may read is shared per person.**
 It can be shared with someone who may read every such folder it drew on, and
 with nobody else. It counts as drawing on a folder once content from it reached
-Piloti's answer: a search hit, an opened document, an image.
+Piloti's answer: a search hit, an opened document, an image, a remembered note.
 Being able to search the folder is not enough, and until then Piloti does not
 list the folder's files, suggest their names or say that one exists; it finds
 them by searching. If the chat is shared with someone who
@@ -218,15 +219,18 @@ not offer, and refuses with a message saying why:
   the chat unless they are moved there by hand.
 
 Whether a chat drew on such a folder is decided against the folders' lists as
-they are now: when a folder is opened to everyone, the chats that drew on it
-are no longer held back by it; when a list is narrowed, they are
+they are now: when a folder is opened to everyone, the chats and notes that
+drew on it are no longer held back by it; when a list is narrowed, they are
 shown to fewer people. The project context can still be changed by hand, in
 the project intake.
 
-**Piloti remembers nothing from such a chat.** The project's memory and the
-organization's are read by everyone they belong to, so Piloti keeps no notes
-from a chat that can search a folder not everyone may read, or that already
-drew on one, and says so when you ask it to remember something there.
+**What Piloti remembers from such a chat is restricted too.** Piloti keeps
+notes from it in the project's memory as it does from any chat, but a note that
+draws on a folder not everyone may read is shown, under Projektspeicher, only to
+people who may read that folder now, with a lock that names it, and only their
+chats are given it. Everyone else does not see the note at all. A note meant
+for the whole organization that draws on such a folder is kept in the project
+instead.
 
 **Building models (IFC) stay in folders everyone may read.** A model's
 building data is kept per project, not per folder, so a list could not protect

@@ -7,8 +7,9 @@
  * different folders. So:
  *
  *   * a folder is USED when content from it enters the model's context in a
- *     turn (a retrieval hit, an opened document). Listing is not use:
- *     restricted documents are not in the inventory block or `list_files`. Every use of a folder that not every
+ *     turn (a retrieval hit, an opened document, a restricted memory line the
+ *     digest served). Listing is not use: restricted documents are not in the
+ *     inventory block or `list_files`. Every use of a folder that not every
  *     project member can read is recorded here first ({@link admitRestrictedUse},
  *     `conversation_restricted_folders`), by the SOURCE FOLDER's id;
  *   * a turn may draw on such a folder only if its asker AND everyone the

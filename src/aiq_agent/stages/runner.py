@@ -116,6 +116,32 @@ def stage_value(spec: StageSpec, outcome: StageOutcome) -> StageValue:
     return StageValue(stage=spec.id, status=status, payload=payload)
 
 
+def resolve_group_llm(base: Any, agent_group: AgentGroup, *, label: str) -> Any:
+    """``base`` with the org's model override for ``agent_group`` and its BYOK credential applied.
+
+    Must run while the request context is live: both transforms read it. A
+    failure falls back to ``base`` PINNED to zero-data-retention endpoints, and
+    a failed pin to ``None`` (do not run) — never to the bare model. Shared by
+    the stage runner and by in-turn callers of a stage's model (the memory
+    restriction judge in the ``remember`` tool).
+    """
+    if base is None:
+        return None
+    from aiq_agent.common import apply_model_override
+    from aiq_agent.common import apply_org_credential
+    from aiq_agent.common import apply_zdr_routing
+
+    try:
+        return apply_model_override(apply_org_credential(base), agent_group)
+    except Exception:
+        logger.warning("%s: model override/credential swap failed; using the configured model", label)
+    try:
+        return apply_zdr_routing(base)
+    except Exception:
+        logger.error("%s: could not pin the configured model to ZDR; not running", label)
+        return None
+
+
 def _resolve_llm(spec: StageSpec, llms: Mapping[AgentGroup, Any] | None) -> Any:
     """The stage's LLM with the org's model override and BYOK credential applied.
 
@@ -128,22 +154,9 @@ def _resolve_llm(spec: StageSpec, llms: Mapping[AgentGroup, Any] | None) -> Any:
     workflow default is better than a stage that does not run, and a stage that
     does not run is better than one that sends unpinned.
     """
-    base = (llms or {}).get(spec.agent_group)
-    if base is None:
+    llm = resolve_group_llm((llms or {}).get(spec.agent_group), spec.agent_group, label=f"Stage {spec.id}")
+    if llm is None:
         return None
-    from aiq_agent.common import apply_model_override
-    from aiq_agent.common import apply_org_credential
-    from aiq_agent.common import apply_zdr_routing
-
-    try:
-        llm = apply_model_override(apply_org_credential(base), spec.agent_group)
-    except Exception:
-        logger.warning("Stage %s: model override/credential swap failed; using the configured model", spec.id)
-        try:
-            llm = apply_zdr_routing(base)
-        except Exception:
-            logger.error("Stage %s: could not pin the configured model to ZDR; not running", spec.id)
-            return None
     if spec.max_output_tokens is not None:
         try:
             llm = llm.bind(max_tokens=spec.max_output_tokens)

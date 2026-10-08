@@ -47,6 +47,11 @@ features:
     Such a chat also cannot start a Tiefenrecherche or an Auftrag, change the
     project context, or file a draft or diagram where colleagues who may not
     read the folder could open it; Piloti says why instead of offering it.
+  - >
+    What Piloti remembers from such a chat is kept for the people allowed to
+    know it. Only those who may read the folder it came from see the note in the
+    project memory, where a lock names that folder, and only their chats are
+    given it.
 fixes:
   - >
     A chat in a project with a great deal of project information can no longer

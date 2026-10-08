@@ -118,3 +118,75 @@ class TestAProfilePatchCardIsRefusedInAConfinedTurn:
 
         assert card is None
         assert refusal is not None and refusal.kind == REFUSED_CONFINED
+
+
+class TestTheReflectionStageSeesWhatEarlierTurnsWereShown:
+    """The join: `_finished` hands the registries' record to the stage facts."""
+
+    def test_finished_passes_the_shown_notes_on(self, monkeypatch):
+        import types
+
+        from aiq_agent.agents.piloti import conversation_register as cr
+        from aiq_agent.cards.registry import CardRegistry
+        from aiq_agent.memory.restriction import RestrictedNote
+        from aiq_agent.memory.shown_notes import ShownNotes
+        from aiq_agent.turn.admission import TurnOutcome
+        from aiq_agent.turn.registries import TurnRegistries
+
+        seen: dict = {}
+
+        def facts(_request_facts, **kwargs):
+            seen.update(kwargs)
+            return "facts"
+
+        monkeypatch.setattr(cr, "post_answer_turn_facts", facts)
+        monkeypatch.setattr(cr, "schedule_post_answer_stages", lambda *_a, **_k: None)
+        monkeypatch.setattr(cr, "get_turn_documents", lambda: ())
+        monkeypatch.setattr(cr, "build_result", lambda *_a: "result")
+        monkeypatch.setattr(cr, "finished", lambda result: result)
+        shown = ShownNotes(notes=(RestrictedNote("Honorar 48.000", ("proj_1_r0123456789ab",)),))
+
+        cr._finished(
+            TurnOutcome(state=object(), refusal=None),
+            TurnRegistries(cards=CardRegistry(), shown_notes=shown),
+            types.SimpleNamespace(stage_facts="request facts"),
+            types.SimpleNamespace(query_text="q"),
+            message_id="m1",
+            stage_llms={},
+        )
+
+        assert seen["earlier_restricted_notes"] is shown
+
+    async def test_setup_loads_the_record_for_the_thread(self, monkeypatch):
+        import types
+
+        from aiq_agent.agents.piloti import conversation_register as cr
+        from aiq_agent.memory.shown_notes import ShownNotes
+
+        shown = ShownNotes(overflowed=("proj_1_r0123456789ab",))
+        asked: list = []
+
+        async def value(result):
+            return result
+
+        async def load_shown(thread_id):
+            asked.append(thread_id)
+            return shown
+
+        monkeypatch.setattr(cr, "load_turn_context", lambda *_a, **_k: value("context"))
+        monkeypatch.setattr(cr, "load_inventory", lambda *_a, **_k: value("inventory"))
+        monkeypatch.setattr(cr, "load_session_registry", lambda *_a, **_k: value("registry"))
+        monkeypatch.setattr(cr, "load_subject_document", lambda *_a, **_k: value(None))
+        monkeypatch.setattr(cr, "load_turn_shown_notes", load_shown)
+
+        result = await cr._load_setup(
+            types.SimpleNamespace(organization_id="org", user_id="u1"),
+            types.SimpleNamespace(query_text="q", subject=None),
+            [],
+            conversation_id="c1",
+            thread_id="t1",
+            resolve_stages=False,
+        )
+
+        assert result[4] is shown
+        assert asked == ["t1"]

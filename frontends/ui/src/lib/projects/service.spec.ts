@@ -28,6 +28,9 @@ const getHiddenFolderIds = vi.fn()
 vi.mock('@/lib/authz/folder-access', async () => ({
   ...(await vi.importActual<typeof import('@/lib/authz/folder-access-rule')>('@/lib/authz/folder-access-rule')),
   getHiddenFolderIds: (...args: unknown[]) => getHiddenFolderIds(...args),
+  clearanceOf: vi.fn(),
+  customFolderNames: vi.fn(),
+  readableFolderIdsFor: vi.fn(),
 }))
 
 const lastProjectActivityByUser = vi.fn()

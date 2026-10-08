@@ -26,10 +26,13 @@ type FolderAccessModule = Pick<
   | 'filterUsersWhoMayReadFolder'
   | 'placementCollectionFor'
   | 'getProjectFolderAccess'
+  | 'currentRestrictedCollections'
   | 'clearanceOfMember'
   | 'requireFolderWrite'
   | 'canWriteFolder'
   | 'projectMayWriteDocuments'
+  | 'readableFolderIdsFor'
+  | 'sourceFoldersOfCollections'
   | 'customFolderNames'
 >
 
@@ -63,12 +66,15 @@ export function openFolderAccessModule(): FolderAccessModule & typeof rule {
     ),
     placementCollectionFor: vi.fn(async (_org: string, _project: string, collection: string) => collection),
     getProjectFolderAccess: vi.fn(async (_session, _project: string, collection: string) => openFolderAccess(collection)),
+    currentRestrictedCollections: vi.fn(async () => []),
     clearanceOfMember: vi.fn(async () => ({ roles: [], seesEverything: false })),
     // Writes are allowed in an open project; a spec that tests a read-only
     // folder overrides this one with `vi.mocked(…)`.
     requireFolderWrite: vi.fn(async () => undefined),
     canWriteFolder: vi.fn(async () => true),
     projectMayWriteDocuments: vi.fn(async () => true),
+    readableFolderIdsFor: vi.fn(async () => []),
+    sourceFoldersOfCollections: vi.fn(async () => new Map<string, string>()),
     customFolderNames: vi.fn(async () => new Map<string, string>()),
   }
 }

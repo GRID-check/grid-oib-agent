@@ -67,7 +67,7 @@ TOOLS: dict[str, tuple[str, str]] = {
     "create_task": ("no_collection_content", "queues work; returns the task it created"),
     "project_memory_remember": (
         "no_collection_content",
-        "writes a note; a turn that can read a restricted folder writes none",
+        "writes a note; restricted memory is served into a prompt only after the BFF admits its folders",
     ),
     "ifc_query": (
         "no_collection_content",

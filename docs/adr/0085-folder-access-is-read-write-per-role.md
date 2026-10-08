@@ -20,8 +20,9 @@ accounting may change.
 
 ADR-0084 also decided who may read a conversation that drew on a restricted
 folder by a per-conversation mark and by role lists copied at the time. When a
-folder's list changed, conversations either stayed locked for people who may
-now read the folder or were left open to people who may no longer read it.
+folder's list changed, conversations and memory either stayed locked for
+people who may now read the folder or were left open to people who may no
+longer read it.
 
 ## Decision Drivers
 
@@ -145,7 +146,10 @@ judged against the current grants when it is read:
   collection in the scope that envelope signs, in its organization, and for a restricted
   folder's collection only when the asker and the conversation's audience may read the folder
   now. Without an envelope (a job worker) that route never answers for a restricted folder's
-  collection.
+  collection;
+* restricted memory (`project_memory.restricted_folder_ids`, migration 0111), shown to a person
+  who may read all of its folders now, and served into a chat only after its folders are
+  admitted for that conversation.
 
 **The cached prompt view is dropped by placement.** The `documents:` block of
 the project prompt view (`lib/project-profile/prompt-view.ts`, cached 5 min, one
@@ -173,8 +177,8 @@ recorded folders.
   edit" (`*` read plus a role with write), without a second collection.
 * Good, because the rule is one pure function with a table of cases, and the database holds the
   shape (level CHECK, role CHECK, 1–20 entries by a deferred constraint trigger, RLS).
-* Good, because a change of a folder's list takes effect for conversations derived from it at
-  the next read, with no revocation job.
+* Good, because a change of a folder's list takes effect for conversations and memory derived
+  from it at the next read, with no revocation job.
 * Bad, because the 0109 down migration drops every access list: an older build knows no folder
   access, so every folder has to inherit again in the product first, or the documents filed in a
   `_r…` collection leave everybody's scope.
@@ -228,7 +232,9 @@ recorded folders.
 * `scripts/rls-test-db.sh`: 0109's constraints (empty and 21-entry lists refused, an unknown
   level and a `*`-prefixed slug refused, no custom folder without grants), a list replaced in one
   transaction, a tombstone keeping its list and freeing its name, the down (tombstones, the grants
-  table and the columns removed) and re-apply; 0110's order CHECK, down and re-apply.
+  table and the columns removed) and re-apply; 0110's order CHECK, down and re-apply; 0111's index
+  (an open and a restricted note with one text both live), its CHECK, and a down that deletes
+  restricted notes rather than opening them.
 * `projects/folder-access-settings.spec.ts`: validation (empty, over 20, a role twice, an unknown
   role), `project:manage` first, the audit metadata with levels, the IFC guard only for a list
   that restricts reading; `collection-placement.integration.spec.ts`: a `*` list moves nothing.
@@ -253,6 +259,8 @@ recorded folders.
   delete, release and filing ask `requireFolderWrite` and stop on a read-only folder.
 * `conversations/restricted-use.spec.ts` and `restricted-use.integration.spec.ts`: admission
   against the audience, the lock with widening, loosen and tighten judged at read time.
+* `projects/memory-restricted.integration.spec.ts` and `projects/memory-service.spec.ts`:
+  restricted notes by folder id, loosen, tighten and tombstone.
 * `auth/membership-roles.spec.ts`: the membership lookup, the 60 s key, the fallback.
 * `tests/aiq_agent/knowledge/test_restricted_use.py`, `turn/test_context.py`,
   `turn/test_subject_document.py`, `agents/piloti/test_confined_turn.py`: the agent asks before
@@ -304,10 +312,10 @@ recorded folders.
 
 * Supersedes the parts of [ADR-0084](0084-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md)
   that decided who may see a folder (roles on `restricted_roles`), the per-conversation mark and
-  the per-socket confinement check. ADR-0084's retrieval collection per restricted folder, its
-  egress refusals, its memory rule and its IFC rule stand.
+  the per-socket confinement check, and restricted memory keyed by collection. ADR-0084's
+  retrieval collection per restricted folder, its egress refusals and its IFC rule stand.
 * User guide: [`sensitive-data-and-access.md`](../user-guides/sensitive-data-and-access.md#who-may-read-and-edit-a-folder).
 * Where a later lifecycle feature would attach (participant notices, an organization setting for
   deleted-folder content, a download log): `setFolderAccess` after placement, the tombstone in
   `deleteProjectFolder`, `effectiveFolderLevel`, `resolveMembershipRoles`, `admitSourceFolders`
-  and `widenConversationAudience`.
+  and `widenConversationAudience`, `memoryVisibleTo` and `readableFolderIdsFor`.

@@ -2,7 +2,9 @@ import { isUniqueViolation } from '@/lib/db/errors'
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { executeRows } from '@/lib/db/execute-rows'
-import { projectMemory, projects } from '@/lib/db/schema'
+import { BadRequestError } from '@/lib/api/errors'
+import { sourceFoldersOfCollections } from '@/lib/authz/folder-access'
+import { PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS, projectMemory, projects } from '@/lib/db/schema'
 import type {
   NewProjectMemoryItem,
   ProjectMemoryConfidence,
@@ -28,6 +30,9 @@ import {
 import { daysSince, fuseHybridRelevance, rankByRecallScore } from '@/lib/knowledge/recall-scoring'
 import { maskChatText } from '@/lib/upload-screening/service'
 
+/** Re-exported so a route reads the bound without importing the schema (ADR-0017). */
+export { PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS }
+
 /**
  * Memory service — system-of-record CRUD plus the bounded "core digest"
  * that is injected into the agent's context on every WebSocket handshake.
@@ -40,6 +45,56 @@ import { maskChatText } from '@/lib/upload-screening/service'
  * This module is the ONLY writer of the project_memory table — the backend's
  * `remember` tool goes through the internal BFF endpoint, not the DB.
  */
+
+
+/**
+ * A restriction in its stored form (ADR-0085, migration 0111): the source
+ * folder ids, trimmed, lower-cased, de-duplicated, sorted, and null when nothing
+ * is left. Two items carry the same restriction exactly when these arrays are
+ * equal, which is what consolidation and the unique index key on.
+ */
+export function canonicalRestriction(
+  folderIds: readonly string[] | null | undefined
+): string[] | null {
+  const unique = [...new Set((folderIds ?? []).map((id) => id.trim().toLowerCase()).filter(Boolean))].sort()
+  return unique.length > 0 ? unique : null
+}
+
+/**
+ * A Postgres array literal for a `$n::uuid[]` parameter. One parameter rather
+ * than a list, so the same fragment works through every driver and inside the
+ * raw cosine query. Elements are quoted and escaped; they are folder ids anyway.
+ */
+function arrayLiteral(values: readonly string[]): string {
+  return `{${values.map((value) => `"${value.replace(/["\\]/g, '\\$&')}"`).join(',')}}`
+}
+
+/**
+ * Rows carrying exactly this restriction. Consolidation compares only within
+ * one restriction: an open note never merges into, supersedes or is retired by
+ * a restricted one, and neither do two restricted notes with different
+ * source folders — either would make a fact appear for, or vanish from, people
+ * the other row is not shown to.
+ */
+function sameRestriction(restriction: readonly string[] | null) {
+  return restriction
+    ? sql`${projectMemory.restrictedFolderIds} = ${arrayLiteral(restriction)}::uuid[]`
+    : isNull(projectMemory.restrictedFolderIds)
+}
+
+/**
+ * The rows a reader who may read the folders `readable` may be served or
+ * shown: every open row, and a restricted row only when it may read ALL of its
+ * source folders. `readable` is every folder of the project (tombstones
+ * included) the reader may read NOW (`readableFolderIdsFor`); empty is the
+ * default everywhere, so a caller that says nothing gets open memory only.
+ */
+export function memoryVisibleTo(readable: readonly string[] = []) {
+  const restriction = canonicalRestriction(readable)
+  return restriction
+    ? sql`(${projectMemory.restrictedFolderIds} is null or ${projectMemory.restrictedFolderIds} <@ ${arrayLiteral(restriction)}::uuid[])`
+    : isNull(projectMemory.restrictedFolderIds)
+}
 
 /** Digest budget in characters. Kept small: this rides a header on every turn. */
 const DIGEST_MAX_CHARS = 1800
@@ -72,6 +127,13 @@ function memoryOwnerCondition(
       )
 }
 
+/** Owner AND restriction: the rows one write may be consolidated with. */
+function consolidationScope(
+  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'restrictedFolderIds'>
+) {
+  return and(memoryOwnerCondition(values), sameRestriction(canonicalRestriction(values.restrictedFolderIds)))
+}
+
 /**
  * The write-time de-duplication gate (a pragmatic first slice of design §3.2).
  * Finds an existing ACTIVE item in the same scope whose content normalizes to
@@ -80,7 +142,10 @@ function memoryOwnerCondition(
  * the org and require project_id IS NULL.
  */
 async function findActiveDuplicate(
-  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'content'>
+  values: Pick<
+    NewProjectMemoryItem,
+    'scope' | 'projectId' | 'organizationId' | 'content' | 'restrictedFolderIds'
+  >
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
   const [existing] = await db
@@ -88,7 +153,7 @@ async function findActiveDuplicate(
     .from(projectMemory)
     .where(
       and(
-        memoryOwnerCondition(values),
+        consolidationScope(values),
         eq(projectMemory.status, 'active'),
         normalizedContentEquals(values.content)
       )
@@ -126,7 +191,10 @@ interface NearMatch {
  * (→ supersede). See NEGATION_TOKENS.
  */
 async function findActiveNearMatch(
-  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'content' | 'kind'>
+  values: Pick<
+    NewProjectMemoryItem,
+    'scope' | 'projectId' | 'organizationId' | 'content' | 'kind' | 'restrictedFolderIds'
+  >
 ): Promise<NearMatch | null> {
   const incomingTokens = contentTokens(values.content)
   if (incomingTokens.size < NEAR_DUP_MIN_TOKENS) return null
@@ -136,7 +204,7 @@ async function findActiveNearMatch(
     .from(projectMemory)
     .where(
       and(
-        memoryOwnerCondition(values),
+        consolidationScope(values),
         eq(projectMemory.status, 'active'),
         eq(projectMemory.kind, values.kind)
       )
@@ -192,7 +260,10 @@ const SEMANTIC_DUP_THRESHOLD = 0.9
  * through to the lexical pass".
  */
 async function findSemanticNearMatch(
-  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'content' | 'kind'>,
+  values: Pick<
+    NewProjectMemoryItem,
+    'scope' | 'projectId' | 'organizationId' | 'content' | 'kind' | 'restrictedFolderIds'
+  >,
   embedded: EmbeddedNote | null
 ): Promise<NearMatch | null> {
   if (!embedded) return null
@@ -204,11 +275,17 @@ async function findSemanticNearMatch(
     values.scope === 'organization'
       ? sql`m.scope = 'organization' and m.organization_id = ${values.organizationId} and m.project_id is null`
       : sql`m.scope = 'project' and m.project_id = ${values.projectId as string}`
+  // Same restriction only, as in `consolidationScope` (ADR-0084).
+  const restriction = canonicalRestriction(values.restrictedFolderIds)
+  const restricted = restriction
+    ? sql`m.restricted_folder_ids = ${arrayLiteral(restriction)}::uuid[]`
+    : sql`m.restricted_folder_ids is null`
   const result = await db.execute(sql`
     with scored as (
       select m.*, grid_cosine_similarity(m.embedding, ${toVectorLiteral(embedded.vector)}::real[]) as similarity
       from project_memory m
       where ${owner}
+        and ${restricted}
         and m.status = 'active'
         and m.embedding_model = ${embedded.fingerprint}
     )
@@ -254,14 +331,14 @@ const SUPERSEDE_MATCH_THRESHOLD = 0.7
  * enough — an unresolvable quote is ignored, never guessed at.
  */
 async function resolveSupersedeTarget(
-  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId'>,
+  values: Pick<NewProjectMemoryItem, 'scope' | 'projectId' | 'organizationId' | 'restrictedFolderIds'>,
   supersedesContent: string
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
   const candidates = await db
     .select()
     .from(projectMemory)
-    .where(and(memoryOwnerCondition(values), eq(projectMemory.status, 'active')))
+    .where(and(consolidationScope(values), eq(projectMemory.status, 'active')))
     .orderBy(desc(projectMemory.updatedAt))
     .limit(NEAR_DUP_CANDIDATE_LIMIT)
 
@@ -275,7 +352,7 @@ async function resolveSupersedeTarget(
     .from(projectMemory)
     .where(
       and(
-        memoryOwnerCondition(values),
+        consolidationScope(values),
         eq(projectMemory.status, 'active'),
         sql`btrim(regexp_replace(lower(${projectMemory.content}), '[^a-z0-9]+', ' ', 'g')) = ${normalized}`
       )
@@ -317,6 +394,11 @@ export async function listProjectMemory(
     includeArchived?: boolean
     organizationId?: string
     sourceConversationId?: string
+    /**
+     * Every folder the reader may read now (ADR-0085, `readableFolderIdsFor`).
+     * Empty — the default — lists open memory only.
+     */
+    readableFolderIds?: readonly string[]
   } = {}
 ): Promise<ProjectMemoryItem[]> {
   const db = getDb()
@@ -346,6 +428,9 @@ export async function listProjectMemory(
   if (!options.includeArchived) {
     conditions.push(eq(projectMemory.status, 'active'))
   }
+  // A restricted item is absent for a reader not cleared for all of it — not
+  // greyed out, not counted (ADR-0084).
+  conditions.push(memoryVisibleTo(options.readableFolderIds))
   if (options.sourceConversationId) {
     // Used by the chat "Piloti noted N" chip to show only what this turn recorded.
     conditions.push(eq(projectMemory.sourceConversationId, options.sourceConversationId))
@@ -365,6 +450,9 @@ export async function listOrganizationMemory(
   const conditions = [
     eq(projectMemory.scope, 'organization'),
     eq(projectMemory.organizationId, organizationId),
+    // Organization memory is never restricted (0111 CHECK); said here too, so
+    // this listing stays open-only if that ever changes.
+    isNull(projectMemory.restrictedFolderIds),
   ]
   if (!options.includeArchived) {
     conditions.push(eq(projectMemory.status, 'active'))
@@ -423,13 +511,20 @@ export async function createProjectMemoryItem(
   options: CreateMemoryOptions = {}
 ): Promise<ProjectMemoryItem> {
   const db = getDb()
+  // Stored canonical, so equal restrictions compare equal (consolidation, the
+  // 0111 index). Organization memory reaches every project and is never
+  // restricted: the caller demotes such a finding to its project first.
+  const restrictedFolderIds = canonicalRestriction(input.restrictedFolderIds)
+  if (restrictedFolderIds && input.scope !== 'project') {
+    throw new BadRequestError('Restricted memory is project memory')
+  }
   // Masked against the office's „Sensible Daten" policy before anything reads
   // it (ADR-0083): a note rides every turn's digest and goes to the embedder
   // below, so it must not hold what the chat composer would have removed. Here
   // rather than at each caller, so the memory panel, the organization route,
   // the agent's `remember` tool and reflection are all masked by construction.
   const content = await maskedNote(input.organizationId, input.content)
-  const values: NewProjectMemoryItem = { ...input, content }
+  const values: NewProjectMemoryItem = { ...input, content, restrictedFolderIds }
 
   // Write-time consolidation (design §3.2). Three outcomes, in order:
   //
@@ -542,6 +637,32 @@ export async function createProjectMemoryItem(
 }
 
 /**
+ * The source folders of the restricted collections a writer names (the agent
+ * knows collections, the store keeps folders, ADR-0085). A name that is not a
+ * CURRENT restricted collection of the project is refused: stored, such an item
+ * would be served to nobody; refused, the writer learns the truth. A 400, not a
+ * silent open write.
+ */
+async function restrictionFromCollections(
+  organizationId: string,
+  projectId: string,
+  projectCollection: string,
+  collections: readonly string[] | null | undefined
+): Promise<string[] | null> {
+  const named = [...new Set((collections ?? []).map((name) => name.trim()).filter(Boolean))]
+  if (named.length === 0) return null
+  if (named.length > PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS) {
+    throw new BadRequestError(`At most ${PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS} restricted collections`)
+  }
+  const sources = await sourceFoldersOfCollections(organizationId, projectId, projectCollection, named)
+  const unknown = named.filter((name) => !sources.has(name))
+  if (unknown.length > 0) {
+    throw new BadRequestError(`Not a restricted collection of this project: ${unknown.join(', ')}`)
+  }
+  return canonicalRestriction([...sources.values()])
+}
+
+/**
  * Create a project-scoped item deriving organization_id from the project row
  * (tenancy-safe for callers that only know the project id, e.g. the internal
  * endpoint used by the agent's `remember` tool). Returns null when the
@@ -566,20 +687,35 @@ export async function resolveProjectOrganization(projectId: string): Promise<str
 
 export async function createProjectMemoryItemForProject(
   projectId: string,
-  values: Omit<NewProjectMemoryItem, 'projectId' | 'organizationId' | 'scope'>,
+  values: Omit<NewProjectMemoryItem, 'projectId' | 'organizationId' | 'scope' | 'restrictedFolderIds'> & {
+    /**
+     * The restricted collections the item depends on, as the agent names them;
+     * stored as their source folders. Each must be a current restricted
+     * collection of the project.
+     */
+    restrictedCollections?: readonly string[] | null
+  },
   options: CreateMemoryOptions = {}
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
   const [project] = await db
-    .select({ organizationId: projects.organizationId })
+    .select({ organizationId: projects.organizationId, collectionName: projects.collectionName })
     .from(projects)
     .where(eq(projects.id, projectId))
     .limit(1)
   if (!project) return null
 
+  const { restrictedCollections, ...rest } = values
+  const restrictedFolderIds = await restrictionFromCollections(
+    project.organizationId,
+    projectId,
+    project.collectionName,
+    restrictedCollections
+  )
   return createProjectMemoryItem(
     {
-      ...values,
+      ...rest,
+      restrictedFolderIds,
       scope: 'project',
       projectId,
       organizationId: project.organizationId,
@@ -592,19 +728,27 @@ export async function createProjectMemoryItemForProject(
  * Update an item. Tenancy guard: `owner` must match the item's own scope —
  * a projectId for project items, or an organizationId for org items.
  */
-/** Who may touch an item: its project, or its organization for organization memory. */
+/**
+ * Who may touch an item: a project owner names the folders its reader may
+ * read, so an item they cannot see answers like a missing one.
+ */
 export type MemoryOwner =
   | {
       projectId: string
       /** The project's organization: whose „Sensible Daten" policy masks an edit (ADR-0083). */
       organizationId: string
+      readableFolderIds: readonly string[]
     }
   | { organizationId: string }
 
 function ownerCondition(owner: MemoryOwner) {
   return 'projectId' in owner
-    ? eq(projectMemory.projectId, owner.projectId)
-    : and(eq(projectMemory.scope, 'organization'), eq(projectMemory.organizationId, owner.organizationId))
+    ? and(eq(projectMemory.projectId, owner.projectId), memoryVisibleTo(owner.readableFolderIds))
+    : and(
+        eq(projectMemory.scope, 'organization'),
+        eq(projectMemory.organizationId, owner.organizationId),
+        isNull(projectMemory.restrictedFolderIds)
+      )
 }
 
 export async function updateProjectMemoryItem(
@@ -647,7 +791,10 @@ export async function deleteProjectMemoryItem(
 export type DigestItem = Pick<
   ProjectMemoryItem,
   'scope' | 'kind' | 'content' | 'confidence' | 'verification'
->
+> & {
+  /** Set on a restricted item, which the line then marks `restricted` (ADR-0084). */
+  restrictedFolderIds?: readonly string[] | null
+}
 
 /**
  * Pure digest formatter (exported for tests). Each item becomes one line:
@@ -665,6 +812,9 @@ export function formatDigestLines(items: DigestItem[], omitted = 0): string | nu
     items.map((item) => ({
       tags: [
         ...(item.scope === 'organization' ? ['org-wide'] : []),
+        // Only ever reaches a turn cleared for it; the tag tells the model the
+        // note is confidential, so it is not written into anything shared.
+        ...(item.restrictedFolderIds && item.restrictedFolderIds.length > 0 ? ['restricted'] : []),
         item.kind,
         item.confidence,
         item.verification,
@@ -716,6 +866,57 @@ export interface MemoryDigestOptions {
    * pinned-then-recent, which is what every caller got before.
    */
   query?: string | null
+  /**
+   * The folders the turn's asker may read now (ADR-0085): restricted memory is
+   * a candidate only when all of its source folders are among them. Empty —
+   * the default, and what deep research, scheduled runs, the handshake and
+   * every session-less caller get — serves open memory only.
+   */
+  readableFolderIds?: readonly string[]
+  /**
+   * Admit the source folders of the restricted notes the digest is about to
+   * show, and answer which were admitted: a restricted note in the prompt is
+   * USE of its folders, recorded for the conversation before the note is served
+   * (`admitSourceFolders`). A note whose folders are not all admitted is left
+   * out. Required whenever `readableFolderIds` is not empty; without it no
+   * restricted note is shown.
+   */
+  admitRestricted?: (folderIds: string[]) => Promise<ReadonlySet<string>>
+}
+
+/** The source folders of the restricted notes among `items`, sorted and distinct. */
+function restrictedFoldersOfItems(items: readonly Pick<DigestItem, 'restrictedFolderIds'>[]): string[] {
+  return [...new Set(items.flatMap((item) => item.restrictedFolderIds ?? []))].sort()
+}
+
+/**
+ * The items `formatDigestLines` will actually print: in order, skipping blank
+ * content, as many as the digest text has lines. The budget cuts the tail, and
+ * a note the cut leaves out is not in the prompt, so it is not use.
+ */
+function printedItems<T extends DigestItem>(items: readonly T[], digest: string | null): T[] {
+  if (!digest) return []
+  const lines = digest.split('\n').filter((line) => line.startsWith('- [')).length
+  return items.filter((item) => item.content.replace(/\s+/g, ' ').trim()).slice(0, lines)
+}
+
+/**
+ * Format the digest, admitting the restricted notes it prints first. A note
+ * whose collections are not all admitted is dropped and the digest formatted
+ * again from what is left; what is left needs no further admission.
+ */
+async function formatAdmittedDigest<T extends DigestItem>(
+  kept: readonly T[],
+  omitted: number,
+  admit: MemoryDigestOptions['admitRestricted']
+): Promise<{ digest: string | null; kept: readonly T[] }> {
+  const digest = formatDigestLines([...kept], omitted)
+  const restricted = restrictedFoldersOfItems(printedItems(kept, digest))
+  if (restricted.length === 0) return { digest, kept }
+  const admitted = admit ? await admit(restricted) : new Set<string>()
+  if (restricted.every((folderId) => admitted.has(folderId))) return { digest, kept }
+  const allowed = kept.filter((item) => (item.restrictedFolderIds ?? []).every((name) => admitted.has(name)))
+  return { digest: formatDigestLines([...allowed], omitted + kept.length - allowed.length), kept: allowed }
 }
 
 /**
@@ -771,7 +972,8 @@ export async function buildProjectMemoryDigest(
 
   const scope = and(
     scopeConditions.length > 1 ? or(...scopeConditions) : scopeConditions[0],
-    eq(projectMemory.status, 'active')
+    eq(projectMemory.status, 'active'),
+    memoryVisibleTo(options.readableFolderIds)
   )
 
   // The query vector, when there is a question and an embedder. Fail-open:
@@ -796,6 +998,7 @@ export async function buildProjectMemoryDigest(
       content: projectMemory.content,
       confidence: projectMemory.confidence,
       verification: projectMemory.verification,
+      restrictedFolderIds: projectMemory.restrictedFolderIds,
       pinned: projectMemory.pinned,
       salience: projectMemory.salience,
       lastReferencedAt: projectMemory.lastReferencedAt,
@@ -827,6 +1030,7 @@ export async function buildProjectMemoryDigest(
     content: row.content,
     confidence: row.confidence,
     verification: row.verification,
+    restrictedFolderIds: row.restrictedFolderIds ?? null,
     pinned: row.pinned,
     // Raw sql<T> results are not runtime-validated — coerce at the boundary.
     salience: Number(row.salience),
@@ -880,8 +1084,12 @@ export async function buildProjectMemoryDigest(
     if (unembedded.length > 0) void backfillMemoryEmbeddings(unembedded)
   }
 
-  const kept = [...keptPinned, ...keptRecalled]
-  const omitted = candidates.length - kept.length
+  const selected = [...keptPinned, ...keptRecalled]
+  const { digest, kept } = await formatAdmittedDigest(
+    selected,
+    candidates.length - selected.length,
+    options.admitRestricted
+  )
 
   // Recall FOR A QUESTION is the reinforcement event: what was surfaced against
   // a query decays more slowly next time. The query-less handshake build
@@ -892,7 +1100,7 @@ export async function buildProjectMemoryDigest(
   // colder score, not a wrong answer.
   if (queryText) void markMemoryRecalled(kept.map((item) => item.id))
 
-  return formatDigestLines(kept, omitted)
+  return digest
 }
 
 /** Rows already carrying a vector from the CURRENT model need no backfill. */
@@ -1011,6 +1219,13 @@ export async function implicateMemoryFromFeedback(input: {
   organizationId: string
   projectId: string | null
   comment: string
+  /**
+   * Every folder the person who voted may read (ADR-0085), as every other
+   * reader here takes them: a note they cannot see
+   * is not one their complaint can be about, and must not lose salience for
+   * people who can. Empty: open notes only.
+   */
+  readableFolderIds: readonly string[]
 }): Promise<number> {
   const text = input.comment.trim()
   if (!text) return 0
@@ -1021,6 +1236,12 @@ export async function implicateMemoryFromFeedback(input: {
     const owner = input.projectId
       ? sql`m.organization_id = ${input.organizationId} and ((m.scope = 'project' and m.project_id = ${input.projectId}) or (m.scope = 'organization' and m.project_id is null))`
       : sql`m.organization_id = ${input.organizationId} and m.scope = 'organization' and m.project_id is null`
+    // `memoryVisibleTo` for this aliased statement (drizzle's column would name
+    // the table, not `m`). Organization notes are never restricted, so they pass.
+    const restriction = canonicalRestriction(input.readableFolderIds)
+    const visible = restriction
+      ? sql`(m.restricted_folder_ids is null or m.restricted_folder_ids <@ ${arrayLiteral(restriction)}::uuid[])`
+      : sql`m.restricted_folder_ids is null`
     // Vector literal travels once (scored CTE), same discipline as the
     // near-match query above; RLS remains the backstop under the org filter.
     const result = await db.execute(sql`
@@ -1028,6 +1249,7 @@ export async function implicateMemoryFromFeedback(input: {
         select m.id, grid_cosine_similarity(m.embedding, ${toVectorLiteral(embedded.vector)}::real[]) as similarity
         from project_memory m
         where ${owner}
+          and ${visible}
           and m.status = 'active'
           and m.pinned = false
           and m.embedding_model = ${embedded.fingerprint}
