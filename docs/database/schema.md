@@ -706,20 +706,22 @@ One upload gesture, from the browser's first request to the moment everything
 it brought in has been read. The browser opens it (`POST /api/upload-batches`),
 stamps each upload with its id, and seals it after its last request.
 Reconciliation and the scheduler's sweep settle it once no document of a sealed
-batch is in flight, which emits `upload.completed` to the uploader.
+batch is in flight, which emits `upload.completed` to the uploader. The Outlook
+mail import files into batches too, opened and sealed by its job as the person
+who started it ([`mail-import.md`](../architecture/mail-import.md#what-the-person-is-told)).
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
-| `id` | `uuid` | PK | Chosen by the browser, so every file can carry it before the batch is confirmed |
+| `id` | `uuid` | PK | Chosen by the browser, so every file can carry it before the batch is confirmed. A mail import's is derived from the import's id and a generation (`lib/mail-import/upload-batch.ts`) |
 | `organization_id` | `text` | NOT NULL | RLS: `organization_id = grid_current_org()` |
 | `created_by` | `text` | NOT NULL | The uploader; the summary is theirs only |
 | `scope` | `text` | NOT NULL, CHECK `project`/`archiv`/`session` | The shelf |
 | `project_id` | `uuid` | FK → `projects.id` ON DELETE CASCADE; set exactly when `scope = 'project'` | |
 | `conversation_id` | `text` | | The chat, for a session upload |
-| `expected_count` | `integer` | NOT NULL, 0–10 000 | Files the browser announced |
+| `expected_count` | `integer` | NOT NULL, 0–10 000 | Files the browser announced; a job opens with 0 and its seal writes the documents that carry the batch |
 | `excluded` | `jsonb` | NOT NULL, array | What the name screening kept on the uploader's machine, as `{term, count}` — **never file names**: those files never reached the server |
 | `unchanged_count` / `failed_count` | `integer` | NOT NULL, ≥ 0 | Identical files not sent again; uploads that never arrived |
-| `sealed_at` | `timestamptz` | | The browser's last request is done; a batch abandoned for 30 min is sealed by the sweep |
+| `sealed_at` | `timestamptz` | | The uploader's last request is done; a batch no file has come into for 30 min (counted from its newest document, or its opening) is sealed by the sweep |
 | `completed_at` | `timestamptz` | CHECK: only after `sealed_at` | Every document is terminal; set once, by a guarded UPDATE, which is what makes the inbox item exactly-once |
 | `created_at` | `timestamptz(3)` | NOT NULL, `defaultNow()` | |
 
