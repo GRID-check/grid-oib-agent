@@ -1012,6 +1012,10 @@
     "de": "Jede Zeile von „Das Wichtigste“ trägt jetzt das, was man mitschreibt: die Zahl, die Klasse, die Frist. Aufgeklappt zeigt sie die Fundstelle, die Herleitung oder den Fall, in dem die Aussage nicht gilt."
   },
   {
+    "en": "Each project now has a Steckbrief in its settings: the address, the period from start to completion, and everyone who worked on it, including former staff and external planners without a Piloti account.",
+    "de": "Jedes Projekt hat jetzt in seinen Einstellungen einen Steckbrief: die Adresse, den Zeitraum vom Beginn bis zur Fertigstellung und alle, die daran mitgearbeitet haben, auch ehemalige Mitarbeitende und externe Planerinnen und Planer ohne Piloti-Konto."
+  },
+  {
     "en": "Each search step of the Herleitung can now be folded. With three or more steps it arrives folded with only the latest open, so the conclusion stays in view.",
     "de": "Jeder Suchschritt der Herleitung lässt sich jetzt zuklappen. Ab drei Schritten kommt sie zugeklappt und zeigt nur den jüngsten offen, damit das Ergebnis sichtbar bleibt."
   },
@@ -1422,6 +1426,10 @@
   {
     "en": "One chat loading its organization's settings no longer briefly holds up everyone else's conversations.",
     "de": "Ein Chat, der die Einstellungen seiner Organisation nachlädt, hält die Gespräche aller anderen nicht mehr kurz an."
+  },
+  {
+    "en": "Only name, function, company and period are kept for each person, and any person can be removed for good. Piloti does not use them in its answers.",
+    "de": "Für jede Person werden nur Name, Funktion, Firma und Zeitraum gespeichert, und jede Person lässt sich endgültig entfernen. Piloti verwendet diese Angaben nicht in seinen Antworten."
   },
   {
     "en": "Only runs you start yourself file a report at the moment. Scheduled runs still deliver into their conversation and will follow later.",
