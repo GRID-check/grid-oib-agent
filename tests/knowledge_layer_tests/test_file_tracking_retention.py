@@ -146,3 +146,28 @@ class TestForget:
 
         assert _names("proj_a") == set()
         assert _names("proj_b") == {"x.pdf"}
+
+
+class TestRowsThatPredateTheCollectionColumn:
+    def test_the_migration_files_an_old_row_under_its_collection(self, tmp_path, monkeypatch):
+        url = f"sqlite:///{tmp_path}/old.db"
+        monkeypatch.setenv("AIQ_SUMMARY_DB", url)
+        old = _job("old", JobState.FAILED, {"b.pdf": FileStatus.FAILED})
+        engine = DocumentMetadataStore._get_or_create_sync_engine(url)
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE ingest_jobs (job_id VARCHAR PRIMARY KEY, status_json TEXT NOT NULL, "
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP, owner VARCHAR, heartbeat_at DATETIME, "
+                    "dispatch_key VARCHAR)"
+                )
+            )
+            conn.execute(
+                text("INSERT INTO ingest_jobs (job_id, status_json, heartbeat_at) VALUES ('old', :s, :t)"),
+                {"s": old.model_dump_json(), "t": LONG_AGO},
+            )
+            conn.commit()
+        try:
+            assert _names("proj_a") == {"b.pdf"}
+        finally:
+            ingest_status_store._initialized.discard(url)

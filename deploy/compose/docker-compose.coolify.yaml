@@ -349,6 +349,31 @@ services:
       start_period: 300s
     restart: unless-stopped
 
+  legacy-corpus-import:
+    # One-shot (ADR-0082 A2): carries the pre-A2 base corpus into SeaweedFS and
+    # the corpus table, so an upgrade re-uploads nothing by hand. It reads the
+    # old backend volume (`aiq-data`: admin uploads, exclusions) and the repo's
+    # data/oib (operator PDFs), both read-only, and stores what the corpus does
+    # not hold yet; the base-corpus housekeeping route then queues ingestion. A
+    # fresh install has an empty volume, and the run stores nothing. Remove this
+    # service, the `aiq-data` volume and aiq_agent/legacy_corpus_import.py
+    # together once every installation has run it.
+    extends:
+      service: aiq-agent
+    entrypoint: ["python", "-m", "aiq_agent.legacy_corpus_import"]
+    command: ["/legacy/data", "/legacy/oib"]
+    volumes:
+      - aiq-data:/legacy/data:ro
+      - ./data/oib:/legacy/oib:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: "no"
+
   seaweedfs:
     # SeaweedFS S3-compatible object storage (replaces MinIO). One
     # `weed server -s3` process runs master (9333), volume (8080), filer (8888)
@@ -539,7 +564,7 @@ services:
       # Admin token for the backend's /v1/admin/oib/* endpoints (must match the
       # aiq-agent value). Powers the platform-owner base-knowledge management UI.
       - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:?set GRID_ADMIN_TOKEN}
-      # Corpus tarball for the answer-suite CI (/api/internal/oib-corpus). Unset = disabled.
+      # Corpus tarball (/api/internal/oib-corpus). No caller since the answer-suite CI workflow was removed. Unset = disabled.
       - GRID_CORPUS_EXPORT_TOKEN=${GRID_CORPUS_EXPORT_TOKEN:-}
       # WorkOS AuthKit — only consumed when REQUIRE_AUTH=true. Safe to leave the
       # keys empty for an unauthenticated preview.
@@ -930,6 +955,9 @@ services:
 volumes:
   # The vector store, served by the `chroma` server (mounted at /data).
   chroma_data:
+    driver: local
+  # The pre-A2 backend volume, read once by legacy-corpus-import and by nothing else.
+  aiq-data:
     driver: local
   seaweedfs-data:
     driver: local

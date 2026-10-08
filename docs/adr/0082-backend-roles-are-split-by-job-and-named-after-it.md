@@ -106,7 +106,7 @@ worker's per-job build under `role="research-job"`, which every job pays.
 | Step | Change | Size |
 |---|---|---|
 | A1 | Housekeeping loops to CronJobs | S |
-| A2 | Base corpus from the PVC to SeaweedFS and one table, no copy of the old files; its sync becomes a fourth housekeeping job that queues one ingest-queue job per file (the ingest workers ingest; nothing in the web pod) | M |
+| A2 | Base corpus from the PVC to SeaweedFS and one table, the old files carried over once by a one-shot import; its sync becomes a fourth housekeeping job that queues one ingest-queue job per file (the ingest workers ingest; nothing in the web pod) | M |
 | B | `api` split from `chat`: a role switch picks the routers, a new Deployment and Service, the BFF gets a chat URL and an API URL | S–M |
 | C | The BFF becomes the relay, so `chat` pods hold no sockets | L |
 | D | Rename: drop `aiq` from Kubernetes names and Python packages | L |
@@ -118,9 +118,12 @@ product owner.
 
 A2 is a rewrite, not a migration: the corpus has one home (objects in SeaweedFS
 plus one `oib_corpus_files` table that also holds what ingestion has built from
-each file), there is no switch and no disk mode, files that were on a replica's
-volume are not copied over (an admin uploads them again), and local files are
-only a cache. It removes the PVC but not the StatefulSet: chat affinity hashes a
+each file), there is no switch and no disk mode, and local files are only a
+cache. The files on the old volume are carried over once, outside the running
+code: a one-shot `legacy-corpus-import` Job (Compose: service) reads the
+retained claim read-only and stores them through the admin-upload path
+(`aiq_agent.legacy_corpus_import`). It is deleted, with its stack key, once
+every environment has run it. It removes the PVC but not the StatefulSet: chat affinity hashes a
 conversation onto a pod ordinal (ADR-0028, ADR-0080), so the tier becomes a
 Deployment when that routing is gone.
 
@@ -149,7 +152,9 @@ Each step adds its own gate as it lands:
   volume mounted at `/app/data`, and `config.spec.ts` that the Pulumi config refuses to run without the shared
   Chroma server (`chromaEnabled=false`), since a tier with no volume cannot keep an embedded store.
   `housekeeping.spec.ts` asserts that the CronJobs and the Compose clock call the four routes the backend
-  registers, `base-corpus` among them.
+  registers, `base-corpus` among them. `index-legacy-corpus.spec.ts` asserts that the import Job mounts
+  the named claim read-only and runs the importer on it, and `tests/test_legacy_corpus_import.py` that it
+  honours the old exclusions, lets an upload win and stores nothing on a rerun.
 - B: `frontends/aiq_api/tests/test_roles.py` builds the real app for each
   `GRID_ROLE` and asserts that the two route sets overlap only in `/health` and
   FastAPI's documentation routes, and that their union equals a baseline mounted

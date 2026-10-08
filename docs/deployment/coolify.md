@@ -366,11 +366,11 @@ volume for it (ADR-0082 step A2):
 > from the `/data` volume mount. Bump the image only in lockstep with the client.
 
 > **Upgrading from a stack that kept the corpus on the `aiq-data` volume.** The
-> PDFs on that volume are **not** carried over, and the volume is no longer
-> mounted. Upload the base-corpus PDFs again in the admin UI after the upgrade.
-> The vectors in the Chroma volume stay, and a re-upload of a file with the same
-> name replaces that document's chunks; until then the files show as
-> "Not in corpus" in the admin view and can be deleted there.
+> backend no longer mounts it. The one-shot `legacy-corpus-import` service reads
+> it and `./data/oib` read-only on the first deploy and stores every PDF they
+> held (minus the exclusions) in the corpus, and the housekeeping service's
+> `base-corpus` route indexes them within ten minutes. Nothing is uploaded again
+> by hand. Remove the `aiq-data` volume once the admin view lists the corpus.
 
 A sync cycle queues an ingest job for what is new or changed (the ingest workers
 run it): it runs every ten minutes as the

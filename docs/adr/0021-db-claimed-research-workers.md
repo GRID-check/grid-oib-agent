@@ -111,6 +111,8 @@ Why: ADR-0082 step B split the `chat` role, which submits a job, from the `api` 
 
 What changed in behaviour: submit persists the job and enqueues its row, and nothing else. Cancel flips `job_info` to INTERRUPTED (and drops an unclaimed row), and the worker's `CancellationMonitor` stops the run. The reaper marks only stale RUNNING jobs, because a queued job has no worker yet and is healthy. Admission only refuses an organization's own waiting queue past `GRID_MAX_QUEUED_JOBS_PER_ORG`.
 
+Upgrade: no drain is needed. Rows queued by the release before this change carry a `scheduler_address` key that `run_agent_job` no longer accepts, and a job running at deploy time is reclaimed with the same stored payload. The worker drops the keys in `RETIRED_PAYLOAD_KEYS` (`jobs/worker.py`) after decrypting the payload, so those jobs run. Any other unknown key still fails. The constant and its filtering are deleted once no installation has a pre-change queue row.
+
 `dask` and `distributed` stay in `uv.lock`: `nvidia-nat-core`'s `async-endpoints` extra requires them, and that extra provides the `JobStore` whose `job_info` table this path writes.
 
 ## References

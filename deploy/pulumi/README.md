@@ -160,6 +160,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | `pgPoolerInstances` | `2` (dev: 1) | PgBouncers in the transaction pooler (`grid-pg-pooler-rw`, ADR-0083), spread across nodes with a PDB when more than 1 |
 | `pgPoolerPoolSize` | `12` | Server connections each PgBouncer opens per (database, role) pair. The plan fails when `pgPoolerInstances x (3 pooled pairs x this + 1)` plus the direct reserve passes `max_connections` (200): prod 74 + 82 = 156, a fresh stack with everything on 196 (`assertPgConnectionBudget`) |
 | `pgPoolerImage` | digest-pinned `ghcr.io/cloudnative-pg/pgbouncer:1.26.0@sha256:…` | PgBouncer image, must be 1.21 or newer (prepared statements in transaction mode). Scanned by the trivy `image-scan` job; override only for a deliberate upgrade |
+| `legacyCorpusClaim` | unset (prod, dev: `data-aiq-agent-0`) | The pre-A2 backend data volume the one-shot `legacy-corpus-import` Job reads the base corpus from (ADR-0082 A2). Set only where that claim exists: a Job mounting a missing claim never schedules. Remove with the importer once it has run |
 | `pgAppUser` | `aiq` | Role owning all three databases |
 | 🔒 **`pgAppPassword`** | — | Role password; drives every DSN |
 | `pgPrimaryUpdateStrategy` | `unsupervised` | Automatic switchover on operator/image updates |
