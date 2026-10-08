@@ -89,7 +89,7 @@ describe('mayReviewQuarantine', () => {
   })
 })
 
-describe('mayReviewQuarantine and restricted folders (ADR-0086)', () => {
+describe('mayReviewQuarantine and restricted folders (ADR-0087)', () => {
   it("does not let a project admin review a document in a folder they are not cleared for", async () => {
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' } as Awaited<
       ReturnType<typeof requireProjectAccess>
@@ -120,7 +120,7 @@ describe('releaseQuarantinedDocument', () => {
     expect(JSON.stringify(audit)).not.toContain('AT61')
   })
 
-  it('keeps the words found in the text under a key withheld with the name (ADR-0086)', async () => {
+  it('keeps the words found in the text under a key withheld with the name (ADR-0087)', async () => {
     const inFolder = { ...quarantined, scope: 'project' as const, projectId: 'proj-1', folderId: 'f-lohn' }
     vi.mocked(findDocumentInOrg).mockResolvedValue(inFolder)
 
@@ -135,7 +135,7 @@ describe('releaseQuarantinedDocument', () => {
     expect(JSON.stringify(kept)).not.toMatch(/Lohnzettel/i)
   })
 
-  it('asks for a write in the document\'s folder, and a reviewer who may only read it cannot release (ADR-0087)', async () => {
+  it('asks for a write in the document\'s folder, and a reviewer who may only read it cannot release (ADR-0088)', async () => {
     const inFolder = { ...quarantined, scope: 'project' as const, projectId: 'proj-1', folderId: 'f-read-only' }
     vi.mocked(findDocumentInOrg).mockResolvedValue(inFolder)
     vi.mocked(requireFolderWrite).mockRejectedValueOnce(folderReadOnlyError())

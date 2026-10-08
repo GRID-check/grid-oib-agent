@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Closing and reopening a project (ADR-0088): who may, that it is audited both
+ * Closing and reopening a project (ADR-0089): who may, that it is audited both
  * ways, and that a second click writes nothing.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'

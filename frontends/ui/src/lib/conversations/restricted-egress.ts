@@ -1,6 +1,6 @@
 /**
  * What may leave a conversation that drew on a folder with restricted access
- * (ADR-0086, ADR-0087).
+ * (ADR-0087, ADR-0088).
  *
  * Product rule: restricted-folder content must not reach colleagues not cleared
  * for that folder. Sharing such a conversation is decided per person

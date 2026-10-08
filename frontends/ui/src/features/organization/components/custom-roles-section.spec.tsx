@@ -31,7 +31,7 @@ interface Stub {
   roles: OrganizationRole[]
   assignable: AssignablePermission[] | null
   status?: { POST?: number; PATCH?: number; DELETE?: number }
-  /** What `GET …/usage` answers: the folders that name the role (ADR-0087). */
+  /** What `GET …/usage` answers: the folders that name the role (ADR-0088). */
   usage?: {
     total: number
     folders: Array<{ folderId: string; folderName: string; projectId: string; projectName: string; deleted: 'folder' | 'project' | null }>
@@ -172,7 +172,7 @@ describe('CustomRolesSection', () => {
     expect(calls('DELETE')[0][0]).toBe('/api/organization/roles/org-geschaeftsfuehrung')
   })
 
-  describe('a role that folders name (ADR-0087)', () => {
+  describe('a role that folders name (ADR-0088)', () => {
     const FOLDERS = [
       { folderId: 'f1', folderName: 'Honorare', projectId: 'p1', projectName: 'Schule Süd', deleted: null },
       { folderId: 'f2', folderName: 'Verträge', projectId: 'p2', projectName: 'Halle 3', deleted: null },

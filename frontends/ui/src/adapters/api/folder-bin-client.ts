@@ -1,5 +1,5 @@
 /**
- * The Papierkorb client (ADR-0087): a project's deleted folders, restoring one,
+ * The Papierkorb client (ADR-0088): a project's deleted folders, restoring one,
  * purging one now, and the organization's setting for content derived from
  * deleted folders.
  */

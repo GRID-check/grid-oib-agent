@@ -165,7 +165,7 @@ describe('fileAgentDocumentDraft', () => {
     expect(result).toMatchObject({ documentId: 'doc_1', alreadyFiled: false })
   })
 
-  it('hands the filing its origin, so a confined thread files only where it may (ADR-0086)', async () => {
+  it('hands the filing its origin, so a confined thread files only where it may (ADR-0087)', async () => {
     vi.mocked(fileGeneratedDocument).mockResolvedValue({
       documentId: 'doc_1',
       filename: 'honorar-2026-09-10.md',

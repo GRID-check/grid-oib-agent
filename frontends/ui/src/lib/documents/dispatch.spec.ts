@@ -52,7 +52,7 @@ vi.mock('./repository', () => ({
   deleteProjectDocument: vi.fn(),
 }))
 
-// The organization's upload-screening policy (ADR-0085) is read through its
+// The organization's upload-screening policy (ADR-0086) is read through its
 // settings row; each test states the row it means.
 vi.mock('@/lib/organizations/service', () => ({ getOrgSettings: vi.fn() }))
 
@@ -827,7 +827,7 @@ describe('the ingest dispatch after a timeout', () => {
 })
 
 /**
- * ADR-0085: every path into the index carries the office's content rules, so
+ * ADR-0086: every path into the index carries the office's content rules, so
  * the ingest job can quarantine a match before its first model call. Tested at
  * the choke point, for the same reason as the authorship refusal above: a
  * caller cannot forget what it never has to supply.

@@ -161,7 +161,7 @@ export async function uploadSessionDocument(
   // Authorization + the row the document's foreign key needs, in one call.
   await createConversation(session, { id: conversationId, projectId: input.projectId ?? null })
 
-  // The name gate's server-side repeat (ADR-0085), before a byte is stored.
+  // The name gate's server-side repeat (ADR-0086), before a byte is stored.
   // A chat attachment reaches the model as surely as a project file does.
   const nameGate = await assertUploadNameAllowed(
     session.organizationId,

@@ -31,7 +31,7 @@ export interface DiagramFilingTarget {
   /**
    * The conversation the answer belongs to. Sent with the filing, so the server
    * can refuse to file a diagram out of a thread that drew on a restricted
-   * folder into a folder others read (ADR-0086).
+   * folder into a folder others read (ADR-0087).
    */
   conversationId?: string
   /** A human title for the file, when the surface has a better one than the source. */

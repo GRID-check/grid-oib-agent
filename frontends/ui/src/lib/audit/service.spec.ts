@@ -102,7 +102,7 @@ describe('recordAuditEvent (WorkOS-native audit trail)', () => {
     expect(event.metadata).toEqual({})
   })
 
-  // An event an outbox sends again (the quarantine decisions, ADR-0085) must
+  // An event an outbox sends again (the quarantine decisions, ADR-0086) must
   // be the SAME event: its own key, and the decision's time rather than now.
   it('passes a fixed occurredAt and the idempotency key through, and mints neither when absent', async () => {
     const decidedAt = new Date('2026-10-01T08:00:00Z')
@@ -331,7 +331,7 @@ describe('recordAuditEventOrThrow (the events whose absence is the failure)', ()
 // Gap 10 of the upload-governance audit: the WorkOS audit portal opens with
 // `org:audit:view`, which roles that are not organization admins hold, so the
 // name of a document under a folder not every member may read stays out.
-describe('a restricted document is not named in the trail (ADR-0086)', () => {
+describe('a restricted document is not named in the trail (ADR-0087)', () => {
   /** The registry as the metadata maps these checks read. */
   const SCHEMAS: Readonly<
     Record<AuditAction, { readonly targets: readonly { readonly type: string }[]; readonly metadata?: Readonly<Record<string, string>> }>

@@ -99,13 +99,13 @@ export const INBOX_ITEM_TYPES = [
   'feedback.submitted',
   /**
    * Operational: everything an upload of yours brought in has been read
-   * (ADR-0085, ticket „Was ist angekommen?"). Addressed to the uploader; the
+   * (ADR-0086, ticket „Was ist angekommen?"). Addressed to the uploader; the
    * row opens the upload's summary.
    */
   'upload.completed',
   /**
    * Operational: the content check held a file back before any model read it
-   * (ADR-0085). Addressed to whoever may release or delete it, folded into one
+   * (ADR-0086). Addressed to whoever may release or delete it, folded into one
    * counted row per organization, and opening the quarantine queue.
    */
   'document.quarantined',
@@ -116,6 +116,14 @@ export const INBOX_ITEM_TYPES = [
    * file's own reviewers receive it.
    */
   'document.release_requested',
+  /**
+   * Informational, operational tier: an Outlook archive the recipient started
+   * importing has been filed, or the import stopped (ADR-0085). Addressed to the
+   * person who started it, pointing at the project and anchored on the folder
+   * the import filed under, which is where the row lands.
+   */
+  'mail_import.completed',
+  'mail_import.failed',
 ] as const
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
 
@@ -140,7 +148,7 @@ export const INBOX_TARGET_TYPES = [
   'organization',
   'project',
   'product_feedback',
-  /** One upload gesture (migration 0109): the target of `upload.completed`. */
+  /** One upload gesture (migration 0110): the target of `upload.completed`. */
   'upload_batch',
 ] as const
 export type InboxTargetType = (typeof INBOX_TARGET_TYPES)[number]

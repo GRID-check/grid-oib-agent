@@ -31,7 +31,7 @@ export interface ResourceAccessEntry {
   /**
    * True when the person is still a party to the resource but can no longer
    * read what it was drawn from (a folder's access narrowed, a role taken
-   * away; ADR-0087). The roster says so; it never says which folder. Absent
+   * away; ADR-0088). The roster says so; it never says which folder. Absent
    * for a resource whose content is judged by the role alone.
    */
   lostAccess?: boolean
@@ -66,7 +66,7 @@ export interface ShareCandidate {
   needsProjectAccess: boolean
   /**
    * Cannot read every folder this conversation drew on, so cannot be let in
-   * (ADR-0087). Rendered disabled with a reason that never names the folder;
+   * (ADR-0088). Rendered disabled with a reason that never names the folder;
    * the server's refusal on the grant stays the authority. Absent for a
    * resource whose content is judged by the role alone.
    */
@@ -89,7 +89,7 @@ export const SHARING_ERROR_REASONS = {
   rosterFull: 'roster-full',
   /**
    * The person being let in is not cleared for every restricted folder the
-   * conversation drew on (ADR-0086). `details.person` names them; `details.folders`
+   * conversation drew on (ADR-0087). `details.person` names them; `details.folders`
    * names the folders, and only to a sharer cleared for them.
    */
   restrictedContent: 'restricted-content',

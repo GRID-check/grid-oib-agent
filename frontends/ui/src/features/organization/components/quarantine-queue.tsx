@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Organisation → Quarantäne: the files the content check held back (ADR-0085),
+ * Organisation → Quarantäne: the files the content check held back (ADR-0086),
  * and the two things a reviewer can do with one.
  *
  * The server decides who sees what: an org admin gets the organization's

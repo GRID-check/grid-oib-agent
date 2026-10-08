@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Dev preview for the composer's „Sensible Daten" notice (ADR-0085, "Chat
+ * Dev preview for the composer's „Sensible Daten" notice (ADR-0086, "Chat
  * messages are screened too"). Renders the REAL notice over the REAL matcher
  * with Piloti's suggested list, no backend:
  *
@@ -74,7 +74,7 @@ export default function ChatScreeningDevPage(): JSX.Element {
       <div>
         <h1 className="text-lg font-semibold">Composer — Sensible Daten</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          What the composer says before a message with sensitive data leaves the browser (ADR-0085).
+          What the composer says before a message with sensitive data leaves the browser (ADR-0086).
           Piloti&apos;s suggested list; the office&apos;s own list works the same way.
         </p>
       </div>

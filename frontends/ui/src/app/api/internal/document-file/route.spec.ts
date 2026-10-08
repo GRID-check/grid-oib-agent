@@ -177,7 +177,7 @@ describe('GET /api/internal/document-file', () => {
     })
   })
 
-  // ADR-0087: the collection is the model's argument, so its name is not a
+  // ADR-0088: the collection is the model's argument, so its name is not a
   // boundary. The envelope the agent echoes is.
   describe("with the turn's signed envelope", () => {
     beforeEach(() => {

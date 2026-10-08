@@ -104,6 +104,8 @@ const ALL_TYPES = [
   'upload.completed',
   'document.quarantined',
   'document.release_requested',
+  'mail_import.completed',
+  'mail_import.failed',
 ] as const satisfies readonly InboxItemType[]
 
 /** What a tenant WITHOUT collaboration may see: the operational types only. */
@@ -118,11 +120,15 @@ const OPERATIONAL_TYPES = [
   // collaboration still has documents to approve, and gating the one review
   // queue in the product would make it invisible for exactly them.
   'document.review_requested',
-  // ADR-0085: an upload being read and a file held back by the content check
+  // ADR-0086: an upload being read and a file held back by the content check
   // are about the office's own files, not about working together.
   'upload.completed',
   'document.quarantined',
   'document.release_requested',
+  // An Outlook archive import ended (ADR-0085): an office without
+  // collaboration imports mail too.
+  'mail_import.completed',
+  'mail_import.failed',
 ] as const satisfies readonly InboxItemType[]
 
 const at = new Date('2026-07-29T10:00:00.000Z')

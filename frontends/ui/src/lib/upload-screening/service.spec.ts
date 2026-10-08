@@ -1,5 +1,5 @@
 /**
- * The server's repeat of the name gate (ADR-0085), when the office's policy
+ * The server's repeat of the name gate (ADR-0086), when the office's policy
  * cannot be read.
  *
  * It is the authority for a client that skipped the browser's check, so it

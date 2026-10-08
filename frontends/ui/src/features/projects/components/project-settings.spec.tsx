@@ -94,7 +94,7 @@ describe('ProjectSettings', () => {
     expect(screen.getByTestId('project-members-form')).toHaveAttribute('data-can-manage', 'true')
   })
 
-  test('a closed project (ADR-0088): no rename, read-only memory, but members, status and deletion stay with the manager', () => {
+  test('a closed project (ADR-0089): no rename, read-only memory, but members, status and deletion stay with the manager', () => {
     render(
       <ProjectSettings
         data={{ ...data, status: 'closed', closedAt: '2026-10-06T10:00:00Z' }}
@@ -117,7 +117,7 @@ describe('ProjectSettings', () => {
     expect(screen.getByTestId('project-memory-panel')).toHaveAttribute('data-read-only', 'false')
   })
 
-  test('flags folders whose roles were deleted, with a link to each, only when there are any (ADR-0087)', () => {
+  test('flags folders whose roles were deleted, with a link to each, only when there are any (ADR-0088)', () => {
     const { rerender } = render(<ProjectSettings data={data} canManageProject />)
     expect(screen.queryByTestId('folders-without-role')).not.toBeInTheDocument()
 

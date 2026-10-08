@@ -1,7 +1,12 @@
 import { describe, it, expect, vi } from 'vitest'
-import { ListObjectsV2Command, DeleteObjectsCommand } from '@aws-sdk/client-s3'
+import {
+  AbortMultipartUploadCommand,
+  DeleteObjectsCommand,
+  ListMultipartUploadsCommand,
+  ListObjectsV2Command,
+} from '@aws-sdk/client-s3'
 
-import { deleteStoragePrefix, isMissingBucket } from './storage.js'
+import { abortMultipartUploads, deleteStoragePrefix, isMissingBucket } from './storage.js'
 
 /**
  * The prefix sweep is the step of the deletion pipeline (ADR-0011) that removes
@@ -135,5 +140,33 @@ describe('isMissingBucket', () => {
     ['nothing at all', undefined, false],
   ])('%s -> %s', (_label, error, expected) => {
     expect(isMissingBucket(error)).toBe(expected)
+  })
+})
+
+describe('abortMultipartUploads', () => {
+  it('aborts every open upload under the prefix, page by page, and passes over one already gone', async () => {
+    const pages = [
+      { Uploads: [{ Key: 'org/o1/project/p1/mail-imports/i1/archive', UploadId: 'u1' }], IsTruncated: true, NextKeyMarker: 'k', NextUploadIdMarker: 'm' },
+      { Uploads: [{ Key: 'org/o1/project/p1/mail-imports/i2/archive', UploadId: 'u2' }], IsTruncated: false },
+    ]
+    const send = vi.fn(async (command) => {
+      if (command instanceof ListMultipartUploadsCommand) return pages.shift()
+      if (command instanceof AbortMultipartUploadCommand) {
+        if (command.input.UploadId === 'u2') throw Object.assign(new Error('gone'), { name: 'NoSuchUpload' })
+        return {}
+      }
+      throw new Error(`unexpected command ${command.constructor.name}`)
+    })
+
+    expect(await abortMultipartUploads({ send }, 'grid-org-o1', 'org/o1/project/p1/')).toBe(1)
+    const lists = send.mock.calls.map(([c]) => c).filter((c) => c instanceof ListMultipartUploadsCommand)
+    expect(lists[1].input).toMatchObject({ Prefix: 'org/o1/project/p1/', KeyMarker: 'k', UploadIdMarker: 'm' })
+  })
+
+  it('is a no-op on a bucket that does not exist', async () => {
+    const send = vi.fn(async () => {
+      throw s3Error('NoSuchBucket', 404)
+    })
+    expect(await abortMultipartUploads({ send }, 'gone', 'org/o1/')).toBe(0)
   })
 })

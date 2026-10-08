@@ -43,7 +43,7 @@ result every time, and every verdict names the rule that matched.
 The memory judge has no human check at the moment it decides. If it answers
 that a note does not draw on a restricted folder, the note is open to the
 project. That is the accepted risk of keeping memory in restricted chats
-(ADR-0086), and it is why each of its verdicts is in the audit log. A
+(ADR-0087), and it is why each of its verdicts is in the audit log. A
 restricted note the judge helped decide on says so beside its lock in the
 Projektspeicher („von KI mitbestimmt"), and the lock's tooltip names its
 folders. A note the judge left open carries no such mark: its readers may not

@@ -406,7 +406,7 @@ async def _write_finding(
         # Retires the entry this finding corrects (frontend resolves the quote;
         # unresolvable or human-curated targets are left alone).
         supersedes_content=finding.supersedes or None,
-        # ADR-0086: a finding from a turn that could read restricted folders
+        # ADR-0087: a finding from a turn that could read restricted folders
         # is served only to people cleared for the ones it draws on.
         restricted_collections=decision.restriction,
         # The judge's verdict, audited by the BFF with the item (AI Act).
@@ -485,7 +485,7 @@ async def run_memory_reflection(
     had in hand (``docs/architecture/post-answer-stages.md`` §5.1).
 
     ``restriction`` is what the turn could have taken from restricted folders
-    (ADR-0086). Every finding goes through the one restriction decision
+    (ADR-0087). Every finding goes through the one restriction decision
     (``memory/restriction.py``), the same the ``remember`` tool uses, on the
     same model; a finding is written as restricted memory when it depends on
     restricted content, and never dropped for it.

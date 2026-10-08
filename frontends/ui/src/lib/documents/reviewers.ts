@@ -78,7 +78,7 @@ export async function listReviewCandidates(
     'project:edit',
   )
   // Nor somebody who may not open the folder the document is filed in
-  // (ADR-0087): a round in front of someone who cannot read the version is a
+  // (ADR-0088): a round in front of someone who cannot read the version is a
   // round nobody can answer, and it names a document they were never to know.
   const mayOpen = await filterUsersWhoMayReadFolder(
     session.organizationId,

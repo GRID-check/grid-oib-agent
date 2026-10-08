@@ -269,7 +269,7 @@ export const collaboration: typeof en.collaboration = {
       },
       // Ein Hintergrundauftrag ist zu Ende. {subject} ist der Name des Auftrags.
       // Kein {actor}: die Arbeit hat Piloti getan, nicht eine Person.
-      // ADR-0085: alles, was ein Upload gebracht hat, ist gelesen. {subject}
+      // ADR-0086: alles, was ein Upload gebracht hat, ist gelesen. {subject}
       // ist der Projektname; ein Upload in die Büroablage oder einen Chat hat
       // keinen und liest bodyNoSubject.
       uploadCompleted: {
@@ -277,7 +277,7 @@ export const collaboration: typeof en.collaboration = {
         body: '{subject}: Öffnen Sie die Übersicht, um zu sehen, was angekommen ist.',
         bodyNoSubject: 'Öffnen Sie die Übersicht, um zu sehen, was angekommen ist.',
       },
-      // ADR-0085: die Inhaltsprüfung hat Dateien zurückgehalten.
+      // ADR-0086: die Inhaltsprüfung hat Dateien zurückgehalten.
       documentQuarantined: {
         titleOne: '1 Datei wartet in der Quarantäne',
         titleMany: '{count} Dateien warten in der Quarantäne',
@@ -293,6 +293,15 @@ export const collaboration: typeof en.collaboration = {
       jobCompleted: {
         title: '„{subject}" ist fertig',
         body: 'Piloti hat den Auftrag ausgeführt. Das Ergebnis liegt im Projekt unter Automatisierung.',
+      },
+      // Ein Outlook-Archiv ist importiert. {subject} ist der Dateiname des Archivs.
+      mailImportCompleted: {
+        title: '„{subject}" ist importiert',
+        body: 'Piloti hat die E-Mails und ihre Anhänge im Projekt unter E-Mail-Import abgelegt.',
+      },
+      mailImportFailed: {
+        title: 'Der Import von „{subject}" wurde abgebrochen',
+        body: 'Was bis dahin importiert war, bleibt im Projekt. Die Importliste unter Dateien nennt den Grund.',
       },
       jobFailed: {
         title: '„{subject}" ist fehlgeschlagen',

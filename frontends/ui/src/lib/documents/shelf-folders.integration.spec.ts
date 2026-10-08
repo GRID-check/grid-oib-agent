@@ -210,7 +210,7 @@ describe.skipIf(!url)('shelf folders against Postgres', () => {
     const deleted = await inTenant(() => folders.deleteShelfFolder(session(), shelf.ARCHIV_SHELF, child.id))
     expect(deleted.ok && deleted.result).toEqual({ documentsMoved: 1, foldersMoved: 0 })
     expect(await folderOf(archivDoc)).toBe(root.id)
-    // The row is gone, not a tombstone: the Archiv has no Papierkorb (ADR-0087),
+    // The row is gone, not a tombstone: the Archiv has no Papierkorb (ADR-0088),
     // and `project_folders_bin_state_check` would refuse a deleted Archiv folder.
     const left = await inTenant(() => db.execute(sql`SELECT id FROM project_folders WHERE id = ${child.id}`))
     expect(Array.from(left)).toHaveLength(0)
