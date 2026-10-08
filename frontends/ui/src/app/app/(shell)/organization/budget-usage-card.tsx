@@ -86,7 +86,7 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Field, FieldLabel } from '@/components/ui/field'
+import { Field, FieldError, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Item, ItemList } from '@/components/ui/item'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -103,6 +103,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatCredits, formatTokens } from '@/lib/format'
+import { parseDecimalInput } from '@/lib/text/parse-decimal'
 import { SpendTrendChart } from '@/components/charts/spend-trend-chart'
 
 type BudgetUnit = 'credit' | 'token'
@@ -161,11 +162,21 @@ const OTHER_KEY = '__other__'
 /** The one gap width in this card — segment separation is negative space. */
 const SEGMENT_GAP_CLASS = 'border-r-2 border-card last:border-r-0'
 
-const parseLimit = (value: string): number | null => {
-  const trimmed = value.trim()
-  if (trimmed === '') return null
-  const parsed = Number.parseFloat(trimmed.replace(',', '.'))
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+/**
+ * A limit field: blank is "no limit", a non-negative number is the limit, and
+ * anything else is invalid.
+ *
+ * This used to be one function returning `null` for both blank and garbage,
+ * and `null` is what the route stores as NO LIMIT: an admin who typed "fünf"
+ * or "-5" into the daily limit silently removed it. Invalid now blocks Save.
+ */
+type LimitInput = { ok: true; value: number | null } | { ok: false }
+
+const readLimit = (value: string, locale: string): LimitInput => {
+  const parsed = parseDecimalInput(value, locale)
+  if (parsed.status === 'blank') return { ok: true, value: null }
+  if (parsed.status === 'valid' && parsed.value >= 0) return { ok: true, value: parsed.value }
+  return { ok: false }
 }
 
 const policyLimitLabel = (
@@ -175,7 +186,8 @@ const policyLimitLabel = (
   formatAmount: (value: number) => string
 ): string => {
   const parts: string[] = []
-  if (policy.dailyLimit !== null) parts.push(`${formatAmount(Number.parseFloat(policy.dailyLimit))}/${perDay}`)
+  if (policy.dailyLimit !== null)
+    parts.push(`${formatAmount(Number.parseFloat(policy.dailyLimit))}/${perDay}`)
   if (policy.monthlyLimit !== null)
     parts.push(`${formatAmount(Number.parseFloat(policy.monthlyLimit))}/${perMonth}`)
   return parts.join(' · ') || '—'
@@ -381,8 +393,15 @@ const SpendTable: FC<{
   monthLabel: string
   amountLabel: (value: number) => string
   requestsLabel: (count: number) => string
-}> = ({ segments, otherLabel, captionLabel, todayLabel, monthLabel, amountLabel, requestsLabel }) => {
-
+}> = ({
+  segments,
+  otherLabel,
+  captionLabel,
+  todayLabel,
+  monthLabel,
+  amountLabel,
+  requestsLabel,
+}) => {
   return (
     <table className="mt-1.5 w-full border-collapse text-sm" data-testid="spend-table">
       <caption className="sr-only">{captionLabel}</caption>
@@ -458,6 +477,7 @@ const LimitEditor: FC<{
 }> = ({ scope, subjectId, current, unitWord, onSaved, trigger }) => {
   const t = useTranslations('organization')
   const tCommon = useTranslations('common')
+  const { locale } = useLocale()
   const [open, setOpen] = useState(false)
   const [daily, setDaily] = useState('')
   const [monthly, setMonthly] = useState('')
@@ -478,7 +498,12 @@ const LimitEditor: FC<{
     }
   }, [open, current])
 
+  const dailyInput = readLimit(daily, locale)
+  const monthlyInput = readLimit(monthly, locale)
+  const limitsValid = dailyInput.ok && monthlyInput.ok
+
   const save = async (): Promise<void> => {
+    if (!dailyInput.ok || !monthlyInput.ok) return
     setBusy(true)
     try {
       const res = await fetch('/api/organization/budgets', {
@@ -487,8 +512,8 @@ const LimitEditor: FC<{
         body: JSON.stringify({
           scope,
           subjectId,
-          dailyLimit: parseLimit(daily),
-          monthlyLimit: parseLimit(monthly),
+          dailyLimit: dailyInput.value,
+          monthlyLimit: monthlyInput.value,
         }),
       })
       if (res.status === 422) {
@@ -532,27 +557,35 @@ const LimitEditor: FC<{
       <PopoverContent align="end" className="w-64">
         <div className="flex flex-col gap-3">
           <Field>
-            <FieldLabel htmlFor={`limit-daily-${subjectId}`}>{t('budgets.dailyLimit', { unit: unitWord })}</FieldLabel>
+            <FieldLabel htmlFor={`limit-daily-${subjectId}`}>
+              {t('budgets.dailyLimit', { unit: unitWord })}
+            </FieldLabel>
             <Input
               id={`limit-daily-${subjectId}`}
               inputMode="decimal"
               value={daily}
               onChange={(e) => setDaily(e.target.value)}
               placeholder={t('budgets.noLimitPlaceholder')}
+              aria-invalid={!dailyInput.ok || undefined}
             />
+            {!dailyInput.ok && <FieldError>{t('budgets.limitInvalid')}</FieldError>}
           </Field>
           <Field>
-            <FieldLabel htmlFor={`limit-monthly-${subjectId}`}>{t('budgets.monthlyLimit', { unit: unitWord })}</FieldLabel>
+            <FieldLabel htmlFor={`limit-monthly-${subjectId}`}>
+              {t('budgets.monthlyLimit', { unit: unitWord })}
+            </FieldLabel>
             <Input
               id={`limit-monthly-${subjectId}`}
               inputMode="decimal"
               value={monthly}
               onChange={(e) => setMonthly(e.target.value)}
               placeholder={t('budgets.noLimitPlaceholder')}
+              aria-invalid={!monthlyInput.ok || undefined}
             />
+            {!monthlyInput.ok && <FieldError>{t('budgets.limitInvalid')}</FieldError>}
           </Field>
           <div className="flex items-center justify-between gap-2">
-            <Button size="sm" onClick={save} disabled={busy}>
+            <Button size="sm" onClick={save} disabled={busy || !limitsValid}>
               {tCommon('actions.save')}
             </Button>
             {current && (
@@ -637,7 +670,10 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
       .catch(() => setProjects([]))
   }, [isAdmin])
 
-  const modelSeries = useMemo(() => (usage ? buildModelSeries(usage.summary.perModel) : []), [usage])
+  const modelSeries = useMemo(
+    () => (usage ? buildModelSeries(usage.summary.perModel) : []),
+    [usage]
+  )
   /** Only models that actually spent this month can be a slice of it. */
   const monthSeries = useMemo(
     () => modelSeries.filter((series) => series.monthAmount > 0),
@@ -666,7 +702,13 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   )
   const projectPolicies = useMemo(() => policies.filter((p) => p.scope === 'project'), [policies])
 
+  const orgDailyInput = readLimit(dailyLimit, locale)
+  const orgMonthlyInput = readLimit(monthlyLimit, locale)
+
   const saveOrgLimits = useCallback(async () => {
+    const daily = readLimit(dailyLimit, locale)
+    const monthly = readLimit(monthlyLimit, locale)
+    if (!daily.ok || !monthly.ok) return
     setSavingLimits(true)
     try {
       const res = await fetch('/api/organization/budgets', {
@@ -674,8 +716,8 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scope: 'organization',
-          dailyLimit: parseLimit(dailyLimit),
-          monthlyLimit: parseLimit(monthlyLimit),
+          dailyLimit: daily.value,
+          monthlyLimit: monthly.value,
         }),
       })
       if (res.status === 422) {
@@ -691,7 +733,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
     } finally {
       setSavingLimits(false)
     }
-  }, [dailyLimit, monthlyLimit, t, load])
+  }, [dailyLimit, monthlyLimit, locale, t, load])
 
   if (loading || !usage) {
     return <LoadingSkeleton />
@@ -713,7 +755,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   return (
     <TooltipProvider delayDuration={100}>
       {/* `grid-spend-viz` scopes the validated chart tokens (end of globals.css). */}
-      <div className="grid-spend-viz animate-in fade-in-0 flex min-h-[16rem] flex-col gap-5 duration-base ease-out motion-reduce:animate-none">
+      <div className="grid-spend-viz animate-in fade-in-0 duration-base flex min-h-[16rem] flex-col gap-5 ease-out motion-reduce:animate-none">
         {usage.status.blocked && (
           <Badge variant="destructive" className="self-start">
             <AlertTriangle className="mr-1 size-3" aria-hidden />
@@ -811,29 +853,37 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
               </p>
               <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
                 <Field className="flex-1 sm:max-w-40">
-                  <FieldLabel htmlFor="budget-daily">{t('budgets.dailyLimit', { unit: unitWord })}</FieldLabel>
+                  <FieldLabel htmlFor="budget-daily">
+                    {t('budgets.dailyLimit', { unit: unitWord })}
+                  </FieldLabel>
                   <Input
                     id="budget-daily"
                     inputMode="decimal"
                     value={dailyLimit}
                     onChange={(e) => setDailyLimit(e.target.value)}
                     placeholder={t('budgets.noLimitPlaceholder')}
+                    aria-invalid={!orgDailyInput.ok || undefined}
                   />
+                  {!orgDailyInput.ok && <FieldError>{t('budgets.limitInvalid')}</FieldError>}
                 </Field>
                 <Field className="flex-1 sm:max-w-40">
-                  <FieldLabel htmlFor="budget-monthly">{t('budgets.monthlyLimit', { unit: unitWord })}</FieldLabel>
+                  <FieldLabel htmlFor="budget-monthly">
+                    {t('budgets.monthlyLimit', { unit: unitWord })}
+                  </FieldLabel>
                   <Input
                     id="budget-monthly"
                     inputMode="decimal"
                     value={monthlyLimit}
                     onChange={(e) => setMonthlyLimit(e.target.value)}
                     placeholder={t('budgets.noLimitPlaceholder')}
+                    aria-invalid={!orgMonthlyInput.ok || undefined}
                   />
+                  {!orgMonthlyInput.ok && <FieldError>{t('budgets.limitInvalid')}</FieldError>}
                 </Field>
                 <Button
                   className="w-full sm:w-auto"
                   onClick={saveOrgLimits}
-                  disabled={savingLimits}
+                  disabled={savingLimits || !orgDailyInput.ok || !orgMonthlyInput.ok}
                 >
                   {t('budgets.saveLimits')}
                 </Button>
@@ -882,7 +932,12 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                         </Stat>
                         <Stat label={t('budgets.limitLabel')}>
                           {policy ? (
-                            policyLimitLabel(policy, t('budgets.perDay'), t('budgets.perMonth'), formatBare)
+                            policyLimitLabel(
+                              policy,
+                              t('budgets.perDay'),
+                              t('budgets.perMonth'),
+                              formatBare
+                            )
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
@@ -949,16 +1004,17 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
               {projectPolicies.length > 0 && (
                 <ItemList as="ul" className="mt-3">
                   {projectPolicies.map((policy) => (
-                    <Item
-                      as="li"
-                      key={policy.id}
-                      className="flex-wrap gap-x-4 gap-y-1 px-3 py-2.5"
-                    >
+                    <Item as="li" key={policy.id} className="flex-wrap gap-x-4 gap-y-1 px-3 py-2.5">
                       <span className="min-w-0 flex-1 truncate text-sm">
                         {projectName(policy.subjectId)}
                       </span>
                       <span className="text-muted-foreground text-xs tabular-nums">
-                        {policyLimitLabel(policy, t('budgets.perDay'), t('budgets.perMonth'), formatBare)}
+                        {policyLimitLabel(
+                          policy,
+                          t('budgets.perDay'),
+                          t('budgets.perMonth'),
+                          formatBare
+                        )}
                       </span>
                       <LimitEditor
                         scope="project"

@@ -250,7 +250,7 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `FILE_UPLOAD_ACCEPTED_TYPES` | No | `.pdf,.docx,.txt,.md,.csv,.xlsx,.pptx` | Comma-separated list of accepted file extensions (include leading dots). Governs **non-image** types only. **Image types (`.png,.jpg,.jpeg,.webp`) are derived, not env-listed**: they are offered automatically when the `image-upload` WorkOS flag allows AND the backend reports a configured VLM (`vlm_available`, derived from `AIQ_VLM_*`). Listing images here has no effect without a VLM — they are stripped from the client accept-list and rejected server-side (400) whenever the flag is off OR the VLM capability is absent (fail-closed), closing the old silent-failure hole where env-listed images without a VLM were accepted then failed ingestion. |
-| `FILE_UPLOAD_MAX_SIZE_MB` | No | `100` | Maximum total file size in MB. |
+| `FILE_UPLOAD_MAX_SIZE_MB` | No | `100` | Default maximum size of **one** uploaded file, in decimal MB (1 MB = 1,000,000 bytes), on every shelf: project Dateiablage, Büroarchiv and chat attachments. Not a batch or total limit (the storage quota bounds totals). **Per-organization override:** platform staff set an organization's own value in Platform → Storage (`maxUploadFileBytes` in `organizations.settings`, `PUT /api/platform/organizations/{id}/upload-limit`), from 1 MB up to the transport ceiling, max(this value, `BIM_MAX_IFC_BYTES`), fixed at boot in `next.config.ts`, because bytes beyond it never reach the app. The server (`assertFileSizeAllowed`, 413 naming the limit) and the browser's label and check use the organization's value; this variable is the value for organizations without one and for public pages. A `.ifc`/`.ifczip` is measured against `BIM_MAX_IFC_BYTES` instead, which no organization value overrides. The chat session's attachment total follows this value too, raised to the organization's per-file limit when that is higher. |
 | `GRID_DEFAULT_STORAGE_QUOTA_BYTES` | No | _(unset)_ | Fleet-wide default per-organization storage quota, in bytes (ADR-0042). Unset means unlimited, which is the pre-existing behaviour. An org-level value set in Organization → Storage always wins, and an explicit org-level "unlimited" beats this default. |
 | `GRID_STORAGE_ALERT_THRESHOLD_PERCENT` | No | `80` | Share of its storage quota at which an organization is warned that it is running out of space (ADR-0042), as a percentage. An hourly sweep (`POST /api/internal/storage/alerts`, driven by the `storage-alerts` CronJob) raises an inbox item for every active member holding `org:settings:manage`; escalation at 90% and 100% is automatic and not configurable, so that "you have run out" stays a distinct message from "you are nearly out". The alert fires **once per crossing** rather than once per sweep — an already-live row suppresses re-emission, so a dismissed warning is not resurfaced every hour — and outstanding rows are retired when usage falls back below the threshold, which is what lets a later re-crossing alert again. Organizations with no quota are skipped entirely. A value outside `(0, 100]` falls back to `80` rather than disabling the warning, because a typo must not silently switch off the notice that stops a tenant walking into a full disk. Frontend service. On Kubernetes it is set from the Pulumi stack key `grid-oib:storageAlertThresholdPercent`, which **rejects** an out-of-range value at deploy time (where an operator is present to read the error) instead of quietly clamping it; the schedule and on/off switch are `grid-oib:storageAlertSchedule` (default `0 * * * *`) and `grid-oib:storageAlertsEnabled` (default `true`). |
 | `FILE_UPLOAD_MAX_FILE_COUNT` | No | `10` | Maximum number of files a **chat session** may hold. Does not apply to the project Dateiablage or the Büroablage (those are bounded by storage quota). |
@@ -442,9 +442,9 @@ deployment that wants prompt management injects them from that Secret.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `LANGFUSE_PROMPTS_ENABLED` | No | unset (off) | When truthy (`1`/`true`/`yes`/`on`), the agent serves the platform prompt from Langfuse instead of the bundled file. Off by default: it decides whether a remote store may be the authority for the text the fleet reasons with, which is a product decision rather than a performance knob. With it off, no client is built and no request is made. Before turning it on for an environment, publish the committed prompt to the label it serves (`task prompts:push -- --label <label> --apply`), and again with every deploy that changes `piloti_static.md`: the fleet renders what the label holds, not what the image carries. Backend (aiq-agent) and agent-worker services. |
-| `LANGFUSE_PUBLIC_KEY` | No | unset | Langfuse project public key. Half of the capability: without both keys the store logs once and serves the bundled prompt. Also read by `task prompts:pull` and `task prompts:push`. |
+| `LANGFUSE_PUBLIC_KEY` | No | unset | Langfuse project public key. Half of the capability: without both keys the store logs once and serves the bundled prompt. Also read by `task prompts:pull` and `task prompts:push`, and by the frontend (BFF) for answer-feedback scores, see below. |
 | `LANGFUSE_SECRET_KEY` | No | unset | Langfuse project secret key. See above. |
-| `LANGFUSE_HOST` | No | `https://cloud.langfuse.com` | Base URL of the Langfuse API. Self-hosted deployments set this to their own Langfuse web tier; the SDK's default is Langfuse Cloud, which is not where a self-hosted stack's prompts are. |
+| `LANGFUSE_HOST` | No | `https://cloud.langfuse.com` (agent); none (frontend) | Base URL of the Langfuse API. Self-hosted deployments set this to their own Langfuse web tier; the Python SDK's default is Langfuse Cloud, which is not where a self-hosted stack's prompts are. The frontend has NO default: without it, answer-feedback scoring is off, so keys alone can never send votes to Langfuse Cloud. |
 | `LANGFUSE_PROMPT_LABEL` | No | `production` | Which Langfuse label the fleet serves. `production` is what runs; other labels exist for experiments, and pointing a deployment at one is how an experiment is run without touching what everyone else gets. |
 | `LANGFUSE_PROMPT_CACHE_TTL_SECONDS` | No | `60` | How long a fetched version is served before the SDK refreshes it in the background (stale-while-revalidate: the turn is served immediately from cache either way). Also the window for which a FAILED fetch is not retried, which is what keeps a Langfuse outage from costing a network attempt on every turn. A change in Langfuse therefore reaches the fleet within this many seconds, not instantly. |
 
@@ -473,6 +473,29 @@ the traces are found through `GET /api/public/v2/observations`, which answers
 | `LANGFUSE_PUBLIC_KEY` | No | unset (step off) | Langfuse project public key (HTTP Basic user). Purger and scheduler services. |
 | `LANGFUSE_SECRET_KEY` | No | unset (step off) | Langfuse project secret key (HTTP Basic password). Purger and scheduler services. |
 | `GRID_LANGFUSE_TRACE_RETENTION_DAYS` | No | `30` | How long a trace lives before the scheduler's daily sweep asks Langfuse to delete it. Never below `3`, Langfuse's own minimum: a smaller number, zero, or text is corrected (to 3, or to the default) and the boot line says so. Each run sends at most 50 delete batches of 1,000 traces and stops after two minutes, so a backlog drains over days. Scheduler service. |
+
+## Answer feedback scores (Langfuse)
+
+Every thumbs-up or thumbs-down a user leaves on an answer is also written to
+Langfuse, by the frontend (BFF) server side, as a `user-feedback` score on the
+trace that produced the answer (ADR-0044, Amendment 3;
+`frontends/ui/src/lib/langfuse/`). A retracted vote deletes its score. The
+platform answer-feedback view links each rated turn to its trace.
+
+Capability only, read per call, and a silent no-op when anything is missing.
+Pulumi injects all five into the frontend only where the Langfuse tier is
+deployed (`frontendLangfuseEnv` in `deploy/pulumi/src/platform/langfuse.ts`),
+the keys by reference to the `langfuse-secrets` Secret; Compose sets none.
+The bff-jobs pool, whose environment is otherwise the frontend's, gets none of
+the five (`BFF_JOBS_WITHHELD` in `deploy/pulumi/src/app/config.ts`): only the
+request path scores a vote, and no NetworkPolicy admits that pool to Langfuse.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | No | unset | The same project keys the trace exporter uses (rows above). Both, plus `LANGFUSE_HOST`, turn scoring on. Frontend. |
+| `LANGFUSE_HOST` | No | unset | The Langfuse API the BFF writes scores to: the in-cluster web Service (`http://langfuse-web:3000`), which the `allow-frontend-to-langfuse` NetworkPolicy opens to the frontend pods. Not the public host: that one sits behind the edge's OIDC gate. Frontend. |
+| `LANGFUSE_PUBLIC_URL` | No | unset | Browser-facing origin of the Langfuse UI (`https://langfuse.<domain>`), for the trace and project links in the platform answer-feedback view (`turns[].langfuseTraceUrl`, `langfuse.projectUrl`). Without it, or without `LANGFUSE_PROJECT_ID`, both are null. Frontend. |
+| `LANGFUSE_PROJECT_ID` | No | unset | The Langfuse project id the traces and scores live in; Pulumi passes `langfuseProjectId` (default `grid-oib`), the id headless initialisation created. Frontend. |
 
 ## Data-tier authentication (Kubernetes/Pulumi-injected)
 

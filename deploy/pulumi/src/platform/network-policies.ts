@@ -301,8 +301,9 @@ export function installNetworkPolicies(
   //     the purger deletes an erased chat's traces and the scheduler deletes the
   //     ones past retention (ADR-0044; `workers/langfuse-traces.js`). Rule 2
   //     withholds the web tier from the wholesale allow, so each caller is named,
-  //     as the collector is in rule 11. These two are the whole list: the BFF and
-  //     the agent never call Langfuse's API.
+  //     as the collector is in rule 11. Deleting traces is theirs alone: the BFF
+  //     writes scores (rule 11c) but deletes nothing, and the agent never calls
+  //     Langfuse's API.
   const workersToLangfuse = cfg.langfuse.enabled
     ? mk("allow-workers-to-langfuse", {
         podSelector: { matchLabels: { "app.kubernetes.io/name": LANGFUSE_WEB } },
@@ -312,6 +313,25 @@ export function installNetworkPolicies(
             from: ["purger", "skill-scheduler"].map((name) => ({
               podSelector: { matchLabels: { "app.kubernetes.io/name": name } },
             })),
+            ports: [{ protocol: "TCP", port: PORT.langfuseWeb }],
+          },
+        ],
+      })
+    : undefined;
+
+  // 11c. frontend (the BFF) → Langfuse web public API. The BFF writes every
+  //      answer-feedback vote as a score on its trace (ADR-0044, Amendment 3)
+  //      through `LANGFUSE_HOST`, the in-cluster Service: the public host sits
+  //      behind the edge's OIDC gate, which a server-side call cannot pass.
+  //      Named by caller, like the collector, and the frontend is the only one
+  //      of the app pods that holds the keys.
+  const frontendToLangfuse = cfg.langfuse.enabled
+    ? mk("allow-frontend-to-langfuse", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": LANGFUSE_WEB } },
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: [{ podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } }],
             ports: [{ protocol: "TCP", port: PORT.langfuseWeb }],
           },
         ],
@@ -423,6 +443,7 @@ export function installNetworkPolicies(
     ...(edgeLangfuse ? [edgeLangfuse] : []),
     ...(collectorToLangfuse ? [collectorToLangfuse] : []),
     ...(workersToLangfuse ? [workersToLangfuse] : []),
+    ...(frontendToLangfuse ? [frontendToLangfuse] : []),
     ...(langfuseToClickhouse ? [langfuseToClickhouse] : []),
     ...(gotenberg ? [gotenberg] : []),
   ];
