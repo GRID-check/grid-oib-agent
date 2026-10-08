@@ -217,22 +217,33 @@ export class JobCancelError extends Error {
 }
 
 /**
+ * Who steers a job: the person's WorkOS access token and the signed context
+ * envelope over the project their caller authorized
+ * (`signJobRequestContext` in `@/lib/jobs/request-envelope`). Built by the
+ * caller, so this module stays free of the session and authorization chain.
+ */
+export interface JobControlCaller {
+  accessToken: string | null
+  contextHeaders: Record<string, string>
+}
+
+/**
  * Cancel one backend job: `POST /v1/jobs/async/job/{id}/cancel`, the call the
  * browser already makes through `/api/jobs/async/[...path]` when it dismisses a
  * deep-research thread (`cancelJob` in `adapters/api/deep-research-client.ts`).
- * Same endpoint, same credential: the caller's WorkOS access token, because the
- * backend enforces job ownership against the principal that submitted it
- * (`authorize_job_access` in `aiq_api/jobs/access.py`), and the internal token
- * would name nobody.
+ * Same endpoint, same credentials: the caller's WorkOS access token and the
+ * signed envelope, because the backend lets the job's owner steer it and anyone
+ * else only inside the project the envelope signs (`authorize_job_access` in
+ * `aiq_api/jobs/access.py`, ADR-0084). The internal token would name nobody.
  *
  * Resolves on a 2xx and throws `JobCancelError` for everything else; a network
  * failure is a 503.
  */
 export async function cancelBackendJob(
   backendJobId: string,
-  accessToken: string | null
+  caller: JobControlCaller
 ): Promise<void> {
-  return postJobControl(backendJobId, 'cancel', accessToken)
+  return postJobControl(backendJobId, 'cancel', caller)
 }
 
 /**
@@ -242,9 +253,9 @@ export async function cancelBackendJob(
  */
 export async function writeNowBackendJob(
   backendJobId: string,
-  accessToken: string | null
+  caller: JobControlCaller
 ): Promise<void> {
-  return postJobControl(backendJobId, 'write-now', accessToken)
+  return postJobControl(backendJobId, 'write-now', caller)
 }
 
 /**
@@ -255,15 +266,15 @@ export async function writeNowBackendJob(
 export async function addDocumentToBackendJob(
   backendJobId: string,
   document: PlanDocument,
-  accessToken: string | null
+  caller: JobControlCaller
 ): Promise<void> {
-  return postJobControl(backendJobId, 'documents', accessToken, document)
+  return postJobControl(backendJobId, 'documents', caller, document)
 }
 
 async function postJobControl(
   backendJobId: string,
   action: 'cancel' | 'write-now' | 'documents',
-  accessToken: string | null,
+  caller: JobControlCaller,
   body?: unknown
 ): Promise<void> {
   let response: Response
@@ -273,9 +284,10 @@ async function postJobControl(
       {
         method: 'POST',
         headers: {
+          ...caller.contextHeaders,
           Accept: 'application/json',
           ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+          ...(caller.accessToken ? { Authorization: `Bearer ${caller.accessToken}` } : {}),
         },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       }
@@ -378,8 +390,8 @@ const PROBE_TIMEOUT_MS = 10_000
  * Ask the job store how one job stands: `GET /v1/internal/jobs/{id}/outcome`.
  *
  * The internal twin of the status route the browser polls
- * (`/v1/jobs/async/job/{id}`). That one is owner-scoped and wants the owner's
- * WorkOS token, which a sweep holds for nobody; this one takes the service
+ * (`/v1/jobs/async/job/{id}`). That one wants a person's WorkOS token and an
+ * envelope minted from their session, which a sweep holds for nobody; this one takes the service
  * token and the run's organization, which the backend checks against the job's
  * `job_access` row. Null is the backend's 404 — no such job, or not this
  * organization's — and the caller decides what that means for the run.
