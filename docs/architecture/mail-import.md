@@ -44,7 +44,11 @@ browser                     BFF (frontend)                     object store     
   past a mail only after it is filed. A retried mail files into the folder it
   had, under the same names, so each file is the same document again (a new
   version, or `unchanged` once indexed), never a second one. Every upload
-  carries the import's upload batch (below).
+  carries the import's upload batch (below). A file it filed that the content
+  gate still holds or has quarantined (ADR-0086) counts as filed and is not
+  uploaded again, since a quarantined file refuses every re-upload. A held file
+  somebody else put under that name is never replaced: the mail takes the next
+  free name (`… – Plan (2).pdf`).
 - **Folder access (ADR-0087, ADR-0088).** Every slice first checks that the
   person may write the archive's folder, or, before it exists, the
   `E-Mail-Import` root folder (found by name, so one with its own access list
