@@ -69,6 +69,14 @@ the sandbox this was written in, `localhost` resolved to another host under the
 `frontends/aiq_api` suite and the first test hung on the connect. The table is emptied before each test, so never
 aim it at a database that holds a real corpus.
 
+**Lazy schema creation is tested against a real Postgres, from several processes.**
+`tests/test_ddl_concurrency.py` starts 8 processes at once against freshly created
+databases and runs every `_ensure_table` / `_ensure_schema` site, because
+`CREATE TABLE IF NOT EXISTS` races on the `pg_type` catalog and SQLite cannot show
+it. It is skipped unless `GRID_TEST_PG_URL` names a server (for example
+`postgresql://postgres@127.0.0.1:5432/postgres`) it may create and drop databases on.
+A new site that runs DDL at runtime joins `SITES` in `tests/ddl_race_worker.py`.
+
 **Static green is not runtime green.** Typecheck, lint and unit tests are the
 bar for most changes. Behaviour that only exists at runtime, WebSocket flows,
 auth, and the deletion pipeline among them, needs the Compose stack with real
