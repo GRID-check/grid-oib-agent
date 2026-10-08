@@ -7,18 +7,24 @@ interface Props {
   locale: Locale
   /** `h2` for an open release, `h3` inside a folded month (whose summary is the h2). */
   headingAs?: 'h2' | 'h3'
+  /** The first release on the page: its new features and improvements stay open, however many. */
+  newest?: boolean
 }
-const { release, locale, headingAs: Heading = 'h2' } = Astro.props
+const { release, locale, headingAs: Heading = 'h2', newest = false } = Astro.props
 const t = ui[locale].changelog
 const Section = Heading === 'h2' ? 'h3' : 'h4'
 // A week can carry seventy notes. Past eight, every section folds to its title
 // and count, one click from the list, and the summary (when the week has one)
-// is the reading. Fixes fold in every week: the page is about what Piloti can
-// do, and the list of what used to go wrong is there for whoever looks for it.
+// is the reading. The newest week is the exception: its new features and
+// improvements are what a visitor came for, so they stay open. Fixes fold in
+// every week: the page is about what Piloti can do, and the list of what used
+// to go wrong is there for whoever looks for it.
 const FOLD_ABOVE = 8
+const ALWAYS_OPEN_IN_NEWEST = new Set(['features', 'improvements'])
 const total = release.sections.reduce((n, s) => n + s.notes.length, 0)
 const fold = total > FOLD_ABOVE
-const folded = (key: string) => fold || key === 'fixes'
+const folded = (key: string) =>
+  key === 'fixes' || (fold && !(newest && ALWAYS_OPEN_IN_NEWEST.has(key)))
 ---
 
 <article
@@ -48,7 +54,7 @@ const folded = (key: string) => fold || key === 'fixes'
 
   <div class="min-w-0">
     {release.summary && <p class="mb-7 max-w-[38em] text-base leading-relaxed text-ink">{release.summary[locale]}</p>}
-    <div class:list={[fold ? 'space-y-1' : 'space-y-7']}>
+    <div class:list={[release.sections.every((s) => folded(s.key)) ? 'space-y-1' : 'space-y-7']}>
       {
         release.sections.map((section) =>
           folded(section.key) ? (
