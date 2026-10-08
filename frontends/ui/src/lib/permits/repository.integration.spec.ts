@@ -28,7 +28,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 
@@ -385,6 +385,62 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
       expect(cleared.find((record) => record.restrictedFolderIds !== null)).toMatchObject({
         fileName: 'Honorar_Moedling.pdf',
         restrictedFolderIds: [FOLDER],
+      })
+    })
+
+    describe('a record is served only while its document still stands where it was read from', () => {
+      /** A fresh Baden document with its own record, served before the change under test. */
+      async function storedNotice(name: string, content: string): Promise<string> {
+        const documentId = await document(ORG, ids.baden, name)
+        // No vector: the token channel finds a question that repeats the requirement.
+        await store(ORG, ids.baden, documentId, name, [requirement(content)])
+        expect(contents(await search(ORG, content))).toContain(content)
+        return documentId
+      }
+
+      const change = (statement: ReturnType<typeof sql>) => inOrg(ORG, () => db.execute(statement))
+
+      afterEach(() => {
+        queryVector = null
+      })
+
+      it('goes quiet when its document moved to another collection: a folder that gained an access list', async () => {
+        const content = 'Die Zufahrt für die Feuerwehr ist mit 3,5 m Breite herzustellen.'
+        const documentId = await storedNotice('Bescheid_verschoben.pdf', content)
+
+        // What collection placement does when the document's folder gains an access list.
+        await change(sql`update documents set collection_name = ${`proj_prm_${ids.baden}_r0123456789ab`} where id = ${documentId}::uuid`)
+
+        expect(contents(await search(ORG, content))).not.toContain(content)
+        expect(contents(await search(ORG, content, { [ids.baden]: [FOLDER] }))).not.toContain(content)
+      })
+
+      it('goes quiet the moment its folder is in the Papierkorb, not when the purge cascades', async () => {
+        const content = 'Das Dach ist mit einer Absturzsicherung nach ÖNORM auszustatten.'
+        const documentId = await storedNotice('Bescheid_Papierkorb.pdf', content)
+        const [folder] = await change(sql`
+          insert into project_folders (organization_id, project_id, name, path)
+          values (${ORG}, ${ids.baden}::uuid, ${`Bin_${STAMP}`}, ${`Bin_${STAMP}`}) returning id`)
+        const folderId = String((folder as { id: string }).id)
+        await change(sql`update documents set folder_id = ${folderId}::uuid where id = ${documentId}::uuid`)
+        expect(contents(await search(ORG, content))).toContain(content)
+
+        await change(sql`update project_folders set deleted_at = now(), bin_root_id = id where id = ${folderId}::uuid`)
+
+        expect(contents(await search(ORG, content))).not.toContain(content)
+      })
+
+      it('goes quiet when its document is quarantined or archived', async () => {
+        const quarantined = 'Die Stellplätze sind gemäß Stellplatzregulativ nachzuweisen.'
+        const archived = 'Die Regenwässer sind auf Eigengrund zur Versickerung zu bringen.'
+        const first = await storedNotice('Bescheid_Quarantaene.pdf', quarantined)
+        const second = await storedNotice('Bescheid_Archiv.pdf', archived)
+
+        await change(sql`update documents set status = 'quarantined' where id = ${first}::uuid`)
+        await change(sql`update documents set lifecycle = 'archived' where id = ${second}::uuid`)
+
+        expect(contents(await search(ORG, quarantined))).not.toContain(quarantined)
+        expect(contents(await search(ORG, archived))).not.toContain(archived)
       })
     })
 

@@ -54,7 +54,10 @@ and link (dates, authority, kind of item).
   written only through `POST /api/internal/permit-records`, replaced per
   document on re-extraction, deleted with the document.
 * Each row carries the document's restricting folders; the read filters by the
-  reader's clearance as project memory is filtered.
+  reader's clearance as project memory is filtered, and serves a row only while
+  its document is still in the collection it was read from, live, and not in
+  the Papierkorb: the stored restriction is a snapshot, so access is decided by
+  the document's state at read time, never by re-ingest.
 * The cross-project search returns `permits` beside decisions and passages,
   ranked as memory recall ranks (embeddings fused with a token channel), and
   records them at hand-out (ADR-0093).

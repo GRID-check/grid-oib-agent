@@ -123,10 +123,11 @@ Request:
   `fileName` among live documents (a live name is unique per collection: the
   backfill only knows the name); unknown, binned or project-less →
   `{ stored: false }`, 200.
-- `record: null` deletes the document's record (the model judged it no
-  notice) and answers `{ stored: false }`. The pen never sends null for a
-  FAILED extraction: an outage must not erase a stored record. A document
-  re-typed away from Bescheid keeps its record until a follow-up drops it.
+- `record: null` deletes the document's record and answers `{ stored: false }`.
+  The ingest hook sends it when the tag decision no longer calls the document a
+  Bescheid (a re-typed or re-uploaded document), without a model call. The pen
+  never sends null for a FAILED extraction: an outage must not erase a stored
+  record.
 - Otherwise it replaces the document's record and requirements in one
   transaction, sets `restricted_folder_ids` from the collection
   (`sourceFoldersOfCollections`), and embeds the requirements with
@@ -135,6 +136,16 @@ Request:
   requirements, strings capped as above, validated with zod.
 
 ### Read: `permits` in the cross-project search
+
+**A record is served only while its document still stands where it was read
+from.** The restriction a record carries is a snapshot of the collection its
+document sat in at extraction, so the search joins the document and serves a
+record only while the document's collection is still the record's (a document
+moved into a restricted folder, or whose folder gained an access list, has
+another), it is not quarantined or archived, and its folder is not in the
+Papierkorb. A moved document's record goes quiet until it is read again; it
+never answers with the access it used to have. Re-ingest is not needed for any
+of this to hold.
 
 `CrossProjectSearchResponse` gains `permits: CrossProjectPermit[]` (≤ 8
 records), ranked as `searchProjectDecisions` ranks (query embedding against
