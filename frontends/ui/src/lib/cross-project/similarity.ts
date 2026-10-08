@@ -68,8 +68,14 @@ function token(value: unknown): string | null {
 /** The intake's answer for a site abroad: no Land, so two such projects share no jurisdiction. */
 const ABROAD = 'ausserhalb_oesterreichs'
 
-function land(values: readonly unknown[]): string | null {
-  const found = tokens(values)[0] ?? null
+/** The project's Bundesland as the intake stores it, folded to its token; `ausserhalb_oesterreichs` is kept as the answer it is. */
+export function bundeslandOf(profile: Profile | null): string | null {
+  return tokens(factValues(profile, 'bundesland'))[0] ?? null
+}
+
+/** The Land the ranking compares: a site abroad has none, so two such projects share no jurisdiction. */
+function land(profile: Profile | null): string | null {
+  const found = bundeslandOf(profile)
   return found === ABROAD ? null : found
 }
 
@@ -96,7 +102,7 @@ function overlap(a: readonly string[], b: readonly string[]): string[] {
 /** The facts of one profile the ranking reads; missing or malformed facts read as unknown. */
 export function similarityFacts(profile: Profile | null): SimilarityFacts {
   return {
-    bundesland: land(factValues(profile, 'bundesland')),
+    bundesland: land(profile),
     gebaeudeklasse: [
       ...new Set(
         factValues(profile, 'gebaeudeklasse')

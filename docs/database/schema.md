@@ -811,8 +811,9 @@ a conversation with a row here keeps its card decisions out of the
 project-wide `PROPOSAL_DECISIONS` block.
 
 A cross-project lookup (ADR-0093) may record a folder of ANOTHER project here;
-it is judged in the tree of the project it belongs to (`treeForRecord`, through
-`projectsOfFolders`), so the conversation's creator keeps reading it.
+it is judged in the tree of the project it belongs to (through
+`projectsOfFolders`, in `lib/conversations/restricted-use.ts`), so the
+conversation's creator keeps reading it.
 
 ---
 

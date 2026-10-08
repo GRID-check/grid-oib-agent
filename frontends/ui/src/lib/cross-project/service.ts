@@ -47,7 +47,7 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { audienceReach, type AudienceReach } from './audience-reach'
 import { searchProjectDecisions, type DecisionScope, type FoundDecision } from './decisions-repository'
 import { searchPermitRequirements, type FoundPermitRecord } from '@/lib/permits/repository'
-import { rankBySimilarity, similarityFacts } from './similarity'
+import { bundeslandOf, rankBySimilarity } from './similarity'
 import type { VerifiedGridRequestContext } from '@/lib/request-context'
 import {
   CROSS_PROJECT_PAGE_PROJECTS,
@@ -149,7 +149,7 @@ function projectRefOf(project: Project): CrossProjectRef {
     id: project.id,
     name: project.name,
     status: projectStatusOf(project),
-    bundesland: similarityFacts(project.profile).bundesland,
+    bundesland: bundeslandOf(project.profile),
   }
 }
 

@@ -433,8 +433,8 @@ stays with the people who may open it.** From then on the chat:
 - starts no deep research and no task, changes no project brief, files nothing
   into the project, and adds nothing to project or office memory.
 
-A notice above the message box names the running projects and says what that
-closes. If such a project is closed later, the chat opens up; if a closed one
+A notice below the text field, above the row of controls, names the running
+projects and says what that closes. If such a project is closed later, the chat opens up; if a closed one
 is reopened, the restriction comes back.
 
 ## Project-scoped chat
