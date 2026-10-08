@@ -1,6 +1,6 @@
 -- 0111: a project memory item can be restricted to the folders it was drawn
--- from (ADR-0084, "Memory from a restricted turn is restricted memory";
--- ADR-0085).
+-- from (ADR-0086, "Memory from a restricted turn is restricted memory";
+-- ADR-0087).
 --
 -- `restricted_folder_ids` names the SOURCE FOLDERS a note depends on: folders
 -- not every project member may read. NULL is open memory, the state of every

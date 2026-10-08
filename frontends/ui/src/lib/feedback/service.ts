@@ -128,7 +128,7 @@ export async function submitAnswerFeedback(
 
 /**
  * Lower the salience of the notes a complaint sits next to, among the notes the
- * voter may see (ADR-0084): a member not cleared for a restricted folder cannot
+ * voter may see (ADR-0086): a member not cleared for a restricted folder cannot
  * see its notes, so their down-vote must not bury them for those who can.
  * Fire-and-forget like the call itself; never throws.
  */

@@ -155,7 +155,7 @@ restricted, so such a check could not fire, and the input that could carry
 restricted content is refused where the run is commissioned.
 
 **Memory from a restricted turn is restricted memory** *(storage by collection superseded
-by ADR-0085: notes record their source folder ids and follow the folders' current access)*
+by ADR-0087: notes record their source folder ids and follow the folders' current access)*
 (product owner,
 2026-10-02: Piloti should remember as it always does; restricted must not feel
 like amnesia). A memory written in a turn whose scope holds restricted
@@ -189,8 +189,8 @@ becomes a `memory_proposal` card, because accepting a card writes open memory.
 Open and restricted notes never consolidate with each other. The decision is
 one function, `src/aiq_agent/memory/restriction.py`, shared by the `remember`
 tool and the reflection stage; the BFF stores only collections that are
-currently restricted collections of the project (as first designed; migration 0111
-ships the column keyed by folder, ADR-0085).
+currently restricted collections of the project (as first designed; migration 0112
+ships the column keyed by folder, ADR-0087).
 
 **Re-classified here as "roles outside WorkOS"** and fixed: third-party
 permission checks (invitations, quarantine reviewers, storage alerts) consulted
@@ -287,7 +287,7 @@ to them. They now ask WorkOS for the organization's roles first.
   nothing) and earlier-turn notes as evidence; `test_shown_notes.py` pins the per-conversation
   record, its bound and that a turn writes what it was shown; `memory-restricted.integration.spec.ts` proves against Postgres that a
   restricted note is served only to a cleared session, never consolidates with an open one, and
-  that migration 0111's CHECK and index hold; `rls-test-db.sh` checks its down migration deletes
+  that migration 0112's CHECK and index hold; `rls-test-db.sh` checks its down migration deletes
   restricted notes rather than opening them.
 * `authz-coverage.spec.ts` covers the new routes.
 * Nothing enforces yet that a NEW read path asks `folder-access.ts`; review is the gate for that.

@@ -147,7 +147,7 @@ judged against the current grants when it is read:
   folder's collection only when the asker and the conversation's audience may read the folder
   now. Without an envelope (a job worker) that route never answers for a restricted folder's
   collection;
-* restricted memory (`project_memory.restricted_folder_ids`, migration 0111), shown to a person
+* restricted memory (`project_memory.restricted_folder_ids`, migration 0112), shown to a person
   who may read all of its folders now, and served into a chat only after its folders are
   admitted for that conversation.
 
@@ -179,7 +179,7 @@ recorded folders.
   shape (level CHECK, role CHECK, 1–20 entries by a deferred constraint trigger, RLS).
 * Good, because a change of a folder's list takes effect for conversations and memory derived
   from it at the next read, with no revocation job.
-* Bad, because the 0109 down migration drops every access list: an older build knows no folder
+* Bad, because the 0110 down migration drops every access list: an older build knows no folder
   access, so every folder has to inherit again in the product first, or the documents filed in a
   `_r…` collection leave everybody's scope.
 * Bad, because roles are looked up in WorkOS per person and organization at most once a minute;
@@ -312,7 +312,7 @@ recorded folders.
 
 * Supersedes the parts of [ADR-0086](0086-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md)
   that decided who may see a folder (roles on `restricted_roles`), the per-conversation mark and
-  the per-socket confinement check, and restricted memory keyed by collection. ADR-0084's
+  the per-socket confinement check, and restricted memory keyed by collection. ADR-0086's
   retrieval collection per restricted folder, its egress refusals and its IFC rule stand.
 * User guide: [`sensitive-data-and-access.md`](../user-guides/sensitive-data-and-access.md#who-may-read-and-edit-a-folder).
 * Where a later lifecycle feature would attach (participant notices, an organization setting for

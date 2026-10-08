@@ -413,7 +413,7 @@ def test_turn_identity_is_the_parsed_request_in_ledger_shape():
 
 
 class TestRestrictedMemoryInTheLiveDigest:
-    """ADR-0084, ADR-0085: the live digest serves restricted memory only for the
+    """ADR-0086, ADR-0087: the live digest serves restricted memory only for the
     restricted collections the turn's VERIFIED envelope carries and the turn may
     draw on, with the signed asker the BFF admits them for."""
 
@@ -455,7 +455,7 @@ class TestRestrictedMemoryInTheLiveDigest:
 
 
 class TestRestrictedMemoryOnTheCompactHandshake:
-    """ADR-0084, ADR-0085 on the BFF transport: ``fetch_turn_context`` serves open
+    """ADR-0086, ADR-0087 on the BFF transport: ``fetch_turn_context`` serves open
     memory only, so a turn that may draw on a restricted folder takes the live
     digest, the one that admits the folders, in its place."""
 

@@ -370,7 +370,7 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
 echo "==> 0097 step rewrite and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migrations 0109 to 0111: each on a database of its own.
+# Migrations 0110 to 0112: each on a database of its own.
 #
 # `migrate_until <db> <tag>` creates <db> and applies the journal up to and
 # including <tag>, so every section below starts from exactly the chain it
@@ -520,7 +520,7 @@ check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders
 echo "==> 0111 chat record and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0111: restricted memory by folder, and its DOWN.
+# Migration 0112: restricted memory by folder, and its DOWN.
 #
 # An open and a restricted note with the same text can both be live (the 0111
 # index); an empty folder list and a restricted organization note are refused
@@ -528,8 +528,8 @@ echo "==> 0111 chat record and down migration verified"
 # restricted notes are DELETED, because dropping the column alone would serve
 # them to everyone. It restores develop's dedup index; 0111 then re-applies.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0111 restricted memory and its down migration on grid_memory"
-migrate_until grid_memory 0111_project_memory_restricted_folders
+echo "==> verifying the 0112 restricted memory and its down migration on grid_memory"
+migrate_until grid_memory 0112_project_memory_restricted_folders
 sql_in grid_memory <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
 VALUES ('aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'Memory 0111', 'user_1', 'proj_0108');
@@ -541,14 +541,14 @@ check_in grid_memory "SELECT count(*) FROM project_memory WHERE organization_id 
 refused_in grid_memory "INSERT INTO project_memory (scope, project_id, organization_id, kind, content) VALUES ('project', 'aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'decision', 'Honorar pauschal');" "uniq_project_memory_project_content_active" "a second open note with the same text is still one too many"
 refused_in grid_memory "INSERT INTO project_memory (scope, project_id, organization_id, kind, content, restricted_folder_ids) VALUES ('project', 'aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'decision', 'leer', '{}');" "project_memory_restricted_folders_check" "an empty folder list is not a restriction"
 refused_in grid_memory "INSERT INTO project_memory (scope, organization_id, kind, content, restricted_folder_ids) VALUES ('organization', 'org_0108', 'decision', 'Büroweit', ARRAY['d4d4d4d4-d4d4-4000-8000-000000000108'::uuid]);" "project_memory_restricted_folders_check" "organization memory is never restricted"
-apply_in grid_memory 0111_project_memory_restricted_folders.down.sql
+apply_in grid_memory 0112_project_memory_restricted_folders.down.sql
 check_in grid_memory "SELECT count(*) FROM project_memory WHERE organization_id = 'org_0108'" "1" "down deleted the restricted note and kept the open one"
 check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "0" "down dropped the column"
 check_in grid_memory "SELECT indexdef LIKE '%coalesce%' FROM pg_indexes WHERE indexname = 'uniq_project_memory_project_content_active'" "f" "down restored develop's dedup index"
-apply_in grid_memory 0111_project_memory_restricted_folders.sql
+apply_in grid_memory 0112_project_memory_restricted_folders.sql
 check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "1" "0111 re-applies"
 
-echo "==> 0111 restricted memory and down migration verified"
+echo "==> 0112 restricted memory and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),
