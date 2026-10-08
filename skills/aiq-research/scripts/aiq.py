@@ -7,14 +7,20 @@ This helper assumes a local AIQ server running with REQUIRE_AUTH=false.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import re
+import socket
+import ssl
+import struct
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from collections.abc import Iterator
 from typing import Any
 
@@ -37,7 +43,8 @@ _ALLOWED_METHODS = frozenset({"GET", "POST"})
 
 DEFAULT_SERVER_URL = "http://localhost:8000"
 AIQ_SERVER_URL = os.environ.get("AIQ_SERVER_URL", DEFAULT_SERVER_URL)
-# `chat` POSTs /chat, which only the chat role serves (ADR-0082); the api role on AIQ_SERVER_URL does not.
+# `chat` asks over the chat socket (/websocket, wire v2), the one route a turn runs through. Only the chat
+# role serves it (ADR-0082); the api role on AIQ_SERVER_URL does not.
 DEFAULT_CHAT_URL = "http://localhost:8001"
 AIQ_CHAT_URL = os.environ.get("AIQ_CHAT_URL", DEFAULT_CHAT_URL)
 
@@ -61,20 +68,42 @@ OPTIONAL_AGENT_TYPE_POSITION = 1
 MIN_COMMAND_ARG_COUNT = 2
 COMMAND_NAME_POSITION = 1
 COMMAND_ARGS_START_POSITION = 2
-OPENAI_FIRST_CHOICE_POSITION = 0
 DATA_PREFIX = "data:"
 EVENT_PREFIX = "event:"
-JOB_ID_HEX_DASH_LENGTH = _int_const("36")
 NO_CONSECUTIVE_ERRORS = 0
 ERROR_INCREMENT = 1
 FIRST_RETRY_ATTEMPT = 1
-CAPTURE_GROUP_JOB_ID = 1
 
 _DONE_JOB_STATES = frozenset({"completed", "success", "failed", "cancelled", "failure"})
 _SUCCESS_JOB_STATES = frozenset({"completed", "success"})
 _FAILED_JOB_STATES = frozenset({"failed", "failure", "cancelled"})
 _STREAM_TERMINAL_EVENTS = frozenset({"complete", "error", "done"})
-_CHAT_JOB_ID_RE = re.compile(rf"Job ID:\s*([0-9a-f-]{{{JOB_ID_HEX_DASH_LENGTH}}})", re.IGNORECASE)
+
+# The chat socket: wire v2 (the backend's docs/api/websocket-protocol.md) over RFC 6455, standard library only.
+CHAT_SOCKET_PATH = "/websocket"
+WIRE_VERSION = 2
+# The clarifier's own skip word: a headless caller cannot answer a question the turn stops to ask.
+CLARIFICATION_ANSWER = "skip"
+_WS_ACCEPT_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+_WS_KEY_BYTES = _int_const("16")
+_WS_MASK_BYTES = _int_const("4")
+_WS_FIN = _int_const("128")
+_WS_MASKED = _int_const("128")
+_WS_OPCODE_MASK = _int_const("15")
+_WS_LENGTH_MASK = _int_const("127")
+_WS_LENGTH_16 = _int_const("126")
+_WS_LENGTH_64 = _int_const("127")
+_WS_MAX_7BIT = _int_const("125")
+_WS_MAX_16BIT = _int_const("65535")
+_WS_CONTINUATION = 0
+_WS_TEXT = 1
+_WS_CLOSE = _int_const("8")
+_WS_PING = _int_const("9")
+_WS_PONG = _int_const("10")
+_HTTP_HEAD_END = b"\r\n\r\n"
+_HTTP_SWITCHING_PROTOCOLS = " 101 "
+_HTTPS_PORT = _int_const("443")
+_HTTP_PORT = _int_const("80")
 
 
 def _validate_base_url(url: str) -> str:
@@ -239,11 +268,147 @@ def stream_job(job_id: str) -> None:
             break
 
 
+def list_data_sources() -> dict[str, Any]:
+    """List the data sources the AI-Q backend registers."""
+    return _api_request("GET", "/v1/data_sources")
+
+
+class _ChatSocket:
+    """A minimal RFC 6455 client: JSON text messages in and out, which is all the chat socket carries."""
+
+    def __init__(self, url: str, timeout: int) -> None:
+        parsed = urllib.parse.urlparse(url)
+        secure = parsed.scheme == "https"
+        port = parsed.port or (_HTTPS_PORT if secure else _HTTP_PORT)
+        raw = socket.create_connection((parsed.hostname, port), timeout)
+        self._sock = ssl.create_default_context().wrap_socket(raw, server_hostname=parsed.hostname) if secure else raw
+        key = base64.b64encode(os.urandom(_WS_KEY_BYTES)).decode("ascii")
+        target = f"{parsed.path}?{parsed.query}" if parsed.query else parsed.path
+        self._sock.sendall(
+            (
+                f"GET {target} HTTP/1.1\r\nHost: {parsed.netloc}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+            ).encode("ascii")
+        )
+        status, *lines = self._read_head().split("\r\n")
+        headers = {name.strip().lower(): value.strip() for name, _, value in (line.partition(":") for line in lines)}
+        expected = base64.b64encode(hashlib.sha1((key + _WS_ACCEPT_GUID).encode("ascii")).digest()).decode("ascii")
+        if _HTTP_SWITCHING_PROTOCOLS not in f"{status} " or headers.get("sec-websocket-accept") != expected:
+            self._sock.close()
+            raise RuntimeError(f"Chat socket refused the upgrade: {status}")
+
+    def __enter__(self) -> _ChatSocket:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def _read_head(self) -> str:
+        head = b""
+        while not head.endswith(_HTTP_HEAD_END):
+            head += self._read_exact(1)
+        return head.decode("latin-1")
+
+    def _read_exact(self, size: int) -> bytes:
+        data = b""
+        while len(data) < size:
+            chunk = self._sock.recv(size - len(data))
+            if not chunk:
+                raise RuntimeError("Chat socket closed by the server")
+            data += chunk
+        return data
+
+    def _send_frame(self, opcode: int, payload: bytes) -> None:
+        mask = os.urandom(_WS_MASK_BYTES)
+        size = len(payload)
+        if size <= _WS_MAX_7BIT:
+            header = struct.pack("!BB", _WS_FIN | opcode, _WS_MASKED | size)
+        elif size <= _WS_MAX_16BIT:
+            header = struct.pack("!BBH", _WS_FIN | opcode, _WS_MASKED | _WS_LENGTH_16, size)
+        else:
+            header = struct.pack("!BBQ", _WS_FIN | opcode, _WS_MASKED | _WS_LENGTH_64, size)
+        masked = bytes(byte ^ mask[index % _WS_MASK_BYTES] for index, byte in enumerate(payload))
+        self._sock.sendall(header + mask + masked)
+
+    def send_json(self, message: dict[str, Any]) -> None:
+        self._send_frame(_WS_TEXT, json.dumps(message).encode("utf-8"))
+
+    def recv_json(self) -> dict[str, Any]:
+        """The next JSON message, answering pings and joining fragments on the way."""
+        message = b""
+        while True:
+            first, second = self._read_exact(2)
+            size = second & _WS_LENGTH_MASK
+            if size == _WS_LENGTH_16:
+                (size,) = struct.unpack("!H", self._read_exact(2))
+            elif size == _WS_LENGTH_64:
+                (size,) = struct.unpack("!Q", self._read_exact(_int_const("8")))
+            payload = self._read_exact(size)
+            opcode = first & _WS_OPCODE_MASK
+            if opcode == _WS_PING:
+                self._send_frame(_WS_PONG, payload)
+            elif opcode == _WS_CLOSE:
+                raise RuntimeError("Chat socket closed by the server")
+            elif opcode in (_WS_TEXT, _WS_CONTINUATION):
+                message += payload
+                if first & _WS_FIN:
+                    return json.loads(message.decode("utf-8"))
+
+    def close(self) -> None:
+        try:
+            self._send_frame(_WS_CLOSE, b"")
+        except OSError:
+            pass
+        self._sock.close()
+
+
+def _chat_socket_url(conversation_id: str) -> str:
+    """The chat role's socket for one conversation, asking for wire v2."""
+    query = urllib.parse.urlencode({"v": WIRE_VERSION, "conversationId": conversation_id})
+    return f"{_resolve_base_url(AIQ_CHAT_URL)}{CHAT_SOCKET_PATH}?{query}"
+
+
 def chat_request(query: str) -> dict[str, Any]:
-    """Send a routed chat request that may return a direct answer or job ID."""
-    body = {"messages": [{"role": "user", "content": query}]}
-    _show_query_target("/chat", AIQ_CHAT_URL)
-    return _api_request("POST", "/chat", body=body, timeout=DEFAULT_LONG_HTTP_TIMEOUT_SECONDS, base_url=AIQ_CHAT_URL)
+    """Ask one question over the chat socket and return the finished turn: its outcome and result.
+
+    The socket is the one route a turn runs through. Every data source the backend
+    lists is offered, as the product does. A clarifying question the turn stops to
+    ask is answered with the clarifier's skip word, so the turn answers as asked.
+    """
+    sources = [str(source["id"]) for source in list_data_sources().get("data_sources", []) if source.get("id")]
+    conversation_id = f"aiq-skill-{uuid.uuid4().hex[:12]}"
+    message_id = f"aiq-skill-{uuid.uuid4().hex}"
+    _show_query_target(CHAT_SOCKET_PATH, AIQ_CHAT_URL)
+    with _ChatSocket(_chat_socket_url(conversation_id), DEFAULT_LONG_HTTP_TIMEOUT_SECONDS) as chat_socket:
+        hello = chat_socket.recv_json()
+        if hello.get("v") != WIRE_VERSION or hello.get("name") != "hello":
+            raise RuntimeError("The chat role did not open with a wire v2 hello; check AIQ_CHAT_URL")
+        envelope = {"v": WIRE_VERSION, "conversation_id": conversation_id}
+        chat_socket.send_json(
+            {**envelope, "type": "user_message", "message_id": message_id, "text": query, "data_sources": sources}
+        )
+        while True:
+            event = chat_socket.recv_json()
+            if event.get("turn_id") != message_id:
+                continue
+            kind = event.get("name") if event.get("type") == "CUSTOM" else event.get("type")
+            if kind == "interaction_request":
+                interaction_id = event.get("value", {}).get("interaction_id")
+                chat_socket.send_json(
+                    {
+                        **envelope,
+                        "type": "interaction_response",
+                        "turn_id": message_id,
+                        "interaction_id": interaction_id,
+                        "answer": {"text": CLARIFICATION_ANSWER},
+                    }
+                )
+            elif kind == "rejected":
+                raise RuntimeError(f"Chat socket refused the question: {event.get('value', {}).get('code')}")
+            elif kind == "RUN_ERROR":
+                raise RuntimeError(f"Turn failed: {event.get('code')}: {event.get('message')}")
+            elif kind == "RUN_FINISHED":
+                return {"outcome": event.get("outcome"), **(event.get("result") or {})}
 
 
 def poll_until_complete(
@@ -305,7 +470,7 @@ def _print_usage() -> None:
     print()
     print("Commands:")
     print("  health                        Check the local AIQ server")
-    print("  chat <query>                  POST /chat on AIQ_CHAT_URL (chat role), returns routed response")
+    print("  chat <query>                  Ask over the chat socket on AIQ_CHAT_URL (chat role), print the turn")
     print("  agents                        List available async agent types")
     print("  submit <query> [agent_type]   Submit an async job")
     print("  status <job_id>               Job status plus /state artifacts")
@@ -334,22 +499,7 @@ def _command_health(_args: list[str]) -> None:
 
 def _command_chat(args: list[str]) -> None:
     query = _require_arg(args, "Usage: aiq.py chat <query>")
-    result = chat_request(query)
-    content = _extract_chat_content(result)
-    match = _CHAT_JOB_ID_RE.search(content)
-    if match:
-        print(json.dumps({"status": "deep_research_running", "job_id": match.group(CAPTURE_GROUP_JOB_ID)}))
-        return
-    print(json.dumps(result, indent=JSON_INDENT_SPACES))
-
-
-def _extract_chat_content(result: dict[str, Any]) -> str:
-    """Return chat content from an OpenAI-style response if present."""
-    try:
-        content = result["choices"][OPENAI_FIRST_CHOICE_POSITION]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        return ""
-    return content if isinstance(content, str) else ""
+    print(json.dumps(chat_request(query), indent=JSON_INDENT_SPACES, ensure_ascii=False))
 
 
 def _command_agents(_args: list[str]) -> None:

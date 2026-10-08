@@ -343,6 +343,10 @@ When the `aiq_debug` package is installed, the plugin registers a debug console 
 
 ## Comparison with NAT's Built-in Async
 
+NAT's `/generate/async` is not mounted: none of NAT's HTTP turn routes is, since a
+chat turn runs on the chat socket alone (`AIQAPIConfig`, ADR-0068). The table is
+why research jobs never needed it.
+
 | Feature | NAT `/generate/async` | `/v1/jobs/async` |
 |---------|----------------------|------------|
 | Job tracking | JobStore | Same JobStore |

@@ -46,7 +46,6 @@ ADAPTERS = re.compile(
 
 #: Mentions of a model endpoint that send no tenant content, with the reason.
 NO_TENANT_CONTENT = {
-    "frontends/aiq_api/src/aiq_api/auth/middleware.py": "our own /v1/chat/completions route path",
     "frontends/aiq_api/src/aiq_api/context_envelope.py": "our own route path, in a docstring",
     "scripts/turn_census/census.py": "parses recorded request paths",
     "scripts/release_notes.py": "sends the changelog, which is public",

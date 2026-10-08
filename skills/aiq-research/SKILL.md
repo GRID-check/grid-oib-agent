@@ -64,7 +64,8 @@ Users need:
 - Credentials configured in the backend environment, not in this skill. This public helper does not collect or manage
   API keys.
 
-The helper script has no third-party Python package dependencies; it uses Python standard-library HTTP modules.
+The helper script has no third-party Python package dependencies; it uses Python standard-library HTTP and socket
+modules, and speaks the chat WebSocket that `chat` asks over with a small built-in client.
 
 ## Instructions
 
@@ -99,7 +100,7 @@ I do not see a reachable local AI-Q backend. Do you already have an AI-Q backend
 - If the user wants local deployment, hand off to `aiq-deploy` and preserve the original research request.
 - If a reachable backend returns `401` or `403`, stop and explain that this public skill does not manage
   authentication. Ask the user to use an authenticated AI-Q skill or configure authentication for their environment.
-- If `health` succeeds but `chat` (`POST /chat` on `AIQ_CHAT_URL`) or `/v1/jobs/async/agents` fails, report that the backend is reachable but not
+- If `health` succeeds but `chat` (the chat socket `/websocket` on `AIQ_CHAT_URL`) or `/v1/jobs/async/agents` fails, report that the backend is reachable but not
   compatible with this public research flow, then offer to run `aiq-deploy` validation.
 
 ### Step 2 - Send the routed research request
@@ -118,17 +119,19 @@ Run:
 python3 $SKILL_DIR/scripts/aiq.py chat "<USER_QUESTION>"
 ```
 
-Expected output:
+`chat` asks one question over the chat socket (`/websocket` on `AIQ_CHAT_URL`, chat wire v2), the only route a
+question is answered through, with every data source the backend lists. If the turn stops to ask a clarifying
+question, the helper answers `skip`, so the question is answered as asked.
 
-- A normal JSON response for shallow or direct answers.
-- Or structured JSON containing `{"status": "deep_research_running", "job_id": "<JOB_ID>"}` for asynchronous deep
-  research.
+Expected output: JSON of the finished turn, with `outcome` (`answered`, `refused`, `handed_off` or `cancelled`), the
+answer `text`, and its `sources` and `answer_meta` when it has them.
 
-If the response is normal JSON, present the result immediately. Do not force polling when there is no `job_id`.
+Present an `answered` result immediately. A `handed_off` outcome means the backend wanted a deep research run for the
+question; start one yourself with `research` (Step 6, Redo), which returns a job you can poll.
 
 ### Step 3 - Poll asynchronous jobs
 
-If the response includes `deep_research_running`, extract the `job_id` and poll with the same absolute script path:
+When `research` or `submit` returned a `job_id`, poll it with the same absolute script path:
 
 ```bash
 python3 $SKILL_DIR/scripts/aiq.py research_poll <JOB_ID>
@@ -177,8 +180,8 @@ retrieval from Steps 1-5 apply; there is no separate follow-up endpoint.
   python3 $SKILL_DIR/scripts/aiq.py chat "<FOLLOW_UP_QUESTION> (context: <PRIOR_TOPIC>)"
   ```
 
-  If this returns a `deep_research_running` job ID, poll it with `research_poll`
-  exactly as in Step 3.
+  If its `outcome` is `handed_off`, run the question as a job with `research`
+  and poll it exactly as in Step 3.
 
 **Redo** — re-run research with adjusted scope (a narrower query, a corrected
 question, or a different depth):
@@ -232,7 +235,7 @@ If your Blueprint version is not compatible:
 | Script | Purpose | Arguments |
 |---|---|---|
 | `scripts/aiq.py health` | Check whether the configured server responds | none |
-| `scripts/aiq.py chat` | POST `/chat` to `AIQ_CHAT_URL` (chat role, `http://localhost:8001`); may return inline output or a deep-research job ID | `<query>` |
+| `scripts/aiq.py chat` | Ask over the chat socket `/websocket` on `AIQ_CHAT_URL` (chat role, `http://localhost:8001`); prints the finished turn | `<query>` |
 | `scripts/aiq.py agents` | List available async agent types | none |
 | `scripts/aiq.py submit` | Submit an explicit async job | `<query> [agent_type]` |
 | `scripts/aiq.py research` | Submit an async job, poll, and print the final report JSON | `<query> [agent_type]` |
@@ -251,7 +254,7 @@ the equivalent shell command, such as `python3 $SKILL_DIR/scripts/aiq.py health`
 | Variable | Required | Default | Description |
 |---|---:|---|---|
 | `AIQ_SERVER_URL` | No | `http://localhost:8000` | Local or self-hosted AI-Q api role base URL, used by every command except `chat` |
-| `AIQ_CHAT_URL` | No | `http://localhost:8001` | AI-Q chat role base URL, used only by `chat` (`POST /chat`) |
+| `AIQ_CHAT_URL` | No | `http://localhost:8001` | AI-Q chat role base URL, used only by `chat` (the chat socket `/websocket`) |
 
 ## Security Best Practices
 
@@ -282,10 +285,10 @@ Expected output:
 
 ```text
 <health JSON from AI-Q>
-<JSON chat response or {"status": "deep_research_running", "job_id": "<JOB_ID>"}>
+<JSON of the finished turn: {"outcome": "answered", "text": "...", ...}>
 ```
 
-If AI-Q returns a job ID, continue with `research_poll`.
+If the outcome is `handed_off`, run the question with `research` and continue with `research_poll`.
 
 ### Example 2: Resume an existing job
 
@@ -307,8 +310,8 @@ python3 $SKILL_DIR/scripts/aiq.py chat "How does that compare on cost? (context:
 python3 $SKILL_DIR/scripts/aiq.py research "AIQ deep research cost on a single workstation" researcher
 ```
 
-Expected output: a routed chat response or a new `deep_research_running` job ID
-to poll with `research_poll`. Present the follow-up answer with citations and
+Expected output: the finished turn's JSON for `chat`, or the final report JSON
+for `research`. Present the follow-up answer with citations and
 source URLs intact.
 
 ## References
@@ -348,7 +351,7 @@ source URLs intact.
 **Symptoms:**
 
 - Requests fail with HTTP 401 or HTTP 403.
-- The backend is reachable but rejects the `chat` request (`/chat` on `AIQ_CHAT_URL`) or async job calls.
+- The backend is reachable but rejects the `chat` request (the chat socket on `AIQ_CHAT_URL`) or async job calls.
 
 **Causes:**
 
@@ -366,7 +369,7 @@ source URLs intact.
 **Symptoms:**
 
 - `health` returns successfully.
-- `chat` (`/chat` on `AIQ_CHAT_URL`), `/v1/jobs/async/agents`, or polling commands fail.
+- `chat` (the chat socket on `AIQ_CHAT_URL`), `/v1/jobs/async/agents`, or polling commands fail.
 
 **Causes:**
 

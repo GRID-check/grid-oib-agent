@@ -329,45 +329,12 @@ See `.env.example` for the full list of available frontend variables.
 
 ## API Communication
 
-The UI supports two communication patterns with the backend:
+A question is asked over one WebSocket per conversation, chat wire v2: `src/adapters/api/turn-socket.ts`
+connects, `adapters/api/wire-v2.ts` parses every event and `features/chat/lib/turn-fold.ts` folds it. The backend
+serves no HTTP route that runs a turn. Protocol: [`docs/api/websocket-protocol.md`](../../docs/api/websocket-protocol.md).
 
-### HTTP Streaming (SSE)
-
-OpenAI-compatible chat completions via `/chat/stream`:
-
-```typescript
-import { streamChat } from '@/adapters/api'
-
-await streamChat(
-  { messages, sessionId },
-  {
-    onChunk: (content) => console.log(content),
-    onComplete: () => console.log('Done'),
-    onError: (error) => console.error(error),
-  }
-)
-```
-
-### WebSocket
-
-Custom protocol for real-time agent communication:
-
-```typescript
-import { createWebSocketClient } from '@/adapters/api'
-
-const ws = createWebSocketClient({
-  sessionId: 'abc123',
-  callbacks: {
-    onAgentText: (content, isFinal) => {},
-    onStatus: (status, message) => {},
-    onToolCall: (name, input, output) => {},
-    onError: (code, message) => {},
-  },
-})
-
-ws.connect()
-ws.sendMessage('Hello!')
-```
+Deep-research runs stream their own events over Server-Sent Events, through the same-origin job proxy
+(`src/adapters/api/deep-research-client.ts`).
 
 ## Authentication
 

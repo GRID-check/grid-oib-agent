@@ -35,8 +35,10 @@ exercise decorative.
 
 USAGE
 -----
-`GRID_LOOP_EVAL_URL` is the backend's chat role (`GRID_ROLE=chat`): `/generate/stream`
-is one of NAT's own routes, which only that role mounts (ADR-0082).
+`GRID_LOOP_EVAL_URL` is the backend's chat role (`GRID_ROLE=chat`, ADR-0082), the
+one that serves the chat socket. Each question is one turn on its own
+conversation over that socket (wire v2, ADR-0068), as the UI asks it: a turn has
+no other way in. The backend runs without its BFF, so `REQUIRE_AUTH=false`.
 
     GRID_LOOP_EVAL_URL=http://localhost:8001 python scripts/loop_eval.py --out before.csv
     # …change the loop, redeploy…
@@ -54,6 +56,7 @@ import json
 import os
 import re
 import sys
+import time
 from collections.abc import Iterable
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -779,62 +782,146 @@ def format_comparison(before: Sequence[Observation], after: Sequence[Observation
 
 
 # --- Running against a backend ----------------------------------------------
+#
+# A turn runs on the chat socket and nowhere else (ADR-0068): the wire v2
+# protocol of `docs/api/websocket-protocol.md`, read through the contract's own
+# models (`aiq_agent.common.wire_v2`) rather than a second description of it.
+
+#: The sources a turn may consult. A `user_message` names them, and one that
+#: names none consults none (`parse_data_sources`), so these are the three the
+#: config registers: every source, as a question asked with no selection got.
+DATA_SOURCES: tuple[str, ...] = ("knowledge_layer", "ris", "web_search")
+
+#: The answer the eval gives when a turn stops to ask its asker: the clarifier's
+#: own skip word, so the turn answers the question as the set states it.
+CLARIFICATION_ANSWER = "skip"
+
+#: How long the server gets to say `hello` after the upgrade. Its absence means
+#: the URL does not serve wire v2, which is worth saying rather than waiting out.
+HELLO_TIMEOUT_SECONDS = 10.0
 
 
-def _post_turn(base_url: str, question: str, timeout: float) -> tuple[list[dict], str, dict | None]:
-    """One turn against `/generate/stream`, as `(steps, answer, envelope)`.
+@dataclass
+class SocketTurn:
+    """What one turn sent back over the chat socket, folded the way a reader folds it."""
 
-    Deliberately the SSE route rather than the WebSocket: this needs the
-    intermediate steps (which carry the loop's own status events) and one final
-    answer, and nothing about HITL or reconnection.
+    message_id: str
+    #: The turn's steps by id, in the order each first arrived. The same id again
+    #: replaces the step, as it replaces the row a reader is shown.
+    steps: dict = field(default_factory=dict)
+    #: ``RUN_FINISHED.result``: the terminal, authoritative over everything streamed.
+    result: object = None
+
+
+def socket_url(base_url: str, conversation_id: str) -> str:
+    """The chat socket of the backend at ``base_url`` (``http://host:port``), for one conversation."""
+    root = re.sub(r"^http", "ws", base_url.rstrip("/"))
+    return f"{root}/websocket?v=2&conversationId={conversation_id}"
+
+
+def read_event(turn: SocketTurn, event: object) -> object | None:
+    """Fold one wire event into ``turn``; the client message it calls for, if any.
+
+    Raises on the two ends that are not an answer: a ``RUN_ERROR`` and a
+    ``rejected`` of this turn's question.
     """
-    import httpx
+    from aiq_agent.common import wire_v2
 
-    steps: list[dict] = []
-    answer = ""
-    with httpx.Client(timeout=timeout) as client:
-        with client.stream("POST", f"{base_url.rstrip('/')}/generate/stream", json={"query": question}) as response:
-            response.raise_for_status()
-            for line in response.iter_lines():
-                if not line.startswith("data:"):
-                    continue
-                try:
-                    frame = json.loads(line[len("data:") :].strip())
-                except json.JSONDecodeError:
-                    continue
-                steps.extend(_frame_steps(frame))
-                answer = _frame_answer(frame) or answer
-    return steps, answer, _envelope(answer)
-
-
-def _frame_steps(frame: dict) -> list[dict]:
-    """The intermediate steps one SSE frame carries, if any."""
-    payload = frame.get("intermediate_step") or frame.get("intermediate") or frame.get("payload")
-    if isinstance(payload, dict) and (payload.get("name") or payload.get("functionName")):
-        return [payload]
-    if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
-    return []
-
-
-def _frame_answer(frame: dict) -> str:
-    """The answer text a terminal SSE frame carries, if any."""
-    for key in ("value", "content", "answer", "output"):
-        value = frame.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return ""
-
-
-def _envelope(answer: str) -> dict | None:
-    """The ``answer_json`` envelope inside the reply, when it parses."""
-    fenced = re.search(r"```answer_json\s*(\{.*?\})\s*```", answer or "", re.DOTALL)
-    if not fenced:
+    if getattr(event, "turn_id", None) != turn.message_id:
         return None
-    try:
-        return json.loads(fenced.group(1))
-    except json.JSONDecodeError:
-        return None
+    if isinstance(event, (wire_v2.StepStarted, wire_v2.StepFinished)):
+        turn.steps[event.step.id] = event.step
+    elif isinstance(event, wire_v2.InteractionRequest):
+        return wire_v2.InteractionResponse(
+            conversation_id=event.conversation_id,
+            turn_id=turn.message_id,
+            interaction_id=event.value.interaction_id,
+            answer=wire_v2.TextAnswer(text=CLARIFICATION_ANSWER),
+        )
+    elif isinstance(event, wire_v2.Rejected):
+        raise RuntimeError(f"the server refused the {event.value.of}: {event.value.code}")
+    elif isinstance(event, wire_v2.RunError):
+        raise RuntimeError(f"{event.code}: {event.message}")
+    elif isinstance(event, wire_v2.RunFinished):
+        turn.result = event.result
+    return None
+
+
+def step_records(turn: SocketTurn) -> list[dict]:
+    """The turn's steps as the ``{"name", "payload"}`` records :func:`observe` reads.
+
+    A status step is its slot's detail (``round``, ``source``, ``truncated``,
+    ``family``…) plus its interpolation values; a retrieval step its round,
+    values and tools. Tool I/O never rides the wire, so the per-fetch ``retrieve.*``
+    spans the RIS columns read are telemetry only and those cells stay
+    unmeasured. What the spans' citation keys counted, which passages each round
+    reached, comes from the turn's own ledger (``result.retrieval_ledger``), placed
+    after the round's own step so a fetch still follows the cap that preceded it.
+    """
+    from aiq_agent.common import wire_v2
+
+    ledger = {
+        entry.get("index"): entry
+        for entry in (getattr(turn.result, "retrieval_ledger", None) or [])
+        if isinstance(entry, dict)
+    }
+    records: list[dict] = []
+    for step in turn.steps.values():
+        if isinstance(step, wire_v2.RetrievalStep):
+            records.append(
+                {
+                    "name": step.id,
+                    "payload": {"round": step.round, "values": dict(step.values), "tools": list(step.tools)},
+                }
+            )
+            if (entry := ledger.get(step.round)) is not None:
+                records.append(_ledger_record(step.round, entry))
+        elif isinstance(step, wire_v2.StatusStep):
+            records.append({"name": step.id, "payload": {**step.detail, "values": dict(step.values)}})
+    return records
+
+
+def _ledger_record(round_index: int, entry: dict) -> dict:
+    """One round of the ledger as a fetch record: the passages it reached, as ``name#detail`` keys."""
+    keys = [
+        f"{doc.get('name')}#{doc.get('detail') or ''}"
+        for doc in entry.get("docs") or []
+        if isinstance(doc, dict) and doc.get("name")
+    ]
+    return {"name": "retrieve.ledger", "payload": {"input": {"round": round_index}, "output": {"citation_keys": keys}}}
+
+
+def _socket_turn(base_url: str, question: str, timeout: float) -> tuple[list[dict], str, dict | None]:
+    """One turn over the chat socket, as ``(steps, answer, envelope)``."""
+    import uuid
+
+    from websockets.sync.client import connect
+
+    from aiq_agent.common import wire_v2
+
+    conversation_id = f"loop-eval-{uuid.uuid4().hex[:12]}"
+    turn = SocketTurn(message_id=f"loop-eval-{uuid.uuid4().hex}")
+    deadline = time.monotonic() + timeout
+    with connect(socket_url(base_url, conversation_id), max_size=None, open_timeout=HELLO_TIMEOUT_SECONDS) as ws:
+        try:
+            wire_v2.HELLO.validate_json(ws.recv(timeout=HELLO_TIMEOUT_SECONDS))
+        except Exception as exc:
+            raise RuntimeError(f"{base_url} did not open with a wire v2 hello; is it the chat role?") from exc
+        question_message = wire_v2.UserMessage(
+            conversation_id=conversation_id,
+            message_id=turn.message_id,
+            text=question,
+            data_sources=list(DATA_SOURCES),
+        )
+        ws.send(json.dumps(question_message.model_dump(mode="json", exclude_defaults=True)))
+        while turn.result is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"no RUN_FINISHED within {timeout:g}s")
+            reply = read_event(turn, wire_v2.WIRE_EVENT.validate_json(ws.recv(timeout=remaining)))
+            if reply is not None:
+                ws.send(json.dumps(reply.model_dump(mode="json", exclude_defaults=True)))
+    return step_records(turn), turn.result.text, turn.result.answer_meta
 
 
 def run(questions: Sequence[Question], base_url: str, timeout: float) -> list[Observation]:
@@ -848,7 +935,7 @@ def run(questions: Sequence[Question], base_url: str, timeout: float) -> list[Ob
     for index, question in enumerate(questions, 1):
         print(f"[{index}/{len(questions)}] {question.id}", file=sys.stderr, flush=True)
         try:
-            steps, answer, envelope = _post_turn(base_url, question.question, timeout)
+            steps, answer, envelope = _socket_turn(base_url, question.question, timeout)
         except Exception as exc:  # noqa: BLE001 — one dead turn must not lose the other nineteen
             rows.append(
                 Observation(

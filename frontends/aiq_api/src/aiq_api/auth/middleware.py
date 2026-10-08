@@ -166,14 +166,14 @@ def build_request_trace_tags(
 
 # Paths reachable from outside the cluster.  Any external request whose path
 # does NOT match one of these receives 404.  Prefix entries must end with "/".
+# No turn route is here: a turn runs on the chat socket alone (ADR-0068), and
+# NAT's HTTP turn routes (`/chat`, `/generate`, `/v1/chat`, ...) are
+# not mounted (`aiq_api.plugin.AIQAPIConfig`).
 EXTERNAL_ALLOWED_PATHS: list[str] = [
     "/health",
     "/docs",
     "/redoc",
     "/openapi.json",
-    "/chat",
-    "/chat/stream",
-    "/v1/chat/completions",
     "/v1/data_sources",
     "/v1/jobs/async/agents",
     "/v1/jobs/async/submit",

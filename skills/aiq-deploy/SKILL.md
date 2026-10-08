@@ -315,7 +315,7 @@ Expected output: a successful health response. Then tell the user to keep `AIQ_S
 
 **Symptoms:**
 
-- `/health` succeeds, but `chat` (`/chat` on the chat role, `AIQ_CHAT_URL`) or `/v1/jobs/async/agents` fails.
+- `/health` succeeds, but `chat` (the chat socket on the chat role, `AIQ_CHAT_URL`) or `/v1/jobs/async/agents` fails.
 - `aiq-research` reports that async agents are unavailable.
 
 **Causes:**

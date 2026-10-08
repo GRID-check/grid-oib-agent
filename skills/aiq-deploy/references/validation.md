@@ -54,7 +54,7 @@ AIQ_SERVER_URL="$AIQ_SERVER_URL" python3 skills/aiq-research/scripts/aiq.py agen
 
 ## Shallow End-To-End Check
 
-Run a shallow `chat` check (`POST /chat` on the chat role, `AIQ_CHAT_URL`, default `http://localhost:8001`) when required model/search credentials are present. If credentials are missing, report that deploy validation reached infrastructure/API readiness but could not prove model-backed response generation.
+Run a shallow `chat` check (the chat socket `/websocket` on the chat role, `AIQ_CHAT_URL`, default `http://localhost:8001`) when required model/search credentials are present. If credentials are missing, report that deploy validation reached infrastructure/API readiness but could not prove model-backed response generation.
 
 ```bash
 AIQ_CHAT_URL="${AIQ_CHAT_URL:-http://localhost:8001}" python3 skills/aiq-research/scripts/aiq.py chat "Briefly confirm AI-Q is responding."
