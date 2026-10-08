@@ -65,25 +65,24 @@ def _serve(monkeypatch, handler) -> list[httpx.Request]:
     return seen
 
 
-_REAL_ASYNC_CLIENT_INIT = httpx.AsyncClient.__init__
-
-
 def _route_async_clients(monkeypatch, transport: httpx.MockTransport) -> None:
-    """Give every ``httpx.AsyncClient`` built during the test this transport.
+    """Serve every request an ``httpx.AsyncClient`` sends during the test from this transport.
 
-    Patches the constructor, never the name: ``httpx.AsyncClient`` must stay a
-    class. The reranker's first call imports ``cost_tracking``, which imports
-    ``langchain_openai`` and so ``openai``, whose ``_base_client`` subclasses
-    ``httpx.AsyncClient`` at import time. With a ``functools.partial`` in its
-    place that ``class`` statement raises ``TypeError: the first argument must
-    be callable``, and only when ``openai`` was not already imported.
+    Patches the socket transport underneath the clients, never ``httpx.AsyncClient``:
+    the reranker's client is built on the provider limiter's transport (ADR-0081),
+    which must stay in the path so the slot is taken the way it is in production,
+    and ``httpx.AsyncClient`` must stay a class. The reranker's first call imports
+    ``cost_tracking``, which imports ``langchain_openai`` and so ``openai``, whose
+    ``_base_client`` subclasses ``httpx.AsyncClient`` at import time; with a
+    ``functools.partial`` in its place that ``class`` statement raises
+    ``TypeError: the first argument must be callable``, and only when ``openai``
+    was not already imported.
     """
 
-    def _init(self, *args, **kwargs) -> None:
-        kwargs.setdefault("transport", transport)
-        _REAL_ASYNC_CLIENT_INIT(self, *args, **kwargs)
+    async def _serve(self, request: httpx.Request) -> httpx.Response:
+        return await transport.handle_async_request(request)
 
-    monkeypatch.setattr(httpx.AsyncClient, "__init__", _init)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _serve)
 
 
 def _ok(payload: dict) -> httpx.Response:
@@ -383,6 +382,10 @@ async def test_an_org_with_no_key_of_its_own_still_reranks(monkeypatch, tracker)
     """A BYOK lookup that resolves nothing must not take reranking down."""
     from aiq_agent.common import credential_resolution
 
+    # The platform key is the one the reranker was built with; a key in the
+    # environment (a cloud dev session carries a real one) must not stand in.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_KEY", raising=False)
     seen = _serve(monkeypatch, _ranked)
     monkeypatch.setattr(ce, "_organization_id_in_scope", lambda: "org_plain")
     monkeypatch.setattr(

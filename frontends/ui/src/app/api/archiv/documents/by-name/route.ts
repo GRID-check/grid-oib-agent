@@ -9,6 +9,7 @@
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { resolveArchivDocumentsByName } from '@/lib/archiv/service'
+import { toDocumentWireRows } from '@/lib/documents/list-projection'
 import { archivByNameRequestSchema } from '@/lib/documents/by-name-types'
 
 export const POST = apiRoute(
@@ -16,7 +17,10 @@ export const POST = apiRoute(
     const gated = requireFeature(session, FEATURE_FLAGS.orgArchiv)
     if (gated) return gated
     const { names } = await parseJsonBody(request, archivByNameRequestSchema)
-    return { documents: await resolveArchivDocumentsByName(session, names) }
+    const documents = await resolveArchivDocumentsByName(session, names)
+    // The same row the listing serves, version summary included, so a resolved
+    // document and a listed one cannot render differently.
+    return { documents: await toDocumentWireRows(session.organizationId, documents) }
   },
   {
     authz: {

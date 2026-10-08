@@ -5,10 +5,11 @@
  * The unit specs show the service asks the right questions. Only this shows
  * the database refuses the wrong ones: that a token names one row across every
  * tenant, that one tenant cannot read or point at another's address or folder,
- * that the delivery key is unique per address and not per mail, and that the
- * drain's claim is fenced: a stale attempt cannot write over a newer one. The
- * backoff, the reaper and the retention sweeps are asserted here too, because
- * each is a claim about a WHERE clause.
+ * that the delivery key is unique per address and not per mail, and that a
+ * job's writes are fenced on the row still being queued: a second job for one
+ * mail cannot write over the first. The stalled-delivery listing and the
+ * retention sweeps are asserted here too, because each is a claim about a
+ * WHERE clause.
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/inbound-mail/repository.integration.spec.ts
@@ -161,7 +162,8 @@ describe.skipIf(!url)('inbound mail tables against live Postgres', () => {
   it('refuses a message row that files into another project’s folder', async () => {
     const [folder] = (await context.withTenant({ organizationId: ORG_B }, () =>
       db.execute(
-        sql`insert into project_folders (project_id, name, path) values (${projectOf[ORG_B]}, 'Fremd', 'Fremd') returning id`
+        sql`insert into project_folders (organization_id, project_id, name, path)
+            values (${ORG_B}, ${projectOf[ORG_B]}, 'Fremd', 'Fremd') returning id`
       )
     )) as unknown as { id: string }[]
     const cause = await refusal(() =>
@@ -175,21 +177,20 @@ describe.skipIf(!url)('inbound mail tables against live Postgres', () => {
     expect(cause.code).toBe('23503')
   })
 
-  it('keeps the claim token and the status in step, and a staged object never without its bucket', async () => {
-    const insert = (status: string, token: string | null, staged: string, bucket: string | null) =>
+  it('knows three statuses only, and never a staged object without its bucket', async () => {
+    const insert = (status: string, staged: string, bucket: string | null) =>
       refusal(() =>
         context.withTenant({ organizationId: ORG_A }, () =>
           db.execute(
             sql`insert into inbound_mail_messages
-                  (organization_id, project_id, address_id, delivery_key, sender_user_id, folder_name, status, claim_token, staged, staging_bucket)
+                  (organization_id, project_id, address_id, delivery_key, sender_user_id, folder_name, status, staged, staging_bucket)
                 values (${ORG_A}, ${projectOf[ORG_A]}, ${addressOf[ORG_A]}, ${'8'.repeat(64)}, 'user-anna', 'x',
-                        ${status}, ${token}, ${staged}::jsonb, ${bucket})`
+                        ${status}, ${staged}::jsonb, ${bucket})`
           )
         )
       )
-    expect((await insert('processing', null, '[]', null)).code).toBe('23514')
-    expect((await insert('queued', randomUUID(), '[]', null)).code).toBe('23514')
-    expect((await insert('queued', null, '[{"key":"k"}]', null)).code).toBe('23514')
+    expect((await insert('processing', '[]', null)).code).toBe('23514')
+    expect((await insert('queued', '[{"key":"k"}]', null)).code).toBe('23514')
   })
 
   describe('deliveries', () => {
@@ -219,32 +220,21 @@ describe.skipIf(!url)('inbound mail tables against live Postgres', () => {
     const read = (id: string) =>
       context.withPlatformAccess('test: read a delivery', async () => {
         const [row] = (await db.execute(
-          sql`select status, claim_token, attempts, next_attempt_at > now() as backed_off, subject, staged, skipped,
-                     filed_count, skipped_count, last_error, folder_id
+          sql`select status, attempts, subject, staged, skipped, filed_count, skipped_count, last_error, folder_id
                 from inbound_mail_messages where id = ${id}`
         )) as unknown as Record<string, unknown>[]
         return row
       })
 
-    /** Only `id` is due: every other queued row of these tenants waits a day. */
-    const onlyDue = (id: string) =>
-      context.withPlatformAccess('test: make one delivery due', () =>
-        db.execute(sql`update inbound_mail_messages set next_attempt_at = case when id = ${id} then now() - interval '1 second'
-                         else now() + interval '1 day' end
-                       where organization_id in (${ORG_A}, ${ORG_B}) and status = 'queued'`)
-      )
-
-    const claim = () => context.withPlatformAccess('test: claim', () => repo.claimNextDelivery())
+    const inA = <T>(fn: () => Promise<T>) => context.withTenant({ organizationId: ORG_A }, fn)
+    const filed = { filedCount: 1, skipped: [], remaining: [] }
 
     it('keys a delivery by address: the same mail twice at one address is one row', async () => {
       const key = freshKey()
       const first = await queue(ORG_A, key)
       expect(first).toEqual(expect.any(String))
       expect(await queue(ORG_A, key)).toBeNull()
-      expect(await context.withTenant({ organizationId: ORG_A }, () => repo.findDelivery(addressOf[ORG_A], key))).toEqual({
-        id: first,
-        status: 'queued',
-      })
+      expect(await inA(() => repo.findDelivery(addressOf[ORG_A], key))).toEqual({ id: first, status: 'queued' })
     })
 
     it('one mail to two organizations is queued, and filed, twice', async () => {
@@ -256,13 +246,9 @@ describe.skipIf(!url)('inbound mail tables against live Postgres', () => {
       expect(a).not.toBe(b)
 
       for (const [org, id] of [[ORG_A, a], [ORG_B, b]] as const) {
-        await onlyDue(id!)
-        const claimed = await claim()
-        expect(claimed).toMatchObject({ id, organizationId: org, status: 'processing', attempts: 1 })
-        const filed = await context.withTenant({ organizationId: org }, () =>
-          repo.markDeliveryFiled(claimed!.id, claimed!.claimToken, { filedCount: 1, skipped: [], remaining: [] })
-        )
-        expect(filed).toBe(true)
+        const row = await context.withTenant({ organizationId: org }, () => repo.findDeliveryRow(org, id!))
+        expect(row).toMatchObject({ id, organizationId: org, status: 'queued', attempts: 0 })
+        expect(await context.withTenant({ organizationId: org }, () => repo.markDeliveryFiled(org, id!, filed))).toBe(true)
       }
       expect((await read(a!)).status).toBe('filed')
       expect((await read(b!)).status).toBe('filed')
@@ -271,91 +257,64 @@ describe.skipIf(!url)('inbound mail tables against live Postgres', () => {
     it('takes over a row that was given up on, keeping its id and folder', async () => {
       const key = freshKey()
       const id = await queue(ORG_A, key)
-      await onlyDue(id!)
-      const first = await claim()
-      await context.withTenant({ organizationId: ORG_A }, () =>
-        repo.markDeliveryFailed(first!.id, first!.claimToken, { filedCount: 0, skipped: [], remaining: [], lastError: 'x' })
-      )
+      await inA(() => repo.recordFailedAttempt(ORG_A, id!, 3, 'NotFoundError'))
+      await inA(() => repo.markDeliveryFailed(ORG_A, id!, { filedCount: 0, skipped: [], remaining: [], lastError: 'x' }))
       expect(await queue(ORG_A, key, { subject: 'Nochmal' })).toBe(id)
       expect(await read(id!)).toMatchObject({ status: 'queued', attempts: 0, subject: 'Nochmal', last_error: null })
     })
 
-    it('fences every write of an attempt on its claim token: a stale owner cannot overwrite a newer claim', async () => {
+    it('fences every write of a job on the row still being queued: a second job cannot overwrite the first', async () => {
       const id = await queue(ORG_A, freshKey())
-      await onlyDue(id!)
-      const stale = await claim()
-      expect(stale?.id).toBe(id)
+      expect(await inA(() => repo.markDeliveryFiled(ORG_A, id!, { ...filed, filedCount: 2 }))).toBe(true)
 
-      // The first attempt stalls past the window; the reaper hands the row back.
-      await context.withPlatformAccess('test: age the heartbeat', () =>
-        db.execute(sql`update inbound_mail_messages set updated_at = now() - interval '11 minutes' where id = ${id}`)
-      )
-      expect(await context.withPlatformAccess('test: reap', () => repo.reapStaleClaims())).toBeGreaterThanOrEqual(1)
-      await onlyDue(id!)
-      const fresh = await claim()
-      expect(fresh?.id).toBe(id)
-      expect(fresh?.claimToken).not.toBe(stale?.claimToken)
-      expect(fresh?.attempts).toBe(2)
-
-      // The slow original wakes up and tries every write it has. None lands.
-      const inA = <T>(fn: () => Promise<T>) => context.withTenant({ organizationId: ORG_A }, fn)
-      const token = stale!.claimToken
-      expect(await inA(() => repo.heartbeat(id!, token))).toBe(false)
-      expect(await inA(() => repo.recordDeliveryFolder(id!, token, randomUUID()))).toBe(false)
-      expect(await inA(() => repo.scheduleRetry(id!, token, 60, 'x'))).toBe(false)
-      expect(await inA(() => repo.releaseClaim(id!, token, 60))).toBe(false)
-      expect(await inA(() => repo.markDeliveryFailed(id!, token, { filedCount: 0, skipped: [], remaining: [] }))).toBe(false)
-      expect(await inA(() => repo.markDeliveryFiled(id!, token, { filedCount: 9, skipped: [], remaining: [] }))).toBe(false)
-      expect(await read(id!)).toMatchObject({ status: 'processing', claim_token: fresh!.claimToken, filed_count: 0 })
-
-      // …while the attempt that owns it still can.
-      expect(await inA(() => repo.heartbeat(id!, fresh!.claimToken))).toBe(true)
+      // A second job for the same mail (the sweep re-queued it while the first
+      // was slow) tries every write it has. None lands.
+      expect(await inA(() => repo.touchDelivery(ORG_A, id!))).toBe(false)
+      expect(await inA(() => repo.recordDeliveryFolder(ORG_A, id!, randomUUID()))).toBe(false)
+      expect(await inA(() => repo.recordFailedAttempt(ORG_A, id!, 1, 'x'))).toBe(false)
+      expect(await inA(() => repo.markDeliveryFailed(ORG_A, id!, { filedCount: 0, skipped: [], remaining: [] }))).toBe(false)
+      expect(await inA(() => repo.markDeliveryFiled(ORG_A, id!, { ...filed, filedCount: 9 }))).toBe(false)
+      expect(await read(id!)).toMatchObject({ status: 'filed', filed_count: 2 })
     })
 
-    it('reaps only attempts whose heartbeat stopped', async () => {
+    it('another organization can neither read nor finish a delivery', async () => {
       const id = await queue(ORG_A, freshKey())
-      await onlyDue(id!)
-      const live = await claim()
-      await context.withPlatformAccess('test: reap', () => repo.reapStaleClaims())
-      expect(await read(id!)).toMatchObject({ status: 'processing', claim_token: live!.claimToken })
-
-      await context.withPlatformAccess('test: age the heartbeat', () =>
-        db.execute(sql`update inbound_mail_messages set updated_at = now() - interval '11 minutes' where id = ${id}`)
-      )
-      await context.withPlatformAccess('test: reap', () => repo.reapStaleClaims())
-      expect(await read(id!)).toMatchObject({ status: 'queued', claim_token: null, attempts: 1, last_error: 'stale-claim' })
+      const inB = <T>(fn: () => Promise<T>) => context.withTenant({ organizationId: ORG_B }, fn)
+      expect(await inB(() => repo.findDeliveryRow(ORG_A, id!))).toBeNull()
+      expect(await inB(() => repo.markDeliveryFiled(ORG_A, id!, filed))).toBe(false)
+      expect((await read(id!)).status).toBe('queued')
     })
 
-    it('backs off: a retried row is not claimed before its time', async () => {
+    it('counts a failed attempt and says why, leaving the row queued', async () => {
       const id = await queue(ORG_A, freshKey())
-      await onlyDue(id!)
-      const first = await claim()
-      await context.withTenant({ organizationId: ORG_A }, () => repo.scheduleRetry(id!, first!.claimToken, 300, 'NotFoundError'))
-      expect(await read(id!)).toMatchObject({ status: 'queued', claim_token: null, backed_off: true, last_error: 'NotFoundError' })
-
-      await context.withPlatformAccess('test: park the rest', () =>
-        db.execute(sql`update inbound_mail_messages set next_attempt_at = now() + interval '1 day'
-                       where organization_id in (${ORG_A}, ${ORG_B}) and status = 'queued' and id <> ${id}`)
-      )
-      expect(await claim()).toBeNull()
-      await onlyDue(id!)
-      expect((await claim())?.attempts).toBe(2)
+      expect(await inA(() => repo.recordFailedAttempt(ORG_A, id!, 3, 'NotFoundError:NOT_FOUND'))).toBe(true)
+      expect(await read(id!)).toMatchObject({ status: 'queued', attempts: 3, last_error: 'NotFoundError:NOT_FOUND' })
     })
 
-    it('a hold gives the attempt back', async () => {
-      const id = await queue(ORG_A, freshKey())
-      await onlyDue(id!)
-      const first = await claim()
-      await context.withTenant({ organizationId: ORG_A }, () => repo.releaseClaim(id!, first!.claimToken, 3600))
-      expect(await read(id!)).toMatchObject({ status: 'queued', attempts: 0, backed_off: true, last_error: 'held' })
+    it('lists a queued delivery without progress as stalled, and progress takes it off the list', async () => {
+      const stalled = await queue(ORG_A, freshKey())
+      const fresh = await queue(ORG_A, freshKey())
+      const done = await queue(ORG_B, freshKey())
+      await context.withTenant({ organizationId: ORG_B }, () => repo.markDeliveryFiled(ORG_B, done!, filed))
+      await context.withPlatformAccess('test: age the progress', () =>
+        db.execute(sql`update inbound_mail_messages set updated_at = now() - interval '20 minutes' where id in (${stalled}, ${done})`)
+      )
+      const list = () =>
+        context.withPlatformAccess('test: stalled', () => repo.listStalledDeliveries(new Date(Date.now() - 15 * 60_000), 1000))
+
+      const ids = (await list()).map((row) => row.id)
+      expect(ids).toContain(stalled)
+      expect(ids).not.toContain(fresh)
+      expect(ids).not.toContain(done)
+
+      expect(await inA(() => repo.touchDelivery(ORG_A, stalled!))).toBe(true)
+      expect((await list()).map((row) => row.id)).not.toContain(stalled)
     })
 
     it('a finished row keeps counts and reason codes, and drops the subject and every name', async () => {
       const id = await queue(ORG_A, freshKey())
-      await onlyDue(id!)
-      const first = await claim()
-      await context.withTenant({ organizationId: ORG_A }, () =>
-        repo.markDeliveryFiled(id!, first!.claimToken, {
+      await inA(() =>
+        repo.markDeliveryFiled(ORG_A, id!, {
           filedCount: 1,
           skipped: [{ filename: 'image001.png', reason: 'embedded' }, { filename: 'a.exe', reason: 'type' }],
           remaining: [],
@@ -363,7 +322,6 @@ describe.skipIf(!url)('inbound mail tables against live Postgres', () => {
       )
       expect(await read(id!)).toMatchObject({
         status: 'filed',
-        claim_token: null,
         subject: null,
         staged: [],
         skipped: [{ reason: 'embedded' }, { reason: 'type' }],
@@ -373,18 +331,17 @@ describe.skipIf(!url)('inbound mail tables against live Postgres', () => {
     })
 
     it('forgets a folder that was deleted, so the next attempt makes a new one', async () => {
-      const [folder] = (await context.withTenant({ organizationId: ORG_A }, () =>
+      const [folder] = (await inA(() =>
         db.execute(
-          sql`insert into project_folders (project_id, name, path) values (${projectOf[ORG_A]}, ${`Mail ${STAMP}`}, ${`Mail ${STAMP}`}) returning id`
+          sql`insert into project_folders (organization_id, project_id, name, path)
+              values (${ORG_A}, ${projectOf[ORG_A]}, ${`Mail ${STAMP}`}, ${`Mail ${STAMP}`}) returning id`
         )
       )) as unknown as { id: string }[]
       const id = await queue(ORG_A, freshKey())
-      await onlyDue(id!)
-      const first = await claim()
-      await context.withTenant({ organizationId: ORG_A }, () => repo.recordDeliveryFolder(id!, first!.claimToken, folder.id))
+      await inA(() => repo.recordDeliveryFolder(ORG_A, id!, folder.id))
       expect((await read(id!)).folder_id).toBe(folder.id)
-      await context.withTenant({ organizationId: ORG_A }, () => db.execute(sql`delete from project_folders where id = ${folder.id}`))
-      expect(await read(id!)).toMatchObject({ folder_id: null, status: 'processing' })
+      await inA(() => db.execute(sql`delete from project_folders where id = ${folder.id}`))
+      expect(await read(id!)).toMatchObject({ folder_id: null, status: 'queued' })
     })
 
     it('retention: staging past seven days is found, a queued row with it fails, and rows past thirty days go', async () => {

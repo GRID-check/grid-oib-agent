@@ -39,6 +39,7 @@ import logging
 import os
 from dataclasses import dataclass
 from typing import Any
+from typing import Literal
 
 PROJECT_CONTEXT_HEADER = "x-grid-project-context"
 PROJECT_MEMORY_HEADER = "x-grid-project-memory"
@@ -409,8 +410,10 @@ class GridRequestContext:
     #: Epoch MILLISECONDS the envelope was minted. Inside the signed bytes, so
     #: its age cannot be edited without breaking the signature. Parsed but NOT
     #: enforced here: this tier has accepted envelopes without one since before
-    #: the field existed, and the window is the BFF verifier's to enforce
-    #: (`verifyGridRequestContextEnvelope`), which fails closed on it.
+    #: the field existed. A reader that GRANTS access on the envelope enforces
+    #: the window itself and fails closed on a missing value, as the BFF
+    #: verifier (`verifyGridRequestContextEnvelope`) does: the job routes do so
+    #: in `aiq_api.jobs.access.signed_job_scope` (ADR-0084).
     issued_at: int | None = None
     #: The envelope EXACTLY as it arrived — the base64url header and its hex
     #: signature, unparsed.
@@ -425,6 +428,9 @@ class GridRequestContext:
     #: deny it. So: echo, never sign.
     envelope_header: str | None = None
     envelope_signature: str | None = None
+    #: Growing prompt blocks are fetched per turn from the BFF when this
+    #: signed, envelope-only marker is present. Legacy producers omit it.
+    context_transport: Literal["bff"] | None = None
 
     @classmethod
     def from_context(cls) -> "GridRequestContext":
@@ -545,6 +551,7 @@ class GridRequestContext:
             # signature no longer covers.
             envelope_header=header_value,
             envelope_signature=sig,
+            context_transport="bff" if payload.get("contextTransport") == "bff" else None,
         )
 
     @classmethod

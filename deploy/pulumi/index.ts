@@ -4,20 +4,20 @@
  * Provisions the whole stack against a provider-supplied kubeconfig:
  *   platform  → cert-manager (+ Let's Encrypt issuer), Envoy Gateway, metrics-server
  *   data      → CloudNativePG Postgres (3 DBs), Dragonfly cache, SeaweedFS (S3)
- *   app       → aiq-agent (StatefulSet, the singleton agent), frontend
- *               (Deployment + HPA), purger, skill-scheduler, gotenberg (office
+ *   app       → aiq-agent (StatefulSet, the chat role), aiq-api (Deployment +
+ *               HPA, the api role), frontend (Deployment + HPA), purger, skill-scheduler, gotenberg (office
  *               → PDF), a migration Job and a WorkOS audit-schema reconcile Job
  *   edge      → Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS,
  *               for the app, the landing site and the public S3 endpoint
  *
- * The agent tier scales VERTICALLY here (resources + Dask knobs + admission
+ * The agent tier scales VERTICALLY here (resources + admission
  * caps); every precondition for later HORIZONTAL scaling is already wired
  * (Postgres DSNs instead of SQLite, a shared Redis/Dragonfly cache). See
  * docs/deployment/kubernetes.md for the scale-out roadmap.
  */
 import * as pulumi from "@pulumi/pulumi";
 
-import { backendImage, frontendImage, loadConfig, webImage } from "./src/config";
+import { backendAutoscaled, backendImage, frontendImage, loadConfig, webImage } from "./src/config";
 import { makeProvider } from "./src/platform/providers";
 import { makeAppNamespace } from "./src/platform/namespaces";
 import { installCertManager } from "./src/platform/cert-manager";
@@ -30,16 +30,22 @@ import { installClickHouse } from "./src/data/clickhouse";
 import { installSeaweedFS, type SeaweedFS } from "./src/data/seaweedfs";
 import { installSeaweedFSBackup } from "./src/data/seaweedfs-backup";
 import { installChroma } from "./src/data/chroma";
-import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildSecrets } from "./src/app/config";
+import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildScalerSecret, buildSecrets } from "./src/app/config";
 import { runMigrations } from "./src/app/migrations-job";
 import { reconcileAuditSchemas } from "./src/app/audit-schemas-job";
+import { importLegacyCorpus } from "./src/app/legacy-corpus-import-job";
 import { installBackend } from "./src/app/backend";
+import { installBackendScaling } from "./src/app/backend-scaling";
+import { installApi } from "./src/app/api";
 import { installFrontend } from "./src/app/frontend";
 import { installWeb } from "./src/app/web";
 import { installGotenberg } from "./src/app/gotenberg";
 import { installWorkers } from "./src/app/workers";
 import { installAgentWorker } from "./src/app/agent-worker";
 import { installIngestWorker } from "./src/app/ingest-worker";
+import { installJobsQueueAuth } from "./src/app/jobs-queue-auth";
+import { installBffJobs } from "./src/app/bff-jobs";
+import { installQueueScalerGrants } from "./src/app/queue-scaler-grants";
 import { installKeda } from "./src/platform/keda";
 import { installHttpRoutes } from "./src/app/httproutes";
 import { installObservabilityDashboard } from "./src/platform/observability";
@@ -168,7 +174,7 @@ const langfuseQueue = cfg.langfuse.enabled
 const rateLimitStore = cfg.rateLimit.enabled
   ? installRateLimitStore(cfg, provider, namespace)
   : undefined;
-const chroma = cfg.chroma.enabled ? installChroma(cfg, provider, namespace) : undefined;
+const chroma = installChroma(cfg, provider, namespace);
 // Office → PDF converter for the document viewer (ADR-0070). Stateless and
 // fail-open, so nothing waits on it; its NetworkPolicies admit the frontend
 // alone and deny it every egress.
@@ -186,7 +192,7 @@ const wiring: AppWiring = {
   redisUrl: dragonfly.url,
   seaweedInternalEndpoint: seaweed.internalEndpoint,
   seaweedPublicEndpoint: seaweed.publicEndpoint,
-  chromaUrl: chroma?.url,
+  chromaUrl: chroma.url,
   gotenbergUrl: gotenberg?.url,
   dsn: postgres.dsn,
   imagePullSecrets: pullSecret ? [{ name: PULL_SECRET_NAME }] : [],
@@ -198,8 +204,14 @@ const wiring: AppWiring = {
 const secrets = buildSecrets(wiring);
 
 // grid_app DB is created at cluster bootstrap; run drizzle migrations before
-// the frontend/workers that read it.
-const migrations = runMigrations(wiring, cfg, secrets, [postgres.cluster, postgres.initJob]);
+// the frontend/workers that read it. The migrations themselves go straight to
+// the primary; the pooler is listed so everything ordered after them (the BFF
+// tiers, which connect through it) is created after it too (ADR-0083).
+const migrations = runMigrations(wiring, cfg, secrets, [
+  postgres.cluster,
+  postgres.initJob,
+  postgres.pooler,
+]);
 
 // WorkOS must know every audit action the code emits, or it rejects the events
 // and the trail silently thins out (issues #255/#256). Reconciled per deploy so
@@ -210,14 +222,46 @@ if (cfg.auth.requireAuth) {
 }
 
 // ── App workloads ──────────────────────────────────────────────────────────
-const backend = installBackend(wiring, cfg, secrets, [
+//
+// Rollout order (ADR-0082 step B): the api tier, then the frontend, then the
+// chat tier. A frontend from before the split sends every HTTP call to
+// `aiq-agent`, and a new `aiq-agent` serves only the chat socket, so the chat
+// tier may change only once the frontend that calls `aiq-api` instead has
+// rolled out; and that frontend needs `aiq-api` to be there. Pulumi awaits a
+// workload's rollout before it creates what depends on it, so the `dependsOn`
+// below is the whole mechanism and no operator sequences anything.
+
+// The api role: every backend HTTP route but the chat socket, behind the
+// Service BACKEND_URL names.
+const api = installApi(wiring, cfg, secrets, [
   postgres.initJob,
   seaweed.bucketInitJob,
   dragonfly.service,
   ...(chroma ? [chroma.service] : []),
 ]);
 
-const frontend = installFrontend(wiring, cfg, secrets, [migrations, backend.service]);
+// Not after `aiq-agent`: the chat tier waits on the frontend (above), so the
+// reverse edge would be a cycle. The old chat pods serve the socket meanwhile.
+const frontend = installFrontend(wiring, cfg, secrets, [migrations, api.service]);
+
+const backend = installBackend(wiring, cfg, secrets, [
+  postgres.initJob,
+  postgres.pooler,
+  seaweed.bucketInitJob,
+  dragonfly.service,
+  ...(chroma ? [chroma.service] : []),
+  frontend.deployment,
+]);
+
+// The pre-A2 base corpus, carried off the old backend data volume once
+// (ADR-0082 A2). Only where that volume exists: see `storage.legacyCorpusClaim`.
+if (cfg.storage.legacyCorpusClaim) {
+  importLegacyCorpus(wiring, cfg, secrets, cfg.storage.legacyCorpusClaim, [
+    backend.statefulSet,
+    frontend.deployment,
+  ]);
+}
+
 const workers = installWorkers(wiring, cfg, secrets, [migrations]);
 // Cloudflare Email Routing, once per zone that routes mail: the app zone for
 // the contact address and, normally, the project mail inbox too (both on the
@@ -241,29 +285,65 @@ const web = installWeb(
   contactMail?.accountId,
 );
 
-// Research worker tier — only when execution is DB-claimed (ADR-0021).
-const agentWorker =
-  cfg.jobExecution === "db"
-    ? installAgentWorker(wiring, cfg, secrets, [
-        postgres.initJob,
-        dragonfly.service,
-        seaweed.bucketInitJob,
-        ...(chroma ? [chroma.service] : []),
-      ])
-    : undefined;
+// KEDA scales the research and ingest workers and the BFF job pool (queue depth,
+// ADR-0079/0076) and the chat tier (running turns, ADR-0080).
+const keda = cfg.keda.install ? installKeda(provider) : undefined;
 
-// Ingestion tier (ADR-0076) — claims the durable ingest queue fairly across
-// organisations, scaled by KEDA on the queue's depth.
-const keda = cfg.ingestWorker.enabled && cfg.keda.install ? installKeda(provider) : undefined;
-const ingestWorker = cfg.ingestWorker.enabled
-  ? installIngestWorker(wiring, cfg, secrets, [
-      postgres.initJob,
-      dragonfly.service,
-      seaweed.bucketInitJob,
-      ...(chroma ? [chroma.service] : []),
+// What the read-only scaler login may read, and the queue tables it reads, in
+// place before any ScaledObject is created (`app/queue-scaler-grants.ts`): after
+// the cluster (the role) and the migrations (`bff_job_queue`).
+const scalerGrants = installQueueScalerGrants(wiring, cfg, [postgres.cluster, postgres.initJob, migrations]);
+
+// What KEDA connects with, in a Secret of its own that no pod reads.
+const scalerSecret = buildScalerSecret(wiring);
+
+// How KEDA reads the two Python claim queues, which share one database. Created
+// once for both tiers. After the grants: on a stack that already runs, the
+// existing ScaledObjects start reading through the scaler login the moment this
+// points at it, and the login can read nothing before the Job has run.
+const jobsQueueAuth = installJobsQueueAuth(wiring, [...(keda ? [keda] : []), scalerGrants, scalerSecret]);
+const queueScalerDeps = [...(keda ? [keda] : []), jobsQueueAuth, scalerGrants, scalerSecret];
+
+// Research worker tier (ADR-0021) — claims the research queue fairly across
+// organizations (ADR-0079), scaled by KEDA on the queue's depth.
+const agentWorker = installAgentWorker(wiring, cfg, secrets, [
+  postgres.initJob,
+  postgres.pooler,
+  dragonfly.service,
+  seaweed.bucketInitJob,
+  ...(chroma ? [chroma.service] : []),
+  ...queueScalerDeps,
+]);
+
+// Ingestion tier (ADR-0076) — the only process that claims the durable ingest
+// queue, fairly across organisations, scaled by KEDA on the queue's depth.
+const ingestWorker = installIngestWorker(wiring, cfg, secrets, [
+  postgres.initJob,
+  postgres.pooler,
+  dragonfly.service,
+  seaweed.bucketInitJob,
+  ...(chroma ? [chroma.service] : []),
+  ...queueScalerDeps,
+]);
+
+// BFF background pool (ADR-0079) — claims bff_job_queue fairly across
+// organisations and runs project reindex and rescan jobs in its own BFF,
+// scaled by KEDA on the queue's depth. Internal only: no Service, no route.
+const bffJobs = cfg.bffJobs.enabled
+  ? installBffJobs(wiring, cfg, secrets, [
+      migrations,
+      api.service,
       ...(keda ? [keda] : []),
+      scalerGrants,
+      scalerSecret,
     ])
   : undefined;
+
+// Chat tier scale-out (ADR-0080) — KEDA moves the aiq-agent StatefulSet between
+// its floor and ceiling on the fleet's running turns. Only with affinity off.
+if (backendAutoscaled(cfg)) {
+  installBackendScaling(wiring, cfg, backend.statefulSet, keda ? [keda] : []);
+}
 
 // ── Edge (Gateway API) ───────────────────────────────────────────────────────
 const gatewayResources = installGatewayResources(cfg, provider, namespace, certManager.issuerName, [
@@ -372,6 +452,7 @@ export const webUrl = pulumi.interpolate`https://${cfg.ingress.webDomain}`;
 export const appNamespace = namespace;
 export const postgresRwHost = postgres.rwHost;
 export const backendService = backend.service.metadata.name;
+export const apiService = api.service.metadata.name;
 export const frontendService = frontend.service.metadata.name;
 export const webService = web.service.metadata.name;
 export const purgerDeployment = workers.purger.metadata.name;
@@ -379,8 +460,7 @@ export const schedulerDeployment = workers.scheduler.metadata.name;
 export const appRoute = routes.app.metadata.name;
 export const webRoute = routes.web.metadata.name;
 export const gatewayName = gatewayResources.gateway.metadata.name;
-export const chromaUrl = chroma ? chroma.url : pulumi.output("embedded");
-export const jobExecution = cfg.jobExecution;
+export const chromaUrl = chroma.url;
 export const pgInstances = cfg.postgres.instances;
 export const pgBackupsEnabled = cfg.postgres.backups.enabled;
 export const networkPoliciesEnabled = cfg.networkPolicies;
@@ -412,9 +492,8 @@ export const deployedImages = {
   frontend: frontendImage(cfg),
   web: webImage(cfg),
 };
-export const ingestWorkerDeployment = ingestWorker
-  ? ingestWorker.deployment.metadata.name
-  : pulumi.output("(none: ingestion runs in the backend pods)");
-export const agentWorkerDeployment = agentWorker
-  ? agentWorker.deployment.metadata.name
-  : pulumi.output("(none: dask mode)");
+export const ingestWorkerDeployment = ingestWorker.deployment.metadata.name;
+export const bffJobsDeployment = bffJobs
+  ? bffJobs.deployment.metadata.name
+  : pulumi.output("(none: reindex and rescan jobs are not run)");
+export const agentWorkerDeployment = agentWorker.deployment.metadata.name;

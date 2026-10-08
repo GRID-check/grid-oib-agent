@@ -60,7 +60,7 @@ There is also a fourth, less structural but more immediate finding:
 |---|---|---|---|---|---|
 | 1 | `frontends/ui/server.js` (WS upgrade) | per client IP | fixed window, atomic `INCR` | Dragonfly | fail open |
 | 2 | `frontends/ui/src/lib/sharing/rate-limit.ts` | per subject/action | fixed window, **non-atomic** read-modify-write | Dragonfly via cache | fail open |
-| 3 | `frontends/aiq_api/.../jobs/submit.py` | global + per org | **concurrency** (`MAX_ACTIVE_JOBS` 8 / `…_PER_ORG` 3) | Postgres count | fail open |
+| 3 | `frontends/aiq_api/.../jobs/submit.py`, `jobs/queue.py` | per org a **claim cap** (`…_PER_ORG` 3) plus a **queued-length bound** (`MAX_QUEUED_JOBS_PER_ORG` 50), the only 429 | Postgres | fail open |
 | 4 | `common/cost_tracking.py` + ADR-0015 | org / member / project | EUR budget, daily+monthly | Postgres ledger + rollups | read fails open, refusal fails closed |
 | 5 | `GRID_MAX_RUN_COMPLETION_TOKENS`, `GRID_MAX_QUERY_SUBMISSIONS` | per run | hard ceilings | in-process | n/a |
 
@@ -300,6 +300,7 @@ share the 429 vocabulary of L1–L3 so the UI has one story.
 | L0/L1 | **fail open** (`failClosed: false`, RLS timeout 250 ms) | a Redis blip must not be an outage; these are abuse bounds |
 | L2 | fail open | same |
 | L3 | fail open (already is) | protective, not load-bearing |
+| L3c provider limiter | fail open | ordering and a ceiling, not a gate; a cache outage must not stop answers |
 | L4 budget **refusal** | **fail closed** | it is the money gate — already correct |
 
 One exception worth considering: fail *closed* on L1 for the **unauthenticated**
@@ -458,30 +459,169 @@ turns answered with a friendly message the way a budget refusal already is.
 - **Concurrency, not a rate** — "30 turns per 5 minutes" happily admits a sixth
   simultaneous research run at a steady trickle, because it counts arrivals
   rather than occupancy.
-- **A separate pool from `GRID_MAX_ACTIVE_JOBS`** — that separation *is* the
+- **A separate pool from the research queue** — that separation *is* the
   partition. Background research cannot consume interactive capacity, and a busy
   chat hour cannot block scheduled research.
 - **Leases, not counters** — a replica OOM-killed mid-turn would leak a slot
   forever with increment/decrement, shrinking the pool until nobody can chat. A
   lease self-heals.
 
-### L3b — ingestion fair share and the provider ceiling (ADR-0076)
+### L3b — ingestion fair share and the provider ceiling (ADR-0076, ADR-0079)
 
 Ingestion is not refused, it waits, so its L3 is an order and a ceiling rather
 than an admission.
 
 - **Fair share, not a cap.** `/v1/ingest` jobs sit in `ingest_job_queue`, and a
   free worker claims the next job of the organisation with the fewest jobs
-  running fleet-wide, then the one served longest ago
-  (`aiq_agent.knowledge.ingest_queue`). A lone office uses every worker; a
-  second office's upload takes the next worker that frees up.
-  `GRID_INGEST_MAX_PER_ORG` adds a hard cap, off by default.
+  running fleet-wide, then the one served longest ago. A lone office uses every
+  worker; a second office's upload takes the next worker that frees up.
+  `GRID_INGEST_MAX_PER_ORG` adds a hard cap, off by default. The claim is the
+  generic `aiq_agent.common.claim_queue` (ADR-0079); `ingest_queue` is the
+  ingestion table on it.
+- **Priority inside an office.** `POST /v1/ingest` takes
+  `priority: "interactive" | "bulk"` (default `interactive`). An office's own
+  upload is claimed before its older reindex jobs; priority never lets one
+  office pass another. The BFF's project reindex and failed-ingestion rescan
+  jobs (the `bff-jobs` pool) send `bulk`; an upload sends nothing. The same
+  value is the job's class at the provider limiter (L3c).
+- **A claim is given back, not lost.** A drain that runs out of time releases
+  what it holds at no cost in attempts (`release_claims`). A job past
+  `GRID_INGEST_MAX_JOB_SECONDS`, or silent for
+  `GRID_INGEST_PROGRESS_TIMEOUT_SECONDS`, is no longer heartbeat and is claimed
+  again. A job that fails every claim is kept as a `dead` row with its reason,
+  and is not counted as work.
 - **Elastic.** The ingest-worker tier scales on the queue's depth through
-  KEDA, not on CPU (`deploy/pulumi/src/app/ingest-worker.ts`).
+  KEDA, not on CPU (`deploy/pulumi/src/app/ingest-worker.ts`); dead rows are
+  excluded from that depth. Its ceiling is held to the provider budget at plan
+  time: `ingestWorkerMaxReplicas` x `ingestWorkerConcurrency` x
+  `AIQ_VLM_BATCH_WORKERS` may not exceed twice `AIQ_VLM_FLEET_CONCURRENCY`, or
+  `pulumi up` fails with the numbers (`assertVlmPeakFitsCeiling`); replicas past
+  that only queue on the pool. The pool itself may not exceed either limiter
+  ceiling a vision call passes (key-wide, and its model's own: 32), or it could
+  never fill. The budget (`vlmFleetConcurrency`,
+  `vlmBatchWorkers`, `providerLimitCeiling`, `providerModelLimitCeiling`) is
+  stack config, not image defaults.
+- **Measured.** `grid.queue.depth{queue,status}`,
+  `grid.queue.oldest_age_seconds`, `grid.queue.claim_latency_ms`,
+  `grid.queue.job_duration_seconds{kind}` and `grid.queue.dead_total`, through
+  the collector the logs use (`aiq_agent.observability.metrics`; export every
+  `OTEL_METRIC_EXPORT_INTERVAL`, 60 s by default). A queue is tuned from these,
+  not from guesses.
 - **A fixed ceiling at the provider.** However many workers run, at most
   `AIQ_VLM_FLEET_CONCURRENCY` vision calls are in flight, a Dragonfly lease pool
   sharing L3's scripts (`common/lease_slots.py`). A 429 backs off outside its
-  slot. Fails open like L3.
+  slot. Fails open like L3. It is the narrow, ingestion-only ceiling; L3c below
+  is the one every model call passes, and the VLM pool sits outside it.
+
+### L3c — the provider limiter (ADR-0081)
+
+L3 and L3b bound how much *work* runs. None of them knows what the provider will
+take, or that a person waiting on an answer should go before a bulk reindex when
+it will not. The provider limiter is the one pool of *model calls in flight*
+that chat, research, ingestion and embeddings all draw from
+(`aiq_agent.common.provider_limiter`).
+
+- **Priority classes, served in order.** `chat`, `interactive`, `research`,
+  `bulk`. A caller that finds the pool full takes a ticket in the sorted set of
+  its class, and a free slot goes to the oldest ticket of the highest class
+  waiting. The order is the tickets', not whoever polls first, so a `bulk`
+  waiter yields to a `chat` waiter however the polls interleave. The scripts
+  extend L3's (`lease_slots.RANKED_ADMISSION_LUA`): a lease that is not renewed
+  ages out, and a waiter that stops polling loses its ticket after five seconds.
+- **Adaptive limits (AIMD), one per quota, shared by the fleet.** A limit starts
+  at its ceiling. A 429 halves it, not below its floor, once per two seconds so
+  the calls that fail together count once. Each
+  `GRID_PROVIDER_LIMIT_INTERVAL_SECONDS` without a 429 adds one. They live in
+  Dragonfly next to the leases, so a new replica starts from the fleet's limits
+  and scaling out adds callers, not 429s.
+- **Scoped to the quota that said 429.** A call holds a slot in the key-wide pool
+  (`GRID_PROVIDER_LIMIT_CEILING` / `_FLOOR`) and in the pool of its model
+  (`GRID_PROVIDER_MODEL_LIMIT_CEILING` / `_FLOOR`). OpenRouter wraps an upstream
+  provider's refusal in its own 429 and names the provider in
+  `error.metadata.provider_name`: that halves that model's limit only, so a
+  Gemini brown-out leaves every other model's capacity alone. A 429 with
+  OpenRouter's own `code: 429` and no provider is the key's limit and halves the
+  key-wide pool. One that cannot be classified (an in-stream `error` event has no
+  body; so has a reply that is not JSON) counts against the model. The classifier
+  reads the OpenAI SDK's `RateLimitError.body` on the chat seam and the response
+  body in the transport (`provider_limiter.scope_of_error`). A waiter held back by
+  its own model's limit does not hold back the other models queued behind it.
+- **The class comes from the task, not the call site.** A ContextVar
+  (`provider_class`): a chat turn sets `chat` (`turn/admission.answer_turn`),
+  a research job `research` (`jobs/runner.run_agent_job`), an ingest job its
+  priority (`interactive` or `bulk`), and anything else is `interactive`.
+- **Three seams, each single.** Every chat-model call passes the contract
+  subclass in `common/llm_factory.py` (streams hold their slot to the last
+  chunk). Every OpenAI-SDK client the embeddings and the vision model use rides
+  the pinned transport in `common/openrouter.py`, which holds a slot from the
+  request to the end of the response body. A call that shapes its own JSON body
+  uses `limited_async_http_client` from the same module: the BFF-called utility
+  routes `generate_summary`, `consistency_check`, `generate_conversation_title`
+  and `skill_review` (`interactive`), the background `feedback_digest` and
+  `lesson_distill` (`bulk`), and the decision model (`common/decisions.py`) and
+  the reranker (`knowledge_layer/cross_encoder.py`), which take the class of the
+  task that makes them. It is the same transport without the zero-data-retention
+  pin: those bodies already carry the organization's own policy
+  (`ResolvedCredential.request_body`), and an organization that switched ZDR off
+  keeps that choice. A call to a host that is not OpenRouter takes no slot. The
+  VLM pool of L3b stays outside it: a vision call has the right to call before it
+  waits for a provider slot.
+- **A 429 waits outside the slot.** The slot is released first and the
+  `Retry-After` is waited out after, so a rate-limited call never holds capacity
+  another call could use. The chat seam sleeps it before re-raising (the retry
+  above it does not read the header); the SDK clients retry with it themselves,
+  and each retry queues up again.
+- **A chat call keeps its latency budget.** A chat-class request through the
+  transport waits for a slot no longer than its own pool timeout (three seconds
+  for a query embedding) and then fails like an exhausted connection pool;
+  retrieval already fails open on that. Every other class waits as long as the
+  pool stays full: failing starved bulk work would turn the limiter into lost
+  ingestion.
+- **Fails open.** No Dragonfly, a script it refuses or `GRID_PROVIDER_LIMITER=off`
+  means every call proceeds, as in every layer but L4.
+- **Enforced.** `tests/aiq_agent/common/test_provider_limiter_call_sites.py`
+  fails when a module builds a chat model (`ChatOpenAI(`, `init_chat_model(`, a
+  raw `builder.get_llm(`) or an embedding client by hand, when a file that talks
+  to a model opens a raw `httpx` client instead of the limited one, and when a
+  call through the seams stops holding a slot. Its sibling `test_openrouter_call_sites.py` is
+  the same ratchet for zero data retention.
+- **Measured.** `grid.provider.inflight`, `grid.provider.limit{scope,model}`,
+  `grid.provider.wait_seconds{class}` and
+  `grid.provider.throttled_total{model,scope}`. The ceilings and floors are
+  guesses until these have run for a week: read the wait by class and the 429
+  count by model and scope before moving any.
+Not built, on purpose: a tokens-per-minute bucket (output tokens are unknown
+until the call ends, and the upstream limit moves by model) and an egress AI
+gateway (the back-pocket option of section 5).
+
+### L3d — research fair share (ADR-0079)
+
+Research is not refused for capacity either: it
+waits, so its L3 is the same order and ceiling ingestion has.
+
+- **Capacity waits, it never fails.** A submit is a row in
+  `research_job_queue` and the job is `SUBMITTED` until a worker claims it; the
+  UI reads that as `queued`.
+- **Fair share.** The claim is the same `aiq_agent.common.claim_queue`: a free
+  worker takes the next job of the organisation with the fewest research jobs
+  running fleet-wide, then the one served longest ago. One office's sweep of
+  twenty scheduled runs does not make another office's question wait for all of
+  them.
+- **The per-organisation cap is a claim cap.** `GRID_MAX_ACTIVE_JOBS_PER_ORG` is
+  how many of an organisation's jobs run at once; the rest wait their turn.
+- **Priority inside an office.** A scheduled fire is `bulk`; an escalated
+  question and a person pressing "run now" are `interactive`. The scheduler no
+  longer records "skipped" for a full queue: a queued job is a queued run.
+- **One 429 is left, as abuse protection.** `GRID_MAX_QUEUED_JOBS_PER_ORG` bounds
+  how many jobs one organisation may have waiting. Past it a submit is refused
+  (a scheduled occurrence is then recorded `skipped`).
+- **A claim is given back, not lost.** A drain that runs out of time requeues
+  what it holds without spending an attempt; a job that crashed every worker is
+  kept as a `dead` row and is not counted as work.
+- **Elastic.** The `agent-worker` tier scales through KEDA on the queue's depth,
+  not on CPU, which a job that waits on a model never moves
+  (`deploy/pulumi/src/app/agent-worker.ts`). Measured as
+  `grid.queue.*{queue="research"}`.
 
 ### L4 — cost
 

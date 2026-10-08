@@ -1,6 +1,6 @@
 """Per-task auth token context for async jobs.
 
-Uses a ContextVar so concurrent jobs in the same Dask worker process
+Uses a ContextVar so concurrent jobs in the same research worker process
 each see their own token without cross-task leakage.
 
 The token fetcher is registered once at import time. It returns the

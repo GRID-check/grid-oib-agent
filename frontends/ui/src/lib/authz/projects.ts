@@ -60,7 +60,7 @@ export async function requireProjectAccess(
   /**
    * `onError: 'throw'` raises `TransientAuthzError` when an FGA check could not
    * complete, instead of the default NotFound. For an unattended caller (the
-   * inbound-mail drain) a WorkOS blip must be a retry, not a refusal.
+   * inbound-mail filing job) a WorkOS blip must be a retry, not a refusal.
    */
   options: { includeDeleted?: boolean } & AuthzLookupOptions = {}
 ): Promise<{ role: ProjectRole }> {

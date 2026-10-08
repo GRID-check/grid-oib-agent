@@ -8,7 +8,7 @@ import {
   createStreaks,
   fireOne,
   reconcileRuns,
-  drainInboundMail,
+  reconcileBackgroundWork,
   tick,
   INTERNAL_TOKEN_HEADER,
 } from './index.js'
@@ -207,6 +207,53 @@ describe('reconcileRuns (the run reconciler’s clock)', () => {
   })
 })
 
+describe('reconcileBackgroundWork (the background-work sweep’s clock)', () => {
+  const config = { frontendUrl: 'http://frontend:3000', internalToken: 'tok', pollMs: 30000 }
+  const streak = () => createStreaks(config).background
+  const documents = (over = {}) => ({ checked: 0, requeued: 0, failed: 0, gone: 0, errors: 0, ...over })
+  const filings = (over = {}) => ({ checked: 0, filed: 0, failed: 0, waiting: 0, errors: 0, ...over })
+  const reply = (counts) => vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(counts) })
+
+  it('posts to the sweep with the internal token and returns its counts', async () => {
+    const counts = { documents: documents(), filings: filings() }
+    const fetchImpl = reply(counts)
+
+    expect(await reconcileBackgroundWork(config, fetchImpl, streak())).toEqual(counts)
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://frontend:3000/api/internal/maintenance/reconcile-background-work')
+    expect(init.method).toBe('POST')
+    expect(init.headers[INTERNAL_TOKEN_HEADER]).toBe('tok')
+  })
+
+  it('logs only when it recovered or failed something, one line per half', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await reconcileBackgroundWork(config, reply({ documents: documents({ checked: 3, gone: 3 }), filings: filings({ waiting: 2 }) }), streak())
+    expect(log).not.toHaveBeenCalled()
+
+    await reconcileBackgroundWork(
+      config,
+      reply({ documents: documents({ checked: 4, requeued: 2, failed: 1, gone: 1 }), filings: filings({ checked: 1, failed: 1 }) }),
+      streak(),
+    )
+    expect(log).toHaveBeenCalledWith(
+      '[job-scheduler] background work sweep, documents: checked 4, requeued 2, failed 1, gone 1, errors 0',
+    )
+    expect(log).toHaveBeenCalledWith(
+      '[job-scheduler] background work sweep, report filings: checked 1, filed 0, failed 1, waiting 0, errors 0',
+    )
+  })
+
+  it('never throws: a refusal or a transport error is null', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const refused = vi.fn().mockResolvedValue({ ok: false, status: 500, headers: { get: () => null }, text: () => Promise.resolve('') })
+
+    expect(await reconcileBackgroundWork(config, refused, streak())).toBeNull()
+    expect(await reconcileBackgroundWork(config, vi.fn().mockRejectedValue(new Error('aborted')), streak())).toBeNull()
+  })
+})
+
 describe('reconcileRuns during a rollout or an outage (#785, #793, #799, #800)', () => {
   const config = { frontendUrl: 'http://frontend:3000', internalToken: 't', pollMs: 30000 }
 
@@ -295,57 +342,13 @@ describe('reconcileRuns during a rollout or an outage (#785, #793, #799, #800)',
   })
 })
 
-describe('drainInboundMail (the mail drain\u2019s clock)', () => {
-  const config = { frontendUrl: 'http://frontend:3000', internalToken: 'secret-tok', pollMs: 30000 }
-  const counts = { reaped: 0, filed: 2, retried: 1, failed: 0, held: 0, lost: 0, stagingExpired: 0, deleted: 3 }
-  const streak = () => createStreaks(config).drain
-
-  it('POSTs the BFF drain with the internal token and returns its counts', async () => {
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve(counts) })
-
-    expect(await drainInboundMail(config, fetchImpl, streak())).toEqual(counts)
-    const [url, init] = fetchImpl.mock.calls[0]
-    expect(url).toBe('http://frontend:3000/api/internal/inbound-mail/drain')
-    expect(init.method).toBe('POST')
-    expect(init.headers[INTERNAL_TOKEN_HEADER]).toBe('secret-tok')
-    expect(init.signal).toBeInstanceOf(AbortSignal)
-    expect(log).toHaveBeenCalledWith(expect.stringContaining('mail drain: filed 2, retried 1, failed 0'))
-  })
-
-  it('says nothing for a pass that filed nothing', async () => {
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const quiet = { ...counts, filed: 0 }
-    await drainInboundMail(config, vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(quiet) }), streak())
-    expect(log).not.toHaveBeenCalled()
-  })
-
-  it('never throws: a wrong token is an ERROR at once, a transport error a WARN', async () => {
-    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const refused = vi.fn().mockResolvedValue({ ok: false, status: 401, text: () => Promise.resolve('Unauthorized') })
-    expect(await drainInboundMail(config, refused, streak())).toBeNull()
-    expect(await drainInboundMail(config, vi.fn().mockRejectedValue(new Error('aborted')), streak())).toBeNull()
-    expect(errorLog).toHaveBeenCalledTimes(1)
-    expect(errorLog.mock.calls[0].join(' ')).toContain('mail drain failed: HTTP 401')
-    expect(warn).toHaveBeenCalledTimes(1)
-  })
-
-  it('keeps its own failure streak, apart from the reconciler\u2019s', () => {
-    const streaks = createStreaks(config)
-    expect(streaks.drain).toBeDefined()
-    expect(streaks.drain).not.toBe(streaks.reconcile)
-  })
-})
-
 describe('tick', () => {
   const base = { frontendUrl: 'http://frontend:3000', internalToken: 't', batch: 20, retentionDays: 90, pollMs: 30000 }
   const reconciled = () => vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ closed: 0, failed: 0 }) })
 
-  it('with the schedules gate off, fires nothing but still reconciles runs and drains mail', async () => {
+  it('with the schedules gate off, fires nothing but still runs both sweeps', async () => {
     // A run exists without Agent Skills (an escalated chat question), so its
-    // reconciliation cannot wait on the skills feature; nor can the mail
-    // inbox, which is switched per organization inside the BFF.
+    // reconciliation cannot wait on the skills feature.
     const sql = { begin: vi.fn() }
     const fetchImpl = reconciled()
 
@@ -353,24 +356,10 @@ describe('tick', () => {
 
     expect(fired).toBe(0)
     expect(sql.begin).not.toHaveBeenCalled()
+    // The runs, then the documents stranded at `processing` (ADR-0079).
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       'http://frontend:3000/api/internal/runs/reconcile',
-      'http://frontend:3000/api/internal/inbound-mail/drain',
-    ])
-  })
-
-  it('drains mail even when the reconcile POST failed', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const fetchImpl = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('aborted'))
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ filed: 0, failed: 0 }) })
-
-    await tick({ begin: vi.fn() }, { ...base, schedulesEnabled: false }, fetchImpl, createStreaks(base))
-
-    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
-      'http://frontend:3000/api/internal/runs/reconcile',
-      'http://frontend:3000/api/internal/inbound-mail/drain',
+      'http://frontend:3000/api/internal/maintenance/reconcile-background-work',
     ])
   })
 
@@ -384,7 +373,7 @@ describe('tick', () => {
     expect(sql.begin).toHaveBeenCalled()
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       'http://frontend:3000/api/internal/runs/reconcile',
-      'http://frontend:3000/api/internal/inbound-mail/drain',
+      'http://frontend:3000/api/internal/maintenance/reconcile-background-work',
     ])
   })
 

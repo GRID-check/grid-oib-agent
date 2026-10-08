@@ -5,7 +5,7 @@
  * The project's address as the settings surface reads and rotates it: minted
  * on first read, one per project under a race, the organization switch, and
  * rotation. What each route asks for is `app/api/projects/[id]/inbound-address`'s
- * spec; receiving is `./receive.spec.ts`, filing `./drain.spec.ts`.
+ * spec; receiving is `./receive.spec.ts`, filing `./job.spec.ts`.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 

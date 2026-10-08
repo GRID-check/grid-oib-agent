@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    A question about building regulations no longer comes back empty just
+    because a document was open beside the chat. Only the file you chose with
+    "Asking about this file" narrows the search now, and when a search in
+    that file finds nothing on a regulation question, Piloti searches the
+    guidelines again without it.

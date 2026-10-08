@@ -37,6 +37,15 @@ class IngestRequest(BaseModel):
         max_length=120,
         description="The member who put the document there, so its ingestion spend is booked to them.",
     )
+    priority: Literal["interactive", "bulk"] = Field(
+        "interactive",
+        description=(
+            "Who is waiting on this file. `interactive` (the default): a person uploaded it and watches "
+            "it index. `bulk`: a reindex or a rescan of many documents. Inside one organisation an "
+            "interactive job is claimed before a bulk one; between organisations the fair claim order "
+            "decides, whatever the priority."
+        ),
+    )
     thumbnail_upload_url: str | None = Field(None, description="Presigned URL for uploading a generated thumbnail")
     preview_ref: str | None = Field(
         None,
@@ -193,6 +202,59 @@ class GenerateConversationTitleResponse(BaseModel):
             "Failure code when naming could not complete "
             "(e.g. llm_not_configured, llm_request_failed, llm_response_malformed); "
             "None on success"
+        ),
+    )
+
+
+#: Ceiling on one dictation's audio, in bytes before base64. 45 seconds of the
+#: browser's Opus or AAC at 64 kbit/s is about 360 KB; the bound leaves room for
+#: a browser that ignores the requested bitrate. Mirrored by the BFF
+#: (``frontends/ui/src/lib/dictation/limits.ts``), which refuses first.
+MAX_DICTATION_AUDIO_BYTES = 4 * 1024 * 1024
+
+#: The container formats a browser's MediaRecorder produces, named the way the
+#: transcription endpoint names them (Safari's ``audio/mp4`` is ``m4a``).
+DictationAudioFormat = Literal["webm", "ogg", "m4a"]
+
+
+class DictationRequest(BaseModel):
+    """One recorded utterance from the chat composer's microphone button."""
+
+    audio_base64: str = Field(
+        ...,
+        min_length=1,
+        # base64 is 4 characters per 3 bytes.
+        max_length=(MAX_DICTATION_AUDIO_BYTES * 4) // 3 + 4,
+        description="The recording, base64-encoded (raw bytes, not a data URI)",
+    )
+    format: DictationAudioFormat = Field(..., description="Container format of the recording")
+    duration_ms: int | None = Field(
+        default=None,
+        ge=0,
+        le=120_000,
+        description="Length the browser measured; recorded when the provider reports none",
+    )
+    locale: str | None = Field(
+        default=None,
+        max_length=16,
+        description=(
+            "The member's UI language. A hint for wording only: it is never sent as the "
+            "transcription language, because a German sentence with English terms must stay mixed"
+        ),
+    )
+
+
+class DictationResponse(BaseModel):
+    """The cleaned transcript, or why there is none. Always HTTP 200 (fail open)."""
+
+    text: str = Field(default="", description="Cleaned transcript; empty for silence or on failure")
+    audio_seconds: float | None = Field(default=None, description="Seconds of audio transcribed")
+    model: str | None = Field(default=None, description="The model that produced the transcript")
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Failure code (transcription_not_configured, audio_invalid, audio_too_large, "
+            "transcription_failed); None on success, including an empty transcript"
         ),
     )
 
@@ -512,17 +574,10 @@ class OibReingestResponse(BaseModel):
 
 
 class OibDocumentDeleteResponse(BaseModel):
-    """Response for removing an OIB base-corpus document.
-
-    ``mode`` distinguishes how the document was removed: ``'deleted'`` for an
-    admin upload (source file + registry + chunks physically removed), or
-    ``'excluded'`` for a repo-shipped file (chunks dropped and the basename
-    recorded in the persistent exclusion set so a sync never re-ingests it).
-    """
+    """Response for deleting an OIB base-corpus document (chunks, row, object and cached copy)."""
 
     success: bool
     file_name: str
-    mode: str = Field("deleted", description="'deleted' for an admin upload, 'excluded' for a repo-shipped file.")
 
 
 #: Ceiling on the live lesson register a distill request may carry. Mirrors the

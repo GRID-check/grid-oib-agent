@@ -101,6 +101,8 @@ const ALL_TYPES = [
   'job.failed',
   'job.waiting',
   'document.review_requested',
+  'mail_import.completed',
+  'mail_import.failed',
   'inbound_mail.filed',
   'inbound_mail.failed',
 ] as const satisfies readonly InboxItemType[]
@@ -117,10 +119,14 @@ const OPERATIONAL_TYPES = [
   // collaboration still has documents to approve, and gating the one review
   // queue in the product would make it invisible for exactly them.
   'document.review_requested',
+  // An Outlook archive import ended (ADR-0085): an office without
+  // collaboration imports mail too.
+  'mail_import.completed',
+  'mail_import.failed',
   // A mail the reader sent to a project address was filed (ADR-0075): the
   // inbox is the sender's only receipt, whether or not collaboration is on.
   'inbound_mail.filed',
-  // ...and the only word the sender gets when the drain gave up on the mail.
+  // ...and the only word the sender gets when the inbox gave up on the mail.
   'inbound_mail.failed',
 ] as const satisfies readonly InboxItemType[]
 

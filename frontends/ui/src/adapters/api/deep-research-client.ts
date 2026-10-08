@@ -343,6 +343,14 @@ export interface DeepResearchStreamOptions {
   lastEventId?: string
   /** Auth token for authenticated requests */
   authToken?: string
+  /**
+   * The project and conversation the stream is opened in. The job proxy checks
+   * the caller may reach them and signs them, and the backend opens a job inside
+   * them to someone other than its owner (ADR-0084). Without them only the
+   * caller's own jobs, or the stored active project's, can be followed.
+   */
+  projectId?: string | null
+  conversationId?: string | null
 }
 
 export interface DeepResearchClient {
@@ -365,13 +373,31 @@ export interface DeepResearchClient {
 /** Max consecutive reconnection failures before surfacing an error to the caller */
 const MAX_RECONNECT_ATTEMPTS = 5
 
+/**
+ * Waits between our own reopens of a stream the browser closed for good.
+ *
+ * EventSource retries only a network-level failure. When the api tier is
+ * restarting, the BFF answers 500 and the browser closes the stream for good,
+ * which on a rolling or autoscaled api tier happens every time a pod goes away
+ * (ADR-0082 step B). A run outlives that, so the client reopens from the last
+ * event id it holds and the stream resumes with no gap.
+ */
+const STREAM_REOPEN_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000]
+/** How long reopens may keep failing in a row before the caller is told the stream is lost. */
+const STREAM_REOPEN_GIVE_UP_MS = 120_000
+/** The server said it is going away: reopen at once, another replica takes it. */
+const STREAM_REOPEN_AFTER_SHUTDOWN_MS = 250
+
 export const createDeepResearchClient = (options: DeepResearchStreamOptions): DeepResearchClient => {
-  const { jobId, callbacks, lastEventId, authToken } = options
+  const { jobId, callbacks, lastEventId, authToken, projectId, conversationId } = options
 
   let eventSource: EventSource | null = null
   let lastReceivedEventId: string | null = lastEventId || null
   let isTerminated = false
   let reconnectAttempts = 0
+  let reopenTimer: ReturnType<typeof setTimeout> | null = null
+  let reopenAttempts = 0
+  let failingSince: number | null = null
 
   /**
    * Build the stream URL with optional last event ID for reconnection
@@ -388,12 +414,14 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
       url += `/${lastReceivedEventId}`
     }
 
+    const query = new URLSearchParams()
     // Add auth token as query param if provided (EventSource doesn't support headers)
-    if (authToken) {
-      url += `?token=${encodeURIComponent(authToken)}`
-    }
+    if (authToken) query.set('token', authToken)
+    if (projectId) query.set('projectId', projectId)
+    if (conversationId) query.set('conversationId', conversationId)
+    const search = query.toString()
 
-    return url
+    return search ? `${url}?${search}` : url
   }
 
   /**
@@ -657,9 +685,19 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
 
     // Handle connection open
     eventSource.onopen = () => {
-      // Connection established (or re-established after reconnect) — reset counter
+      // Connection established (or re-established after reconnect) — reset counters
       reconnectAttempts = 0
+      reopenAttempts = 0
+      failingSince = null
     }
+
+    // The api replica serving this stream is shutting down. Reopen now rather
+    // than waiting for the browser to notice the close.
+    eventSource.addEventListener('job.shutdown', () => {
+      eventSource?.close()
+      eventSource = null
+      scheduleReopen(STREAM_REOPEN_AFTER_SHUTDOWN_MS)
+    })
 
     // Handle generic messages (fallback)
     eventSource.onmessage = (event) => {
@@ -707,9 +745,10 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
       }
 
       if (eventSource?.readyState === EventSource.CLOSED) {
-        // Browser gave up reconnecting — treat as a real disconnect
-        callbacks.onDisconnect?.()
+        // The browser will not retry this one (a non-200 from the proxy while
+        // the api tier restarts): reopen it ourselves from the last event id.
         eventSource = null
+        scheduleReopen()
       } else if (eventSource?.readyState === EventSource.CONNECTING) {
         // EventSource is auto-reconnecting — this is expected behaviour.
         // Only escalate to an error after repeated consecutive failures.
@@ -741,11 +780,36 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
   }
 
   /**
+   * Reopen the stream after `delayMs`, or the next backoff step. Gives the caller
+   * `onDisconnect` once reopens have failed for {@link STREAM_REOPEN_GIVE_UP_MS}.
+   */
+  function scheduleReopen(delayMs?: number) {
+    if (isTerminated || reopenTimer) return
+    const now = Date.now()
+    failingSince ??= now
+    if (now - failingSince >= STREAM_REOPEN_GIVE_UP_MS) {
+      callbacks.onDisconnect?.()
+      return
+    }
+    const wait = delayMs ?? STREAM_REOPEN_DELAYS_MS[Math.min(reopenAttempts, STREAM_REOPEN_DELAYS_MS.length - 1)]
+    reopenAttempts++
+    callbacks.onReconnecting?.(reopenAttempts)
+    reopenTimer = setTimeout(() => {
+      reopenTimer = null
+      if (!isTerminated) connect()
+    }, wait)
+  }
+
+  /**
    * Disconnect from the SSE stream
    */
   const disconnect = () => {
+    if (reopenTimer) {
+      clearTimeout(reopenTimer)
+      reopenTimer = null
+    }
+    isTerminated = true
     if (eventSource) {
-      isTerminated = true
       eventSource.close()
       eventSource = null
     }
@@ -883,6 +947,14 @@ export interface JobReportResponse {
    */
   filingFailed?: boolean
   /**
+   * The report is being rendered and filed by a background job (ADR-0079): the
+   * promise is being kept, and the document appears under „Berichte" when the
+   * job has run. Mutually exclusive with `filed` and `filingFailed`; absent when
+   * no filing was asked for. No reader of the run block uses it yet, like
+   * `filingFailed`, and it is carried across the boundary for the same reason.
+   */
+  filingQueued?: boolean
+  /**
    * The report's verified sources, each carrying the `[N]` the report cites it
    * by. The live stream announces a source when a tool finds it, before
    * verification has numbered anything, so a reader of the finished report
@@ -954,16 +1026,24 @@ export const getJobReport = async (
     // client that believed a string here would retract a promise the server
     // never said was broken.
     ...(body.filingFailed === true ? { filingFailed: true as const } : {}),
+    ...(body.filingQueued === true ? { filingQueued: true as const } : {}),
     ...(Array.isArray(body.sources) && body.sources.length > 0 ? { sources: body.sources } : {}),
   }
 }
 
-/** Cancel a running job */
+/**
+ * Cancel a running job.
+ *
+ * `projectId` names the project the job runs in, so the proxy can sign it and a
+ * teammate may stop a run somebody else started there (ADR-0084).
+ */
 export const cancelJob = async (
   jobId: string,
-  authToken?: string
+  authToken?: string,
+  options: { projectId?: string | null } = {}
 ): Promise<{ cancelled: boolean }> => {
-  const url = `${getDeepResearchBaseUrl()}/job/${jobId}/cancel`
+  const query = options.projectId ? `?projectId=${encodeURIComponent(options.projectId)}` : ''
+  const url = `${getDeepResearchBaseUrl()}/job/${jobId}/cancel${query}`
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   }

@@ -89,7 +89,7 @@ export async function notifyFiled(row: NotifiedRow, filing: FiledSummary): Promi
   })
 }
 
-/** Every attempt is spent (or the staging expired): nothing of this mail was filed by the drain. */
+/** Every attempt is spent (or the staging expired): nothing more of this mail will be filed. */
 export async function notifyFailed(row: NotifiedRow): Promise<void> {
   await emit({
     ...frame(row, 'inbound_mail.failed'),

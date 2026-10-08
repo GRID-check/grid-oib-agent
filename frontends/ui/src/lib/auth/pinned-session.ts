@@ -20,11 +20,11 @@
 
 import 'server-only'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { TransientAuthzError, type AuthzLookupOptions } from '@/lib/authz/errors'
+import type { AuthzLookupOptions } from '@/lib/authz/errors'
 import { enforcementOn } from '@/lib/authz/feature-flags'
 import { tenantRolePermissions } from '@/lib/authz/org-role-permissions'
 import { resolveSubjectMembership } from '@/lib/authz/project-membership'
-import { enabledSlugsForOrg } from '@/lib/workos/feature-flags'
+import { enabledFlagsForOrganization } from '@/lib/workos/feature-flags'
 
 export interface PinnedRequester {
   userId: string
@@ -42,15 +42,23 @@ export interface PinnedRequester {
  *
  * Feature flags: under enforcement, EVERY flag enabled for the organization
  * (the JWT claim a live session carries is per user+org, and the org-level
- * answer is what the fleet-wide kill switch means). Resolving only the one flag
- * the first caller needed left every other gate on the path shut. Without
- * enforcement the gates read the environment and ignore the session, so `null`
- * there is the same thing a live session without the claim reports.
+ * answer is what the fleet-wide kill switch means); without enforcement the
+ * gates read the environment and ignore the session, so `null` there is the
+ * same thing a live session without the claim reports.
  *
- * A WorkOS lookup that could not complete fails closed by default: no
- * membership reads as "left", no flags read as "all off". An unattended caller
- * that can retry passes `{ onError: 'throw' }` and gets a
- * {@link TransientAuthzError} instead, so a blip never reads as a definite no.
+ * EVERY flag the organization has, not the one the first caller needed. This
+ * resolved only `agent-authored-documents`, and asked for it with the slug and
+ * the organization swapped, so under enforcement every pinned session carried
+ * no flags at all. A scheduled report could then never file
+ * (`isAgentAuthoredDocumentsEnabled` read the empty set), and the mail import
+ * (ADR-0085), which files through the upload path's `image-upload` gate, would
+ * have refused every picture. A flag lookup that fails throws, so the
+ * background work retries instead of acting with none.
+ *
+ * A membership lookup that could not complete fails closed by default (no
+ * membership reads as "left"). An unattended caller that can retry passes
+ * `{ onError: 'throw' }` and gets a `TransientAuthzError` instead, so a blip
+ * never reads as a definite no.
  */
 export async function resolvePinnedRequesterSession(
   requester: PinnedRequester,
@@ -64,7 +72,7 @@ export async function resolvePinnedRequesterSession(
 
   const [permissions, featureFlags] = await Promise.all([
     tenantRolePermissions(organizationId, membership.role),
-    enforcementOn() ? enabledFlagsForOrg(organizationId, options) : Promise.resolve(null),
+    enforcementOn() ? enabledFlagsForOrganization(organizationId) : Promise.resolve(null),
   ])
 
   return {
@@ -77,22 +85,5 @@ export async function resolvePinnedRequesterSession(
     role: membership.role,
     permissions: [...permissions],
     featureFlags,
-  }
-}
-
-/** Every flag enabled for the organization, as a session's claim carries them. */
-async function enabledFlagsForOrg(
-  organizationId: string,
-  options: AuthzLookupOptions,
-): Promise<string[]> {
-  try {
-    return [...(await enabledSlugsForOrg(organizationId))]
-  } catch (error) {
-    if (options.onError === 'throw') {
-      throw new TransientAuthzError('feature-flags', { cause: error })
-    }
-    // Fail closed: a flag lookup that broke is every flag off.
-    console.warn('[pinned-session] organization flag lookup failed; resolving no flags')
-    return []
   }
 }

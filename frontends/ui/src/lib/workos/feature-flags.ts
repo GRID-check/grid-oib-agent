@@ -98,6 +98,22 @@ export async function enabledSlugsForOrg(organizationId: string): Promise<Set<st
 }
 
 /**
+ * Every flag enabled for `organizationId`, for a session built without a token
+ * (`lib/auth/pinned-session.ts`): the set a live session's JWT claim would
+ * carry.
+ *
+ * A failed lookup THROWS rather than answering "none". Its callers are
+ * background work acting for a person, and "none" is not a refusal there but a
+ * silent wrong answer that sticks: the mail import would file every picture as
+ * "file type not accepted" (the `image-upload` gate) for as long as WorkOS was
+ * down, while a throw has the job retry once it is back.
+ */
+export async function enabledFlagsForOrganization(organizationId: string): Promise<string[]> {
+  if (!process.env.WORKOS_API_KEY) return []
+  return [...(await enabledSlugsForOrg(organizationId))]
+}
+
+/**
  * Whether `slug` is enabled for `organizationId`. Returns `defaultValue` when
  * there is no org, no WorkOS API key, or evaluation fails (fail-closed).
  */
@@ -268,7 +284,7 @@ export async function isTaskAutomationEnabledForOrg(
 
 /**
  * Whether the project email address is on for this org, WITHOUT a session: the
- * webhook and the drain act for an organization, not a signed-in person.
+ * webhook and the filing job act for an organization, not a signed-in person.
  *
  * The same two halves as `isProjectMailInboxEnabled` (authz/feature-flags):
  * enforcement on reads the per-org flag, enforcement off reads the opt-in env

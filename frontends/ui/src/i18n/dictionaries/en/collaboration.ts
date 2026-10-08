@@ -405,6 +405,15 @@ export const collaboration = {
         title: '"{subject}" is done',
         body: 'Piloti ran the job. The result is in the project under Automation.',
       },
+      // An Outlook archive was imported. {subject} is the archive's file name.
+      mailImportCompleted: {
+        title: '“{subject}” has been imported',
+        body: 'Piloti filed the emails and their attachments in the project under E-Mail-Import.',
+      },
+      mailImportFailed: {
+        title: 'The import of “{subject}” stopped',
+        body: 'What was imported until then stays in the project. The import list under Files gives the reason.',
+      },
       jobFailed: {
         title: '"{subject}" failed',
         body: 'The job could not be completed. The run history in the project names the reason.',

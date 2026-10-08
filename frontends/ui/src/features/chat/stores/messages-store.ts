@@ -17,6 +17,10 @@ import { errorConcernsTheThread, getErrorMeta } from '../lib/error-registry'
 import { foldTurnEvents, initialTurnView, type TurnView } from '../lib/turn-fold'
 import { projectTurn } from '../lib/turn-projection'
 import { useLayoutStore } from '@/features/layout/store'
+import type { ChatEffort } from '@/lib/reasoning-settings/catalog'
+
+/** The live send path; `reasoningEffort` runs one turn off the Aufwand dial. */
+export type ChatSendFn = (content: string, options?: { reasoningEffort?: ChatEffort }) => void
 
 export type MessagesSlice = {
   isStreaming: boolean
@@ -66,7 +70,7 @@ export type MessagesSlice = {
    * rendered in ChatArea — resend a message through the live send path. Not
    * persisted (see `partialize` in store.ts).
    */
-  chatSendFn: ((content: string) => void) | null
+  chatSendFn: ChatSendFn | null
 
   /**
    * Fold events into their turns and draw each changed turn into its
@@ -131,7 +135,7 @@ export type MessagesSlice = {
   /** Read and clear the queued composer prefill; returns null when empty. */
   consumeComposerPrefill: () => ComposerPrefill | null
   /** Register the live chat send callback (called by InputArea on mount). */
-  setChatSendFn: (fn: ((content: string) => void) | null) => void
+  setChatSendFn: (fn: ChatSendFn | null) => void
   /**
    * Resend the last user message of the current conversation — the retry
    * affordance on an errored answer. Sends through the registered `chatSendFn`
@@ -377,7 +381,7 @@ export const initialMessagesState = {
   composerPrefill: null as ComposerPrefill | null,
   composerSubject: null,
   composerDrafts: {} as Record<string, string>,
-  chatSendFn: null as ((content: string) => void) | null,
+  chatSendFn: null as ChatSendFn | null,
 }
 
 export const createMessagesSlice: StateCreator<

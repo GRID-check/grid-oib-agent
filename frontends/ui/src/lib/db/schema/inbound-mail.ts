@@ -15,7 +15,7 @@ import {
 import { projects } from './projects'
 
 /**
- * The project mail inbox (migration 0102, ADR-0075).
+ * The project mail inbox (migration 0109, ADR-0075).
  *
  * Storage only: address minting and parsing live in `lib/inbound-mail/address`,
  * the lifecycle in `lib/inbound-mail/service`. Neither table holds content.
@@ -43,7 +43,7 @@ export const inboundMailAddresses = pgTable(
     /**
      * NOTE: the database also has `uniq_inbound_mail_addresses_active_project`,
      * UNIQUE (project_id) WHERE revoked_at IS NULL — one active address per
-     * project. Partial, so it lives only in migration 0102, the same
+     * project. Partial, so it lives only in migration 0109, the same
      * arrangement as `documents_conversation_idx`.
      */
     idProjectOrgKey: unique('inbound_mail_addresses_id_project_org_key').on(
@@ -66,7 +66,7 @@ export const inboundMailAddresses = pgTable(
   })
 )
 
-export const INBOUND_MAIL_MESSAGE_STATUSES = ['queued', 'processing', 'filed', 'failed'] as const
+export const INBOUND_MAIL_MESSAGE_STATUSES = ['queued', 'filed', 'failed'] as const
 export type InboundMailMessageStatus = (typeof INBOUND_MAIL_MESSAGE_STATUSES)[number]
 
 /** One staged attachment: an object under the project's `inbound-mail/` prefix. */
@@ -86,8 +86,9 @@ export interface SkippedAttachment {
 }
 
 /**
- * One delivery to an address: the drain's durable queue and the idempotency
- * record. Never the mail; see migration 0102 for what it holds and for how long.
+ * One delivery to an address: what the `inbound_mail` job files from, the
+ * fence its jobs check, and the idempotency record. Never the mail; see
+ * migration 0109 for what it holds and for how long.
  */
 export const inboundMailMessages = pgTable(
   'inbound_mail_messages',
@@ -106,7 +107,7 @@ export const inboundMailMessages = pgTable(
      * NOTE: the database FK is COMPOSITE — `(folder_id, project_id)` ->
      * `project_folders (id, project_id)` with `ON DELETE SET NULL
      * ("folder_id")`. Drizzle cannot express a column-subset SET NULL, so it
-     * lives only in migration 0102, the arrangement `task_runs.definition_id`
+     * lives only in migration 0109, the arrangement `task_runs.definition_id`
      * has in 0086.
      */
     folderId: uuid('folder_id'),
@@ -116,9 +117,8 @@ export const inboundMailMessages = pgTable(
     skipped: jsonb('skipped').$type<SkippedAttachment[]>().notNull().default([]),
     filedCount: integer('filed_count').notNull().default(0),
     skippedCount: integer('skipped_count').notNull().default(0),
+    /** Failed filing attempts so far; the give-up counts these. */
     attempts: integer('attempts').notNull().default(0),
-    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
-    claimToken: uuid('claim_token'),
     lastError: text('last_error'),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -135,9 +135,8 @@ export const inboundMailMessages = pgTable(
       table.createdAt
     ),
     receivedIdx: index('inbound_mail_messages_received_idx').on(table.receivedAt),
-    // NOTE: `inbound_mail_messages_due_idx` (next_attempt_at WHERE queued) and
-    // `inbound_mail_messages_processing_idx` (updated_at WHERE processing) are
-    // PARTIAL indexes; they live only in migration 0102.
+    // NOTE: `inbound_mail_messages_queued_idx` (updated_at WHERE queued), the
+    // sweep's, is a PARTIAL index; it lives only in migration 0109.
     projectOrgFk: foreignKey({
       name: 'inbound_mail_messages_project_id_organization_id_fkey',
       columns: [table.projectId, table.organizationId],
@@ -155,7 +154,7 @@ export const inboundMailMessages = pgTable(
     }).onDelete('cascade'),
     statusKnown: check(
       'inbound_mail_messages_status_known',
-      sql`${table.status} IN ('queued', 'processing', 'filed', 'failed')`
+      sql`${table.status} IN ('queued', 'filed', 'failed')`
     ),
     deliveryKeyShape: check(
       'inbound_mail_messages_delivery_key_shape',
@@ -164,10 +163,6 @@ export const inboundMailMessages = pgTable(
     countsNonNegative: check(
       'inbound_mail_messages_counts_non_negative',
       sql`${table.filedCount} >= 0 AND ${table.skippedCount} >= 0 AND ${table.attempts} >= 0`
-    ),
-    claimedWhileProcessing: check(
-      'inbound_mail_messages_claimed_while_processing',
-      sql`(${table.status} = 'processing') = (${table.claimToken} IS NOT NULL)`
     ),
     stagedIsArray: check(
       'inbound_mail_messages_staged_is_array',

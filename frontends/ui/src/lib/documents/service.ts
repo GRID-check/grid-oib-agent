@@ -18,13 +18,13 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import {
   s3Client,
   signingS3Client,
-  bucketAdminS3Client,
+  presignForBackend,
   buildImageStorageKey,
-  buildStorageKey,
   buildThumbnailStorageKey,
 } from '@/lib/s3'
-import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
+import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
@@ -38,32 +38,28 @@ import {
   UpstreamError,
 } from '@/lib/api/errors'
 import { ALLOWED_TAGS } from './tag-vocabulary'
-import { contentDigest } from './content-digest'
 import { documentStatusFacts } from './document-status'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING } from './reingest-codes'
-import { documentNameCandidates, documentNameKey } from './name-match'
-import type { AuthzErrorMode } from '@/lib/authz/errors'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
-import { assertWithinStorageQuota } from '@/lib/storage/service'
-import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
-import { retryRacedUpload } from '@/lib/documents/unique-conflicts'
 import {
   FEATURE_FLAGS,
-  isCollaborationEnabled,
   isFeatureEnabled,
   isIfcModelsEnabled,
 } from '@/lib/authz/feature-flags'
-import { listAssignmentsWithoutAccessCheck, type AssignedPerson } from '@/lib/assignments/service'
 import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
 import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import { assertNoActiveHold } from '@/lib/compliance/holds'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document, DocumentAuthor } from '@/lib/db/schema'
-import { reconcileDocumentStatuses, describeBackendIngestState, type DocumentMetadata } from './reconcile-status'
+import { reconcileDocumentStatuses, describeBackendIngestState } from './reconcile-status'
+import { toListedDocuments, toListedPage, type ListedDocument } from './shelf-listing'
+import { projectShelf } from './shelf'
+import { uploadToShelf, type UploadAuditChannel, type UploadDocumentResult } from './shelf-upload'
+import { resolveDocumentFolderPath } from './folder-path'
 import {
   collectionFileRef,
   collectionFileUrl,
@@ -73,7 +69,6 @@ import {
   deleteProjectDocument,
   documentExistsInCollection,
   findDocumentInOrg,
-  findFolderPathInProject,
   findStorageKeyByCollectionAndFilename,
   findStorageKeyByIdAndCollection,
   listProjectDocumentPage,
@@ -83,18 +78,34 @@ import {
   markDocumentIngestFailed,
   markDocumentProcessing,
   setDocumentDisplayName,
+  setDocumentBackgroundJob,
   setDocumentIngestJob,
   setDocumentReconciledStatus,
-  findLiveDocumentByFilename,
+  listFailedDocumentPageInOrg,
   type DocumentListRow,
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
 import { decodeTextBytes } from '@/lib/text/decode-text'
-import { encodeDocumentListCursor, type DocumentListCursor } from './list-cursor'
+import type { DocumentListCursor } from './list-cursor'
+import { withTenant } from '@/lib/db/tenant-context'
 import { runBimExtraction } from '@/lib/bim/service'
+import { enqueueJob } from '@/lib/jobs-queue/enqueue'
+import { findOpenJobId } from '@/lib/jobs-queue/repository'
+import {
+  BFF_JOB_PRIORITY,
+  emptyCounts,
+  FAILED_NAMES_KEPT,
+  requesterOf,
+  type BffJobPriority,
+  type BimExtractPayload,
+  type JobAttempt,
+  type JobCounts,
+  type JobSliceResult,
+  type OfficeRenditionPayload,
+  type ReindexProjectPayload,
+  type ReingestFailedPayload,
+} from '@/lib/jobs-queue/types'
 import { getAccessibleDocument } from './access'
-import { nextVersionNumber, recordUploadedVersionOrDiscard } from './lifecycle'
-import { newVersionWriteId, versionWriteKey } from './version-content'
 import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
@@ -328,7 +339,21 @@ export interface DispatchIngestExtras {
    * the dispatch's decision (`extractsFromRendition`), never the backend's.
    */
   extractionRef?: string | null
+  /**
+   * `bulk` for work nobody is waiting on (a reindex, a rescan): inside one
+   * organization the backend claims an interactive ingest first (ADR-0081).
+   * Absent is interactive, and the field is then not sent at all, so a person's
+   * upload is byte for byte what it was before the field existed.
+   */
+  priority?: IngestPriority
 }
+
+/**
+ * The two priorities `POST /v1/ingest` accepts. `ingest-priority-contract.spec.ts`
+ * pins this list to the backend's `IngestRequest.priority`.
+ */
+export const INGEST_PRIORITIES = ['interactive', 'bulk'] as const
+export type IngestPriority = (typeof INGEST_PRIORITIES)[number]
 
 /**
  * What a published Piloti document carries into the retrieval index.
@@ -385,10 +410,9 @@ export async function dispatchIngest(
   // sign with the internal-endpoint client, not the browser-facing one.
   // The ingest JOB downloads it, not the request, and the job may start long
   // after dispatch behind the bounded ingest queue: see the constant.
-  const presignedUrl = await getSignedUrl(
-    s3Client,
+  const presignedUrl = await presignForBackend(
     new GetObjectCommand({ Bucket: bucket, Key: storageKey }),
-    { expiresIn: INGEST_JOB_REF_TTL_SECONDS }
+    INGEST_JOB_REF_TTL_SECONDS
   )
 
   // Presigned upload slot for the 200px JPEG thumbnail the ingest pipeline
@@ -397,15 +421,14 @@ export async function dispatchIngest(
   // write capability to a shared path rather than to this document's own.
   const thumbnailUploadKey = buildThumbnailStorageKey(storageKey)
   const thumbnailUploadUrl = thumbnailUploadKey
-    ? await getSignedUrl(
-        signingS3Client,
+    ? await presignForBackend(
         new PutObjectCommand({
           Bucket: bucket,
           Key: thumbnailUploadKey,
           ContentType: 'image/jpeg',
         }),
         // Written by the same job at its end, so it must outlive the queue too.
-        { expiresIn: INGEST_JOB_REF_TTL_SECONDS }
+        INGEST_JOB_REF_TTL_SECONDS
       )
     : null
 
@@ -444,6 +467,8 @@ export async function dispatchIngest(
     // old derivation for the one caller that genuinely ingests a different
     // file than the row names — the IFC digest.
     file_name: extras.fileName ?? null,
+    // Only a bulk dispatch says so: the backend's default is interactive.
+    ...(extras.priority === 'bulk' ? { priority: 'bulk' } : {}),
     // Absent for every human document, and the Python side treats absent,
     // null and a non-agent author identically (`parse_agent_provenance`).
     // Spread so the four keys are the four keys, never a nested object the
@@ -512,35 +537,7 @@ export async function listDocumentsPage(
     includeArchived: options.includeArchived,
     cursor: options.cursor,
   })
-  const nextCursor = page.nextCursor ? encodeDocumentListCursor(page.nextCursor) : null
-  return { documents: await toListedDocuments(session, page.rows), nextCursor }
-}
-
-/**
- * What a project row needs before it leaves the BFF, whichever query found it:
- * the listing page or a by-name lookup. The CALLER has already checked
- * `project:view` for the project every row was read from.
- */
-async function toListedDocuments(
-  session: AuthorizedSession,
-  rows: DocumentListRow[]
-): Promise<ListedDocument[]> {
-  // Pending rows are lazily reconciled with the backend's ingestion state;
-  // without this they would stay 'pending' forever (no completion callback).
-  const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
-
-  const listed = reconciled.map(({ metadata: _metadata, ...row }) => row)
-
-  if (!isCollaborationEnabled(session) || listed.length === 0) {
-    return listed.map((row) => ({ ...row, assignees: [] }))
-  }
-
-  const grouped = await listAssignmentsWithoutAccessCheck(
-    session,
-    'document',
-    listed.map((row) => row.id)
-  )
-  return listed.map((row) => ({ ...row, assignees: grouped[row.id] ?? [] }))
+  return toListedPage(session, page)
 }
 
 /**
@@ -594,18 +591,7 @@ export async function probeProjectDocumentNames(
   return findProjectDocumentsByNames(projectId, session.organizationId, names)
 }
 
-/**
- * One row of a document listing.
- *
- * `assignees` is part of it. It used to be added by the two `return`s below and
- * left out of the signature, which type-checks (nothing rejects an extra
- * property on a spread) and is a lie every caller then has to work around: the
- * wire projection could not see the field it is required to serialize, and
- * anything reading a listing had to re-widen the type to find the faces it
- * renders.
- */
-export type ListedDocument = Omit<DocumentListRow, 'metadata'> &
-  DocumentMetadata & { assignees: AssignedPerson[] }
+export type { ListedDocument }
 
 /**
  * A single hit from the backend's document-centric semantic search
@@ -803,95 +789,13 @@ export interface UploadDocumentInput {
    * for why this is not Piloti's own folder path.
    */
   originPath?: string | null
-  /**
-   * What an upload does when a live document in the project already has this
-   * name. The project's live-name index is per PROJECT, not per folder, so the
-   * name may belong to a document anywhere in it.
-   *
-   *   - `'version'` (the default, what a person dropping a file means): these
-   *     bytes become the next version of that document, which moves into this
-   *     upload's folder.
-   *   - `'suffix'` (unattended intake, where the name is a coincidence): the
-   *     document is left alone and this one is filed under the first free
-   *     `Name (2).ext`, `Name (3).ext` … A candidate that is already a document
-   *     in THIS folder with THESE bytes answers `unchanged` whatever its status,
-   *     so a retried filing lands once.
-   */
-  onNameTaken?: OnNameTaken
-  /**
-   * The intake channel, for uploads no person made at a screen. Recorded on the
-   * `document.uploaded` event as `channel` and `channelRef`.
-   */
+  /** See `ShelfUploadInput.priority`: `bulk` for a machine filing on a person's behalf. */
+  priority?: IngestPriority
+  /** See `ShelfUploadInput.audit`: the intake channel of an upload no person made at a screen. */
   audit?: UploadAuditChannel
-  /**
-   * What an authorization lookup that could not complete does: deny (a 404,
-   * the default for a person at a screen) or throw `TransientAuthzError` so an
-   * unattended caller retries. Defaults to `'throw'` when `audit` names a
-   * channel, since only such a caller has a retry to fall back on.
-   */
-  onAuthzError?: AuthzErrorMode
 }
 
-export type OnNameTaken = 'version' | 'suffix'
-
-export interface UploadAuditChannel {
-  channel: 'inbound-mail'
-  /** The channel's own id for this delivery, e.g. the inbound-mail message row. */
-  ref: string
-}
-
-/** Longest origin path recorded. Deep office trees exist; unbounded text does not belong in a row. */
-const ORIGIN_PATH_MAX_CHARS = 1024
-
-/**
- * A browser-reported origin path, made safe to store and to show.
- *
- * This string is USER-CONTROLLED — it is whatever the operating system had in
- * a folder name — and it is rendered back to other people in the same
- * organization, so it is treated the way every other piece of uploaded text is:
- * bounded, normalised, and stripped of the characters that would let it
- * pretend to be something else.
- *
- * Backslashes become forward slashes so a Windows tree and a macOS one read
- * alike. Leading slashes, `.` and `..` segments are dropped: this is a label,
- * never a path anything resolves, and an absolute or climbing path in a label
- * is only ever a way to mislead a reader about where a file came from. Control
- * characters go for the same reason a filename's do.
- */
-function sanitizeOriginPath(raw: string | null | undefined): string | null {
-  if (typeof raw !== 'string') return null
-  const segments = raw
-    .replace(/\\/g, '/')
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001f\u007f]/g, '')
-    .split('/')
-    .map((segment) => segment.trim())
-    .filter((segment) => segment !== '' && segment !== '.' && segment !== '..')
-  if (segments.length === 0) return null
-  const joined = segments.join('/')
-  return joined.slice(0, ORIGIN_PATH_MAX_CHARS) || null
-}
-
-export interface UploadDocumentResult {
-  documentId: string
-  jobId: string | null
-  /**
-   * `processing` is the IFC path: extraction runs in this process and there is
-   * no backend job to report yet, but the document is genuinely being worked on
-   * — reporting the `uploaded` birth status would hide that work behind a
-   * terminal "Abgelegt" badge for a model that is about to become openable.
-   */
-  status: 'pending' | 'uploaded' | 'failed' | 'processing'
-  /** The name the document was filed under: `Plan (2).pdf` when `'suffix'` numbered it. */
-  filename: string
-  /**
-   * The bytes were already the live document's, so nothing was written and no
-   * version was made. The browser says „Unverändert – bereits vorhanden" from
-   * it where it could not know beforehand (no stored digest, no
-   * `crypto.subtle`).
-   */
-  unchanged: boolean
-}
+export type { UploadDocumentResult }
 
 /** Lowercased extension including the leading dot, or '' when there is none. */
 function fileExtension(name: string): string {
@@ -937,399 +841,26 @@ export async function assertUploadTypeAllowed(
 }
 
 /**
- * Server-side file-size enforcement: guards the S3 upload against oversized
- * payloads even when the client allows them (the client check is a UX courtesy).
- * Reuses the env-based config that also drives the client-side max, so both
- * layers are governed by one source of truth.
+ * Server-side file-size enforcement, against the organization's per-file limit
+ * (or `BIM_MAX_IFC_BYTES` for a model). Lives with the limit it enforces;
+ * re-exported here because the upload paths take their admission checks from
+ * this module.
  */
-export function assertFileSizeAllowed(sizeBytes: number, filename?: string): void {
-  // `ifcUploadEnabled: true` only to READ the IFC ceiling — whether a `.ifc`
-  // may be uploaded at all is `assertUploadTypeAllowed`'s job, and it has
-  // already run by the time a size is being checked. Without the filename the
-  // caller gets the general limit, which is the safe direction.
-  const { maxFileSize, maxIfcFileSize } = getFileUploadConfigFromEnv(process.env, {
-    ifcUploadEnabled: true,
-  })
-  const ceiling = filename && isIfcFilename(filename) ? maxIfcFileSize : maxFileSize
-  if (sizeBytes > ceiling) {
-    const maxSizeMB = Math.round(ceiling / (1024 * 1024))
-    throw new BadRequestError(`File exceeds the maximum allowed size of ${maxSizeMB} MB`, {
-      fileSize: sizeBytes,
-      maxSizeBytes: ceiling,
-    })
-  }
-}
+export { assertFileSizeAllowed } from '@/lib/storage/upload-limit'
 
 /**
  * Store an uploaded file in SeaweedFS, record it, and hand it to the backend for
- * ingestion. The ingest call is best-effort: the document is already durable
- * in SeaweedFS + Postgres, and status reads reconcile the outcome later.
+ * ingestion — the project's name for the shelf-parameterised pipeline in
+ * `./shelf-upload`, which the Archiv shares. Requires `project:documents:write`
+ * (or `project:edit`) on the project.
  */
-export async function uploadDocument(
+export function uploadDocument(
   session: AuthorizedSession,
   input: UploadDocumentInput,
-  /**
-   * The browser's request, for the audit actor's IP and user agent. Absent for
-   * an upload no person made at a screen: the trail then records no IP and no
-   * user agent rather than a relay's.
-   */
-  request?: Request
+  request: Request
 ): Promise<UploadDocumentResult> {
-  const { projectId, folderId, file } = input
-  const originPath = sanitizeOriginPath(input.originPath)
-  const onNameTaken = input.onNameTaken ?? 'version'
-  const onAuthzError = input.onAuthzError ?? (input.audit ? 'throw' : 'deny')
-
-  await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'], {
-    onError: onAuthzError,
-  })
-  await assertUploadTypeAllowed(session, file.name)
-  assertFileSizeAllowed(file.size, file.name)
-  // Org-wide ceiling, checked after the per-file one so the caller gets the
-  // more specific complaint first, and BEFORE any bytes reach SeaweedFS so a
-  // refusal leaves no orphan object behind (ADR-0042).
-  await assertWithinStorageQuota(session.organizationId, file.size)
-
-  let folderPath: string | null = null
-  if (folderId) {
-    folderPath = await findFolderPathInProject(folderId, projectId, session.organizationId)
-    if (folderPath === null) throw new NotFoundError('Folder not found in project')
-  }
-
-  const project = await findProjectInOrg(projectId, session.organizationId)
-  if (!project) throw new NotFoundError('Project not found')
-
-  const collectionName = project.collectionName
-
-  /*
-   * A RE-UPLOAD REPLACES; IT DOES NOT ACCUMULATE.
-   *
-   * This used to mint a fresh id and insert unconditionally. There is no unique
-   * index on (collection, filename), so a second upload of the same name wrote
-   * a second row and a second stored object charged to the organization's
-   * quota — while the ingest pipeline's `_replace_previous_versions` deletes
-   * chunks BY FILENAME, so the newcomer's chunks replaced the incumbent's. The
-   * first row survived: listed, downloadable, cited by nothing, findable by
-   * nothing. A ghost, and a paid-for one.
-   *
-   * The backend already treats the filename as the document's identity. This
-   * makes the row agree: the SAME id is pointed at the new bytes, so every
-   * citation, chat subject and folder assignment that referenced the document
-   * keeps working, and re-dropping a corrected plan does what a person dropping
-   * it means by the gesture.
-   *
-   * Deliberately not a 409. Refusing the upload would be defensible if the two
-   * files were unrelated, but the pipeline downstream has already decided they
-   * are the same document, and a refusal leaves the reader with the OLD file
-   * and no way to say "no, this one".
-   */
-  /*
-   * The name, in ONE Unicode form.
-   *
-   * `file.name` is whatever the operating system that produced it uses, and
-   * macOS decomposes. Normalizing here — before the probe, before the storage
-   * key and before the row — is what makes the identity above hold for a büro
-   * that drags an Einreichung off a Mac: without it the probe misses, a second
-   * row appears under a name nobody can tell apart from the first, and the
-   * ingest pipeline replaces the chunks of the one it did not create.
-   * `findLiveDocumentByFilename` still looks for both forms, because rows
-   * written before this line exist. See `./name-match`.
-   */
-  const requestedName = documentNameKey(file.name)
-
-  // Create the organization's bucket if this is its first upload (ADR-0043).
-  // A no-op — not even a round trip — when per-org buckets are off. Done before
-  // the PUT so a provisioning failure leaves nothing behind, same reasoning as
-  // the quota check above.
-  const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
-
-  const bytes = Buffer.from(await file.arrayBuffer())
-  /*
-   * The digest, taken here because the bytes are already in hand.
-   *
-   * It is what makes a folder RE-upload cheap: the browser hashes only the
-   * files whose name and size already match something in the project, and sends
-   * the ones whose digest differs. Hashing on this side rather than trusting
-   * the client's is not a security stance — the client's digest is only ever
-   * compared, never stored — it is so that the recorded value describes the
-   * bytes this tier actually wrote.
-   *
-   * The value's shape — algorithm and all — lives in `./content-digest`,
-   * because the Archiv and a conversation's attachments write the same column
-   * and a digest only one of them changed would classify every file as changed.
-   */
-  const contentHash = contentDigest(bytes)
-
-  /*
-   * Probe, store, admit — and once more when a concurrent FIRST upload of this
-   * name won the shelf (`retryRacedUpload`). The second run re-probes, finds
-   * the winner, and records these bytes as its next version, exactly as the
-   * same two drops one after the other would have.
-   */
-  const placed = await retryRacedUpload(async () => {
-    const target =
-      onNameTaken === 'suffix'
-        ? await resolveSuffixedTarget(session.organizationId, collectionName, requestedName, {
-            folderId: folderId ?? null,
-            contentHash,
-          })
-        : await resolveVersionedTarget(session.organizationId, collectionName, requestedName)
-    if (target.kind === 'unchanged') {
-      return { unchanged: true as const, documentId: target.documentId, filename: target.filename }
-    }
-    const { superseded, filename } = target
-    const documentId = superseded?.id ?? crypto.randomUUID()
-    /*
-     * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).
-     *
-     * The id is deliberately kept — that is what makes citations, chat subjects
-     * and folder assignments survive a corrected plan — but the key used to be
-     * derived from the id alone, so the new bytes landed on top of the old ones
-     * and `discardSupersededObjects` tidied up what was left. That is versioning
-     * without the history. Version 1 keeps today's key exactly, so nothing that
-     * predates this moves; a re-upload lands under `v<n>/<write id>/`, and the
-     * previous version's row still names an object a reader can open.
-     *
-     * A re-upload ALWAYS gets the write segment (`versionWriteKey`), never the
-     * version-1 shortcut: the number is a hint, and it reads 1 whenever the
-     * existing row has no version recorded yet — the winner of a concurrent
-     * first upload, between its insert and its version — which would aim this
-     * PUT at the winner's own flat key and overwrite its bytes. The row's number
-     * is allocated under a lock when the version is recorded
-     * (`allocateVersionNumber`).
-     */
-    const baseKey = buildStorageKey(session.organizationId, projectId, documentId, filename, folderPath)
-    const storageKey = superseded
-      ? versionWriteKey(
-          baseKey,
-          await nextVersionNumber(documentId, session.organizationId),
-          newVersionWriteId()
-        )
-      : baseKey
-
-    /*
-     * THE SAME BYTES, ALREADY HERE. Nothing to do.
-     *
-     * A folder re-sync is mostly this: a büro drops the project directory again
-     * to bring three corrected drawings in, and five hundred files that have not
-     * changed come along with them. The planner already skips the ones it can
-     * prove are identical — but it can only prove it where the row carries a
-     * digest, so a corpus that predates `content_hash`, a browser without
-     * `crypto.subtle`, and every non-secure context all fall through to here.
-     *
-     * This tier has the bytes and the row, so it can answer. Answering saves the
-     * object write, the quota round trip, and — the expensive one — a full
-     * re-ingest that would churn the chunks a citation already points at, for a
-     * file that did not change.
-     *
-     * Deliberately narrow. Only when the row has actually LANDED — a failed, a
-     * still-processing and an unrecognised status must all be allowed to retry,
-     * which is why the test is the status vocabulary's own `success` and not a
-     * list of spellings written out again here — and only when it is already
-     * filed where this upload would file it, because otherwise the re-file IS the
-     * gesture and skipping would drop it.
-     *
-     * No audit event either, and that is the point rather than an omission: the
-     * trail records who brought which file into which project, and this brought
-     * nothing.
-     */
-    if (
-      superseded &&
-      superseded.contentHash === contentHash &&
-      documentStatusFacts(superseded.status)?.variant === 'success' &&
-      (superseded.folderId ?? null) === (folderId ?? null)
-    ) {
-      return { unchanged: true as const, documentId, filename }
-    }
-
-    await s3Client.send(
-      new PutObjectCommand({
-        Bucket: storageBucket,
-        Key: storageKey,
-        Body: bytes,
-        ContentType: file.type || 'application/octet-stream',
-      })
-    )
-
-    // The quota's HARD ceiling: the usage is re-read inside the same transaction
-    // that inserts the row, under a per-organization lock, so concurrent uploads
-    // cannot jointly cross the limit the way the pre-check above allows (ADR-0042).
-    //
-    // The object is already written, so a refusal has to take it back — the row was
-    // not inserted, so nothing else will ever reference those bytes and leaving
-    // them would be an orphan that only a bucket-wide sweep could find.
-    if (superseded) {
-      // The FULL size is charged: the previous bytes stay behind as the
-      // superseded version, so the correction frees nothing — see
-      // `replaceDocumentWithinQuota`.
-      await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
-        storageKey,
-        storageBucket,
-        fileSize: file.size,
-        contentType: file.type || null,
-        contentHash,
-        folderId: folderId ?? null,
-        createdBy: session.userId,
-      })
-      // NOTHING is discarded here any more. The previous bytes are the previous
-      // VERSION's bytes now (ADR-0054), and a superseded version whose object was
-      // deleted is a row in the history that opens nothing. They go when the
-      // document is deleted — `deleteDocument` walks every version — or when a
-      // retention policy that does not exist yet says so.
-    } else {
-      // A `LiveFilenameTakenError` out of here is the lost first-upload race:
-      // the object is already discarded and nothing was charged, so the retry
-      // around this closure starts clean.
-      await admitOrDiscard(storageBucket, storageKey, {
-        id: documentId,
-        organizationId: session.organizationId,
-        projectId,
-        folderId: folderId ?? null,
-        createdBy: session.userId,
-        filename,
-        storageKey,
-        // Recorded even when it IS the shared bucket, so only rows predating
-        // migration 0033 rely on the NULL-means-shared convention.
-        storageBucket,
-        collectionName,
-        fileSize: file.size,
-        contentType: file.type || null,
-        contentHash,
-        originPath,
-        status: 'uploaded',
-      })
-    }
-    return {
-      unchanged: false as const,
-      documentId,
-      filename,
-      storageKey,
-      replaced: Boolean(superseded),
-    }
-  })
-
-  if (placed.unchanged) {
-    return {
-      documentId: placed.documentId,
-      jobId: null,
-      status: 'uploaded',
-      filename: placed.filename,
-      unchanged: true,
-    }
-  }
-  const { documentId, filename, storageKey, replaced } = placed
-
-  // The version, recorded through the SAME transition table the agent's drafts
-  // walk (ADR-0054). Born `published` and born approved: the person who
-  // uploaded it is the assertion, so the `published requires an approver` CHECK
-  // is satisfied honestly rather than worked around, and no review round is
-  // invented for a gesture that never asked for one. Handed the columns THIS
-  // request stored, not re-read off a row an overlapping upload may have
-  // rewritten in the meantime.
-  await recordUploadedVersionOrDiscard(session, documentId, request, {
-    storageKey,
-    storageBucket,
-    contentType: file.type || null,
-    fileSize: file.size,
-    contentHash,
-  })
-
-  const { jobId: ingestJobId, status: ingestStatus } = await dispatchDocument({
-    organizationId: session.organizationId,
-    projectId,
-    documentId,
-    filename,
-    storageKey,
-    storageBucket,
-    collectionName,
-    // Already resolved above for the storage key — the same path is what the
-    // backend files the document under (ADR-0049), so the agent's inventory and
-    // `knowledge_search folder=` see the folder from the first ingest onward.
-    folderPath,
-  })
-
-  // Data-provenance event: who brought which file into which project.
-  await recordAuditEvent({
-    organizationId: session.organizationId,
-    actor: { userId: session.userId, email: session.email },
-    action: 'document.uploaded',
-    targetType: 'document',
-    targetId: documentId,
-    // Filename is user-controlled — cap it before it reaches the trail.
-    // `replaced` distinguishes a new document from new bytes under an existing
-    // id, which is the one thing the trail could no longer infer from the id.
-    metadata: {
-      projectId,
-      filename: filename.slice(0, 200),
-      fileSize: file.size,
-      ...(replaced ? { replaced: true } : {}),
-      // An upload no person made at a screen names its channel, and the
-      // channel's own id for the delivery, so the trail can tell a mailed
-      // attachment from a dropped file (review finding E13).
-      ...(input.audit ? { channel: input.audit.channel, channelRef: input.audit.ref.slice(0, 200) } : {}),
-    },
-    request,
-  })
-
-  return {
-    documentId,
-    jobId: ingestJobId,
-    status: ingestStatus,
-    filename,
-    unchanged: false,
-  }
+  return uploadToShelf(session, projectShelf(input.projectId), input, request)
 }
-
-type LiveDocumentRow = NonNullable<Awaited<ReturnType<typeof findLiveDocumentByFilename>>>
-
-/** Where an upload lands: a name, and the live document it replaces, if any. */
-type UploadTarget =
-  | { kind: 'place'; filename: string; superseded: LiveDocumentRow | null }
-  | { kind: 'unchanged'; filename: string; documentId: string }
-
-/** `'version'`: the name is the document's identity; whatever holds it is replaced. */
-async function resolveVersionedTarget(
-  organizationId: string,
-  collectionName: string,
-  filename: string
-): Promise<UploadTarget> {
-  const superseded = await findLiveDocumentByFilename(organizationId, collectionName, filename)
-  return { kind: 'place', filename, superseded }
-}
-
-/**
- * `'suffix'`: never touch a document this upload did not make.
- *
- * Walks `Name.ext`, `Name (2).ext` … and stops at the first candidate that is
- * either free, or already THIS file in THIS folder (same content hash, any
- * status), which answers `unchanged` so a retried delivery files once. A
- * candidate held by anything else, in another folder or with other bytes, is
- * stepped over. Runs inside `retryRacedUpload`: a concurrent upload that takes
- * the free candidate first is refused by the live-name index, and the retry
- * walks on from there.
- */
-async function resolveSuffixedTarget(
-  organizationId: string,
-  collectionName: string,
-  requestedName: string,
-  mine: { folderId: string | null; contentHash: string }
-): Promise<UploadTarget> {
-  for (const filename of documentNameCandidates(requestedName, SUFFIX_CANDIDATE_LIMIT)) {
-    const holder = await findLiveDocumentByFilename(organizationId, collectionName, filename)
-    if (!holder) return { kind: 'place', filename, superseded: null }
-    if ((holder.folderId ?? null) === mine.folderId && holder.contentHash === mine.contentHash) {
-      return { kind: 'unchanged', filename, documentId: holder.id }
-    }
-  }
-  throw new ConflictError('No free name for this file in the project', { reason: 'no_free_name' })
-}
-
-/**
- * How many numbered names a suffixed upload tries before giving up. Each is one
- * indexed probe; a project holding a hundred files of one name is already
- * pathological, and this keeps a single upload from walking further than that.
- */
-const SUFFIX_CANDIDATE_LIMIT = 100
 
 export interface BeginModelExtractionInput {
   organizationId: string
@@ -1346,6 +877,8 @@ export interface BeginModelExtractionInput {
    * have no folders and simply omit it.
    */
   folderPath?: string | null
+  /** See {@link DispatchIngestExtras.priority}. Set by the reindex and rescan jobs. */
+  priority?: IngestPriority
 }
 
 /**
@@ -1505,7 +1038,7 @@ export async function dispatchDocument(
     // The ROW's filename, not the caller's: the join key belongs to the row,
     // and this is the same "never trust the caller" argument the guard above
     // makes about authorship.
-    { fileName: row.filename, provenance: input.provenance ?? null }
+    { fileName: row.filename, provenance: input.provenance ?? null, priority: input.priority }
   )
 }
 
@@ -1525,121 +1058,282 @@ function mayBeIndexed(
 }
 
 /**
- * Kick off IFC extraction for a stored `.ifc` object and return the same shape
- * `dispatchIngest` does, so the upload path stays one expression.
- *
- * Extraction is DETACHED, not awaited. A 60 MB model takes tens of seconds to
- * parse, and the caller is an HTTP request that has already stored the bytes —
- * blocking it would trade a durable upload for a gateway timeout. The document
- * is marked `processing` first, so the row never renders as a green "Ready"
- * for a model that cannot be opened yet, and every terminal outcome writes the
- * row again:
- *
- *   - parse succeeded → the digest is dispatched, which sets `pending` + job id
- *   - parse failed    → `failed` with the reason, and a `bim_models` row that
- *                       records the same thing for the model surfaces
- *
- * The tradeoff this accepts: a process restart mid-parse leaves the document at
- * `processing` and the model at `extracting`. That is visible in both places
- * and recoverable through the ordinary re-ingest action, which is a better
- * failure than a lost upload.
+ * The queue priority of work the way ingestion names it: a person's upload is
+ * `interactive` (the default), a reindex or a rescan says `bulk`.
  */
-export async function beginModelExtraction(
-  input: BeginModelExtractionInput
-): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' | 'processing' }> {
-  await markDocumentProcessing(input.documentId, input.organizationId)
+function jobPriorityOf(priority: IngestPriority | undefined): BffJobPriority {
+  return BFF_JOB_PRIORITY[priority ?? 'interactive']
+}
 
-  void runBimExtraction({
-    organizationId: input.organizationId,
+/** The part of a dispatch every background document job carries. */
+function documentWorkPayload(input: DispatchDocumentInput) {
+  return {
     projectId: input.projectId,
     documentId: input.documentId,
     filename: input.filename,
     storageKey: input.storageKey,
     storageBucket: input.storageBucket,
-    // No `fileName`: what is ingested here is the Markdown DIGEST, not the
-    // model the row names, so the backend's own derivation from the presigned
-    // URL (`digest.md`) is what these chunks have always been filed under.
-    // Stating `input.filename` would rename them to `haus.ifc` and orphan every
-    // chunk already written under the old name. That the row's purge therefore
-    // addresses a name its chunks do not carry is a defect this change did not
-    // introduce and does not fix — see the note in the slice report.
-    dispatchDigest: (digestStorageKey) =>
-      dispatchIngest(
-        input.documentId,
-        input.collectionName,
-        digestStorageKey,
-        input.organizationId,
-        input.storageBucket,
-        input.folderPath ?? null
-      ),
-  })
-    .then(async (outcome) => {
-      if (outcome.status === 'failed') {
-        await markDocumentIngestFailed(
-          input.documentId,
-          input.organizationId,
-          outcome.error ?? 'IFC extraction failed'
-        )
-      }
-    })
-    .catch(async () => {
-      // runBimExtraction is written not to throw; this is the belt to its
-      // braces, so an unexpected failure still leaves a truthful row rather
-      // than a document stuck at 'processing' forever.
-      await markDocumentIngestFailed(
-        input.documentId,
-        input.organizationId,
-        'IFC extraction failed'
-      ).catch(() => undefined)
-    })
-
-  return { jobId: null, status: 'processing' }
+    collectionName: input.collectionName,
+    folderPath: input.folderPath ?? null,
+    versionId: input.versionId ?? null,
+    priority: input.priority ?? ('interactive' as const),
+  }
 }
 
 /**
- * Convert an office original to its PDF rendition, then ingest — DETACHED,
- * like {@link beginModelExtraction} and for the same reason (ADR-0071).
+ * Hand a stored document's background work to the `bff-jobs` pool and say so on
+ * the row.
+ *
+ * The row is `processing` before this is called, so it never reads as a green
+ * "Ready" for work nobody has done. The job is the work's only owner from here:
+ * it outlives this request and the process that took it, and it is claimed
+ * fairly across organizations, so a person's upload waits behind their own
+ * office's work at most, never behind another's.
+ *
+ * A job of this kind already open for the SAME object is returned instead of a
+ * second one: a retry, a reindex and the sweep that recovers stranded rows all
+ * arrive here for a row that may already be queued. The object's key is part of
+ * the match, so a document whose bytes were replaced while the first job
+ * waited still gets a job for the new bytes.
+ *
+ * When the queue cannot be written the row says so and the caller is told
+ * `failed`, exactly as a backend that refuses an ingest is. A row left at
+ * `processing` with nothing behind it would read as work in progress for good.
+ */
+async function queueDocumentWork(
+  kind: 'bim_extract' | 'office_rendition',
+  input: DispatchDocumentInput,
+  payload: Record<string, unknown>
+): Promise<DispatchDocumentResult> {
+  try {
+    // The document's own organization, stated: callers reach this from a
+    // request, an effect and a sweep, and the queue's policy compares the lane
+    // to the tenant.
+    await withTenant({ organizationId: input.organizationId }, async () => {
+      const matching = { documentId: input.documentId, storageKey: input.storageKey }
+      const open = await findOpenJobId({ kind, organizationId: input.organizationId, matching })
+      const jobId =
+        open ??
+        (
+          await enqueueJob({
+            kind,
+            organizationId: input.organizationId,
+            priority: jobPriorityOf(input.priority),
+            payload,
+          })
+        ).jobId
+      await setDocumentBackgroundJob(input.documentId, input.organizationId, jobId)
+    })
+    return { jobId: null, status: 'processing' }
+  } catch (error) {
+    console.warn(
+      `[documents] ${kind} could not be queued:`,
+      error instanceof Error ? error.message : String(error)
+    )
+    await markDocumentIngestFailed(input.documentId, input.organizationId, INGEST_DISPATCH_FAILED_MESSAGE).catch(
+      () => undefined
+    )
+    return { jobId: null, status: 'failed' }
+  }
+}
+
+/**
+ * Queue IFC extraction for a stored `.ifc` object and return the same shape
+ * `dispatchIngest` does, so the upload path stays one expression.
+ *
+ * Extraction is a JOB (`bim_extract`), not awaited and not detached in this
+ * process. A 60 MB model takes tens of seconds to parse and several times its
+ * own size in memory, and the caller is an HTTP request that has already stored
+ * the bytes: parsing here would trade a durable upload for a gateway timeout,
+ * and parsing on the user-facing pod would put it on the event loop that also
+ * proxies chat. The `bff-jobs` pool parses it instead (ADR-0081), bounded by its
+ * concurrency and scaled on the queue. The document is marked `processing`
+ * first, so the row never renders as a green "Ready" for a model that cannot be
+ * opened yet, and every terminal outcome of the job writes the row again
+ * ({@link runBimExtractJob}):
+ *
+ *   - parse succeeded → the digest is dispatched, which sets `pending` + job id
+ *   - parse failed    → `failed` with the reason, and a `bim_models` row that
+ *                       records the same thing for the model surfaces
+ *
+ * A restart no longer strands the model at `extracting`: the claim goes back to
+ * the queue and the next worker parses it again.
+ */
+export async function beginModelExtraction(
+  input: BeginModelExtractionInput
+): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' | 'processing' }> {
+  await markDocumentProcessing(input.documentId, input.organizationId)
+  return queueDocumentWork('bim_extract', input, documentWorkPayload(input))
+}
+
+/**
+ * The job half of {@link beginModelExtraction}: parse the model, store its
+ * index and digest, and dispatch the digest to the ordinary ingest path.
+ *
+ * Runs on a `bff-jobs` pod, as the system. The row is read again because the
+ * job may have waited for hours: a document deleted or replaced meanwhile, or
+ * already moved on by the claim of a worker that died after finishing, is left
+ * alone. `runBimExtraction` does not throw for a model it cannot read (that is a
+ * documented state of the model), so a throw here is infrastructure and goes
+ * back to the queue; the last attempt leaves the row failed first.
+ */
+export async function runBimExtractJob(
+  organizationId: string,
+  payload: BimExtractPayload,
+  attempt: JobAttempt
+): Promise<void> {
+  const input = dispatchInputOf(organizationId, payload)
+  if (!(await jobStillOwnsRow(input))) return
+
+  await failRowOnLastAttempt(input, attempt, 'IFC extraction failed', async () => {
+    const outcome = await runBimExtraction({
+      organizationId,
+      projectId: input.projectId,
+      documentId: input.documentId,
+      filename: input.filename,
+      storageKey: input.storageKey,
+      storageBucket: input.storageBucket,
+      // No `fileName`: what is ingested here is the Markdown DIGEST, not the
+      // model the row names, so the backend's own derivation from the presigned
+      // URL (`digest.md`) is what these chunks have always been filed under.
+      // Stating `input.filename` would rename them to `haus.ifc` and orphan every
+      // chunk already written under the old name. That the row's purge therefore
+      // addresses a name its chunks do not carry is a defect this change did not
+      // introduce and does not fix.
+      dispatchDigest: (digestStorageKey) =>
+        dispatchIngest(
+          input.documentId,
+          input.collectionName,
+          digestStorageKey,
+          organizationId,
+          input.storageBucket,
+          input.folderPath ?? null,
+          { priority: input.priority }
+        ),
+    })
+    if (outcome.status === 'failed') {
+      await markDocumentIngestFailed(input.documentId, organizationId, outcome.error ?? 'IFC extraction failed')
+    }
+  })
+}
+
+/** The dispatch a queued payload stands for. */
+function dispatchInputOf(organizationId: string, payload: BimExtractPayload): DispatchDocumentInput {
+  return {
+    organizationId,
+    projectId: payload.projectId,
+    documentId: payload.documentId,
+    filename: payload.filename,
+    storageKey: payload.storageKey,
+    storageBucket: payload.storageBucket,
+    collectionName: payload.collectionName,
+    folderPath: payload.folderPath ?? null,
+    versionId: payload.versionId ?? null,
+    priority: payload.priority,
+  }
+}
+
+/**
+ * Whether the row still waits for the work a job was queued for.
+ *
+ * False for a document that was deleted, whose bytes were replaced (the newer
+ * dispatch queued its own job) or that is no longer `processing`. The last is
+ * the one that matters after a crash: a worker that finished the work and died
+ * before it could finish the job leaves a claim another worker takes over, and
+ * doing the work a second time would dispatch the same ingest twice. A machine's
+ * document is held to the publish rule again, because it may have been
+ * superseded while it waited.
+ */
+async function jobStillOwnsRow(input: DispatchDocumentInput): Promise<boolean> {
+  const row = await findDocumentInOrg(input.documentId, input.organizationId)
+  if (!row) return false
+  if (row.storageKey !== input.storageKey || row.status !== 'processing') return false
+  return mayBeIndexed(row, input.versionId ?? null)
+}
+
+/**
+ * Run `work`; when it throws on the last attempt the queue gives it, say so on
+ * the row before the queue buries the job. The error is rethrown either way, so
+ * the queue still counts the attempt.
+ */
+async function failRowOnLastAttempt(
+  input: DispatchDocumentInput,
+  attempt: JobAttempt,
+  message: string,
+  work: () => Promise<void>
+): Promise<void> {
+  try {
+    await work()
+  } catch (error) {
+    if (attempt.last) {
+      await markDocumentIngestFailed(input.documentId, input.organizationId, message).catch(() => undefined)
+    }
+    throw error
+  }
+}
+
+/**
+ * Queue the conversion of an office original to its PDF rendition, and the
+ * ingest that follows — a JOB (`office_rendition`), like
+ * {@link beginModelExtraction} and for the same reason (ADR-0071).
  *
  * The conversion used to be raced against a 20-second wait inside the upload
  * request, because a person was waiting on it and the PDF only fed the
  * thumbnail. Now it also decides what text is indexed, so a deck that took 25
  * seconds would be indexed from a different source than one that took 15 —
- * and a slow conversion would silently index the worse text. Detached, the
+ * and a slow conversion would silently index the worse text. As a job the
  * conversion gets its full two minutes and nobody waits on it.
  *
- * The row goes to `processing` first, exactly as an IFC model does, so it never
- * renders a green "Ready" before anything was dispatched. Every terminal
- * outcome writes the row again: a dispatch sets `pending` + job id or `failed`
- * itself, and the catch below covers anything that throws before it.
+ * Why a job and not a promise in this process: a folder of three hundred office
+ * files started three hundred conversions in the upload's pod, queued behind a
+ * per-process FIFO of two Gotenberg slots, in front of the fair ingest queue
+ * that ADR-0076 made fair. Now the backlog sits in the queue, claimed fairly
+ * across organizations, and the fleet runs at most as many conversions as the
+ * `bff-jobs` pool is sized for (`deploy/pulumi/src/app/bff-jobs.ts`). The
+ * per-process FIFO in `./rendition` stays for the one path where a person IS
+ * waiting: the preview and file routes.
  *
- * The tradeoff is the IFC one: a process restart mid-conversion leaves the row
- * at `processing` with no job, which the re-ingest action recognises as lost
- * (`describeBackendIngestState` → `absent`) and retries.
+ * The row goes to `processing` first, exactly as an IFC model does, so it never
+ * renders a green "Ready" before anything was dispatched. Every terminal outcome
+ * writes the row again: a dispatch sets `pending` + job id or `failed` itself,
+ * and {@link runOfficeRenditionJob} covers anything that throws before it.
  */
 export async function beginRenditionIngest(
   input: DispatchDocumentInput,
   fileName: string
 ): Promise<DispatchDocumentResult> {
   await markDocumentProcessing(input.documentId, input.organizationId)
-
-  void ingestThroughRendition(input, fileName).catch(async (error) => {
-    // `dispatchIngest` records its own failures; this is the belt for anything
-    // that throws around it (a signer, a database write), so the row is never
-    // left at `processing` by an error nobody saw.
-    console.warn(
-      '[documents] office ingest failed before dispatch:',
-      error instanceof Error ? error.message : String(error)
-    )
-    await markDocumentIngestFailed(input.documentId, input.organizationId, INGEST_DISPATCH_FAILED_MESSAGE).catch(
-      () => undefined
-    )
+  return queueDocumentWork('office_rendition', input, {
+    ...documentWorkPayload(input),
+    fileName,
+    provenance: input.provenance ?? null,
   })
-
-  return { jobId: null, status: 'processing' }
 }
 
 /**
- * The background half of {@link beginRenditionIngest}.
+ * The job half of {@link beginRenditionIngest}. Same guards and same last-attempt
+ * rule as {@link runBimExtractJob}.
+ *
+ * A conversion the converter refuses is not an error here: the document fails
+ * with {@link RENDITION_REQUIRED_MESSAGE}, which is what "Erneut lesen"
+ * retries, and the job is finished. A retry by the queue would run the same
+ * file through the same converter again within the minute.
+ */
+export async function runOfficeRenditionJob(
+  organizationId: string,
+  payload: OfficeRenditionPayload,
+  attempt: JobAttempt
+): Promise<void> {
+  const input = { ...dispatchInputOf(organizationId, payload), provenance: payload.provenance ?? null }
+  if (!(await jobStillOwnsRow(input))) return
+
+  await failRowOnLastAttempt(input, attempt, INGEST_DISPATCH_FAILED_MESSAGE, () =>
+    ingestThroughRendition(input, payload.fileName)
+  )
+}
+
+/**
+ * The conversion and ingest {@link runOfficeRenditionJob} runs.
  *
  * For a Word or presentation file the rendition IS the source, so a failed
  * conversion fails the document with {@link RENDITION_REQUIRED_MESSAGE}; the
@@ -1667,6 +1361,7 @@ async function ingestThroughRendition(input: DispatchDocumentInput, fileName: st
       // A spreadsheet's rendition is a thumbnail only: its text keeps the
       // structure-preserving extractor (see `extractsFromRendition`).
       extractionRef: indexesRendition ? renditionRef : null,
+      priority: input.priority,
     }
   )
 }
@@ -1688,9 +1383,7 @@ async function signedRenditionRef(input: DispatchDocumentInput, fileName: string
   const bucket = resolveDocumentBucket(input.storageBucket)
   try {
     const renditionKey = await ensureRendition({ bucket, storageKey: input.storageKey, filename: fileName })
-    return await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: renditionKey }), {
-      expiresIn: INGEST_JOB_REF_TTL_SECONDS,
-    })
+    return await presignForBackend(new GetObjectCommand({ Bucket: bucket, Key: renditionKey }), INGEST_JOB_REF_TTL_SECONDS)
   } catch (error) {
     console.warn(
       '[documents] office rendition at ingest failed:',
@@ -1698,23 +1391,6 @@ async function signedRenditionRef(input: DispatchDocumentInput, fileName: string
     )
     return null
   }
-}
-
-/**
- * The folder path a stored document is filed under, or `null` when it sits at
- * the project root (or on a shelf that has no folders at all).
- *
- * Re-ingest and re-index re-run the SAME dispatch the upload did, so they have
- * to re-supply the same `folder_path` — a re-ingest that omitted it would
- * silently un-file a document the user had filed, and only the agent would
- * notice.
- */
-async function resolveDocumentFolderPath(
-  doc: Pick<Document, 'folderId' | 'projectId'>,
-  organizationId: string
-): Promise<string | null> {
-  if (!doc.folderId || !doc.projectId) return null
-  return await findFolderPathInProject(doc.folderId, doc.projectId, organizationId)
 }
 
 export interface ReingestDocumentResult {
@@ -1747,7 +1423,8 @@ export interface ReingestDocumentResult {
  */
 export async function reingestDocument(
   session: AuthorizedSession,
-  documentId: string
+  documentId: string,
+  options: { priority?: IngestPriority } = {}
 ): Promise<ReingestDocumentResult> {
   const doc = await getAccessibleDocument(session, documentId, 'write')
 
@@ -1835,37 +1512,65 @@ export async function reingestDocument(
     storageBucket: doc.storageBucket,
     collectionName: doc.collectionName,
     folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
+    priority: options.priority,
   })
   return { id: doc.id, status, jobId }
 }
 
 export interface ReindexProjectResult {
   projectId: string
-  /** Documents sent back through ingestion; their current chunks stay until the new ones index. */
-  queued: number
-  /** Rows with no stored object, or still mid-flight — nothing to rebuild from. */
-  skipped: number
-  /** Display names whose dispatch failed. Their previous chunks are untouched. */
-  failed: string[]
   /**
-   * True when the page ceiling ({@link REINDEX_MAX_PAGES}) stopped the walk
-   * before the project's last document: the rest was NOT rebuilt, and the
-   * reader is told so rather than handed a count that looks like the project.
+   * The job doing the work, on the `bff-jobs` pool (ADR-0081). It outlives this
+   * request and the process that took it: a restart gives its claim back and
+   * the next worker resumes from the page it stopped at.
    */
-  truncated: boolean
+  jobId: string
 }
+
+/**
+ * Documents one reindex slice re-dispatches. Small on purpose: a slice is the
+ * unit a draining worker waits for, so it is seconds of work, and the page the
+ * job has got to is saved after every one.
+ */
+export const REINDEX_SLICE_DOCUMENTS = 25
 
 /** Re-dispatch runs this many documents at a time. */
 const REINDEX_CONCURRENCY = 4
 
 /**
- * Listing pages one reindex walks — 20 of `DOCUMENT_LIST_LIMIT`, ten thousand
- * documents. Each page is bounded by the repository; this bounds the request.
+ * Run `work` over `items`, at most `concurrency` at a time. One item's failure
+ * is `work`'s to handle: this never rejects on its account.
  */
-export const REINDEX_MAX_PAGES = 20
+async function forEachBounded<T>(
+  items: readonly T[],
+  concurrency: number,
+  work: (item: T) => Promise<void>
+): Promise<void> {
+  let next = 0
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (next < items.length) await work(items[next++])
+  })
+  await Promise.all(workers)
+}
+
+/** Keep the names of the first few failures for the log; the count stays exact. */
+function recordFailure(counts: JobCounts, name: string): void {
+  counts.failed += 1
+  if (counts.failedNames.length < FAILED_NAMES_KEPT) counts.failedNames.push(name)
+}
 
 /**
- * Rebuild every document's chunks in one project.
+ * Rebuild every document's chunks in one project: authorize, then hand the walk
+ * to a job.
+ *
+ * The walk used to run inside this request: up to ten thousand documents in
+ * one POST, and a request that died half way left no record of which half.
+ * Now the request checks that the caller may rebuild this project and enqueues
+ * ONE job (`reindex_project`, bulk), answered 202 with its id. The job pages
+ * through the documents on a `bff-jobs` pod, saves its place after every page
+ * and dispatches each document to the backend with `priority: "bulk"`, so a
+ * person's upload in the same organization is claimed first. A second click
+ * while one is open returns that job instead of starting another.
  *
  * The project-wide form of re-reading an indexed document (`reingestDocument`
  * does it for one): every person-authored document with stored bytes goes
@@ -1902,89 +1607,303 @@ export async function reindexProject(
 ): Promise<ReindexProjectResult> {
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
 
-  const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [], truncated: false }
+  const open = await findOpenJobId({
+    kind: 'reindex_project',
+    organizationId: session.organizationId,
+    matching: { projectId },
+  })
+  if (open) return { projectId, jobId: open }
 
-  const redispatch = async (row: DocumentListRow): Promise<void> => {
-    // Re-resolved rather than trusted from the list: this is the same read the
-    // single-document path uses, it carries the storage key and bucket the list
-    // row does not, and it re-checks access per document.
-    const doc = await getAccessibleDocument(session, row.id, 'write')
-    // Mid-flight rows are skipped: a second dispatch would double the work of
-    // one that is running. Every in-flight spelling, not just two of them.
-    if (!doc.storageKey || IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status)) {
-      result.skipped += 1
-      return
+  const payload: ReindexProjectPayload = {
+    projectId,
+    requester: requesterOf(session),
+    cursor: null,
+    counts: emptyCounts(),
+  }
+  const { jobId } = await enqueueJob({
+    kind: 'reindex_project',
+    organizationId: session.organizationId,
+    payload,
+  })
+  return { projectId, jobId }
+}
+
+/**
+ * Re-dispatch one document of a reindex. `skipped` for a row there is nothing
+ * to rebuild from; a dispatch the backend refused throws.
+ */
+async function redispatchForReindex(
+  session: AuthorizedSession,
+  row: DocumentListRow
+): Promise<'queued' | 'skipped'> {
+  // Re-resolved rather than trusted from the list: this is the same read the
+  // single-document path uses, it carries the storage key and bucket the list
+  // row does not, and it re-checks access per document.
+  const doc = await getAccessibleDocument(session, row.id, 'write')
+  // Mid-flight rows are skipped: a second dispatch would double the work of
+  // one that is running. Every in-flight spelling, not just two of them.
+  if (!doc.storageKey || IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status)) return 'skipped'
+
+  // Belt to the query's braces. The listing already asks for `'user'` only, so
+  // this is never null in practice; a row that somehow arrives here
+  // machine-authored is skipped, not reported failed: it was never eligible,
+  // and `dispatchDocument` would refuse it anyway.
+  if (!collectionFileRef(doc)) return 'skipped'
+
+  // The bucket the object is ACTUALLY in — see `reingestDocument` for why
+  // defaulting this breaks per-organization documents in two directions.
+  const { status } = await dispatchDocument({
+    organizationId: session.organizationId,
+    projectId: doc.projectId,
+    documentId: doc.id,
+    filename: doc.filename,
+    storageKey: doc.storageKey,
+    storageBucket: doc.storageBucket,
+    collectionName: doc.collectionName,
+    folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
+    priority: 'bulk',
+  })
+  // A dispatch the backend refused comes back `failed` rather than throwing;
+  // the row says so, and the reindex summary has to as well.
+  if (status === 'failed') throw new Error('dispatch failed')
+  return 'queued'
+}
+
+/**
+ * One slice of a `reindex_project` job: the next page of the project's
+ * documents, re-dispatched, and the position to resume from.
+ *
+ * `payload` is the job's state, read back from the queue row, and this returns
+ * the state to save. Re-running a slice (its worker died after the dispatches
+ * and before the save) re-dispatches the same documents, which the backend
+ * accepts: ingestion is idempotent per document and object.
+ *
+ * Every page, not the first: the keyset order is `created_at`, which a dispatch
+ * never touches, so re-dispatching a page cannot move a row across the cursor.
+ * `'user'` explicitly, not "everything": a machine-authored document must not be
+ * indexed (see `dispatchDocument`), and reaching the dispatcher's refusal would
+ * report a project-wide reindex as partially FAILED for rows that were never
+ * eligible. The dispatcher is the invariant; this is the caller not asking a
+ * question it already knows the answer to.
+ */
+export async function runReindexSlice(
+  session: AuthorizedSession,
+  payload: ReindexProjectPayload
+): Promise<JobSliceResult<ReindexProjectPayload>> {
+  try {
+    // The caller's rights are checked again: a job can wait, and a person who
+    // lost their role in the meantime must not have it rebuild the project.
+    await requireProjectAccess(session, payload.projectId, ['project:documents:write', 'project:edit'])
+  } catch (error) {
+    if (!(error instanceof NotFoundError) && !(error instanceof ForbiddenError)) throw error
+    console.warn(`[reindex] project ${payload.projectId}: the requester no longer has access; stopping`)
+    return { done: true, payload }
+  }
+
+  const { rows, nextCursor } = await listProjectDocumentPage(payload.projectId, session.organizationId, {
+    authoredBy: 'user',
+    cursor: payload.cursor ?? undefined,
+    limit: REINDEX_SLICE_DOCUMENTS,
+  })
+
+  const counts: JobCounts = { ...payload.counts, failedNames: [...payload.counts.failedNames] }
+  await forEachBounded(rows, REINDEX_CONCURRENCY, async (row) => {
+    try {
+      const outcome = await redispatchForReindex(session, row)
+      counts[outcome] += 1
+    } catch {
+      // One document's failure must not abandon the rest of the project.
+      recordFailure(counts, documentDisplayName(row))
     }
+  })
 
-    // Belt to the query's braces. The listing below already asks for `'user'`
-    // only, so this is never null in practice; a row that somehow arrives here
-    // machine-authored is skipped, not reported failed: it was never eligible,
-    // exactly as the `'user'` filter below says, and `dispatchDocument` would
-    // refuse it anyway.
-    if (!collectionFileRef(doc)) {
-      result.skipped += 1
-      return
-    }
+  const next = { ...payload, cursor: nextCursor, counts }
+  if (!nextCursor) logReindexSummary(next)
+  return { done: !nextCursor, payload: next }
+}
 
-    // The bucket the object is ACTUALLY in — see `reingestDocument` for why
-    // defaulting this breaks per-organization documents in two directions.
-    const { status } = await dispatchDocument({
-      organizationId: session.organizationId,
-      projectId: doc.projectId,
-      documentId: doc.id,
-      filename: doc.filename,
-      storageKey: doc.storageKey,
-      storageBucket: doc.storageBucket,
-      collectionName: doc.collectionName,
-      folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
-    })
-    // A dispatch the backend refused comes back `failed` rather than throwing;
-    // the row says so, and the reindex summary has to as well.
-    if (status === 'failed') throw new Error('dispatch failed')
-    result.queued += 1
+function logReindexSummary(payload: ReindexProjectPayload): void {
+  const { queued, skipped, failed, failedNames } = payload.counts
+  const line =
+    `[reindex] project ${payload.projectId}: ${queued} re-dispatched, ${skipped} skipped, ${failed} failed` +
+    (failed > 0 ? ` (${failedNames.join(', ')}${failed > failedNames.length ? ', …' : ''})` : '')
+  // A failure is something an operator should see; a clean run is not.
+  if (failed > 0) console.warn(line)
+  else console.debug(line)
+}
+
+export interface ReingestFailedOrgResult {
+  /** The job doing the work, on the `bff-jobs` pool (ADR-0081). */
+  jobId: string
+}
+
+/** Failed documents one rescan slice sends back; see {@link REINDEX_SLICE_DOCUMENTS}. */
+export const REINGEST_SLICE_DOCUMENTS = 25
+
+function reingestRefusalCode(error: unknown): string | null {
+  if (error instanceof ConflictError) {
+    const details = error.details as { code?: unknown } | undefined
+    return typeof details?.code === 'string' ? details.code : null
+  }
+  return null
+}
+
+/**
+ * Re-dispatch every failed ingestion in the organization: authorize, then hand
+ * the walk to a job.
+ *
+ * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
+ * all files that were stored but could never be read (`failed`/`error`, plus
+ * rows stranded at the `uploaded` birth status) go back through the ingest
+ * pipeline under their own ids, so citations, chat subjects and assignments
+ * pointing at them keep working.
+ *
+ * Like the reindex, the walk runs as a `bff-jobs` job (`reingest_failed`,
+ * bulk), answered 202 with the job id. It pages through the failed set with a
+ * keyset, so rows that stay failed cannot starve the rows behind them and the
+ * job's whole state is one position. Each id still goes through
+ * `reingestDocument`, so per-document access checks and the status guards stay
+ * in exactly one place. Rows that are not retryable (still running, already
+ * finished behind the row's back, not eligible, or no longer visible to the
+ * requester) count as `skipped`, never as failures - and a dispatch that yields
+ * no job resolves as `failed` rather than `queued`, because `dispatchIngest`
+ * marks the row failed itself in that case. One document's failure never
+ * abandons the rest.
+ *
+ * The rescan itself is audited (`org.documents.reingested`) with its outcome
+ * when the job ends, because it is an organization-wide mutating admin action.
+ */
+export async function reingestFailedOrgDocuments(
+  session: AuthorizedSession
+): Promise<ReingestFailedOrgResult> {
+  const open = await findOpenJobId({
+    kind: 'reingest_failed',
+    organizationId: session.organizationId,
+    matching: {},
+  })
+  if (open) return { jobId: open }
+
+  const payload: ReingestFailedPayload = {
+    requester: requesterOf(session),
+    cursor: null,
+    counts: emptyCounts(),
+  }
+  const { jobId } = await enqueueJob({
+    kind: 'reingest_failed',
+    organizationId: session.organizationId,
+    payload,
+  })
+  return { jobId }
+}
+
+/** How one failed document's retry came out. */
+async function retryFailedDocument(
+  session: AuthorizedSession,
+  id: string
+): Promise<'queued' | 'skipped' | 'failed'> {
+  try {
+    const outcome = await reingestDocument(session, id, { priority: 'bulk' })
+    // No job id means the dispatch recorded the failure itself: the retry
+    // went wrong, it did not queue.
+    return outcome.status === 'failed' ? 'failed' : 'queued'
+  } catch (error) {
+    const code = reingestRefusalCode(error)
+    if (code === INGEST_RUNNING || code === INGEST_ALREADY_DONE || code === INGEST_NOT_ELIGIBLE) return 'skipped'
+    if (error instanceof NotFoundError || error instanceof ForbiddenError) return 'skipped'
+    return 'failed'
+  }
+}
+
+/**
+ * One slice of a `reingest_failed` job: the next page of the failed set, sent
+ * back through ingestion, and the position to resume from. The audit event is
+ * written by the slice that finds the end of the set.
+ */
+export async function runReingestFailedSlice(
+  session: AuthorizedSession,
+  payload: ReingestFailedPayload
+): Promise<JobSliceResult<ReingestFailedPayload>> {
+  // The route's own gate, asked again: the job may have waited, and the walk
+  // spans slices. `session` is the requester's rights today (`handlers.ts`), so a
+  // person who lost `org:settings:manage` since they clicked ends the rescan here.
+  if (!hasPermission(session, ORG_PERMISSIONS.settingsManage)) {
+    console.warn(`[reingest] ${session.userId} no longer holds ${ORG_PERMISSIONS.settingsManage}; stopping the rescan`)
+    return { done: true, payload }
   }
 
-  // Bounded rather than unbounded: a project with hundreds of documents would
-  // otherwise open that many backend connections at once and time the request out.
-  const redispatchPage = async (rows: DocumentListRow[]): Promise<void> => {
-    let next = 0
-    const workers = Array.from({ length: Math.min(REINDEX_CONCURRENCY, rows.length) }, async () => {
-      while (next < rows.length) {
-        const row = rows[next++]
-        try {
-          await redispatch(row)
-        } catch {
-          // One document's failure must not abandon the rest of the project.
-          result.failed.push(documentDisplayName(row))
-        }
-      }
-    })
-    await Promise.all(workers)
-  }
+  const { ids, nextCursor } = await listFailedDocumentPageInOrg(session.organizationId, {
+    limit: REINGEST_SLICE_DOCUMENTS,
+    cursor: payload.cursor,
+  })
 
-  // Every page, not the first: this read the newest `DOCUMENT_LIST_LIMIT` rows
-  // and stopped, so a project-wide reindex of a large project silently left
-  // its oldest documents on the old chunks. The keyset order is `created_at`,
-  // which a dispatch never touches, so re-dispatching a page cannot move a row
-  // across the cursor.
-  //
-  // `'user'` explicitly, not "everything": a machine-authored document must not
-  // be indexed (see `dispatchDocument`), and reaching the dispatcher's refusal
-  // would report a project-wide reindex as partially FAILED for rows that were
-  // never eligible. The dispatcher is the invariant; this is the caller not
-  // asking a question it already knows the answer to.
-  let cursor: DocumentListCursor | undefined
-  for (let page = 0; page < REINDEX_MAX_PAGES; page++) {
-    const { rows, nextCursor } = await listProjectDocumentPage(projectId, session.organizationId, {
-      authoredBy: 'user',
-      cursor,
-    })
-    await redispatchPage(rows)
-    if (!nextCursor) return result
-    cursor = nextCursor
+  const counts: JobCounts = { ...payload.counts, failedNames: [...payload.counts.failedNames] }
+  await forEachBounded(ids, REINDEX_CONCURRENCY, async (id) => {
+    const outcome = await retryFailedDocument(session, id)
+    if (outcome === 'failed') recordFailure(counts, id)
+    else counts[outcome] += 1
+  })
+
+  const next = { ...payload, cursor: nextCursor, counts }
+  if (nextCursor) return { done: false, payload: next }
+
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'org.documents.reingested',
+    targetType: 'organization',
+    targetId: session.organizationId,
+    metadata: {
+      total: counts.queued + counts.skipped + counts.failed,
+      queued: counts.queued,
+      skipped: counts.skipped,
+      failed: counts.failed,
+      truncated: false,
+    },
+  })
+  return { done: true, payload: next }
+}
+
+/** How the sweep's retry of one stranded document came out. */
+export type StuckDocumentOutcome = 'requeued' | 'failed' | 'gone'
+
+/**
+ * Give a document left at `processing` with no live job a new one, or say
+ * plainly that it cannot have one.
+ *
+ * The sweep's door (`./stuck-processing`), and the system's own act: no person
+ * is asking, so no session and no permission check; what the row says is all
+ * this believes. It goes through {@link dispatchDocument}, so a model is parsed
+ * again and an office file converted again by the same code a first upload
+ * runs, the machine-authored guard included. A row there is nothing to rebuild
+ * from (no stored bytes, not a person's document) is failed with the reason
+ * the dispatcher gives for a failed start, because a row left at `processing`
+ * would be found by every later sweep for good.
+ */
+export async function redispatchStuckDocument(
+  organizationId: string,
+  documentId: string
+): Promise<StuckDocumentOutcome> {
+  const doc = await findDocumentInOrg(documentId, organizationId)
+  // Gone, or moved on since the sweep read it.
+  if (!doc || doc.status !== 'processing') return 'gone'
+
+  if (!doc.storageKey || doc.authoredBy !== 'user' || !collectionFileRef(doc)) {
+    await markDocumentIngestFailed(doc.id, organizationId, INGEST_DISPATCH_FAILED_MESSAGE)
+    return 'failed'
   }
-  result.truncated = true
-  return result
+  const { status } = await dispatchDocument({
+    organizationId,
+    projectId: doc.projectId,
+    documentId: doc.id,
+    filename: doc.filename,
+    storageKey: doc.storageKey,
+    storageBucket: doc.storageBucket,
+    collectionName: doc.collectionName,
+    folderPath: await resolveDocumentFolderPath(doc, organizationId),
+    // Recovery is nobody's upload: it yields to the people who are waiting.
+    priority: 'bulk',
+  })
+  return status === 'failed' ? 'failed' : 'requeued'
 }
 
 /**
@@ -2859,14 +2778,13 @@ export async function presignDocumentImageUpload(
   if (!doc) return null
   const storageKey = buildImageStorageKey(doc.storageKey, imageIndex)
   if (!storageKey) return null
-  const uploadUrl = await getSignedUrl(
-    signingS3Client,
+  const uploadUrl = await presignForBackend(
     new PutObjectCommand({
       Bucket: resolveDocumentBucket(doc.storageBucket),
       Key: storageKey,
       ContentType: 'image/jpeg',
     }),
-    { expiresIn: 3600 }
+    3600
   )
   return { uploadUrl, storageKey }
 }

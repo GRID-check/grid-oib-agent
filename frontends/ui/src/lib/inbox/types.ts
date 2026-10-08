@@ -133,6 +133,8 @@ export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentatio
     tone: 'request',
   },
   'feedback.submitted': { icon: 'megaphone', i18nKey: 'feedbackSubmitted', tone: 'info' },
+  'mail_import.completed': { icon: 'check-circle', i18nKey: 'mailImportCompleted', tone: 'info' },
+  'mail_import.failed': { icon: 'alert-triangle', i18nKey: 'mailImportFailed', tone: 'warning' },
   'inbound_mail.filed': { icon: 'mail', i18nKey: 'inboundMailFiled', tone: 'info' },
   'inbound_mail.failed': { icon: 'alert-triangle', i18nKey: 'inboundMailFailed', tone: 'warning' },
 }

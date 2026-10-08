@@ -1,7 +1,7 @@
 # Project mail inbox: DSGVO and tenant-isolation review
 
 - **Date:** 2026-09-30, against the code of PR #831 as merged with `develop` that
-  day (the hardened version: DKIM-only sender trust, accept-then-drain, the
+  day (the hardened version: DKIM-only sender trust, accept-then-file, the
   per-organization switch).
 - **Scope:** v1 of the project mail inbox, as decided in
   [ADR-0075](../adr/0075-project-mail-inbox-via-cloudflare-email-routing.md).
@@ -33,7 +33,8 @@ sender MTA
        token → project, org switch, DKIM check, roster, permission,
        attachment selection (in memory)
        → stage the selected attachments in the org's bucket, queue a row, 202
-  → drain (scheduler tick, every 30 s)  POST /api/internal/inbound-mail/drain
+       → one `inbound_mail` job on the BFF job queue (bff_job_queue, ADR-0079)
+  → bff-jobs worker runs the job, inside the organization
        → uploadDocument, once per attachment, as the sender
   → SeaweedFS (the org's bucket) + ingest
   → OpenRouter, as for any upload
@@ -61,14 +62,17 @@ sender MTA
    are never written.
 5. **Queued.** One row in `inbound_mail_messages` names the staged objects, and
    the webhook answers 202. From here the sending server is done.
-6. **Drained.** The scheduler container POSTs the drain every tick. The drain
-   claims the row, files each staged object through the existing
+6. **Filed by a job.** The webhook enqueued one `inbound_mail` job on the BFF's
+   job queue (ADR-0079); a `bff-jobs` worker runs it inside the delivery's
+   organization. The job files each staged object through the existing
    `uploadDocument` path (`frontends/ui/src/lib/documents/service.ts`) under a
    session pinned to the sending member, deletes the staged objects, and leaves
    the sender an inbox notification. Type allowlist, size, quota (ADR-0042),
    versioning, audit and ingest dispatch are the ones every UI upload gets. A
-   failed attempt is retried with backoff; after eight attempts (about 22.6
-   hours) the row is `failed`, its staging deleted and the sender told.
+   failed attempt is retried by a fresh job after a backoff; after eight
+   attempts (about 22.6 hours) the row is `failed`, its staging deleted and
+   the sender told. The background-work sweep gives a queued delivery whose
+   job is gone a new one, and runs the retention below.
 7. From there the document is an ordinary project document: stored in the
    organization's SeaweedFS bucket (ADR-0043), indexed, and sent in excerpts to
    OpenRouter exactly as documented for uploads.
@@ -78,12 +82,12 @@ sender MTA
 | Data | Where | Kept until |
 |---|---|---|
 | Raw `.eml`, mail body, embedded images, `winmail.dat`, signatures, encrypted parts, calendar invites | Nowhere at Piloti | Not stored |
-| Selected attachments, staged | The org's bucket, under the project's prefix | Deleted when the drain files them or gives up; at most **7 days** (the drain's staging backstop, `STAGING_RETENTION_DAYS`), after which a still-queued mail fails and the sender is told |
+| Selected attachments, staged | The org's bucket, under the project's prefix | Deleted when the job files them or gives up; at most **7 days** (the sweep's staging backstop, `STAGING_RETENTION_DAYS`), after which a still-queued mail fails and the sender is told |
 | Filed attachments | Project documents in `E-Mail-Eingang/<YYYY-MM-DD HH.mm> – <sender>` | As any upload: until deleted, or the project is purged |
 | Delivery row (`inbound_mail_messages`) | Postgres | Deleted **30 days** after receipt (`DELIVERY_RETENTION_DAYS`). While queued it holds the subject and the names of skipped parts; once `filed` or `failed` the subject is nulled and the skipped entries keep only their reason code. It keeps the folder name (time and sender name), the delivery key (a SHA-256), the sender's user id, counts, status and timestamps |
 | The sender's notification (`inbound_mail.filed` / `inbound_mail.failed`) | `inbox_items`, visible only to the sender | **30 days** (the inbox type's retention). It quotes the subject and up to ten skipped filenames with their reasons |
 | Audit event per filed file (`document.uploaded`) | WorkOS audit log | As every audit event. It carries `channel: inbound-mail` and the delivery row id; no IP and no user agent (section 3, F14) |
-| One log line per delivery and per drain attempt | Container logs | The log collector's retention. Outcome, address id, row id, counts, duration and an error class; no address, name, subject or filename |
+| One log line per delivery and per filing attempt | Container logs | The log collector's retention. Outcome, address id, row id, counts, duration and an error class; no address, name, subject or filename |
 | Cloudflare's Email Routing activity log | Cloudflare, operator account only | About 30 days (F4) |
 
 ## 2. Roles
@@ -108,18 +112,18 @@ Status is the state in v1: **done** (the code or configuration does it),
 | F2 | Art. 44 ff. | Transfer to the US rests on Cloudflare's EU-US Data Privacy Framework certification, with the SCCs in the DPA (Module 2/3) as fallback. Same basis as WorkOS and OpenRouter. The DPF list showed Cloudflare as **"Active – re-certification under review"** when checked on 2026-09-30. The DPF is also under legal challenge; if it falls, or the re-certification lapses, the SCCs carry the transfer and a transfer impact assessment is due. | accepted | <https://www.dataprivacyframework.gov/participant/5666> (checked 2026-09-30); DPA "Restricted Transfers" |
 | F3 | Art. 44 ff., processing location | Mail is processed in the Cloudflare data centre nearest the sender, with no EU guarantee. The Data Localization Suite is Enterprise-only, and we found no statement that it covers Email Routing. A customer that requires EU-only processing cannot use the v1 inbox; the alternative is Mailgun EU or Amazon SES in eu-central-1 (ADR-0075, considered options). | accepted | ADR-0075 |
 | F4 | Art. 5(1)(e) | Cloudflare states that Email Routing does not store or access routed mail. Its activity log keeps per-message metadata (from, to, subject, Message-ID, SPF/DKIM/DMARC verdicts, status), filterable over 30 days in the dashboard and queryable for 31 days. "Email preview" is an Email Sending setting: "Previews cover messages sent while the setting is turned on and are retained for about seven days", on by default for sending domains onboarded on or after 2026-07-02. `piloti.at` is onboarded for sending for the contact form (section 8), so its preview must be off. Cloudflare does not describe it as covering mail received through Email Routing, which is how project mail arrives. Nothing checks the setting; it is in the dashboard. | done (manual setting) | <https://developers.cloudflare.com/email-routing/> ("will not store or access the emails"); <https://developers.cloudflare.com/email-service/observability/logs/>; <https://developers.cloudflare.com/changelog/post/2026-07-17-email-message-preview/>; `docs/deployment/kubernetes.md` §3c and §3d |
-| F5 | Art. 5(1)(c), (e) | The webhook stores no `.eml` and no body, and keeps only the attachments it selected, staged for at most 7 days. The folder name is `<YYYY-MM-DD HH.mm> – <sender name or local part>`, in Europe/Vienna time from the moment of receipt; **the subject is not in it**, so it does not reach folder names, storage keys or the assistant's grounding block, which names folders. The subject lives only on the queued row (nulled once the row is terminal) and in the sender's own notification (30 days). The delivery row is deleted after 30 days (section 1 table). Both new tables carry `organization_id` and `project_id` and cascade from the project through a foreign key on both columns, and the staged objects sit under the project's storage prefix, so the project purge removes all three (`purger/purge-project.js`). There is no organization purge today; an organization's projects are purged one by one. | done | `frontends/ui/drizzle/0102_inbound_mail.sql`; `frontends/ui/src/lib/inbound-mail/{folder-name,staging,repository,drain}.ts` |
+| F5 | Art. 5(1)(c), (e) | The webhook stores no `.eml` and no body, and keeps only the attachments it selected, staged for at most 7 days. The folder name is `<YYYY-MM-DD HH.mm> – <sender name or local part>`, in Europe/Vienna time from the moment of receipt; **the subject is not in it**, so it does not reach folder names, storage keys or the assistant's grounding block, which names folders. The subject lives only on the queued row (nulled once the row is terminal) and in the sender's own notification (30 days). The delivery row is deleted after 30 days (section 1 table). Both new tables carry `organization_id` and `project_id` and cascade from the project through a foreign key on both columns, and the staged objects sit under the project's storage prefix, so the project purge removes all three (`purger/purge-project.js`). There is no organization purge today; an organization's projects are purged one by one. | done | `frontends/ui/drizzle/0109_inbound_mail.sql`; `frontends/ui/src/lib/inbound-mail/{staging,repository,job}.ts`; the folder name `frontends/ui/src/lib/mail-import/naming.ts` |
 | F6 | Art. 5(1)(f), 32 | Misaddressed mail: an address that is not project-shaped is refused by the Worker without reaching Piloti's servers; an unknown or revoked token is refused by the BFF before the body is read. Nothing is stored in either case. Tokens are 12 base32 characters (about 60 bits) from `crypto.randomBytes`. Only the token resolves; the slug in front of it is decoration and is never looked up. `+detail` and surrounding quotes are stripped before the token is read. | done | `frontends/ui/src/lib/inbound-mail/address.ts`, `receive.ts`; `inbound-mail-worker.js`; the shape contract `shared/inbound-address.json` |
 | F7 | Art. 32 | **Sender trust is DKIM only.** Cloudflare does not pass its SPF, DKIM or DMARC verdicts to Workers (workerd#6740, open since 2026-05-07), so Piloti decides from the raw bytes and DNS. A mail is accepted only when one DKIM signature on it verifies, is aligned (relaxed, organizational domain) with the single From domain, covers the whole body (no `l=` tag), signs From, Subject and To or Cc, and uses neither rsa-sha1 nor a key in testing mode (`t=y`). The raw header block may hold only one of each field RFC 5322 §3.6 allows once, so an unsigned duplicate cannot change what the signature covers. A From address that is not plain ASCII is refused. **The earlier rule that admitted any From domain publishing DMARC `p=quarantine` or `p=reject` was removed**: an unsigned spoof passed it whenever the policy was not enforced (`pct`, `t=y`, quarantine), and whenever someone holding the Worker's token posted to the webhook directly, past Cloudflare's own checks. Consequence: Microsoft 365 and Google Workspace domains without custom DKIM are refused, whatever their DMARC says. A DNS failure or timeout is a `temperror` and the sender's server retries; only a definite failure bounces. | done | `frontends/ui/src/lib/inbound-mail/sender-auth.ts`; <https://github.com/cloudflare/workerd/issues/6740> |
 | F8 | Art. 5(1)(b), 25 | **Anti-replay.** The admitting signature must cover a To or Cc header that names this project's address. A genuine signed mail a member sent to someone else cannot be re-sent into a project, and a **Bcc to the project address is refused**, because no signed header says the member meant the project. v1 accepts mail only from verified members of the target organization who hold `project:documents:write` or `project:edit` on the project, checked with the same `requireProjectAccess` call `uploadDocument` makes. Unknown senders are refused, not quarantined. Third-party data therefore arrives only through people who could already upload the same file by hand. | done | `frontends/ui/src/lib/inbound-mail/sender-auth.ts`, `receive.ts` |
 | F9 | Art. 13, 14 | People in CC and people in signatures are data subjects who are not users. Because the body is not stored and the subject is not in the folder name, what remains of them is what the attachments contain, and the subject in the sender's own notification for 30 days. The customer as controller informs its own contacts, as it does for any document it uploads. The user guide tells members not to CC the project address to people outside the office: the address would then sit in the recipients' address books and reply-all threads. | accepted | privacy policy section 2 (updated); user guide |
-| F10 | Art. 32 | Inbound SMTP TLS is opportunistic: it depends on the sending MTA, as for all SMTP, and Piloti cannot require it. The Worker-to-BFF hop is HTTPS. The webhook has its own token, `GRID_INBOUND_MAIL_TOKEN`, separate from `GRID_INTERNAL_API_TOKEN`, so the Worker's secret opens one route and nothing else. Rate limits apply per address (60 mails an hour) and per organization (600), and each filed file charges the sender's upload limit as a UI upload does. | done | `frontends/ui/src/lib/internal-auth.ts`; `frontends/ui/src/lib/limits/rules.js`; `drain.ts` |
+| F10 | Art. 32 | Inbound SMTP TLS is opportunistic: it depends on the sending MTA, as for all SMTP, and Piloti cannot require it. The Worker-to-BFF hop is HTTPS. The webhook has its own token, `GRID_INBOUND_MAIL_TOKEN`, separate from `GRID_INTERNAL_API_TOKEN`, so the Worker's secret opens one route and nothing else. Rate limits apply per address (60 mails an hour) and per organization (600), and each filed file charges the sender's upload limit as a UI upload does. | done | `frontends/ui/src/lib/internal-auth.ts`; `frontends/ui/src/lib/limits/rules.js`; `job.ts` |
 | F11 | Art. 32 | No malware scanning. In v1 that matches the UI upload path, which has none either, because only members who could upload by hand can send. It becomes a precondition before v2 admits external senders. | open (v2 precondition) | none |
 | F12 | Art. 28, 44 ff. | Content to AI providers. Attachments are indexed like any upload, so excerpts reach OpenRouter and the org-selected model exactly as documented today. Mail bodies are not indexed, because they are not stored, and subjects are not either, because they are not in folder names. | done | [`external-dependencies.md`](external-dependencies.md) statement on model switching |
 | F13 | none | v1 sends no mail to senders. Feedback is an in-app notification (filed, or failed after all retries) and, on a permanent refusal, Cloudflare's bounce with one fixed ASCII text that links the help page and the privacy page. | done | `deploy/pulumi/src/platform/inbound-mail-worker.js` (`REJECT_TEXT`) |
-| F14 | Art. 5(1)(c), 30 | **Audit.** Each filed file emits the ordinary `document.uploaded` event, marked `channel: inbound-mail` with the delivery row id as `channelRef`, so a mailed file can be told from one uploaded at a screen. No Cloudflare IP and no user agent is recorded: the drain passes no request, and the webhook's request (which would carry a Cloudflare address) never reaches `uploadDocument`. | done | `frontends/ui/src/lib/documents/service.ts` (`UploadAuditChannel`); `drain.ts` |
+| F14 | Art. 5(1)(c), 30 | **Audit.** Each filed file emits the ordinary `document.uploaded` event, marked `channel: inbound-mail` with the delivery row id as `channelRef`, so a mailed file can be told from one uploaded at a screen. No Cloudflare IP is recorded: the job passes a request of its own, with no IP and the user agent `piloti-inbound-mail`, and the webhook's request (which would carry a Cloudflare address) never reaches `uploadDocument`. | done | `frontends/ui/src/lib/documents/shelf-upload.ts` (`UploadAuditChannel`); `job.ts` |
 | F15 | Art. 6(1)(f), 13 | **Refused and unmatched mail.** A mail to an unknown or revoked address, from an unverifiable sender, from a non-member or from a member without write access, is processed only far enough to refuse it: Cloudflare carries it, the BFF reads its headers and checks DKIM, and nothing is stored. A mail to a `piloti.at` address that has no literal rule and is not project-shaped is processed less: Cloudflare carries it to the Worker, which reads the envelope recipient and refuses it with a fixed "unknown address" text, without forwarding it to the BFF and without storing it. Before the catch-all, Cloudflare refused such mail itself. No customer is the controller of that processing, because the mail cannot be attributed to a customer's instruction. The operator is, on its legitimate interest in running and protecting the service. The project-address bounce text links `https://piloti.at/datenschutz/`, whose app section names Cloudflare's role for project mail; the unknown-address text links nothing. | done (notice on the website) | `inbound-mail-worker.js` (`REJECT_TEXT`, `UNKNOWN_ADDRESS_TEXT`); `frontends/web/src/i18n/ui.ts` (`datenschutz`) |
-| F16 | Art. 25, 28 | **The per-organization switch.** The WorkOS feature flag `project-mail-inbox` is off by default. With it off, the address card is hidden, `GET /api/projects/[id]/inbound-address` answers `enabled: false`, the webhook refuses (a bounce that reads as an unknown address), and the drain holds already-queued mail without filing it. A flag lookup that fails is a retry, never a refusal. Without flag enforcement (a local run), `GRID_PROJECT_MAIL_INBOX_ENABLED=true` switches it on for the whole deployment. | done | `frontends/ui/src/lib/authz/feature-flags.ts` (`projectMailInbox`); `frontends/ui/src/lib/workos/feature-flags.ts` (`isProjectMailInboxEnabledForOrg`) |
+| F16 | Art. 25, 28 | **The per-organization switch.** The WorkOS feature flag `project-mail-inbox` is off by default. With it off, the address card is hidden, `GET /api/projects/[id]/inbound-address` answers `enabled: false`, the webhook refuses (a bounce that reads as an unknown address), and the filing job holds already-queued mail without filing it. A flag lookup that fails is a retry, never a refusal. Without flag enforcement (a local run), `GRID_PROJECT_MAIL_INBOX_ENABLED=true` switches it on for the whole deployment. | done | `frontends/ui/src/lib/authz/feature-flags.ts` (`projectMailInbox`); `frontends/ui/src/lib/workos/feature-flags.ts` (`isProjectMailInboxEnabledForOrg`) |
 
 ## 4. Tenant isolation
 
@@ -142,11 +146,12 @@ tenant's mail out of another's projects.
    names the project before any organization is known', ...)`, which returns
    only `{ addressId, organizationId, projectId }`. Everything after it runs
    inside `withTenant({ organizationId })`, under RLS (ADR-0041).
-4. **The drain claims across tenants and files inside one.** Claiming the next
-   due row, reaping stalled attempts and the retention sweeps run under
-   `withPlatformAccess`; every claimed row is filed inside `withTenant` for its
-   own organization, so folder, document, row and inbox writes are subject to
-   RLS. Each write of an attempt is fenced on its `claim_token`.
+4. **The queue claims across tenants and files inside one.** The job queue's
+   claim, the sweep's search for deliveries without a job and the retention
+   run under the platform role; every job runs inside `withTenant` for its
+   lane, the delivery's organization, so folder, document, row and inbox
+   writes are subject to RLS. Each write of an attempt is conditional on the
+   row still being `queued`.
 5. **The sender is resolved inside the target organization only.** The From
    address is looked up in that organization's roster, never globally, with
    ASCII-only lowercasing so no Unicode case fold can make two addresses meet. A
@@ -156,7 +161,7 @@ tenant's mail out of another's projects.
    `project:documents:write` or `project:edit`, the same call `uploadDocument`
    makes, so the two cannot disagree. Being assigned to something in the
    project is not access (ADR-0059), and the upload runs the same authorization
-   again when the drain files (ADR-0038), as the sender is at that moment.
+   again when the job files (ADR-0038), as the sender is at that moment.
 7. **Dedupe is keyed by (address, delivery key).** The delivery key is a SHA-256
    of the normalized Message-ID and the sorted attachment digests. A mail CC'd
    to projects in two organizations is two deliveries, and each is filed in its
@@ -245,14 +250,13 @@ tenant's mail out of another's projects.
 | Worker, its address-shape filter and its verdict contract | `deploy/pulumi/src/platform/inbound-mail-worker.js`, `inbound-mail-worker.spec.ts`; the shape contract `shared/inbound-address.json`, also checked by `frontends/ui/src/lib/inbound-mail/address.spec.ts` |
 | Cloudflare resources, apex check, one stack per zone | `deploy/pulumi/src/platform/inbound-mail.ts`, `inbound-mail.spec.ts`, `deploy/pulumi/index-inbound-mail.spec.ts` |
 | Apex MX guard, shared with the contact address | `deploy/pulumi/src/platform/email-routing.ts`, `email-routing.spec.ts` |
-| Webhook and drain routes | `frontends/ui/src/app/api/internal/inbound-mail/route.ts` (spec `route.spec.ts`), `frontends/ui/src/app/api/internal/inbound-mail/drain/route.ts` |
+| Webhook route, and the sweep | `frontends/ui/src/app/api/internal/inbound-mail/route.ts` (spec `route.spec.ts`); `frontends/ui/src/app/api/internal/maintenance/reconcile-background-work/route.ts` |
 | Accept, verify, stage, queue | `frontends/ui/src/lib/inbound-mail/receive.ts`, `sender-auth.ts`, `mime.ts`, `staging.ts`, with `receive.spec.ts`, `sender-auth.spec.ts`, `mime.spec.ts`, `staging.spec.ts` |
-| Drain, folder, notification | `frontends/ui/src/lib/inbound-mail/drain.ts`, `filing-folder.ts`, `folder-name.ts`, `notify.ts`, with `drain.spec.ts`, `filing-folder.spec.ts`, `folder-name.spec.ts`, `notify.spec.ts` |
+| Filing job, folder, notification | `frontends/ui/src/lib/inbound-mail/job.ts`, `notify.ts`, with `job.spec.ts`, `notify.spec.ts`; the shared mail filer `frontends/ui/src/lib/mail-import/filing.ts` and `naming.ts`, with `filing.spec.ts`, `naming.spec.ts` |
 | Addresses, rotation, the switch | `frontends/ui/src/lib/inbound-mail/address.ts`, `service.ts`, `contract.ts`, with `address.spec.ts`, `service.spec.ts`; `frontends/ui/src/app/api/projects/[id]/inbound-address/route.spec.ts` |
-| Claim, fence, retention against PostgreSQL | `frontends/ui/src/lib/inbound-mail/repository.ts`, `repository.integration.spec.ts` |
-| A new name instead of a new version, and "unchanged" on a re-run | `frontends/ui/src/lib/documents/upload-name-taken.integration.spec.ts` |
+| Fence, stalled deliveries, retention against PostgreSQL | `frontends/ui/src/lib/inbound-mail/repository.ts`, `repository.integration.spec.ts` |
 | The sender's pinned session (flags, permissions, lookup errors) | `frontends/ui/src/lib/auth/pinned-session.ts`, `pinned-session.spec.ts` |
-| Schema | `frontends/ui/drizzle/0102_inbound_mail.sql`, `frontends/ui/src/lib/db/schema/inbound-mail.ts` |
+| Schema | `frontends/ui/drizzle/0109_inbound_mail.sql`, `frontends/ui/src/lib/db/schema/inbound-mail.ts` |
 | RLS coverage | `frontends/ui/src/lib/db/rls-coverage.spec.ts`, `task db:test:rls` |
 | Route authorization coverage | `frontends/ui/src/app/api/authz-coverage.spec.ts` |
 | The settings card | `frontends/ui/src/features/projects/components/project-inbound-mail-card.tsx`, `project-inbound-mail-card.spec.tsx` |

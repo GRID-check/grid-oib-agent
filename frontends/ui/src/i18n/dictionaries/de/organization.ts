@@ -171,6 +171,15 @@ export const organization: typeof en.organization = {
     domainsDescription: 'Verifizieren Sie Domains, die Ihrer Organisation gehören.',
     auditLogs: 'Audit-Log-Streaming',
     auditLogsDescription: 'Streamen Sie Audit-Ereignisse an Ihr SIEM oder Ihren Logging-Anbieter.',
+    reingestFailed: {
+      title: 'Fehlgeschlagene Erfassungen erneut lesen',
+      description:
+        'Liest jede Datei erneut, die nicht gelesen werden konnte. Was bereits funktioniert, bleibt unangetastet.',
+      action: 'Fehlgeschlagene Erfassungen erneut lesen',
+      busy: 'Wird erneut gelesen.',
+      started: 'Die erneute Lesung läuft im Hintergrund und setzt sich nach einem Neustart fort.',
+      failed: 'Die erneute Lesung konnte nicht gestartet werden. Bitte versuchen Sie es erneut.',
+    },
   },
   notAdmin: {
     title: 'Sie benötigen Administratorrechte',
@@ -344,8 +353,10 @@ export const organization: typeof en.organization = {
     archivDocuments: 'Organisations-Archiv',
     /** Count-neutral: wird auch bei genau einem Dokument gerendert. */
     documentCount: 'Dokumente: {count}',
+    /** Die Obergrenze je Datei, nur lesend; `size` kommt mit Einheit. */
+    maxFileSize: 'Max. Dateigröße je Upload',
     setByPlatform:
-      'Ihr Speicherkontingent wird von Piloti festgelegt. Wenden Sie sich an den Support, wenn Sie mehr Platz benötigen.',
+      'Ihr Speicherkontingent und die maximale Dateigröße werden von Piloti festgelegt. Wenden Sie sich an den Support, wenn Sie mehr benötigen.',
     loadError: 'Speichernutzung konnte nicht geladen werden.',
   },
   budgets: {
@@ -380,6 +391,7 @@ export const organization: typeof en.organization = {
     dailyLimit: 'Tageslimit ({unit})',
     monthlyLimit: 'Monatslimit ({unit})',
     noLimitPlaceholder: 'Kein Limit',
+    limitInvalid: 'Eine Zahl ab 0 eingeben oder leer lassen für kein Limit.',
     saveLimits: 'Limits speichern',
     limitsSaved: 'Budgetlimits gespeichert',
     limitsSaveError: 'Die Budgetlimits konnten nicht gespeichert werden.',

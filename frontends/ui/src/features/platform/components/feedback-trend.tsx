@@ -1,41 +1,39 @@
 'use client'
 
 /**
- * Is it getting better? — the daily HELPFUL rate, with the volume it rests on.
+ * Is it getting better? The daily HELPFUL rate, with the volume it rests on.
  *
- * The headline figure is a scoreboard; this is the part you can steer by. A
- * platform owner improving answers needs the DIRECTION, and a single number for a
- * window cannot carry one.
+ * The headline figure is a scoreboard; this is the part you can steer by.
  *
- * **Up is better.** This plotted the negative share until the surface was, fairly,
- * accused of only ever showing the bad half. Same data either way — but on a
- * negative-rate chart every reader has to invert the shape before it means
- * anything, and the label "3 points better" sat above a line that had just
- * fallen. The good direction is now the up direction.
+ * **Up is better.** Same data as a negative-rate chart, but the reader no longer
+ * has to invert the shape before it means anything.
  *
- * **Rate, not count.** Plotting votes per day would mostly plot traffic: a busy
- * Tuesday produces more of everything without anything having changed. The series
- * is the share of that day's votes that were helpful.
+ * **Rate, not count.** Votes per day would mostly plot traffic. The series is
+ * the share of that day's votes that were helpful.
  *
- * **Two plots, never two y-axes.** Rate and volume are different scales, and a
- * dual-axis chart lets the reader "see" a correlation that is an artefact of two
- * arbitrary scalings. They are stacked instead, sharing one x-axis: the rate
- * line, and a volume strip underneath that says how much each point is worth.
+ * **Two plots, never two y-axes.** Rate and volume are stacked, sharing one
+ * x-axis: the rate line, and a volume strip underneath that says how much each
+ * point is worth.
  *
- * **Thin days are drawn as unresolved, not as fact.** One down-vote out of two is
- * 50% and would spike the line into something that looks like a collapse. Those
- * points are dropped and the segments around them dashed — the reader can see the
- * shape without being invited to believe it.
+ * **Thin days are drawn as unresolved, not as fact.** Below the floor a day's
+ * point is dropped and the segments around it are dashed.
  *
- * The window filling and the direction arithmetic live in `@/lib/feedback/trend`,
- * shared with the digest: the chart's "3.4 points better" and the digest's
- * sentence about improvement are the same claim, and two implementations of it
- * would eventually disagree on one screen.
+ * **Drawn at the size it is shown.** The plot used to be a fixed 720-unit
+ * viewBox stretched with `preserveAspectRatio="none"`, which squashed every
+ * circle into an ellipse and every axis label into a different font width on
+ * any card that was not 720px wide. The SVG now takes its measured width as its
+ * coordinate system, and the text lives in HTML beside it.
+ *
+ * Window filling and direction arithmetic live in `@/lib/feedback/trend`,
+ * shared with the digest, so the badge and the digest's sentence about
+ * improvement are the same claim.
  */
 
 import type { JSX } from 'react'
-import { useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
+import { Minus, TrendingDown, TrendingUp } from 'lucide-react'
 
+import { Badge } from '@/components/ui/badge'
 import { useLocale, useTranslations } from '@/i18n'
 import {
   feedbackTrendAverage,
@@ -44,7 +42,6 @@ import {
   MIN_TREND_VOTES,
   type FeedbackDayPoint,
 } from '@/lib/feedback/trend'
-import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 
 export type FeedbackTrendPoint = FeedbackDayPoint
@@ -58,26 +55,89 @@ export interface FeedbackTrendProps {
   className?: string
 }
 
-const VIEW_W = 720
-const RATE_H = 120
+const FALLBACK_W = 720
+const RATE_H = 132
 const VOL_H = 28
-/** Left gutter for the y labels — without a scale the line has no magnitude. */
-const PAD_X = 34
+/** Inset so the end markers are not clipped by the plot edge. */
+const PAD_X = 6
+const PAD_Y = 8
 
 /**
  * A `day` key is a UTC calendar date, and it has to be formatted as one.
- * `new Date('2026-07-30')` parses to midnight UTC, so a reader west of Greenwich
- * would otherwise see every label a day early — the axis and the hover would
- * disagree with the data by one day, invisibly.
+ * `new Date('2026-07-30')` parses to midnight UTC, so a reader west of
+ * Greenwich would otherwise see every label a day early.
  */
 function formatDay(day: string, locale: string): string {
-  return new Date(day).toLocaleDateString(locale, { timeZone: 'UTC' })
+  return new Date(day).toLocaleDateString(locale, {
+    timeZone: 'UTC',
+    day: 'numeric',
+    month: 'short',
+  })
 }
 
 /**
- * The daily helpful rate over a stacked volume strip, with the direction stated
- * in words. Returns a sentence instead of a chart when too few days are
- * readable — see the module note on why that is not a flat line.
+ * The width of an element, live. A callback ref, so it attaches whenever the
+ * plot mounts (the chart can first render as the "too sparse" sentence). Falls
+ * back to a fixed width where there is no layout (tests, SSR).
+ */
+function useMeasuredWidth(): [(node: HTMLElement | null) => void, number] {
+  const [node, setNode] = useState<HTMLElement | null>(null)
+  const [width, setWidth] = useState(FALLBACK_W)
+  useEffect(() => {
+    if (!node || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => {
+      const next = Math.round(entry.contentRect.width)
+      if (next > 0) setWidth(next)
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [node])
+  return [setNode, width]
+}
+
+/**
+ * The direction, in words, as a badge: icon + label + tint. Measured first third
+ * against last third (see `feedbackTrendDelta`), never endpoint against
+ * endpoint. Renders nothing when too few days are readable to have a direction.
+ */
+export function FeedbackTrendDirection({
+  points,
+  windowDays,
+  minVotes = MIN_TREND_VOTES,
+}: Omit<FeedbackTrendProps, 'className'>): JSX.Element | null {
+  const t = useTranslations('platform')
+  const { locale } = useLocale()
+  const delta = useMemo(
+    () => feedbackTrendDelta(fillTrendWindow(points, windowDays, minVotes)),
+    [points, windowDays, minVotes]
+  )
+  if (delta === null) return null
+  const better = delta >= 1
+  const worse = delta <= -1
+  const Icon = better ? TrendingUp : worse ? TrendingDown : Minus
+  return (
+    <Badge
+      variant={better ? 'success' : worse ? 'warning' : 'secondary'}
+      className="tabular-nums"
+      data-testid="feedback-trend-delta"
+    >
+      <Icon aria-hidden />
+      {t(
+        better
+          ? 'answerFeedback.trendBetter'
+          : worse
+            ? 'answerFeedback.trendWorse'
+            : 'answerFeedback.trendFlat',
+        { points: Math.abs(delta).toLocaleString(locale, { maximumFractionDigits: 1 }) }
+      )}
+    </Badge>
+  )
+}
+
+/**
+ * The daily helpful rate over a stacked volume strip. Returns a sentence
+ * instead of a chart when too few days are readable: a flat line at zero would
+ * read as "every answer failed" instead of "we do not know".
  */
 export function FeedbackTrend({
   points,
@@ -89,36 +149,37 @@ export function FeedbackTrend({
   const { locale } = useLocale()
   const clipId = useId()
   const [hover, setHover] = useState<number | null>(null)
+  const [plotRef, width] = useMeasuredWidth()
 
   const days = useMemo(
     () => fillTrendWindow(points, windowDays, minVotes),
-    [points, windowDays, minVotes],
+    [points, windowDays, minVotes]
   )
 
   const readable = days.filter((d) => d.rate !== null)
-  // Nothing to draw a direction from. Said in words rather than as a flat line at
-  // zero, which would read as "every answer failed" instead of "we do not know".
   if (readable.length < 2) {
     return (
-      <p className={cn('text-xs text-muted-foreground', className)} data-testid="feedback-trend-empty">
+      <p
+        className={cn('text-muted-foreground py-6 text-center text-sm', className)}
+        data-testid="feedback-trend-empty"
+      >
         {t('answerFeedback.trendTooSparse', { min: minVotes })}
       </p>
     )
   }
 
-  // The helpful rate is a share of a whole, so the axis is the whole: fitting it
-  // to the data would redraw 88%–92% as a mountain range. 100% is the top.
-  const maxRate = 100
+  // A share of a whole: the axis is the whole. Fitting it to the data would
+  // redraw 88–92% as a mountain range.
   const maxVol = Math.max(1, ...days.map((d) => d.total))
-  const step = days.length > 1 ? (VIEW_W - PAD_X * 2) / (days.length - 1) : 0
+  const step = days.length > 1 ? (width - PAD_X * 2) / (days.length - 1) : 0
   const x = (i: number): number => PAD_X + i * step
-  const y = (rate: number): number => RATE_H - (rate / maxRate) * (RATE_H - 12) - 6
+  const y = (rate: number): number => RATE_H - PAD_Y - (rate / 100) * (RATE_H - PAD_Y * 2)
+  /** The same y as a share of the plot height, for the HTML labels laid over it. */
+  const yPct = (rate: number): string => `${(y(rate) / RATE_H) * 100}%`
 
-  // Segments rather than one path: a segment touching an unreadable day is dashed,
-  // so the line stays continuous to look at while saying which parts are inferred.
-  // A segment between TWO unreadable days is dropped entirely — bridging it with
-  // `?? 0` drew a stray dash along the zero line, which reads as a real reading of
-  // "no negative feedback" when the truth is "no data".
+  // Segments rather than one path: a segment touching an unreadable day is
+  // dashed. A segment between TWO unreadable days is dropped, never bridged
+  // along the zero line.
   const segments = days.slice(1).flatMap((day, index) => {
     const prev = days[index]
     if (prev.rate === null && day.rate === null) return []
@@ -135,156 +196,155 @@ export function FeedbackTrend({
   })
 
   const average = feedbackTrendAverage(days)
-  // Positive = the helpful rate rose = better. Measured first third against last
-  // third, not endpoint against endpoint — see `feedbackTrendDelta`.
-  const delta = feedbackTrendDelta(days) ?? 0
   const hovered = hover !== null ? days[hover] : null
+  const barW = Math.max(2, Math.min(14, step - 2))
 
   return (
-    <div className={cn('space-y-1.5', className)} data-testid="feedback-trend">
-      <div className="flex items-baseline justify-between gap-3">
-        <SectionLabel as="h3">{t('answerFeedback.trendHeading')}</SectionLabel>
-        {/* The direction, in words. A reader should not have to measure the slope
-            to learn whether the thing they are responsible for is improving. */}
-        <p
-          className={cn(
-            'text-xs font-medium tabular-nums',
-            delta >= 1 ? 'text-success' : delta <= -1 ? 'text-warning' : 'text-muted-foreground',
-          )}
-          data-testid="feedback-trend-delta"
+    <figure className={cn('flex flex-col gap-2', className)} data-testid="feedback-trend">
+      <div className="grid grid-cols-[2.25rem_minmax(0,1fr)] gap-x-2">
+        {/* The scale, in HTML so it keeps its type size at any plot width. */}
+        <div
+          className="text-muted-foreground relative text-[11px] tabular-nums"
+          aria-hidden
+          style={{ height: RATE_H }}
         >
-          {t(
-            delta >= 1
-              ? 'answerFeedback.trendBetter'
-              : delta <= -1
-                ? 'answerFeedback.trendWorse'
-                : 'answerFeedback.trendFlat',
-            { points: Math.abs(delta).toLocaleString(locale, { maximumFractionDigits: 1 }) },
-          )}
-        </p>
-      </div>
+          {[100, 50, 0].map((tick) => (
+            <span
+              key={tick}
+              className="absolute right-0 -translate-y-1/2"
+              style={{ top: yPct(tick) }}
+            >
+              {t('answerFeedback.percent', { value: String(tick) })}
+            </span>
+          ))}
+        </div>
 
-      <figure className="space-y-1">
-        <svg
-          viewBox={`0 0 ${VIEW_W} ${RATE_H}`}
-          className="h-28 w-full"
-          role="img"
-          aria-label={t('answerFeedback.trendAria')}
-          preserveAspectRatio="none"
-          onMouseLeave={() => setHover(null)}
-        >
-          <defs>
-            <clipPath id={clipId}>
-              <rect x="0" y="0" width={VIEW_W} height={RATE_H} />
-            </clipPath>
-          </defs>
-
-          {/* The scale. Two labels — the top of the axis and zero — because a line
-              with no magnitude is a shape, not a measurement: 10% and 40% draw
-              identically when the axis auto-fits. */}
-          {/* SVG user units, not CSS pixels — this chart draws into a viewBox
-              with `preserveAspectRatio="none"`, so these sizes are measurements
-              inside the plot's coordinate system and the type ramp does not
-              apply to them. */}
-          <text x={4} y={y(maxRate) + 4} className="fill-muted-foreground text-[10px]">
-            {t('answerFeedback.percent', { value: Math.round(maxRate).toString() })}
-          </text>
-          <text x={4} y={y(0)} className="fill-muted-foreground text-[10px]">
-            {t('answerFeedback.percent', { value: '0' })}
-          </text>
-
-          {/* One recessive reference line at the window's own average, LABELLED —
-              an unexplained dashed line is furniture the reader has to guess at. */}
-          <line
-            x1={PAD_X}
-            x2={VIEW_W - 30}
-            y1={y(average)}
-            y2={y(average)}
-            className="stroke-border"
-            strokeDasharray="3 3"
-            strokeWidth={1}
-          />
-          <text
-            x={VIEW_W - 26}
-            y={y(average) + 3}
-            // 9.5 SVG user units, a half-step under the axis labels above so
-            // the reference mark stays subordinate to the scale it annotates.
-            // Same coordinate system as those labels (see the note there) —
-            // not CSS pixels, so the type ramp does not apply.
-            className="fill-muted-foreground/80 text-[9.5px]"
+        <div ref={plotRef} className="relative min-w-0">
+          <svg
+            width="100%"
+            height={RATE_H}
+            viewBox={`0 0 ${width} ${RATE_H}`}
+            className="block"
+            role="img"
+            aria-label={t('answerFeedback.trendAria')}
+            onMouseLeave={() => setHover(null)}
           >
-            {t('answerFeedback.trendAverageMark')}
-          </text>
-          <g clipPath={`url(#${clipId})`}>
-            {segments.map((seg) => (
+            <defs>
+              <clipPath id={clipId}>
+                <rect x="0" y="0" width={width} height={RATE_H} />
+              </clipPath>
+            </defs>
+            {[100, 50, 0].map((tick) => (
               <line
-                key={seg.key}
-                x1={seg.x1}
-                y1={seg.y1}
-                x2={seg.x2}
-                y2={seg.y2}
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeDasharray={seg.solid ? undefined : '3 4'}
-                style={{ stroke: 'var(--grid-series-1)' }}
-                opacity={seg.solid ? 1 : 0.45}
+                key={tick}
+                x1={0}
+                x2={width}
+                y1={y(tick)}
+                y2={y(tick)}
+                className="stroke-border"
+                strokeWidth={1}
               />
             ))}
-            {days.map((day, index) =>
-              day.rate === null ? null : (
-                <circle
-                  key={day.day}
-                  cx={x(index)}
-                  cy={y(day.rate)}
-                  r={hover === index ? 4.5 : 3}
-                  style={{ fill: 'var(--grid-series-1)' }}
-                  className="stroke-card"
+            <line
+              x1={0}
+              x2={width}
+              y1={y(average)}
+              y2={y(average)}
+              className="stroke-muted-foreground/60"
+              strokeDasharray="4 4"
+              strokeWidth={1}
+            />
+            <g clipPath={`url(#${clipId})`}>
+              {segments.map((seg) => (
+                <line
+                  key={seg.key}
+                  x1={seg.x1}
+                  y1={seg.y1}
+                  x2={seg.x2}
+                  y2={seg.y2}
                   strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeDasharray={seg.solid ? undefined : '3 4'}
+                  style={{ stroke: 'var(--grid-series-1)' }}
+                  opacity={seg.solid ? 1 : 0.45}
                 />
-              ),
-            )}
-          </g>
-          {/* Hit targets wider than the marks — the skill's interaction rule. */}
-          {days.map((day, index) => (
-            <rect
-              key={`hit-${day.day}`}
-              x={x(index) - step / 2}
-              y={0}
-              width={Math.max(step, 6)}
-              height={RATE_H}
-              fill="transparent"
-              onMouseEnter={() => setHover(index)}
-            />
-          ))}
-        </svg>
+              ))}
+              {hover !== null ? (
+                <line
+                  x1={x(hover)}
+                  x2={x(hover)}
+                  y1={0}
+                  y2={RATE_H}
+                  className="stroke-muted-foreground/40"
+                  strokeWidth={1}
+                />
+              ) : null}
+              {days.map((day, index) =>
+                day.rate === null ? null : (
+                  <circle
+                    key={day.day}
+                    cx={x(index)}
+                    cy={y(day.rate)}
+                    r={hover === index ? 4.5 : 3}
+                    style={{ fill: 'var(--grid-series-1)' }}
+                    className="stroke-card"
+                    strokeWidth={2}
+                  />
+                )
+              )}
+            </g>
+            {/* Hit targets wider than the marks; a tap pins the reading on touch. */}
+            {days.map((day, index) => (
+              <rect
+                key={`hit-${day.day}`}
+                x={x(index) - step / 2}
+                y={0}
+                width={Math.max(step, 6)}
+                height={RATE_H}
+                fill="transparent"
+                onMouseEnter={() => setHover(index)}
+                onClick={() => setHover(index)}
+              />
+            ))}
+          </svg>
+        </div>
 
-        {/* The volume strip. Its own plot, its own scale, one shared x — never a
-            second y-axis on the chart above. */}
+        {/* The volume strip: its own plot, its own scale, the same x. */}
+        <span aria-hidden />
         <svg
-          viewBox={`0 0 ${VIEW_W} ${VOL_H}`}
-          className="h-7 w-full"
+          width="100%"
+          height={VOL_H}
+          viewBox={`0 0 ${width} ${VOL_H}`}
+          className="mt-1 block"
           aria-hidden
-          preserveAspectRatio="none"
         >
-          {days.map((day, index) => (
-            <rect
-              key={day.day}
-              x={x(index) - Math.max(1, step / 2 - 1)}
-              y={VOL_H - (day.total / maxVol) * VOL_H}
-              width={Math.max(2, step - 2)}
-              height={(day.total / maxVol) * VOL_H}
-              rx={1}
-              className={cn('fill-muted-foreground', hover === index ? 'opacity-60' : 'opacity-25')}
-            />
-          ))}
+          {days.map((day, index) => {
+            const h = (day.total / maxVol) * VOL_H
+            return (
+              <rect
+                key={day.day}
+                x={x(index) - barW / 2}
+                y={VOL_H - h}
+                width={barW}
+                height={h}
+                rx={1}
+                className={cn(
+                  'fill-muted-foreground',
+                  hover === index ? 'opacity-60' : 'opacity-25'
+                )}
+              />
+            )
+          })}
         </svg>
 
-        {/* Dates on the axis they belong to, alone — the legend below explains the
-            marks, and mixing the two put four unrelated facts on one line. */}
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span aria-hidden />
+        <div className="text-muted-foreground mt-1 flex items-center justify-between gap-3 text-xs tabular-nums">
           <span>{days[0] ? formatDay(days[0].day, locale) : ''}</span>
-          {hovered && (
-            <span className="font-medium text-foreground" data-testid="feedback-trend-hover">
+          {hovered ? (
+            <span
+              className="text-foreground truncate font-medium"
+              data-testid="feedback-trend-hover"
+            >
               {formatDay(hovered.day, locale)} ·{' '}
               {hovered.rate === null
                 ? t('answerFeedback.trendPointUnreadable', { votes: hovered.total })
@@ -293,65 +353,100 @@ export function FeedbackTrend({
                     votes: hovered.total,
                   })}
             </span>
-          )}
+          ) : null}
           <span>{days.at(-1) ? formatDay(days.at(-1)!.day, locale) : ''}</span>
         </div>
+      </div>
 
-        {/*
-          The legend. Every swatch is the ACTUAL mark drawn at the same weight and
-          dash pattern, not a coloured square standing in for it: the two states
-          that matter here — a measured day and an unmeasured one — differ by
-          dashing, and a square cannot show that. Four marks appear on this figure
-          and all four are named; a dashed line the reader has to guess at is worse
-          than no reference line.
-        */}
-        <figcaption
-          className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-0.5 text-xs text-muted-foreground"
-          data-testid="feedback-trend-legend"
-        >
-          <span className="inline-flex items-center gap-1.5">
-            <svg width="20" height="8" aria-hidden className="shrink-0 overflow-visible">
-              <line x1="0" y1="4" x2="20" y2="4" strokeWidth={2} style={{ stroke: 'var(--grid-series-1)' }} />
-              <circle cx="10" cy="4" r="3" style={{ fill: 'var(--grid-series-1)' }} className="stroke-card" strokeWidth={2} />
-            </svg>
-            {t('answerFeedback.legendRate')}
-          </span>
-
-          <span className="inline-flex items-center gap-1.5">
-            <svg width="20" height="8" aria-hidden className="shrink-0">
-              <line
-                x1="0"
-                y1="4"
-                x2="20"
-                y2="4"
-                strokeWidth={2}
-                strokeDasharray="3 4"
-                opacity={0.45}
-                style={{ stroke: 'var(--grid-series-1)' }}
-              />
-            </svg>
-            {t('answerFeedback.legendSparse', { min: minVotes })}
-          </span>
-
-          <span className="inline-flex items-center gap-1.5">
-            <svg width="20" height="8" aria-hidden className="shrink-0">
-              <line x1="0" y1="4" x2="20" y2="4" strokeWidth={1} strokeDasharray="3 3" className="stroke-border" />
-            </svg>
-            {t('answerFeedback.legendAverage', {
-              pct: average.toLocaleString(locale, { maximumFractionDigits: 1 }),
-            })}
-          </span>
-
-          <span className="inline-flex items-center gap-1.5">
-            <svg width="20" height="8" aria-hidden className="shrink-0">
-              <rect x="1" y="3" width="4" height="5" rx="1" className="fill-muted-foreground opacity-25" />
-              <rect x="7" y="1" width="4" height="7" rx="1" className="fill-muted-foreground opacity-25" />
-              <rect x="13" y="4" width="4" height="4" rx="1" className="fill-muted-foreground opacity-25" />
-            </svg>
-            {t('answerFeedback.legendVolume')}
-          </span>
-        </figcaption>
-      </figure>
-    </div>
+      {/* Every swatch is the ACTUAL mark at the same weight and dash pattern:
+          a measured day and an unmeasured one differ by dashing, which a
+          coloured square cannot show. */}
+      <figcaption
+        className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 text-xs"
+        data-testid="feedback-trend-legend"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <svg width="20" height="8" aria-hidden className="shrink-0 overflow-visible">
+            <line
+              x1="0"
+              y1="4"
+              x2="20"
+              y2="4"
+              strokeWidth={2}
+              style={{ stroke: 'var(--grid-series-1)' }}
+            />
+            <circle
+              cx="10"
+              cy="4"
+              r="3"
+              style={{ fill: 'var(--grid-series-1)' }}
+              className="stroke-card"
+              strokeWidth={2}
+            />
+          </svg>
+          {t('answerFeedback.legendRate')}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <svg width="20" height="8" aria-hidden className="shrink-0">
+            <line
+              x1="0"
+              y1="4"
+              x2="20"
+              y2="4"
+              strokeWidth={2}
+              strokeDasharray="3 4"
+              opacity={0.45}
+              style={{ stroke: 'var(--grid-series-1)' }}
+            />
+          </svg>
+          {t('answerFeedback.legendSparse', { min: minVotes })}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <svg width="20" height="8" aria-hidden className="shrink-0">
+            <line
+              x1="0"
+              y1="4"
+              x2="20"
+              y2="4"
+              strokeWidth={1}
+              strokeDasharray="4 4"
+              className="stroke-muted-foreground/60"
+            />
+          </svg>
+          {t('answerFeedback.legendAverage', {
+            pct: average.toLocaleString(locale, { maximumFractionDigits: 1 }),
+          })}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <svg width="20" height="8" aria-hidden className="shrink-0">
+            <rect
+              x="1"
+              y="3"
+              width="4"
+              height="5"
+              rx="1"
+              className="fill-muted-foreground opacity-25"
+            />
+            <rect
+              x="7"
+              y="1"
+              width="4"
+              height="7"
+              rx="1"
+              className="fill-muted-foreground opacity-25"
+            />
+            <rect
+              x="13"
+              y="4"
+              width="4"
+              height="4"
+              rx="1"
+              className="fill-muted-foreground opacity-25"
+            />
+          </svg>
+          {t('answerFeedback.legendVolume')}
+        </span>
+      </figcaption>
+    </figure>
   )
 }

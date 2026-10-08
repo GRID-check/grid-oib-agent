@@ -4,6 +4,8 @@ import base64
 import json
 from pathlib import Path
 
+import pytest
+
 from aiq_agent import project_context as pc
 
 FIXTURE_PATH = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "grid_request_context.json"
@@ -32,6 +34,7 @@ _INPUT_FIELD_MAP = {
     # case without them must parse to None.
     "conversationId": "conversation_id",
     "issuedAt": "issued_at",
+    "contextTransport": "context_transport",
 }
 
 
@@ -397,6 +400,14 @@ class TestGridRequestContextFromEnvelope:
         header, sig = self._envelope({"issuedAt": True})
         assert pc.GridRequestContext.from_envelope(header, sig, self.SECRET).issued_at is None
 
+    @pytest.mark.parametrize("transport", ["bff", None, "BFF", " bff ", "inline", 1, {}, True])
+    def test_only_the_supported_transport_marker_is_recognized(self, transport):
+        header, sig = self._envelope({"contextTransport": transport})
+        ctx = pc.GridRequestContext.from_envelope(header, sig, self.SECRET)
+        assert ctx is not None
+        assert ctx.context_transport == ("bff" if transport == "bff" else None)
+        assert (ctx.envelope_header, ctx.envelope_signature) == (header, sig)
+
 
 class TestGridRequestContextEnvelopePrecedence:
     """`from_context`/`from_headers` prefer a valid envelope over the
@@ -450,6 +461,48 @@ class TestGridRequestContextEnvelopePrecedence:
 
         ctx = pc.GridRequestContext.from_headers(headers)
         assert ctx.organization_id == "org_from_envelope"
+
+    def test_compact_context_is_parsed_by_both_header_entry_points(self, monkeypatch):
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", self.SECRET)
+        headers = self._envelope_headers(
+            {
+                "organizationId": "org_1",
+                "userId": "user_1",
+                "projectId": "513",
+                "conversationId": "conv_text",
+                "contextTransport": "bff",
+                "collectionScope": ["oib_knowledge"],
+                "modelOverrides": {"chat": "vendor/model"},
+                "budget": {"remainingOrgUsd": 1.5},
+                "disabledSources": ["web_search"],
+                "memoryReflectionEnabled": True,
+                "bundesland": "niederoesterreich",
+                "issuedAt": 1_757_500_000_000,
+            }
+        )
+        headers[pc.PROJECT_CONTEXT_HEADER] = base64.urlsafe_b64encode(b"stale profile").decode("ascii")
+        monkeypatch.setattr(pc, "_read_header", lambda name: headers.get(name))
+        context = pc.GridRequestContext.from_context()
+        assert pc.GridRequestContext.from_headers(headers, secret=self.SECRET) == context
+        assert context.context_transport == "bff"
+        assert (context.organization_id, context.user_id, context.project_id) == ("org_1", "user_1", "513")
+        assert context.conversation_id == "conv_text"
+        assert context.collection_scope == ["oib_knowledge"]
+        assert context.model_overrides == {"chat": "vendor/model"}
+        assert context.budget == {"remainingOrgUsd": 1.5}
+        assert context.disabled_sources == ["web_search"]
+        assert context.memory_reflection_enabled is True
+        assert context.bundesland == "niederoesterreich"
+        assert context.issued_at == 1_757_500_000_000
+        assert (context.project_context, context.project_memory, context.org_instructions) == (None, None, None)
+        assert context.envelope_header == headers[pc.REQUEST_CONTEXT_ENVELOPE_HEADER]
+        assert context.envelope_signature == headers[pc.REQUEST_CONTEXT_ENVELOPE_SIG_HEADER]
+
+    def test_unsigned_transport_header_does_not_opt_in(self, monkeypatch):
+        headers = {"x-grid-context-transport": "bff"}
+        monkeypatch.setattr(pc, "_read_header", lambda name: headers.get(name))
+        assert pc.GridRequestContext.from_context().context_transport is None
+        assert pc.GridRequestContext.from_headers(headers).context_transport is None
 
 
 class TestBundeslandField:

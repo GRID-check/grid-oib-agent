@@ -15,7 +15,11 @@ let dbInstance: ReturnType<typeof drizzle> | null = null;
 // Default upper bound on pooled connections when GRID_DB_POOL_MAX is unset.
 const DEFAULT_DB_POOL_MAX = 10;
 // Cancel any single statement that runs longer than this (ms). Keeps a runaway
-// query from hanging a request past Cloudflare's ~100s origin timeout.
+// query from hanging a request past Cloudflare's ~100s origin timeout. Applied
+// per transaction with `SET LOCAL` (see `contextStatement`), never as a startup
+// parameter: the transaction pooler in front of the database (ADR-0083) rejects
+// `statement_timeout` in the startup packet, and would not carry it from one
+// client's transaction to the next anyway.
 const STATEMENT_TIMEOUT_MS = 30_000;
 
 /**
@@ -101,9 +105,35 @@ function settingLiteral(name: string, value: string): string {
 }
 
 /**
+ * The statements that open every transaction, as one batch: the caller's
+ * context, then the statement timeout. One string so it is one round trip, and
+ * one place so the timeout cannot be missing from a branch.
+ *
+ * The timeout is here and not in the connection's startup parameters because
+ * the pooler rejects it there (ADR-0083). Everything in this batch is
+ * `SET LOCAL`, so none of it outlives the transaction on a server connection
+ * that the pooler hands to some other client next. `STATEMENT_TIMEOUT_MS` is a
+ * constant of ours, interpolated without {@link settingLiteral}'s check because
+ * no caller can reach it.
+ */
+export function contextStatement(context: TenantContext): string {
+  const timeout = `SET LOCAL statement_timeout = '${STATEMENT_TIMEOUT_MS}'`;
+  if (context.kind === "platform") {
+    // A constant, never interpolated from input. First, so nothing in the
+    // transaction ever runs under the tenant-scoped role.
+    return [`SET LOCAL ROLE ${PLATFORM_ROLE}`, timeout].join("; ");
+  }
+  return [
+    settingLiteral(ORGANIZATION_SETTING, context.organizationId),
+    settingLiteral(USER_SETTING, context.userId ?? ""),
+    timeout,
+  ].join("; ");
+}
+
+/**
  * Apply the caller's context to a connection, inside the open transaction.
  *
- * Both branches are `SET LOCAL`, and that they are UTILITY statements rather
+ * Every statement is `SET LOCAL`, and that they are UTILITY statements rather
  * than queries is load-bearing. An earlier version used
  * `SELECT set_config(...)`, which counts as a query — so drizzle's
  * `db.transaction(fn, { isolationLevel })` then failed with
@@ -117,17 +147,7 @@ function settingLiteral(name: string, value: string): string {
  * with row-level security at all.
  */
 async function applyContext(connection: Connection, context: TenantContext): Promise<void> {
-  if (context.kind === "platform") {
-    // A constant, never interpolated from input.
-    await connection.unsafe(`SET LOCAL ROLE ${PLATFORM_ROLE}`);
-    return;
-  }
-  await connection.unsafe(
-    [
-      settingLiteral(ORGANIZATION_SETTING, context.organizationId),
-      settingLiteral(USER_SETTING, context.userId ?? ""),
-    ].join("; "),
-  );
+  await connection.unsafe(contextStatement(context));
 }
 
 /**
@@ -285,10 +305,9 @@ export function createDb() {
     connect_timeout: 10,
     // Reap idle connections after 30s so the pool shrinks under low load.
     idle_timeout: 30,
-    // Server-side per-statement ceiling: a runaway query is cancelled well
-    // before it can hang past Cloudflare's ~100s origin timeout.
-    connection: { statement_timeout: STATEMENT_TIMEOUT_MS },
-    // Keep prepared statements off for transaction-pooler (PgBouncer) safety.
+    // No `connection: { ... }` startup parameters. The transaction pooler
+    // (PgBouncer, ADR-0083) refuses any it does not track, and the per-statement
+    // ceiling it used to carry is `SET LOCAL` in `contextStatement` instead.
     prepare: false,
   });
   dbInstance = drizzle(tenantScopedClient(client));

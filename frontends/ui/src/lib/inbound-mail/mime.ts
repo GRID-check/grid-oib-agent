@@ -33,7 +33,8 @@
 import { createHash } from 'node:crypto'
 import { fileTypeFromBuffer } from 'file-type'
 import PostalMime, { type Attachment, type Email } from 'postal-mime'
-import { documentNameKey, numberedDocumentName } from '@/lib/documents/name-match'
+import { documentNameKey } from '@/lib/documents/name-match'
+import { numberedFilename } from '@/lib/mail-import/naming'
 import { stripFormatControls, truncateGraphemes } from '@/lib/text/graphemes'
 import type { ParsedMail, SelectedAttachment, SkipReason } from './types'
 
@@ -233,9 +234,9 @@ class NameLedger {
 
   private numbered(name: string, key: string): string {
     let n = this.nextNumber.get(key) ?? 2
-    while (this.taken.has(numberedDocumentName(name, n))) n += 1
+    while (this.taken.has(documentNameKey(numberedFilename(name, n)))) n += 1
     this.nextNumber.set(key, n + 1)
-    return numberedDocumentName(name, n)
+    return documentNameKey(numberedFilename(name, n))
   }
 }
 

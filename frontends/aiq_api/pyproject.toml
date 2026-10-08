@@ -21,7 +21,6 @@ classifiers = [
 ]
 dependencies = [
     "fastapi>=0.100.0",
-    "dask[distributed]>=2024.1.0",
     "sqlalchemy>=2.0.51",
     "aiosqlite>=0.19.0",
     "asyncpg>=0.29.0",
@@ -32,6 +31,18 @@ dependencies = [
     # PyJWT has no `cryptography` extra, so that spelling installed nothing.
     # 2.15.1 is the first release clear of the September 2026 advisories.
     "PyJWT[crypto]>=2.15.1",
+    # Outlook archives (.pst/.ost) for the mail import (ADR-0085). libpff is the
+    # only reader that covers ANSI, Unicode and OST archives and reads from a
+    # file object; 20260926 is the first release with cp314 wheels, so no
+    # compiler reaches the image. LGPL-3.0-or-later, used unmodified as a library.
+    "libpff-python==20260926",
+    # RTF bodies (most of an Exchange mailbox) as text. Pure Python, BSD-3.
+    "striprtf==0.0.33",
+    # HTML bodies as text, and range reads of the staged archive. Both already
+    # in the environment through the agent; named here because this package
+    # imports them.
+    "lxml>=6.1.0,<7",
+    "httpx>=0.28",
 ]
 
 [project.optional-dependencies]

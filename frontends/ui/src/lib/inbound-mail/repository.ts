@@ -1,16 +1,16 @@
 /**
- * SQL for the project mail inbox (migration 0102). No authorization here: the
+ * SQL for the project mail inbox (migration 0109). No authorization here: the
  * service decides who may ask, and row-level security is the backstop.
  *
  * Every function runs in whatever tenant scope its caller opened, with one
  * group of exceptions that say so: {@link findActiveAddressByToken} is the
- * lookup that happens BEFORE any organization is known, and the drain's claim,
- * reaper and retention sweeps span every organization. Their callers wrap them
+ * lookup that happens BEFORE any organization is known, and the sweep and the
+ * retention span every organization. Their callers wrap them
  * in `withPlatformAccess` and do each row's work inside `withTenant`.
  */
 
 import 'server-only'
-import { and, eq, inArray, isNull, lt, lte, sql } from 'drizzle-orm'
+import { and, eq, isNull, lt, sql } from 'drizzle-orm'
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core'
 import { getDb } from '@/lib/db'
 import { isUniqueViolation } from '@/lib/db/errors'
@@ -186,7 +186,7 @@ export interface NewDelivery extends ResolvedAddress {
  * Queue a delivery, or re-queue one that was given up on.
  *
  * Returns the id of the row that now holds this mail's staging, or `null` when
- * a row for it is already `queued`, `processing` or `filed`: a duplicate, whose
+ * a row for it is already `queued` or `filed`: a duplicate, whose
  * caller discards its own staging. A `failed` row is taken over in place (the
  * sender sent it again after being told it failed), keeping its folder so the
  * second try lands beside whatever the first one filed.
@@ -207,7 +207,6 @@ export async function queueDelivery(input: NewDelivery): Promise<string | null> 
         filedCount: 0,
         skippedCount: 0,
         attempts: 0,
-        nextAttemptAt: sql`now()`,
         lastError: null,
         updatedAt: sql`now()`,
       },
@@ -218,97 +217,65 @@ export async function queueDelivery(input: NewDelivery): Promise<string | null> 
 }
 
 // ---------------------------------------------------------------------------
-// Deliveries: the drain's half
+// Deliveries: the job's half (inside the delivery's organization)
 // ---------------------------------------------------------------------------
 
-/** How long an attempt may go without a heartbeat before it is presumed dead. */
-export const STALE_CLAIM_SECONDS = 10 * 60
-
-/** A delivery a drain attempt owns: every write of that attempt names `claimToken`. */
-export type ClaimedDelivery = InboundMailMessageRow & { claimToken: string }
-
 /**
- * Claim the next due delivery of ANY organization, or `null` when none is due.
- *
- * NOT tenant-filtered: the caller runs it under platform access and does the
- * row's work inside the row's own organization. The subquery's
- * `FOR UPDATE SKIP LOCKED` keeps two drains off one row, and the fresh
- * `claim_token` is what every later write of this attempt is fenced on, so an
- * attempt that stalls past {@link STALE_CLAIM_SECONDS} and is reaped cannot
- * write over the attempt that took the row after it.
+ * Every write below is conditional on the row still being `queued`. That is
+ * the fence: the queue hands one job one claim, but a delivery can have a
+ * second job (the sweep re-queued it while the first was slow), and the first
+ * of them to finish the mail decides. A `false` answer means the mail is no
+ * longer this job's to touch.
  */
-export async function claimNextDelivery(): Promise<ClaimedDelivery | null> {
-  const db = getDb()
-  const due = db
-    .select({ id: inboundMailMessages.id })
-    .from(inboundMailMessages)
-    .where(and(eq(inboundMailMessages.status, 'queued'), lte(inboundMailMessages.nextAttemptAt, sql`now()`)))
-    .orderBy(inboundMailMessages.nextAttemptAt)
-    .limit(1)
-    .for('update', { skipLocked: true })
-  const [row] = await db
-    .update(inboundMailMessages)
-    .set({
-      status: 'processing',
-      claimToken: sql`gen_random_uuid()`,
-      attempts: sql`${inboundMailMessages.attempts} + 1`,
-      updatedAt: sql`now()`,
-    })
-    .where(inArray(inboundMailMessages.id, due))
-    .returning()
-  if (!row?.claimToken) return null
-  return { ...row, claimToken: row.claimToken }
-}
-
-/**
- * Hand every attempt whose heartbeat stopped back to the queue. Platform scope.
- * Its attempt stays counted, so a row that keeps killing the drain still
- * reaches the give-up. Returns how many were reaped.
- */
-export async function reapStaleClaims(staleSeconds: number = STALE_CLAIM_SECONDS): Promise<number> {
-  const rows = await getDb()
-    .update(inboundMailMessages)
-    .set({ status: 'queued', claimToken: null, nextAttemptAt: sql`now()`, lastError: 'stale-claim' })
-    .where(
-      and(
-        eq(inboundMailMessages.status, 'processing'),
-        lt(inboundMailMessages.updatedAt, sql`now() - make_interval(secs => ${staleSeconds})`)
-      )
-    )
-    .returning({ id: inboundMailMessages.id })
-  return rows.length
-}
-
-/** The fence: this row, still owned by this attempt. */
-function ownedBy(id: string, claimToken: string) {
+function stillQueued(organizationId: string, id: string) {
   return and(
+    eq(inboundMailMessages.organizationId, organizationId),
     eq(inboundMailMessages.id, id),
-    eq(inboundMailMessages.claimToken, claimToken),
-    eq(inboundMailMessages.status, 'processing')
+    eq(inboundMailMessages.status, 'queued')
   )
 }
 
-async function fencedUpdate(
+async function updateQueued(
+  organizationId: string,
   id: string,
-  claimToken: string,
   values: PgUpdateSetSource<typeof inboundMailMessages>
 ): Promise<boolean> {
   const rows = await getDb()
     .update(inboundMailMessages)
     .set({ ...values, updatedAt: sql`now()` })
-    .where(ownedBy(id, claimToken))
+    .where(stillQueued(organizationId, id))
     .returning({ id: inboundMailMessages.id })
   return rows.length > 0
 }
 
-/** The attempt is alive. `false` means it lost the row and must stop writing. */
-export function heartbeat(id: string, claimToken: string): Promise<boolean> {
-  return fencedUpdate(id, claimToken, {})
+/** The delivery a job was handed, whatever its status. */
+export async function findDeliveryRow(organizationId: string, id: string): Promise<InboundMailMessageRow | null> {
+  const [row] = await getDb()
+    .select()
+    .from(inboundMailMessages)
+    .where(and(eq(inboundMailMessages.organizationId, organizationId), eq(inboundMailMessages.id, id)))
+    .limit(1)
+  return row ?? null
+}
+
+/** The job is still filing this mail: the sweep leaves a delivery with recent progress alone. */
+export function touchDelivery(organizationId: string, id: string): Promise<boolean> {
+  return updateQueued(organizationId, id, {})
 }
 
 /** Remember the folder the first filing created, for every later attempt. */
-export function recordDeliveryFolder(id: string, claimToken: string, folderId: string): Promise<boolean> {
-  return fencedUpdate(id, claimToken, { folderId })
+export function recordDeliveryFolder(organizationId: string, id: string, folderId: string): Promise<boolean> {
+  return updateQueued(organizationId, id, { folderId })
+}
+
+/** An attempt failed and the delivery waits for the next one: count it, and say why. */
+export function recordFailedAttempt(
+  organizationId: string,
+  id: string,
+  attempts: number,
+  lastError: string
+): Promise<boolean> {
+  return updateQueued(organizationId, id, { attempts, lastError })
 }
 
 /** What a finished delivery keeps: counts and reason codes, no names, no subject. */
@@ -322,7 +289,6 @@ export interface DeliveryOutcome {
 
 function terminalValues(outcome: DeliveryOutcome) {
   return {
-    claimToken: null,
     subject: null,
     staged: outcome.remaining,
     skipped: outcome.skipped.map(({ reason }) => ({ reason })),
@@ -332,46 +298,31 @@ function terminalValues(outcome: DeliveryOutcome) {
   }
 }
 
-export function markDeliveryFiled(id: string, claimToken: string, outcome: DeliveryOutcome): Promise<boolean> {
-  return fencedUpdate(id, claimToken, { status: 'filed', ...terminalValues(outcome) })
+export function markDeliveryFiled(organizationId: string, id: string, outcome: DeliveryOutcome): Promise<boolean> {
+  return updateQueued(organizationId, id, { status: 'filed', ...terminalValues(outcome) })
 }
 
-export function markDeliveryFailed(id: string, claimToken: string, outcome: DeliveryOutcome): Promise<boolean> {
-  return fencedUpdate(id, claimToken, { status: 'failed', ...terminalValues(outcome) })
+export function markDeliveryFailed(organizationId: string, id: string, outcome: DeliveryOutcome): Promise<boolean> {
+  return updateQueued(organizationId, id, { status: 'failed', ...terminalValues(outcome) })
 }
 
-/** This attempt failed; queue the next one after `delaySeconds`. */
-export function scheduleRetry(
-  id: string,
-  claimToken: string,
-  delaySeconds: number,
-  lastError: string
-): Promise<boolean> {
-  return fencedUpdate(id, claimToken, {
-    status: 'queued',
-    claimToken: null,
-    nextAttemptAt: sql`now() + make_interval(secs => ${delaySeconds})`,
-    lastError,
-  })
-}
+// ---------------------------------------------------------------------------
+// The sweep and retention (platform scope)
+// ---------------------------------------------------------------------------
 
 /**
- * Give the row back without spending an attempt: the drain is holding off
- * (the organization's switch is off), which is not the mail's failure.
+ * Queued deliveries of ANY organization that have made no progress since
+ * `before`: the candidates for "nothing is filing this". The caller asks the
+ * job queue whether one still has a job, inside the row's own organization.
  */
-export function releaseClaim(id: string, claimToken: string, delaySeconds: number): Promise<boolean> {
-  return fencedUpdate(id, claimToken, {
-    status: 'queued',
-    claimToken: null,
-    attempts: sql`GREATEST(${inboundMailMessages.attempts} - 1, 0)`,
-    nextAttemptAt: sql`now() + make_interval(secs => ${delaySeconds})`,
-    lastError: 'held',
-  })
+export async function listStalledDeliveries(before: Date, limit: number): Promise<InboundMailMessageRow[]> {
+  return getDb()
+    .select()
+    .from(inboundMailMessages)
+    .where(and(eq(inboundMailMessages.status, 'queued'), lt(inboundMailMessages.updatedAt, before)))
+    .orderBy(inboundMailMessages.updatedAt)
+    .limit(limit)
 }
-
-// ---------------------------------------------------------------------------
-// Retention (platform scope)
-// ---------------------------------------------------------------------------
 
 /** Rows are bookkeeping for thirty days, then gone (privacy note §6). */
 export const DELIVERY_RETENTION_DAYS = 30
@@ -386,8 +337,6 @@ export async function deleteDeliveriesOlderThan(days: number = DELIVERY_RETENTIO
     .where(
       and(
         lt(inboundMailMessages.receivedAt, sql`now() - make_interval(days => ${days})`),
-        // Never under a live attempt; it is reaped first and deleted next time.
-        sql`${inboundMailMessages.status} <> 'processing'`,
         // Never while it still names staged objects: the row is how the
         // staging backstop and the project purge find the bucket they are in.
         sql`${inboundMailMessages.staged} = '[]'::jsonb`
@@ -397,7 +346,7 @@ export async function deleteDeliveriesOlderThan(days: number = DELIVERY_RETENTIO
   return rows.length
 }
 
-/** Rows not owned by an attempt whose staging is older than `days`. */
+/** Rows whose staging is older than `days`, whatever their status. */
 export async function findExpiredStaging(
   limit: number,
   days: number = STAGING_RETENTION_DAYS
@@ -408,7 +357,6 @@ export async function findExpiredStaging(
     .where(
       and(
         sql`${inboundMailMessages.staged} <> '[]'::jsonb`,
-        sql`${inboundMailMessages.status} <> 'processing'`,
         lt(inboundMailMessages.receivedAt, sql`now() - make_interval(days => ${days})`)
       )
     )
@@ -418,8 +366,9 @@ export async function findExpiredStaging(
 
 /**
  * The staging of an expired row is gone. A row still `queued` can never be
- * filed now, so it fails; conditional on the status the caller read, so a
- * concurrent claim is never overwritten. Returns whether it applied.
+ * filed now, so it fails; conditional on the status the caller read, so a job
+ * that finished the row meanwhile is never overwritten. Returns whether it
+ * applied.
  */
 export async function clearExpiredStaging(
   row: Pick<InboundMailMessageRow, 'id' | 'status'>,

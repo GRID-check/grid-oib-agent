@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
-  distinctDocumentNames,
   documentAliasKey,
-  documentNameCandidates,
   documentNameKey,
   documentNameVariants,
-  firstFreeDocumentName,
-  numberedDocumentName,
   originBaseName,
 } from './name-match'
 
@@ -79,71 +75,5 @@ describe('originBaseName', () => {
     expect(originBaseName(null)).toBeNull()
     expect(originBaseName('')).toBeNull()
     expect(originBaseName('///')).toBeNull()
-  })
-})
-
-describe('numberedDocumentName', () => {
-  it('numbers before the last extension, and leaves n = 1 as the name', () => {
-    expect(numberedDocumentName('Plan.pdf', 1)).toBe('Plan.pdf')
-    expect(numberedDocumentName('Plan.pdf', 2)).toBe('Plan (2).pdf')
-    expect(numberedDocumentName('Archiv.tar.gz', 3)).toBe('Archiv.tar (3).gz')
-  })
-
-  it('numbers at the end when there is no extension, or the dot starts the name', () => {
-    expect(numberedDocumentName('README', 2)).toBe('README (2)')
-    expect(numberedDocumentName('.env', 2)).toBe('.env (2)')
-  })
-
-  it('works in the identity key, so both Unicode spellings number alike', () => {
-    expect(numberedDocumentName(DECOMPOSED, 2)).toBe('Pr\u00fcfbericht (2).pdf')
-    expect(numberedDocumentName('  Plan.pdf ', 2)).toBe('Plan (2).pdf')
-  })
-})
-
-describe('documentNameCandidates', () => {
-  it('yields the name, then its numbered forms, up to the limit', () => {
-    expect([...documentNameCandidates('a.pdf', 3)]).toEqual(['a.pdf', 'a (2).pdf', 'a (3).pdf'])
-  })
-})
-
-describe('firstFreeDocumentName', () => {
-  it('is the name itself when nothing holds it', () => {
-    expect(firstFreeDocumentName('Plan.pdf', () => false)).toBe('Plan.pdf')
-  })
-
-  it('asks about IDENTITY keys: another case is another name, another Unicode form is not', () => {
-    const taken = new Set(['plan.pdf', 'Pr\u00fcfbericht.pdf'])
-    expect(firstFreeDocumentName('Plan.pdf', (key) => taken.has(key))).toBe('Plan.pdf')
-    expect(firstFreeDocumentName(DECOMPOSED, (key) => taken.has(key))).toBe('Pr\u00fcfbericht (2).pdf')
-  })
-
-  it('throws past the limit rather than looping', () => {
-    expect(() => firstFreeDocumentName('a.pdf', () => true, 5)).toThrow(/5 candidates/)
-  })
-})
-
-describe('distinctDocumentNames', () => {
-  it('numbers repeats in order, and keeps the first one as it was', () => {
-    expect(distinctDocumentNames(['Plan.pdf', 'Plan.pdf', 'Plan.pdf', 'Schnitt.pdf'])).toEqual([
-      'Plan.pdf',
-      'Plan (2).pdf',
-      'Plan (3).pdf',
-      'Schnitt.pdf',
-    ])
-  })
-
-  it('steps over a name the batch already holds in numbered form', () => {
-    expect(distinctDocumentNames(['a (2).pdf', 'a.pdf', 'a.pdf'])).toEqual(['a (2).pdf', 'a.pdf', 'a (3).pdf'])
-  })
-
-  it('treats the two Unicode spellings as one name', () => {
-    expect(distinctDocumentNames([COMPOSED, DECOMPOSED])).toEqual([COMPOSED, 'Pr\u00fcfbericht (2).pdf'])
-  })
-
-  it('stays linear: a thousand copies of one name do not rescan from 1 each time', () => {
-    const names = Array.from({ length: 1000 }, () => 'Plan.pdf')
-    const out = distinctDocumentNames(names)
-    expect(new Set(out).size).toBe(1000)
-    expect(out.at(-1)).toBe('Plan (1000).pdf')
   })
 })

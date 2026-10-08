@@ -1,13 +1,13 @@
 /**
  * Receiving one mail (Worker → BFF, ADR-0075): verify it, stage its
- * attachments, queue it, answer. Filing happens later, in `./drain`.
+ * attachments, queue it, answer. Filing happens later, in `./job`.
  *
  * ## Why accept and file are two steps
  *
  * The Worker holds the sender's SMTP transaction open while this runs, and a
  * mail of a hundred files through `uploadDocument` does not fit in that window.
  * So the webhook does only what decides the answer, stores the selected
- * attachments, and says 202; the scheduler's tick drains the queue.
+ * attachments, enqueues a job on the BFF's job queue, and says 202.
  *
  * ## The order of work, and why it is this order
  *
@@ -29,7 +29,9 @@
  *     and costs nothing more.
  *  9. The rate limits, after the dedupe, so a redelivery is never refused.
  * 10. Stage the selected attachments under the project's prefix.
- * 11. Queue the row.
+ * 11. Queue the row, and a job to file it (`./job`). A job that could not be
+ *     enqueued is not a refusal: the row is durable, and the sweep gives a
+ *     queued delivery without a job a new one.
  * 12. 202.
  *
  * ## The answer is a contract
@@ -51,6 +53,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import type { SkippedAttachment } from '@/lib/db/schema'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { enforceLimit, INBOUND_MAIL_ADDRESS_LIMIT, INBOUND_MAIL_ORG_LIMIT } from '@/lib/limits'
+import { mailFolderName } from '@/lib/mail-import/naming'
 import { loadOrganizationDirectory, type DirectoryPerson } from '@/lib/sharing/directory'
 import { isProjectMailInboxEnabledForOrg } from '@/lib/workos/feature-flags'
 import { asciiLower, inboundMailDomain, parseInboundAddress } from './address'
@@ -60,7 +63,7 @@ import {
   INBOUND_VERDICT_HEADER,
   INBOUND_VERDICT_REJECT,
 } from './contract'
-import { mailFolderName } from './folder-name'
+import { enqueueDelivery } from './job'
 import { deliveryKey, parseMail } from './mime'
 import { findActiveAddressByToken, findDelivery, queueDelivery, type ResolvedAddress } from './repository'
 import { verifySender } from './sender-auth'
@@ -399,7 +402,10 @@ async function queueMail(
       id,
       deliveryKey: key,
       senderUserId: sender.session.userId,
-      folderName: mailFolderName(receivedAt, { name: sender.fromName ?? mail.fromName, address: sender.fromAddress }),
+      folderName: mailFolderName(receivedAt.toISOString(), {
+        name: sender.fromName ?? mail.fromName ?? '',
+        address: sender.fromAddress,
+      }),
       subject: mail.subject,
       stagingBucket: staging.bucket,
       staged: staging.staged,
@@ -415,8 +421,18 @@ async function queueMail(
     return { status: 200, body: { status: 'duplicate' } }
   }
   trail.rowId = rowId
+  await enqueueFiling(address, rowId)
   trail.outcome = 'accepted'
   return { status: 202, body: { status: 'queued', files: mail.attachments.length, skipped: mail.skipped.length } }
+}
+
+/** Step 11's job. Its failure is logged, never answered: the sweep enqueues one for a delivery without. */
+async function enqueueFiling(address: ResolvedAddress, deliveryId: string): Promise<void> {
+  try {
+    await enqueueDelivery(address.organizationId, { deliveryId, projectId: address.projectId })
+  } catch (error) {
+    console.warn(`[inbound-mail] the filing job was not enqueued; the sweep will row=${deliveryId} error=${errorName(error)}`)
+  }
 }
 
 /** Every skip is counted; only the first {@link MAX_NAMED_SKIPS} keep a name on the row. */

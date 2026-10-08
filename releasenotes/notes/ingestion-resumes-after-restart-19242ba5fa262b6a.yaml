@@ -1,0 +1,13 @@
+---
+fixes:
+  - >
+    Documents that were being indexed while Piloti was updated now resume
+    straight away instead of after several minutes. A restart no longer uses up
+    one of their retries.
+operators:
+  - >
+    Ingestion jobs that fail every claim are now kept as dead rows in the queue
+    (with a reason) instead of being deleted, and no longer count toward the
+    ingest worker's scaling. New settings GRID_INGEST_MAX_JOB_SECONDS,
+    GRID_INGEST_PROGRESS_TIMEOUT_SECONDS and GRID_INGEST_DEAD_RETENTION_DAYS;
+    GRID_INGEST_MAX_PER_ORG replaces AIQ_INGEST_MAX_PER_ORG, which still works.

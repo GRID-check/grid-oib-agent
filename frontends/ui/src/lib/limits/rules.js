@@ -27,7 +27,7 @@
  *     append-only, exact, fail-closed on refusal. If the question is "may this
  *     spend money", it is not a rate limit.
  *   - **Capacity** is admission control in the Python API
- *     (`GRID_MAX_ACTIVE_JOBS*`): concurrent slots, not events per minute. If
+ *     (`GRID_MAX_ACTIVE_JOBS_PER_ORG`): concurrent slots, not events per minute. If
  *     the question is "is there room to run this now", a rate limit is the
  *     wrong shape — it would admit a fourth long run at a steady trickle.
  *
@@ -288,7 +288,26 @@ const INBOUND_MAIL_ADDRESS_LIMIT = { name: 'inbound-mail-address', limit: 60, wi
  */
 const INBOUND_MAIL_ORG_LIMIT = { name: 'inbound-mail-org', limit: 600, windowMs: 60 * 60 * 1000 }
 
+/**
+ * Dictating into the chat composer.
+ *
+ * Every call is a paid transcription the member is never billed for and no
+ * budget counts (ADR-0015 budgets deliberately skip it), so this rule is the
+ * only bound on what one member can make the platform spend. A recording is at
+ * most 45 seconds, so one a minute is a person talking without pause; the
+ * hourly clause is a long working session of dictated messages, and the burst
+ * clause stops a stuck retry loop within the minute.
+ * @type {LimitRule}
+ */
+const DICTATION_LIMIT = {
+  name: 'dictation',
+  limit: 120,
+  windowMs: 60 * 60 * 1000,
+  burst: { limit: 6, windowMs: 60 * 1000 },
+}
+
 module.exports = {
+  DICTATION_LIMIT,
   FEEDBACK_REPORT_LIMIT,
   INBOUND_MAIL_ADDRESS_LIMIT,
   INBOUND_MAIL_ORG_LIMIT,

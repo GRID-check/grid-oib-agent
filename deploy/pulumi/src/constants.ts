@@ -422,6 +422,21 @@ export const GOTENBERG = {
   },
 } as const;
 
+/**
+ * The read-only Postgres login KEDA's `postgresql` scaler counts the queues with
+ * (ADR-0079). It is the one name the Cluster's managed roles, the grants Job and
+ * the DSNs in `grid-secrets` must agree on. Its password is
+ * `postgres.scalerPassword` (`config.ts`).
+ */
+export const KEDA_SCALER_ROLE = "grid_keda_scaler";
+
+/**
+ * `CONNECTION LIMIT` on {@link KEDA_SCALER_ROLE}: the operator opens one
+ * connection per poll, and the role's own cap is the most it can ever hold.
+ * Declared on the Cluster's managed role and counted in the pooler budget's
+ * direct-connection reserve (`pgConnectionBudget`), so the two cannot disagree.
+ */
+export const KEDA_SCALER_CONNECTION_LIMIT = 8;
 /** Kubernetes Job retry/cleanup defaults for bootstrap work. */
 export const JOB_DEFAULTS = {
   /** Generous retry budget: bootstrap Jobs wait on other services. */
@@ -455,4 +470,105 @@ export const APP_DEFAULTS = {
 export const POSTGRES_TUNING = {
   maxConnections: "200",
   sharedBuffers: "256MB",
+} as const;
+
+/**
+ * The transaction pooler in front of the pooled DSNs (ADR-0083). The two sizes
+ * that differ per stack (`pgPoolerInstances`, `pgPoolerPoolSize`) are knobs in
+ * `config.ts`; these are fixed.
+ */
+export const POSTGRES_POOLER = {
+  /** The CNPG `Pooler` resource, and the Service the pooled DSNs name. */
+  name: "grid-pg-pooler-rw",
+  /** Client connections one PgBouncer accepts. A few KB each, so far above what every tier opens. */
+  maxClientConn: "2000",
+  /**
+   * Named prepared statements PgBouncer tracks per client connection. psycopg3
+   * prepares a statement after its fifth run and asyncpg prepares every one, both
+   * at the protocol level. In transaction mode PgBouncer (>= 1.21) maps their
+   * names onto whichever server connection it hands over, which is why neither
+   * driver needs a `prepare_threshold=None` style workaround here.
+   */
+  maxPreparedStatements: "200",
+  /**
+   * Server sessions each PgBouncer holds for its own `auth_query`
+   * (`cnpg_pooler_pgbouncer` on `postgres`). One in the steady state; a second
+   * while two new logins are checked at the same instant, which the CloudNativePG
+   * part of {@link POSTGRES_DIRECT_RESERVE} absorbs.
+   */
+  authConnections: 1,
+  resources: {
+    requests: { cpu: "100m", memory: "64Mi" },
+    limits: { cpu: "1", memory: "256Mi" },
+  },
+} as const;
+
+/**
+ * The (database, role) pairs the pooled DSNs connect as. PgBouncer keeps one
+ * server pool per pair, so this count is what multiplies `pgPoolerPoolSize` in
+ * the connection budget. `postgres.spec.ts` derives the same set from the
+ * pooled env vars in `grid-secrets` and fails when the two differ, so a new
+ * pooled DSN cannot be added without paying for it here.
+ *
+ * `app` is the owner login (`pgAppUser`), `runtime` is `grid_app_rw` (ADR-0041).
+ */
+export const POOLED_POOLS = [
+  { database: "aiq_jobs", login: "app" },
+  { database: "aiq_checkpoints", login: "app" },
+  { database: "grid_app", login: "runtime" },
+] as const;
+
+/**
+ * What the Postgres primary must keep free for connections that do NOT go
+ * through the pooler, in `max_connections` slots (ADR-0083). `pgConnectionBudget`
+ * adds these to the pooler's worst case and the plan fails when the sum passes
+ * `POSTGRES_TUNING.maxConnections`. Each part names its bound, because a reserve
+ * that is only a number is where the next person stops checking.
+ */
+export const POSTGRES_DIRECT_RESERVE = {
+  /** `superuser_reserved_connections` (the PostgreSQL default). Counted inside `max_connections`. */
+  superuser: 3,
+  /**
+   * CloudNativePG's own: the instance manager, its metrics exporter, and the
+   * backup and archiving sessions. An estimate (two or three when idle, doubled
+   * for a base backup running during a failover), not a measurement: read
+   * `pg_stat_activity` on the primary before lowering it.
+   */
+  cnpg: 6,
+  /**
+   * `AIQ_LISTEN_DB_URL`: one asyncpg connection per open job SSE stream, held for
+   * as long as the job runs, by the `api` role (the chat role serves no job
+   * stream, ADR-0082). So the bound is the jobs and their viewers, not the number
+   * of api pods: scaling `aiq-api` out spreads the streams, it adds none. Running jobs are bounded by the research tier
+   * (`agentWorkerMaxReplicas` x `agentWorkerConcurrency`, 3 in prod) and each has a
+   * handful of viewers. Nothing in the code caps the streams themselves, so this
+   * is an allowance, not a limit.
+   */
+  sseListen: 20,
+  /**
+   * Session advisory locks (`AIQ_LOCK_DB_URL`) that are not tied to ingest
+   * volume: the ghost-job reaper, the collection TTL cleanup, and an api
+   * replica's own re-ingest. One connection each, held for the length of a cycle.
+   * The ingest tier adds one `keyed_lock` per job in flight, counted separately.
+   */
+  sessionLocksBackground: 4,
+  /**
+   * Migration and bootstrap Jobs on the owner DSN: `pg-init-tables` (one psql at a
+   * time), `grid-migrate` (`ensure-rls-roles` plus drizzle-kit) and the queue
+   * scaler's grants. They overlap on a first deploy, so this is their sum rather
+   * than their largest.
+   */
+  bootstrapJobs: 6,
+  /**
+   * Langfuse web and worker (Prisma, direct): Prisma sizes its pool at
+   * `cpus * 2 + 1`, so two pods at four cores each. Counted only when the tier
+   * is deployed.
+   */
+  langfuse: 20,
+  /**
+   * The SeaweedFS filer's `[postgres2]` store, per filer replica
+   * (`connection_max_open` in `seaweedfs-split.ts`). Counted only when the filer
+   * keeps its namespace in Postgres.
+   */
+  filerPerReplica: 40,
 } as const;

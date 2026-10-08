@@ -184,8 +184,8 @@ export const FEATURE_FLAGS = {
    * deployment opts in with `GRID_PROJECT_MAIL_INBOX_ENABLED=true`.
    *
    * Gates the address surface (`/api/projects/[id]/inbound-address`), the
-   * webhook (a refusal the sender's server does not retry) and the drain. The
-   * webhook and the drain have no session, so they read the org-level half,
+   * webhook (a refusal the sender's server does not retry) and the filing job. The
+   * webhook and the filing job have no session, so they read the org-level half,
    * `isProjectMailInboxEnabledForOrg` in `lib/workos/feature-flags.ts`.
    */
   projectMailInbox: 'project-mail-inbox',
@@ -198,6 +198,11 @@ export const FEATURE_FLAGS = {
   memoryReflection: 'memory-reflection',
   /** The post-answer follow-up-questions stage; same reader as the entry above. */
   postAnswerFollowUps: 'post-answer-follow-ups',
+  /** Outlook archive (.pst/.ost) import into a project (ADR-0085). Dark-launched:
+   *  the WorkOS flag when enforcement is on, else the GRID_MAIL_IMPORT_ENABLED env
+   *  opt-in (default off). It files the correspondence of everyone who wrote to
+   *  the office, so an operator switches it on per organization, deliberately. */
+  mailImport: 'mail-import',
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -240,6 +245,21 @@ export function isProjectKnowledgePageEnabled(session: Pick<GridSession, 'featur
     return isFeatureEnabled(session, FEATURE_FLAGS.projectKnowledgePage)
   }
   return (process.env.GRID_PROJECT_KNOWLEDGE_PAGE_ENABLED ?? '').toLowerCase() === 'true'
+}
+
+/**
+ * Default-OFF gate for the Outlook archive import (ADR-0085), the
+ * `isProjectKnowledgePageEnabled` shape: the per-org flag under enforcement,
+ * otherwise an explicit deployment opt-in via `GRID_MAIL_IMPORT_ENABLED=true`.
+ * Checked when an import is started and when its upload completes; the job that
+ * files it does not re-check, so switching the flag off stops new imports and
+ * lets a running one finish.
+ */
+export function isMailImportEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.mailImport)
+  }
+  return (process.env.GRID_MAIL_IMPORT_ENABLED ?? '').toLowerCase() === 'true'
 }
 
 /**

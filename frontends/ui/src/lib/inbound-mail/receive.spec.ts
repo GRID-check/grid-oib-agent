@@ -29,7 +29,8 @@ vi.mock('@/lib/db/tenant-context', () => ({
 }))
 vi.mock('./sender-auth', () => ({ verifySender: vi.fn() }))
 vi.mock('./mime', () => ({ parseMail: vi.fn(), deliveryKey: vi.fn() }))
-vi.mock('./folder-name', () => ({ mailFolderName: vi.fn(() => '2026-09-30 10.15 – Anna Berger') }))
+vi.mock('@/lib/mail-import/naming', () => ({ mailFolderName: vi.fn(() => '2026-09-30 10.15 – Anna Berger') }))
+vi.mock('./job', () => ({ enqueueDelivery: vi.fn() }))
 vi.mock('@/lib/sharing/directory', () => ({ loadOrganizationDirectory: vi.fn() }))
 vi.mock('@/lib/auth/pinned-session', () => ({ resolvePinnedRequesterSession: vi.fn() }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
@@ -57,6 +58,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { enforceLimit } from '@/lib/limits'
 import { loadOrganizationDirectory, type DirectoryPerson } from '@/lib/sharing/directory'
 import { isProjectMailInboxEnabledForOrg } from '@/lib/workos/feature-flags'
+import { enqueueDelivery } from './job'
 import { deliveryKey, parseMail } from './mime'
 import { findActiveAddressByToken, findDelivery, queueDelivery } from './repository'
 import { MAX_MESSAGE_BYTES, receiveInboundMail } from './receive'
@@ -193,6 +195,18 @@ describe('accepting a mail', () => {
       `org/org_A/project/project-a/inbound-mail/${where.deliveryId}/2`,
     ])
     expect(deleteStagedObjects).not.toHaveBeenCalled()
+    // ...and hands the row to a job on the BFF's queue, in the address's organization.
+    expect(enqueueDelivery).toHaveBeenCalledWith('org_A', { deliveryId: where.deliveryId, projectId: 'project-a' })
+  })
+
+  it('still answers 202 when the job could not be enqueued: the row is durable, the sweep enqueues one', async () => {
+    vi.mocked(enqueueDelivery).mockRejectedValueOnce(new Error('database gone'))
+
+    const response = await receiveInboundMail(delivery().request)
+
+    expect(response.status).toBe(202)
+    expect(deleteStagedObjects).not.toHaveBeenCalled()
+    expect(logs.warn).toEqual([expect.stringContaining('the filing job was not enqueued')])
   })
 
   it('takes the twelve steps in order: token before body, switch before body, dedupe before budgets', async () => {
@@ -387,7 +401,7 @@ describe('retries: no verdict header, so the sending server tries again', () => 
 })
 
 describe('dedupe', () => {
-  for (const status of ['queued', 'processing', 'filed'] as const) {
+  for (const status of ['queued', 'filed'] as const) {
     it(`answers a mail already ${status} with 200, staging nothing and spending no budget`, async () => {
       vi.mocked(findDelivery).mockResolvedValue({ id: 'row-1', status })
       const response = await receiveInboundMail(delivery().request)

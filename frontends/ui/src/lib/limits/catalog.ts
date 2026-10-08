@@ -29,6 +29,7 @@ export const DOCUMENT_UPLOAD_LIMIT: LimitRule = rules.DOCUMENT_UPLOAD_LIMIT
 export const FEEDBACK_REPORT_LIMIT: LimitRule = rules.FEEDBACK_REPORT_LIMIT
 export const INBOUND_MAIL_ADDRESS_LIMIT: LimitRule = rules.INBOUND_MAIL_ADDRESS_LIMIT
 export const INBOUND_MAIL_ORG_LIMIT: LimitRule = rules.INBOUND_MAIL_ORG_LIMIT
+export const DICTATION_LIMIT: LimitRule = rules.DICTATION_LIMIT
 
 /**
  * Every rule, for the coverage spec and for anything that wants to enumerate
@@ -51,6 +52,7 @@ export const LIMIT_CATALOG = {
   [FEEDBACK_REPORT_LIMIT.name]: FEEDBACK_REPORT_LIMIT,
   [INBOUND_MAIL_ADDRESS_LIMIT.name]: INBOUND_MAIL_ADDRESS_LIMIT,
   [INBOUND_MAIL_ORG_LIMIT.name]: INBOUND_MAIL_ORG_LIMIT,
+  [DICTATION_LIMIT.name]: DICTATION_LIMIT,
 } as const satisfies Record<string, LimitRule>
 
 /**

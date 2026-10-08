@@ -4,7 +4,7 @@
  * Every authz lookup here fails CLOSED by default: a WorkOS call that broke is
  * read as "not a member" or "not allowed". That is right for a person at a
  * screen, who retries by clicking again. It is wrong for an unattended caller
- * that can retry on its own, such as the inbound-mail drain: turning a
+ * that can retry on its own, such as the inbound-mail filing job: turning a
  * thirty-second WorkOS blip into "this sender is not a member" refuses mail
  * permanently that would have filed a minute later (review finding C2).
  *

@@ -41,6 +41,13 @@ vi.mock('@/lib/storage/service', () => ({
   assertWithinStorageQuota: vi.fn().mockResolvedValue(undefined),
 }))
 
+// The per-organization size limit, likewise: exercised in
+// src/lib/storage/upload-limit.spec.ts, stubbed here so an upload spec does not
+// reach Postgres for the organization's settings.
+vi.mock('@/lib/storage/upload-limit', () => ({
+  assertFileSizeAllowed: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn().mockResolvedValue(undefined),
 }))
@@ -93,6 +100,7 @@ vi.mock('./repository', () => ({
   setDocumentIngestJob: vi.fn().mockResolvedValue(undefined),
   markDocumentIngestFailed: vi.fn().mockResolvedValue(undefined),
   findFolderPathInProject: vi.fn().mockResolvedValue(null),
+  findFolderPathInArchiv: vi.fn().mockResolvedValue(null),
   findDocumentInOrg: vi.fn(),
   // Default: no collision, so the upload path is the insert path it has always
   // been. The replace path is driven per-test.
@@ -104,6 +112,16 @@ vi.mock('./repository', () => ({
   deleteProjectDocument: vi.fn().mockResolvedValue(undefined),
   setDocumentDisplayName: vi.fn().mockResolvedValue(undefined),
   setDocumentReconciledStatus: vi.fn().mockResolvedValue(undefined),
+  listFailedDocumentPageInOrg: vi.fn().mockResolvedValue({ ids: [], nextCursor: null }),
+}))
+
+// The queue is `lib/jobs-queue`'s subject. Here a reindex is "one bulk job was
+// asked for, with who asked", and a slice is the work the job does.
+vi.mock('@/lib/jobs-queue/enqueue', () => ({
+  enqueueJob: vi.fn().mockResolvedValue({ jobId: 'job-1' }),
+}))
+vi.mock('@/lib/jobs-queue/repository', () => ({
+  findOpenJobId: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('./reconcile-status', () => ({
@@ -128,6 +146,9 @@ import { isCoveredByActiveHold } from '@/lib/compliance/repository'
 import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { enqueueJob } from '@/lib/jobs-queue/enqueue'
+import { findOpenJobId } from '@/lib/jobs-queue/repository'
+import { emptyCounts, type ReindexProjectPayload, type ReingestFailedPayload } from '@/lib/jobs-queue/types'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import {
   setDocumentIngestJob,
@@ -135,12 +156,14 @@ import {
   findDocumentInOrg,
   findLiveDocumentByFilename,
   findFolderPathInProject,
+  findFolderPathInArchiv,
   listProjectDocumentPage,
   findProjectDocumentsByFilenames,
   findProjectDocumentsByNames,
   deleteProjectDocument,
   setDocumentDisplayName,
   setDocumentReconciledStatus,
+  listFailedDocumentPageInOrg,
 } from './repository'
 import {
   listDocuments,
@@ -154,7 +177,11 @@ import {
   getDocumentVisualDetails,
   updateDocumentTags,
   reindexProject,
-  REINDEX_MAX_PAGES,
+  runReindexSlice,
+  reingestFailedOrgDocuments,
+  runReingestFailedSlice,
+  REINDEX_SLICE_DOCUMENTS,
+  REINGEST_SLICE_DOCUMENTS,
   resolveProjectDocumentsByName,
   searchProjectDocuments,
   joinHitsToFiles,
@@ -205,6 +232,21 @@ const session: AuthorizedSession = {
   permissions: [],
   featureFlags: null,
 }
+
+/** A fresh reindex job's saved state: the first slice, nothing counted yet. */
+const sliceState = (overrides: Partial<ReindexProjectPayload> = {}): ReindexProjectPayload => ({
+  projectId: 'proj-1',
+  requester: {
+    userId: session.userId,
+    email: session.email,
+    organizationMembershipId: session.organizationMembershipId,
+    role: session.role,
+    permissions: session.permissions,
+  },
+  cursor: null,
+  counts: emptyCounts(),
+  ...overrides,
+})
 
 const makeInput = (overrides: { name?: string; type?: string } = {}) => ({
   projectId: 'proj-1',
@@ -1334,6 +1376,30 @@ describe('the folder a document is filed in reaches the ingest dispatch', () => 
     expect(ingestBody().folder_path).toBe('Brandschutz')
   })
 
+  // ADR-0078: an Archiv document can be filed too, and a re-ingest that dropped
+  // its folder would un-file it on the backend while the database still has it.
+  it('re-supplies an ARCHIV document\u2019s folder path on re-ingest', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({
+        id: 'doc-99',
+        status: 'failed',
+        storageKey: 'org/org-1/archiv/doc/doc-99/norm.pdf',
+        projectId: null,
+        scope: 'archiv',
+        collectionName: 'archiv_org-1',
+        folderId: 'folder-1',
+      })
+    )
+    vi.mocked(findFolderPathInArchiv).mockResolvedValue('Normen/Brandschutz')
+
+    // An admin holds `org:archiv:manage`, which re-ingesting an Archiv document takes.
+    await reingestDocument({ ...session, role: 'admin' }, 'doc-99')
+
+    expect(findFolderPathInArchiv).toHaveBeenCalledWith('folder-1', 'org-1')
+    expect(findFolderPathInProject).not.toHaveBeenCalled()
+    expect(ingestBody().folder_path).toBe('Normen/Brandschutz')
+  })
+
   it('sends null on re-ingest for a document that was never filed', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(
       makeDocument({
@@ -1977,9 +2043,10 @@ describe('the authorship gate on the (collection, filename) join', () => {
       ] })
       vi.mocked(findDocumentInOrg).mockResolvedValue(agentDoc)
 
-      const result = await reindexProject(session, 'proj-1')
+      const result = await runReindexSlice(session, sliceState())
 
-      expect(result).toEqual({ projectId: 'proj-1', queued: 0, skipped: 1, failed: [], truncated: false })
+      expect(result.done).toBe(true)
+      expect(result.payload.counts).toEqual({ queued: 0, skipped: 1, failed: 0, failedNames: [] })
       expect(documentCalls()).toHaveLength(0)
     })
   })
@@ -1992,6 +2059,63 @@ describe('the authorship gate on the (collection, filename) join', () => {
  * first turned every failed dispatch or ingest into an empty document.
  */
 describe('reindexProject', () => {
+  beforeEach(() => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+  })
+
+  it('checks the caller may rebuild the project, then queues ONE bulk job and answers with its id', async () => {
+    const result = await reindexProject(session, 'proj-1')
+
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', ['project:documents:write', 'project:edit'])
+    expect(result).toEqual({ projectId: 'proj-1', jobId: 'job-1' })
+    expect(enqueueJob).toHaveBeenCalledTimes(1)
+    const queued = vi.mocked(enqueueJob).mock.calls[0][0]
+    expect(queued).toMatchObject({ kind: 'reindex_project', organizationId: 'org-1' })
+    expect(queued.priority).toBeUndefined() // the queue's default: bulk
+    expect(queued.payload).toEqual({
+      projectId: 'proj-1',
+      requester: {
+        userId: 'user-1',
+        email: 'user@example.com',
+        organizationMembershipId: 'om-1',
+        role: 'member',
+        permissions: [],
+      },
+      cursor: null,
+      counts: emptyCounts(),
+    })
+  })
+
+  it('does not copy the access token into the job', async () => {
+    await reindexProject(session, 'proj-1')
+
+    expect(JSON.stringify(vi.mocked(enqueueJob).mock.calls[0][0])).not.toContain('test-access-token')
+  })
+
+  it('queues nothing for a caller who may not rebuild the project', async () => {
+    vi.mocked(requireProjectAccess).mockRejectedValue(new NotFoundError())
+
+    await expect(reindexProject(session, 'proj-1')).rejects.toBeInstanceOf(NotFoundError)
+
+    expect(enqueueJob).not.toHaveBeenCalled()
+  })
+
+  it('answers a second click with the job already doing it', async () => {
+    vi.mocked(findOpenJobId).mockResolvedValueOnce('job-open')
+
+    const result = await reindexProject(session, 'proj-1')
+
+    expect(result).toEqual({ projectId: 'proj-1', jobId: 'job-open' })
+    expect(findOpenJobId).toHaveBeenCalledWith({
+      kind: 'reindex_project',
+      organizationId: 'org-1',
+      matching: { projectId: 'proj-1' },
+    })
+    expect(enqueueJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('runReindexSlice', () => {
   const listRow = (id: string, filename: string): DocumentListRow => ({
     id,
     filename,
@@ -2023,9 +2147,10 @@ describe('reindexProject', () => {
     )
     mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ job_id: 'job-1' }) })
 
-    const result = await reindexProject(session, 'proj-1')
+    const result = await runReindexSlice(session, sliceState())
 
-    expect(result).toEqual({ projectId: 'proj-1', queued: 1, skipped: 0, failed: [], truncated: false })
+    expect(result.done).toBe(true)
+    expect(result.payload.counts).toEqual({ queued: 1, skipped: 0, failed: 0, failedNames: [] })
     const methods = mockFetch.mock.calls.map(([, init]) => (init as RequestInit | undefined)?.method)
     expect(methods).not.toContain('DELETE')
     expect(mockFetch.mock.calls.map(([url]) => String(url))).toEqual([
@@ -2034,16 +2159,29 @@ describe('reindexProject', () => {
     expect(setDocumentIngestJob).toHaveBeenCalledWith('doc-1', 'org-1', 'job-1')
   })
 
-  it('reports a failed dispatch, and sends nothing that removes chunks', async () => {
+  it('dispatches every document with bulk priority, so a person’s upload goes first', async () => {
+    vi.mocked(listProjectDocumentPage).mockResolvedValueOnce({ rows: [listRow('doc-1', 'plan.pdf')], nextCursor: null })
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-1', filename: 'plan.pdf', status: 'completed', storageKey: 'k/plan.pdf' })
+    )
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ job_id: 'job-1' }) })
+
+    await runReindexSlice(session, sliceState())
+
+    const body = JSON.parse(String((mockFetch.mock.calls[0][1] as RequestInit).body))
+    expect(body.priority).toBe('bulk')
+  })
+
+  it('reports a failed dispatch by name, and sends nothing that removes chunks', async () => {
     vi.mocked(listProjectDocumentPage).mockResolvedValueOnce({ rows: [listRow('doc-1', 'plan.pdf')], nextCursor: null })
     vi.mocked(findDocumentInOrg).mockResolvedValue(
       makeDocument({ id: 'doc-1', filename: 'plan.pdf', status: 'completed', storageKey: 'k/plan.pdf' })
     )
     mockFetch.mockRejectedValue(new Error('backend down'))
 
-    const result = await reindexProject(session, 'proj-1')
+    const result = await runReindexSlice(session, sliceState())
 
-    expect(result).toEqual({ projectId: 'proj-1', queued: 0, skipped: 0, failed: ['plan.pdf'], truncated: false })
+    expect(result.payload.counts).toEqual({ queued: 0, skipped: 0, failed: 1, failedNames: ['plan.pdf'] })
     const methods = mockFetch.mock.calls.map(([, init]) => (init as RequestInit | undefined)?.method)
     expect(methods).not.toContain('DELETE')
   })
@@ -2054,18 +2192,19 @@ describe('reindexProject', () => {
       makeDocument({ id: 'doc-1', filename: 'plan.pdf', status: 'ingesting', storageKey: 'k/plan.pdf' })
     )
 
-    const result = await reindexProject(session, 'proj-1')
+    const result = await runReindexSlice(session, sliceState())
 
-    expect(result).toEqual({ projectId: 'proj-1', queued: 0, skipped: 1, failed: [], truncated: false })
+    expect(result.payload.counts).toEqual({ queued: 0, skipped: 1, failed: 0, failedNames: [] })
     expect(mockFetch).not.toHaveBeenCalled()
   })
 
   /**
    * The walk used to read the newest `DOCUMENT_LIST_LIMIT` rows and stop, so
    * a project-wide reindex of a large project left its oldest documents on the
-   * old chunks and said nothing.
+   * old chunks and said nothing. Now a slice is one small page and the job
+   * resumes from the cursor it returns, wherever it is claimed next.
    */
-  it('walks every page of the listing, following the cursor', async () => {
+  it('takes one page, returns the cursor to resume from, and carries the counts across slices', async () => {
     const cursor = { createdAt: '2026-08-20T00:00:00.000000', id: 'doc-1' }
     vi.mocked(listProjectDocumentPage)
       .mockResolvedValueOnce({ rows: [listRow('doc-1', 'plan.pdf')], nextCursor: cursor })
@@ -2075,27 +2214,179 @@ describe('reindexProject', () => {
     )
     mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ job_id: 'job-1' }) })
 
-    const result = await reindexProject(session, 'proj-1')
+    const first = await runReindexSlice(session, sliceState())
+    expect(first.done).toBe(false)
+    expect(first.payload.cursor).toEqual(cursor)
+    expect(first.payload.counts.queued).toBe(1)
 
-    expect(result).toEqual({ projectId: 'proj-1', queued: 2, skipped: 0, failed: [], truncated: false })
+    // A different worker reads the saved state back and resumes.
+    const saved: ReindexProjectPayload = JSON.parse(JSON.stringify(first.payload))
+    const second = await runReindexSlice(session, saved)
+
+    expect(second.done).toBe(true)
+    expect(second.payload.counts.queued).toBe(2)
     expect(listProjectDocumentPage).toHaveBeenNthCalledWith(1, 'proj-1', 'org-1', {
       authoredBy: 'user',
       cursor: undefined,
+      limit: REINDEX_SLICE_DOCUMENTS,
     })
     expect(listProjectDocumentPage).toHaveBeenNthCalledWith(2, 'proj-1', 'org-1', {
       authoredBy: 'user',
       cursor,
+      limit: REINDEX_SLICE_DOCUMENTS,
     })
   })
 
-  it('stops at the page ceiling and says so', async () => {
-    const cursor = { createdAt: '2026-08-20T00:00:00.000000', id: 'doc-1' }
-    vi.mocked(listProjectDocumentPage).mockResolvedValue({ rows: [], nextCursor: cursor })
+  it('stops, without an error, when the requester has lost access since the job was queued', async () => {
+    vi.mocked(requireProjectAccess).mockRejectedValue(new NotFoundError())
 
-    const result = await reindexProject(session, 'proj-1')
+    const result = await runReindexSlice(session, sliceState())
 
-    expect(result.truncated).toBe(true)
-    expect(listProjectDocumentPage).toHaveBeenCalledTimes(REINDEX_MAX_PAGES)
+    expect(result.done).toBe(true)
+    expect(listProjectDocumentPage).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('lets any other failure of the access check fail the attempt', async () => {
+    vi.mocked(requireProjectAccess).mockRejectedValue(new UpstreamError('WorkOS is down'))
+
+    await expect(runReindexSlice(session, sliceState())).rejects.toBeInstanceOf(UpstreamError)
+  })
+
+  it('keeps the first names of failures but counts every one', async () => {
+    const rows = Array.from({ length: 25 }, (_, i) => listRow(`doc-${i}`, `plan-${i}.pdf`))
+    vi.mocked(listProjectDocumentPage).mockResolvedValueOnce({ rows, nextCursor: null })
+    vi.mocked(findDocumentInOrg).mockImplementation(async (id: string) =>
+      makeDocument({ id, filename: `${id}.pdf`, status: 'completed', storageKey: `k/${id}.pdf` })
+    )
+    mockFetch.mockRejectedValue(new Error('backend down'))
+
+    const result = await runReindexSlice(session, sliceState())
+
+    expect(result.payload.counts.failed).toBe(25)
+    expect(result.payload.counts.failedNames).toHaveLength(20)
+  })
+})
+
+describe('the org-wide rescan of failed ingestions', () => {
+  const rescanState = (overrides: Partial<ReingestFailedPayload> = {}): ReingestFailedPayload => ({
+    requester: sliceState().requester,
+    cursor: null,
+    counts: emptyCounts(),
+    ...overrides,
+  })
+
+  describe('reingestFailedOrgDocuments', () => {
+    it('queues ONE bulk job for the organization and answers with its id', async () => {
+      const result = await reingestFailedOrgDocuments(session)
+
+      expect(result).toEqual({ jobId: 'job-1' })
+      expect(vi.mocked(enqueueJob).mock.calls[0][0]).toMatchObject({
+        kind: 'reingest_failed',
+        organizationId: 'org-1',
+        payload: { cursor: null, counts: emptyCounts() },
+      })
+    })
+
+    it('answers a second click with the rescan already running', async () => {
+      vi.mocked(findOpenJobId).mockResolvedValueOnce('job-open')
+
+      expect(await reingestFailedOrgDocuments(session)).toEqual({ jobId: 'job-open' })
+      expect(enqueueJob).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('runReingestFailedSlice', () => {
+    const failedDoc = (id: string) =>
+      makeDocument({ id, filename: `${id}.pdf`, status: 'failed', authoredBy: 'user', storageKey: `k/${id}.pdf` })
+
+    // The requester as they are today: an admin, who holds the permission the route is gated on.
+    const admin: AuthorizedSession = { ...session, role: 'admin', permissions: ['org:settings:manage'] }
+
+    beforeEach(() => {
+      vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' })
+      mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ job_id: 'job-1' }) })
+    })
+
+    it('stops, without touching a document, when the requester no longer holds the permission the route is gated on', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+      const result = await runReingestFailedSlice(session, rescanState()) // `session` is a plain member
+
+      expect(result.done).toBe(true)
+      expect(listFailedDocumentPageInOrg).not.toHaveBeenCalled()
+      expect(mockFetch).not.toHaveBeenCalled()
+      expect(recordAuditEvent).not.toHaveBeenCalled()
+    })
+
+    it('sends a page of failed documents back with bulk priority and counts them', async () => {
+      vi.mocked(listFailedDocumentPageInOrg).mockResolvedValueOnce({ ids: ['doc-1'], nextCursor: null })
+      vi.mocked(findDocumentInOrg).mockResolvedValue(failedDoc('doc-1'))
+
+      const result = await runReingestFailedSlice(admin, rescanState())
+
+      expect(result.done).toBe(true)
+      expect(result.payload.counts).toEqual({ queued: 1, skipped: 0, failed: 0, failedNames: [] })
+      expect(JSON.parse(String((mockFetch.mock.calls[0][1] as RequestInit).body)).priority).toBe('bulk')
+      expect(listFailedDocumentPageInOrg).toHaveBeenCalledWith('org-1', {
+        limit: REINGEST_SLICE_DOCUMENTS,
+        cursor: null,
+      })
+    })
+
+    it('resumes the walk from the cursor it returned, and audits only when the set is exhausted', async () => {
+      const cursor = { createdAt: '2026-08-20T00:00:00.000000', id: 'doc-1' }
+      vi.mocked(listFailedDocumentPageInOrg)
+        .mockResolvedValueOnce({ ids: ['doc-1'], nextCursor: cursor })
+        .mockResolvedValueOnce({ ids: ['doc-2'], nextCursor: null })
+      vi.mocked(findDocumentInOrg).mockImplementation(async (id: string) => failedDoc(id))
+
+      const first = await runReingestFailedSlice(admin, rescanState())
+      expect(first.done).toBe(false)
+      expect(first.payload.cursor).toEqual(cursor)
+      expect(recordAuditEvent).not.toHaveBeenCalled()
+
+      const second = await runReingestFailedSlice(admin, JSON.parse(JSON.stringify(first.payload)))
+
+      expect(second.done).toBe(true)
+      expect(listFailedDocumentPageInOrg).toHaveBeenLastCalledWith('org-1', {
+        limit: REINGEST_SLICE_DOCUMENTS,
+        cursor,
+      })
+      expect(recordAuditEvent).toHaveBeenCalledTimes(1)
+      expect(recordAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'org.documents.reingested',
+          actor: { userId: 'user-1', email: 'user@example.com' },
+          metadata: { total: 2, queued: 2, skipped: 0, failed: 0, truncated: false },
+        })
+      )
+    })
+
+    it('counts a row that is not retryable as skipped, never as a failure', async () => {
+      vi.mocked(listFailedDocumentPageInOrg).mockResolvedValueOnce({ ids: ['doc-1', 'doc-2', 'doc-3'], nextCursor: null })
+      vi.mocked(findDocumentInOrg).mockImplementation(async (id: string) =>
+        id === 'doc-1' ? failedDoc(id) : id === 'doc-2' ? makeDocument({ id, status: 'completed', authoredBy: 'agent', storageKey: 'k' }) : (null as never)
+      )
+
+      const result = await runReingestFailedSlice(admin, rescanState())
+
+      // doc-1 goes back; doc-2 is an indexed machine document (not eligible); doc-3 is gone.
+      expect(result.payload.counts).toEqual({ queued: 1, skipped: 2, failed: 0, failedNames: [] })
+    })
+
+    it('records the id of a document whose retry itself went wrong', async () => {
+      vi.mocked(listFailedDocumentPageInOrg).mockResolvedValueOnce({ ids: ['doc-1'], nextCursor: null })
+      vi.mocked(findDocumentInOrg).mockResolvedValue(failedDoc('doc-1'))
+      mockFetch.mockRejectedValue(new Error('backend down'))
+
+      const result = await runReingestFailedSlice(admin, rescanState())
+
+      expect(result.payload.counts).toEqual({ queued: 0, skipped: 0, failed: 1, failedNames: ['doc-1'] })
+      expect(recordAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ metadata: expect.objectContaining({ failed: 1 }) })
+      )
+    })
   })
 })
 
@@ -2563,216 +2854,6 @@ describe('two FIRST uploads of one filename at once', () => {
       storageKey: keys[1],
       fileSize: 1234,
     })
-  })
-})
-
-describe("onNameTaken: 'suffix' — an unattended upload never touches another document (K1)", () => {
-  const digestOfInput = 'sha256:' + createHash('sha256').update(Buffer.from(new ArrayBuffer(8))).digest('hex')
-  const live = (overrides: Partial<{ id: string; folderId: string | null; contentHash: string | null; status: string }>) => ({
-    id: 'doc-alice',
-    storageKey: 'org/org-1/project/proj-1/doc/doc-alice/Plan.pdf',
-    storageBucket: 'test-bucket',
-    fileSize: 900,
-    contentHash: 'sha256:other',
-    folderId: 'folder-plaene',
-    status: 'completed',
-    ...overrides,
-  })
-  const mailInput = (overrides: Partial<Parameters<typeof uploadDocument>[1]> = {}) => ({
-    ...makeInput({ name: 'Plan.pdf' }),
-    folderId: 'folder-mail',
-    onNameTaken: 'suffix' as const,
-    audit: { channel: 'inbound-mail' as const, ref: 'msg-row-1' },
-    ...overrides,
-  })
-
-  beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
-    vi.mocked(findProjectInOrg).mockResolvedValue(makeProject({ id: 'proj-1', collectionName: 'proj_abc' }))
-  })
-
-  afterEach(() => {
-    vi.mocked(findLiveDocumentByFilename).mockReset().mockResolvedValue(null)
-  })
-
-  it('files a name somebody else holds as the first free Name (n).ext, as a NEW document', async () => {
-    vi.mocked(findLiveDocumentByFilename).mockImplementation(async (_org, _coll, name) =>
-      name === 'Plan.pdf' ? live({}) : name === 'Plan (2).pdf' ? live({ id: 'doc-bob', folderId: 'x' }) : null,
-    )
-
-    const result = await uploadDocument(session, mailInput())
-
-    expect(result).toMatchObject({ filename: 'Plan (3).pdf', unchanged: false })
-    expect(result.documentId).not.toBe('doc-alice')
-    // Never the replacement path: Alice's row, version and folder stay hers.
-    expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
-    expect(vi.mocked(admitOrDiscard).mock.calls.at(-1)?.[2]).toMatchObject({
-      filename: 'Plan (3).pdf',
-      folderId: 'folder-mail',
-    })
-    const put = vi
-      .mocked(s3Client.send)
-      .mock.calls.map(([command]) => (command as unknown as { input: { Key?: string } }).input.Key)
-      .find((key) => typeof key === 'string' && key.endsWith('.pdf'))
-    expect(put).toMatch(/\/Plan \(3\)\.pdf$/)
-  })
-
-  it('keeps the name when it is free', async () => {
-    const result = await uploadDocument(session, mailInput())
-
-    expect(result.filename).toBe('Plan.pdf')
-    expect(vi.mocked(findLiveDocumentByFilename)).toHaveBeenCalledTimes(1)
-  })
-
-  it.each(['pending', 'uploaded', 'failed', 'completed'])(
-    'answers unchanged for the same bytes in the same folder, while %s',
-    async (status) => {
-      vi.mocked(findLiveDocumentByFilename).mockResolvedValue(
-        live({ id: 'doc-mine', folderId: 'folder-mail', contentHash: digestOfInput, status }),
-      )
-
-      const result = await uploadDocument(session, mailInput())
-
-      expect(result).toEqual({
-        documentId: 'doc-mine',
-        jobId: null,
-        status: 'uploaded',
-        filename: 'Plan.pdf',
-        unchanged: true,
-      })
-      expect(admitOrDiscard).not.toHaveBeenCalled()
-      expect(s3Client.send).not.toHaveBeenCalledWith(expect.any(PutObjectCommand))
-      expect(recordAuditEvent).not.toHaveBeenCalled()
-    },
-  )
-
-  it('finds its own earlier Plan (2).pdf on a retry, rather than filing a Plan (3).pdf', async () => {
-    vi.mocked(findLiveDocumentByFilename).mockImplementation(async (_org, _coll, name) =>
-      name === 'Plan.pdf'
-        ? live({})
-        : name === 'Plan (2).pdf'
-          ? live({ id: 'doc-mine', folderId: 'folder-mail', contentHash: digestOfInput, status: 'pending' })
-          : null,
-    )
-
-    const result = await uploadDocument(session, mailInput())
-
-    expect(result).toMatchObject({ documentId: 'doc-mine', filename: 'Plan (2).pdf', unchanged: true })
-  })
-
-  it('steps over the same bytes in ANOTHER folder: that copy is somebody else\'s', async () => {
-    vi.mocked(findLiveDocumentByFilename).mockImplementation(async (_org, _coll, name) =>
-      name === 'Plan.pdf' ? live({ contentHash: digestOfInput }) : null,
-    )
-
-    const result = await uploadDocument(session, mailInput())
-
-    expect(result).toMatchObject({ filename: 'Plan (2).pdf', unchanged: false })
-  })
-
-  it('walks on to the next name when a concurrent upload takes the free one first', async () => {
-    let taken = false
-    vi.mocked(findLiveDocumentByFilename).mockImplementation(async (_org, _coll, name) => {
-      if (name === 'Plan.pdf') return live({})
-      if (name === 'Plan (2).pdf' && taken) return live({ id: 'doc-racer', folderId: 'folder-mail' })
-      return null
-    })
-    vi.mocked(admitOrDiscard).mockImplementationOnce(async () => {
-      taken = true
-      throw new LiveFilenameTakenError('Plan (2).pdf')
-    })
-
-    const result = await uploadDocument(session, mailInput())
-
-    expect(result.filename).toBe('Plan (3).pdf')
-    expect(admitOrDiscard).toHaveBeenCalledTimes(2)
-  })
-
-  it('gives up with a 409 rather than probing without end', async () => {
-    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(live({}))
-
-    await expect(uploadDocument(session, mailInput())).rejects.toMatchObject({
-      status: 409,
-      details: { reason: 'no_free_name' },
-    })
-  })
-
-  it('names its channel in the trail, and no IP or user agent without a request', async () => {
-    await uploadDocument(session, mailInput())
-
-    const event = vi.mocked(recordAuditEvent).mock.calls.at(-1)?.[0]
-    expect(event?.metadata).toMatchObject({ channel: 'inbound-mail', channelRef: 'msg-row-1' })
-    expect(event?.request).toBeUndefined()
-  })
-
-  it('declares every metadata key it sends in the audit schema registry', async () => {
-    vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(live({ id: 'doc-x', folderId: 'folder-mail' }))
-    await uploadDocument(session, { ...mailInput(), onNameTaken: 'version' })
-
-    const { AUDIT_SCHEMAS } = await import('@/lib/audit/schemas.mjs')
-    const declared = Object.keys(AUDIT_SCHEMAS['document.uploaded'].metadata)
-    const sent = Object.keys(vi.mocked(recordAuditEvent).mock.calls.at(-1)?.[0]?.metadata ?? {})
-    expect(sent).toEqual(expect.arrayContaining(['replaced', 'channel', 'channelRef']))
-    for (const key of sent) expect(declared).toContain(key)
-  })
-
-  it('asks the project gate to throw, not deny, when WorkOS cannot answer', async () => {
-    await uploadDocument(session, mailInput())
-
-    expect(requireProjectAccess).toHaveBeenCalledWith(
-      session,
-      'proj-1',
-      ['project:documents:write', 'project:edit'],
-      { onError: 'throw' },
-    )
-  })
-})
-
-describe("onNameTaken defaults to 'version': a person dropping a file is unchanged", () => {
-  beforeEach(() => {
-    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' })
-    vi.mocked(findProjectInOrg).mockResolvedValue(makeProject({ id: 'proj-1', collectionName: 'proj_abc' }))
-  })
-
-  afterEach(() => {
-    vi.mocked(findLiveDocumentByFilename).mockReset().mockResolvedValue(null)
-  })
-
-  it('replaces the live document of that name wherever it is, and keeps its id', async () => {
-    vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
-      id: 'doc-alice',
-      storageKey: 'k',
-      storageBucket: 'test-bucket',
-      fileSize: 1,
-      contentHash: 'sha256:other',
-      folderId: 'folder-plaene',
-      status: 'completed',
-    })
-
-    const result = await uploadDocument(
-      session,
-      { ...makeInput({ name: 'Plan.pdf' }), folderId: 'folder-mail' },
-      new Request('http://x'),
-    )
-
-    expect(result).toMatchObject({ documentId: 'doc-alice', filename: 'Plan.pdf', unchanged: false })
-    expect(vi.mocked(findLiveDocumentByFilename)).toHaveBeenCalledTimes(1)
-    expect(admitReplacementOrDiscard).toHaveBeenCalled()
-  })
-
-  it('keeps the fail-closed authz default and passes the browser request to the trail', async () => {
-    const request = new Request('http://x')
-    await uploadDocument(session, makeInput({ name: 'neu.pdf' }), request)
-
-    expect(requireProjectAccess).toHaveBeenCalledWith(
-      session,
-      'proj-1',
-      ['project:documents:write', 'project:edit'],
-      { onError: 'deny' },
-    )
-    const event = vi.mocked(recordAuditEvent).mock.calls.at(-1)?.[0]
-    expect(event?.request).toBe(request)
-    expect(event?.metadata).not.toHaveProperty('channel')
   })
 })
 

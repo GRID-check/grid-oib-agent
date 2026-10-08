@@ -45,7 +45,7 @@ provider for DNS, and a Worker can hand the raw message to our own webhook
 without any storage in between. Project addresses live on the product's own
 domain, `piloti.at` (amended 2026-10-01, see
 [the amendment](#amendment-2026-10-01-project-addresses-on-pilotiat)), whose
-apex already runs Email Routing for `kontakt@piloti.at` (ADR-0077).
+apex already runs Email Routing for `kontakt@piloti.at` (ADR-0086).
 
 * **Transport.** The zone's catch-all routes every address on
   `GRID_INBOUND_MAIL_DOMAIN` that no literal rule claims to one Worker.
@@ -79,22 +79,26 @@ apex already runs Email Routing for `kontakt@piloti.at` (ADR-0077).
   it.
 * **Addresses.** An address is `<slug>.<token>@<domain>`. Only the 12-character
   base32 token resolves; the slug is decoration.
-* **Accept, then drain.** The webhook resolves the token in one
+* **Accept, then file from the job queue.** The webhook resolves the token in one
   `withPlatformAccess` lookup before reading the body, then works inside
   `withTenant`. It checks the switch, verifies the sender, looks them up in the
   target organization only, requires `project:documents:write` or
   `project:edit` on that project (the same `requireProjectAccess` call
   `uploadDocument` makes), selects the attachments in memory, stages them in
   the organization's bucket under the project's prefix, queues one row in
-  `inbound_mail_messages`, and answers 202. It never stores the `.eml` or the
-  body. The scheduler container POSTs `/api/internal/inbound-mail/drain` every
-  tick; the drain claims rows with `FOR UPDATE SKIP LOCKED` and a fencing
-  `claim_token`, files each staged object through `uploadDocument` as the
-  pinned sender with `onNameTaken: 'suffix'` into one folder per mail
-  (`E-Mail-Eingang/<YYYY-MM-DD HH.mm> – <sender>`, no subject), deletes the
-  staging and notifies the sender in the app. A failed attempt backs off; after
-  eight the row is `failed` and the sender told. Staging lives at most 7 days
-  and rows 30.
+  `inbound_mail_messages`, enqueues one `inbound_mail` job on the BFF's one
+  job queue (`bff_job_queue`, ADR-0079), and answers 202. It never stores the
+  `.eml` or the body. A `bff-jobs` worker runs the job inside the delivery's
+  organization; it files each staged object through the one mail filer the
+  Outlook import uses (`lib/mail-import/filing.ts`, ADR-0085), which uploads
+  through `uploadDocument` as the pinned sender, into one folder per mail
+  (`E-Mail-Eingang/<YYYY-MM-DD HH.mm> – <sender>`, no subject) with each file
+  named after the folder and numbered where a name is taken, then deletes the
+  staging and notifies the sender in the app. Every write is conditional on the
+  row still being `queued`. A failed attempt counts on the row and hands the
+  delivery to a fresh job after a backoff; after eight the row is `failed` and
+  the sender told. The background-work sweep gives a queued delivery whose job
+  is gone a new one. Staging lives at most 7 days and rows 30.
 * **Sender trust is DKIM only.** Cloudflare does not give a Worker its SPF, DKIM
   or DMARC verdicts
   ([workerd#6740](https://github.com/cloudflare/workerd/issues/6740), open
@@ -110,8 +114,8 @@ apex already runs Email Routing for `kontakt@piloti.at` (ADR-0077).
   never a bounce.
 * **Per-organization switch.** The WorkOS feature flag `project-mail-inbox` is
   off by default. Until it is enabled for an organization, that organization
-  sees no address, the webhook refuses its mail and the drain holds what was
-  already queued. An organization gets the inbox after it has been told about
+  sees no address, the webhook refuses its mail and the filing job holds what
+  was already queued. An organization gets the inbox after it has been told about
   the new sub-processor, never by default.
 
 ### Consequences
@@ -166,24 +170,24 @@ apex already runs Email Routing for `kontakt@piloti.at` (ADR-0077).
 ### Confirmation
 
 * `frontends/ui/src/app/api/authz-coverage.spec.ts`: every handler must come
-  from a route factory, so the webhook and the drain have to be
-  `internalApiRoute`s behind their tokens, and the two project address routes
-  must state their authorization posture.
+  from a route factory, so the webhook has to be an `internalApiRoute` behind
+  its token, and the two project address routes must state their
+  authorization posture.
 * `frontends/ui/src/lib/db/rls-coverage.spec.ts`: both new tables must be
   registered with `grid_secure_table`, and `task db:test:rls` runs the
   policies against PostgreSQL.
-* `frontends/ui/src/lib/inbound-mail/repository.integration.spec.ts` (claim,
-  fence, reaper, retention against PostgreSQL) and
-  `frontends/ui/src/lib/documents/upload-name-taken.integration.spec.ts`
-  (`onNameTaken: 'suffix'` and `unchanged` on a re-run).
+* `frontends/ui/src/lib/inbound-mail/repository.integration.spec.ts` (the
+  fence on `queued`, the stalled-delivery listing, retention, tenant
+  isolation against PostgreSQL).
 * The unit specs beside the code: `sender-auth.spec.ts` (DKIM-only trust,
   alignment, `l=`, signed headers, the signed recipient, duplicate headers,
   `temperror`), `mime.spec.ts` (which parts are files, the skip reasons, the
   delivery key), `receive.spec.ts` and
   `frontends/ui/src/app/api/internal/inbound-mail/route.spec.ts` (the order of
-  work, the verdict header on exactly the permanent refusals), `drain.spec.ts`,
-  `staging.spec.ts`, `filing-folder.spec.ts`, `folder-name.spec.ts`,
-  `notify.spec.ts`, `address.spec.ts`, `service.spec.ts`, and
+  work, the verdict header on exactly the permanent refusals), `job.spec.ts`
+  (the attempt, the backoff by fresh jobs, the give-up, the hold, the sweep),
+  `staging.spec.ts`, `notify.spec.ts`, the shared filer's
+  `frontends/ui/src/lib/mail-import/filing.spec.ts` and `naming.spec.ts`, `address.spec.ts`, `service.spec.ts`, and
   `frontends/ui/src/lib/auth/pinned-session.spec.ts` (the sender's flags and
   permissions).
 * `frontends/ui/bunfig.toml`: `minimumReleaseAge = 604800` makes `bun add`
@@ -211,7 +215,7 @@ apex already runs Email Routing for `kontakt@piloti.at` (ADR-0077).
   the body. `stack-files.spec.ts`: one stack per inbound zone.
 * Nothing enforces that Cloudflare's "Email preview" stays off for
   `piloti.at`. It is an Email Sending setting, and `piloti.at` is onboarded
-  for sending for the contact form (ADR-0077). Cloudflare describes it as
+  for sending for the contact form (ADR-0086). Cloudflare describes it as
   covering messages sent while it is on; it does not describe it as covering
   mail received through Email Routing. It is a dashboard setting. The deploy
   guide says so; review is the only gate.

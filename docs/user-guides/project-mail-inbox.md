@@ -61,8 +61,12 @@ to people who have no use for it.
   `… Anna Berger (2)`.
 - **Every attachment becomes a project document**, is indexed, and can be
   searched and cited like any upload. It counts against your organization's
-  storage quota. Two attachments with the same name in one mail are filed as
-  `plan.pdf` and `plan (2).pdf`.
+  storage quota. Each file is named after the mail's folder and its own name,
+  `2026-09-30 10.15 – Anna Berger – plan.pdf`, as a mail imported from an
+  Outlook archive is: a project knows a document by its name, so a plain
+  `plan.pdf` from two mails would become two versions of one document. Two
+  attachments with the same name in one mail get `… plan.pdf` and
+  `… plan (2).pdf`.
 - **A mail forwarded as an attachment** (an `.eml`) is opened, and the files
   inside it are filed. The forwarded mail itself is not.
 - **A notification in your Piloti inbox** says how many files were filed and

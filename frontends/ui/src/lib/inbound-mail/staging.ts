@@ -2,7 +2,7 @@
  * The selected attachments of a mail that is accepted but not yet filed.
  *
  * The webhook answers inside the sender's SMTP window, so it cannot file; it
- * stages the attachments it selected and the drain files them later. Only the
+ * stages the attachments it selected and a job files them later. Only the
  * selected attachments are written, never the raw message or the body.
  *
  * Where: `org/<org>/project/<project>/inbound-mail/<row>/<n>` in the bucket the

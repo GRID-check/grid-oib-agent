@@ -6,12 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/authz/project-membership', () => ({ resolveSubjectMembership: vi.fn() }))
 vi.mock('@/lib/authz/org-role-permissions', () => ({ tenantRolePermissions: vi.fn() }))
-vi.mock('@/lib/workos/feature-flags', () => ({ enabledSlugsForOrg: vi.fn() }))
+vi.mock('@/lib/workos/feature-flags', () => ({ enabledFlagsForOrganization: vi.fn() }))
 
 import { TransientAuthzError } from '@/lib/authz/errors'
 import { tenantRolePermissions } from '@/lib/authz/org-role-permissions'
 import { resolveSubjectMembership } from '@/lib/authz/project-membership'
-import { enabledSlugsForOrg } from '@/lib/workos/feature-flags'
+import { enabledFlagsForOrganization } from '@/lib/workos/feature-flags'
 import { resolvePinnedRequesterSession } from './pinned-session'
 
 const requester = { userId: 'user_owner', email: 'owner@grid.test', organizationId: 'org_1' }
@@ -20,7 +20,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(resolveSubjectMembership).mockResolvedValue({ organizationMembershipId: 'om_1', role: 'member' })
   vi.mocked(tenantRolePermissions).mockResolvedValue(new Set(['project:view', 'custom:perm']))
-  vi.mocked(enabledSlugsForOrg).mockResolvedValue(new Set(['agent-authored-documents', 'project-mail-inbox']))
+  vi.mocked(enabledFlagsForOrganization).mockResolvedValue(['agent-authored-documents', 'project-mail-inbox'])
 })
 
 afterEach(() => {
@@ -64,37 +64,21 @@ describe('resolvePinnedRequesterSession', () => {
     expect(await resolvePinnedRequesterSession(requester)).toBeNull()
   })
 
-  describe('under flag enforcement', () => {
-    beforeEach(() => vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true'))
+  it("carries every flag of the requester's organization under enforcement, asked by that organization", async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
 
-    it('asks for the ORGANIZATION’s flags, by its id (the #787 swap)', async () => {
-      await resolvePinnedRequesterSession(requester)
+    const session = await resolvePinnedRequesterSession(requester)
+    expect(session?.featureFlags).toEqual(['agent-authored-documents', 'project-mail-inbox'])
+    // The lookup that used to pass the slug as the organization (#787).
+    expect(enabledFlagsForOrganization).toHaveBeenCalledTimes(1)
+    expect(enabledFlagsForOrganization).toHaveBeenCalledWith(requester.organizationId)
+  })
 
-      // Before the fix the call was isOrgFeatureEnabled('org_1', 'agent-authored-documents'):
-      // the org id read as the slug, the slug as the org, and filing never ran.
-      expect(enabledSlugsForOrg).toHaveBeenCalledTimes(1)
-      expect(enabledSlugsForOrg).toHaveBeenCalledWith('org_1')
-    })
+  it('lets a failed flag lookup throw, so the background work retries instead of acting with none', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    vi.mocked(enabledFlagsForOrganization).mockRejectedValueOnce(new Error('workos down'))
 
-    it('carries every flag the organization has, not only the first one a caller needed', async () => {
-      const session = await resolvePinnedRequesterSession(requester)
-
-      expect(session?.featureFlags).toEqual(['agent-authored-documents', 'project-mail-inbox'])
-    })
-
-    it('fails closed by default: a flag read that broke is every flag off', async () => {
-      vi.mocked(enabledSlugsForOrg).mockRejectedValueOnce(new Error('workos down'))
-
-      expect((await resolvePinnedRequesterSession(requester))?.featureFlags).toEqual([])
-    })
-
-    it('raises a transient error instead when the caller can retry', async () => {
-      vi.mocked(enabledSlugsForOrg).mockRejectedValueOnce(new Error('workos down'))
-
-      await expect(resolvePinnedRequesterSession(requester, { onError: 'throw' })).rejects.toBeInstanceOf(
-        TransientAuthzError,
-      )
-    })
+    await expect(resolvePinnedRequesterSession(requester)).rejects.toThrow('workos down')
   })
 
   it('hands the error mode to the membership lookup', async () => {
@@ -106,9 +90,10 @@ describe('resolvePinnedRequesterSession', () => {
     expect(resolveSubjectMembership).toHaveBeenCalledWith('org_1', 'user_owner', { onError: 'throw' })
   })
 
-  it('reads no flags without enforcement: the gates read the environment instead', async () => {
-    await resolvePinnedRequesterSession(requester)
+  it('carries no flags at all without enforcement, as a live session without the claim does', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'false')
 
-    expect(enabledSlugsForOrg).not.toHaveBeenCalled()
+    expect((await resolvePinnedRequesterSession(requester))?.featureFlags).toBeNull()
+    expect(enabledFlagsForOrganization).not.toHaveBeenCalled()
   })
 })

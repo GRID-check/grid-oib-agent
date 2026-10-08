@@ -16,6 +16,7 @@
  */
 
 const { hasActiveHold } = require('./db')
+const { eraseProject } = require('../workers/job-queue')
 
 /** @typedef {import('./types').Tx} Tx */
 /** @typedef {import('./types').QueueEntry} QueueEntry */
@@ -107,7 +108,7 @@ async function purgeBackendCollection(deps, fetchImpl, collectionName, conversat
  * @returns {Promise<void>}
  */
 async function purgeProject(tx, entry, deps) {
-  const { bucket, workos, deleteStoragePrefix } = deps
+  const { bucket, workos, deleteStoragePrefix, abortMultipartUploads } = deps
   const fetchImpl = deps.fetchImpl || fetch
   const projectId = entry.entity_id
   const orgId = entry.organization_id
@@ -207,17 +208,22 @@ async function purgeProject(tx, entry, deps) {
   //    list-then-delete loop, and running several against one storage tier only
   //    trades a rarely-hot latency for contention on the thing being erased.
   //
-  //    The mail inbox's staged attachments (ADR-0075) live under this same
-  //    project prefix, in the bucket their delivery row recorded. A project
-  //    whose only object in a tenant bucket is a mail not yet filed has no
-  //    document naming that bucket, so the rows that do are asked too.
+  //    Two kinds of staging live under this same project prefix, each in the
+  //    bucket its own row recorded: the mail inbox's attachments not yet filed
+  //    (ADR-0075), and an Outlook archive half-sent into the mail import
+  //    (ADR-0085). A project with no document yet names neither bucket on a
+  //    document row, so those rows are asked too, or the staging would outlive
+  //    the project and an archive upload would never be aborted.
   const recorded = /** @type {{ storage_bucket: string }[]} */ (
     await tx`
       SELECT DISTINCT storage_bucket FROM documents
        WHERE project_id = ${projectId} AND storage_bucket IS NOT NULL
       UNION
       SELECT DISTINCT staging_bucket FROM inbound_mail_messages
-       WHERE project_id = ${projectId} AND staging_bucket IS NOT NULL`
+       WHERE project_id = ${projectId} AND staging_bucket IS NOT NULL
+      UNION
+      SELECT staging_bucket AS storage_bucket FROM mail_imports
+       WHERE project_id = ${projectId}`
   )
   const targets = new Set([bucket, ...recorded.map((row) => row.storage_bucket)])
   for (const target of targets) {
@@ -229,6 +235,10 @@ async function purgeProject(tx, entry, deps) {
     // continues past the moment someone said stop, and reports success.
     await assertNoHold(tx, entry)
     await deleteStoragePrefix(target, `org/${orgId}/project/${projectId}/`)
+    // And what is not an object yet: an Outlook archive half-sent into the
+    // project's mail import (ADR-0085). Only the organization's own bucket
+    // receives one, but sweeping each target costs a list and catches any.
+    await abortMultipartUploads(target, `org/${orgId}/project/${projectId}/`)
   }
 
   // 2b. SeaweedFS objects under each CHAT's prefix.
@@ -266,16 +276,19 @@ async function purgeProject(tx, entry, deps) {
   }
 
   await assertNoHold(tx, entry)
-  // 3. WorkOS FGA resource (+ role assignments). Already-gone is success.
-  try {
-    await workos.authorization.deleteResourceByExternalId({
-      organizationId: orgId,
-      resourceTypeSlug: 'project',
-      externalId: projectId,
-      cascadeDelete: true,
-    })
-  } catch (error) {
-    if (!isNotFound(error)) throw error
+  // 3. WorkOS FGA resource (+ role assignments). Already-gone is success. No
+  //    WorkOS environment means no resource was ever created (`PurgeDeps.workos`).
+  if (workos) {
+    try {
+      await workos.authorization.deleteResourceByExternalId({
+        organizationId: orgId,
+        resourceTypeSlug: 'project',
+        externalId: projectId,
+        cascadeDelete: true,
+      })
+    } catch (error) {
+      if (!isNotFound(error)) throw error
+    }
   }
 
   // 4. grid_app rows: the collaboration rows FIRST, then conversations
@@ -333,6 +346,12 @@ async function purgeProject(tx, entry, deps) {
   //    same missing cascade, and the payload quotes what the project held (a
   //    run's title, a mail's subject), so it goes with the project.
   await tx`DELETE FROM inbox_items WHERE resource_type = 'project' AND resource_id = ${projectId}`
+  //    The project's background jobs (ADR-0079). `bff_job_queue` points at the
+  //    project only through its payload (no foreign key), and a payload holds the
+  //    project's work: a research report, file names, storage keys, the
+  //    requester. Nothing cascades, so without this a purged project's jobs, dead
+  //    ones included, would outlive it until their retention.
+  await eraseProject(tx, orgId, projectId)
   await tx`DELETE FROM conversations WHERE project_id = ${projectId}`
   await tx`DELETE FROM projects WHERE id = ${projectId}`
 }

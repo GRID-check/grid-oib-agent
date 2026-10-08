@@ -118,7 +118,7 @@ class DeepResearchAgentConfig(FunctionBaseConfig, name="deep_research_agent"):
         "deep-research runs (LangGraph thread_id = job_id), enabling resume of a re-invoked job after a "
         "worker crash. None (default) keeps current behavior: an in-memory-only graph with no execution-"
         "state durability. Mirrors the workflow-level chat checkpoint_db pattern, but opt-in "
-        "here since deep-research jobs run in ephemeral Dask worker processes.",
+        "here since deep-research jobs run in ephemeral research worker processes.",
     )
 
     @field_validator("skills", mode="before")

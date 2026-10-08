@@ -51,14 +51,9 @@ export const settings: typeof en.settings = {
       'Den indexierten Inhalt aller Dokumente dieses Projekts neu aufbauen. Hochgeladene Dateien werden nicht gelöscht — nur die daraus abgeleiteten Abschnitte, auf die sich Antworten stützen. Sinnvoll nach einer Änderung daran, wie Dokumente indexiert werden.',
     reindexAction: 'Projekt neu indizieren',
     reindexBusy: 'Wird neu indiziert…',
-    reindexDone:
-      '{count, plural, one {# Dokument wird} other {# Dokumente werden}} neu indiziert. Der Status aktualisiert sich laufend.',
-    reindexNothing: 'Nichts zu indizieren — kein Dokument in diesem Projekt hat bisher gespeicherte Inhalte',
-    reindexPartial:
-      '{count, plural, one {# Dokument konnte} other {# Dokumente konnten}} nicht neu gelesen werden. Der bisherige Index dieser Dokumente bleibt erhalten.',
+    reindexStarted:
+      'Die Neuindizierung läuft im Hintergrund und setzt sich nach einem Neustart fort. Der Status jedes Dokuments aktualisiert sich, sobald es fertig ist.',
     reindexFailed: 'Neuindizierung konnte nicht gestartet werden',
-    reindexTruncated:
-      'Nicht alle Dokumente wurden erreicht: Ein Durchlauf bearbeitet die neuesten 10.000 Dokumente, die älteren behalten ihren bisherigen Index.',
     membersDescriptionManage:
       'Weisen Sie Organisationsmitgliedern Projektrollen zu. Organisations-Admins haben immer Zugriff.',
     membersDescriptionReadOnly:

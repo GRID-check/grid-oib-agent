@@ -372,8 +372,10 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
             formData.append('conversationId', targetCollection)
             if (conversationProjectId) formData.append('projectId', conversationProjectId)
           }
-          if (projectId) {
-            formData.append('projectId', projectId)
+          if (projectId) formData.append('projectId', projectId)
+          // Both durable shelves are filed into folders now (the Archiv's
+          // are the office's own).
+          if (shelf !== 'session') {
             // Per file when the caller filed the batch (a folder upload),
             // otherwise the folder the reader is standing in. `undefined`
             // defers; `null` is a deliberate "the project root".

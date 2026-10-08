@@ -13,7 +13,10 @@ name = "aiq-agent"
 version = "2.0.0"
 description = "NVIDIA AI-Q Blueprint - An enterprise-grade agent for intelligent research assistance"
 readme = "README.md"
-requires-python = ">=3.14,<3.15"
+# 3.14.1, not 3.14: uv lets a pre-release interpreter satisfy `>=3.14`, and on
+# 3.14.0rc2 pydantic calls `typing._eval_type` with `prefer_fwd_module`, a
+# keyword that landed after rc2, so every backend test died at import.
+requires-python = ">=3.14.1,<3.15"
 license = {text = "Apache-2.0"}
 dependencies = [
     "nvidia-nat-core==1.9.0",
@@ -61,7 +64,7 @@ dev = [
     "ruff~=0.15.21",
     "yapf>=0.40.0",
     "mypy>=2.3.0",
-    "fakeredis>=2.20.0",
+    "fakeredis[lua]>=2.20.0",
 ]
 docs = [
     "sphinx>=7.0",
@@ -139,9 +142,16 @@ testpaths = ["tests", "sources/**/tests"]
 addopts = "--import-mode=importlib"
 # Makes `from tests.conftest import ...` (the shared provider-contract double)
 # resolve the same way under every invocation — `python -m pytest`, the bare
-# `pytest` console script the pre-push hook uses, and an IDE runner — instead of
+# `pytest` console script, and an IDE runner — instead of
 # depending on which of those happens to put the repo root on sys.path.
-pythonpath = ["."]
+#
+# `src` is the same guard for `aiq_agent`. The venv installs it editable from
+# whichever checkout ran `uv sync`, so a bare `pytest` in a worktree without its
+# own venv tested the MAIN checkout's code while everything passed. This puts
+# the checkout's own `src/` ahead of that install (the editable `.pth` is
+# appended to sys.path, so it loses). `knowledge_layer` is a finder-style
+# editable and is NOT covered by this; see docs/contributing/gotchas.md.
+pythonpath = [".", "src"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 markers = [
@@ -261,8 +271,7 @@ dev = [
     "ruff~=0.15.21",
     "yapf>=0.40.0",
     "mypy>=2.3.0",
-    "fakeredis>=2.20.0",
-    "dask[distributed]>=2024.1.0",
+    "fakeredis[lua]>=2.20.0",
     # Workspace packages for testing
     "tavily-web-search",
     "ris-adapter",
@@ -270,6 +279,7 @@ dev = [
     "aiq-api",
     "aiq-research-cli",
     "aiq-debug",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.uv]

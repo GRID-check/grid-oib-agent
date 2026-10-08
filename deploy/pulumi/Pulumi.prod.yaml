@@ -41,7 +41,7 @@
 
 #   # Encrypts DB-claimed job payloads at rest (they carry the user auth token).
 
-#   # REQUIRED whenever jobExecution=db (the deploy fails closed without it; set
+#   # REQUIRED (the deploy fails closed without it; set
 
 #   # grid-oib:allowPlaintextJobPayloads=true to override for dev/single-node):
 
@@ -102,6 +102,10 @@ config:
 
   # All classes reclaim `Delete` — deleting a PVC destroys its data irreversibly.
   grid-oib:storageClass: premium
+  # The pre-A2 backend's data volume, which still holds the base corpus. The
+  # one-shot legacy-corpus-import Job carries it into SeaweedFS and the corpus
+  # table (ADR-0082 A2). Remove this key with the importer once it has run here.
+  grid-oib:legacyCorpusClaim: data-aiq-agent-0
   # ── Ingress / TLS ── One key moves every public host: app./s3./otel. derive
 
   # from baseDomain (per-host appDomain/s3Domain/otelDomain keys remain as overrides).
@@ -250,20 +254,13 @@ config:
   grid-oib:backendRequestsMemory: 2Gi
   grid-oib:backendLimitsCpu: "4"
   grid-oib:backendLimitsMemory: 8Gi
-  grid-oib:backendDaskWorkers: "1"
-  grid-oib:backendDaskThreads: "4"
-  grid-oib:backendMaxActiveJobs: "8"
   grid-oib:backendMaxActiveJobsPerOrg: "3"
   grid-oib:backendIngestMaxWorkers: "2"
-  grid-oib:backendDataStorageSize: 20Gi
   # ── Research execution (ADR-0021) ──
 
-  # "dask" = per-pod cluster (agent is a singleton). "db" = DB-claimed workers:
-
-  # web tier runs no Dask and dedicated agent-worker replicas execute research
-
-  # jobs, scaling the token-heavy workload horizontally. Requires chromaEnabled.
-  grid-oib:jobExecution: db
+  # Dedicated agent-worker replicas execute research jobs, scaling the token-heavy
+  # workload horizontally. Requires chromaEnabled.
+  # KEDA scales the tier on research_job_queue (ADR-0079); one worker stays warm.
   grid-oib:agentWorkerMinReplicas: "1"
   grid-oib:agentWorkerMaxReplicas: "3"
   grid-oib:agentWorkerConcurrency: "1"
@@ -295,7 +292,7 @@ config:
 
   # max, so size that group for maxReplicas × the limits below.
   grid-oib:ingestWorkerMinReplicas: "1"
-  grid-oib:ingestWorkerMaxReplicas: "12"
+  grid-oib:ingestWorkerMaxReplicas: "5"
   grid-oib:ingestWorkerConcurrency: "3"
   grid-oib:ingestWorkerDrainSeconds: "600"
   # Chat/web replicas. Safe at >1 via conversation affinity (the frontend WS
@@ -432,3 +429,57 @@ config:
   grid-oib:langfuseProjectId: grid-oib
   grid-oib:otelOidcIssuer: https://prestigious-energy-03.authkit.app
   grid-oib:otelOidcClientId: client_01M0SKKRX0XAQ99AFZ31WNJ6XT # pragma: allowlist secret (public OAuth client id)
+  # ── BFF background pool (ADR-0079) ──
+  # Internal replicas of the frontend image claim bff_job_queue fairly across
+  # organisations and run project reindex and failed-ingestion rescan jobs, IFC
+  # extraction, office conversion and report filing in their own BFF, so that
+  # work never shares a pod with the chat gateway. KEDA sets the count from the
+  # open jobs, one replica per `bffJobsConcurrency`.
+  grid-oib:bffJobsMinReplicas: "1"
+  grid-oib:bffJobsMaxReplicas: "4"
+  grid-oib:bffJobsConcurrency: "2"
+  # Office conversions one pod runs at Gotenberg at once. The pool's ceiling is
+  # this times bffJobsMaxReplicas (4), and it must fit what the converter takes:
+  # two conversions per Gotenberg replica (one running, one ready behind it).
+  # gotenberg.spec.ts holds the two together: raise one, raise the other.
+  grid-oib:bffJobsRenditionConcurrency: "1"
+  grid-oib:gotenbergReplicas: "2"
+  # SIGTERM budget to finish the slice in hand; the claim is then given back
+  # without costing an attempt. The pod's grace period is this plus 30 s.
+  grid-oib:bffJobsDrainSeconds: "60"
+  # Chat tier scale-out (ADR-0080). Affinity stays on and the ceiling at the floor
+  # until the cross-replica path (reconnect, clarifier answer, cancel, supersede, a
+  # replica draining mid-turn) is validated on the dev cluster with affinity off and
+  # at least two replicas. Flip these two together, never one.
+  grid-oib:chatAffinity: "true"
+  grid-oib:backendMaxReplicas: "1"
+  # ── Provider budget (ADR-0076, ADR-0081) ──
+  # What the one OpenRouter key is asked to carry, written down here instead of
+  # left to the backend image's defaults (these ARE those defaults). Vision calls
+  # are held to vlmFleetConcurrency fleet-wide whatever the replica count, so the
+  # ingest tier's ceiling is sized against it: ingestWorkerMaxReplicas (5) x
+  # ingestWorkerConcurrency (3) x vlmBatchWorkers (4) = 60, within 2 x 32. The
+  # program refuses a stack past 2x (assertVlmPeakFitsCeiling), because replicas
+  # beyond it only queue on the pool. It was 12 replicas (144), then 8 (96 against
+  # a pool of 48), before this: a vision call also holds a slot in its model's own
+  # pool (providerModelLimitCeiling, 32), so 48 was never reachable, and the three
+  # replicas it paid for could never have run a vision call. The program also
+  # refuses a pool above that model limit. To feed more, raise
+  # providerModelLimitCeiling and vlmFleetConcurrency together (and the provider's
+  # own limit with them) first, then the replicas.
+  grid-oib:vlmFleetConcurrency: "32"
+  grid-oib:vlmBatchWorkers: "4"
+  # Model calls in flight fleet-wide: all models together (the key's limit), and
+  # any one model. The adaptive limiter starts at these and halves on a 429.
+  grid-oib:providerLimitCeiling: "128"
+  grid-oib:providerModelLimitCeiling: "32"
+  # ── Postgres pooler (ADR-0083) ──
+  # Two PgBouncers, spread across nodes, so a drain takes one. Budget against the
+  # primary's max_connections of 200 (assertPgConnectionBudget): 2 x (3 pooled
+  # database/role pairs x pgPoolerPoolSize 12 + 1 auth session) = 74, plus 82 held
+  # for the direct connections (see POSTGRES_DIRECT_RESERVE) = 156, 44 to spare.
+  grid-oib:pgPoolerInstances: "2"
+  # ── The api tier (ADR-0082 step B) ── every backend HTTP route but the chat
+  # socket, behind the aiq-api Service (BACKEND_URL). Sized like the frontend.
+  grid-oib:apiMinReplicas: "1"
+  grid-oib:apiMaxReplicas: "3"

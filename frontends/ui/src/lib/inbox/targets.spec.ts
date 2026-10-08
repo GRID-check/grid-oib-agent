@@ -180,7 +180,7 @@ describe('the project target', () => {
     expect(access!.deepLink({ itemType: 'inbound_mail.filed', anchorId: 'msg-1', folderId: null })).toBe(
       '/app/projects/proj_1/files',
     )
-    // A mail the drain gave up on lands in the files too, never on the automation tab.
+    // A mail the inbox gave up on lands in the files too, never on the automation tab.
     expect(access!.deepLink({ itemType: 'inbound_mail.failed', anchorId: 'msg-1', folderId: null })).toBe(
       '/app/projects/proj_1/files',
     )

@@ -34,6 +34,8 @@ from aiq_agent.common.cost_tracking import BudgetExceededError
 from aiq_agent.common.cost_tracking import track_llm_costs
 from aiq_agent.common.profiler import annotate_current_span
 from aiq_agent.common.profiler import profiled_span
+from aiq_agent.common.provider_limiter import CHAT
+from aiq_agent.common.provider_limiter import provider_class
 from aiq_agent.common.turn_admission import TurnAdmissionError
 from aiq_agent.common.turn_admission import admit_turn_async
 from aiq_agent.common.wire_v2 import EventBody
@@ -150,6 +152,9 @@ async def answer_turn(
     final: StateT | None = None
     try:
         async with contextlib.AsyncExitStack() as admission:
+            # Every model call the turn makes, retrieval embeddings included, queues
+            # for the provider ahead of research and bulk work (ADR-0081).
+            admission.enter_context(provider_class(CHAT))
             refused = await _enter_admission_slot(admission, organization_id)
             if refused is not None:
                 raise refused

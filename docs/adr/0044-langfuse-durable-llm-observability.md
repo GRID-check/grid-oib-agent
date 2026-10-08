@@ -327,6 +327,51 @@ still has no retention (Enterprise feature) and still grows without bound;
 `clickhouseStorageSize` (default 50 Gi) sizes that. The Retention follow-up
 below is answered for server logs; it stands for trace data.
 
+## Amendment 3 (2026-10-08): every answer vote is a score on its trace
+
+Users rate answers (thumbs plus an optional reason and comment, stored in
+`answer_feedback`), and the platform page reads those votes. What it could not
+do is put a vote next to the trace that produced the answer, because nothing
+outside the agent knew which trace that was: NAT draws a random
+`workflow_trace_id` per run unless one is already in the context
+(`nat/runtime/runner.py`), and the id never left the process.
+
+**Change, in two halves.**
+
+- **The answer names its trace.** The chat socket pins each turn's trace id to
+  its answer id before the run starts. The answer id is already a UUID derived
+  per (conversation, turn), and a UUID is the 128 bits an OTel trace id is, so
+  NAT adopts it and every root span carries it; a research job the turn hands
+  off inherits it as before. The persisted answer row records it as
+  `metadata.trace_id` (32 hex digits, Langfuse's spelling): the chat socket
+  writes the pinned id, the jobs runner the id its run actually used.
+  `src/aiq_agent/observability/turn_trace.py`.
+- **The BFF scores the vote.** After the vote is stored, the BFF writes a
+  `user-feedback` score on that trace through the official JS client
+  (`@langfuse/client`), server side only: NUMERIC 1/0, so Langfuse's mean is
+  the helpful rate the platform page headlines; the comment carries the reason
+  chip and the voter's words. The score id is derived from the feedback row id,
+  so a re-vote upserts it and a retraction deletes it.
+  `frontends/ui/src/lib/langfuse/feedback-score.ts`.
+
+**What it does not do.** The BFF reads the trace id from the row and never
+derives it: a row from before this amendment, or a turn whose answer was never
+persisted, has no score rather than a score on a guessed trace. A vote's
+Langfuse write is fire-and-forget, bounded (5 s, one retry) and swallowed on
+failure, so Langfuse being slow or down never costs the voter anything; the
+`answer_feedback` row stays the record. Without `LANGFUSE_HOST` and both keys
+the whole path is a no-op, and there is deliberately no default host: the
+SDK's own default is Langfuse Cloud, which this ADR rejected.
+
+**Deployment.** Pulumi injects `LANGFUSE_HOST` (the in-cluster web Service),
+`LANGFUSE_PUBLIC_URL`, `LANGFUSE_PROJECT_ID` and the two keys (by reference to
+`langfuse-secrets`) into the frontend only where the tier is deployed, folds
+the keys into the frontend's rollout checksum, and adds the
+`allow-frontend-to-langfuse` NetworkPolicy: the frontend joins the collector as
+a named caller of the web tier, which stays withheld from the wholesale allow.
+The platform answer-feedback view gets `turns[].langfuseTraceUrl` and
+`langfuse.projectUrl` for deep links.
+
 ## References
 
 - ADR-0029: Aspire standalone dashboard as live telemetry pane
@@ -337,4 +382,6 @@ below is answered for server logs; it stands for trace data.
 - Operator guide: `docs/deployment/kubernetes.md` § Langfuse
 - Implementation: `deploy/pulumi/src/platform/langfuse.ts`,
   `deploy/pulumi/src/data/clickhouse.ts`,
-  `src/aiq_agent/observability/langfuse_trace_attributes.py`
+  `src/aiq_agent/observability/langfuse_trace_attributes.py`,
+  `src/aiq_agent/observability/turn_trace.py`,
+  `frontends/ui/src/lib/langfuse/`

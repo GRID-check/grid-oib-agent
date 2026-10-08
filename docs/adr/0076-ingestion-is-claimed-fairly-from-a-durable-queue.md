@@ -58,13 +58,15 @@ has run in production since ADR-0021.
   `research_job_queue`. Research claims FIFO with a `run_agent_job` payload and
   a `job_info` verdict. Ingestion needs a different order, runs inside the
   ingestor's threads and reports through `ingest_jobs`. The claim, heartbeat,
-  reclaim and reap are the research queue's (`FOR UPDATE SKIP LOCKED`, stale
-  heartbeat, three attempts).
+  reclaim and reap are the research queue's pattern (`FOR UPDATE SKIP LOCKED`,
+  stale heartbeat, three attempts), now one implementation both queues share:
+  `aiq_agent.common.claim_queue` (ADR-0079), with a table of its own each.
 * **A claim ranks lanes, not jobs.** Ranking every queued job cost ~165 ms per
   claim at 100 000 queued jobs across 2 000 organisations (Postgres 16, local).
-  Ranking one row per lane, then taking the best lanes' oldest jobs through the
-  `(lane, created_at)` index, costs ~43 ms p50 and ~62 ms p95 at the same
-  backlog.
+  Ranking one row per lane, then taking the best lanes' best jobs through the
+  `(lane, priority, created_at)` index, costs ~43 ms p50 and ~62 ms p95 at the
+  same backlog (re-measured with the priority column, ADR-0079: ~36 ms p50,
+  ~42 ms p95 on a quieter machine).
 * **A queued job is waiting, not lost.** The status store never settles a job
   as interrupted while the queue still holds it (`_stale_predicate`).
 * **The payload is encrypted** with `GRID_JOB_PAYLOAD_KEK`, because it carries
@@ -72,8 +74,9 @@ has run in production since ADR-0021.
   because without a KEK a queue row is plaintext anyone who can write the table
   can forge.
 * **The tier scales on the queue.** `GRID_ROLE=ingest-worker` runs
-  `aiq_api.jobs.ingest_worker`. KEDA's `postgresql` trigger counts
-  `ingest_job_queue` and asks for ceil(jobs / concurrency) replicas. It scales
+  `aiq_api.jobs.ingest_worker`. KEDA's `postgresql` trigger counts the rows of
+  `ingest_job_queue` that are not `dead` (a dead row is kept as a trace, and is
+  no work) and asks for ceil(jobs / concurrency) replicas. It scales
   out at once and in one pod a minute, down to zero where the floor is zero.
   The cluster-autoscaler adds nodes for Pending replicas (docs/deployment/
   kubernetes.md). CPU cannot drive this tier: a job mostly waits on the provider.
@@ -116,10 +119,16 @@ already give at this volume: a few claims per second.
 * Neutral: an office sees its place in the queue ("Wartet · 3 Dateien davor"),
   counted among its own jobs only (`ingest_queue.ahead_in_lane`, stamped as
   `metadata.queue_ahead` on the batch status). That is the one order the queue
-  promises: inside a lane it claims oldest first, across lanes it interleaves,
+  promises: inside a lane it claims by priority (`interactive` before `bulk`,
+  ADR-0079), then oldest first, across lanes it interleaves,
   so no other office's backlog stands in the count. It cannot say how long the
   wait is, because that depends on how many lanes are busy when each job is
   claimed.
+* Neutral: a job that fails every claim is no longer deleted. Its row becomes
+  `dead` with a reason (kept 14 days), so the status store settles it
+  `failed: interrupted` as before and the cause stays inspectable. A worker
+  that must exit gives the claims it still holds back at no cost in attempts
+  (ADR-0079), instead of leaving them for the stale window.
 
 ### Confirmation
 

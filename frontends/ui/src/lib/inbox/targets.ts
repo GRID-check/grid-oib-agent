@@ -201,10 +201,16 @@ const projectTarget: InboxTargetDescriptor = {
     return {
       deepLink: (context) => {
         // A mail's row opens its folder: the files that landed, or for a mail
-        // the drain gave up on, whatever landed before it did (the row names
+        // the inbox gave up on, whatever landed before it did (the row names
         // the folder when there is one, else the file root).
         if (context.itemType === 'inbound_mail.filed' || context.itemType === 'inbound_mail.failed') {
           return filesDeepLink(resourceId, context.folderId)
+        }
+        // A mail import lands on the folder it filed into: the row's anchor,
+        // unless the import ended before making one (anchored `import:<id>`).
+        if (context.itemType === 'mail_import.completed' || context.itemType === 'mail_import.failed') {
+          const anchor = context.anchorId?.trim()
+          return filesDeepLink(resourceId, anchor && !anchor.startsWith('import:') ? anchor : null)
         }
         if (context.run) return runDeepLink(resourceId, context.run)
         const taskId = context.taskId?.trim() ? context.taskId.trim() : null

@@ -1,0 +1,4 @@
+---
+operators:
+  - >
+    The database now sits behind a connection pooler, and session locks and job streams need two new direct database URLs. Set AIQ_LOCK_DB_URL and AIQ_LISTEN_DB_URL to the primary on any Postgres deployment you run yourself; the platform refuses to start without them, and a plan over the connection budget is refused.

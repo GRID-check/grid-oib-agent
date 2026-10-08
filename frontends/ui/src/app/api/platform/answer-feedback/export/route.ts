@@ -7,22 +7,23 @@
  * browser, so the download costs the bundle nothing and is reachable as a plain
  * link — the same shape as the citation-health export beside it.
  *
- * It reads through `getAnswerFeedbackHealth` with the SAME parser as the page, so
+ * It reads through `getAnswerFeedbackExport` with the SAME parser as the page, so
  * it carries the same gate and the same filters. An export that quietly disagreed
- * with the view it was taken from would be worse than no export.
+ * with the view it was taken from would be worse than no export. It is NOT
+ * limited to the page's 50 rows: up to `FEEDBACK_EXPORT_ROW_CAP`, and a cut
+ * export says so (`X-Grid-Export-Truncated`, and `-first-<cap>` in the filename).
  */
 
 import { NextResponse } from 'next/server'
 import { ForbiddenError } from '@/lib/api/errors'
 import { apiRoute } from '@/lib/api/handler'
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
-import { getAnswerFeedbackHealth } from '@/lib/feedback/service'
+import { getAnswerFeedbackExport, getAnswerFeedbackWeeklySummary } from '@/lib/feedback/service'
 import { parseFeedbackFilters } from '@/lib/feedback/query'
-
-/** RFC 4180: quote every cell, double embedded quotes. Answers contain commas. */
-function csvCell(value: unknown): string {
-  return `"${String(value ?? '').replace(/"/g, '""')}"`
-}
+// Quoted per RFC 4180 AND formula-neutralised: questions, comments and answers
+// are user and model text, and a spreadsheet evaluates `=...` even inside quotes.
+import { csvCell } from '@/lib/text/csv-cell'
+import { EXPORT_TRUNCATED_HEADER } from '@/lib/feedback/types'
 
 const COLUMNS = [
   'created_at',
@@ -37,15 +38,61 @@ const COLUMNS = [
   'topics',
   'question',
   'answer',
+  // The voter's own words on a down-vote. The reason chip says which bucket;
+  // this says what was actually wrong, and was stored but never exported.
+  'comment',
+  // What the voter says a good answer would have contained. The column name is
+  // a contract: the answer-suite converter reads it by name.
+  'expected_answer',
 ] as const
+
+/** The weekly summary's columns: the numerator and denominator of a failure rate. */
+const WEEKLY_COLUMNS = ['organization_id', 'iso_week', 'week_start', 'answers', 'up', 'down'] as const
+
+function csvResponse(
+  rows: string[],
+  columns: readonly string[],
+  filename: string,
+  extraHeaders: Record<string, string> = {}
+): NextResponse {
+  // A BOM so Excel opens UTF-8 correctly. These answers are German and full of
+  // umlauts; a mojibake export is one nobody trusts a second time.
+  const body = `\uFEFF${columns.join(',')}\n${rows.join('\n')}\n`
+  return new NextResponse(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-store',
+      ...extraHeaders,
+    },
+  })
+}
 
 export const GET = apiRoute(
   async ({ request, session }) => {
-    const filters = parseFeedbackFilters(new URL(request.url).searchParams)
+    const searchParams = new URL(request.url).searchParams
+    const filters = parseFeedbackFilters(searchParams)
     try {
-      const health = await getAnswerFeedbackHealth(session, filters)
+      // `?summary=weekly`: the denominator. The drill-in lists votes only, so it
+      // cannot say how often an answer fails; this is answers/up/down per
+      // organization and ISO week, behind the same gate and `days`/`org` filters.
+      if (searchParams.get('summary') === 'weekly') {
+        const weeks = await getAnswerFeedbackWeeklySummary(session, filters)
+        const stamp = new Date().toISOString().slice(0, 10)
+        return csvResponse(
+          weeks.map((w) =>
+            [w.organizationId, w.isoWeek, w.weekStart, w.answers, w.up, w.down]
+              .map(csvCell)
+              .join(',')
+          ),
+          WEEKLY_COLUMNS,
+          `answer-feedback-weekly-${stamp}.csv`
+        )
+      }
+      const exported = await getAnswerFeedbackExport(session, filters)
 
-      const rows = health.turns.map((turn) =>
+      const rows = exported.turns.map((turn) =>
         [
           turn.createdAt instanceof Date ? turn.createdAt.toISOString() : turn.createdAt,
           turn.organizationId,
@@ -56,28 +103,26 @@ export const GET = apiRoute(
           turn.topics.join(' '),
           turn.question,
           turn.answer,
+          turn.comment,
+          turn.expectedAnswer,
         ]
           .map(csvCell)
           .join(',')
       )
 
-      // A BOM so Excel opens UTF-8 correctly. These answers are German and full of
-      // umlauts; a mojibake export is one nobody trusts a second time.
-      const body = `﻿${COLUMNS.join(',')}\n${rows.join('\n')}\n`
       const stamp = new Date().toISOString().slice(0, 10)
 
       // The verdict is in the FILENAME as well as the column, because the two
       // exports are otherwise one download folder away from being the same file.
-      const filename = `answer-feedback-${filters.verdict ?? 'down'}-${stamp}.csv`
-
-      return new NextResponse(body, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/csv; charset=utf-8',
-          'Content-Disposition': `attachment; filename="${filename}"`,
-          'Cache-Control': 'no-store',
-        },
-      })
+      // A cut export says so twice: in a header for a script, and in the
+      // filename for the person who will open it in a spreadsheet.
+      const cut = exported.truncated ? `-first-${exported.cap}` : ''
+      return csvResponse(
+        rows,
+        COLUMNS,
+        `answer-feedback-${filters.verdict ?? 'down'}-${stamp}${cut}.csv`,
+        exported.truncated ? { [EXPORT_TRUNCATED_HEADER]: String(exported.cap) } : {}
+      )
     } catch (error) {
       if (error instanceof PlatformAccessDeniedError) throw new ForbiddenError()
       throw error
@@ -85,7 +130,8 @@ export const GET = apiRoute(
   },
   {
     authz: {
-      enforcedBy: 'getAnswerFeedbackHealth (requirePlatformPermission platform:organizations:view)',
+      enforcedBy:
+        'getAnswerFeedbackExport / getAnswerFeedbackWeeklySummary (requirePlatformPermission platform:organizations:view)',
     },
   }
 )

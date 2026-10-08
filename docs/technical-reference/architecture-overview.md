@@ -24,7 +24,8 @@ Grid AIQ uses a two-tier architecture consisting of a **Next.js Backend-for-Fron
 │  │    Python backend  │    │  • Document uploads  │                   │
 │  └───────────────────┘    └──────────────────────┘                   │
 │                                                                       │
-│  Environment: BACKEND_URL=http://aiq-agent:8000                       │
+│  Environment: BACKEND_URL=http://aiq-api:8000 (HTTP, api role)        │
+│               BACKEND_CHAT_URL=http://aiq-agent:8000 (WS, chat role)  │
 │               PORT=3000, NEXT_INTERNAL_URL=http://localhost:3001     │
 └──────────────────────┬──────────────────────────────────────────────┘
                        │ HTTP + WS
@@ -33,7 +34,7 @@ Grid AIQ uses a two-tier architecture consisting of a **Next.js Backend-for-Fron
 │  Tier 2: Python FastAPI Backend (port 8000)                            │
 │                                                                         │
 │  ┌─────────────────┐    ┌─────────────────┐    ┌──────────────────┐   │
-│  │  Dask Scheduler  │    │  Dask Worker(s) │    │  Uvicorn         │   │
+│  │  Research queue  │    │  Worker(s) (NAT)│    │  Uvicorn         │   │
 │  │  (port 8786)     │◄──►│  (NAT runtime)   │    │  FastAPI App    │   │
 │  │  Dashboard:8787  │    │                  │    │  (NAT + custom) │   │
 │  └─────────────────┘    └─────────────────┘    └────────┬─────────┘   │
@@ -64,7 +65,7 @@ Key responsibilities of the BFF:
 
 The backend uses the **NVIDIA NeMo Agent Toolkit (NAT)** framework with a custom startup script:
 
-- **Entrypoint** (`entrypoint.py`): Starts a Dask scheduler (port 8786) and Dask worker, then launches the web server.
+- **Entrypoint** (`entrypoint.py`): Launches the web server; research runs in the separate `GRID_ROLE=worker` container.
 - **Web server** (`start_web.py`): Loads the NAT YAML configuration, sets up environment variables, and runs uvicorn directly (bypassing `nat serve` to avoid asyncio event-loop conflicts).
 - **NAT runtime**: Provides the LangGraph-based pipeline: one answering agent (research) that decides per turn whether to escalate, a clarification step that confirms a research plan, and the deep research agent with citation verification.
 
@@ -76,7 +77,7 @@ The NAT framework is extended with:
 | AIQ API worker | `frontends/aiq_api/` | Async job processing with SSE streaming |
 | Knowledge layer | `sources/knowledge_layer/` | LlamaIndex-backed RAG with ChromaDB |
 | Custom auth utils | `src/aiq_agent/auth/` | JWT extraction, WorkOS token validation |
-| OIB sync | `src/aiq_agent/oib_sync.py` | Incremental OIB PDF ingestion with SHA-256 registry |
+| OIB sync | `src/aiq_agent/oib_sync.py`, `src/aiq_agent/corpus_store.py` | Base corpus in object storage + the `oib_corpus_files` table; queues one ingest-queue job for each file the index was not built from (SHA-256, chunk-format version); the ingest workers run it |
 
 ### Data Flow
 
@@ -126,7 +127,6 @@ Return: job_id for status polling
 | PostgreSQL | postgres:16-alpine | Job metadata, checkpoints, app state |
 | SeaweedFS | chrislusf/seaweedfs:3.80 | S3-compatible document storage |
 | ChromaDB | embedded in Python | Vector storage for embeddings |
-| Dask | NAT-managed | Distributed job execution |
 
 ### Key Design Decisions
 

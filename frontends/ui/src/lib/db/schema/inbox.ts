@@ -98,6 +98,14 @@ export const INBOX_ITEM_TYPES = [
    */
   'feedback.submitted',
   /**
+   * Informational, operational tier: an Outlook archive the recipient started
+   * importing has been filed, or the import stopped (ADR-0085). Addressed to the
+   * person who started it, pointing at the project and anchored on the folder
+   * the import filed under, which is where the row lands.
+   */
+  'mail_import.completed',
+  'mail_import.failed',
+  /**
    * Informational, operational: the files of a mail the reader sent to a
    * project's inbox address were filed (ADR-0075). The inbox is the sender's
    * only feedback channel — Piloti sends no mail in v1 — so the row names how

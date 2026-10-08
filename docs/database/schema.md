@@ -35,7 +35,8 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
-| `inbound-mail.ts` | `inbound_mail_addresses`, `inbound_mail_messages` — the project mail inbox (migration 0102, ADR-0075) |
+| `bff-job-queue.ts` | `bff_job_queue`, `bff_job_lane_turns` — the BFF's durable background work (migration 0104, ADR-0079) |
+| `inbound-mail.ts` | `inbound_mail_addresses`, `inbound_mail_messages` — the project mail inbox (migration 0109, ADR-0075) |
 
 ---
 
@@ -260,7 +261,8 @@ export const documents = pgTable('documents', {
 The three `authored_by` partial indexes above live **only in the migration** — drizzle's index builder cannot express a `WHERE` clause — with a NOTE beside the relevant column in `schema/documents.ts`; the filename one is declared in the schema as well. `documents.spec.ts` pins each one to its migration so a regeneration cannot quietly drop it.
 
 **Constraints:**
-- `documents_folder_requires_project` — a document with a folder has a project, which is what makes the composite folder FK check anything under MATCH SIMPLE (migration `0030`)
+- `documents_folder_requires_project` — `folder_id IS NULL OR project_id IS NOT NULL OR scope = 'archiv'`: a filed document is a project document or an Archiv one. Introduced as "a document with a folder has a project" so the composite `(folder_id, project_id)` FK checks anything under MATCH SIMPLE (migrations `0030`, `0031`); widened by migration `0102`, whose next constraint now checks every folder reference whatever the project
+- `documents_folder_id_organization_id_scope_fkey` — FK (`folder_id`, `organization_id`, `scope`) → `project_folders (id, organization_id, scope)`, `ON DELETE CASCADE` (migration `0102`, ADR-0078). A document's folder is on its own **shelf and tenant**: a project document cannot be filed in an Archiv folder (nor the reverse), neither in another tenant's folder, and a `session` attachment cannot be filed at all — no folder row can carry scope `session`, so the key has nothing to match. MATCH SIMPLE skips it when `folder_id` is NULL. The cascade is only a backstop and agrees with `documents_folder_id_project_id_fkey`: `deleteShelfFolder` re-files a folder's documents and children into its parent before it removes the row
 - `documents_session_requires_conversation` — the scope partition: a `session` row has a conversation, nothing else does, and a `session` row has no project (migration `0049`)
 - `documents_authorship_requires_provenance` — `authored_by = 'user' OR (authored_by_producer IS NOT NULL AND authored_by_ref IS NOT NULL AND authored_by_ref_kind IS NOT NULL)`. A document no person wrote can always say what wrote it, which one, and what kind of identifier that is; one that cannot is an audit trail in appearance only. The third conjunct is migration `0066`'s: the first two were satisfiable by a row whose reference nobody could resolve, because the column's name asserted a job id over a value that was not one. Written against `<> 'user'` rather than against `agent` so a member added to `DOCUMENT_AUTHORS` arrives already constrained instead of arriving as a hole nothing notices (migration `0063`). One-directional: a `user` row carrying all three is legal.
 
@@ -616,12 +618,17 @@ trigger (`once`, no due date), which is what lets chat say „jeden Montag".
 
 ## project_folders
 
+Folders of a **shelf**: a project's Dateien (`scope = 'project'`) or the org-wide Archiv (`scope = 'archiv'`) — migration `0102`, [ADR-0078](../adr/0078-folders-are-a-property-of-a-shelf-not-of-a-project.md).
+
+> **The name is a deliberate deferral.** `project_folders` is a misnomer for the Archiv half of its rows. Renaming it touches the Python mirror (`document_metadata.folder_path`, ADR-0049) and ten earlier migrations and turns a column change into a table swap, so it waits for something that forces a table swap anyway. Read it as "shelf folders"; the same note sits beside the table in `schema/project-folders.ts`.
+
 ```typescript
 // frontends/ui/src/lib/db/schema/project-folders.ts
 export const projectFolders = pgTable('project_folders', {
   id: uuid('id').primaryKey().defaultRandom(),
-  projectId: uuid('project_id').notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }), // NULL for an Archiv folder
+  organizationId: text('organization_id').notNull(),
+  scope: text('scope').$type<'project' | 'archiv'>().notNull().default('project'),
   parentId: uuid('parent_id'),
   name: varchar('name', { length: 255 }).notNull(),
   path: varchar('path', { length: 1024 }).notNull(),
@@ -633,30 +640,41 @@ export const projectFolders = pgTable('project_folders', {
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `id` | `uuid` | PK, `defaultRandom()` | |
-| `project_id` | `uuid` | NOT NULL, FK → `projects.id` ON DELETE CASCADE | |
-| `parent_id` | `uuid` | | `NULL` for a folder at the project root |
+| `project_id` | `uuid` | nullable, FK → `projects.id` ON DELETE CASCADE | `NULL` exactly for an Archiv folder (`project_folders_scope_owner_check`) |
+| `organization_id` | `text` | NOT NULL | The tenant, on the row (migration `0102`, backfilled from `projects.organization_id`). Pinned by the RLS policy and the composite keys below |
+| `scope` | `text` | NOT NULL, default `'project'`, CHECK in (`project`, `archiv`) | The shelf, in `documents.scope`'s vocabulary minus `session`: a chat attachment is never filed |
+| `parent_id` | `uuid` | | `NULL` for a folder at the root of its shelf |
 | `name` | `varchar(255)` | NOT NULL | |
-| `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs |
+| `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs and the backend mirror |
 | `created_at` / `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 **Indexes and constraints:**
 - `idx_project_folders_project_id`, `idx_project_folders_parent_id`
-- `project_folders_id_project_id_key` — UNIQUE on (`id`, `project_id`). Redundant on its own (`id` is the PK) and required anyway: a composite FK can only reference a uniquely-constrained column set, and both the parent self-reference and `documents.folder_id` reference exactly this pair (migration `0030`).
-- `project_folders_parent_id_project_id_fkey` — a folder's parent lives in the same project. This replaced an RLS policy that referenced `project_folders` from its own predicate, which Postgres answers with "infinite recursion detected in policy" — and because `documents`' policy joined this table, both became unreadable for the runtime role.
-- `uniq_project_folders_parent_name` — UNIQUE on (`project_id`, `COALESCE(parent_id, '00000000-0000-0000-0000-000000000000'::uuid)`, `name`) (migration `0063`). One folder per name per parent. The `COALESCE` is load-bearing: `parent_id` is `NULL` at the root and `NULL` never equals `NULL` in a unique index, so a plain three-column index would police nested folders and leave **root** folders — where a fixed, created-on-first-use destination like `Berichte` lands — uncontrolled. Get-or-create is not a transaction, and before this index two runs finishing at once produced two `Berichte` folders with no way to say which was real. Case- and whitespace-sensitive on purpose: it stops a race between identical writes, it does not police folder naming. An EXPRESSION index, so it lives only in the migration; `documents.spec.ts` pins it.
+- `project_folders_id_project_id_key` — UNIQUE on (`id`, `project_id`). Redundant on its own (`id` is the PK) and required anyway: a composite FK can only reference a uniquely-constrained column set (migration `0030`).
+- `project_folders_id_organization_id_scope_key` — UNIQUE on (`id`, `organization_id`, `scope`), the target of the two shelf keys below (migration `0102`).
+- `project_folders_parent_id_project_id_fkey` — a folder's parent lives in the same project. This replaced an RLS policy that referenced `project_folders` from its own predicate, which Postgres answers with "infinite recursion detected in policy" — and because `documents`' policy joined this table, both became unreadable for the runtime role. MATCH SIMPLE skips an Archiv folder (NULL project); the next key covers it.
+- `project_folders_parent_id_organization_id_scope_fkey` — a folder's parent is on its own **shelf and tenant** (migration `0102`). Skipped for a root folder (NULL parent).
+- `project_folders_scope_check` — `scope IN ('project', 'archiv')`; `project_folders_scope_owner_check` — `(scope = 'project') = (project_id IS NOT NULL)`, so the three columns tell one story.
+- `uniq_project_folders_parent_name` — UNIQUE on (`organization_id`, `COALESCE(project_id, nil uuid)`, `COALESCE(parent_id, nil uuid)`, `name`) (migration `0063`, widened by `0102` from (`project_id`, `COALESCE(parent_id, …)`, `name`)). One folder per name per parent **on a shelf**. The `COALESCE`s are load-bearing: `parent_id` is `NULL` at a root and `project_id` is `NULL` for the whole Archiv, `NULL` never equals `NULL` in a unique index, so a plain index would police nested project folders and leave **root** folders — where a fixed, created-on-first-use destination like `Berichte` lands — and every Archiv folder uncontrolled. The nil UUID cannot collide with a real id (`gen_random_uuid()` is v4). Get-or-create is not a transaction, and before this index two runs finishing at once produced two `Berichte` folders with no way to say which was real. Case- and whitespace-sensitive on purpose: it stops a race between identical writes, it does not police folder naming. An EXPRESSION index, so it lives only in the migration; `documents.spec.ts` pins it. Within one tenant a project id determines the organization, so for every row that predates `0102` the widened index rejects exactly what the old one did.
+- **RLS:** `grid_tenant_isolation` on `organization_id = grid_current_org()` (`0102`; `0031` joined `projects`). No table read, so no recursion, and cheaper per row.
+
+**Why a row has to state its tenant (ADR-0078).** Before the Archiv had folders, "same project" implied "same organization". An Archiv folder has no project, so the tenant is a column and `documents` references the folder through it: see `documents_folder_id_organization_id_scope_fkey`.
 
 > **Applying `0063` to an existing deployment:** nothing ever stopped two sibling folders sharing a name, so the migration first fails loudly with the full list of offenders rather than letting `CREATE UNIQUE INDEX` report one key. It deliberately does not deduplicate — deleting a folder row cascades to `documents.folder_id` and would silently unfile real evidence. Rename or merge through the application, then re-run.
 
+> **Applying and reversing `0102`:** nothing to resolve before applying — every existing row is a project folder, `organization_id` is backfilled from its project, and the widened index rejects exactly what the old one did. The down migration **refuses while any Archiv folder exists** (the old schema has no place for one, and the backend still carries its path); delete them through the application first, which re-files their documents into the parent and mirrors the path rewrite. `scripts/rls-test-db.sh` applies `0102` to a seeded database, asserts the backfill and every new constraint, then proves the guard and the down path.
+
 ---
 
-## inbound_mail_addresses / inbound_mail_messages (migration 0102, ADR-0075)
+## inbound_mail_addresses / inbound_mail_messages (migration 0109, ADR-0075)
 
 The project mail inbox. A member mails files to `<slug>.<token>@<GRID_INBOUND_MAIL_DOMAIN>`
 and the attachments are filed into the project as if that member had uploaded them
-(`lib/inbound-mail/receive.ts` accepts, `lib/inbound-mail/drain.ts` files). **Neither
+(`lib/inbound-mail/receive.ts` accepts, `lib/inbound-mail/job.ts` files). **Neither
 table holds the mail**: the webhook parses it in memory, stages only the attachments it
-selected as objects under the project's storage prefix, and queues one delivery row; the
-drain files them as ordinary `documents` rows and deletes the staging.
+selected as objects under the project's storage prefix, queues one delivery row and
+enqueues an `inbound_mail` job on `bff_job_queue` (ADR-0079); the job files them as
+ordinary `documents` rows and deletes the staging.
 
 `inbound_mail_addresses` — one row per address a project has had:
 
@@ -674,8 +692,9 @@ drain files them as ordinary `documents` rows and deletes the staging.
 - `uniq_inbound_mail_addresses_active_project` — UNIQUE (`project_id`) WHERE `revoked_at IS NULL`: one active address per project. Partial, so it lives only in the migration. Lazy minting on first read races; the loser's 23505 is answered by re-reading the winner.
 - `inbound_mail_addresses_id_project_org_key` — UNIQUE (`id`, `project_id`, `organization_id`), the target of the message rows' composite FK.
 
-`inbound_mail_messages` — one row per delivery to an address: the durable queue the
-drain files from, and the idempotency record. Deleted 30 days after `received_at`:
+`inbound_mail_messages` — one row per delivery to an address: what its jobs file from
+and are fenced on (every write is conditional on `status = 'queued'`), and the
+idempotency record. Deleted 30 days after `received_at`:
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
@@ -684,22 +703,21 @@ drain files from, and the idempotency record. Deleted 30 days after `received_at
 | `address_id` | `uuid` | NOT NULL, FK (`address_id`, `project_id`, `organization_id`) → `inbound_mail_addresses` ON DELETE CASCADE | A row cannot claim one tenant while pointing at another's address |
 | `delivery_key` | `text` | NOT NULL, CHECK `^[0-9a-f]{64}$` | sha256 of the normalized Message-ID and the sorted attachment digests (`deliveryKey` in `lib/inbound-mail/mime.ts`). Stable across redeliveries of one mail; different for a device that reuses Message-IDs |
 | `sender_user_id` | `text` | NOT NULL | WorkOS user id the mail is filed as. Known before the row exists: only a verified member with write access is queued |
-| `status` | `text` | NOT NULL, DEFAULT `'queued'`, CHECK `queued \| processing \| filed \| failed` | A redelivery of a `queued`, `processing` or `filed` mail is answered as a duplicate; a `failed` one may be queued again |
+| `status` | `text` | NOT NULL, DEFAULT `'queued'`, CHECK `queued \| filed \| failed` | A redelivery of a `queued` or `filed` mail is answered as a duplicate; a `failed` one may be queued again |
 | `folder_name` | `text` | NOT NULL | The leaf under `E-Mail-Eingang/`: `<YYYY-MM-DD HH.mm> – <sender>`, Europe/Vienna time from `received_at`. Never the subject |
 | `folder_id` | `uuid` | FK (`folder_id`, `project_id`) → `project_folders` ON DELETE SET NULL (`folder_id`) | The folder the first filing attempt created; every later attempt reuses it |
 | `subject` | `text` | | For the one notification only. NULL once the row is `filed` or `failed` |
 | `staging_bucket` | `text` | CHECK set whenever `staged` is not empty | The bucket the staged objects went to (ADR-0043: recorded, never recomputed) |
-| `staged` | `jsonb` | NOT NULL, DEFAULT `[]`, CHECK array | `[{ key, filename, contentType, sha256, size }]`. Emptied when the drain has deleted the objects |
+| `staged` | `jsonb` | NOT NULL, DEFAULT `[]`, CHECK array | `[{ key, filename, contentType, sha256, size }]`. Emptied when the job has deleted the objects |
 | `skipped` | `jsonb` | NOT NULL, DEFAULT `[]`, CHECK array | `[{ filename, reason }]` while queued; `[{ reason }]` once terminal |
-| `filed_count`, `skipped_count`, `attempts` | `integer` | NOT NULL, DEFAULT 0, non-negative | |
-| `next_attempt_at` | `timestamptz` | NOT NULL | Backoff: the drain claims a `queued` row only after this |
-| `claim_token` | `uuid` | CHECK non-null exactly while `processing` | The attempt that owns the row; every write of that attempt is fenced on it |
+| `filed_count`, `skipped_count` | `integer` | NOT NULL, DEFAULT 0, non-negative | |
+| `attempts` | `integer` | NOT NULL, DEFAULT 0, non-negative | Failed filing attempts so far. A failed attempt hands the delivery to a fresh job that waits out a backoff (1 minute to 12 hours); the eighth gives up |
 | `last_error` | `text` | | A class or reason code of the last failed attempt, never an error message (drizzle puts query parameters into those) |
 | `received_at`, `created_at` | `timestamptz` | NOT NULL | Retention runs on `received_at` |
-| `updated_at` | `timestamptz` | NOT NULL | The heartbeat: touched after each file; a `processing` row whose heartbeat stopped is reaped |
+| `updated_at` | `timestamptz` | NOT NULL | Progress: touched after each file. A `queued` row without progress for 15 minutes and without an open job is given a new one by the background-work sweep |
 
 - `uniq_inbound_mail_messages_address_delivery` — UNIQUE (`address_id`, `delivery_key`). Keyed by ADDRESS, not by the mail alone: one mail CC'd to projects in two organizations is two deliveries and both are filed.
-- `inbound_mail_messages_due_idx` (`next_attempt_at`) WHERE `status = 'queued'`, the drain's claim; `inbound_mail_messages_processing_idx` (`updated_at`) WHERE `status = 'processing'`, the reaper; `inbound_mail_messages_received_idx` (`received_at`), the 30-day retention and the 7-day staging backstop; `inbound_mail_messages_project_created_idx` (`project_id`, `created_at`).
+- `inbound_mail_messages_queued_idx` (`updated_at`) WHERE `status = 'queued'`, the sweep's; `inbound_mail_messages_received_idx` (`received_at`), the 30-day retention and the 7-day staging backstop; `inbound_mail_messages_project_created_idx` (`project_id`, `created_at`).
 
 Both are secured `organization_id = grid_current_org()` (the `document_roles` shape: the tenant is inside every key, so the predicate needs no join) and both cascade from the project, so the project purge takes them along. There is no organization purge; an organization's projects are purged one by one. The purger also deletes the staged objects (they are under the project's prefix, in the bucket `staging_bucket` names) and the `inbox_items` whose target is the project itself (`resource_type = 'project'`), which include the `inbound_mail.*` rows quoting a mail's subject.
 
@@ -782,7 +800,7 @@ This PostgreSQL entrypoint script runs on first container startup and creates tw
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `job_info` | NAT JobStore metadata | `job_id` (PK), `status`, `config_file`, `error`, `output_path`, `created_at`, `updated_at`, `expiry_seconds`, `is_expired` |
-| `job_access` | Job ownership/access control | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email` |
+| `job_access` | Who may reach a job: its owner, and callers whose signed scope matches its organization and project or conversation (ADR-0084) | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email`, `conversation_id`, `project_collection`, `organization_id`, `created_at` |
 | `job_events` | SSE streaming event persistence | `id` (serial PK), `job_id`, `event_type`, `event_data`, `created_at` |
 | `document_metadata` | Per-document metadata (was `summaries`) | `collection` + `filename` (composite PK), `summary`, `tags` (`TEXT`, JSON list; nullable), `doc_class` (`TEXT`; nullable), `display_title` (`TEXT`; nullable), `folder_path` (`TEXT`; nullable — the BFF's materialised `project_folders.path`, ADR-0049), `provenance` (`TEXT`, JSON object; nullable — who wrote a published Piloti document and who released it, ADR-0054; deleted with the chunks by `unregister_summary`) |
 
@@ -892,7 +910,8 @@ LLM budgets and the usage ledger (ADR-0015).
   policy per (org, scope, subject).
 - `llm_usage_events`: one row per LLM generation — org/user/project/
   conversation/job attribution, `agent_group` (the call's role, NULL for an
-  agent turn), `activity` (0101: `'ingest'` or NULL), `requested_model`
+  agent turn), `activity` (0101: `'ingest'`; 0107: `'dictation'`; else NULL),
+  `audio_seconds` (0107: seconds a transcription call processed), `requested_model`
   vs served `model`, OpenRouter `generation_id`, token counts (incl. cached +
   reasoning), `cost_usd numeric(14,8)` exactly as OpenRouter reported,
   `cost_source`, `is_byok`, and `message_id` (migration 0098): the chat
@@ -908,6 +927,9 @@ LLM budgets and the usage ledger (ADR-0015).
   `cost_usd`, `events`. Incremented in the same transaction as every ledger
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
+  Rows of an unbilled activity (`dictation`) are never added to it, and
+  migration 0107's `llm_usage_events_dictation_unbilled_check` refuses a
+  dictation row with a non-zero `price_usd` or `credits`.
 
 ## skills / jobs / job_runs (migrations 0041, 0043, 0044) — jobs and job_runs LEGACY since 0086
 
@@ -1062,6 +1084,55 @@ split is stated explicitly).
 
 ---
 
+## bff_job_queue / bff_job_lane_turns (migration 0104, ADR-0079)
+
+The BFF's durable background work: one row is one job a `bff-jobs` replica
+claims and runs (project reindex, failed-ingestion rescan; and, one step each,
+IFC extraction `bim_extract`, office conversion `office_rendition` and research
+report filing `file_research_report`; the Outlook import `mail_import` and the
+project mail inbox's `inbound_mail`, one delivery per job). The claim is SQL in
+`frontends/ui/workers/job-queue.js`, in the order ADR-0076 proved for
+ingestion: the lane with the fewest live claims, then the lane served longest
+ago (`bff_job_lane_turns`), then inside a lane `priority` (0 interactive, 1
+bulk), then oldest, with `FOR UPDATE SKIP LOCKED`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `job_id` | uuid PK | Returned to the caller as the job's id. |
+| `kind` | text | Shape-checked (`^[a-z][a-z0-9_]{0,63}$`); the kinds a worker knows live in `lib/jobs-queue/types.ts`, so a new kind is a code change. |
+| `lane` | text | The organization id: the unit of fairness AND of tenancy. |
+| `priority` | smallint | `0` interactive, `1` bulk (CHECK). |
+| `payload` | jsonb | The job's whole state: what was asked and how far it got (a keyset cursor, the counts). Saved after every slice and read back by whichever worker claims it next. Holds the requester's identity, permissions and feature flags, never an access token. A `file_research_report` job carries the finished report itself (the backend forgets a run after a day), so it is the one payload that can be large. |
+| `status` | text | `queued`, `claimed` or `dead` (CHECK). A finished job is **deleted**; a job that failed every attempt is `dead` and stays, with its reason, until `GRID_BFF_JOBS_DEAD_RETENTION_DAYS` after `dead_at`. When a row goes dead its `payload` is reduced to `runId`, `projectId`, `documentId` and `taskRunId` (`KEPT_PAYLOAD_KEYS`): the sweeps match a dead job by them, and nothing else of the report, requester or storage keys outlives the attempt. |
+| `attempts` | integer | Claims spent. A drain or a cap gives a claim back without spending one. |
+| `claimed_by`, `claimed_at`, `heartbeat_at` | text, timestamptz | A `claimed` row always has a holder and a heartbeat (CHECK); a claim silent for `GRID_BFF_JOBS_STALE_SECONDS` is claimed again. |
+| `not_before` | timestamptz | Migration 0104. A failed job is not claimed again before this: `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS` doubled per attempt, at most 15 minutes. NULL is no wait; a claim, a drain's release and a cap's release clear it. |
+| `dead_at` | timestamptz | Migration 0104. Set when the row goes dead (CHECK `bff_job_queue_dead_stamped`: a dead row always has one), and what the retention counts from. |
+| `created_at`, `last_error` | timestamptz, text | |
+
+A document at `processing` remembers its job as `documents.metadata.bffJobId`,
+which the sweep joins on. Migration 0103 lets `task_runs.filing_status` be
+`queued` (a `file_research_report` job holds the report) and adds the partial
+index `ix_task_runs_filing_queued` the filing sweep reads.
+
+Indexes: `(lane, priority, created_at)` over the rows that are not dead (the
+claim's second step), `(heartbeat_at)` over claimed rows (the stale test and
+the reaper) and `(dead_at)` over dead rows (the retention purge). `bff_job_lane_turns` is one row per lane with `last_claimed_at`.
+
+RLS: both are tenant tables whose predicate compares `lane` (not an
+`organization_id` column) to `grid_current_org()`, so a request enqueues and
+reads only its own organization's jobs. The runner is cross-tenant by nature
+and steps up to `grid_app_platform` per transaction
+(`workers/platform-scope.js`), as the purger and the scheduler do. KEDA counts
+the table as `grid_keda_scaler`, a login with SELECT on this table's `status`
+column and nothing else (a leaked scaler DSN cannot read a payload); it crosses the tenant boundary by a second policy,
+`grid_keda_scaler_count` (`FOR SELECT TO grid_keda_scaler USING (true)`), which
+the Pulumi grants Job (`deploy/pulumi/src/app/queue-scaler-grants.ts`) creates
+after the migrations, not a migration: the role exists only where CloudNativePG
+declares it. `grid_tenant_isolation` is untouched.
+
+---
+
 ## answer_feedback (migration 0020)
 
 Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
@@ -1076,6 +1147,9 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   (`up`/`down`), `reason` (nullable, fixed keys
   `inaccurate`/`too_slow`/`wrong_source`/`other`; down-votes only),
   `comment` (nullable free-text on a down-vote; migration 0052),
+  `expected_answer` (nullable free-text on a down-vote: what a good answer
+  would have contained; migration 0103, exported as the `expected_answer` CSV
+  column so a down-vote can become an answer-suite test case),
   `lessons_holdout` (nullable boolean, migration 0069 — which arm of the
   platform-lessons experiment this turn was in; NULL when the holdout is off,
   which is the default, so those votes are excluded from the comparison rather
@@ -1118,7 +1192,7 @@ flush idempotent.
 | `organization_id` | `text` | Nullable; no FK (ops data outlives tenants) |
 | `conversation_id` | `text` | Client-side chat id; no FK, survives conversation deletion |
 | `turn_id` | `text` | Shared with `agent_profiler_spans.turn_id` — links a defect to its execution timeline |
-| `job_id` | `text` | Async deep-research job id, when the turn ran in a Dask worker |
+| `job_id` | `text` | Async deep-research job id, when the turn ran in a research worker |
 | `agent` | `text` | `shallow` \| `deep` |
 | `kind` | `text` | `turn_verified` \| `citations_removed` \| `quote_unverified` \| `answer_ungrounded` \| `registry_empty` \| `citation_fallback` \| `confidence_capped` |
 | `severity` | `text` | `ok` \| `info` \| `warn` \| `error` — derived from `kind` on the backend, never caller-supplied |

@@ -2,8 +2,8 @@
  * The project mail inbox (ADR-0075): the project's address, as the settings
  * surface reads and rotates it.
  *
- * Receiving a mail is `./receive` (the webhook) and filing it is `./drain`
- * (the scheduler's tick); this module is the part a signed-in person reaches.
+ * Receiving a mail is `./receive` (the webhook) and filing it is `./job`
+ * (a job on the BFF's queue); this module is the part a signed-in person reaches.
  */
 
 import 'server-only'

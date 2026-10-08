@@ -104,6 +104,19 @@ describe("tenant bucket prefix", () => {
   });
 });
 
+describe("the backend's vector store", () => {
+  // The backend keeps no volume (ADR-0082). An embedded store would deploy
+  // cleanly, answer from an empty index after every restart, and look healthy.
+  it("refuses to run without the shared Chroma server", () => {
+    const error = loadWith({ "grid-oib:chromaEnabled": "false" });
+    expect(error?.message).toMatch(/chromaEnabled=false is not supported/);
+  });
+
+  it("accepts the shared Chroma server", () => {
+    expect(loadWith({ "grid-oib:chromaEnabled": "true" })).toBeNull();
+  });
+});
+
 describe("SeaweedFS topology", () => {
 
   it("refuses an even master count", () => {
@@ -496,5 +509,37 @@ describe("contact address and form", () => {
         "grid-oib:inboundMailToken": "inbound-token", // pragma: allowlist secret
       }),
     ).toBeNull();
+  });
+});
+
+describe("chat tier scale-out (ADR-0080)", () => {
+  it("keeps affinity on by default, so the tier is the static hash it was", () => {
+    expect(loadWith({})).toBeNull();
+    pulumi.runtime.setAllConfig({ ...baseStackConfig() });
+    expect(loadConfig().backend.chatAffinity).toBe(true);
+  });
+
+  it("keeps the short drain while the count is static, and the longest turn once KEDA owns it", () => {
+    // A singleton serves nobody while it drains: a 45 minute wait on every deploy would be an outage.
+    pulumi.runtime.setAllConfig({ ...baseStackConfig() });
+    expect(loadConfig().backend.drainSeconds).toBe(20);
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), "grid-oib:chatAffinity": "false" });
+    expect(loadConfig().backend.drainSeconds).toBe(2730);
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), "grid-oib:backendDrainSeconds": "300" });
+    expect(loadConfig().backend.drainSeconds).toBe(300);
+  });
+
+  it("refuses a ceiling below the floor", () => {
+    // KEDA would be handed min > max and the HPA rejects it at apply time, after
+    // the rest of the stack has started changing.
+    const error = loadWith({ "grid-oib:backendReplicas": "3", "grid-oib:backendMaxReplicas": "2" });
+    expect(error?.message).toMatch(/backendMaxReplicas/);
+  });
+
+  it("refuses affinity off without the conversation bus", () => {
+    // Without the bus nothing relays a turn to the replica holding the socket,
+    // so the first socket the Service hands to the wrong replica hangs silently.
+    const error = loadWith({ "grid-oib:chatAffinity": "false", "grid-oib:conversationBus": "false" });
+    expect(error?.message).toMatch(/needs grid-oib:conversationBus=true/);
   });
 });
