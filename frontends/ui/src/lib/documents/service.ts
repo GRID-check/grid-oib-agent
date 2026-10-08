@@ -892,28 +892,12 @@ export async function assertUploadTypeAllowed(
 }
 
 /**
- * Server-side file-size enforcement: guards the S3 upload against oversized
- * payloads even when the client allows them (the client check is a UX courtesy).
- * Reuses the env-based config that also drives the client-side max, so both
- * layers are governed by one source of truth.
+ * Server-side file-size enforcement, against the organization's per-file limit
+ * (or `BIM_MAX_IFC_BYTES` for a model). Lives with the limit it enforces;
+ * re-exported here because the upload paths take their admission checks from
+ * this module.
  */
-export function assertFileSizeAllowed(sizeBytes: number, filename?: string): void {
-  // `ifcUploadEnabled: true` only to READ the IFC ceiling — whether a `.ifc`
-  // may be uploaded at all is `assertUploadTypeAllowed`'s job, and it has
-  // already run by the time a size is being checked. Without the filename the
-  // caller gets the general limit, which is the safe direction.
-  const { maxFileSize, maxIfcFileSize } = getFileUploadConfigFromEnv(process.env, {
-    ifcUploadEnabled: true,
-  })
-  const ceiling = filename && isIfcFilename(filename) ? maxIfcFileSize : maxFileSize
-  if (sizeBytes > ceiling) {
-    const maxSizeMB = Math.round(ceiling / (1024 * 1024))
-    throw new BadRequestError(`File exceeds the maximum allowed size of ${maxSizeMB} MB`, {
-      fileSize: sizeBytes,
-      maxSizeBytes: ceiling,
-    })
-  }
-}
+export { assertFileSizeAllowed } from '@/lib/storage/upload-limit'
 
 /**
  * Store an uploaded file in SeaweedFS, record it, and hand it to the backend for

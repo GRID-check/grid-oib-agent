@@ -1,6 +1,6 @@
 import { render, screen } from '@/test-utils'
 import { describe, expect, test, vi } from 'vitest'
-import { PlatformNav, PLATFORM_SECTIONS } from './platform-nav'
+import { PlatformNav, PLATFORM_SECTION_GROUPS, PLATFORM_SECTIONS } from './platform-nav'
 
 const pathname = { value: '/app/platform' }
 
@@ -14,11 +14,27 @@ describe('PlatformNav', () => {
     render(<PlatformNav />)
 
     for (const section of PLATFORM_SECTIONS) {
-      const links = screen.getAllByRole('link', { name: new RegExp(section.key === 'overview' ? 'Overview' : '', 'i') })
+      const links = screen.getAllByRole('link', {
+        name: new RegExp(section.key === 'overview' ? 'Overview' : '', 'i'),
+      })
       expect(links.length).toBeGreaterThan(0)
     }
     // Both viewports render the full set; CSS decides which is visible.
     expect(screen.getAllByRole('link')).toHaveLength(PLATFORM_SECTIONS.length * 2)
+  })
+
+  test('groups the rail under translated headings', () => {
+    pathname.value = '/app/platform'
+    render(<PlatformNav />)
+
+    for (const heading of ['Operate', 'Quality', 'Content', 'System']) {
+      expect(screen.getByRole('heading', { name: heading })).toBeInTheDocument()
+    }
+    // Every section sits in exactly one group.
+    const grouped = PLATFORM_SECTION_GROUPS.flatMap((group) =>
+      group.sections.map((section) => section.key)
+    )
+    expect(new Set(grouped).size).toBe(PLATFORM_SECTIONS.length)
   })
 
   test('labels every section from the dictionary, never with its raw key', () => {
@@ -30,6 +46,9 @@ describe('PlatformNav', () => {
 
     for (const link of screen.getAllByRole('link')) {
       expect(link.textContent).not.toMatch(/platform\.nav\./)
+    }
+    for (const heading of screen.getAllByRole('heading')) {
+      expect(heading.textContent).not.toMatch(/platform\.nav\./)
     }
   })
 

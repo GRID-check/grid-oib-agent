@@ -38,6 +38,7 @@ from aiq_agent.common.provider_limiter import with_provider_class
 from aiq_agent.common.turn_status import DEGRADED_CARDS_GENERATION_FAILED
 from aiq_agent.observability import boot_timing
 from aiq_agent.observability.boot_timing import BootClock
+from aiq_agent.observability.turn_trace import current_trace_id_hex
 from aiq_agent.project_context import ORGANIZATION_ID_HEADER
 from aiq_agent.project_context import PROJECT_ID_HEADER
 from aiq_agent.project_context import PROJECT_MEMORY_HEADER
@@ -1744,6 +1745,9 @@ async def run_agent_job(
                             # is supposed to mean.
                             transparency=transparency,
                             expect_run=run_id is not None,
+                            # The trace this run is in, read from the context it
+                            # pinned above: the BFF scores votes on the report there.
+                            trace_id=current_trace_id_hex(),
                         )
                         # What the run left behind, for its ledger: the message
                         # the report was just written into, as the writer names
