@@ -29,6 +29,12 @@ write a line of preamble before its tool call, and prose outside an envelope
 cannot be told apart from it until the round ends.
 
 Pure and synchronous; ``feed`` returns the delta to show, possibly empty.
+
+``feed`` runs once per token on the event loop, so no buffer that grows with
+the reply is rebuilt per token: ``text += token`` on an attribute copies all of
+``text`` (CPython reuses the string in place only for a local), which made a
+long card or a long held line quadratic. What accumulates is kept as parts and
+joined once, when it is read.
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from dataclasses import field
 
 from aiq_agent.common.citation_verification import _GROUPED_CITATION_RE
 from aiq_agent.common.citation_verification import _REFERENCE_HEADING_LINE_RE
@@ -85,21 +92,37 @@ class AnswerProseStream:
         #: rather than the held line rescanned per token.
         self._scanned = 0
         self._ticks = 0
-        self.emitted = ""  # everything shown so far
-        #: The sources section, heading line first, once the prose reached it.
-        self.sources_text = ""
+        #: Whether ``_pending`` is one open code span from its backtick on,
+        #: which only a newline or a backtick can release; the text decoded
+        #: meanwhile waits in ``_code_parts`` rather than being copied onto it.
+        self._code_held = False
+        self._code_parts: list[str] = []
+        self._emitted: list[str] = []
+        self._sources: list[str] = []
         #: Whether the ``answer`` string has closed: no more prose will come.
         self.closed = False
         #: The fields written before ``answer``, once its key appeared; None
         #: when there were none or they did not parse.
         self.masthead: dict | None = None
         self._head = ""  # reply text before the ``answer`` key, for the masthead
-        self._tail = ""  # reply text after the ``answer`` string, for the cards
-        self._cards_at: int | None = None  # where the cards array's next element starts
+        #: Reply text after the ``answer`` string that no card has taken yet;
+        #: once the cards key is read, it starts at the array's next element.
+        self._tail = ""
+        self._in_cards = False
         self._cards: list[dict] = []
-        #: The scan of the card object still being written, kept across feeds
-        #: so each token is read once rather than the object rescanned per token.
+        #: The card object still being written: its scan, and its text so far,
+        #: kept across feeds so each token is read once and copied never.
         self._card: _ObjectScan | None = None
+
+    @property
+    def emitted(self) -> str:
+        """Everything shown so far."""
+        return _joined(self._emitted)
+
+    @property
+    def sources_text(self) -> str:
+        """The sources section, heading line first, once the prose reached it."""
+        return _joined(self._sources)
 
     def feed(self, text: str) -> str:
         """Consume ``text`` and return what may be shown now."""
@@ -116,12 +139,11 @@ class AnswerProseStream:
             self._seek()
         if self._state not in {"prose", "sources"}:
             return ""
-        self._decode()
+        decoded = self._decode()
         if self._state == "sources":
-            self.sources_text += self._pending
-            self._pending = ""
+            self._sources.append(decoded)  # ``_pending`` went to the sources when the state turned
             return ""
-        return self._release()
+        return self._release(decoded)
 
     def _detect(self) -> None:
         stripped = self._raw.lstrip()
@@ -147,8 +169,8 @@ class AnswerProseStream:
         self._raw = self._raw[match.end() :]
         self._state = "prose"
 
-    def _decode(self) -> None:
-        """Move complete JSON-string characters into ``_pending``; close at the quote."""
+    def _decode(self) -> str:
+        """The complete JSON-string characters, decoded; close at the quote."""
         out: list[str] = []
         raw, i = self._raw, 0
         while i < len(raw):
@@ -167,10 +189,10 @@ class AnswerProseStream:
                 break  # an escape split across chunks: wait for the rest
             out.append(decoded)
             i += width
-        self._pending += "".join(out)
         self._raw = raw[i:]
         if self.closed:
             self._scan_cards()
+        return "".join(out)
 
     def take_cards(self) -> list[dict]:
         """The cards completed since the last call, in array order."""
@@ -179,42 +201,49 @@ class AnswerProseStream:
 
     def _scan_cards(self) -> None:
         """Move every complete object of the ``cards`` array out of ``_tail``."""
-        if self._cards_at is None:
+        if not self._in_cards:
             match = _CARDS_KEY_RE.search(self._tail)
             if match is None:
                 return
-            self._cards_at = match.end()
+            self._tail, self._in_cards = self._tail[match.end() :], True
         while True:
             self._card = self._card or self._next_card()
             if self._card is None:
                 return  # the array ended, or its next element is not here yet
-            end = self._card.end_in(self._tail)
+            end = self._card.read(self._tail)
             if end is None:
+                self._tail = ""  # the card holds it
                 return
             try:
-                card = json.loads(self._tail[self._card.start : end])
+                card = json.loads(self._card.text())
             except ValueError:
                 card = None
             if isinstance(card, dict):
                 self._cards.append(card)
-            self._cards_at, self._card = end, None
+            self._tail, self._card = self._tail[end:], None
 
     def _next_card(self) -> _ObjectScan | None:
         """The scan of the cards array's next element, once it has begun."""
-        start = self._tail.find("{", self._cards_at)
-        if start < 0 or self._tail[self._cards_at : start].strip(" \n\t,"):
+        start = self._tail.find("{")
+        if start < 0 or self._tail[:start].strip(" \n\t,"):
             return None
-        return _ObjectScan(start=start, index=start)
+        self._tail = self._tail[start:]
+        return _ObjectScan()
 
-    def _release(self) -> str:
-        """Show the longest prefix of ``_pending`` that nothing can still change."""
+    def _release(self, decoded: str) -> str:
+        """Add ``decoded`` to ``_pending``; show its longest prefix that nothing can still change."""
+        if self._code_held and not self.closed and "\n" not in decoded and "`" not in decoded:
+            self._code_parts.append(decoded)  # the span stays open; nothing to show
+            return ""
+        self._pending = "".join([self._pending, *self._code_parts, decoded])
+        self._code_parts.clear()
         shown, rest, hold_line = self._through_lines(self._pending)
         if shown:
             self._scanned = self._ticks = 0  # what was read is split off
         self._ticks += rest.count("`", self._scanned)
         self._scanned = len(rest)
         if self._state == "sources":
-            self.sources_text += rest
+            self._sources.append(rest)
             rest = ""
         elif self.closed:
             shown += rest
@@ -226,14 +255,15 @@ class AnswerProseStream:
                 rest = rest[len(rest) - held :]
                 self._scanned = self._ticks = 0
         self._pending = rest
+        self._code_held = self._state == "prose" and not self.closed and not hold_line and self._ticks % 2 == 1
         # A range marker is held whole (see ``_MARKER_PREFIX_RE``), so it is
         # expanded as it is shown: ``[2–5]`` as four pills. Expanded with what
         # was shown before it, which says whether it is inside code, where
         # ``grid[1, 2]`` is an index and stays one.
-        shown = _expanded_after(self.emitted, shown)
+        shown = _expanded_after(self._emitted, shown)
         if shown:
             self._line_start = shown.endswith("\n")
-        self.emitted += shown
+            self._emitted.append(shown)
         return shown
 
     def _through_lines(self, text: str) -> tuple[str, str, bool]:
@@ -299,23 +329,34 @@ def _object_prefix(text: str) -> dict | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _joined(parts: list[str]) -> str:
+    """``parts`` as one string, left joined so the next read joins only what came since."""
+    if len(parts) > 1:
+        parts[:] = ["".join(parts)]
+    return parts[0] if parts else ""
+
+
 @dataclass
 class _ObjectScan:
-    """The scan of a JSON object opening at ``start``, resumable as its text grows."""
+    """The scan of a JSON object, fed its text from the opening brace on as it arrives."""
 
-    start: int
-    index: int  # the next character to read
+    parts: list[str] = field(default_factory=list)  # the object's text read so far
     depth: int = 0
     in_string: bool = False
     escaped: bool = False
 
-    def end_in(self, text: str) -> int | None:
-        """The index just past the object, or None while it is incomplete; reads each character once."""
-        for index in range(self.index, len(text)):
-            if self._closes_on(text[index]):
+    def read(self, text: str) -> int | None:
+        """Read the object's next ``text``; the index in it just past the object, or None while incomplete."""
+        for index, char in enumerate(text):
+            if self._closes_on(char):
+                self.parts.append(text[: index + 1])
                 return index + 1
-        self.index = len(text)
+        self.parts.append(text)
         return None
+
+    def text(self) -> str:
+        """The object's text, once ``read`` found its end."""
+        return "".join(self.parts)
 
     def _closes_on(self, char: str) -> bool:
         """Read one character; whether it is the brace that closes the object."""
@@ -340,18 +381,20 @@ class _ObjectScan:
             self.in_string = False
 
 
-def _expanded_after(shown: str, pending: str) -> str:
-    """``pending`` with its grouped markers expanded, read in the context of ``shown``.
+def _expanded_after(shown_parts: list[str], pending: str) -> str:
+    """``pending`` with its grouped markers expanded, read in the context of what was shown.
 
     Only a grouped marker inside ``pending`` can change it: a marker cannot
     straddle the two, because its unfinished head is held (``_held_tail``) and
     one broken by a newline reads differently from its expansion within
     ``shown``, which sends it down the fallback below. So ``pending`` with no
-    candidate is returned as it is, without re-reading everything shown
-    before it, which per token made a long answer quadratic on the event loop.
+    candidate is returned as it is, without re-reading (or joining) everything
+    shown before it, which per token made a long answer quadratic on the event
+    loop.
     """
     if _GROUPED_CITATION_RE.search(pending) is None:
         return pending
+    shown = _joined(shown_parts)
     whole = expand_grouped_citations(shown + pending, unterminated_fence_is_code=True)
     if whole.startswith(shown):
         return whole[len(shown) :]
