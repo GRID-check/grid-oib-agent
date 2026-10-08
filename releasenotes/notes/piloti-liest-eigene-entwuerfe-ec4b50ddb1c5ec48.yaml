@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Piloti can open a draft it wrote earlier in the conversation again. Asking
+    it to shorten or rework part of an Aktenvermerk used to end with Piloti
+    saying it could not read the document and asking you to paste the text.

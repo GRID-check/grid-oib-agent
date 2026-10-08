@@ -265,7 +265,7 @@ async def _load_subject_document(
     path = draft_path(str(body.get("displayName") or body.get("filename") or ""))
     filing = filing_record(body)
     backend = await get_draft_backend(conversation_id)
-    standing = already_loaded(await backend.aread(path), filing)
+    standing = already_loaded(await backend.ausage(path), filing)
     if standing is None:
         logger.warning("Working-directory path %s belongs to another document; subject not read", path)
         return subject_document_step(loaded=False, version_id=subject.version_id, reason=SUBJECT_NOT_STORED)
