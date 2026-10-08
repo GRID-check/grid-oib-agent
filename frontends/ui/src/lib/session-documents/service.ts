@@ -23,7 +23,7 @@
  */
 
 import { assertUploadNameAllowed, auditScreeningOverride } from '@/lib/upload-screening/service'
-import { assertMayReplaceQuarantined, quarantineReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
+import { assertMayReplaceHeld, shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { acceptedUploadBatchId } from '@/lib/upload-batches/service'
 import 'server-only'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
@@ -47,7 +47,7 @@ import { contentDigest } from '@/lib/documents/content-digest'
 import { documentNameKey } from '@/lib/documents/name-match'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findLiveDocumentByFilename, type DocumentListRow } from '@/lib/documents/repository'
-import { keepVisibleQuarantine } from '@/lib/documents/quarantine-visibility'
+import { keepReadable } from '@/lib/documents/document-reader'
 import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
 import {
   nextVersionNumber,
@@ -67,7 +67,7 @@ import {
 } from './repository'
 
 export interface SessionDocumentListResult {
-  documents: Array<Omit<DocumentListRow, 'metadata' | 'createdBy'> & DocumentMetadata>
+  documents: Array<Omit<DocumentListRow, 'metadata' | 'createdBy' | 'screeningOutcome'> & DocumentMetadata>
   collectionName: string
 }
 
@@ -85,23 +85,17 @@ export async function listSessionDocuments(
 ): Promise<SessionDocumentListResult> {
   await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
 
-  // A file in quarantine is listed for its uploader and the organization's admins only (ADR-0083).
-  const quarantineReader = await quarantineReaderFor(session, { scope: 'session', projectId: null })
-  const rows = await listSessionDocumentRows(
-    conversationId,
-    session.organizationId,
-    SESSION_DOCUMENT_LIST_LIMIT,
-    quarantineReader
-  )
-  // Narrowed again after the reconcile: a row it turns `quarantined` was read
-  // as `pending`, which the query let through.
-  const reconciled = keepVisibleQuarantine(
-    await reconcileDocumentStatuses(rows, session.organizationId),
-    quarantineReader
-  )
+  // A held file is listed for its uploader and the organization's admins only (ADR-0083).
+  const reader = await shelfReaderFor(session, { scope: 'session', projectId: null })
+  const rows = await listSessionDocumentRows(conversationId, session.organizationId, reader, SESSION_DOCUMENT_LIST_LIMIT)
+  // Narrowed again after the reconcile, by the same rule: a row the query let
+  // through on an earlier verdict can come back `quarantined`.
+  const reconciled = keepReadable(await reconcileDocumentStatuses(rows, session.organizationId), reader)
 
   return {
-    documents: reconciled.map(({ metadata: _metadata, createdBy: _createdBy, ...row }) => row),
+    documents: reconciled.map(
+      ({ metadata: _metadata, createdBy: _createdBy, screeningOutcome: _screening, ...row }) => row
+    ),
     collectionName: sessionCollectionName(conversationId),
   }
 }
@@ -206,7 +200,7 @@ export async function uploadSessionDocument(
   // and the admission discarded its object.
   const { documentId, storageKey, replaced } = await retryRacedUpload(async () => {
     const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
-    if (superseded) await assertMayReplaceQuarantined(session, superseded, filename)
+    if (superseded) await assertMayReplaceHeld(session, superseded, filename)
     const documentId = superseded?.id ?? crypto.randomUUID()
     // A re-upload ALWAYS writes under a fresh `v<n>/<write id>/` key
     // (`versionWriteKey`), never the version-1 plain key. The number is a hint
@@ -367,7 +361,13 @@ export async function deleteSessionDocument(
   documentId: string,
   request: Request,
 ): Promise<void> {
-  const doc = await findSessionDocument(documentId, session.organizationId)
+  // Through the hold (ADR-0083): somebody else's unscreened attachment is not
+  // there to delete for a participant who is not its uploader or a reviewer.
+  const doc = await findSessionDocument(
+    documentId,
+    session.organizationId,
+    await shelfReaderFor(session, { scope: 'session', projectId: null })
+  )
   // `conversationId` is non-NULL for every `scope = 'session'` row — the
   // database says so (`documents_session_requires_conversation`, migration
   // 0046). The check is here because the type is nullable for the other

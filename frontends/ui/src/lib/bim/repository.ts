@@ -9,10 +9,10 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, isNull, ne, notInArray, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
-import { visibleQuarantineByShelf, type QuarantineReaders } from '@/lib/documents/repository'
+import { documentVisibleTo, type DocumentReader } from '@/lib/documents/visibility'
 import {
   bimCheckConfirmations,
   bimElements,
@@ -96,9 +96,14 @@ const MODEL_COLUMNS = {
   updatedAt: bimModels.updatedAt,
 } as const
 
+/**
+ * One model by id, as `reader` may see its document (ADR-0083): an IFC is
+ * extracted before its digest is screened, so a held file has a model too.
+ */
 export async function findBimModelById(
   modelId: string,
-  organizationId: string
+  organizationId: string,
+  reader: DocumentReader
 ): Promise<BimModelHeader | null> {
   const db = getDb()
   const rows = await withTenant({ organizationId }, () =>
@@ -106,15 +111,17 @@ export async function findBimModelById(
       .select(MODEL_COLUMNS)
       .from(bimModels)
       .innerJoin(documents, eq(documents.id, bimModels.documentId))
-      .where(and(eq(bimModels.id, modelId), eq(bimModels.organizationId, organizationId)))
+      .where(and(eq(bimModels.id, modelId), eq(bimModels.organizationId, organizationId), documentVisibleTo(reader)))
       .limit(1)
   )
   return rows[0] ?? null
 }
 
+/** A document's model, as `reader` may see the document (ADR-0083). */
 export async function findBimModelByDocument(
   documentId: string,
-  organizationId: string
+  organizationId: string,
+  reader: DocumentReader
 ): Promise<BimModelHeader | null> {
   const db = getDb()
   const rows = await withTenant({ organizationId }, () =>
@@ -122,7 +129,9 @@ export async function findBimModelByDocument(
       .select(MODEL_COLUMNS)
       .from(bimModels)
       .innerJoin(documents, eq(documents.id, bimModels.documentId))
-      .where(and(eq(bimModels.documentId, documentId), eq(bimModels.organizationId, organizationId)))
+      .where(
+        and(eq(bimModels.documentId, documentId), eq(bimModels.organizationId, organizationId), documentVisibleTo(reader))
+      )
       .limit(1)
   )
   return rows[0] ?? null
@@ -162,15 +171,13 @@ export async function listBimModels(
      */
     hiddenFolderIds?: readonly string[]
     /**
-     * A quarantined document's model (ADR-0083) is its uploader's and its
-     * reviewers' only: `quarantineReaders` (each from `quarantineReaderFor`,
-     * one per shelf, since the list spans a project and the Büroablage) keeps
-     * the reader's own, and `withoutQuarantined` keeps none, for the agent,
-     * which has no person to ask and never reads a quarantined file.
+     * Whose list (ADR-0083): a held document's model is its uploader's and its
+     * reviewers' only. A person's list asks each shelf its own reviewers
+     * (`shelves`, since it spans a project and the Büroablage); the agent's is
+     * `screened-only`, as it has no person to ask and never reads a held file.
      */
-    quarantineReaders?: QuarantineReaders
-    withoutQuarantined?: boolean
-  } = {}
+    reader: DocumentReader
+  }
 ): Promise<BimModelHeader[]> {
   const db = getDb()
   const limit = Math.min(Math.max(1, Math.trunc(options.limit ?? 50)), 200)
@@ -197,8 +204,7 @@ export async function listBimModels(
           eq(bimModels.organizationId, organizationId),
           scope,
           outsideHiddenFolders,
-          ...(options.withoutQuarantined ? [ne(documents.status, 'quarantined')] : []),
-          ...visibleQuarantineByShelf(options.quarantineReaders),
+          documentVisibleTo(options.reader)
         )
       )
       .orderBy(desc(bimModels.updatedAt))

@@ -57,6 +57,7 @@ import {
 } from './generated'
 import type { DocumentVersionState } from './lifecycle-types'
 import { findDocumentInOrg } from './repository'
+import { hasPassedScreening, SCREENED_ONLY } from '@/lib/documents/document-reader'
 import {
   findDocumentVersion,
   findDocumentVersionInOrg,
@@ -390,13 +391,20 @@ async function readObjectText(
   return body
 }
 
-/** The version's text, read for a session that may read its document; nothing is recorded here. */
+/**
+ * The version's text, read for a session that may read its document; nothing
+ * is recorded here. `forModel` when a model reads the text rather than the
+ * person: a held document (ADR-0083) reaches no model, whoever's session
+ * fetches it, its uploader and its reviewers included.
+ */
 async function fetchVersionText(
   session: AuthorizedSession,
   documentId: string,
   versionId: string,
+  { forModel = false }: { forModel?: boolean } = {},
 ): Promise<{ document: Document; text: string }> {
   const document = await getAccessibleDocument(session, documentId, 'read')
+  if (forModel && !hasPassedScreening(document)) throw new NotFoundError('Version not found')
   const version = await findDocumentVersion(versionId, documentId, session.organizationId)
   if (!version) throw new NotFoundError('Version not found')
   return { document, text: await readObjectText(version.storageBucket, version.storageKey) }
@@ -422,14 +430,16 @@ export async function readVersionContent(
  * The same text for the agent task a „Änderungen anfordern" starts
  * (`openRevisionTask`): the reviewer's session fetches it, the model reads it,
  * and the reviewer never receives these bytes, so there is no hand-over to
- * record. `coverage.spec.ts` lists the exemption with this reason.
+ * record. `coverage.spec.ts` lists the exemption with this reason. A model
+ * reads it, so a document whose screening has not passed answers 404 here
+ * (ADR-0083), for its reviewer as much as anyone.
  */
 export async function readVersionTextForTask(
   session: AuthorizedSession,
   documentId: string,
   versionId: string,
 ): Promise<string> {
-  return (await fetchVersionText(session, documentId, versionId)).text
+  return (await fetchVersionText(session, documentId, versionId, { forModel: true })).text
 }
 
 /**
@@ -523,10 +533,10 @@ export async function readVersionForService(
   ) {
     throw new NotFoundError('Version not found')
   }
-  const document = await findDocumentInOrg(version.documentId, organizationId)
-  // A quarantined document (ADR-0083) never reaches a model, not even as the
-  // subject its own uploader opened a chat about.
-  if (!document || document.status === 'quarantined') throw new NotFoundError('Version not found')
+  // A held document (ADR-0083) never reaches a model, not even as the subject
+  // its own uploader opened a chat about: nobody's own uploads count here.
+  const document = await findDocumentInOrg(version.documentId, organizationId, SCREENED_ONLY)
+  if (!document) throw new NotFoundError('Version not found')
   const drewOnRestrictedFolder = await admitSubjectRead(document, organizationId, conversationId, askerUserId)
   return {
     documentId: version.documentId,

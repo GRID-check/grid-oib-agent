@@ -1031,7 +1031,8 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
 - `GET /api/documents/{id}/thumbnail` → `getDocumentThumbnail()` presigns a
   browser-facing GET URL for `_thumb.jpg`. Returns `{ url: string | null }`;
   `null` means no thumbnail exists (a type with none, an office original whose
-  conversion failed, or a render that failed).
+  conversion failed, or a render that failed) or the file is held, its
+  screening not passed (ADR-0083), whoever asks.
 
 **Frontend:**
 - `ThumbnailWithFallback` (file-browser-pane.tsx) and

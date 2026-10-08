@@ -67,6 +67,7 @@ import { isAgentDocumentFilename } from './agent-namespace'
 import { collectionFileRef, purgeIngestedChunks } from './collection-file-ref'
 import { documentDisplayName } from './display-name'
 import { findDocumentInOrg } from './repository'
+import { hasPassedScreening, internalRead } from '@/lib/documents/document-reader'
 import { resolveDocumentFolderPath } from './folder-path'
 import { listReviewCandidates, resolveReviewers } from './reviewers'
 import { DocumentDeletedError, OpenVersionExistsError } from './unique-conflicts'
@@ -528,6 +529,12 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
     // Archiv and a conversation's private attachments are both project-less, and
     // `tasks.project_id` is NOT NULL for the tenant predicate's sake.
     if (!document.projectId) return
+    // A held document (ADR-0083) opens no task: the run hands its text to a
+    // model, and the task's goal and file name are listed to the whole project.
+    if (!hasPassedScreening(document)) {
+      console.warn(`[documents] no revision task for version ${version.id}: its document has not passed screening`)
+      return
+    }
 
     try {
       // Inside the try: a folder tree that cannot be read opens no task.
@@ -1183,7 +1190,9 @@ export async function recordUploadedVersion(
   request?: Request,
   stored?: UploadedBytes,
 ): Promise<DocumentVersion | null> {
-  const document = await findDocumentInOrg(documentId, session.organizationId)
+  // The upload wrote this row a moment ago, and its bytes are still held
+  // (ADR-0083); the version records them whatever the gate will say.
+  const document = await findDocumentInOrg(documentId, session.organizationId, internalRead('just-written'))
   if (!document) return null
   const bytes = stored ?? document
   try {

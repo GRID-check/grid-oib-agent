@@ -10,6 +10,7 @@
  */
 
 import type { getDb } from '@/lib/db'
+import type { findLiveDocumentByFilename } from '@/lib/documents/repository'
 import type { Document, Project, ProjectMemoryItem } from '@/lib/db/schema'
 
 /**
@@ -81,6 +82,25 @@ export const makeMemoryItem = (
   embeddedAt: null,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
+  ...overrides,
+})
+
+type LiveDocumentMatch = NonNullable<Awaited<ReturnType<typeof findLiveDocumentByFilename>>>
+
+/** A row as `findLiveDocumentByFilename` returns it: a screened, person-uploaded project document. */
+export const makeLiveDocumentMatch = (overrides: Partial<LiveDocumentMatch> = {}): LiveDocumentMatch => ({
+  id: 'doc-1',
+  storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
+  storageBucket: null,
+  fileSize: 1024,
+  contentHash: null,
+  folderId: null,
+  status: 'completed',
+  authoredBy: 'user',
+  screeningOutcome: null,
+  createdBy: 'user-1',
+  scope: 'project',
+  projectId: 'proj-1',
   ...overrides,
 })
 

@@ -12,6 +12,7 @@ import { fileAgentDocumentDraft } from '@/lib/documents/agent-document'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
 import { findDocumentAuthoredByRef, listProjectDocuments, DOCUMENT_LIST_LIMIT } from '@/lib/documents/repository'
+import { SCREENED_ONLY } from '@/lib/documents/document-reader'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import { findOpenVersion } from '@/lib/documents/version-repository'
 import { findConversationInOrg } from './repository'
@@ -79,9 +80,12 @@ async function findSameTitleDocument(
 ): Promise<DocumentListRow | null> {
   let offset = 0
   for (;;) {
+    // What the model already knows of: a held file's name is not the agent's
+    // to collide with or learn of (ADR-0083).
     const rows = await listProjectDocuments(projectId, organizationId, {
       limit: DOCUMENT_LIST_LIMIT,
       offset,
+      reader: SCREENED_ONLY,
     })
     const clash = rows.find((row) => sameTitle(documentDisplayName(row), title))
     if (clash) return clash

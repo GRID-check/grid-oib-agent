@@ -26,6 +26,7 @@ import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { restrictedCollectionName } from '@/lib/authz/folder-access-rule'
+import { REVIEWER_READER } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:8000' }))
@@ -229,7 +230,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
 
   async function visibleDocumentNames(session: AuthorizedSession): Promise<string[]> {
     const hidden = await access.getHiddenFolderIds(session, projectId)
-    const rows = await inOrg(() => docsRepo.listProjectDocuments(projectId, ORG, { hiddenFolderIds: hidden }))
+    const rows = await inOrg(() => docsRepo.listProjectDocuments(projectId, ORG, { hiddenFolderIds: hidden, reader: REVIEWER_READER }))
     return rows.map((row) => row.filename).sort()
   }
 

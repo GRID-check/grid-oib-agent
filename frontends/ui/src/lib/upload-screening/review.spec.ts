@@ -24,6 +24,7 @@ import { isFolderVisibleTo, requireFolderWrite } from '@/lib/authz/folder-access
 import { folderReadOnlyError } from '@/lib/authz/folder-access-rule'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findDocumentInOrg, listQuarantinedDocuments, markScreeningReleased } from '@/lib/documents/repository'
+import { mayReadDocument } from '@/lib/documents/document-reader'
 import { dispatchDocument } from '@/lib/documents/service'
 import { emitInboxItems } from '@/lib/inbox/service'
 import { quarantineReviewersOf } from '@/lib/upload-batches/settle'
@@ -60,7 +61,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(isFolderVisibleTo).mockResolvedValue(true)
   vi.mocked(requireFolderWrite).mockResolvedValue(undefined)
-  vi.mocked(findDocumentInOrg).mockResolvedValue(quarantined)
+  // The repository answers by the reader it is asked for, as `documentVisibleTo` does.
+  vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) =>
+    mayReadDocument(quarantined, reader) ? quarantined : null
+  )
   vi.mocked(markScreeningReleased).mockResolvedValue(true)
   // A plain member holds no project:manage anywhere.
   vi.mocked(requireProjectAccess).mockRejectedValue(new NotFoundError('Project not found'))

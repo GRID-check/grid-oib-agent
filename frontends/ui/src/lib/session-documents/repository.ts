@@ -20,7 +20,8 @@ import { and, desc, eq, inArray } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
 import { documents, type Document } from '@/lib/db/schema'
-import { DOCUMENT_LIST_LIMIT, visibleQuarantineFor, type DocumentListRow } from '@/lib/documents/repository'
+import { DOCUMENT_LIST_LIMIT, type DocumentListRow } from '@/lib/documents/repository'
+import { documentVisibleTo, type DocumentReader } from '@/lib/documents/visibility'
 
 /**
  * Bound for one conversation's attachments. Far below the project/Archiv cap:
@@ -33,9 +34,9 @@ export const SESSION_DOCUMENT_LIST_LIMIT = 100
 export async function listSessionDocuments(
   conversationId: string,
   organizationId: string,
+  /** Who reads the chat's attachments (ADR-0083); see `ListProjectDocumentsOptions.reader`. */
+  reader: DocumentReader,
   limit = SESSION_DOCUMENT_LIST_LIMIT,
-  /** See `ListProjectDocumentsOptions.quarantineReader`. */
-  quarantineReader?: string,
 ): Promise<DocumentListRow[]> {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), DOCUMENT_LIST_LIMIT)
   const db = getDb()
@@ -51,6 +52,7 @@ export async function listSessionDocuments(
         contentType: documents.contentType,
         contentHash: documents.contentHash,
         createdBy: documents.createdBy,
+        screeningOutcome: documents.screeningOutcome,
         status: documents.status,
         authoredBy: documents.authoredBy,
         publishedVersionId: documents.publishedVersionId,
@@ -69,7 +71,7 @@ export async function listSessionDocuments(
           eq(documents.organizationId, organizationId),
           eq(documents.scope, 'session'),
           eq(documents.conversationId, conversationId),
-          ...visibleQuarantineFor(quarantineReader),
+          documentVisibleTo(reader),
         ),
       )
       .orderBy(desc(documents.createdAt))
@@ -109,10 +111,11 @@ export async function listSessionDocumentsForCleanup(
   )
 }
 
-/** Load one session document by id, scoped to its organization. */
+/** Load one session document by id, scoped to its organization, as `reader` may see it (ADR-0083). */
 export async function findSessionDocument(
   documentId: string,
   organizationId: string,
+  reader: DocumentReader,
 ): Promise<Document | null> {
   const db = getDb()
   const [row] = await withTenant({ organizationId }, () =>
@@ -124,6 +127,7 @@ export async function findSessionDocument(
           eq(documents.id, documentId),
           eq(documents.organizationId, organizationId),
           eq(documents.scope, 'session'),
+          documentVisibleTo(reader),
         ),
       )
       .limit(1),

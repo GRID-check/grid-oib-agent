@@ -34,6 +34,8 @@ import { documentStatusFacts } from '@/lib/documents/document-status'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { encodeDocumentListCursor, type DocumentListCursor } from '@/lib/documents/list-cursor'
 import { findFolderPathsInProject } from '@/lib/documents/repository'
+import { memberReader } from '@/lib/documents/document-reader'
+import { shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
 import { parseQuarantine, type QuarantineVerdict } from '@/lib/upload-screening/quarantine'
@@ -298,7 +300,7 @@ async function readerView(session: AuthorizedSession, batch: UploadBatch, rows: 
 export async function getUploadSummary(session: AuthorizedSession, batchId: string): Promise<UploadSummary> {
   const batch = await findOwnUploadBatch(session, batchId)
   if (!batch) throw new NotFoundError('Upload not found')
-  const rows = await listBatchDocuments(session.organizationId, batchId)
+  const rows = await listBatchDocuments(session.organizationId, batchId, memberReader(session.userId))
   const view = await readerView(session, batch, rows)
   const enriched = await reconcileDocumentStatuses(view.rows, session.organizationId)
   const folderIds = [...new Set(enriched.map((row) => row.folderId).filter((id): id is string => !!id))]
@@ -380,11 +382,12 @@ export async function listProjectUploadHistory(
     readerFolders(session, projectId),
   ])
   const hiddenFolderIds = folders ? [...folders.access.hiddenFolderIds] : []
+  const reader = await shelfReaderFor(session, { scope: 'project', projectId })
   const [counts, directory] = await Promise.all([
     countBatchDocumentsByStatus(
       session.organizationId,
       batches.map((batch) => batch.id),
-      { hiddenFolderIds }
+      { hiddenFolderIds, reader }
     ),
     loadOrganizationDirectory(session.organizationId),
   ])

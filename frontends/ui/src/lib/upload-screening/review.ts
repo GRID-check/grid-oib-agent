@@ -26,6 +26,7 @@ import {
   QUARANTINE_LIST_LIMIT,
   type QuarantineCursor,
 } from '@/lib/documents/repository'
+import { internalRead } from '@/lib/documents/document-reader'
 import { getAccessibleDocument } from '@/lib/documents/access'
 import { dispatchDocument, type DispatchDocumentResult } from '@/lib/documents/service'
 import { resolveDocumentFolderPath } from '@/lib/documents/folder-path'
@@ -56,7 +57,7 @@ export async function releaseQuarantinedDocument(
   documentId: string,
   request: Request
 ): Promise<ReleaseResult> {
-  const doc = await findDocumentInOrg(documentId, session.organizationId)
+  const doc = await findDocumentInOrg(documentId, session.organizationId, internalRead('quarantine-review'))
   // Not found and not allowed answer alike: a reviewer of one project learns
   // nothing about another project's quarantine.
   if (!doc || !(await mayReviewQuarantine(session, doc))) throw new NotFoundError('Document not found')

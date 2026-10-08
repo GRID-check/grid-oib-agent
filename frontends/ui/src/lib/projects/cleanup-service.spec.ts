@@ -22,7 +22,6 @@ const mocks = vi.hoisted(() => ({
   moveDocumentToFolder: vi.fn(),
   moveFolderToBin: vi.fn(),
   restoreFolderFromBin: vi.fn(),
-  findDocumentScreening: vi.fn(),
   deleteEmptyCreatedFolder: vi.fn(),
   recordAuditEvent: vi.fn(),
 }))
@@ -40,9 +39,10 @@ vi.mock('@/lib/documents/reconcile-status', () => ({ reconcileDocumentStatuses: 
 vi.mock('@/lib/documents/move-to-folder', () => ({ moveDocumentToFolder: mocks.moveDocumentToFolder }))
 vi.mock('@/lib/documents/shelf-folders', () => ({ FOLDER_NAME_TAKEN: 'A folder with this name already exists here.' }))
 vi.mock('./folder-bin', () => ({ moveFolderToBin: mocks.moveFolderToBin, restoreFolderFromBin: mocks.restoreFolderFromBin }))
-vi.mock('./cleanup-repository', () => ({
-  findDocumentScreening: mocks.findDocumentScreening,
-  deleteEmptyCreatedFolder: mocks.deleteEmptyCreatedFolder,
+vi.mock('./cleanup-repository', () => ({ deleteEmptyCreatedFolder: mocks.deleteEmptyCreatedFolder }))
+// The closer reads the project as a member (ADR-0083): screened files, and the held ones they uploaded.
+vi.mock('@/lib/upload-screening/quarantine-reviewers', () => ({
+  shelfReaderFor: vi.fn(async () => ({ kind: 'member', userId: 'user_pl' })),
 }))
 vi.mock('./folder-service', () => ({ createProjectFolder: mocks.createProjectFolder, listProjectFolders: mocks.listProjectFolders }))
 vi.mock('./repository', () => ({ findProjectInOrg: vi.fn(async () => ({ id: 'p1', collectionName: 'proj_1' })) }))
@@ -74,6 +74,9 @@ const row = (n: number, filename: string, folderId: string | null, extra: Record
   folderId,
   contentType: 'application/pdf',
   authoredBy: 'user',
+  createdBy: 'user_pl',
+  status: 'completed',
+  screeningOutcome: 'clean',
   contentHash: null,
   createdAt: new Date(`2026-0${n}-01T00:00:00Z`),
   ...extra,
@@ -103,8 +106,6 @@ beforeEach(() => {
     { id: FOLDER.plaene, path: 'Pläne' },
     { id: FOLDER.vertraege, path: 'Verträge' },
   ])
-  // The listing already leaves out what is hidden, as the real repository does.
-  mocks.listProjectDocumentPage.mockResolvedValue({ rows: ROWS.filter((r) => r.folderId !== FOLDER.honorare), nextCursor: null })
   mocks.reconcileDocumentStatuses.mockImplementation(async (rows: unknown[]) => rows)
   mocks.summarizeDocumentVersions.mockResolvedValue(new Map())
   mocks.createProjectFolder.mockImplementation(async ({ parentId }: { parentId: string | null }) => ({
@@ -122,11 +123,16 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals())
 
-/** The content gate's outcome per document number; every other document passed (`clean`). */
+/**
+ * The content gate's outcome per document number, on the rows the listing
+ * returns; every other document passed (`clean`). The listing already leaves
+ * out what is hidden, as the real repository does.
+ */
 function screening(outcomes: Record<number, { status?: string; screeningOutcome: string | null }>) {
-  mocks.findDocumentScreening.mockImplementation(async (_org: string, _project: string, ids: string[]) => {
-    const byId = new Map(Object.entries(outcomes).map(([n, outcome]) => [UUID(Number(n)), outcome]))
-    return new Map(ids.map((id) => [id, { status: 'stored', ...(byId.get(id) ?? { screeningOutcome: 'clean' }) }]))
+  const byId = new Map(Object.entries(outcomes).map(([n, outcome]) => [UUID(Number(n)), outcome]))
+  mocks.listProjectDocumentPage.mockResolvedValue({
+    rows: ROWS.filter((r) => r.folderId !== FOLDER.honorare).map((r) => ({ ...r, ...(byId.get(r.id) ?? {}) })),
+    nextCursor: null,
   })
 }
 

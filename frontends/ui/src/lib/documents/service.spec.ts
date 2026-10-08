@@ -232,7 +232,8 @@ import {
 import { LiveFilenameTakenError, ReplacedDocumentGoneError } from './unique-conflicts'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
-import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
+import { makeDocument, makeLiveDocumentMatch, makeProject } from '@/test-utils/db-fixtures'
+import { mayReadDocument } from './document-reader'
 import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING } from './reingest-codes'
 import { s3Client, bucketAdminS3Client } from '@/lib/s3'
 import { __resetBucketCache, tenantBucketName } from '@/lib/storage/bucket'
@@ -806,6 +807,7 @@ describe('listDocuments', () => {
         originPath: null,
         contentHash: null,
         createdBy: 'user-1',
+        screeningOutcome: null,
         fileSize: 1024,
         contentType: 'application/pdf',
         status: 'completed',
@@ -857,6 +859,7 @@ describe('probeProjectDocumentNames', () => {
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
     expect(findProjectDocumentsByNames).toHaveBeenCalledWith('proj-1', session.organizationId, ['EG.pdf'], {
       hiddenFolderIds: [],
+      reader: { kind: 'reviewer' },
     })
   })
 
@@ -1047,6 +1050,7 @@ describe('resolveProjectDocumentsByName', () => {
     expect(requireProjectAccess).toHaveBeenCalledWith(session, 'proj-1', 'project:view')
     expect(findProjectDocumentsByFilenames).toHaveBeenCalledWith('proj-1', 'org-1', ['bestand-1962.pdf'], {
       hiddenFolderIds: [],
+      reader: { kind: 'reviewer' },
     })
     expect(listProjectDocumentPage).not.toHaveBeenCalled()
     expect(documents).toEqual([expect.objectContaining({ id: 'doc-old', assignees: [] })])
@@ -1152,7 +1156,7 @@ describe('searchProjectDocuments', () => {
       'proj-1',
       'org-1',
       ['permit.pdf', 'plan.pdf'],
-      { hiddenFolderIds: [] }
+      { hiddenFolderIds: [], reader: { kind: 'reviewer' } }
     )
     expect(listProjectDocumentPage).not.toHaveBeenCalled()
   })
@@ -2034,6 +2038,37 @@ describe('getDocumentStatus', () => {
     expect(listDocumentVersionSummaries).toHaveBeenCalledWith([projectDoc.id], session.organizationId)
   })
 
+  // A file re-read under an earlier pass comes back `quarantined` from the
+  // reconcile; the read let it through on the earlier verdict, so the rule is
+  // asked again of what the reconcile returned (ADR-0083).
+  describe('when the reconcile quarantines the file', () => {
+    const reread = makeDocument({ status: 'pending', screeningOutcome: 'clean', createdBy: 'someone-else' })
+
+    beforeEach(() => {
+      // A member of the project, not one of its admins: no reviewer.
+      vi.mocked(requireProjectAccess).mockImplementation(async (_session, _projectId, permission) => {
+        if (permission === 'project:manage') throw new NotFoundError('Project not found')
+        return { role: 'project-viewer', closed: false, readsBecauseClosed: false }
+      })
+      vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) =>
+        mayReadDocument(reread, reader) ? reread : null
+      )
+      vi.mocked(reconcileDocumentStatuses).mockImplementation(
+        async (rows) => rows.map((row) => ({ ...row, status: 'quarantined', screeningOutcome: 'quarantined' })) as never
+      )
+    })
+
+    it('answers 404 to a member who did not upload it', async () => {
+      await expect(getDocumentStatus(session, 'doc-1')).rejects.toBeInstanceOf(NotFoundError)
+    })
+
+    it('still answers its uploader', async () => {
+      await expect(getDocumentStatus({ ...session, userId: 'someone-else' }, 'doc-1')).resolves.toMatchObject({
+        status: 'quarantined',
+      })
+    })
+  })
+
   it('reports a null versionCount when the document has no version row', async () => {
     vi.mocked(listDocumentVersionSummaries).mockResolvedValueOnce([])
 
@@ -2243,6 +2278,7 @@ describe('the authorship gate on the (collection, filename) join', () => {
           originPath: null,
           contentHash: null,
           createdBy: 'user-1',
+          screeningOutcome: null,
           fileSize: 1024,
           contentType: 'application/pdf',
           status: 'stored',
@@ -2339,6 +2375,7 @@ describe('runReindexSlice', () => {
     originPath: null,
     contentHash: null,
     createdBy: 'user-1',
+    screeningOutcome: null,
     fileSize: 1024,
     contentType: 'application/pdf',
     status: 'completed',
@@ -2462,11 +2499,13 @@ describe('runReindexSlice', () => {
     expect(second.done).toBe(true)
     expect(second.payload.counts.queued).toBe(2)
     expect(listProjectDocumentPage).toHaveBeenNthCalledWith(1, 'proj-1', 'org-1', {
+      reader: { kind: 'internal', why: 'ingest' },
       authoredBy: 'user',
       cursor: undefined,
       limit: REINDEX_SLICE_DOCUMENTS,
     })
     expect(listProjectDocumentPage).toHaveBeenNthCalledWith(2, 'proj-1', 'org-1', {
+      reader: { kind: 'internal', why: 'ingest' },
       authoredBy: 'user',
       cursor,
       limit: REINDEX_SLICE_DOCUMENTS,
@@ -2746,7 +2785,7 @@ describe('re-uploading a filename this collection already holds', () => {
    * downloadable, cited by nothing, findable by nothing, and charged to the
    * organization's quota twice. A ghost, and a paid-for one.
    */
-  const existing = {
+  const existing = makeLiveDocumentMatch({
     id: 'doc-existing',
     storageKey: 'org/org-1/project/proj-1/doc/doc-existing/plan.pdf',
     storageBucket: 'test-bucket',
@@ -2754,7 +2793,7 @@ describe('re-uploading a filename this collection already holds', () => {
     contentHash: null,
     folderId: null,
     status: 'ready',
-  }
+  })
 
   beforeEach(() => {
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
@@ -2786,9 +2825,11 @@ describe('re-uploading a filename this collection already holds', () => {
     })
 
     it("refuses to replace somebody else's", async () => {
-      vi.mocked(findDocumentInOrg).mockResolvedValue(
-        makeDocument({ id: 'doc-existing', createdBy: 'user-other', status: 'quarantined' })
-      )
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+        ...existing,
+        createdBy: 'user-other',
+        status: 'quarantined',
+      })
 
       await expect(
         uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
@@ -2797,9 +2838,7 @@ describe('re-uploading a filename this collection already holds', () => {
     })
 
     it('refuses its uploader too, saying it waits in quarantine', async () => {
-      vi.mocked(findDocumentInOrg).mockResolvedValue(
-        makeDocument({ id: 'doc-existing', createdBy: 'user-1', status: 'quarantined' })
-      )
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({ ...existing, createdBy: 'user-1', status: 'quarantined' })
 
       const refusal = uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
       await expect(refusal).rejects.toBeInstanceOf(ConflictError)
@@ -2907,10 +2946,10 @@ describe('re-uploading a filename this collection already holds', () => {
     const digestOfInput = 'sha256:' + createHash('sha256').update(Buffer.from(new ArrayBuffer(8))).digest('hex')
 
     it('writes nothing, ingests nothing, and keeps the document', async () => {
-      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue(makeLiveDocumentMatch({
         ...existing,
         contentHash: digestOfInput,
-      })
+      }))
 
       const result = await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
 
@@ -2921,11 +2960,11 @@ describe('re-uploading a filename this collection already holds', () => {
     })
 
     it('still re-ingests when the document has not landed — a failure must be retryable', async () => {
-      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue(makeLiveDocumentMatch({
         ...existing,
         contentHash: digestOfInput,
         status: 'failed',
-      })
+      }))
 
       await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
 
@@ -2933,11 +2972,11 @@ describe('re-uploading a filename this collection already holds', () => {
     })
 
     it('still runs when the upload re-files it, because the move is the point', async () => {
-      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue(makeLiveDocumentMatch({
         ...existing,
         contentHash: digestOfInput,
         folderId: 'folder-elsewhere',
-      })
+      }))
 
       await uploadDocument(session, makeInput({ name: 'plan.pdf' }), new Request('http://x'))
 
@@ -3022,7 +3061,7 @@ describe('a re-upload whose document is deleted underneath it', () => {
    * for a document that no longer existed. Now it is a first upload of the
    * name again — what the same drop after the delete would have been.
    */
-  const existing = {
+  const existing = makeLiveDocumentMatch({
     id: 'doc-deleted',
     storageKey: 'org/org-1/project/proj-1/doc/doc-deleted/plan.pdf',
     storageBucket: 'test-bucket',
@@ -3030,7 +3069,7 @@ describe('a re-upload whose document is deleted underneath it', () => {
     contentHash: null,
     folderId: null,
     status: 'ready',
-  }
+  })
 
   beforeEach(() => {
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
@@ -3069,7 +3108,7 @@ describe('two FIRST uploads of one filename at once', () => {
    * next version of the winner's document \u2014 what the same two drops one after
    * the other would have produced (ADR-0054 correction 14).
    */
-  const winner = {
+  const winner = makeLiveDocumentMatch({
     id: 'doc-winner',
     storageKey: 'org/org-1/project/proj-1/doc/doc-winner/plan.pdf',
     storageBucket: 'test-bucket',
@@ -3077,7 +3116,7 @@ describe('two FIRST uploads of one filename at once', () => {
     contentHash: null,
     folderId: null,
     status: 'uploaded',
-  }
+  })
 
   beforeEach(() => {
     vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin', closed: false, readsBecauseClosed: false })
@@ -3320,8 +3359,8 @@ describe('restricted folders (ADR-0084)', () => {
     await probeProjectDocumentNames(session, 'proj-1', ['Honorar.pdf'])
 
     expect(vi.mocked(listProjectDocumentPage).mock.calls[0][2]).toMatchObject({ hiddenFolderIds: [HIDDEN] })
-    expect(vi.mocked(findProjectDocumentsByFilenames).mock.calls[0][3]).toEqual({ hiddenFolderIds: [HIDDEN] })
-    expect(vi.mocked(findProjectDocumentsByNames).mock.calls[0][3]).toEqual({ hiddenFolderIds: [HIDDEN] })
+    expect(vi.mocked(findProjectDocumentsByFilenames).mock.calls[0][3]).toEqual({ hiddenFolderIds: [HIDDEN], reader: { kind: 'reviewer' } })
+    expect(vi.mocked(findProjectDocumentsByNames).mock.calls[0][3]).toEqual({ hiddenFolderIds: [HIDDEN], reader: { kind: 'reviewer' } })
   })
 
   it('searches the restricted collections this reader is cleared for, and joins only visible rows', async () => {

@@ -1,13 +1,16 @@
 /**
- * A quarantined document (ADR-0083) exists only for its uploader and for the
- * people who may review the quarantine.
+ * A held document (ADR-0083) exists only for its uploader and for the people
+ * who may review the quarantine: a quarantined one, and since the 2026-10-08
+ * amendment every upload whose screening has not passed yet.
  *
- * The audit found it served to every project member, and in the Büroablage to
- * every org member, on every byte path: `getAccessibleDocument` never looked at
- * the status. These specs drive the real gate and the real reviewer rule
- * (`mayReviewQuarantine`) through each surface a person opens a file by —
- * download, preview, text preview, thumbnail — and the listing, for a member,
- * the uploader and a reviewer.
+ * The audit found a quarantined file served to every project member, and in the
+ * Büroablage to every org member, on every byte path: `getAccessibleDocument`
+ * never looked at the status. These specs drive the real gate and the real
+ * reviewer rule (`mayReviewQuarantine`) through each surface a person opens a
+ * file by — download, preview, text preview, thumbnail — and the listing, for a
+ * member, the uploader and a reviewer. The repository mock answers each read
+ * by the reader it is given (`mayReadDocument`, the in-memory twin of
+ * `documentVisibleTo`; `visibility.integration.spec.ts` holds the two equal).
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -53,6 +56,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import type { Document } from '@/lib/db/schema'
 import { s3Client } from '@/lib/s3'
 import { makeDocument } from '@/test-utils/db-fixtures'
+import { mayReadDocument, memberReader, REVIEWER_READER } from './document-reader'
 import {
   findDocumentInOrg,
   findProjectDocumentsByFilenames,
@@ -62,12 +66,14 @@ import {
 } from './repository'
 import { reconcileDocumentStatuses } from './reconcile-status'
 import {
+  deleteDocument,
   getDocumentDownload,
   getDocumentPreview,
   getDocumentTextPreview,
   getDocumentThumbnail,
   listDocumentsPage,
   probeProjectDocumentNames,
+  renameDocument,
   resolveProjectDocumentsByName,
   searchProjectDocuments,
 } from './service'
@@ -92,6 +98,11 @@ const quarantined = (overrides: Partial<Document> = {}): Document =>
     errorMessage: 'quarantined:{"reasons":[{"kind":"iban"}]}',
     ...overrides,
   })
+
+/** The repository's item read, answering by the reader it is given. */
+function store(row: Document): void {
+  vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) => (mayReadDocument(row, reader) ? row : null))
+}
 
 type Surface = { name: string; open: (session: AuthorizedSession) => Promise<unknown>; doc: () => Document }
 
@@ -122,7 +133,7 @@ beforeEach(() => {
 
 describe.each(SURFACES)('the $name of a quarantined project document', ({ open, doc }) => {
   beforeEach(() => {
-    vi.mocked(findDocumentInOrg).mockResolvedValue(doc())
+    store(doc())
   })
 
   it('does not exist for a project member who did not upload it', async () => {
@@ -144,16 +155,82 @@ describe.each(SURFACES)('the $name of a quarantined project document', ({ open, 
   })
 })
 
-describe('a document that is not quarantined', () => {
+describe('a document whose screening passed', () => {
   it('is served to every project member as before', async () => {
-    vi.mocked(findDocumentInOrg).mockResolvedValue(quarantined({ status: 'completed', errorMessage: null }))
+    store(quarantined({ status: 'completed', errorMessage: null, screeningOutcome: 'clean' }))
     await expect(getDocumentDownload(member, 'doc-q')).resolves.toMatchObject({ filename: 'plan.pdf' })
+  })
+
+  it('shows its thumbnail', async () => {
+    store(quarantined({ status: 'completed', errorMessage: null, screeningOutcome: 'clean' }))
+    await expect(getDocumentThumbnail(member, 'doc-q')).resolves.not.toEqual({ url: null })
+  })
+})
+
+/**
+ * Held from upload until the screening passes (ADR-0083, 2026-10-08): a file
+ * still on its way through the gate is not the project's yet either. Before
+ * the amendment every member could list and download it in the minutes before
+ * its verdict, and a quarantine then took back what had already been seen.
+ */
+describe.each([
+  ['uploaded', null],
+  ['pending', null],
+  ['processing', null],
+  ['failed', null],
+])('a project upload at %s with no verdict', (status, screeningOutcome) => {
+  beforeEach(() => {
+    store(quarantined({ status, errorMessage: null, screeningOutcome }))
+  })
+
+  it('does not exist for a project member who did not upload it', async () => {
+    await expect(getDocumentDownload(member, 'doc-q')).rejects.toBeInstanceOf(NotFoundError)
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('is served to its uploader and to a reviewer', async () => {
+    await expect(getDocumentDownload(uploader, 'doc-q')).resolves.toBeDefined()
+    await expect(getDocumentDownload(projectAdmin, 'doc-q')).resolves.toBeDefined()
+  })
+
+  it('has no thumbnail, for its uploader and its reviewer too', async () => {
+    await expect(getDocumentThumbnail(uploader, 'doc-q')).resolves.toEqual({ url: null })
+    await expect(getDocumentThumbnail(projectAdmin, 'doc-q')).resolves.toEqual({ url: null })
+  })
+})
+
+/**
+ * The write paths load the row through the same rule (ADR-0083): a member who
+ * may not see a held file is told it does not exist, rather than allowed to
+ * delete or rename it. Refused before anything was erased or written.
+ */
+describe('the write paths on a held document', () => {
+  const request = () => new Request('http://localhost/api/documents/doc-q', { method: 'DELETE' })
+
+  beforeEach(() => {
+    store(quarantined({ status: 'processing', errorMessage: null, screeningOutcome: null }))
+  })
+
+  it('answers 404 to a member who would delete it', async () => {
+    await expect(deleteDocument(member, 'doc-q', request())).rejects.toBeInstanceOf(NotFoundError)
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('answers 404 to a member who would rename it', async () => {
+    await expect(renameDocument(member, 'doc-q', 'Umbenannt.pdf', request())).rejects.toBeInstanceOf(NotFoundError)
+  })
+})
+
+describe('a held document re-dispatched with an earlier pass on record', () => {
+  it('stays served to members: the verdict on these bytes passed', async () => {
+    store(quarantined({ status: 'pending', errorMessage: null, screeningOutcome: 'released' }))
+    await expect(getDocumentDownload(member, 'doc-q')).resolves.toBeDefined()
   })
 })
 
 describe('a quarantined Büroablage document', () => {
   beforeEach(() => {
-    vi.mocked(findDocumentInOrg).mockResolvedValue(quarantined({ scope: 'archiv', projectId: null }))
+    store(quarantined({ scope: 'archiv', projectId: null }))
   })
 
   it('does not exist for an org member who did not upload it', async () => {
@@ -168,36 +245,36 @@ describe('a quarantined Büroablage document', () => {
 })
 
 describe('the project listing and a quarantined document', () => {
-  const readerOf = (call: number): unknown => vi.mocked(listProjectDocumentPage).mock.calls[call][2]?.quarantineReader
+  const readerOf = (call: number): unknown => vi.mocked(listProjectDocumentPage).mock.calls[call][2]?.reader
 
-  it('keeps a member to the quarantined files they uploaded themselves', async () => {
+  it('keeps a member to the held files they uploaded themselves', async () => {
     await listDocumentsPage(member, 'proj-1')
     await listDocumentsPage(uploader, 'proj-1')
 
-    expect(readerOf(0)).toBe('member-1')
-    expect(readerOf(1)).toBe('uploader-1')
+    expect(readerOf(0)).toEqual(memberReader('member-1'))
+    expect(readerOf(1)).toEqual(memberReader('uploader-1'))
   })
 
-  it('lists every quarantined file to a reviewer', async () => {
+  it('lists every held file to a reviewer', async () => {
     await listDocumentsPage(projectAdmin, 'proj-1')
     await listDocumentsPage(orgAdmin, 'proj-1')
 
-    expect(readerOf(0)).toBeUndefined()
-    expect(readerOf(1)).toBeUndefined()
+    expect(readerOf(0)).toEqual(REVIEWER_READER)
+    expect(readerOf(1)).toEqual(REVIEWER_READER)
   })
 
   it('narrows the by-name resolve the same way', async () => {
     await resolveProjectDocumentsByName(member, 'proj-1', ['konten.csv'])
-    expect(vi.mocked(findProjectDocumentsByFilenames).mock.calls[0][3]).toMatchObject({ quarantineReader: 'member-1' })
+    expect(vi.mocked(findProjectDocumentsByFilenames).mock.calls[0][3]).toMatchObject({ reader: memberReader('member-1') })
   })
 
   // The upload planner's probe answers with the digest: somebody else's
-  // quarantined file would let a member confirm its contents by hash.
+  // unscreened file would let a member confirm its contents by hash.
   it('narrows the name probe the same way', async () => {
     await probeProjectDocumentNames(member, 'proj-1', ['konten.csv'])
     await probeProjectDocumentNames(projectAdmin, 'proj-1', ['konten.csv'])
-    expect(vi.mocked(findProjectDocumentsByNames).mock.calls[0][3]).toMatchObject({ quarantineReader: 'member-1' })
-    expect(vi.mocked(findProjectDocumentsByNames).mock.calls[1][3]?.quarantineReader).toBeUndefined()
+    expect(vi.mocked(findProjectDocumentsByNames).mock.calls[0][3]).toMatchObject({ reader: memberReader('member-1') })
+    expect(vi.mocked(findProjectDocumentsByNames).mock.calls[1][3]).toMatchObject({ reader: REVIEWER_READER })
   })
 
   it('narrows the rows a search hit is joined to the same way', async () => {
@@ -209,15 +286,16 @@ describe('the project listing and a quarantined document', () => {
     } finally {
       vi.unstubAllGlobals()
     }
-    expect(vi.mocked(findProjectDocumentsByFilenames).mock.calls[0][3]).toMatchObject({ quarantineReader: 'member-1' })
+    expect(vi.mocked(findProjectDocumentsByFilenames).mock.calls[0][3]).toMatchObject({ reader: memberReader('member-1') })
   })
 })
 
 /**
- * The query can drop only a row that IS quarantined. The first listing after a
- * file's verdict reads it `pending`, and the reconcile that runs on the rows it
- * read is what turns it `quarantined`: that row must be narrowed again, or the
- * first member to open the Dateien after screening is handed its name.
+ * The query reads the row as it was; the reconcile that runs on the rows it
+ * read can turn one `quarantined` (a re-index of a file that passed before is
+ * in flight with that pass on record, and visible). That row must be narrowed
+ * again by the same rule, or the first member to open the Dateien after the
+ * new verdict is handed its name.
  */
 describe('a verdict that lands during the listing', () => {
   const pendingRow = (id: string, createdBy: string): DocumentListRow => ({
@@ -235,6 +313,7 @@ describe('a verdict that lands during the listing', () => {
     originPath: null,
     contentHash: null,
     createdBy,
+    screeningOutcome: 'clean',
     createdAt: new Date('2026-10-01T00:00:00Z'),
     updatedAt: new Date('2026-10-01T00:00:00Z'),
     errorMessage: null,
@@ -247,7 +326,7 @@ describe('a verdict that lands during the listing', () => {
       nextCursor: null,
     })
     vi.mocked(reconcileDocumentStatuses).mockImplementation(async (rows) =>
-      rows.map((row) => ({ ...row, status: 'quarantined' }))
+      rows.map((row) => ({ ...row, status: 'quarantined', screeningOutcome: 'quarantined' }))
     )
   })
 

@@ -1,0 +1,23 @@
+---
+upgrade:
+  - >
+    An uploaded file now reaches colleagues only once its check for sensitive
+    data has passed, usually a few moments after the upload. Until then only
+    the person who uploaded it and those who may release quarantined files see
+    it.
+  - >
+    A file whose reading failed before the check stays with the person who
+    uploaded it, who can retry or delete it.
+fixes:
+  - >
+    A file waiting in quarantine no longer shows up anywhere for colleagues
+    who may not see it: not in the project overview and its counts, the upload
+    history, the IFC model list, the document roles, the name check of a new
+    upload, or a file's status. Deleting, moving or renaming it answers as if
+    it did not exist.
+  - >
+    Re-indexing a project or restoring a folder from the Papierkorb no longer
+    takes a file out of quarantine. Only a release does.
+  - >
+    A file has no preview image until its check has passed, and Piloti does
+    not read a file under review when a revision is requested on it.

@@ -17,6 +17,7 @@
 
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { REVIEWER_READER } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 
@@ -134,19 +135,20 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     const intern = access.computeFolderAccess(tree, { roles: ['member'], seesEverything: false }, COLLECTION)
     const hiddenFolderIds = [...intern.hiddenFolderIds]
 
-    const page = await documentsRepo.listProjectDocumentPage(projectId, ORG, { hiddenFolderIds })
+    const page = await documentsRepo.listProjectDocumentPage(projectId, ORG, { hiddenFolderIds, reader: REVIEWER_READER })
     expect(page.rows.map((row) => row.filename).sort()).toEqual(['Lageplan.pdf', 'Protokoll.pdf'])
 
     const byName = await documentsRepo.findProjectDocumentsByFilenames(
       projectId,
       ORG,
       ['Werkvertrag.pdf', 'Honorarnote.pdf', 'Lageplan.pdf'],
-      { hiddenFolderIds }
+      { hiddenFolderIds, reader: REVIEWER_READER }
     )
     expect(byName.map((row) => row.filename)).toEqual(['Lageplan.pdf'])
 
     const probe = await documentsRepo.findProjectDocumentsByNames(projectId, ORG, ['Werkvertrag.pdf', 'Honorarnote.pdf'], {
       hiddenFolderIds,
+      reader: REVIEWER_READER,
     })
     expect(probe).toEqual([])
   })
@@ -156,6 +158,7 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     const accountant = access.computeFolderAccess(tree, { roles: ['org-buchhaltung'], seesEverything: false }, COLLECTION)
     const page = await documentsRepo.listProjectDocumentPage(projectId, ORG, {
       hiddenFolderIds: [...accountant.hiddenFolderIds],
+      reader: REVIEWER_READER,
     })
     expect(page.rows.map((row) => row.filename).sort()).toEqual(['Lageplan.pdf', 'Protokoll.pdf', 'Werkvertrag.pdf'])
     expect(accountant.levelOf(folder.vertraege)).toBe('read')
@@ -164,6 +167,7 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     const admin = access.computeFolderAccess(tree, { roles: [], seesEverything: true }, COLLECTION)
     const adminPage = await documentsRepo.listProjectDocumentPage(projectId, ORG, {
       hiddenFolderIds: [...admin.hiddenFolderIds],
+      reader: REVIEWER_READER,
     })
     expect(adminPage.rows).toHaveLength(4)
   })
@@ -393,10 +397,10 @@ describe.skipIf(!url)('IFC models and restricted folders against Postgres', () =
   })
 
   it('leaves a hidden folder’s model out of the model list', async () => {
-    const all = await bimRepo.listBimModels(IFC_ORG, { projectId, includeArchiv: true })
+    const all = await bimRepo.listBimModels(IFC_ORG, { projectId, includeArchiv: true, reader: REVIEWER_READER })
     expect(all.map((model) => model.id).sort()).toEqual([hiddenModel, openModel].sort())
 
-    const visible = await bimRepo.listBimModels(IFC_ORG, { projectId, includeArchiv: true, hiddenFolderIds: [modelle] })
+    const visible = await bimRepo.listBimModels(IFC_ORG, { projectId, includeArchiv: true, hiddenFolderIds: [modelle], reader: REVIEWER_READER })
     expect(visible.map((model) => model.id)).toEqual([openModel])
   })
 })

@@ -18,6 +18,7 @@ import {
 import { IN_FLIGHT_DOCUMENT_STATUSES } from '@/lib/documents/document-status'
 import { CURSOR_TIMESTAMP_FORMAT, type DocumentListCursor } from '@/lib/documents/list-cursor'
 import { outsideHiddenFolders } from '@/lib/documents/repository'
+import { documentVisibleTo, type DocumentReader } from '@/lib/documents/visibility'
 
 /** Uploads per page of a project's history; the rest is behind the page's cursor. */
 export const UPLOAD_HISTORY_LIMIT = 50
@@ -128,14 +129,24 @@ export async function batchIdsOfDocuments(organizationId: string, documentIds: r
   return rows.map((row) => row.batchId).filter((id): id is string => id !== null)
 }
 
-/** The documents a batch wrote, bounded. */
-export async function listBatchDocuments(organizationId: string, batchId: string): Promise<Document[]> {
+/**
+ * The documents a batch wrote, bounded, as `reader` may see them (ADR-0083).
+ * A batch's rows are its uploader's own (a re-upload moves a row into the new
+ * uploader's batch), so its uploader reads every one.
+ */
+export async function listBatchDocuments(
+  organizationId: string,
+  batchId: string,
+  reader: DocumentReader
+): Promise<Document[]> {
   const db = getDb()
   return withTenant({ organizationId }, () =>
     db
       .select()
       .from(documents)
-      .where(and(eq(documents.organizationId, organizationId), eq(documents.uploadBatchId, batchId)))
+      .where(
+        and(eq(documents.organizationId, organizationId), eq(documents.uploadBatchId, batchId), documentVisibleTo(reader))
+      )
       .orderBy(documents.filename)
       .limit(UPLOAD_SUMMARY_DOCUMENT_LIMIT)
   )
@@ -145,12 +156,14 @@ export async function listBatchDocuments(organizationId: string, batchId: string
  * Per-status counts of a set of batches' documents, for the history list,
  * leaving out what is filed in a folder hidden from this reader
  * (`getHiddenFolderIds`) with the document listing's own predicate
- * (`outsideHiddenFolders`), so "hidden" has one SQL spelling.
+ * (`outsideHiddenFolders`), so "hidden" has one SQL spelling, and a held file
+ * the reader neither uploaded nor reviews (ADR-0083): somebody else's upload
+ * counts for the team once it is screened.
  */
 export async function countBatchDocumentsByStatus(
   organizationId: string,
   batchIds: readonly string[],
-  { hiddenFolderIds }: { hiddenFolderIds?: readonly string[] } = {}
+  { hiddenFolderIds, reader }: { hiddenFolderIds?: readonly string[]; reader: DocumentReader }
 ): Promise<Array<{ batchId: string; status: string; count: number }>> {
   if (batchIds.length === 0) return []
   const db = getDb()
@@ -162,7 +175,8 @@ export async function countBatchDocumentsByStatus(
         and(
           eq(documents.organizationId, organizationId),
           inArray(documents.uploadBatchId, [...batchIds]),
-          ...outsideHiddenFolders(hiddenFolderIds)
+          ...outsideHiddenFolders(hiddenFolderIds),
+          documentVisibleTo(reader)
         )
       )
       .groupBy(documents.uploadBatchId, documents.status)

@@ -122,7 +122,7 @@ German, and explains each verdict.
   reviewers, nobody else. `getAccessibleDocument` asks the reviewer rule
   (`mayReviewQuarantine`, `lib/upload-screening/quarantine-reviewers.ts`) for a
   quarantined row on every item path, and the listings push the same rule down
-  to their query (`quarantineReader`); everyone else gets the 404 an unknown
+  to their query (a `DocumentReader`, see the 2026-10-08 amendment); everyone else gets the 404 an unknown
   document gets. Before this, the status was never consulted, so a file held
   back for its content was downloadable by every project member, and in the
   Büroablage by every org member. The agent's byte lookups
@@ -135,23 +135,16 @@ German, and explains each verdict.
   held-back bytes would become a version anyone could open once the new ones
   settled. Somebody who may not see the file gets the taken-name 409; its
   uploader and reviewers get `details.reason = 'quarantined'`.
-- **Holding the hold** (amended 2026-10-07): the rule is asked wherever a
-  quarantined row could reach someone else. `dispatchDocument` dispatches a
-  quarantined row for nobody (a release moves it to `uploaded` first), so a
-  restore from the Papierkorb, a placement move when a folder's access changes
-  and „Projekt neu indizieren" leave it quarantined instead of setting it
-  `pending`. The listings narrow again after their reconcile
-  (`keepVisibleQuarantine`), because the first read after the verdict finds the
-  row `pending` and the reconcile turns it. The project overview, the upload
-  planner's name probes and the IFC model list are narrowed too; the model list
-  spans the project and the Büroablage and asks each shelf its own reviewers
-  (`visibleQuarantineByShelf`).
-- **Before the verdict** the file is an ordinary upload: while it is
-  `uploaded`, `pending` or `processing`, everyone who may read its folder may
-  list and download it. The quarantine starts at the verdict. Holding every
-  upload back until it is screened would make every file unreadable while it
-  is being read; that is a product decision this ADR does not take. A file
-  expected to match belongs in a restricted folder (ADR-0084).
+- **Holding the hold** (amended 2026-10-07, restated 2026-10-08): no write
+  but a release takes a row out of quarantine. `dispatchDocument` dispatches a
+  quarantined row for nobody, so a restore from the Papierkorb, a placement
+  move when a folder's access changes and „Projekt neu indizieren" leave it
+  quarantined; the status writers carry `status <> 'quarantined'`, and
+  migration 0120's trigger refuses any other UPDATE that tries. The listings
+  narrow again after their reconcile (`keepReadable`), because a read can find
+  a row on an earlier pass and the reconcile turns it.
+- **Held from upload until the screen passes** (amended 2026-10-08, replacing
+  „Before the verdict"): see the amendment below.
 - **Asking for a release** (amended 2026-10-06): the uploader may ask the
   reviewers from the upload summary („Freigabe anfragen",
   `POST /api/documents/{id}/quarantine/request-release`); they get a
@@ -201,6 +194,11 @@ German, and explains each verdict.
   listing for a member (404, left out), the uploader and a reviewer; `quarantine-listing.integration.spec.ts`
   proves the listing predicate, the IFC model list and the agent's byte lookup against Postgres;
   `bim/model-service.quarantine.spec.ts` covers the model viewer and the agent's IFC tools.
+* `documents/document-visibility.spec.ts` fails for any query over `documents` that does not
+  compose `documentVisibleTo`, unless its allowlist says why that query sees every row;
+  `documents/visibility.integration.spec.ts` holds the SQL predicate and its in-memory twin to
+  the same answer for every status, verdict, author and reader against Postgres, and proves the
+  trigger of migration 0120.
 * `documents/dispatch.spec.ts` proves a quarantined row is dispatched for nobody;
   `quarantine-access.spec.ts`, `archiv/service.spec.ts` and `session-documents/service.spec.ts`
   that a row the listing's reconcile turns quarantined is narrowed again.
@@ -381,6 +379,76 @@ folding.
 * `lib/projects/memory-service.spec.ts` asserts a new and an edited note are
   stored and embedded masked; `memory-restricted.integration.spec.ts` asserts it
   against Postgres. `lib/feedback/service.spec.ts` asserts the stored comment.
+
+## Amendment (2026-10-08): held from upload until the screen passes
+
+### Context
+
+Three repair rounds on the quarantine each found readers of `documents` that
+forgot `status = 'quarantined'`: the project overview, the upload planner's name
+probes, the IFC model list, document roles, the sharing registry, the version
+workflow, delete and move, the status read before its reconcile, thumbnails
+drawn before the screen, a re-dispatch that set a quarantined row `pending`
+again (`setDocumentIngestJob`), and the text a revision task hands a model. The
+cause was the same each time: "held back" was a status every reader had to
+remember, and it began only at the verdict, so the minutes before it were a
+window in which a file nobody had screened was everybody's.
+
+### Decision
+
+* **Held from upload until the screen passes.** A person's upload is visible to
+  its uploader and its reviewers (`mayReviewQuarantine`) and to nobody else from
+  the moment it is stored until its screening has passed: a verdict of `clean`,
+  `partial`, `unchecked` (the last two as „What is not screened" above) or
+  `released`. A row with no verdict passes only at a settled status (`completed`
+  and its spellings), which is a job that ran with screening off or a file indexed
+  before screening existed. Piloti's own documents were never an upload and are not
+  held. `uploaded`, `pending`, `processing`, `failed` and `error` without a verdict
+  are held.
+* **One predicate.** Every query over `documents` takes a `DocumentReader` and
+  ANDs `documentVisibleTo(reader)` (`lib/documents/visibility.ts`) into its WHERE:
+  a member (screened rows and their own), a reviewer (every row), one reader per
+  shelf for the IFC list, one per project for the project grid's counts,
+  `screened-only` for everything that reaches a model or serves no particular
+  person, and `internal` for a reason a closed list names (the ingest's own reads,
+  a row written a moment ago, the identity probes the unique index mirrors, the
+  audit). `mayReadDocument` is the same rule in memory for a row a reconcile
+  changed after the query. A session's item paths load the row through
+  `findDocumentForSession`, the write paths included, so delete, move, rename,
+  tags and a new version answer 404 to a member who may not see the file.
+  `document-visibility.spec.ts` fails for a query that does not compose the
+  predicate; its allowlist names the reviewers' queue, the sweeps, the quota sums
+  and the orphan checks, each with its reason.
+* **No derivative before the verdict.** The ingest job draws a file's thumbnail
+  only after its screen passes: a PDF after its text screen, an image on its name,
+  a spreadsheet from its rendition (`preview_paths`, now the job's deferred
+  download rather than a background task in the ingest route). The BFF serves no
+  thumbnail of a held file, to its uploader and reviewers either.
+* **Model paths refuse a held file**, whoever's session fetches it: the
+  conversation subject's version (`readVersionForService`), the revision task's
+  source text (`readVersionTextForTask`), the agent's byte and model lookups. A held
+  document opens no revision task.
+* **A quarantined row leaves quarantine through a release and nothing else.** A
+  re-screen is a new verdict after a release, never a reset to `pending`.
+
+### Consequences
+
+* Good, because a new reader cannot forget the hold: the type makes it state its
+  reader, and the ratchet fails a query that does not compose the predicate.
+* Good, because the window between upload and verdict is closed: nobody but the
+  uploader and the reviewers sees a file that has not been screened.
+* Bad, and the UX price this amendment takes on: a colleague's upload appears
+  in the shared list a few moments after it was uploaded, once screened, rather
+  than at once with a progress badge; for a large file or a long ingest queue that
+  is minutes. The uploader sees their own file from the first moment, with its
+  progress, and the upload summary is theirs alone anyway. A file whose reading
+  failed before a verdict, and a legacy row stranded at `uploaded`, stay with
+  their uploader (who may retry or delete) and the reviewers. Uploading a file
+  under the name of a colleague's held file is refused as a taken name, without
+  saying whose.
+* Bad, because a signed image URL is asked again as the person it names, by the
+  member rule: a reviewer opens a colleague's held image through the preview,
+  not through the optimizer's URL.
 
 ## More Information
 

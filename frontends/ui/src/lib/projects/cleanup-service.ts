@@ -56,7 +56,9 @@ import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
 import { moveFolderToBin, restoreFolderFromBin } from './folder-bin'
 import { createProjectFolder, listProjectFolders } from './folder-service'
 import { findProjectInOrg } from './repository'
-import { deleteEmptyCreatedFolder, findDocumentScreening } from './cleanup-repository'
+import { deleteEmptyCreatedFolder } from './cleanup-repository'
+import { keepReadable, type ShelfReader } from '@/lib/documents/document-reader'
+import { shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { CLEANUP_CATEGORIES, ruleCandidates, type CleanupCategory, type CleanupDocumentFacts } from './cleanup-rules'
 import { CLEANUP_PARTIALLY_UNDONE_REASON, type CleanupProposal, type CleanupProposalItem } from './cleanup-types'
 
@@ -77,12 +79,17 @@ interface ModelCandidate {
   reason: string
 }
 
-async function listAllDocuments(projectId: string, organizationId: string, hiddenFolderIds: string[]): Promise<DocumentListRow[]> {
+async function listAllDocuments(
+  projectId: string,
+  organizationId: string,
+  hiddenFolderIds: string[],
+  reader: ShelfReader
+): Promise<DocumentListRow[]> {
   const rows: DocumentListRow[] = []
-  let page = await listProjectDocumentPage(projectId, organizationId, { hiddenFolderIds })
+  let page = await listProjectDocumentPage(projectId, organizationId, { hiddenFolderIds, reader })
   rows.push(...page.rows)
   while (page.nextCursor && rows.length < CLEANUP_MAX_DOCUMENTS) {
-    page = await listProjectDocumentPage(projectId, organizationId, { hiddenFolderIds, cursor: page.nextCursor })
+    page = await listProjectDocumentPage(projectId, organizationId, { hiddenFolderIds, reader, cursor: page.nextCursor })
     rows.push(...page.rows)
   }
   return rows.slice(0, CLEANUP_MAX_DOCUMENTS)
@@ -97,18 +104,19 @@ async function writableFacts(session: AuthorizedSession, projectId: string): Pro
     listProjectFolders(projectId, session),
   ])
   const pathOf = new Map(folders.map((folder) => [folder.id, folder.path]))
-  const rows = await listAllDocuments(projectId, session.organizationId, [...access.hiddenFolderIds])
+  // The closer's own reader (ADR-0083): screened files, and the held ones they
+  // uploaded or review. Only `screeningPassed` facts reach the model below.
+  const reader = await shelfReaderFor(session, { scope: 'project', projectId })
+  const rows = await listAllDocuments(projectId, session.organizationId, [...access.hiddenFolderIds], reader)
   const reconciled = await reconcileDocumentStatuses(
     rows.filter((row) => access.isVisible(row.folderId) && access.levelOf(row.folderId) === 'write'),
     session.organizationId
   )
-  const screening = await findDocumentScreening(
-    session.organizationId,
-    projectId,
-    reconciled.map((row) => row.id)
-  )
-  const writable = reconciled.filter(
-    (row) => row.status !== 'quarantined' && screening.get(row.id)?.screeningOutcome !== 'quarantined'
+  // Narrowed again after the reconcile, which can turn a row `quarantined`
+  // (the verdict travels with the status). A quarantined file is not proposed
+  // at all, to anyone: the reviewers decide about it, not a clean-out.
+  const writable = keepReadable(reconciled, reader).filter(
+    (row) => row.status !== 'quarantined' && row.screeningOutcome !== 'quarantined'
   )
   const versions = await summarizeDocumentVersions(
     session.organizationId,
@@ -126,7 +134,7 @@ async function writableFacts(session: AuthorizedSession, projectId: string): Pro
     authoredBy: row.authoredBy,
     contentHash: row.contentHash ?? null,
     createdAt: new Date(row.createdAt).toISOString(),
-    screeningPassed: SCREENING_PASSED.has(screening.get(row.id)?.screeningOutcome ?? ''),
+    screeningPassed: SCREENING_PASSED.has(row.screeningOutcome ?? ''),
   }))
 }
 

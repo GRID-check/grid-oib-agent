@@ -113,8 +113,9 @@ import {
   type ReindexProjectPayload,
   type ReingestFailedPayload,
 } from '@/lib/jobs-queue/types'
-import { getAccessibleDocument } from './access'
-import { quarantineReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
+import { findDocumentForSession, getAccessibleDocument } from './access'
+import { hasPassedScreening, internalRead, memberReader, SCREENED_ONLY } from './document-reader'
+import { maySeeHeld, shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { recordDocumentAccess } from '@/lib/download-log/service'
 import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
 import { eraseDocumentObjectsOrKeepRow } from './object-cleanup'
@@ -448,7 +449,7 @@ export async function dispatchIngest(
   // the organization: the document's project and the member who put it there.
   // Read from the row rather than threaded through every caller; a failed read
   // books the spend to the organization alone, never fails the dispatch.
-  const attribution = await findDocumentInOrg(documentId, organizationId).catch(() => null)
+  const attribution = await findDocumentInOrg(documentId, organizationId, internalRead('ingest')).catch(() => null)
   // The content gate's rules (ADR-0083). Every path into the index passes this
   // line — upload, re-ingest, re-index, Archiv, chat, the IFC digest — so the
   // gate is not something a new caller has to remember. A policy that cannot
@@ -557,17 +558,17 @@ export async function listDocumentsPage(
   // `limit` is deliberately not passed: the repository's own default is the
   // page size, and a second copy of it here could drift from the real one.
   // A file in quarantine is listed for its uploader and its reviewers only (ADR-0083).
-  const quarantineReader = await quarantineReaderFor(session, { scope: 'project', projectId })
+  const reader = await shelfReaderFor(session, { scope: 'project', projectId })
   const page = await listProjectDocumentPage(projectId, session.organizationId, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
-    quarantineReader,
+    reader,
     authoredBy: options.authoredBy,
     // Archived documents have LEFT the working set, so they are absent unless
     // the caller says otherwise (ADR-0054).
     includeArchived: options.includeArchived,
     cursor: options.cursor,
   })
-  return toListedPage(session, page, { quarantineReader })
+  return toListedPage(session, page, reader)
 }
 
 /**
@@ -586,12 +587,12 @@ export async function resolveProjectDocumentsByName(
   filenames: readonly string[]
 ): Promise<ListedDocument[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  const quarantineReader = await quarantineReaderFor(session, { scope: 'project', projectId })
+  const reader = await shelfReaderFor(session, { scope: 'project', projectId })
   const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
-    quarantineReader,
+    reader,
   })
-  return toListedDocuments(session, rows, { quarantineReader })
+  return toListedDocuments(session, rows, reader)
 }
 
 /**
@@ -628,7 +629,7 @@ export async function probeProjectDocumentNames(
   // taken name (`assertMayReplaceQuarantined`).
   return findProjectDocumentsByNames(projectId, session.organizationId, names, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
-    quarantineReader: await quarantineReaderFor(session, { scope: 'project', projectId }),
+    reader: await shelfReaderFor(session, { scope: 'project', projectId }),
   })
 }
 
@@ -818,14 +819,14 @@ export async function searchProjectDocuments(
   if (hits.length === 0) return { hits: [] }
   // The canonical rows, hydrated exactly as the listing hydrates them, so a
   // semantic result is always a real, visible document with its live status.
-  const quarantineReader = await quarantineReaderFor(session, { scope: 'project', projectId })
+  const reader = await shelfReaderFor(session, { scope: 'project', projectId })
   const rows = await findProjectDocumentsByFilenames(
     projectId,
     session.organizationId,
     hits.map((hit) => hit.file_name),
-    { hiddenFolderIds: [...access.hiddenFolderIds], quarantineReader }
+    { hiddenFolderIds: [...access.hiddenFolderIds], reader }
   )
-  return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows, { quarantineReader })) }
+  return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows, reader)) }
 }
 
 export interface UploadDocumentInput {
@@ -1079,7 +1080,7 @@ export async function dispatchDocument(
    * be cheaper and weaker: the next caller would simply be able to get it
    * wrong, which is exactly what happened.
    */
-  const row = await findDocumentInOrg(input.documentId, input.organizationId)
+  const row = await findDocumentInOrg(input.documentId, input.organizationId, internalRead('ingest'))
   // An allow-list on a row that must EXIST. `if (row && …)` read a missing row
   // as permission to ingest, which is the one default this guard was moved here
   // to stop making: the argument for reading the row is "never trust the
@@ -1329,7 +1330,7 @@ function dispatchInputOf(organizationId: string, payload: BimExtractPayload): Di
  * superseded while it waited.
  */
 async function jobStillOwnsRow(input: DispatchDocumentInput): Promise<boolean> {
-  const row = await findDocumentInOrg(input.documentId, input.organizationId)
+  const row = await findDocumentInOrg(input.documentId, input.organizationId, internalRead('ingest'))
   if (!row) return false
   if (row.storageKey !== input.storageKey || row.status !== 'processing') return false
   return mayBeIndexed(row, input.versionId ?? null)
@@ -1798,7 +1799,10 @@ export async function runReindexSlice(
     return { done: true, payload }
   }
 
+  // Every row, held ones too: a re-index is an ingest, and a held file is read
+  // again through the same gate (a quarantined one is dispatched for nobody).
   const { rows, nextCursor } = await listProjectDocumentPage(payload.projectId, session.organizationId, {
+    reader: internalRead('ingest'),
     authoredBy: 'user',
     cursor: payload.cursor ?? undefined,
     limit: REINDEX_SLICE_DOCUMENTS,
@@ -1988,7 +1992,7 @@ export async function redispatchStuckDocument(
   organizationId: string,
   documentId: string
 ): Promise<StuckDocumentOutcome> {
-  const doc = await findDocumentInOrg(documentId, organizationId)
+  const doc = await findDocumentInOrg(documentId, organizationId, internalRead('ingest'))
   // Gone, or moved on since the sweep read it.
   if (!doc || doc.status !== 'processing') return 'gone'
 
@@ -2247,7 +2251,9 @@ export async function deleteDocument(
   documentId: string,
   request: Request
 ): Promise<void> {
-  const doc = await findDocumentInOrg(documentId, session.organizationId)
+  // Through the hold (ADR-0083): a member who may not see a held file is told
+  // it does not exist, rather than allowed to delete it.
+  const doc = await findDocumentForSession(session, documentId)
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
 
   // A delete is a write in the document's folder (ADR-0085): the project's
@@ -2676,6 +2682,10 @@ export async function getDocumentThumbnail(
 ): Promise<{ url: string | null }> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) return { url: null }
+  // No derivative of a held file (ADR-0083), for its uploader and its reviewers
+  // too: the ingest draws one only after the screen passes, and one left from
+  // earlier bytes or an earlier verdict is not this file's to show.
+  if (!hasPassedScreening(doc)) return { url: null }
 
   const thumbnailKey = buildThumbnailStorageKey(doc.storageKey)
   if (!thumbnailKey) return { url: null }
@@ -2748,7 +2758,11 @@ export async function streamDocumentImage(
   }
 
   const { organizationId, userId, variant } = verified.claims
-  const doc = await findDocumentInOrg(documentId, organizationId)
+  // The person the URL names, by the hold (ADR-0083); a thumbnail is a
+  // derivative, and none is served for a file whose screening has not passed,
+  // whoever asks (`getDocumentThumbnail`).
+  const reader = variant === 'thumb' ? SCREENED_ONLY : memberReader(userId)
+  const doc = await findDocumentInOrg(documentId, organizationId, reader)
   if (!doc?.storageKey) throw new NotFoundError()
   // The URL outlives the moment it was minted, and the optimizer's fetch has no
   // session, so the person it names is asked again: a folder they can no longer
@@ -2809,6 +2823,10 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   const [reconciled] = await reconcileDocumentStatuses([doc], session.organizationId)
+  // The rule again, on the row the reconcile handed back (ADR-0083): a file
+  // re-read under an earlier pass can come back `quarantined`, and the read
+  // above only let it through on that earlier verdict.
+  if (!hasPassedScreening(reconciled) && !(await maySeeHeld(session, reconciled))) throw new NotFoundError()
   const [openVersion, [versionSummary]] = await Promise.all([
     findOpenVersion(reconciled.id, session.organizationId),
     listDocumentVersionSummaries([reconciled.id], session.organizationId),

@@ -41,6 +41,10 @@ const repo = vi.hoisted(() => ({
   profile: emptyProfile() as ProjectProfile | null,
 }))
 
+// How the session reads the project's held files (ADR-0083): a member here.
+vi.mock('@/lib/upload-screening/quarantine-reviewers', () => ({
+  shelfReaderFor: vi.fn(async () => ({ kind: 'member', userId: 'user-1' })),
+}))
 vi.mock('@/lib/projects/repository', () => ({
   // Read under the project's row lock, inside the binding's own transaction.
   lockProjectProfile: vi.fn(async () => repo.profile),
@@ -431,7 +435,10 @@ describe('restricted folders (ADR-0084)', () => {
     const listed = await listDocumentRoles('proj-1', session)
 
     expect(getHiddenFolderIds).toHaveBeenCalledWith(session, 'proj-1')
-    expect(repository.listProjectDocumentRoles).toHaveBeenCalledWith('proj-1', { hiddenFolderIds: [HONORARE] })
+    expect(repository.listProjectDocumentRoles).toHaveBeenCalledWith('proj-1', {
+      hiddenFolderIds: [HONORARE],
+      documents: { kind: 'member', userId: 'user-1' },
+    })
     expect(listed.map((b) => b.filename)).toEqual(['bplan.pdf'])
   })
 

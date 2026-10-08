@@ -22,6 +22,10 @@ vi.mock('@/lib/authz/folder-access', async () => ({
   loadCustomFolderTree: vi.fn(),
   clearanceOf: vi.fn(),
 }))
+// The reader's hold (ADR-0083): a member, who sees screened files and their own held ones.
+vi.mock('@/lib/upload-screening/quarantine-reviewers', () => ({
+  shelfReaderFor: vi.fn(async () => ({ kind: 'member', userId: 'user-1' })),
+}))
 vi.mock('@/lib/sharing/directory', () => ({ loadOrganizationDirectory: vi.fn() }))
 
 import { NotFoundError } from '@/lib/api/errors'
@@ -346,7 +350,10 @@ describe('listProjectUploadHistory', () => {
     const { uploads: entries } = await listProjectUploadHistory(session, 'proj-1')
 
     expect(loadCustomFolderTree).toHaveBeenCalledWith('org-1', 'proj-1')
-    expect(countBatchDocumentsByStatus).toHaveBeenCalledWith('org-1', [BATCH_ID, OTHER], { hiddenFolderIds: ['f-hidden'] })
+    expect(countBatchDocumentsByStatus).toHaveBeenCalledWith('org-1', [BATCH_ID, OTHER], {
+      hiddenFolderIds: ['f-hidden'],
+      reader: { kind: 'member', userId: 'user-1' },
+    })
     expect(entries.map((entry) => entry.id)).toEqual([BATCH_ID])
     expect(entries[0]).toMatchObject({ expectedCount: 2, counts: { ready: 2, quarantined: 0 } })
   })
@@ -419,7 +426,10 @@ describe('listProjectUploadHistory', () => {
       uploads: [entry],
     } = await listProjectUploadHistory(session, 'proj-1')
 
-    expect(countBatchDocumentsByStatus).toHaveBeenCalledWith('org-1', [BATCH_ID], { hiddenFolderIds: ['f-binned'] })
+    expect(countBatchDocumentsByStatus).toHaveBeenCalledWith('org-1', [BATCH_ID], {
+      hiddenFolderIds: ['f-binned'],
+      reader: { kind: 'member', userId: 'user-1' },
+    })
     expect(entry).toMatchObject({ expectedCount: 9, unchangedCount: 3, failedCount: 1, excludedCount: 2, counts: { ready: 4 } })
   })
 

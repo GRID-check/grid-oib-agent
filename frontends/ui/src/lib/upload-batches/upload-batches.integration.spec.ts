@@ -21,6 +21,7 @@ import { sql } from 'drizzle-orm'
 import type { Document } from '@/lib/db/schema'
 import type { QuarantineCursor } from '@/lib/documents/repository'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { REVIEWER_READER, internalRead } from '@/lib/documents/document-reader'
 
 vi.mock('server-only', () => ({}))
 
@@ -160,13 +161,18 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
 
     // A reviewer releases it: back in flight under a new job. A read that saw
     // the row in flight before and resolved job-1 must not land on job-2's
-    // dispatch, though the status it saw is the row's status again.
-    await inTenant(ORG, () =>
-      db.execute(sql`
-        UPDATE documents SET status = 'pending', error_message = NULL, metadata = '{"ingestJobId":"job-2"}'::jsonb
-        WHERE id = ${id}::uuid
-      `)
-    )
+    // dispatch, though the status it saw is the row's status again. Through
+    // the release and the dispatch after it, the one way out of quarantine
+    // (migration 0120).
+    await inTenant(ORG, () => db.execute(sql`UPDATE documents SET content_hash = 'sha256:lohn' WHERE id = ${id}::uuid`))
+    expect(
+      await documentsRepo.markScreeningReleased(id, ORG, {
+        contentHash: 'sha256:lohn',
+        releasedBy: USER,
+        releasedAt: new Date(),
+      })
+    ).toBe(true)
+    expect(await documentsRepo.setDocumentIngestJob(id, ORG, 'job-2')).toBe(true)
     expect(await settle('job-1')).toBe(false)
     expect(await decisions()).toHaveLength(1)
 
@@ -228,7 +234,7 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     // No longer quarantined, so a second release takes nothing.
     expect(await release('sha256:seen')).toBe(false)
 
-    const row = await documentsRepo.findDocumentInOrg(id, ORG)
+    const row = await documentsRepo.findDocumentInOrg(id, ORG, internalRead('ingest'))
     expect(row).toMatchObject({
       status: 'uploaded',
       screeningOutcome: 'released',
@@ -314,8 +320,8 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     const byStatus = (rows: Awaited<ReturnType<typeof repo.countBatchDocumentsByStatus>>) =>
       Object.fromEntries(rows.map((row) => [row.status, row.count]))
 
-    expect(byStatus(await repo.countBatchDocumentsByStatus(ORG, [batch]))).toEqual({ completed: 2, quarantined: 1 })
-    expect(byStatus(await repo.countBatchDocumentsByStatus(ORG, [batch], { hiddenFolderIds: [folderId] }))).toEqual({
+    expect(byStatus(await repo.countBatchDocumentsByStatus(ORG, [batch], { reader: REVIEWER_READER }))).toEqual({ completed: 2, quarantined: 1 })
+    expect(byStatus(await repo.countBatchDocumentsByStatus(ORG, [batch], { hiddenFolderIds: [folderId], reader: REVIEWER_READER }))).toEqual({
       completed: 1,
     })
   })

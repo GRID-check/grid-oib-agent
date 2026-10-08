@@ -65,6 +65,7 @@ import { canManageArchiv } from '@/lib/authz/organizations'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findDocumentInOrg } from '@/lib/documents/repository'
 import { makeDocument } from '@/test-utils/db-fixtures'
+import { mayReadDocument, memberReader, REVIEWER_READER, SCREENED_ONLY } from '@/lib/documents/document-reader'
 import { resolveInternalModel } from './internal-access'
 import { getAccessibleModel, getModelForDocument, listAccessibleModels } from './model-service'
 import { listBimModels } from './repository'
@@ -88,7 +89,10 @@ const quarantinedArchivIfc = (): Document =>
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(findDocumentInOrg).mockResolvedValue(quarantinedArchivIfc())
+  // The repository answers each read by the reader it is given (the in-memory
+  // twin of `documentVisibleTo`).
+  const row = quarantinedArchivIfc()
+  vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) => (mayReadDocument(row, reader) ? row : null))
   vi.mocked(canManageArchiv).mockReturnValue(false)
   vi.mocked(requireProjectAccess).mockImplementation(async (_session, _projectId, permission) => {
     if (permission === 'project:manage') throw new NotFoundError('Project not found')
@@ -110,9 +114,10 @@ describe('the model of a quarantined IFC', () => {
 
   it("is left out of a member's model list", async () => {
     await listAccessibleModels(member, 'proj-1')
-    expect(vi.mocked(listBimModels).mock.calls[0][1]?.quarantineReaders).toEqual({
-      project: 'member-1',
-      archiv: 'member-1',
+    expect(vi.mocked(listBimModels).mock.calls[0][1]?.reader).toEqual({
+      kind: 'shelves',
+      project: memberReader('member-1'),
+      archiv: memberReader('member-1'),
     })
   })
 
@@ -124,9 +129,10 @@ describe('the model of a quarantined IFC', () => {
       ReturnType<typeof requireProjectAccess>
     >)
     await listAccessibleModels(member, 'proj-1')
-    expect(vi.mocked(listBimModels).mock.calls[0][1]?.quarantineReaders).toEqual({
-      project: undefined,
-      archiv: 'member-1',
+    expect(vi.mocked(listBimModels).mock.calls[0][1]?.reader).toEqual({
+      kind: 'shelves',
+      project: REVIEWER_READER,
+      archiv: memberReader('member-1'),
     })
 
     vi.mocked(requireProjectAccess).mockImplementation(async (_session, _projectId, permission) => {
@@ -135,9 +141,10 @@ describe('the model of a quarantined IFC', () => {
     })
     vi.mocked(canManageArchiv).mockReturnValue(true)
     await listAccessibleModels(member, 'proj-1')
-    expect(vi.mocked(listBimModels).mock.calls[1][1]?.quarantineReaders).toEqual({
-      project: 'member-1',
-      archiv: undefined,
+    expect(vi.mocked(listBimModels).mock.calls[1][1]?.reader).toEqual({
+      kind: 'shelves',
+      project: memberReader('member-1'),
+      archiv: REVIEWER_READER,
     })
   })
 
@@ -145,6 +152,6 @@ describe('the model of a quarantined IFC', () => {
     await expect(resolveInternalModel({ organizationId: 'org-1', modelId: 'model-1' })).rejects.toBeInstanceOf(
       NotFoundError
     )
-    expect(vi.mocked(listBimModels).mock.calls[0][1]).toMatchObject({ withoutQuarantined: true })
+    expect(vi.mocked(listBimModels).mock.calls[0][1]).toMatchObject({ reader: SCREENED_ONLY })
   })
 })

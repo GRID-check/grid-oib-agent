@@ -718,8 +718,14 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   return rows.map((row) => {
     const resolution = resolutions.get(row.id)
     const meta = metaByRow.get(row.id) ?? {}
+    // The verdict travels with the status, on a row that carries one, so a
+    // listing that narrows after this read (`keepReadable`) reads the new one.
+    const verdict =
+      resolution && 'screeningOutcome' in resolution && resolution.screeningOutcome && 'screeningOutcome' in row
+        ? { screeningOutcome: resolution.screeningOutcome }
+        : {}
     const base = resolution
-      ? { ...row, status: resolution.status, errorMessage: resolution.errorMessage }
+      ? { ...row, status: resolution.status, errorMessage: resolution.errorMessage, ...verdict }
       : row
     return { ...base, ...meta, queueAhead: queueAheadByRow.get(row.id) ?? null }
   })

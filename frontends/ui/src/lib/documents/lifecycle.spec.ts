@@ -151,7 +151,7 @@ import {
   listDocumentVersions,
   promoteVersionToPublished,
 } from './version-repository'
-import { renderVersionBytes, writeVersionContent } from './version-content'
+import { readVersionTextForTask, renderVersionBytes, writeVersionContent } from './version-content'
 import { DocumentDeletedError, OpenVersionExistsError } from './unique-conflicts'
 import {
   createDocumentVersion,
@@ -1332,6 +1332,27 @@ describe('request_changes and the revision task', () => {
       // The re-filing carries the permissions the original filing carried.
       requester: { userId: 'user_author', email: null },
     })
+  })
+
+  // The run hands the text to a model and the task is listed to the whole
+  // project: a held document opens none (ADR-0083).
+  it('opens no task for a document whose screening has not passed', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const held = { ...document, status: 'quarantined', screeningOutcome: 'quarantined' as const }
+    vi.mocked(getAccessibleDocument).mockResolvedValue(held)
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ originConversationId: null }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue({
+      ...version({ originConversationId: null }),
+      state: 'changes_requested',
+      reviewComment: 'Die Fluchtweglänge stimmt nicht',
+    })
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'request_changes', {
+      comment: 'Die Fluchtweglänge stimmt nicht',
+    })
+
+    expect(delegateTask).not.toHaveBeenCalled()
+    expect(readVersionTextForTask).not.toHaveBeenCalled()
   })
 
   it('opens one for a conversation-born version when the reviewer asked outright', async () => {

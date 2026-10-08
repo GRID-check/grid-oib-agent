@@ -159,7 +159,7 @@ import {
   resolveArchivDocumentsByName,
   searchArchivDocuments,
 } from './service'
-import { makeDocument } from '@/test-utils/db-fixtures'
+import { makeDocument, makeLiveDocumentMatch } from '@/test-utils/db-fixtures'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { DocumentMetadata, ReconcilableDocument } from '@/lib/documents/reconcile-status'
 import type { SearchedDocument } from '@/lib/documents/service'
@@ -208,7 +208,7 @@ describe('listArchiv', () => {
 
     expect(result.collectionName).toBe('archiv_org-1')
     expect(result.canManage).toBe(true)
-    expect(listArchivDocuments).toHaveBeenCalledWith('org-1', { cursor: undefined })
+    expect(listArchivDocuments).toHaveBeenCalledWith('org-1', { cursor: undefined, reader: { kind: 'reviewer' } })
     expect(result.nextCursor).toBeNull()
   })
 
@@ -222,7 +222,7 @@ describe('listArchiv', () => {
 
     const result = await listArchiv(session, { cursor })
 
-    expect(listArchivDocuments).toHaveBeenCalledWith('org-1', { cursor })
+    expect(listArchivDocuments).toHaveBeenCalledWith('org-1', { cursor, reader: { kind: 'reviewer' } })
     expect(result.nextCursor).toBe(encodeDocumentListCursor(next))
     expect(decodeDocumentListCursor(result.nextCursor ?? '')).toEqual(next)
   })
@@ -279,11 +279,11 @@ describe('listArchiv', () => {
     await listArchiv(session, { includeArchived: true, authoredBy: 'agent' })
 
     // A member who does not curate the Büroablage is listed only the
-    // quarantined files they uploaded (ADR-0083).
+    // held files they uploaded (ADR-0083).
     expect(listArchivDocuments).toHaveBeenCalledWith('org-1', {
       includeArchived: true,
       authoredBy: 'agent',
-      quarantineReader: 'user-1',
+      reader: { kind: 'member', userId: 'user-1' },
     })
   })
 
@@ -294,7 +294,7 @@ describe('listArchiv', () => {
 
     await listArchiv(session)
 
-    expect(vi.mocked(listArchivDocuments).mock.calls[0][1]).toEqual({ quarantineReader: undefined })
+    expect(vi.mocked(listArchivDocuments).mock.calls[0][1]).toEqual({ reader: { kind: 'reviewer' } })
   })
 
   // Every row carries the fields a project's listing carries, assignees
@@ -353,7 +353,7 @@ describe('searchArchivDocuments', () => {
     expect(fetchSemanticHits).toHaveBeenCalledWith('archiv_org-1', 'fire escape', 20)
     // The join reads the hit names directly, not the paged listing — a hit on
     // a document past the first page must still resolve.
-    expect(findArchivDocumentsByFilenames).toHaveBeenCalledWith('org-1', ['plan.pdf'], { quarantineReader: 'user-1' })
+    expect(findArchivDocumentsByFilenames).toHaveBeenCalledWith('org-1', ['plan.pdf'], { reader: { kind: 'member', userId: 'user-1' } })
     expect(listArchivDocuments).not.toHaveBeenCalled()
     // Joined against the Archiv's own reconciled rows (not the raw backend hits).
     expect(joinHitsToFiles).toHaveBeenCalledWith(backendHits, expect.arrayContaining([expect.objectContaining({ id: 'd1' })]))
@@ -395,7 +395,7 @@ describe('resolveArchivDocumentsByName', () => {
     vi.mocked(canManageArchiv).mockReturnValue(false)
     const documents = await resolveArchivDocumentsByName(session, ['alt.pdf'])
 
-    expect(findArchivDocumentsByFilenames).toHaveBeenCalledWith('org-1', ['alt.pdf'], { quarantineReader: 'user-1' })
+    expect(findArchivDocumentsByFilenames).toHaveBeenCalledWith('org-1', ['alt.pdf'], { reader: { kind: 'member', userId: 'user-1' } })
     expect(listArchivDocuments).not.toHaveBeenCalled()
     expect(documents.map((doc) => doc.id)).toEqual(['d9'])
     expect(documents[0]).not.toHaveProperty('metadata')
@@ -485,7 +485,7 @@ describe('uploadArchivDocument', () => {
 
     it('re-files the one document when the same name is uploaded into a different folder', async () => {
       vi.mocked(findFolderPathInArchiv).mockResolvedValueOnce('Pläne')
-      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue(makeLiveDocumentMatch({
         id: 'archiv-doc-1',
         storageKey: 'org/org-1/archiv/doc/archiv-doc-1/plan.pdf',
         storageBucket: 'test-bucket',
@@ -493,7 +493,7 @@ describe('uploadArchivDocument', () => {
         contentHash: null,
         folderId: null,
         status: 'ready',
-      })
+      }))
 
       const result = await uploadArchivDocument(session, makeFile(), request, { folderId: 'folder-2' })
 
@@ -510,7 +510,7 @@ describe('uploadArchivDocument', () => {
     it('does nothing when the same bytes are already filed where this upload would file them', async () => {
       const { contentDigest } = await import('@/lib/documents/content-digest')
       const digest = contentDigest(Buffer.from(new ArrayBuffer(8)))
-      vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+      vi.mocked(findLiveDocumentByFilename).mockResolvedValue(makeLiveDocumentMatch({
         id: 'archiv-doc-1',
         storageKey: 'org/org-1/archiv/doc/archiv-doc-1/plan.pdf',
         storageBucket: 'test-bucket',
@@ -518,7 +518,7 @@ describe('uploadArchivDocument', () => {
         contentHash: digest,
         folderId: null,
         status: 'completed',
-      })
+      }))
 
       const result = await uploadArchivDocument(session, makeFile(), request)
 
@@ -700,7 +700,7 @@ describe('deleteArchivDocument', () => {
    * row's chunks. Listed, downloadable, findable by nothing, billed twice.
    */
   it('replaces an Archiv document of the same name instead of ghosting it', async () => {
-    vi.mocked(findLiveDocumentByFilename).mockResolvedValue({
+    vi.mocked(findLiveDocumentByFilename).mockResolvedValue(makeLiveDocumentMatch({
       id: 'archiv-doc-1',
       storageKey: 'org/org-1/archiv/archiv-doc-1/norm.pdf',
       storageBucket: 'test-bucket',
@@ -708,7 +708,7 @@ describe('deleteArchivDocument', () => {
       contentHash: null,
       folderId: null,
       status: 'ready',
-    })
+    }))
 
     vi.mocked(canManageArchiv).mockReturnValue(true)
 
@@ -721,7 +721,7 @@ describe('deleteArchivDocument', () => {
 
   it('files a re-upload whose document was just deleted as a first upload', async () => {
     vi.mocked(findLiveDocumentByFilename)
-      .mockResolvedValueOnce({
+      .mockResolvedValueOnce(makeLiveDocumentMatch({
         id: 'archiv-deleted',
         storageKey: 'org/org-1/archiv/doc/archiv-deleted/norm.pdf',
         storageBucket: 'test-bucket',
@@ -729,7 +729,7 @@ describe('deleteArchivDocument', () => {
         contentHash: null,
         folderId: null,
         status: 'ready',
-      })
+      }))
       .mockResolvedValueOnce(null)
     vi.mocked(admitReplacementOrDiscard).mockRejectedValueOnce(
       new ReplacedDocumentGoneError('archiv-deleted'),
@@ -759,7 +759,7 @@ describe('deleteArchivDocument', () => {
   it('makes the loser of two concurrent first uploads a new version of the winner', async () => {
     // Both probes missed; the live-name index refused the loser's insert (and
     // `admitOrDiscard` took its object back). The retry finds the winner.
-    const winner = {
+    const winner = makeLiveDocumentMatch({
       id: 'archiv-winner',
       storageKey: 'org/org-1/archiv/doc/archiv-winner/norm.pdf',
       storageBucket: 'test-bucket',
@@ -767,7 +767,7 @@ describe('deleteArchivDocument', () => {
       contentHash: null,
       folderId: null,
       status: 'uploaded',
-    }
+    })
     vi.mocked(findLiveDocumentByFilename).mockResolvedValueOnce(null).mockResolvedValueOnce(winner)
     vi.mocked(admitOrDiscard).mockRejectedValueOnce(new LiveFilenameTakenError('norm.pdf'))
     vi.mocked(canManageArchiv).mockReturnValue(true)
@@ -788,10 +788,10 @@ describe('probeArchivDocumentNames and a quarantined file', () => {
   it("keeps a member to their own, and a curator to every one", async () => {
     vi.mocked(canManageArchiv).mockReturnValue(false)
     await probeArchivDocumentNames(session, ['Honorar.pdf'])
-    expect(findArchivDocumentsByNames).toHaveBeenLastCalledWith('org-1', ['Honorar.pdf'], { quarantineReader: 'user-1' })
+    expect(findArchivDocumentsByNames).toHaveBeenLastCalledWith('org-1', ['Honorar.pdf'], { reader: { kind: 'member', userId: 'user-1' } })
 
     vi.mocked(canManageArchiv).mockReturnValue(true)
     await probeArchivDocumentNames(session, ['Honorar.pdf'])
-    expect(vi.mocked(findArchivDocumentsByNames).mock.lastCall?.[2]).toEqual({ quarantineReader: undefined })
+    expect(vi.mocked(findArchivDocumentsByNames).mock.lastCall?.[2]).toEqual({ reader: { kind: 'reviewer' } })
   })
 })

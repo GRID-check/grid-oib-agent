@@ -841,6 +841,13 @@
       "when": 1792454400007,
       "tag": "0119_answer_feedback_restricted_source",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1792454400008,
+      "tag": "0120_document_quarantine_exit",
+      "breakpoints": true
     }
   ]
 }

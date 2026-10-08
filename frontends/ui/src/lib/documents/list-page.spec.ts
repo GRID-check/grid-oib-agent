@@ -53,6 +53,10 @@ import {
   listArchivDocuments,
 } from '@/lib/archiv/repository'
 import { decodeDocumentListCursor, encodeDocumentListCursor } from './list-cursor'
+import { REVIEWER_READER } from './document-reader'
+
+/** Every row: these pin the shape of the listing SQL, not the hold (`visibility.integration.spec.ts`). */
+const reader = REVIEWER_READER
 
 /** One row as pg-proxy returns it: the select's values, in column order. */
 function wireRow(n: number, cursorCreatedAt = `2026-01-01T00:00:00.${String(n).padStart(6, '0')}`): unknown[] {
@@ -72,6 +76,7 @@ function wireRow(n: number, cursorCreatedAt = `2026-01-01T00:00:00.${String(n).p
     null, // originPath
     null, // contentHash
     'user-1', // createdBy
+    null, // screeningOutcome
     '2026-01-01T00:00:00.000Z', // createdAt
     '2026-01-01T00:00:00.000Z', // updatedAt
     null, // errorMessage
@@ -92,7 +97,7 @@ beforeEach(() => {
 
 describe('listProjectDocumentPage', () => {
   it('asks for one probe row past the page, never more than the cap', async () => {
-    await listProjectDocumentPage('p1', 'org-1', { limit: 10_000 })
+    await listProjectDocumentPage('p1', 'org-1', { reader, limit: 10_000 })
     const { sql, params } = onlyQuery()
     expect(sql).toMatch(/order by "documents"\."created_at" desc, "documents"\."id" asc/i)
     expect(sql).toMatch(/limit \$\d+$/i)
@@ -100,20 +105,20 @@ describe('listProjectDocumentPage', () => {
   })
 
   it('bounds a nonsense limit below as well', async () => {
-    await listProjectDocumentPage('p1', 'org-1', { limit: -5 })
+    await listProjectDocumentPage('p1', 'org-1', { reader, limit: -5 })
     expect(onlyQuery().params.at(-1)).toBe(2)
   })
 
   it('reports no next page when the probe row did not come back', async () => {
     answer = [wireRow(1), wireRow(2)]
-    const page = await listProjectDocumentPage('p1', 'org-1', { limit: 2 })
+    const page = await listProjectDocumentPage('p1', 'org-1', { reader, limit: 2 })
     expect(page.rows).toHaveLength(2)
     expect(page.nextCursor).toBeNull()
   })
 
   it('drops the probe row and points the cursor at the last row it kept', async () => {
     answer = [wireRow(1), wireRow(2), wireRow(3)]
-    const page = await listProjectDocumentPage('p1', 'org-1', { limit: 2 })
+    const page = await listProjectDocumentPage('p1', 'org-1', { reader, limit: 2 })
     expect(page.rows.map((row) => row.filename)).toEqual(['plan-1.pdf', 'plan-2.pdf'])
     expect(page.nextCursor).toEqual({
       createdAt: '2026-01-01T00:00:00.000002',
@@ -126,7 +131,7 @@ describe('listProjectDocumentPage', () => {
   })
 
   it('reads the cursor column at microsecond precision in UTC', async () => {
-    await listProjectDocumentPage('p1', 'org-1')
+    await listProjectDocumentPage('p1', 'org-1', { reader })
     const { sql, params } = onlyQuery()
     expect(sql).toMatch(/to_char\(("documents"\.)?"created_at" AT TIME ZONE 'UTC', \$\d+\)/)
     expect(params).toContain('YYYY-MM-DD"T"HH24:MI:SS.US')
@@ -134,7 +139,7 @@ describe('listProjectDocumentPage', () => {
 
   it('starts strictly after the cursor, with the id breaking a timestamp tie', async () => {
     const cursor = { createdAt: '2026-01-01T00:00:00.123456', id: '00000000-0000-4000-8000-000000000009' }
-    await listProjectDocumentPage('p1', 'org-1', { cursor })
+    await listProjectDocumentPage('p1', 'org-1', { reader, cursor })
     const { sql, params } = onlyQuery()
     expect(sql).toMatch(
       /"documents"\."created_at" < \(\$\d+::timestamp AT TIME ZONE 'UTC'\) OR \("documents"\."created_at" = \(\$\d+::timestamp AT TIME ZONE 'UTC'\) AND "documents"\."id" > \$\d+::uuid\)/,
@@ -144,6 +149,7 @@ describe('listProjectDocumentPage', () => {
 
   it('keeps the tenant and shelf predicates beside the cursor', async () => {
     await listProjectDocumentPage('p1', 'org-1', {
+      reader,
       cursor: { createdAt: '2026-01-01T00:00:00.000000', id: '00000000-0000-4000-8000-000000000001' },
     })
     const { sql, params } = onlyQuery()
@@ -159,7 +165,7 @@ describe('listArchivDocuments', () => {
   it('pages the Archiv with the same order, bound and cursor', async () => {
     const cursor = { createdAt: '2026-01-01T00:00:00.000001', id: '00000000-0000-4000-8000-000000000001' }
     answer = [wireRow(1), wireRow(2)]
-    const page = await listArchivDocuments('org-1', { cursor, limit: 1 })
+    const page = await listArchivDocuments('org-1', { reader, cursor, limit: 1 })
     const { sql, params } = onlyQuery()
     expect(sql).toMatch(/"documents"\."scope" = \$\d+/)
     expect(sql).toMatch(/order by "documents"\."created_at" desc, "documents"\."id" asc/i)
@@ -173,13 +179,13 @@ describe('listArchivDocuments', () => {
 
 describe('findArchivDocumentsByFilenames', () => {
   it('asks nothing for no names', async () => {
-    expect(await findArchivDocumentsByFilenames('org-1', [])).toEqual([])
+    expect(await findArchivDocumentsByFilenames('org-1', [], { reader })).toEqual([])
     expect(captured).toHaveLength(0)
   })
 
   it('looks the names up in both Unicode forms, bounded, inside the Archiv shelf', async () => {
     const composed = 'Übersicht.pdf'.normalize('NFC')
-    await findArchivDocumentsByFilenames('org-1', [composed])
+    await findArchivDocumentsByFilenames('org-1', [composed], { reader })
     const { sql, params } = onlyQuery()
     expect(sql).toMatch(/"documents"\."filename" in \(\$\d+, \$\d+\)/)
     expect(params).toEqual(expect.arrayContaining([composed, composed.normalize('NFD'), 'archiv', 'org-1']))
@@ -187,7 +193,7 @@ describe('findArchivDocumentsByFilenames', () => {
   })
 
   it('matches a name the reader spelled in another case', async () => {
-    await findArchivDocumentsByFilenames('org-1', ['DETAIL.PDF'])
+    await findArchivDocumentsByFilenames('org-1', ['DETAIL.PDF'], { reader })
     const { sql, params } = onlyQuery()
     expect(sql).toMatch(/lower\("documents"\."filename"\) in/)
     expect(params).toEqual(expect.arrayContaining(['DETAIL.PDF', 'detail.pdf']))
@@ -201,13 +207,13 @@ describe('findArchivDocumentsByFilenames', () => {
  */
 describe('findProjectDocumentsByFilenames', () => {
   it('asks nothing for no names', async () => {
-    expect(await findProjectDocumentsByFilenames('p1', 'org-1', ['', '  '])).toEqual([])
+    expect(await findProjectDocumentsByFilenames('p1', 'org-1', ['', '  '], { reader })).toEqual([])
     expect(captured).toHaveLength(0)
   })
 
   it('matches the filename exactly or case-folded, on the listing\'s own shelf and lifecycle', async () => {
     const decomposed = 'Übersicht.PDF'.normalize('NFD')
-    await findProjectDocumentsByFilenames('p1', 'org-1', [decomposed])
+    await findProjectDocumentsByFilenames('p1', 'org-1', [decomposed], { reader })
     const { sql, params } = onlyQuery()
     expect(sql).toMatch(/"documents"\."project_id" = \$\d+/)
     expect(sql).toMatch(/"documents"\."scope" = \$\d+/)
@@ -225,7 +231,7 @@ describe('findProjectDocumentsByFilenames', () => {
 
   it('bounds how many names one query carries', async () => {
     const names = Array.from({ length: FILENAME_LOOKUP_MAX_NAMES + 50 }, (_, i) => `f${i}.pdf`)
-    await findProjectDocumentsByFilenames('p1', 'org-1', names)
+    await findProjectDocumentsByFilenames('p1', 'org-1', names, { reader })
     const { params } = onlyQuery()
     expect(params).toContain(`f${FILENAME_LOOKUP_MAX_NAMES - 1}.pdf`)
     expect(params).not.toContain(`f${FILENAME_LOOKUP_MAX_NAMES}.pdf`)
@@ -259,7 +265,7 @@ describe('the cursor codec', () => {
 describe('findProjectDocumentsByNames', () => {
   it('matches identity and alias keys, person-uploaded rows, every lifecycle', async () => {
     const decomposed = 'Übersicht.pdf'.normalize('NFD')
-    await findProjectDocumentsByNames('p1', 'org-1', [decomposed])
+    await findProjectDocumentsByNames('p1', 'org-1', [decomposed], { reader })
     const { sql, params } = onlyQuery()
     expect(sql).toMatch(/"documents"\."authored_by" = \$\d+/)
     expect(sql).toMatch(/"documents"\."filename" in \(\$\d+, \$\d+\)/)
@@ -278,7 +284,7 @@ describe('findProjectDocumentsByNames', () => {
       '00000000-0000-4000-8000-000000000001', 'a.pdf', null, 1, null, null, 'user', 'active',
     ]]
     const names = Array.from({ length: 700 }, (_, i) => `f${i}.pdf`)
-    const rows = await findProjectDocumentsByNames('p1', 'org-1', names)
+    const rows = await findProjectDocumentsByNames('p1', 'org-1', names, { reader })
     expect(captured).toHaveLength(2)
     for (const query of captured) expect(query.params.at(-1)).toBe(2000)
     // The same row answered both chunks; it is one document.
@@ -288,7 +294,7 @@ describe('findProjectDocumentsByNames', () => {
 
 describe('findArchivDocumentsByNames', () => {
   it('probes the Archiv shelf the same way', async () => {
-    await findArchivDocumentsByNames('org-1', ['EG.pdf'])
+    await findArchivDocumentsByNames('org-1', ['EG.pdf'], { reader })
     const { sql, params } = onlyQuery()
     expect(sql).toMatch(/"documents"\."scope" = \$\d+/)
     expect(sql).toMatch(/lower\("documents"\."filename"\) in/)

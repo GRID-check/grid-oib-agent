@@ -31,6 +31,7 @@ import {
   transitionDocumentVersion,
 } from '@/lib/documents/lifecycle'
 import { findDocumentInOrg } from '@/lib/documents/repository'
+import { internalRead } from '@/lib/documents/document-reader'
 import { openDraftForRevision } from '@/lib/documents/revision'
 import { fileResearchReport, queueResearchReportFiling } from '@/lib/documents/research-report'
 import type { FileResearchReportPayload, JobAttempt } from '@/lib/jobs-queue/types'
@@ -357,7 +358,7 @@ async function fileResultFor(
       actingHuman: false,
     })
   }
-  const document = await findDocumentInOrg(filed.documentId, session.organizationId)
+  const document = await findDocumentInOrg(filed.documentId, session.organizationId, internalRead('just-written'))
   return { documentId: filed.documentId, filename: document?.filename ?? `task-${run.id}` }
 }
 

@@ -14,7 +14,7 @@ import { listAssignmentsWithoutAccessCheck, type AssignedPerson } from '@/lib/as
 import { encodeDocumentListCursor } from './list-cursor'
 import { reconcileDocumentStatuses, type DocumentMetadata } from './reconcile-status'
 import type { DocumentListPage, DocumentListRow } from './repository'
-import { keepVisibleQuarantine } from './quarantine-visibility'
+import { keepReadable, type ShelfReader } from './document-reader'
 
 /**
  * One row of a document listing.
@@ -26,7 +26,7 @@ import { keepVisibleQuarantine } from './quarantine-visibility'
  * anything reading a listing had to re-widen the type to find the faces it
  * renders.
  */
-export type ListedDocument = Omit<DocumentListRow, 'metadata' | 'createdBy'> &
+export type ListedDocument = Omit<DocumentListRow, 'metadata' | 'createdBy' | 'screeningOutcome'> &
   DocumentMetadata & {
     assignees: AssignedPerson[]
     /**
@@ -45,12 +45,6 @@ function sourceDeletedAtOf(metadata: unknown): string | null {
   return typeof at === 'string' && !Number.isNaN(Date.parse(at)) ? at : null
 }
 
-/** Who of a shelf's quarantine this listing's reader may see (`quarantineReaderFor`, ADR-0083). */
-export interface ListingReader {
-  /** Required, so a caller states it: `undefined` is a reviewer, who sees every quarantined row. */
-  quarantineReader: string | undefined
-}
-
 /**
  * What a row needs before it leaves the BFF, whichever query found it: the
  * listing page or a by-name lookup. The CALLER has already authorized the shelf
@@ -59,18 +53,17 @@ export interface ListingReader {
 export async function toListedDocuments(
   session: AuthorizedSession,
   rows: DocumentListRow[],
-  { quarantineReader }: ListingReader,
+  /** The reader the rows' query was narrowed by (`shelfReaderFor`, ADR-0083). */
+  reader: ShelfReader,
 ): Promise<ListedDocument[]> {
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
-  // A row this turns `quarantined` was read as `pending`, so the query let it
-  // through: it is narrowed again here, after the verdict (ADR-0083).
-  const reconciled = keepVisibleQuarantine(
-    await reconcileDocumentStatuses(rows, session.organizationId),
-    quarantineReader,
-  )
+  // A row the query let through on an earlier verdict (a re-index of a file
+  // that passed before) can come back `quarantined`: it is narrowed again here,
+  // by the same rule, after the verdict (ADR-0083).
+  const reconciled = keepReadable(await reconcileDocumentStatuses(rows, session.organizationId), reader)
 
-  const listed = reconciled.map(({ metadata, createdBy: _createdBy, ...row }) => ({
+  const listed = reconciled.map(({ metadata, createdBy: _createdBy, screeningOutcome: _screening, ...row }) => ({
     ...row,
     sourceDeletedAt: sourceDeletedAtOf(metadata),
   }))
@@ -91,7 +84,7 @@ export async function toListedDocuments(
 export async function toListedPage(
   session: AuthorizedSession,
   page: DocumentListPage,
-  reader: ListingReader,
+  reader: ShelfReader,
 ): Promise<{ documents: ListedDocument[]; nextCursor: string | null }> {
   return {
     documents: await toListedDocuments(session, page.rows, reader),

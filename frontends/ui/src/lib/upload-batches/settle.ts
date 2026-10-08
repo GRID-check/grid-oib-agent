@@ -23,6 +23,7 @@ import { orgRoleHoldsPermission } from '@/lib/authz/org-role-permissions'
 import { resolveSubjectMembership, userHoldsProjectPermission } from '@/lib/authz/project-membership'
 import type { Document, UploadBatch } from '@/lib/db/schema'
 import { findDocumentInOrg } from '@/lib/documents/repository'
+import { internalRead } from '@/lib/documents/document-reader'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, type InboxEmission } from '@/lib/inbox/service'
 import { findProjectInOrg } from '@/lib/projects/repository'
@@ -126,7 +127,9 @@ export async function quarantineReviewersOf(organizationId: string, document: Do
  */
 async function onQuarantined(organizationId: string, documentIds: readonly string[]): Promise<void> {
   await auditOwedQuarantines(organizationId, documentIds)
-  const documents = (await Promise.all(documentIds.map((id) => findDocumentInOrg(id, organizationId)))).filter(
+  const documents = (
+    await Promise.all(documentIds.map((id) => findDocumentInOrg(id, organizationId, internalRead('audit'))))
+  ).filter(
     (row): row is Document => row !== null
   )
   await notifyQuarantineReviewers(organizationId, documents)

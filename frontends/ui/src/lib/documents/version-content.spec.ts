@@ -75,6 +75,7 @@ import { admitRestrictedUse } from '@/lib/conversations/restricted-use'
 import { getAccessibleDocument } from './access'
 import { purgeIngestedChunks } from './collection-file-ref'
 import { findDocumentInOrg } from './repository'
+import { mayReadDocument } from './document-reader'
 import {
   findDocumentVersion,
   findDocumentVersionInOrg,
@@ -518,7 +519,27 @@ describe('readVersionForService — the conversation is part of the predicate', 
       subjectResourceType: 'document',
       subjectResourceId: 'doc_1',
     } as never)
-    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...agentDocument, status: 'quarantined' })
+    // The repository answers by the reader it is asked for (`documentVisibleTo`).
+    const held = { ...agentDocument, status: 'quarantined' }
+    vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) =>
+      mayReadDocument(held, reader) ? held : null
+    )
+
+    await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).rejects.toMatchObject({ status: 404 })
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  // Held from upload until the screen passes, not from the verdict: a person's
+  // upload still on its way through the gate is no model's subject either.
+  it('answers 404 for an upload whose screening has not passed yet (ADR-0083)', async () => {
+    vi.mocked(findConversationInOrg).mockResolvedValue({
+      subjectResourceType: 'document',
+      subjectResourceId: 'doc_1',
+    } as never)
+    const pending = { ...agentDocument, authoredBy: 'user' as const, status: 'pending', screeningOutcome: null }
+    vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) =>
+      mayReadDocument(pending, reader) ? pending : null
+    )
 
     await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).rejects.toMatchObject({ status: 404 })
     expect(s3Client.send).not.toHaveBeenCalled()
@@ -652,6 +673,18 @@ describe('reading a version’s text, and the download log', () => {
     vi.mocked(recordDocumentAccess).mockRejectedValueOnce(Object.assign(new Error('not recorded'), { status: 503 }))
 
     await expect(readVersionContent(session, 'doc_1', 'ver_1')).rejects.toMatchObject({ status: 503 })
+  })
+
+  // A model reads this text, so a document whose screening has not passed
+  // answers 404 to its reviewer too (ADR-0083): no held text in a task.
+  it.each([
+    ['quarantined', { status: 'quarantined', screeningOutcome: 'quarantined' as const }],
+    ['still being screened', { status: 'processing', screeningOutcome: null }],
+  ])('refuses the agent task a document that is %s, before reading a byte', async (_label, held) => {
+    vi.mocked(getAccessibleDocument).mockResolvedValueOnce({ ...document, ...held })
+
+    await expect(readVersionTextForTask(session, 'doc_1', 'ver_1')).rejects.toMatchObject({ status: 404 })
+    expect(s3Client.send).not.toHaveBeenCalled()
   })
 
   it('does not record the read that feeds an agent task: the reviewer never receives those bytes', async () => {

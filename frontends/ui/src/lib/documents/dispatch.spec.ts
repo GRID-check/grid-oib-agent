@@ -84,6 +84,7 @@ import {
   setDocumentIngestJob,
 } from './repository'
 import { makeDocument } from '@/test-utils/db-fixtures'
+import { internalRead } from '@/lib/documents/document-reader'
 import {
   INGEST_DISPATCH_FAILED_MESSAGE,
   RENDITION_REQUIRED_MESSAGE,
@@ -120,7 +121,7 @@ function queuedJob() {
  */
 async function runQueuedJob(attempt: JobAttempt = { last: false }): Promise<void> {
   const queued = queuedJob()
-  const current = await findDocumentInOrg('doc-1', 'org-1')
+  const current = await findDocumentInOrg('doc-1', 'org-1', internalRead('ingest'))
   vi.mocked(findDocumentInOrg).mockResolvedValue({
     ...(current as NonNullable<typeof current>),
     storageKey: String(queued.payload.storageKey),
@@ -552,7 +553,7 @@ describe('an office file is converted, by a job, before it is ingested', () => {
     // later case inherits the rendition-aware signer or a failing write.
     vi.mocked(getSignedUrl).mockResolvedValue(ORIGINAL_URL)
     vi.mocked(isRenditionEnabled).mockReturnValue(false)
-    vi.mocked(setDocumentIngestJob).mockResolvedValue(undefined)
+    vi.mocked(setDocumentIngestJob).mockResolvedValue(true)
   })
 
   it('answers `processing` at once, and the converter is the job’s to call', async () => {
