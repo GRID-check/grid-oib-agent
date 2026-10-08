@@ -1,5 +1,5 @@
 /**
- * The composer's screen for a chat message (ADR-0085, "Chat messages are
+ * The composer's screen for a chat message (ADR-0086, "Chat messages are
  * screened too"): the office's content terms and detectors, run on the text
  * before it leaves the browser.
  *

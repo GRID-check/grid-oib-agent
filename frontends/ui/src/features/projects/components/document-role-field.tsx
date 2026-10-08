@@ -170,7 +170,7 @@ export function DocumentRoleField({
       if (list.length === 0) return
       setBusy(true)
       try {
-        // The office's name screen, before a byte leaves (ADR-0085): a file it
+        // The office's name screen, before a byte leaves (ADR-0086): a file it
         // holds back is not sent, exactly as on the Files page. The server
         // repeats the check, but only after the bytes have arrived. The file
         // lands at the project root, so its name is all there is to screen.

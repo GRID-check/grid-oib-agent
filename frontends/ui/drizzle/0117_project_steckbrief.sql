@@ -1,4 +1,4 @@
--- 0115: the Steckbrief of a project (ADR-0089, ticket „Abgeschlossene Projekte
+-- 0115: the Steckbrief of a project (ADR-0090, ticket „Abgeschlossene Projekte
 -- mit Eckdaten", slice 1b): its period, and everyone who worked on it.
 --
 -- ## The period
@@ -59,13 +59,13 @@ CREATE TABLE IF NOT EXISTS "project_people" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "project_people" IS
-  'Everyone who worked on a project, with or without a Piloti account (0115, ADR-0089). Personal data of people who did not give it: name, function, company, months, an optional account link, nothing else. Deleted outright on request. Never part of the agent''s prompt.';
+  'Everyone who worked on a project, with or without a Piloti account (0115, ADR-0090). Personal data of people who did not give it: name, function, company, months, an optional account link, nothing else. Deleted outright on request. Never part of the agent''s prompt.';
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "project_people_project_idx" ON "project_people" ("organization_id", "project_id", "name");
 --> statement-breakpoint
 SELECT grid_secure_table('project_people', 'organization_id = grid_current_org()');
 --> statement-breakpoint
--- The Steckbrief of a closed project is read-only (ADR-0088): the 0114 guard
+-- The Steckbrief of a closed project is read-only (ADR-0089): the 0114 guard
 -- refuses a person added to one. Deleting a person stays possible: erasure.
 DROP TRIGGER IF EXISTS "project_people_closed_project_guard" ON "project_people";
 --> statement-breakpoint

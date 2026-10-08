@@ -1,7 +1,7 @@
 /**
  * The SQL that finds and changes what was DERIVED from a folder's documents:
  * the chat answers that drew on them, the memory notes drawn from the folder,
- * the reports filed from those conversations (ADR-0087, deletion pipeline).
+ * the reports filed from those conversations (ADR-0088, deletion pipeline).
  *
  * An answer "drew on" a document when its stored sources name it: a cited
  * source (`metadata.citations.sources`) or one read but not cited

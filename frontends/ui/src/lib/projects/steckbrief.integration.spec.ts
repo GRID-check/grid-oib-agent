@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The Steckbrief's tables (ADR-0089, migration 0116) against a REAL Postgres,
+ * The Steckbrief's tables (ADR-0090, migration 0117) against a REAL Postgres,
  * through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \

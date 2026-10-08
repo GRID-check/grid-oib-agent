@@ -1,5 +1,5 @@
 /**
- * One custom role (ADR-0086). `org:members:manage` for both methods; the
+ * One custom role (ADR-0087). `org:members:manage` for both methods; the
  * service refuses a platform role (403), a slug that is not this
  * organization's (404), adding a permission the editor lacks (403), and
  * deleting a role somebody still holds (409).
@@ -33,7 +33,7 @@ export const PATCH = apiRoute<Params>(
 /**
  * `?confirmFolders=1` says the caller was shown the folders that name the role
  * (`GET …/usage`) and deletes it anyway; without it a role that folders name is
- * refused with 409 `role-used-by-folders` (ADR-0087).
+ * refused with 409 `role-used-by-folders` (ADR-0088).
  */
 const deleteQuerySchema = z.object({ confirmFolders: z.literal('1').optional() })
 

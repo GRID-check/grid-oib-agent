@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * A project's uploads, newest first (ticket „Verlauf/Protokoll", ADR-0085):
+ * A project's uploads, newest first (ticket „Verlauf/Protokoll", ADR-0086):
  * when, how many files, and how they ended, as pills. Every member who can
  * open the project reads it; only the uploader's own rows link to the summary,
  * because the summary is the uploader's (the endpoint answers 404 to anyone

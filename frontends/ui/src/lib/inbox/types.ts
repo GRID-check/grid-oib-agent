@@ -119,6 +119,8 @@ export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentatio
   'feedback.submitted': { icon: 'megaphone', i18nKey: 'feedbackSubmitted', tone: 'info' },
   'upload.completed': { icon: 'check-circle', i18nKey: 'uploadCompleted', tone: 'info' },
   'document.quarantined': { icon: 'shield-alert', i18nKey: 'documentQuarantined', tone: 'warning' },
+  'mail_import.completed': { icon: 'check-circle', i18nKey: 'mailImportCompleted', tone: 'info' },
+  'mail_import.failed': { icon: 'alert-triangle', i18nKey: 'mailImportFailed', tone: 'warning' },
 }
 
 /**

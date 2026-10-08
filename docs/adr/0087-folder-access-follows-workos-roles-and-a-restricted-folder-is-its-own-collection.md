@@ -8,7 +8,7 @@ informed: everyone working in this repo
 
 # Folder access follows WorkOS roles, and a restricted folder is its own retrieval collection
 
-> **Partly superseded by [ADR-0087](0087-folder-access-is-read-write-per-role.md)** (2026-10-06):
+> **Partly superseded by [ADR-0088](0088-folder-access-is-read-write-per-role.md)** (2026-10-06):
 > who may see a folder (a role list on `restricted_roles`, replaced by per-role read/write
 > grants that only narrow when nested), the per-conversation mark and the per-socket
 > confinement check (replaced by a per-person record of source folders, judged at read time),
@@ -61,7 +61,7 @@ outside WorkOS moves there; organization admins see everything.
 ## Decision Outcome
 
 **Who: WorkOS custom roles.** *(The folder's role list and the clearance rule in this
-paragraph are superseded by ADR-0087: per-role read/write grants, the minimum over the path;
+paragraph are superseded by ADR-0088: per-role read/write grants, the minimum over the path;
 the session's roles now come from the WorkOS membership, at most 60 s stale.)* An office creates roles such as
 „Geschäftsführung" in Piloti (Organisation → Personen & Zugriff → Eigene
 Rollen), which calls WorkOS's organization role API: slug `org-…`, permissions
@@ -103,7 +103,7 @@ Deleting a restricted folder, or moving a folder so the restricted folders
 above it change, is a change of folder access: it requires `project:manage`
 and is audited as `project.folder.access_changed`, like drawing a restriction.
 
-**Indirect leaks** are closed where the answer can travel. *(Superseded by ADR-0087: the
+**Indirect leaks** are closed where the answer can travel. *(Superseded by ADR-0088: the
 mark, the per-turn confinement check and the `4412` close are replaced by a per-person record
 of the source folders a conversation drew on, admitted per tool round and judged against the
 folders' current access.)* A conversation that
@@ -170,7 +170,7 @@ restricted, so such a check could not fire, and the input that could carry
 restricted content is refused where the run is commissioned.
 
 **Memory from a restricted turn is restricted memory** *(storage by collection superseded
-by ADR-0087: notes record their source folder ids and follow the folders' current access)*
+by ADR-0088: notes record their source folder ids and follow the folders' current access)*
 (product owner,
 2026-10-02: Piloti should remember as it always does; restricted must not feel
 like amnesia). A memory written in a turn whose scope holds restricted
@@ -204,8 +204,8 @@ becomes a `memory_proposal` card, because accepting a card writes open memory.
 Open and restricted notes never consolidate with each other. The decision is
 one function, `src/aiq_agent/memory/restriction.py`, shared by the `remember`
 tool and the reflection stage; the BFF stores only collections that are
-currently restricted collections of the project (as first designed; migration 0112
-ships the column keyed by folder, ADR-0087).
+currently restricted collections of the project (as first designed; migration 0113
+ships the column keyed by folder, ADR-0088).
 
 **Re-classified here as "roles outside WorkOS"** and fixed: third-party
 permission checks (invitations, quarantine reviewers, storage alerts) consulted
@@ -307,7 +307,7 @@ to them. They now ask WorkOS for the organization's roles first.
   nothing) and earlier-turn notes as evidence; `test_shown_notes.py` pins the per-conversation
   record, its bound and that a turn writes what it was shown; `memory-restricted.integration.spec.ts` proves against Postgres that a
   restricted note is served only to a cleared session, never consolidates with an open one, and
-  that migration 0112's CHECK and index hold; `rls-test-db.sh` checks its down migration deletes
+  that migration 0113's CHECK and index hold; `rls-test-db.sh` checks its down migration deletes
   restricted notes rather than opening them.
 * `authz-coverage.spec.ts` covers the new routes.
 * Nothing enforces yet that a NEW read path asks `folder-access.ts`; review is the gate for that.

@@ -162,7 +162,7 @@ things sit beside it rather than instead of it:
   documents, and one press names one as Grundlage. The addition goes through
   the run primitive (`POST /api/projects/{id}/runs/{runId}/documents`, never
   the async proxy), which refuses a document from a folder not every project
-  member may read (ADR-0086), and travels as a job event
+  member may read (ADR-0087), and travels as a job event
   (`POST /v1/jobs/async/job/{id}/documents`), the research tool
   plans it into its next batch, and the receipt shows the row at once, unread
   until a round reaches it. A row already named offers no second add. A row
