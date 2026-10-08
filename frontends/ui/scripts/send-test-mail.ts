@@ -20,8 +20,8 @@
  * edited. The organization's `project-mail-inbox` switch must be on
  * (`GRID_PROJECT_MAIL_INBOX_ENABLED=true` without flag enforcement).
  *
- * A 202 means the mail is queued, not filed: the scheduler's drain files it on
- * its next tick (`POST /api/internal/inbound-mail/drain`, or run the scheduler).
+ * A 202 means the mail is queued, not filed: an `inbound_mail` job on the BFF's
+ * job queue files it, so a `bff-jobs` runner must be up (`node workers/jobs/index.js`).
  *
  * Prints the status and the JSON answer, and maps the answer the way the
  * Worker does, so what you see is what the sending server would be told.
@@ -42,7 +42,7 @@ import {
  */
 function workerOutcome(response: Response): string {
   if (response.status >= 200 && response.status < 300) {
-    return response.status === 202 ? 'accept (queued for the drain)' : 'accept (a duplicate: nothing new stored)'
+    return response.status === 202 ? 'accept (queued for its filing job)' : 'accept (a duplicate: nothing new stored)'
   }
   const rejected = response.headers.get(INBOUND_VERDICT_HEADER) === INBOUND_VERDICT_REJECT
   if (rejected && response.status >= 400 && response.status < 500) return 'reject (bounce)'

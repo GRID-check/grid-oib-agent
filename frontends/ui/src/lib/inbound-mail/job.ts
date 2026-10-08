@@ -377,7 +377,13 @@ async function settleStalled(row: InboundMailMessageRow): Promise<'requeued' | '
     organizationId: row.organizationId,
     matching: { deliveryId: row.id },
   })
-  if (job) return 'waiting'
+  if (job) {
+    // Waiting out a backoff or a hold is progress enough: touched, it leaves
+    // the front of the stalled list, so a mail whose job really is gone is not
+    // starved behind twenty that are only waiting.
+    await touchDelivery(row.organizationId, row.id)
+    return 'waiting'
+  }
   const attempts = row.attempts + 1
   if (attempts >= MAX_ATTEMPTS) {
     const verdict = await giveUp(row, 'job-lost')

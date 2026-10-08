@@ -400,6 +400,9 @@ describe('sweepInboundMail', () => {
       matching: { deliveryId: ROW_ID },
     })
     expect(enqueueJob).not.toHaveBeenCalled()
+    // ...and moves it to the back of the stalled list, so twenty held mails
+    // cannot hide one whose job is gone.
+    expect(touchDelivery).toHaveBeenCalledWith('org_A', ROW_ID)
   })
 
   it('gives a delivery without a job a new one now, counted as an attempt', async () => {
