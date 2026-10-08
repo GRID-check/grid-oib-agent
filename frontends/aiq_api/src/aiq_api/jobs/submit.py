@@ -14,6 +14,7 @@ from aiq_agent.auth import Principal
 from aiq_agent.auth import get_current_principal
 from aiq_agent.common import claim_queue
 from aiq_agent.common.job_admission import JobAdmissionError
+from aiq_agent.knowledge.restricted_collections import base_collection_of
 from aiq_api.auth import get_current_trace_tags
 
 from ..registry import get_agent_config
@@ -326,18 +327,24 @@ def _derive_project_collection(collection_scope: list[str] | None) -> str | None
     once those others are excluded. Returns None if no such entry exists (or
     more than one candidate remains, which indicates an ambiguous scope not
     worth guessing at).
+
+    A restricted folder's collection (``<project collection>_r<12 hex>``,
+    ADR-0084) is part of its project, not a second one: it is read as its base
+    before candidates are counted. Counted as itself, a cleared member's scope
+    held two candidates and recorded no project; recorded as itself, the BFF
+    would resolve it to no project and file the report nowhere.
     """
     if not collection_scope:
         return None
 
     base_collection = _base_collection_name()
-    candidates = [
-        collection
+    candidates = {
+        base_collection_of(collection)
         for collection in collection_scope
         if collection != base_collection and not collection.startswith("s_") and not collection.startswith("archiv_")
-    ]
+    }
     if len(candidates) == 1:
-        return candidates[0]
+        return candidates.pop()
     return None
 
 

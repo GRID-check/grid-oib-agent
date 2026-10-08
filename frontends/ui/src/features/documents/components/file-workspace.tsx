@@ -34,14 +34,21 @@ import {
   tagOptions as tagOptionsOf,
   type FileFilters,
 } from '../lib/file-filters'
-import type { FileShelf } from '../lib/file-shelf'
+import type { FileShelf, FolderAccessLevel } from '../lib/file-shelf'
 import { DEFAULT_FILE_SORT, type FileSort } from '../lib/file-sort'
 import { DocumentActionsTrigger, DocumentObjectMenu } from './document-actions'
+import {
+  DEFAULT_DOCUMENT_ACTIONS,
+  READ_ONLY_DOCUMENT_ACTIONS,
+  type DocumentActionKind,
+} from './document-actions/action-entries'
+import { roleNamesFor, useOrganizationRoles } from '@/features/organization/hooks/use-organization-roles'
 import { FileBrowserPane } from './file-browser-pane'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { FileFilterMenu } from './file-filter-menu'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { FileSearchField } from './file-search-bar'
+import { FolderAccessDialog } from './folder-access-dialog'
 import { FolderUploadDialog } from './folder-upload-dialog'
 import { ProjectUppyUpload } from './project-uppy-upload'
 import { UploadTray } from './upload-tray'
@@ -138,6 +145,7 @@ export function FileWorkspace({
   const tree = useFolderTree({
     foldersUrl: shelf.endpoints.folders,
     initialFolders,
+    initialRootAccess: shelf.folderAccess?.initialRootAccess,
     files,
     selectedFolderId,
     onSelectFolder: selectFolder,
@@ -155,6 +163,8 @@ export function FileWorkspace({
     loadFiles: listing.load,
   })
   const { handleUpload } = shelfUpload
+  const access = useFolderAccess(shelf, folders, tree.rootAccess)
+  const writableHere = access.mayWriteAt(selectedFolderId)
 
   const patchFile = useCallback(
     (fileId: string, patch: Partial<FileItem>) =>
@@ -239,9 +249,11 @@ export function FileWorkspace({
   // office file read from its PDF rendition).
   useSettleTrackedUploads(files, activeUploads)
 
+  // A level the reader may only read (ADR-0085) takes no dropped files. The
+  // server refuses either way; this keeps the surface from offering it.
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
     onDrop: handleUpload,
-    disabled: isUploading || !canManage,
+    disabled: isUploading || !canManage || !writableHere,
     acceptZip: true,
   })
   useWindowDragGuard()
@@ -272,8 +284,9 @@ export function FileWorkspace({
 
   const pickFilesRef = useRef<(() => void) | null>(null)
   const pickFolderRef = useRef<(() => void) | null>(null)
+  // No upload into a level the reader may only read (ADR-0085).
   const uploader = (props: Partial<Parameters<typeof ProjectUppyUpload>[0]>) =>
-    canManage ? (
+    canManage && writableHere ? (
       <ProjectUppyUpload
         folderId={selectedFolderId}
         onUpload={handleUpload}
@@ -336,6 +349,7 @@ export function FileWorkspace({
       document={file}
       scope={shelf.documentScope}
       canManage={canManage}
+      actions={access.documentActionsAt(file.folderId)}
       folders={folders}
       onOpen={() => handleSelectFile(file.id)}
       onAsk={shelf.askAbout ? () => shelf.askAbout?.(file) : undefined}
@@ -443,6 +457,7 @@ export function FileWorkspace({
                       onRenameFolder: tree.rename,
                       onDeleteFolder: tree.remove,
                       readOnly: !canManage,
+                      ...access.folderNav,
                     },
                   })}
               uploadControl={uploader({
@@ -471,6 +486,25 @@ export function FileWorkspace({
         kind={shelfUpload.decision.kind}
         onReleaseChange={shelfUpload.decision.setReleased}
       />
+
+      {/* Who may read and write a folder (ADR-0085), a project's only. Saving
+          moves and re-reads the folder's documents, so both listings are read
+          again. */}
+      {shelf.folderAccess && (
+        <FolderAccessDialog
+          open={access.editingFolderId !== null}
+          onOpenChange={(next) => !next && access.setEditingFolderId(null)}
+          projectId={shelf.folderAccess.projectId}
+          folder={folders.find((folder) => folder.id === access.editingFolderId) ?? null}
+          roles={access.roles.data}
+          rolesFailed={access.roles.failed}
+          onRetryRoles={() => void access.roles.reload()}
+          onSaved={() => {
+            void tree.load()
+            void listing.load(true)
+          }}
+        />
+      )}
 
       {shelf.preview.kind === 'dialog' && (
         <FilePreviewDialog
@@ -506,6 +540,57 @@ export function FileWorkspace({
       )}
     </div>
   )
+}
+
+/**
+ * Who may write where on this shelf (ADR-0085), as the listing reported it.
+ *
+ * A project's folders carry an `access` per reader and the listing says what
+ * the reader may do at the root; a level they may only read offers no upload,
+ * no new folder and no write action on its documents. The Archiv has no
+ * per-role folder access (its folders are governed by `canManage`), so without
+ * `shelf.folderAccess` every level is writable here and the shelf's own
+ * `canManage` decides. The server decides every write again either way.
+ */
+function useFolderAccess(shelf: FileShelf, folders: readonly FolderItem[], treeRootAccess: FolderAccessLevel) {
+  const { folderAccess } = shelf
+  const rootAccess: FolderAccessLevel = folderAccess ? treeRootAccess : 'write'
+  /** The folder whose access dialog is open. */
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
+  // Role names are read only when something needs them: a lock to label, or
+  // the access dialog to fill.
+  const anyRestricted = folders.some((folder) => (folder.grants?.length ?? 0) > 0)
+  const roles = useOrganizationRoles(Boolean(folderAccess) && (anyRestricted || editingFolderId !== null))
+  const roleNames = useCallback(
+    (slugs: readonly string[]) => roleNamesFor(slugs, roles.data),
+    [roles.data]
+  )
+
+  const accessAt = useCallback(
+    (folderId: string | null): FolderAccessLevel => {
+      if (!folderAccess) return 'write'
+      if (folderId === null) return rootAccess
+      return folders.find((folder) => folder.id === folderId)?.access === 'read' ? 'read' : 'write'
+    },
+    [folderAccess, folders, rootAccess]
+  )
+  const mayWriteAt = useCallback((folderId: string | null) => accessAt(folderId) === 'write', [accessAt])
+  const documentActionsAt = useCallback(
+    (folderId: string | null): readonly DocumentActionKind[] =>
+      accessAt(folderId) === 'read' ? READ_ONLY_DOCUMENT_ACTIONS : DEFAULT_DOCUMENT_ACTIONS,
+    [accessAt]
+  )
+
+  /** The folder navigation's access fields; empty on a shelf without folder access. */
+  const folderNav = folderAccess
+    ? {
+        onEditFolderAccess: folderAccess.canManage ? setEditingFolderId : undefined,
+        roleNames,
+        rootAccess,
+      }
+    : {}
+
+  return { mayWriteAt, documentActionsAt, folderNav, editingFolderId, setEditingFolderId, roles }
 }
 
 /**

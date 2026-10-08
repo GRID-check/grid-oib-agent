@@ -5,6 +5,7 @@ import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
+import { getHiddenFolderIds } from '@/lib/authz/folder-access'
 import { ProjectSettings } from '@/features/projects/components/project-settings'
 import { getTranslations } from '@/i18n/server'
 
@@ -33,7 +34,9 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
 
     const { role } = await requireProjectAccess(session, id, 'project:view')
 
-    const data = await getProjectOverviewData(id, session.organizationId)
+    const data = await getProjectOverviewData(id, session.organizationId, {
+      hiddenFolderIds: await getHiddenFolderIds(session, id),
+    })
     if (!data) {
       notFound()
     }

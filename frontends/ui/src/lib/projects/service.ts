@@ -29,6 +29,7 @@ import type {
   ProjectMemoryKind,
 } from '@/lib/db/schema'
 import { getProjectOverviewData } from './overview-query'
+import { getHiddenFolderIds } from '@/lib/authz/folder-access'
 import {
   createProjectMemoryItem,
   deleteProjectMemoryItem,
@@ -113,8 +114,11 @@ export async function getProjectsGridData(
 }> {
   const visible = await listProjects(session, order)
   const visibleIds = visible.map((project) => project.id)
+  // A card's number counts what the project's own list shows this viewer, so
+  // the documents in folders they may not read are left out of it (ADR-0085).
+  const hiddenFolderIds = (await Promise.all(visibleIds.map((id) => getHiddenFolderIds(session, id)))).flat()
   const [documentCounts, viewerActivity] = await Promise.all([
-    countDocumentsByProject(session.organizationId, visibleIds),
+    countDocumentsByProject(session.organizationId, visibleIds, hiddenFolderIds),
     lastProjectActivityByUser(session.organizationId, session.userId, visibleIds),
   ])
   return { projects: visible, documentCounts, viewerActivity }
@@ -294,7 +298,9 @@ export async function restoreProject(
 
 export async function getProjectOverview(session: AuthorizedSession, projectId: string) {
   await requireProjectAccess(session, projectId, 'project:view')
-  const data = await getProjectOverviewData(projectId, session.organizationId)
+  const data = await getProjectOverviewData(projectId, session.organizationId, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+  })
   if (!data) throw new NotFoundError('Project not found')
   return data
 }

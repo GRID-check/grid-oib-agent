@@ -17,6 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('@/lib/auth/require-auth', () => ({ requireAuthorizedSession: vi.fn() }))
 
 vi.mock('@/lib/bim/repository', () => ({ listBimModels: vi.fn() }))
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('@/lib/documents/repository', () => ({ findDocumentInOrg: vi.fn() }))
 vi.mock('@/lib/workos/feature-flags', () => ({ isOrgFeatureEnabled: vi.fn() }))
 vi.mock('@/lib/s3', () => ({ s3Client: { send: vi.fn() }, bucketName: 'grid-documents' }))
@@ -28,6 +29,7 @@ import { findDocumentInOrg } from '@/lib/documents/repository'
 import { isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { s3Client } from '@/lib/s3'
+import { getRestrictedFolderIds } from '@/lib/authz/folder-access'
 
 const PROJECT = '44444444-4444-4444-4444-444444444444'
 
@@ -205,6 +207,30 @@ describe('POST /api/internal/bim/source', () => {
 
       expect(body).toMatchObject({ resolved: false, reason: 'not_ready' })
       expect(body.message).toContain('konnte nicht gelesen werden')
+      expect(getSignedUrl).not.toHaveBeenCalled()
+    })
+
+    // ADR-0084: the agent's routes carry no session to clear, and a model's
+    // building data is keyed by project, so every restricted subtree is hidden.
+    it('leaves every restricted folder out of the model list', async () => {
+      vi.mocked(getRestrictedFolderIds).mockResolvedValueOnce(['folder-verwaltung'])
+
+      await post({ organizationId: 'org-1', projectId: PROJECT, modelName: 'V3' })
+
+      expect(getRestrictedFolderIds).toHaveBeenCalledWith('org-1', PROJECT)
+      expect(vi.mocked(listBimModels).mock.calls[0][1]).toMatchObject({ hiddenFolderIds: ['folder-verwaltung'] })
+    })
+
+    it('404s the modelId of a model filed under a restricted folder, and signs nothing', async () => {
+      vi.mocked(getRestrictedFolderIds).mockResolvedValueOnce(['folder-verwaltung'])
+      // What the query does with the hidden folders: NEW is filed under one.
+      vi.mocked(listBimModels).mockImplementation(async (_org, options) =>
+        options?.hiddenFolderIds?.includes('folder-verwaltung') ? [OLD] : [NEW, OLD]
+      )
+
+      const response = await post({ organizationId: 'org-1', projectId: PROJECT, modelId: NEW.id })
+
+      expect(response.status).toBe(404)
       expect(getSignedUrl).not.toHaveBeenCalled()
     })
 

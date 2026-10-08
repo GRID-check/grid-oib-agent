@@ -10,6 +10,7 @@ import {
   reconcileRuns,
   reconcileBackgroundWork,
   sweepUploads,
+  sweepPlacement,
   sweepTraceRetention,
   sweepConversationTraces,
   tick,
@@ -359,11 +360,12 @@ describe('tick', () => {
 
     expect(fired).toBe(0)
     expect(sql.begin).not.toHaveBeenCalled()
-    // The runs, then the documents stranded at `processing` (ADR-0079), then the uploads.
+    // The runs, then the documents stranded at `processing` (ADR-0079), then the uploads and placements.
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
       'http://frontend:3000/api/internal/runs/reconcile',
       'http://frontend:3000/api/internal/maintenance/reconcile-background-work',
       'http://frontend:3000/api/internal/upload-batches/sweep',
+      'http://frontend:3000/api/internal/folder-placement/sweep',
     ])
   })
 
@@ -379,6 +381,7 @@ describe('tick', () => {
       'http://frontend:3000/api/internal/runs/reconcile',
       'http://frontend:3000/api/internal/maintenance/reconcile-background-work',
       'http://frontend:3000/api/internal/upload-batches/sweep',
+      'http://frontend:3000/api/internal/folder-placement/sweep',
     ])
   })
 
@@ -440,6 +443,25 @@ describe('sweepUploads (the upload sweep’s clock, ADR-0083)', () => {
     const s = streak()
     expect(await sweepUploads(config, vi.fn().mockRejectedValue(new Error('ECONNREFUSED')), s)).toBeNull()
     expect(s.failed).toHaveBeenCalled()
+  })
+})
+
+describe('sweepPlacement (retries a restriction an outage interrupted, ADR-0084)', () => {
+  const config = { frontendUrl: 'http://frontend:3000', internalToken: 'tok', pollMs: 30000 }
+  const streak = () => ({ failed: vi.fn(), succeeded: vi.fn() })
+
+  it('posts the sweep with the internal token and logs only when something moved or is still pending', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const quiet = { checked: 2, moved: 0, pending: 0, failed: 0 }
+    const busy = { checked: 2, moved: 3, pending: 1, failed: 0 }
+    const fetchImpl = vi.fn().mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(quiet) })
+    expect(await sweepPlacement(config, fetchImpl, streak())).toEqual(quiet)
+    expect(fetchImpl.mock.calls[0][0]).toBe('http://frontend:3000/api/internal/folder-placement/sweep')
+    expect(fetchImpl.mock.calls[0][1].headers).toEqual({ [INTERNAL_TOKEN_HEADER]: 'tok' })
+    expect(log).not.toHaveBeenCalled()
+    await sweepPlacement(config, vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(busy) }), streak())
+    expect(log.mock.calls[0].join(' ')).toContain('folder placement sweep: checked 2, moved 3, still pending 1, failed 0')
+    log.mockRestore()
   })
 })
 

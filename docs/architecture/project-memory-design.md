@@ -221,6 +221,15 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
   requires a `project_id`; an org-only conversation is skipped.
 - **Substantive answers only** — meta/error/insufficiency and deep-research
   job-stub turns are skipped (nothing durable to record).
+- **Nothing from a restricted folder** (ADR-0084) — a turn whose signed scope
+  holds a restricted folder's collection (`<project collection>_r<12 hex>`)
+  that it may draw on writes no memory at all: the stage skips with
+  `restricted_content`, and the `remember` tool refuses (project and org scope
+  alike) and emits no `memory_proposal` card. The test is the scope, not the
+  hits: the history the turn answers from may already hold what an earlier
+  turn read. Recognised by
+  `aiq_agent/knowledge/restricted_collections.py`. A deep-research run needs no
+  check of its own: its scope never carries a restricted collection.
 - **Digest de-duplication** — a finding already present in the shown digest is
   dropped. This is a soft guard, not the §3.2 consolidation gate (still a
   follow-up), so it does not catch semantic paraphrase or items outside the

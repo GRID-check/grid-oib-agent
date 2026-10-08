@@ -25,7 +25,20 @@ features:
     outcome and who uploaded it.
   - >
     Your office can now build its own roles in Piloti, under Organisation →
-    Personen & Zugriff → Eigene Rollen.
+    Personen & Zugriff → Eigene Rollen, and decide per project folder which
+    roles may read it and which may edit it. A role not on a folder's list does
+    not see the folder, its files or what Piloti finds in them, and organization
+    admins may read and edit everything.
+  - >
+    A subfolder can only narrow what its parent allows, and someone who may only
+    read a folder sees it marked „Nur lesen“, without upload, rename, move or
+    delete. Only a project admin who may edit a folder can change who may read
+    or edit it.
+  - >
+    A folder holding subfolders you cannot read can only be moved by an
+    organization admin, and a demoted admin stops reaching every folder within a
+    minute. Review requests go only to people who may read the folder, and the
+    projects overview counts only the documents you may read.
 fixes:
   - >
     A chat in a project with a great deal of project information can no longer

@@ -1,8 +1,9 @@
-# Sensitive data, quarantine and roles
+# Sensitive data, quarantine and folder access
 
-What an office can keep out of Piloti, how an uploader learns what became of
-an upload, and the office's own roles. The decisions behind this are ADR-0083
-(screening and quarantine) and ADR-0084 (roles live in WorkOS).
+What an office can keep out of Piloti, what it can keep from some of its own
+people, and how an uploader learns what became of an upload. The decisions
+behind this are ADR-0083 (screening and quarantine), ADR-0084 (folder
+access follows WorkOS roles) and ADR-0085 (read and write per role).
 
 ## The sensitive-data list
 
@@ -124,3 +125,86 @@ live in WorkOS, where Piloti's own roles live; you assign them to people on the
 - Until your Piloti installation lets a person hold several roles, everyone
   holds exactly one. A role you use for folders must then also carry the
   permissions its holders work with.
+
+## Who may read and edit a folder
+
+In a project's Files, a project admin opens a folder's **⋯ → Zugriff …** and
+chooses one of two answers. Only someone who both manages the project and may
+**edit that folder** can do this: a project admin who may only read a folder
+cannot change who may read or edit it, so they cannot give themselves
+„Bearbeiten". An organization admin can always:
+
+- **Wie der übergeordnete Ordner**: the folder has no list of its own. A
+  folder at the top of the project follows the project, so everyone keeps what
+  their project permissions allow.
+- **Eigene Zugriffsrechte**: the folder has its own list. Each entry is one of
+  your office's roles, or **Alle Projektmitglieder**, with **Lesen** or
+  **Bearbeiten**. A role that is not on the list gets nothing: for its holders
+  the folder is absent. An own list names at least one entry.
+
+A folder with its own list carries a lock that names the entries. Three rules
+decide what someone may do in it:
+
+- **A subfolder can only narrow.** Someone may do in a folder the least of what
+  every list above it, and its own, allows them. A list inside a folder that
+  only Geschäftsführung may read cannot open it to Buchhaltung.
+- **„Bearbeiten" never goes beyond the project.** It lets someone upload,
+  rename, move, delete and file into the folder as far as their project
+  permissions already allow; a project reader with „Bearbeiten" still only
+  reads.
+- **Organization admins may read and edit every folder.** Whether someone is an
+  organization admin is read from your organization's people settings at most a
+  minute ago, like their roles: an admin who is demoted stops reaching every
+  folder within a minute, not when they next sign in.
+
+Someone who may only read a folder sees it marked **Nur lesen**: they can open
+and search its documents, and there is no upload, new folder, rename, move or
+delete in it for them. A folder they may not read is **absent**, not greyed
+out:
+
+- it is not listed, and neither is anything in it or below it, including files
+  uploaded there later;
+- Piloti's search and answers do not draw on it, because its documents are kept
+  in their own search index, which no chat searches;
+- its documents do not open from a link, the inbox or a share.
+
+A list with **Alle Projektmitglieder** on it keeps the folder readable by
+everyone, so its documents stay in the project's own index; such a list only
+decides who may edit. Every other own list moves the folder's documents into
+their own index and reads them again when it is saved; for a large folder that
+takes a few minutes, and the documents show „Wird gelesen" meanwhile. Changing
+only who may edit moves nothing.
+
+Who holds which role is read from your organization's people settings at most a
+minute ago, so a role taken from someone stops opening a folder within a
+minute.
+
+**Moving a folder** needs „Bearbeiten" on it and on the folder it goes into. A
+move that changes which folder lists apply to it (out from under a folder with
+its own list, or under one) also needs project admin rights, and is refused
+unless you may read every folder inside it: otherwise it would change who may
+read folders you cannot see. Ask an organization admin to move such a folder.
+
+**Review rounds** are offered only to people who may edit the project and may
+read the folder the document is in, so nobody is asked to review something
+they cannot open. A change of a folder's access shows in Piloti's project
+context (the list of documents with a role, such as the Bebauungsplan) right
+away, and the projects overview counts only the documents you may read.
+
+**Deleting a folder** moves its documents and subfolders into the folder above,
+as before. The folder keeps its access list out of sight.
+
+**A file name used in a folder not everyone may read** cannot be uploaded a
+second time elsewhere in the project.
+
+**Building models (IFC) stay in folders everyone may read.** A model's
+building data is kept per project, not per folder, so a list could not protect
+it. Piloti therefore refuses an IFC model in a folder not every member may
+read: uploading one there, moving one there, moving a folder that holds one
+under such a folder, and giving a folder that holds one such a list all fail
+with a message saying why. A list that includes **Alle Projektmitglieder** is
+fine. A model that was already in such a folder before this check existed is
+hidden from everyone who may not read that folder, in the model list, the
+viewer and the download, and Piloti's model questions do not reach it; its
+summary may still be found by Piloti's search, so move such a model to an open
+folder.

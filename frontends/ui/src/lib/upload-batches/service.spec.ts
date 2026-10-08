@@ -15,16 +15,20 @@ vi.mock('@/lib/documents/reconcile-status', () => ({
   reconcileDocumentStatuses: vi.fn(async (rows: unknown[]) => rows),
 }))
 vi.mock('@/lib/documents/repository', () => ({ findFolderPathsInProject: vi.fn().mockResolvedValue(new Map()) }))
+vi.mock('@/lib/projects/repository', () => ({ findProjectInOrg: vi.fn() }))
+vi.mock('@/lib/authz/folder-access', () => ({ getProjectFolderAccess: vi.fn() }))
 vi.mock('@/lib/sharing/directory', () => ({ loadOrganizationDirectory: vi.fn() }))
 
 import { NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { getProjectFolderAccess, type ProjectFolderAccess } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { findProjectInOrg } from '@/lib/projects/repository'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
 import type { UploadBatch } from '@/lib/db/schema'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { findFolderPathsInProject } from '@/lib/documents/repository'
-import { makeDocument } from '@/test-utils/db-fixtures'
+import { makeDocument, makeProject } from '@/test-utils/db-fixtures'
 import {
   countBatchDocumentsByStatus,
   findUploadBatch,
@@ -74,9 +78,21 @@ const batch = (overrides: Partial<UploadBatch> = {}): UploadBatch => ({
   ...overrides,
 })
 
+const OPEN: ProjectFolderAccess = {
+  hiddenFolderIds: new Set(),
+  isVisible: () => true,
+  collectionFor: () => 'proj_c',
+  clearedRestrictedCollections: [],
+  levelOf: () => 'write',
+  sourceFolderOf: () => null,
+  anyRestricted: false,
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(findUploadBatch).mockResolvedValue(batch())
+  vi.mocked(findProjectInOrg).mockResolvedValue(makeProject({ id: 'proj-1', collectionName: 'proj_c' }))
+  vi.mocked(getProjectFolderAccess).mockResolvedValue(OPEN)
   vi.mocked(loadOrganizationDirectory).mockResolvedValue(new Map())
 })
 
@@ -177,6 +193,23 @@ describe('getUploadSummary', () => {
     // The quarantine is reasons, not an error string.
     expect(summary.documents[1]).toMatchObject({ errorMessage: null, quarantine: { reasons: [{ term: 'Lohnzettel' }] } })
     expect(summary.documents[3]?.errorMessage).toContain('pdf_pages_unreadable')
+  })
+
+  it('leaves out what was filed in a folder the uploader may no longer see (ADR-0084)', async () => {
+    vi.mocked(listBatchDocuments).mockResolvedValue([
+      makeDocument({ id: 'open', filename: 'EG.pdf', folderId: 'f-open' }),
+      makeDocument({ id: 'hidden', filename: 'Honorar.pdf', folderId: 'f-hidden' }),
+    ])
+    vi.mocked(getProjectFolderAccess).mockResolvedValue({
+      ...OPEN,
+      hiddenFolderIds: new Set(['f-hidden']),
+      isVisible: (folderId) => folderId !== 'f-hidden',
+      anyRestricted: true,
+    })
+
+    const summary = await getUploadSummary(session, BATCH_ID)
+
+    expect(summary.documents.map((d) => d.filename)).toEqual(['EG.pdf'])
   })
 
   it("is the uploader's only", async () => {

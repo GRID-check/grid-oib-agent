@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, asc, count, desc, eq, inArray, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
 import {
@@ -150,7 +150,17 @@ export async function findBimModelByDocument(
  */
 export async function listBimModels(
   organizationId: string,
-  options: { projectId?: string | null; includeArchiv?: boolean; limit?: number } = {}
+  options: {
+    projectId?: string | null
+    includeArchiv?: boolean
+    limit?: number
+    /**
+     * Folders whose models this reader may not see (ADR-0084), from the
+     * folder-access decision point. Their models are left out as if they did
+     * not exist.
+     */
+    hiddenFolderIds?: readonly string[]
+  } = {}
 ): Promise<BimModelHeader[]> {
   const db = getDb()
   const limit = Math.min(Math.max(1, Math.trunc(options.limit ?? 50)), 200)
@@ -163,13 +173,16 @@ export async function listBimModels(
         : options.projectId === null
           ? archivScope
           : eq(bimModels.projectId, options.projectId)
+  const hidden = options.hiddenFolderIds ?? []
+  const outsideHiddenFolders =
+    hidden.length > 0 ? or(isNull(documents.folderId), notInArray(documents.folderId, [...hidden])) : undefined
 
   return withTenant({ organizationId }, () =>
     db
       .select(MODEL_COLUMNS)
       .from(bimModels)
       .innerJoin(documents, eq(documents.id, bimModels.documentId))
-      .where(and(eq(bimModels.organizationId, organizationId), scope))
+      .where(and(eq(bimModels.organizationId, organizationId), scope, outsideHiddenFolders))
       .orderBy(desc(bimModels.updatedAt))
       .limit(limit)
   )

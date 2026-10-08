@@ -4,12 +4,20 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslations } from '@/i18n'
 import type { FileItem, FolderItem } from '../file-types'
+import type { FolderAccessLevel } from '../lib/file-shelf'
 
 export interface FolderTreeOptions {
   /** The shelf's folder collection (`/api/projects/{id}/folders`, `/api/archiv/folders`). */
   foldersUrl: string
   /** The tree as the server already read it, for the first paint. */
   initialFolders?: readonly FolderItem[]
+  /**
+   * What the reader may do at the shelf's root for the first paint (ADR-0085).
+   * Absent means `write`; every listing read refreshes it from `rootAccess`.
+   * Only a project's listing reports it; the Archiv's root is `write` here and
+   * `canManage` decides.
+   */
+  initialRootAccess?: FolderAccessLevel
   /** What deleting a folder needs to name: how much is inside it. */
   files: readonly FileItem[]
   selectedFolderId: string | null
@@ -33,6 +41,7 @@ export interface FolderTreeOptions {
 export function useFolderTree({
   foldersUrl,
   initialFolders,
+  initialRootAccess = 'write',
   files,
   selectedFolderId,
   onSelectFolder,
@@ -42,6 +51,8 @@ export function useFolderTree({
   const [folders, setFolders] = useState<FolderItem[]>(() => [...(initialFolders ?? [])])
   const [isLoading, setIsLoading] = useState(initialFolders === undefined)
   const [error, setError] = useState(false)
+  /** What the reader may do at the root (ADR-0085); each folder carries its own `access`. */
+  const [rootAccess, setRootAccess] = useState<FolderAccessLevel>(initialRootAccess)
 
   const load = useCallback(() => {
     setIsLoading(true)
@@ -51,7 +62,10 @@ export function useFolderTree({
         if (!response.ok) throw new Error(`Failed to load folders (${response.status})`)
         return response.json()
       })
-      .then((data) => setFolders(data.folders ?? []))
+      .then((data: { folders?: FolderItem[]; rootAccess?: FolderAccessLevel }) => {
+        setFolders(data.folders ?? [])
+        setRootAccess(data.rootAccess === 'read' ? 'read' : 'write')
+      })
       .catch(() => {
         setFolders([])
         setError(true)
@@ -134,12 +148,16 @@ export function useFolderTree({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ parentId }),
         })
-        if (!response.ok) throw new Error(`Move failed (${response.status})`)
+        if (!response.ok) throw new Error(`Move failed (${response.status})`, { cause: response.status })
         await load()
         toast.success(t('folders.movedFolder', { name: folder.name, parent: parentName(parentId) }))
-      } catch {
+      } catch (error) {
         setParent(previousParentId)
-        toast.error(t('folders.moveFolderError'))
+        // 409: the folder holds an IFC model and the destination is restricted
+        // (ADR-0084). Retrying cannot help, so say why.
+        toast.error(
+          error instanceof Error && error.cause === 409 ? t('folders.access.ifcRefused') : t('folders.moveFolderError')
+        )
       }
     },
     [folders, foldersUrl, load, parentName, t]
@@ -193,5 +211,5 @@ export function useFolderTree({
     [foldersUrl, t, folders, files, selectedFolderId, onSelectFolder, load, reloadFiles]
   )
 
-  return { folders, isLoading, error, load, create, rename, move, remove }
+  return { folders, rootAccess, isLoading, error, load, create, rename, move, remove }
 }

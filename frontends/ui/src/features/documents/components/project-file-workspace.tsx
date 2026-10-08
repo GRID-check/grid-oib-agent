@@ -61,14 +61,26 @@ interface ProjectFileWorkspaceProps {
   initialFolders?: readonly FolderItem[]
   initialFiles?: readonly DocumentWireRow[]
   initialFilesComplete?: boolean
+  /**
+   * Whether this reader may change who may read and write a folder
+   * (`project:manage`, resolved on the server, ADR-0085). Shows „Zugriff…" in the
+   * folder menu; the route checks again.
+   */
+  canManageFolderAccess?: boolean
+  /**
+   * What the reader may do at the project root, as the server read it for the
+   * first paint (ADR-0085). Absent means `write`; the folder listing refreshes it.
+   */
+  initialRootAccess?: 'read' | 'write'
 }
 
 /**
  * A project's Dateien: {@link FileWorkspace} over the project's shelf.
  *
  * Everything this adds is a fact about a PROJECT: the shelf's endpoints, the
- * project's chat (so a file can be asked about), collaboration, the preview the
- * project shell hosts, and the section header the controls portal into.
+ * project's chat (so a file can be asked about), collaboration, per-role folder
+ * access (ADR-0085), the preview the project shell hosts, and the section header
+ * the controls portal into.
  */
 export function ProjectFileWorkspace({
   projectId,
@@ -83,6 +95,8 @@ export function ProjectFileWorkspace({
   initialFolders,
   initialFiles,
   initialFilesComplete = true,
+  canManageFolderAccess = false,
+  initialRootAccess = 'write',
 }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const router = useRouter()
@@ -95,6 +109,7 @@ export function ProjectFileWorkspace({
     projectId,
     collectionName,
     canManage: true,
+    folderAccess: { projectId, canManage: canManageFolderAccess, initialRootAccess },
     canCollaborate,
     currentUserId,
     askAbout: (file) => askAboutFile({ projectId, file, navigate: (href) => router.push(href) }),

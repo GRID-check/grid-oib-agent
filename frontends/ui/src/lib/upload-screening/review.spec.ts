@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+vi.mock('@/lib/authz/folder-access', () => ({ isFolderVisibleTo: vi.fn(), requireFolderWrite: vi.fn() }))
 vi.mock('@/lib/documents/repository', () => ({
   findDocumentInOrg: vi.fn(),
   listQuarantinedDocuments: vi.fn(),
@@ -17,6 +18,8 @@ vi.mock('@/lib/documents/folder-path', () => ({
 }))
 
 import { recordAuditEvent } from '@/lib/audit/service'
+import { isFolderVisibleTo, requireFolderWrite } from '@/lib/authz/folder-access'
+import { folderReadOnlyError } from '@/lib/authz/folder-access-rule'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findDocumentInOrg, listQuarantinedDocuments, markScreeningReleased } from '@/lib/documents/repository'
 import { dispatchDocument } from '@/lib/documents/service'
@@ -51,6 +54,8 @@ const quarantined = makeDocument({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(isFolderVisibleTo).mockResolvedValue(true)
+  vi.mocked(requireFolderWrite).mockResolvedValue(undefined)
   vi.mocked(findDocumentInOrg).mockResolvedValue(quarantined)
   vi.mocked(markScreeningReleased).mockResolvedValue(true)
   // A plain member holds no project:manage anywhere.
@@ -59,7 +64,7 @@ beforeEach(() => {
 
 describe('mayReviewQuarantine', () => {
   it('lets an org admin review anything', async () => {
-    expect(await mayReviewQuarantine(orgAdmin, { scope: 'session', projectId: null })).toBe(true)
+    expect(await mayReviewQuarantine(orgAdmin, { scope: 'session', projectId: null, folderId: null })).toBe(true)
   })
 
   it("lets a project's admins review that project's documents, and nobody else's", async () => {
@@ -67,15 +72,27 @@ describe('mayReviewQuarantine', () => {
       if (projectId !== 'proj-1') throw new NotFoundError('Project not found')
       return { role: 'project-admin' } as Awaited<ReturnType<typeof requireProjectAccess>>
     })
-    expect(await mayReviewQuarantine(member, { scope: 'project', projectId: 'proj-1' })).toBe(true)
-    expect(await mayReviewQuarantine(member, { scope: 'project', projectId: 'proj-2' })).toBe(false)
+    expect(await mayReviewQuarantine(member, { scope: 'project', projectId: 'proj-1', folderId: null })).toBe(true)
+    expect(await mayReviewQuarantine(member, { scope: 'project', projectId: 'proj-2', folderId: null })).toBe(false)
     expect(requireProjectAccess).toHaveBeenCalledWith(member, 'proj-1', 'project:manage')
   })
 
   it('leaves the Büroablage to whoever curates it, and a chat attachment to org admins', async () => {
-    expect(await mayReviewQuarantine(archivist, { scope: 'archiv', projectId: null })).toBe(true)
-    expect(await mayReviewQuarantine(member, { scope: 'archiv', projectId: null })).toBe(false)
-    expect(await mayReviewQuarantine(archivist, { scope: 'session', projectId: null })).toBe(false)
+    expect(await mayReviewQuarantine(archivist, { scope: 'archiv', projectId: null, folderId: null })).toBe(true)
+    expect(await mayReviewQuarantine(member, { scope: 'archiv', projectId: null, folderId: null })).toBe(false)
+    expect(await mayReviewQuarantine(archivist, { scope: 'session', projectId: null, folderId: null })).toBe(false)
+  })
+})
+
+describe('mayReviewQuarantine and restricted folders (ADR-0084)', () => {
+  it("does not let a project admin review a document in a folder they are not cleared for", async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-admin' } as Awaited<
+      ReturnType<typeof requireProjectAccess>
+    >)
+    vi.mocked(isFolderVisibleTo).mockImplementation(async (_s, _p, folderId) => folderId !== 'f-hidden')
+
+    expect(await mayReviewQuarantine(member, { scope: 'project', projectId: 'proj-1', folderId: 'f-hidden' })).toBe(false)
+    expect(await mayReviewQuarantine(member, { scope: 'project', projectId: 'proj-1', folderId: 'f-open' })).toBe(true)
   })
 })
 
@@ -93,6 +110,20 @@ describe('releaseQuarantinedDocument', () => {
     const audit = vi.mocked(recordAuditEvent).mock.calls[0]?.[0]
     expect(audit).toMatchObject({ action: 'document.quarantine_released', metadata: { reasons: 'term:Lohnzettel,iban' } })
     expect(JSON.stringify(audit)).not.toContain('AT61')
+  })
+
+  it('asks for a write in the document\'s folder, and a reviewer who may only read it cannot release (ADR-0085)', async () => {
+    const inFolder = { ...quarantined, scope: 'project' as const, projectId: 'proj-1', folderId: 'f-read-only' }
+    vi.mocked(findDocumentInOrg).mockResolvedValue(inFolder)
+    vi.mocked(requireFolderWrite).mockRejectedValueOnce(folderReadOnlyError())
+
+    await expect(releaseQuarantinedDocument(orgAdmin, 'doc-q', new Request('http://x'))).rejects.toMatchObject({
+      status: 403,
+      details: { reason: 'folder-read-only' },
+    })
+    expect(requireFolderWrite).toHaveBeenCalledWith(orgAdmin, 'proj-1', ['f-read-only'])
+    expect(markScreeningReleased).not.toHaveBeenCalled()
+    expect(dispatchDocument).not.toHaveBeenCalled()
   })
 
   it('answers a non-reviewer as if the document did not exist', async () => {

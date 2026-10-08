@@ -175,19 +175,26 @@ list does.
   that restricts reading; `collection-placement.integration.spec.ts`: a `*` list moves nothing.
 * `projects/folder-access-settings.spec.ts` also pins that a manager who may only read the folder
   is refused with the typed 403 and nothing is written, and that an admin and a writer pass.
+* `projects/collection-placement.prompt-view.spec.ts`: placement drops the project's prompt view
+  before and after, also when it fails, and the sweep's `retryProjectPlacement` does not.
 * `authz/folder-access.spec.ts`: `clearanceOf` takes the bypass from the membership's roles, not
   the token (a demoted admin loses it, a promoted one gains it, WorkOS down falls back to the
   token); `unreadableFoldersBelow`; `filterUsersWhoMayReadFolder`. `authz/org-role-permissions.spec.ts`:
   the role-to-permission cache lives at most 60 s.
 * `projects/folder-service.access-change.spec.ts` also pins the move rule: a subtree holding a
   folder the mover cannot read is refused when the lists above change, an admin is not, a move
-  that leaves them as they were is not.
+  that leaves them as they were is not. `documents/reviewers.spec.ts`: review candidates are
+  filtered by folder read. `projects/service.spec.ts` and
+  `projects/folder-visibility.integration.spec.ts` (real Postgres): the grid's count leaves out
+  hidden folders.
 * `projects/folder-service.access-change.spec.ts`: rename, move and delete refuse a read-only
   folder with 403 and a hidden one with 404 under the real rule, the project ceiling, the admin,
   the tombstone; `folder-service.ensure.spec.ts`: nothing is created below a read-only folder.
-* `documents/service.spec.ts`, `documents/generated.spec.ts`: delete and filing ask
-  `requireFolderWrite` and stop on a read-only folder.
+* `documents/service.spec.ts`, `upload-screening/review.spec.ts`, `documents/generated.spec.ts`:
+  delete, release and filing ask `requireFolderWrite` and stop on a read-only folder.
 * `auth/membership-roles.spec.ts`: the membership lookup, the 60 s key, the fallback.
+* `features/documents/components/folder-access-dialog.spec.tsx` and the `/dev/folder-access`
+  preview: the dialog and the „Nur lesen" marks.
 * Nothing enforces that a NEW write path calls `requireFolderWrite`; review is the gate.
 
 ## Pros and Cons of the Options
@@ -219,6 +226,7 @@ list does.
   that decided who may see a folder (roles on `restricted_roles`), the per-conversation mark and
   the per-socket confinement check. ADR-0084's retrieval collection per restricted folder, its
   memory rule and its IFC rule stand.
+* User guide: [`sensitive-data-and-access.md`](../user-guides/sensitive-data-and-access.md#who-may-read-and-edit-a-folder).
 * Where a later lifecycle feature would attach (participant notices, an organization setting for
   deleted-folder content, a download log): `setFolderAccess` after placement, the tombstone in
   `deleteProjectFolder`, `effectiveFolderLevel` and `resolveMembershipRoles`.

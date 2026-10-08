@@ -47,6 +47,19 @@ describe('GET /api/internal/document-file', () => {
     expect(findDocumentStorageKey).not.toHaveBeenCalled()
   })
 
+  it('404s for a restricted folder\'s collection without looking it up, whatever its case (ADR-0085)', async () => {
+    vi.mocked(findDocumentStorageKey).mockResolvedValue({
+      storageKey: 'org/o1/project/p1/doc/d1/plan.png',
+      storageBucket: null,
+      contentType: 'image/png',
+    })
+    expect((await GET(request('?collection=proj_1_r0123456789ab&filename=plan.png'))).status).toBe(404)
+    expect((await GET(request('?collection=PROJ_1_R0123456789AB&filename=plan.png'))).status).toBe(404)
+    expect((await GET(request('?collection=proj_1_r0123456789ab&filename=plan.png&imageIndex=0'))).status).toBe(404)
+    expect(findDocumentStorageKey).not.toHaveBeenCalled()
+    expect(findDocumentImageStorageKey).not.toHaveBeenCalled()
+  })
+
   it('404s when the document index has no row for the pair', async () => {
     vi.mocked(findDocumentStorageKey).mockResolvedValue(null)
     const res = await GET(request())

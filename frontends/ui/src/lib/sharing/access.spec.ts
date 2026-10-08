@@ -24,9 +24,20 @@ vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn(),
 }))
 
+vi.mock('@/lib/authz/folder-access', () => ({
+  isFolderVisibleTo: vi.fn(),
+}))
+
+vi.mock('@/lib/documents/repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/documents/repository')>()),
+  findDocumentTenancy: vi.fn(),
+}))
+
 import { NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { isFolderVisibleTo } from '@/lib/authz/folder-access'
+import { findDocumentTenancy } from '@/lib/documents/repository'
 import { findConversationTenancy } from '@/lib/conversations/repository'
 import type { ProjectRole } from '@/lib/authz/projects'
 import type { ResourceRole, ResourceVisibility } from '@/lib/db/schema'
@@ -243,5 +254,39 @@ describe('isShared', () => {
     expect(isShared('private', 0)).toBe(false)
     expect(isShared('private', 1)).toBe(true)
     expect(isShared('project', 0)).toBe(true)
+  })
+})
+
+describe('resolveResourceAccess — a document in a restricted folder (ADR-0084)', () => {
+  function stubDocument(folderId: string | null): void {
+    vi.mocked(findDocumentTenancy).mockResolvedValue({
+      organizationId: 'org_1',
+      projectId: 'proj_1',
+      folderId,
+      visibility: 'project',
+      createdBy: session.userId,
+      filename: 'Honorarnote.pdf',
+      displayName: null,
+    })
+  }
+
+  it('does not exist for a session not cleared for its folder, whatever grant or ownership it holds', async () => {
+    stubDocument('folder_honorare')
+    stubGrant('owner')
+    vi.mocked(isFolderVisibleTo).mockResolvedValue(false)
+
+    await expect(resolveResourceAccess(session, 'document', 'doc_1')).rejects.toBeInstanceOf(NotFoundError)
+    expect(isFolderVisibleTo).toHaveBeenCalledWith(session, 'proj_1', 'folder_honorare')
+  })
+
+  it('resolves as before for a cleared session, and asks nothing for an unfiled document', async () => {
+    stubDocument('folder_open')
+    vi.mocked(isFolderVisibleTo).mockResolvedValue(true)
+    await expect(resolveResourceAccess(session, 'document', 'doc_1')).resolves.toMatchObject({ role: 'owner' })
+
+    vi.mocked(isFolderVisibleTo).mockClear()
+    stubDocument(null)
+    await expect(resolveResourceAccess(session, 'document', 'doc_1')).resolves.toMatchObject({ role: 'owner' })
+    expect(isFolderVisibleTo).not.toHaveBeenCalled()
   })
 })

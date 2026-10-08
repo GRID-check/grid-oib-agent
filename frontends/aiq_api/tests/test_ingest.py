@@ -591,6 +591,20 @@ async def test_a_new_version_of_the_same_document_is_submitted(app, keyed_ingest
 
 
 @pytest.mark.asyncio
+async def test_a_move_into_a_restricted_collection_does_not_join_the_open_collections_job(
+    app, keyed_ingestor, no_network
+):
+    """A document moved across a folder restriction (ADR-0084) keeps its id and
+    object and is dispatched again into the folder's collection. Joining the
+    job still writing into the open collection would index nothing where the
+    document now belongs."""
+    first = await _post_json(app, _doc_body())
+    moved = await _post_json(app, _doc_body(collection="proj_test123_r0123456789ab"))
+    assert (first.json()["job_id"], moved.json()["job_id"]) == ("job-1", "job-2")
+    assert len(keyed_ingestor.submitted) == 2
+
+
+@pytest.mark.asyncio
 async def test_concurrent_dispatches_of_one_document_submit_once(app, keyed_ingestor, no_network):
     """Two dispatches of one key arriving together on this replica: the second
     waits for the first's lookup and submit, then finds its job."""
@@ -620,17 +634,18 @@ async def test_without_a_document_id_every_dispatch_submits(app, keyed_ingestor,
     assert "dispatch_key" not in keyed_ingestor.submitted[0][1]
 
 
-def test_the_dispatch_key_is_a_digest_of_document_and_object_path():
+def test_the_dispatch_key_is_a_digest_of_document_object_path_and_collection():
     from aiq_api.models.requests import IngestRequest
     from aiq_api.routes.ingest import _dispatch_key
 
-    def key(file_ref: str, document_id: str | None = "doc-1") -> str | None:
-        return _dispatch_key(IngestRequest(file_ref=file_ref, collection="c", document_id=document_id))
+    def key(file_ref: str, document_id: str | None = "doc-1", collection: str = "c") -> str | None:
+        return _dispatch_key(IngestRequest(file_ref=file_ref, collection=collection, document_id=document_id))
 
     base = "http://seaweedfs.test/bucket/org/o1/doc/doc-1/Plan.pdf"
     assert key(base + "?X-Amz-Signature=a") == key(base + "?X-Amz-Signature=b")
     assert key(base) != key(base, document_id="doc-2")
     assert key(base) != key(base.replace("Plan", "Plan2"))
+    assert key(base) != key(base, collection="c_r0123456789ab")
     assert key(base, document_id=None) is None
     # Nothing of the tenant path is stored in the clear.
     assert "org" not in key(base) and len(key(base)) == 64

@@ -21,6 +21,7 @@
 
 import 'server-only'
 import { NotFoundError } from '@/lib/api/errors'
+import { isFolderVisibleTo } from '@/lib/authz/folder-access'
 import { requireProjectAccess, type ProjectRole } from '@/lib/authz/projects'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { ResourceRole, ResourceVisibility, ShareableResourceType } from '@/lib/db/schema'
@@ -110,6 +111,12 @@ export async function resolveResourceAccess(
   if (probe.container.kind === 'project' && probe.container.id) {
     const { role } = await requireProjectAccess(session, probe.container.id, 'project:view')
     projectRole = role
+    // Inside the project, a restricted folder narrows further (ADR-0084). It
+    // outranks every grant and the creator's ownership: a hidden folder's
+    // documents do not exist for this session, in the inbox or a share link.
+    if (probe.folderId && !(await isFolderVisibleTo(session, probe.container.id, probe.folderId))) {
+      throw new NotFoundError()
+    }
   }
 
   // (3) Effective role: the strongest of visibility and grant.

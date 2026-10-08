@@ -53,6 +53,25 @@ export interface ShelfEndpoints {
   searchBody?: Record<string, unknown>
 }
 
+/** A project shelf's per-role folder access (ADR-0085). */
+export interface ShelfFolderAccess {
+  /** The project the access dialog writes to. */
+  projectId: string
+  /**
+   * Whether this reader may change who reads and writes a folder
+   * (`project:manage`, resolved on the server). Shows „Zugriff…" in the folder
+   * menu; the route checks again.
+   */
+  canManage: boolean
+  /**
+   * What the reader may do at the shelf's root, as the server read it for the
+   * first paint. The folder listing refreshes it.
+   */
+  initialRootAccess: FolderAccessLevel
+}
+
+export type FolderAccessLevel = 'read' | 'write'
+
 export interface FileShelf {
   /** Which provenance colour and icon the shelf wears (`--source-*`). */
   source: 'project' | 'office'
@@ -69,6 +88,12 @@ export interface FileShelf {
    * list, folders, search, filters, preview and download.
    */
   canManage: boolean
+  /**
+   * Who may read and write each folder, per WorkOS role (ADR-0085). A project's
+   * shelf only: the Archiv's folders are governed by `canManage` alone, so it
+   * leaves this out and shows no lock, no „Nur lesen" and no „Zugriff…".
+   */
+  folderAccess?: ShelfFolderAccess
   /** Faces, „Unvergeben", the assignment filter (the collaboration flag). */
   canCollaborate: boolean
   currentUserId?: string

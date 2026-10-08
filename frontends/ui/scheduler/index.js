@@ -18,7 +18,10 @@
  *      left `queued` whose job is gone (`lib/documents/stuck-processing.ts`,
  *      `lib/tasks/filing-sweep.ts`, ADR-0079);
  *   6. POSTs the BFF's upload sweep (`/api/internal/upload-batches/sweep`,
- *      ADR-0083), which settles the uploads whose browser is gone;
+ *      ADR-0083), which settles the uploads whose browser is gone, and its
+ *      folder placement sweep (`/api/internal/folder-placement/sweep`,
+ *      ADR-0084), which moves a document a backend outage left in the wrong
+ *      retrieval collection;
  *   7. once a day, deletes the Langfuse traces older than the retention window
  *      (`sweepTraceRetention`; ADR-0044 — Langfuse's own retention setting is an
  *      Enterprise feature, the delete API is not);
@@ -132,6 +135,7 @@ function createStreaks(config) {
     reconcile: createFailureStreak({ label: `${LOG} run reconcile`, escalateAfter }),
     background: createFailureStreak({ label: `${LOG} background work sweep`, escalateAfter }),
     uploads: createFailureStreak({ label: `${LOG} upload sweep`, escalateAfter }),
+    placement: createFailureStreak({ label: `${LOG} folder placement sweep`, escalateAfter }),
     database: createFailureStreak({ label: `${LOG} schedule claim`, escalateAfter }),
     // Counts failed ATTEMPTS, one an hour at most (`TRACE_RETENTION_RETRY_MS`),
     // not ticks: three in a row is about three hours of Langfuse being wrong.
@@ -222,6 +226,26 @@ async function sweepUploads(config, fetchImpl, streak) {
     console.log(
       `${LOG} upload sweep: checked ${counts.checked}, sealed ${counts.sealed}, ` +
         `completed ${counts.completed}, failed ${counts.failed}`,
+    )
+  }
+  return counts
+}
+
+/**
+ * Move the documents a backend outage left in the wrong retrieval collection
+ * (ADR-0084): a document under a restricted folder whose chunks could not be
+ * purged from the project's open collection is still findable there until it
+ * is placed again.
+ */
+async function sweepPlacement(config, fetchImpl, streak) {
+  const counts = await postSweep(config, fetchImpl, streak, {
+    path: '/api/internal/folder-placement/sweep',
+    label: 'folder placement sweep',
+  })
+  if (counts && (counts.moved > 0 || counts.pending > 0 || counts.failed > 0)) {
+    console.log(
+      `${LOG} folder placement sweep: checked ${counts.checked}, moved ${counts.moved}, ` +
+        `still pending ${counts.pending}, failed ${counts.failed}`,
     )
   }
   return counts
@@ -455,6 +479,7 @@ async function tick(sql, config, fetchImpl, streaks) {
   await reconcileRuns(config, fetchImpl, streaks.reconcile)
   await reconcileBackgroundWork(config, fetchImpl, streaks.background)
   await sweepUploads(config, fetchImpl, streaks.uploads)
+  await sweepPlacement(config, fetchImpl, streaks.placement)
   await sweepTraceRetention(config, fetchImpl, streaks.traceRetention, streaks.traceRetentionClock)
   await sweepConversationTraces(sql, config, fetchImpl, streaks.conversationTraces, streaks.conversationTracesClock)
   return fired
@@ -562,6 +587,7 @@ module.exports = {
   reconcileRuns,
   reconcileBackgroundWork,
   sweepUploads,
+  sweepPlacement,
   sweepTraceRetention,
   sweepConversationTraces,
   tick,

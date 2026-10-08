@@ -45,8 +45,13 @@ const rowsByOrg = new Map<string, { profile: unknown; profilePromptView: string 
  * `lib/document-roles/prompt-section.spec.ts`.
  */
 let rolesSection = ''
+/** The reader each block was built for (ADR-0084): absent means nobody's clearance. */
+const rolesReaders: unknown[] = []
 vi.mock('@/lib/document-roles/prompt-loader', () => ({
-  loadDocumentRolesPromptSection: async () => rolesSection,
+  loadDocumentRolesPromptSection: async (...args: unknown[]) => {
+    rolesReaders.push(args[2] ?? null)
+    return args[2] ? `${rolesSection}\n- Honorarvertrag: Honorarnote.pdf` : rolesSection
+  },
 }))
 
 vi.mock('@/lib/projects/repository', () => ({
@@ -278,5 +283,37 @@ describe('project profile cache is partitioned by tenant', () => {
     expect(store.map.has('promptview:org-a:proj-1')).toBe(false)
     expect(store.map.has('promptview:anon:proj-1')).toBe(false)
     expect(store.map.has('bundesland:org-a:proj-1')).toBe(false)
+  })
+})
+
+describe('restricted folders and the shared prompt view (ADR-0084)', () => {
+  let store: TestStore
+
+  beforeEach(() => {
+    store = new TestStore()
+    setCacheStore(store)
+    rolesReaders.length = 0
+    rolesSection = 'documents:\n- Bebauungsplan: bplan.pdf'
+  })
+
+  afterEach(() => {
+    rolesSection = ''
+  })
+
+  it('builds the cached view for nobody in particular', async () => {
+    dbRows = rowFor('wien', 'PROJECT_CONTEXT v1')
+    const view = await loadProjectPromptView('proj-1', 'org-1')
+
+    expect(rolesReaders).toEqual([null])
+    expect(view).not.toContain('Honorarnote.pdf')
+  })
+
+  it('builds the same shared view for every chat: listing a restricted document is not using it', async () => {
+    dbRows = rowFor('wien', 'PROJECT_CONTEXT v1')
+
+    expect(await loadProjectPromptView('proj-1', 'org-1')).not.toContain('Honorarnote.pdf')
+    expect(await loadProjectPromptView('proj-1', 'org-1')).not.toContain('Honorarnote.pdf')
+    // One build, cached, for nobody's clearance.
+    expect(rolesReaders).toEqual([null])
   })
 })
