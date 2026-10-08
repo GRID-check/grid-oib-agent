@@ -4,8 +4,10 @@ import {
   BYTES_PER_GB,
   MAX_QUOTA_BYTES,
   formatQuotaDraft,
+  judgeUploadLimitMegabytes,
   parseQuotaDraft,
   storageQuotaPutSchema,
+  uploadLimitPutSchema,
 } from './contract'
 
 /**
@@ -135,5 +137,39 @@ describe('storageQuotaPutSchema', () => {
 
   it('rejects an absent field, because unlimited must be stated', () => {
     expect(storageQuotaPutSchema.safeParse({}).success).toBe(false)
+  })
+})
+
+describe('the upload-limit contract', () => {
+  const CEILING = 250e6
+
+  it('reads blank as "back to the deployment default"', () => {
+    expect(judgeUploadLimitMegabytes(null, CEILING)).toEqual({ ok: true, maxUploadFileBytes: null })
+  })
+
+  it('turns MB into the decimal bytes the server counts in', () => {
+    expect(judgeUploadLimitMegabytes(150, CEILING)).toEqual({ ok: true, maxUploadFileBytes: 150e6 })
+    expect(judgeUploadLimitMegabytes(2.5, CEILING)).toEqual({ ok: true, maxUploadFileBytes: 2.5e6 })
+  })
+
+  it('accepts both ends of the range and nothing past them', () => {
+    expect(judgeUploadLimitMegabytes(1, CEILING).ok).toBe(true)
+    expect(judgeUploadLimitMegabytes(250, CEILING).ok).toBe(true)
+    expect(judgeUploadLimitMegabytes(0.9, CEILING)).toEqual({ ok: false, reason: 'outOfRange' })
+    expect(judgeUploadLimitMegabytes(250.1, CEILING)).toEqual({ ok: false, reason: 'outOfRange' })
+    expect(judgeUploadLimitMegabytes(0, CEILING)).toEqual({ ok: false, reason: 'outOfRange' })
+    expect(judgeUploadLimitMegabytes(-5, CEILING)).toEqual({ ok: false, reason: 'outOfRange' })
+  })
+
+  it('never lets a non-number through as null, which would mean "default"', () => {
+    expect(judgeUploadLimitMegabytes(Number.NaN, CEILING)).toEqual({ ok: false, reason: 'notANumber' })
+    expect(judgeUploadLimitMegabytes(Infinity, CEILING)).toEqual({ ok: false, reason: 'notANumber' })
+  })
+
+  it('makes the floor a schema rule and requires the field', () => {
+    expect(uploadLimitPutSchema.safeParse({ maxUploadFileBytes: 999_999 }).success).toBe(false)
+    expect(uploadLimitPutSchema.safeParse({ maxUploadFileBytes: 1.5e6 + 0.5 }).success).toBe(false)
+    expect(uploadLimitPutSchema.safeParse({ maxUploadFileBytes: null }).success).toBe(true)
+    expect(uploadLimitPutSchema.safeParse({}).success).toBe(false)
   })
 })

@@ -8,19 +8,32 @@
  * page opens on it, because that is the question an owner arrives with ("what
  * came in?"). An inbox row lands here with `?report=<id>`; that report is
  * pinned to the top and marked, whatever the filter says, so the link always
- * shows what it promised.
+ * shows what it promised. A link to a report that no longer exists (or that
+ * this reader cannot see) says so, instead of silently showing the list.
+ *
+ * Filters refetch, and a slow answer for the previous filter must not land on
+ * top of the current one: only the newest request writes. While a refetch is
+ * in flight the rows on screen stay, marked busy, rather than blinking out.
  */
 
 import type { JSX } from 'react'
 import * as React from 'react'
-import { ChevronDown, Mail, MessageSquarePlus } from 'lucide-react'
+import { ChevronDown, Inbox, Mail, MessageSquarePlus, SearchX } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Chip, ChipCount } from '@/components/ui/chip'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { RaisedCard } from '@/components/ui/raised-card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { EmptyState } from '@/components/ui/empty-state'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { TimeAgo } from '@/components/ui/time-ago'
 import { SectionCard } from '@/features/platform/components/section-card'
 import { useLocale, useTranslations } from '@/i18n'
@@ -60,12 +73,13 @@ const STATUS_CHIP: Record<ProductFeedbackStatus, 'info' | 'warning' | 'success' 
   dismissed: 'muted',
 }
 
-const KIND_CHIP: Record<ProductFeedbackKind, 'destructive' | 'default' | 'success' | 'secondary'> = {
-  bug: 'destructive',
-  idea: 'default',
-  praise: 'success',
-  question: 'secondary',
-}
+const KIND_CHIP: Record<ProductFeedbackKind, 'destructive' | 'default' | 'success' | 'secondary'> =
+  {
+    bug: 'destructive',
+    idea: 'default',
+    praise: 'success',
+    question: 'secondary',
+  }
 
 type StatusFilter = ProductFeedbackStatus | 'all'
 type KindFilter = ProductFeedbackKind | 'all'
@@ -84,33 +98,39 @@ export function FeedbackTriage({
   client = defaultClient,
 }: FeedbackTriageProps): JSX.Element {
   const t = useTranslations('feedback')
-  const tPlatform = useTranslations('platform')
   const [status, setStatus] = React.useState<StatusFilter>('new')
   const [kind, setKind] = React.useState<KindFilter>('all')
   const [data, setData] = React.useState<ProductFeedbackListResponse | null>(null)
   const [focused, setFocused] = React.useState<ProductFeedbackReportView | null>(null)
+  /** The linked report could not be found (deleted, or not visible to this reader). */
+  const [focusMissing, setFocusMissing] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [loadingMore, setLoadingMore] = React.useState(false)
   const [error, setError] = React.useState(false)
   const [busyId, setBusyId] = React.useState<string | null>(null)
+  // Only the newest list request may write: switching filters quickly must
+  // not let the answer for the previous filter overwrite the current one.
+  const requestId = React.useRef(0)
 
   const filters = React.useMemo<ListFeedbackFilters>(
     () => ({
       status: status === 'all' ? undefined : status,
       kind: kind === 'all' ? undefined : kind,
     }),
-    [status, kind],
+    [status, kind]
   )
 
   const load = React.useCallback(async () => {
+    const id = ++requestId.current
     setLoading(true)
     setError(false)
     try {
-      setData(await client.list(filters))
+      const next = await client.list(filters)
+      if (id === requestId.current) setData(next)
     } catch {
-      setError(true)
+      if (id === requestId.current) setError(true)
     } finally {
-      setLoading(false)
+      if (id === requestId.current) setLoading(false)
     }
   }, [client, filters])
 
@@ -121,12 +141,17 @@ export function FeedbackTriage({
   React.useEffect(() => {
     if (!focusReportId) return
     let cancelled = false
+    setFocusMissing(false)
     client
       .get(focusReportId)
       .then((report) => {
-        if (!cancelled) setFocused(report)
+        if (cancelled) return
+        setFocused(report)
+        setFocusMissing(report === null)
       })
-      .catch(() => undefined)
+      .catch(() => {
+        if (!cancelled) setFocusMissing(true)
+      })
     return () => {
       cancelled = true
     }
@@ -134,10 +159,15 @@ export function FeedbackTriage({
 
   async function loadMore(): Promise<void> {
     if (!data?.nextCursor) return
+    const id = requestId.current
     setLoadingMore(true)
     try {
       const next = await client.list({ ...filters, cursor: data.nextCursor })
-      setData({ ...next, reports: [...data.reports, ...next.reports] })
+      // A filter change while the page was loading made this page stale.
+      if (id !== requestId.current) return
+      setData((current) =>
+        current ? { ...next, reports: [...current.reports, ...next.reports] } : next
+      )
     } catch {
       toast.error(t('platform.loadError'))
     } finally {
@@ -145,7 +175,10 @@ export function FeedbackTriage({
     }
   }
 
-  async function changeStatus(report: ProductFeedbackReportView, next: ProductFeedbackStatus): Promise<void> {
+  async function changeStatus(
+    report: ProductFeedbackReportView,
+    next: ProductFeedbackStatus
+  ): Promise<void> {
     if (next === report.status) return
     setBusyId(report.id)
     try {
@@ -162,7 +195,7 @@ export function FeedbackTriage({
                 [next]: current.counts[next] + 1,
               },
             }
-          : current,
+          : current
       )
       toast.success(t('platform.triaged', { status: t(`statuses.${next}`) }))
     } catch {
@@ -174,19 +207,16 @@ export function FeedbackTriage({
 
   const reports = (data?.reports ?? []).filter((report) => report.id !== focused?.id)
   const total = data ? Object.values(data.counts).reduce((sum, value) => sum + value, 0) : 0
+  const nothingShown = !focused && reports.length === 0
 
   return (
     <SectionCard
-      title={tPlatform('sections.feedback.title')}
-      description={tPlatform('sections.feedback.subtitle')}
+      title={t('platform.listTitle')}
       loading={loading && !data}
-      error={error}
+      refreshing={loading && data !== null}
+      error={error && !data}
       errorMessage={t('platform.loadError')}
       onRetry={() => void load()}
-      empty={!focused && reports.length === 0}
-      emptyIcon={MessageSquarePlus}
-      emptyTitle={t('platform.empty.title')}
-      emptyDescription={t('platform.empty.description')}
       testId="feedback-triage"
       action={
         <Select value={kind} onValueChange={(value) => setKind(value as KindFilter)}>
@@ -205,8 +235,16 @@ export function FeedbackTriage({
       }
     >
       <div className="flex flex-col gap-4">
-        <div role="group" aria-label={t('platform.filters.label')} className="flex flex-wrap gap-1.5">
-          <StatusFilterChip active={status === 'all'} onClick={() => setStatus('all')} count={total}>
+        <div
+          role="group"
+          aria-label={t('platform.filters.label')}
+          className="flex flex-wrap gap-1.5"
+        >
+          <StatusFilterChip
+            active={status === 'all'}
+            onClick={() => setStatus('all')}
+            count={total}
+          >
             {t('platform.filters.all')}
           </StatusFilterChip>
           {PRODUCT_FEEDBACK_STATUSES.map((option) => (
@@ -221,29 +259,66 @@ export function FeedbackTriage({
           ))}
         </div>
 
-        <ul className="flex flex-col gap-3">
-          {focused && (
-            <ReportCard
-              report={focused}
-              focused
-              canTriage={canTriage}
-              busy={busyId === focused.id}
-              onStatusChange={(next) => void changeStatus(focused, next)}
-            />
-          )}
-          {reports.map((report) => (
-            <ReportCard
-              key={report.id}
-              report={report}
-              canTriage={canTriage}
-              busy={busyId === report.id}
-              onStatusChange={(next) => void changeStatus(report, next)}
-            />
-          ))}
-        </ul>
+        {focusMissing ? (
+          <Alert variant="warning" data-testid="feedback-focus-missing">
+            <SearchX aria-hidden />
+            <AlertTitle className="line-clamp-none">{t('platform.focusMissing.title')}</AlertTitle>
+            <AlertDescription>{t('platform.focusMissing.description')}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        {/* A refetch that failed keeps the rows it had and says so here; only a
+            first load with nothing to show becomes the card's error state. */}
+        {error && data ? (
+          <Alert variant="destructive">
+            <AlertDescription>
+              <p>{t('platform.loadError')}</p>
+              <Button variant="outline" size="sm" onClick={() => void load()}>
+                {t('platform.retry')}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {/* The filters stay above an empty result: an empty "New" queue is
+            the normal state, and the way out of it is the chip next to it. */}
+        {nothingShown ? (
+          <EmptyState
+            variant="bare"
+            icon={MessageSquarePlus}
+            title={t('platform.empty.title')}
+            description={t('platform.empty.description')}
+          />
+        ) : (
+          <ul className="flex flex-col divide-y" aria-busy={loading || undefined}>
+            {focused && (
+              <ReportRow
+                report={focused}
+                focused
+                canTriage={canTriage}
+                busy={busyId === focused.id}
+                onStatusChange={(next) => void changeStatus(focused, next)}
+              />
+            )}
+            {reports.map((report) => (
+              <ReportRow
+                key={report.id}
+                report={report}
+                canTriage={canTriage}
+                busy={busyId === report.id}
+                onStatusChange={(next) => void changeStatus(report, next)}
+              />
+            ))}
+          </ul>
+        )}
 
         {data?.nextCursor && (
-          <Button variant="outline" onClick={() => void loadMore()} disabled={loadingMore} className="self-center">
+          <Button
+            variant="outline"
+            onClick={() => void loadMore()}
+            loading={loadingMore}
+            className="self-center"
+          >
             {t('platform.loadMore')}
           </Button>
         )}
@@ -273,7 +348,7 @@ function StatusFilterChip({
   )
 }
 
-function ReportCard({
+function ReportRow({
   report,
   focused = false,
   canTriage,
@@ -299,96 +374,112 @@ function ReportCard({
   const organization = report.organizationName ?? t('platform.unknownOrganization')
 
   return (
-    <li ref={ref} data-testid="feedback-report" data-report-id={report.id}>
-      <RaisedCard className={cn('bg-card gap-3 p-4', focused && 'ring-primary ring-2')}>
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip variant={KIND_CHIP[report.kind]} size="sm">
-            <KindIcon aria-hidden />
-            {t(`kinds.${report.kind}.label`)}
-          </Chip>
-          <span className="text-muted-foreground min-w-0 truncate text-xs">
-            {t('platform.from', { name: reporter, organization })}
-          </span>
-          <TimeAgo date={report.createdAt} locale={locale} className="text-muted-foreground text-xs" />
-          <div className="ml-auto">
-            {canTriage ? (
-              <Select
-                value={report.status}
-                onValueChange={(value) => onStatusChange(value as ProductFeedbackStatus)}
-                disabled={busy}
-              >
-                <SelectTrigger size="sm" aria-label={t('platform.statusLabel')} className="w-36">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PRODUCT_FEEDBACK_STATUSES.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {t(`statuses.${option}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Chip variant={STATUS_CHIP[report.status]} size="sm">
-                {t(`statuses.${report.status}`)}
-              </Chip>
-            )}
-          </div>
-        </div>
-
-        <p className="text-foreground text-sm leading-relaxed whitespace-pre-wrap break-words">{report.message}</p>
-
-        <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-          {report.pagePath && (
-            <span className="font-mono">{t('platform.onPage', { page: report.pagePath })}</span>
-          )}
-          {report.reporter.email ? (
-            <a
-              href={`mailto:${report.reporter.email}`}
-              className="text-primary inline-flex items-center gap-1 hover:underline"
+    <li
+      ref={ref}
+      data-testid="feedback-report"
+      data-report-id={report.id}
+      data-focused={focused || undefined}
+      className={cn('flex flex-col gap-3 py-4', focused && 'bg-muted/50 -mx-6 px-6')}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        {focused ? (
+          <Badge variant="outline" className="font-normal">
+            <Inbox aria-hidden />
+            {t('platform.linked')}
+          </Badge>
+        ) : null}
+        <Chip variant={KIND_CHIP[report.kind]} size="sm">
+          <KindIcon aria-hidden />
+          {t(`kinds.${report.kind}.label`)}
+        </Chip>
+        <span className="text-muted-foreground min-w-0 truncate text-xs">
+          {t('platform.from', { name: reporter, organization })}
+        </span>
+        <TimeAgo
+          date={report.createdAt}
+          locale={locale}
+          className="text-muted-foreground text-xs"
+        />
+        <div className="ml-auto">
+          {canTriage ? (
+            <Select
+              value={report.status}
+              onValueChange={(value) => onStatusChange(value as ProductFeedbackStatus)}
+              disabled={busy}
             >
-              <Mail className="size-3.5" aria-hidden />
-              {t('platform.contact')}
-            </a>
+              <SelectTrigger size="sm" aria-label={t('platform.statusLabel')} className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PRODUCT_FEEDBACK_STATUSES.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {t(`statuses.${option}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : (
-            <span>{t('platform.noContact')}</span>
-          )}
-          {report.triagedBy && report.status !== 'new' && (
-            <span>{t('platform.triagedBy', { name: report.triagedBy })}</span>
+            <Chip variant={STATUS_CHIP[report.status]} size="sm">
+              {t(`statuses.${report.status}`)}
+            </Chip>
           )}
         </div>
+      </div>
 
-        {(report.context.userAgent || report.context.viewport) && (
-          <Collapsible>
-            <CollapsibleTrigger className="text-muted-foreground hover:text-foreground group inline-flex items-center gap-1 text-xs">
-              {t('platform.details')}
-              <ChevronDown
-                aria-hidden
-                className="size-3.5 transition-transform duration-quick group-data-[state=open]:rotate-180 motion-reduce:transition-none"
-              />
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-                {(
-                  [
-                    [t('dialog.context.browser'), report.context.userAgent],
-                    [t('dialog.context.screen'), report.context.viewport],
-                    [t('dialog.context.locale'), report.context.locale],
-                    [t('dialog.context.timeZone'), report.context.timeZone],
-                  ] as const
-                )
-                  .filter(([, value]) => Boolean(value))
-                  .map(([label, value]) => (
-                    <React.Fragment key={label}>
-                      <dt className="text-muted-foreground">{label}</dt>
-                      <dd className="min-w-0 break-words">{value}</dd>
-                    </React.Fragment>
-                  ))}
-              </dl>
-            </CollapsibleContent>
-          </Collapsible>
+      <p className="text-foreground whitespace-pre-wrap break-words text-sm leading-relaxed">
+        {report.message}
+      </p>
+
+      <div className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+        {report.pagePath && (
+          <span className="font-mono">{t('platform.onPage', { page: report.pagePath })}</span>
         )}
-      </RaisedCard>
+        {report.reporter.email ? (
+          <a
+            href={`mailto:${report.reporter.email}`}
+            className="text-primary inline-flex items-center gap-1 hover:underline"
+          >
+            <Mail className="size-3.5" aria-hidden />
+            {t('platform.contact')}
+          </a>
+        ) : (
+          <span>{t('platform.noContact')}</span>
+        )}
+        {report.triagedBy && report.status !== 'new' && (
+          <span>{t('platform.triagedBy', { name: report.triagedBy })}</span>
+        )}
+      </div>
+
+      {(report.context.userAgent || report.context.viewport) && (
+        <Collapsible>
+          <CollapsibleTrigger className="text-muted-foreground hover:text-foreground group inline-flex items-center gap-1 text-xs">
+            {t('platform.details')}
+            <ChevronDown
+              aria-hidden
+              className="duration-quick size-3.5 transition-transform group-data-[state=open]:rotate-180 motion-reduce:transition-none"
+            />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+              {(
+                [
+                  [t('dialog.context.browser'), report.context.userAgent],
+                  [t('dialog.context.screen'), report.context.viewport],
+                  [t('dialog.context.locale'), report.context.locale],
+                  [t('dialog.context.timeZone'), report.context.timeZone],
+                ] as const
+              )
+                .filter(([, value]) => Boolean(value))
+                .map(([label, value]) => (
+                  <React.Fragment key={label}>
+                    <dt className="text-muted-foreground">{label}</dt>
+                    <dd className="min-w-0 break-words">{value}</dd>
+                  </React.Fragment>
+                ))}
+            </dl>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
     </li>
   )
 }

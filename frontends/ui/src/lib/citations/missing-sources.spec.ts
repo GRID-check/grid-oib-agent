@@ -10,6 +10,14 @@ import {
 } from './missing-sources'
 import type { FailedTargetRow } from './repository'
 
+const inventory = (
+  corpusFileNames: string[] | null,
+  catalogedDocumentNumbers: string[] | null
+) => ({
+  corpusFileNames,
+  catalogedDocumentNumbers,
+})
+
 const row = (overrides: Partial<FailedTargetRow>): FailedTargetRow => ({
   target: 'OIB-RL6-2023.pdf, p.12',
   reason: 'citation_key_not_in_registry',
@@ -21,7 +29,9 @@ const row = (overrides: Partial<FailedTargetRow>): FailedTargetRow => ({
 
 describe('classifyTarget', () => {
   it('recognizes RIS URLs regardless of subdomain or scheme', () => {
-    expect(classifyTarget('https://ris.bka.gv.at/Dokument.wxe?Abfrage=LrW&Dokumentnummer=LrW40009155')).toBe('ris')
+    expect(
+      classifyTarget('https://ris.bka.gv.at/Dokument.wxe?Abfrage=LrW&Dokumentnummer=LrW40009155')
+    ).toBe('ris')
     expect(classifyTarget('http://www.ris.bka.gv.at/GeltendeFassung.wxe')).toBe('ris')
   })
 
@@ -54,7 +64,9 @@ describe('fileNameFromTarget', () => {
 
 describe('risDocumentNumber', () => {
   it('reads the document number out of a RIS citation URL', () => {
-    expect(risDocumentNumber('https://ris.bka.gv.at/Dokument.wxe?Dokumentnummer=NOR40021234')).toBe('NOR40021234')
+    expect(risDocumentNumber('https://ris.bka.gv.at/Dokument.wxe?Dokumentnummer=NOR40021234')).toBe(
+      'NOR40021234'
+    )
   })
 
   it('returns null when the URL carries no document identity', () => {
@@ -64,7 +76,10 @@ describe('risDocumentNumber', () => {
 
 describe('buildMissingSourceCandidates', () => {
   it('marks a document absent from the corpus as an upload candidate', () => {
-    const [candidate] = buildMissingSourceCandidates([row({})], ['Something-Else.pdf'], [])
+    const [candidate] = buildMissingSourceCandidates(
+      [row({})],
+      inventory(['Something-Else.pdf'], [])
+    )
     expect(candidate).toMatchObject({
       kind: 'document',
       fileName: 'OIB-RL6-2023.pdf',
@@ -78,16 +93,20 @@ describe('buildMissingSourceCandidates', () => {
   it('does NOT ask for an upload of a document the corpus already holds', () => {
     // The whole point of the cross-check: re-uploading a present document
     // would be the wrong fix and would waste an operator's time.
-    const [candidate] = buildMissingSourceCandidates([row({})], ['oib-rl6-2023.PDF'], [])
+    const [candidate] = buildMissingSourceCandidates([row({})], inventory(['oib-rl6-2023.PDF'], []))
     expect(candidate.present).toBe(true)
     expect(candidate.action).toBe('investigate_retrieval')
   })
 
   it('offers a norm-catalog entry for an uncatalogued RIS pointer', () => {
     const [candidate] = buildMissingSourceCandidates(
-      [row({ target: 'https://ris.bka.gv.at/Dokument.wxe?Dokumentnummer=NOR40021234', reason: 'url_not_in_registry' })],
-      [],
-      ['NOR40009999'],
+      [
+        row({
+          target: 'https://ris.bka.gv.at/Dokument.wxe?Dokumentnummer=NOR40021234',
+          reason: 'url_not_in_registry',
+        }),
+      ],
+      inventory([], ['NOR40009999'])
     )
     expect(candidate).toMatchObject({
       kind: 'ris',
@@ -100,28 +119,53 @@ describe('buildMissingSourceCandidates', () => {
   it('recognizes a RIS pointer already in the catalog, case-insensitively', () => {
     const [candidate] = buildMissingSourceCandidates(
       [row({ target: 'https://ris.bka.gv.at/Dokument.wxe?Dokumentnummer=NOR40021234' })],
-      [],
-      ['nor40021234'],
+      inventory([], ['nor40021234'])
     )
     expect(candidate.present).toBe(true)
     expect(candidate.action).toBe('investigate_retrieval')
   })
 
   it('offers no action for a general web page — it is not corpus material', () => {
-    const [candidate] = buildMissingSourceCandidates([row({ target: 'https://example.test/a' })], [], [])
+    const [candidate] = buildMissingSourceCandidates(
+      [row({ target: 'https://example.test/a' })],
+      inventory([], [])
+    )
     expect(candidate).toMatchObject({ kind: 'web', action: 'none', present: false })
   })
 
-  it('treats an unknown inventory as "not held" rather than "all fine"', () => {
-    // The service passes empty inventories when the backend is unreachable.
-    // Over-reporting work beats silently declaring the corpus complete.
-    const [candidate] = buildMissingSourceCandidates([row({})], [], [])
+  it('treats a genuinely empty corpus as "not held"', () => {
+    const [candidate] = buildMissingSourceCandidates([row({})], inventory([], []))
     expect(candidate.present).toBe(false)
     expect(candidate.action).toBe('upload_to_base_knowledge')
   })
 
+  it('offers no upload when the corpus inventory could not be read', () => {
+    // Regression: an unreachable backend was passed as an EMPTY corpus, so a
+    // document the platform holds was offered for upload. Unknown is not empty.
+    const [candidate] = buildMissingSourceCandidates([row({})], inventory(null, []))
+    expect(candidate.present).toBeNull()
+    expect(candidate.action).toBe('inventory_unknown')
+  })
+
+  it('offers no catalog add when the norm catalog could not be read', () => {
+    const [candidate] = buildMissingSourceCandidates(
+      [row({ target: 'https://ris.bka.gv.at/Dokument.wxe?Dokumentnummer=NOR40021234' })],
+      inventory([], null)
+    )
+    expect(candidate.present).toBeNull()
+    expect(candidate.action).toBe('inventory_unknown')
+  })
+
+  it('classifies a web page without any inventory', () => {
+    const [candidate] = buildMissingSourceCandidates(
+      [row({ target: 'https://example.test/a' })],
+      inventory(null, null)
+    )
+    expect(candidate).toMatchObject({ kind: 'web', present: false, action: 'none' })
+  })
+
   it('serializes lastSeenAt as ISO for the wire', () => {
-    const [candidate] = buildMissingSourceCandidates([row({})], [], [])
+    const [candidate] = buildMissingSourceCandidates([row({})], inventory([], []))
     expect(candidate.lastSeenAt).toBe('2026-07-27T10:00:00.000Z')
   })
 })
@@ -142,8 +186,7 @@ describe('buildMissingSourceCandidates — RIS without a document number', () =>
           lastSeenAt: new Date('2026-07-27T10:00:00.000Z'),
         },
       ],
-      [],
-      [],
+      inventory([], [])
     )
     expect(candidate.kind).toBe('ris')
     expect(candidate.documentNumber).toBeNull()

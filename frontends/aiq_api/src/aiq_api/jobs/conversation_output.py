@@ -33,6 +33,8 @@ from datetime import datetime
 from datetime import timedelta
 from typing import Any
 
+from aiq_agent.observability.turn_trace import TRACE_ID_METADATA_KEY
+
 from ..internal_api import post_internal_conversation_message
 from ..internal_api import post_internal_run_report
 
@@ -147,6 +149,7 @@ def _answer_metadata(
     skills_activated: list[str] | None,
     sources: list[Any] | None,
     transparency: dict[str, Any] | None,
+    trace_id: str | None = None,
 ) -> dict[str, Any]:
     """Everything a finished answer says ABOUT itself, in the backend's spelling.
 
@@ -154,6 +157,10 @@ def _answer_metadata(
     thread turn — so the two cannot come to describe the same answer differently.
     """
     metadata: dict[str, Any] = {"job_id": job_id}
+    # The trace the run ran in (a handed-off job inherits its chat turn's), so a
+    # vote on the report can be scored there (`observability.turn_trace`).
+    if trace_id:
+        metadata[TRACE_ID_METADATA_KEY] = trace_id
     if cards:
         metadata["cards"] = cards
     # The persisted assistant row carries the backend job id, so the existing
@@ -215,6 +222,7 @@ async def write_job_turn(
     sources: list[Any] | None = None,
     transparency: dict[str, Any] | None = None,
     expect_run: bool = False,
+    trace_id: str | None = None,
 ) -> str | None:
     """Write the job's question and its answer into the conversation.
 
@@ -264,6 +272,7 @@ async def write_job_turn(
         skills_activated=skills_activated,
         sources=sources,
         transparency=transparency,
+        trace_id=trace_id,
     )
 
     # THE RUN'S OWN MESSAGE FIRST. A run is one message in the thread that
