@@ -77,7 +77,7 @@ function requireBauwerk(projectId: string, bauwerkId: string) {
 }
 
 
-/** A binding to a document in a folder this session may not see is not listed (ADR-0084). */
+/** A binding to a document in a folder this session may not see is not listed (ADR-0086). */
 export async function listDocumentRoles(
   projectId: string,
   session: AuthorizedSession
@@ -141,7 +141,7 @@ export async function declareDocumentRole(
   // cannot see.
   //
   // A document in a folder this session may not see is answered the same way
-  // (ADR-0084): binding it would put its filename back in front of them.
+  // (ADR-0086): binding it would put its filename back in front of them.
   const reader = { hiddenFolderIds: await getHiddenFolderIds(session, input.projectId) }
   if (!(await documentBelongsToProject(input.documentId, input.projectId, reader))) {
     throw new NotFoundError('Document not found in this project.')
@@ -216,7 +216,7 @@ export async function declareDocumentRole(
  * The displaced bindings this session may be told about. Cardinality counts
  * every holder of the slot, hidden or not, so a hidden holder is displaced like
  * any other; naming it in the answer would hand its filename to someone not
- * cleared for its folder (ADR-0084), so it is displaced without a word.
+ * cleared for its folder (ADR-0086), so it is displaced without a word.
  */
 async function keepVisible(
   projectId: string,

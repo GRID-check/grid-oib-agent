@@ -36,6 +36,7 @@ docker build -f deploy/Dockerfile -t aiq-blueprint-ui:latest .
 ```bash
 docker run -p 3000:3000 \
   -e BACKEND_URL=http://backend:8000 \
+  -e BACKEND_CHAT_URL=http://backend-chat:8000 \
   -e REQUIRE_AUTH=false \
   aiq-blueprint-ui:latest
 ```
@@ -45,6 +46,7 @@ docker run -p 3000:3000 \
 ```bash
 docker run -p 3000:3000 \
   -e BACKEND_URL=http://backend:8000 \
+  -e BACKEND_CHAT_URL=http://backend-chat:8000 \
   -e REQUIRE_AUTH=true \
   -e WORKOS_CLIENT_ID=client_xxx \
   -e WORKOS_API_KEY=sk_test_xxx \
@@ -61,7 +63,8 @@ All environment variables are **runtime configurable** - no rebuild needed when 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BACKEND_URL` | `http://localhost:8000` | Backend API URL |
+| `BACKEND_URL` | `http://localhost:8000` | Backend api role URL: every HTTP call |
+| `BACKEND_CHAT_URL` | none (required) | The backend's chat role, dialled for the WebSocket alone; no fallback to `BACKEND_URL` |
 
 ### Authentication
 
@@ -86,6 +89,7 @@ services:
     image: aiq-blueprint-ui:latest
     environment:
       - BACKEND_URL=http://backend:8000
+      - BACKEND_CHAT_URL=http://backend-chat:8000
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID}
       - WORKOS_API_KEY=${WORKOS_API_KEY}
@@ -109,6 +113,7 @@ When running in Docker and connecting to services on the host machine:
 ```bash
 docker run -p 3000:3000 \
   -e BACKEND_URL=http://host.docker.internal:8000 \
+  -e BACKEND_CHAT_URL=http://host.docker.internal:8001 \
   -e REQUIRE_AUTH=false \
   aiq-blueprint-ui:latest
 ```

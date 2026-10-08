@@ -52,7 +52,7 @@ describe('DownloadLogView', () => {
     expect(screen.getByText(/audit log records who looked/)).toBeInTheDocument()
   })
 
-  it("says beside a closed project's file that its project is closed (ADR-0086)", async () => {
+  it("says beside a closed project's file that its project is closed (ADR-0088)", async () => {
     stubApi(() => page([entry(1, { projectStatus: 'closed' }), entry(2, { projectStatus: 'active', projectName: 'Lände 3' })]))
     render(<DownloadLogView people={PEOPLE} />)
 

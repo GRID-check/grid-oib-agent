@@ -13,7 +13,7 @@
  * the project (pick it) or it is on their machine (drop it, and the binding is
  * made when ingestion accepts it).
  *
- * An upload from here is an upload like any other (ADR-0083): it opens a batch
+ * An upload from here is an upload like any other (ADR-0085): it opens a batch
  * before the first file goes and seals it after the last, so the uploader gets
  * the same inbox notice and summary, and the project's history lists it.
  */
@@ -170,7 +170,7 @@ export function DocumentRoleField({
       if (list.length === 0) return
       setBusy(true)
       try {
-        // The office's name screen, before a byte leaves (ADR-0083): a file it
+        // The office's name screen, before a byte leaves (ADR-0085): a file it
         // holds back is not sent, exactly as on the Files page. The server
         // repeats the check, but only after the bytes have arrived. The file
         // lands at the project root, so its name is all there is to screen.

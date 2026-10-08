@@ -1,4 +1,4 @@
-"""Every registered tool says how it keeps a restricted folder's content from the model unadmitted (ADR-0085).
+"""Every registered tool says how it keeps a restricted folder's content from the model unadmitted (ADR-0087).
 
 The admission (``restricted_use.admit_tool_results``) works on what a tool call
 REPORTS it read (``note_collections_read``) and, as a backstop, on restricted
@@ -72,7 +72,7 @@ TOOLS: dict[str, tuple[str, str]] = {
     "ifc_query": (
         "no_collection_content",
         "BIM data is keyed by project, and IFC models are refused in "
-        "restricted folders (lib/projects/ifc-folder-guard.ts, ADR-0084)",
+        "restricted folders (lib/projects/ifc-folder-guard.ts, ADR-0086)",
     ),
     "ifc_measure": ("no_collection_content", "same model data as ifc_query"),
     "data_source_registry": ("no_collection_content", "configuration only"),
@@ -88,7 +88,7 @@ TOOLS: dict[str, tuple[str, str]] = {
     "research_agent": ("agent", "Piloti; admits every tool round in its tools node"),
     "research_workflow": ("agent", "wraps research_agent"),
     "chat_deepresearcher_agent": ("agent", "the chat workflow around Piloti"),
-    "deep_research_agent": ("agent", "a restricted collection is never signed into a run's scope (ADR-0084)"),
+    "deep_research_agent": ("agent", "a restricted collection is never signed into a run's scope (ADR-0086)"),
     "deep_research_workflow": ("agent", "wraps deep_research_agent"),
 }
 

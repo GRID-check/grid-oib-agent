@@ -86,7 +86,7 @@ export interface ResourceProbe {
   /**
    * The project folder the resource is filed in, for a resource that has one
    * (a project document). A folder the session is not cleared for hides the
-   * resource whatever grant it holds (ADR-0084).
+   * resource whatever grant it holds (ADR-0086).
    */
   folderId?: string | null
 }
@@ -139,7 +139,7 @@ export interface ShareableDescriptor {
   readonly listIdsInProject: (projectId: string, organizationId: string) => Promise<string[]>
   /**
    * Refuse a widening of the resource's audience that its content forbids,
-   * before anything is written or a rate limit spent (ADR-0084). Absent: the
+   * before anything is written or a rate limit spent (ADR-0086). Absent: the
    * type has no such content and may be shared as its roles allow.
    */
   readonly assertMayWiden?: (session: AuthorizedSession, resourceId: string, widening: AudienceWidening) => Promise<void>
@@ -158,7 +158,7 @@ export interface ShareableDescriptor {
    * Refuse a change to who may reach the resource, or who is on the hook for
    * it, from someone who may not WRITE it. For a type whose write is decided
    * somewhere finer than the role (a project document: the folder it is filed
-   * in, ADR-0085): sharing and assigning are changes to it, and a reader of a
+   * in, ADR-0087): sharing and assigning are changes to it, and a reader of a
    * read-only folder may not make them whatever role they hold on the document.
    * Absent: the role decides, as it always did.
    */
@@ -166,7 +166,7 @@ export interface ShareableDescriptor {
   /**
    * Which of `userIds` may read the resource's CONTENT now, for a type whose
    * content is judged against something that changes after it was shared (a
-   * conversation: the folders it drew on, ADR-0085). `asker` is the session,
+   * conversation: the folders it drew on, ADR-0087). `asker` is the session,
    * whose own clearance is already held. Judged at read time and never stored,
    * so a role given back opens the resource again.
    *
@@ -227,7 +227,7 @@ const conversationDescriptor: ShareableDescriptor = {
   },
   exists: (ids) => conversationIdsExisting(ids),
   listIdsInProject: (projectId, organizationId) => listConversationIdsForProject(projectId, organizationId),
-  // A conversation that drew on a restricted folder (ADR-0084) may reach only
+  // A conversation that drew on a restricted folder (ADR-0086) may reach only
   // people cleared for every folder it drew on, and never the whole project.
   // The record of what it drew on is written when a turn admits restricted
   // content, under the lock the widening's write takes here, so a share and a
@@ -298,7 +298,7 @@ const documentDescriptor: ShareableDescriptor = {
     if (!row || row.organizationId !== organizationId) return null
     return { title: documentDisplayName(row) }
   },
-  // Sharing and assigning change a document: a write in its folder (ADR-0085).
+  // Sharing and assigning change a document: a write in its folder (ADR-0087).
   requireWriteAccess: async (session, resourceId) => {
     const row = await findDocumentTenancy(resourceId)
     if (!row?.projectId) return

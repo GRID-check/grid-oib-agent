@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * The placement sweep's walk over the projects that restrict a folder
- * (ADR-0084): every project is reached however many there are, within a
+ * (ADR-0086): every project is reached however many there are, within a
  * bounded number of projects and a time budget per sweep. The repository is an
  * in-memory list here; `collection-placement.integration.spec.ts` runs the same
  * walk against Postgres.

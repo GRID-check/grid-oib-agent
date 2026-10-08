@@ -1,4 +1,6 @@
-import { S3Client } from "@aws-sdk/client-s3";
+import { S3Client, type GetObjectCommand, type PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { BadRequestError } from "@/lib/api/errors";
 
 const credentials = {
   accessKeyId: process.env.SEAWEED_ACCESS_KEY || "",
@@ -17,6 +19,22 @@ export const s3Client = new S3Client({
   requestChecksumCalculation: "WHEN_REQUIRED",
   responseChecksumValidation: "WHEN_REQUIRED",
 });
+
+/**
+ * Presign a URL the BACKEND uses, against the in-network endpoint.
+ *
+ * The backend reads and writes the store from inside the network, so a URL it is
+ * handed must name the endpoint it can reach (SEAWEED_ENDPOINT), never the
+ * browser-facing one: in Compose that is `localhost:8333`, which inside the
+ * backend container is the backend itself, and in Kubernetes it is the public
+ * edge, a round trip out of the cluster and back. Every URL in an ingest job
+ * (`file_ref`, the rendition, the thumbnail slot) and every slot the backend asks
+ * for (document images, base-corpus PDFs) goes through here; a URL for the
+ * browser goes through {@link signingS3Client}.
+ */
+export function presignForBackend(command: GetObjectCommand | PutObjectCommand, expiresIn: number): Promise<string> {
+  return getSignedUrl(s3Client, command, { expiresIn });
+}
 
 /**
  * Client used ONLY to SIGN presigned URLs handed to the browser.
@@ -302,4 +320,36 @@ export function buildImageStorageKey(storageKey: string, index: number): string 
   const prefix = buildImageDerivedPrefix(storageKey)
   if (!prefix) return null
   return `${prefix}${index}.jpg`
+}
+
+/**
+ * The key prefix the platform base corpus (the OIB norm PDFs an admin uploads)
+ * lives under in the PLATFORM bucket ({@link bucketName}), ADR-0082. Not an
+ * organization prefix: this is platform data, no tenant owns it.
+ */
+export const BASE_CORPUS_KEY_PREFIX = 'base-corpus/'
+
+/**
+ * Storage key of one base-corpus PDF: `base-corpus/<fileName>`.
+ *
+ * The name is the corpus's own identity (citations, doc-class and display-title
+ * overrides all address a document by it), so it is kept verbatim rather than
+ * flattened like {@link storageKeySegment} does for a person's upload. That
+ * makes validation the only defence: anything but a plain `.pdf` basename is
+ * refused with a 400, because a `/`, a `\` or a `..` would let a name climb out
+ * of the prefix on a filer-backed gateway that resolves them, and the delete
+ * route would then remove an object outside the base corpus.
+ */
+export function buildBaseCorpusStorageKey(fileName: string): string {
+  const valid =
+    fileName.length >= 1 &&
+    fileName.length <= 255 &&
+    fileName.toLowerCase().endsWith('.pdf') &&
+    !/[/\\\u0000-\u001f\u007f]/.test(fileName) &&
+    fileName !== '.' &&
+    fileName !== '..'
+  if (!valid) {
+    throw new BadRequestError('A .pdf file name of at most 255 characters, without path separators or control characters, is required')
+  }
+  return `${BASE_CORPUS_KEY_PREFIX}${fileName}`
 }

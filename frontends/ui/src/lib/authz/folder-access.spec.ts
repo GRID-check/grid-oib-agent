@@ -133,7 +133,7 @@ describe('unreadableFoldersBelow — what a move of a subtree may not do blind',
   })
 })
 
-describe('effectiveFolderLevel — the one rule (ADR-0085)', () => {
+describe('effectiveFolderLevel — the one rule (ADR-0087)', () => {
   // [who, folder, expected level]
   const cases: Array<[string, FolderClearance, string | null, FolderLevel]> = [
     // The project root and inheriting folders: the project decides.
@@ -413,7 +413,7 @@ describe('the session loaders', () => {
   })
 })
 
-describe('a closed project (ADR-0086): closing opens no restricted folder', () => {
+describe('a closed project (ADR-0088): closing opens no restricted folder', () => {
   const closed = { organizationId: 'org-1', deletedAt: null, status: 'closed' as const }
 
   beforeEach(() => {
@@ -534,7 +534,7 @@ describe('requireFolderWrite — the one write check', () => {
   })
 })
 
-describe('a role deleted in WorkOS leaves its folders to the admins (ADR-0085)', () => {
+describe('a role deleted in WorkOS leaves its folders to the admins (ADR-0087)', () => {
   /** Honorare named only „Geschäftsführung" (`GF`), which was deleted; `PL` still exists. */
   const GONE = 'org-gone'
   const DEAD = '99999999-aaaa-4bbb-8ccc-0000000000a1'

@@ -103,7 +103,7 @@ def test_timeout_error_propagates_for_failopen(monkeypatch):
 
 
 def test_the_turns_restricted_collections_ride_the_query(monkeypatch):
-    """ADR-0084: restricted memory is served only for these."""
+    """ADR-0086: restricted memory is served only for these."""
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
     with _patched_opener(monkeypatch, body={"digest": "d"}) as captured:
         pm.fetch_memory_digest(
@@ -123,7 +123,7 @@ def test_no_restricted_collections_no_param(monkeypatch):
 
 
 def test_the_asker_travels_and_served_restricted_notes_confine_the_turn(monkeypatch):
-    """ADR-0085: restricted notes in the digest are use of their folders, recorded by the BFF."""
+    """ADR-0087: restricted notes in the digest are use of their folders, recorded by the BFF."""
     from aiq_agent.knowledge.restricted_use import RestrictedUse
     from aiq_agent.knowledge.restricted_use import bind_restricted_use
     from aiq_agent.knowledge.restricted_use import reset_restricted_use

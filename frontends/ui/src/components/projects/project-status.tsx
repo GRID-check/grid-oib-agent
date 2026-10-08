@@ -1,9 +1,9 @@
 'use client'
 
 /**
- * Project status: the derivation helper and the chip (ADR-0086).
+ * Project status: the derivation helper and the chip (ADR-0088).
  *
- * A project is `active` or `closed` (`projects.status`, migration 0114). A
+ * A project is `active` or `closed` (`projects.status`, migration 0115). A
  * soft-deleted project never reaches a surface that shows this chip; it lives in
  * the "Recently deleted" panel.
  *

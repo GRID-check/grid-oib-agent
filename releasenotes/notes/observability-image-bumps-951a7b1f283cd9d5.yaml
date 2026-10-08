@@ -1,0 +1,6 @@
+---
+security:
+  - >
+    Langfuse moves to 4.54.0 and the telemetry dashboard to 13.5.2, picking up
+    upstream fixes for vulnerabilities in the third-party code they bundle. The
+    dashboard now runs the same version the security scan checks.

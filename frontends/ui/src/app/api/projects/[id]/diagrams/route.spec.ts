@@ -160,7 +160,7 @@ describe('the body bounds', () => {
   })
 })
 
-describe('a diagram from a conversation (ADR-0084)', () => {
+describe('a diagram from a conversation (ADR-0086)', () => {
   it('authorizes the conversation and hands it to the filer, which refuses an open folder for a confined one', async () => {
     requireResourceAccess.mockReset().mockResolvedValue({})
     const response = await post(submission({ conversationId: 's_conv_1' }))
