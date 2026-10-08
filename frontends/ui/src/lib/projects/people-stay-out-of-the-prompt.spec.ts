@@ -21,6 +21,7 @@ const ROOT = join(process.cwd(), 'src')
 const CONTEXT_BUILDERS = [
   'lib/project-profile',
   'lib/turn-context',
+  'lib/cross-project',
   'app/api/internal',
   'app/api/auth/websocket-scope',
   'lib/collection-scope-request.ts',

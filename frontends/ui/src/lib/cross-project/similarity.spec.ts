@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Project } from '@/lib/db/schema'
 import { buildIntakeProfile, projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definition'
-import { SIMILARITY_WEIGHTS, rankBySimilarity, sharedTraits, similarity, similarityFacts } from './similarity'
+import { SIMILARITY_WEIGHTS, bundeslandOf, rankBySimilarity, sharedTraits, similarity, similarityFacts } from './similarity'
 
 type Profile = Project['profile']
 
@@ -83,6 +83,16 @@ describe('similarityFacts', () => {
     expect(at('ausserhalb_oesterreichs')).toBeNull()
     const abroad = similarityFacts(profile({ bundesland: 'ausserhalb_oesterreichs' }))
     expect(similarity(abroad, abroad)).toBe(0)
+  })
+
+  it('keeps a site abroad’s token for the wire, while the ranking still reads it as no Land', () => {
+    const abroad = profile({ bundesland: 'ausserhalb_oesterreichs' })
+    expect(bundeslandOf(abroad)).toBe('ausserhalb_oesterreichs')
+    expect(bundeslandOf(profile({ bundesland: 'Niederösterreich' }))).toBe('niederoesterreich')
+    expect(bundeslandOf(null)).toBeNull()
+    const facts = similarityFacts(abroad)
+    expect(facts.bundesland).toBeNull()
+    expect(similarity(facts, similarityFacts(abroad))).toBe(0)
   })
 
   it('reads every building’s class, and a use zone’s copy of a fact as no building’s', () => {

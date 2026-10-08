@@ -382,40 +382,6 @@ than production's, and the report's header says `fixture search: tokens only`.
 An earlier word-overlap matcher with a cut-off made „nothing comparable"
 questions easy and missed German compounds; tuning it only moved the misses.
 
-**Against overfitting.** A question may name a `scenario`: the office the run
-sits in (`office.json` → `scenarios`, each rendered by the production code
-like the default). `wien-bestand` puts the chat in a Vienna office building
-conversion, another Land, use and kind of work than the default house;
-`leeres-buero` is an office with no other project. A third of the questions
-are `holdout: true`: written before any of them ran, never used to tune a
-prompt, a check or the fixture. The report scores tuned, held-out and each
-scenario apart; a held-out score well below the tuned one is overfitting, and
-the fix is never to tune on the held-out questions.
-
-**Meanings are judged, not matched.** `says_none` and `caveat` go to a model
-judge (`scripts/turn_census/judge.py`, `SUITE_JUDGE_MODEL`) with one yes/no
-question about what the answer means; without a key, or when it cannot
-answer, the check is left out, never guessed. Phrase lists were tried first
-and read the eval's own answers wrong both ways: on 65 answers that cited a
-precedent they called 11 a „nothing found", because a precedent's own caveat
-(„keine Vorgabe für Ihr Projekt") reads like one, and every phrase added for a
-miss made the next false pass likelier. Validated on 77 captured answers (7
-Oct 2026): `says_none` recall 10/10, with two disagreements that were the
-label's error; `caveat` no false pass in 12 norm answers, recall 9/12, the
-misses borderline. Do not tune the rubric to answers; re-validate it on new
-captures instead.
-
-**What the fixture's search is not.** `fixture_bff.py` matches words, not
-meaning: a document is served when a quarter of the query's words begin one
-of its words. It is precise and it misses German compounds, so
-„Traufausbildung Traufdetail" does not find „Traufe" and `traufe-frueher`
-fails `cites` on a turn that looked well. Before reading a failed `cites` as
-the agent's, check `requests.jsonl`: a search that was served nothing is the
-fixture's miss. Weighting words by rarity was tried (7 Oct 2026) and traded
-one question's recall for another's; the fix is to serve the fixture's
-passages from the real knowledge layer over the scratch corpus, not a better
-matcher here.
-
 **From a down-vote to a case.** Every down-voted answer can become a case, so a
 failure users reported cannot return unnoticed. Export the feedback CSV and run
 `.venv/bin/python scripts/feedback_to_cases.py feedback.csv --out /tmp/draft.yaml`:

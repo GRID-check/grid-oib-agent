@@ -10,8 +10,8 @@ import { sql } from 'drizzle-orm'
  *
  * Who may read the conversation is decided at READ time: only a person who may
  * open every recorded project now (`lib/conversations/restricted-use.ts`).
- * Written only by `admitCrossProjectUse`, under the per-conversation lock every
- * widening takes. No foreign keys, for the reasons 0109 gives.
+ * Written only by `recordCrossProjectHandOut`, under the per-conversation lock
+ * every widening takes. No foreign keys, for the reasons 0109 gives.
  */
 export const conversationSourceProjects = pgTable(
   'conversation_source_projects',

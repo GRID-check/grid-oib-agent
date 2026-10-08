@@ -343,6 +343,26 @@ describe('searchAcrossProjects', () => {
     expect(result.hits[0].project.bundesland).toBe('steiermark')
   })
 
+  it('says a project abroad as ausserhalb_oesterreichs, so the agent can label it outside Austria', async () => {
+    state.reachable = [
+      project(1, {
+        profile: {
+          facts: {
+            bundesland: { value: 'ausserhalb_oesterreichs', confidence: 'confirmed', source: 'onboarding', updatedAt: '' },
+          },
+          goals: {},
+          unknowns: [],
+          assumptions: {},
+        },
+      }),
+    ]
+    state.hits.set(state.reachable[0].id, [hit('a', 0.5)])
+
+    const result = await searchAcrossProjects(caller(), search({}))
+
+    expect(result.hits[0].project.bundesland).toBe('ausserhalb_oesterreichs')
+  })
+
   it('makes a project out of chat reach invisible, even when named', async () => {
     const stranger = project(9)
 
