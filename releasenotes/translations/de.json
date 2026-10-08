@@ -940,6 +940,10 @@
     "de": "Das Löschen eines Ordners löscht niemals, was darin abgelegt ist. In der Bestätigung steht, wohin die Inhalte verschoben werden: „Die 4 Dokumente und der 1 Unterordner werden nicht gelöscht – sie werden in den Ordner Brandschutz verschoben.“ Bevor der Ordner selbst entfernt wird, werden die Dokumente und etwaige Unterordner in den übergeordneten Ordner verschoben. Eine anschließende Toast-Meldung wiederholt die Anzahl."
   },
   {
+    "en": "Deleting a role now also asks about folders in the Papierkorb or in a deleted project whose access list names it, and marks them in the list. Restoring one used to bring back a list naming a role that no longer existed.",
+    "de": "Beim Löschen einer Rolle fragt Piloti jetzt auch nach Ordnern im Papierkorb oder in einem gelöschten Projekt, deren Zugriffsliste sie nennt, und markiert sie in der Liste. Bisher brachte das Wiederherstellen eines solchen Ordners eine Liste mit einer Rolle zurück, die es nicht mehr gab."
+  },
+  {
     "en": "Deleting an Archiv document or a chat attachment now also removes its version history.",
     "de": "Beim Löschen eines Archiv-Dokuments oder eines Chat-Anhangs verschwindet jetzt auch sein Versionsverlauf."
   },
