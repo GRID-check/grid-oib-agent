@@ -7,6 +7,7 @@
 
 import 'server-only'
 import { and, desc, eq, ilike, isNotNull, or, sql } from 'drizzle-orm'
+import { likeContains } from '@/lib/text/like-pattern'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withPlatformAccess } from '@/lib/db/tenant-context'
 import {
@@ -54,8 +55,8 @@ export async function listProfiledConversations(query?: string): Promise<{
   const db = getDb()
   const searchCondition = query
     ? or(
-        ilike(agentProfilerSpans.conversationId, `%${query}%`),
-        ilike(conversations.title, `%${query}%`)
+        ilike(agentProfilerSpans.conversationId, likeContains(query)),
+        ilike(conversations.title, likeContains(query))
       )
     : undefined
 

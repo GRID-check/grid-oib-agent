@@ -102,6 +102,17 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
     await closeDb()
   })
 
+  describe('free-text search', () => {
+    it('matches what was typed, literally', async () => {
+      const search = (query: string) =>
+        platform(() => repo.listFeedbackTurns({ organizationId: ORG, verdict: 'down', query }))
+
+      expect((await search('40 m bei')).map((turn) => turn.messageId)).toEqual([A1])
+      // Unescaped, `_` is "any one character" and this matched both answers.
+      expect(await search('4_ m')).toEqual([])
+    })
+  })
+
   describe('reason counts', () => {
     /**
      * A down-vote with no chip used to group as its own NULL row beside

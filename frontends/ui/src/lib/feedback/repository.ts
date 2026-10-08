@@ -30,6 +30,7 @@ import { isConversationTagKey, type ConversationTagKey } from '@/lib/conversatio
 import { executeRows } from '@/lib/db/execute-rows'
 import { VOTED_TURN_JOINS } from './turn-join'
 import { feedbackWindowStart } from './trend'
+import { likeContains } from '@/lib/text/like-pattern'
 
 /** Hard cap for the per-conversation hydration list. */
 export const CONVERSATION_FEEDBACK_LIST_LIMIT = 200
@@ -576,7 +577,7 @@ export async function listFeedbackTurns(
       ${reason && verdict === 'down' ? sql`and coalesce(f.reason, 'other') = ${reason}` : sql``}
       ${
         query
-          ? sql`and (m.content ilike ${'%' + query + '%'} or q.content ilike ${'%' + query + '%'})`
+          ? sql`and (m.content ilike ${likeContains(query)} or q.content ilike ${likeContains(query)})`
           : sql``
       }
     order by f.created_at desc

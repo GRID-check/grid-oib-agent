@@ -176,6 +176,13 @@ describe('listFeedbackTurns', () => {
     }
   })
 
+  /** `100%` used to match every answer starting with "100"; `_` matched any character. */
+  it('searches the free text literally, with LIKE wildcards escaped', async () => {
+    const execute = capture()
+    await listFeedbackTurns({ query: '100%_R\\60' })
+    expect(params(execute.mock.calls[0][0])).toContain('%100\\%\\_R\\\\60%')
+  })
+
   it('drops a reason filter on the praised list', async () => {
     const execute = capture()
     await listFeedbackTurns({ verdict: 'up', reason: 'inaccurate' })
