@@ -37,8 +37,10 @@ import { CrossProjectAudienceChangedError, CrossProjectMemoryError } from '@/lib
 import { getDictionary } from '@/i18n/dictionaries'
 import { getDb } from '@/lib/db'
 import { AGENT_REFUSAL_LOCALE } from './restricted-egress'
-import { recordedForeignRestrictedFolders } from './restricted-use'
+import { isUuid } from '@/lib/ids'
+import { recordedForeignRestrictedFolders, recordedForeignRestrictedProjects } from './restricted-use'
 import {
+  listProjectNames,
   listRestrictingSourceProjects,
   lockConversationAudience,
   readConversationAudience,
@@ -123,6 +125,36 @@ export async function recordCrossProjectHandOut(
 export async function drewOnOtherProjects(conversationId: string, organizationId: string): Promise<boolean> {
   if ((await listRestrictingSourceProjects(getDb(), organizationId, conversationId)).length > 0) return true
   return (await recordedForeignRestrictedFolders(conversationId, organizationId)).length > 0
+}
+
+/** An other project that restricts a conversation now; `name` is null when the project is deleted or gone. */
+export interface RestrictingOtherProject {
+  id: string
+  name: string | null
+}
+
+/**
+ * The other projects that restrict this conversation NOW, for the notice that
+ * says so: every recorded project that is not closed, plus the owner of every
+ * recorded restricted folder of another project, a closed one included. The
+ * same two reads as {@link drewOnOtherProjects}, so the notice and the turn's
+ * doors agree: it is empty exactly when that is false. Judged at read time, so
+ * a project closed since the answer drops out and a reopened one is back.
+ * Sorted by name.
+ */
+export async function restrictingOtherProjects(
+  conversationId: string,
+  organizationId: string
+): Promise<RestrictingOtherProject[]> {
+  const [recorded, owners] = await Promise.all([
+    listRestrictingSourceProjects(getDb(), organizationId, conversationId),
+    recordedForeignRestrictedProjects(conversationId, organizationId),
+  ])
+  const ids = [...new Set([...recorded, ...owners])]
+  const names = await listProjectNames(getDb(), organizationId, ids.filter(isUuid))
+  return ids
+    .map((id) => ({ id, name: names.get(id) ?? null }))
+    .sort((a, b) => (a.name ?? '\uffff').localeCompare(b.name ?? '\uffff') || a.id.localeCompare(b.id))
 }
 
 /**

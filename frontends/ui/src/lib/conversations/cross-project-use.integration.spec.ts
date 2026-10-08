@@ -395,6 +395,54 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0116)', () 
     })
   })
 
+  describe('restrictingOtherProjects: what the composer’s notice lists, judged now', () => {
+    const listed = async (id: string) => inOrg(ORG, () => crossUse.restrictingOtherProjects(id, ORG))
+
+    it('lists a running project, and drops it once it is closed; a reopen lists it again', async () => {
+      const id = await chat()
+      await admit(id, [], ids.closed)
+      expect(await listed(id)).toEqual([])
+
+      await setStatus(ids.closed, 'active')
+      try {
+        expect(await listed(id)).toEqual([{ id: ids.closed, name: 'Referenzprojekt' }])
+      } finally {
+        await setStatus(ids.closed, 'closed')
+      }
+      expect(await listed(id)).toEqual([])
+    })
+
+    it('names a closed project whose restricted folder the chat drew on, and drops it when the folder is opened', async () => {
+      const id = await chat()
+      const { projectId, folderId: folder } = await closedProjectWithRestrictedFolder(`Notiz ${chatSeq}`)
+      await admit(id, [folder], projectId)
+
+      expect(await listed(id)).toEqual([{ id: projectId, name: expect.stringContaining('Notiz') }])
+      expect((await listed(id)).length > 0).toBe(await inOrg(ORG, () => crossUse.drewOnOtherProjects(id, ORG)))
+
+      await inOrg(ORG, async () => {
+        await db.execute(sql`update project_folders set access_mode = 'inherit' where id = ${folder}::uuid`)
+        await db.execute(sql`delete from project_folder_grants where folder_id = ${folder}::uuid`)
+      })
+      expect(await listed(id)).toEqual([])
+    })
+
+    it('lists a project once when the record and a folder of it both restrict, and not the chat’s own project', async () => {
+      const id = await chat()
+      const own = await restrictedFolder(ids.own, `Intern ${chatSeq}`)
+      await admit(id, [own, folderId], ids.other)
+
+      expect(await listed(id)).toEqual([{ id: ids.other, name: 'Anderes Projekt' }])
+    })
+
+    it('answers nothing for another organization’s record', async () => {
+      const id = await chat()
+      await admit(id, [], ids.other)
+
+      expect(await inOrg(OTHER_ORG, () => crossUse.restrictingOtherProjects(id, OTHER_ORG))).toEqual([])
+    })
+  })
+
   it('keeps the card decisions of a chat that drew on a running project out of the project digest, not of a closed one', async () => {
     const decided = (content: string) => JSON.stringify({ cardInteractions: { c1: { decision: 'accepted', content } } })
     const running = await chat()

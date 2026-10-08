@@ -26,6 +26,9 @@ const state = vi.hoisted(() => ({
   steps: [] as string[],
   recordedProjects: [] as string[],
   foreignFolders: [] as string[],
+  foreignOwners: [] as string[],
+  names: new Map<string, string>(),
+  nameQueries: [] as string[][],
 }))
 
 vi.mock('@/lib/db', () => ({
@@ -46,10 +49,15 @@ vi.mock('./restricted-use-repository', () => ({
     state.steps.push(`folders:${ids.join(',')}`)
   }),
   listRestrictingSourceProjects: vi.fn(async () => [...state.recordedProjects]),
+  listProjectNames: vi.fn(async (_db: unknown, _org: string, ids: string[]) => {
+    state.nameQueries.push([...ids])
+    return new Map(ids.filter((id) => state.names.has(id)).map((id) => [id, state.names.get(id)!]))
+  }),
 }))
 
 vi.mock('./restricted-use', () => ({
   recordedForeignRestrictedFolders: vi.fn(async () => [...state.foreignFolders]),
+  recordedForeignRestrictedProjects: vi.fn(async () => [...state.foreignOwners]),
 }))
 
 import { CrossProjectAudienceChangedError, CrossProjectMemoryError } from '@/lib/api/errors'
@@ -58,6 +66,7 @@ import {
   drewOnOtherProjects,
   isSoloAudience,
   recordCrossProjectHandOut,
+  restrictingOtherProjects,
   requireMayRememberFrom,
 } from './cross-project-use'
 
@@ -70,6 +79,7 @@ beforeEach(() => {
   state.steps = []
   state.recordedProjects = []
   state.foreignFolders = []
+  state.foreignOwners = []
 })
 
 describe('isSoloAudience', () => {
@@ -171,5 +181,65 @@ describe('drewOnOtherProjects', () => {
     state.recordedProjects = []
     state.foreignFolders = [HONORARE_ID]
     expect(await drewOnOtherProjects(CONV, ORG)).toBe(true)
+  })
+})
+
+describe('restrictingOtherProjects', () => {
+  const LINZ = '33333333-0000-4000-8000-000000000003'
+  const GONE = '44444444-0000-4000-8000-000000000004'
+
+  beforeEach(() => {
+    state.names = new Map([
+      [OTHER, 'Wohnbau Graz'],
+      [LINZ, 'Schule Linz'],
+    ])
+    state.nameQueries = []
+  })
+
+  it('is empty exactly when drewOnOtherProjects is false, and asks for no names then', async () => {
+    expect(await restrictingOtherProjects(CONV, ORG)).toEqual([])
+    expect(await drewOnOtherProjects(CONV, ORG)).toBe(false)
+    expect(state.nameQueries).toEqual([[]])
+  })
+
+  it('lists a recorded project that restricts, named', async () => {
+    state.recordedProjects = [LINZ]
+
+    expect(await restrictingOtherProjects(CONV, ORG)).toEqual([{ id: LINZ, name: 'Schule Linz' }])
+  })
+
+  it('lists the project that owns a recorded restricted folder, although the project is closed and not in the restricting record', async () => {
+    state.recordedProjects = []
+    state.foreignFolders = [HONORARE_ID]
+    state.foreignOwners = [OTHER]
+
+    expect(await restrictingOtherProjects(CONV, ORG)).toEqual([{ id: OTHER, name: 'Wohnbau Graz' }])
+    expect(await drewOnOtherProjects(CONV, ORG)).toBe(true)
+  })
+
+  it('names a project once when the record and a folder both say it, sorted by name', async () => {
+    state.recordedProjects = [LINZ, OTHER]
+    state.foreignOwners = [OTHER]
+
+    expect((await restrictingOtherProjects(CONV, ORG)).map((project) => project.name)).toEqual([
+      'Schule Linz',
+      'Wohnbau Graz',
+    ])
+  })
+
+  it('keeps a project that is deleted or gone, nameless, because it still restricts', async () => {
+    state.recordedProjects = [GONE]
+
+    expect(await restrictingOtherProjects(CONV, ORG)).toEqual([{ id: GONE, name: null }])
+  })
+
+  it('counts a restricted folder no project owns, and never asks the project table for it', async () => {
+    state.foreignOwners = [HONORARE_ID.replace('abcdef01', 'not-a-uuid')]
+
+    const found = await restrictingOtherProjects(CONV, ORG)
+
+    expect(found).toHaveLength(1)
+    expect(found[0].name).toBeNull()
+    expect(state.nameQueries).toEqual([[]])
   })
 })

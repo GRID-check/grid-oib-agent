@@ -316,11 +316,36 @@ export async function recordedForeignRestrictedFolders(
   conversationId: string,
   organizationId: string
 ): Promise<string[]> {
+  return (await foreignRestriction(conversationId, organizationId)).folderIds
+}
+
+/** The recorded restricted folders of other projects, and the record view that judged them. */
+async function foreignRestriction(
+  conversationId: string,
+  organizationId: string
+): Promise<{ folderIds: string[]; view: RecordView | null }> {
   const recorded = await listRecordedSourceFolders(getDb(), organizationId, conversationId)
-  if (recorded.length === 0) return []
+  if (recorded.length === 0) return { folderIds: [], view: null }
   const audience = await readConversationAudience(getDb(), organizationId, conversationId)
   const view = await recordView(organizationId, audience.projectId, recorded)
-  return stillRestricting(view.tree, recorded).filter((folderId) => view.ownerOf.get(folderId) !== audience.projectId)
+  const folderIds = stillRestricting(view.tree, recorded).filter(
+    (folderId) => view.ownerOf.get(folderId) !== audience.projectId
+  )
+  return { folderIds, view }
+}
+
+/**
+ * The projects that own the folders {@link recordedForeignRestrictedFolders}
+ * returns: whom a reader names when a closed project is the reason a chat is
+ * narrowed. A folder no project owns any more (an unknown id) stands in as its
+ * own id, so the restriction is still counted; no project row carries that id.
+ */
+export async function recordedForeignRestrictedProjects(
+  conversationId: string,
+  organizationId: string
+): Promise<string[]> {
+  const { folderIds, view } = await foreignRestriction(conversationId, organizationId)
+  return [...new Set(folderIds.map((folderId) => view?.ownerOf.get(folderId) ?? folderId))].sort()
 }
 
 /**

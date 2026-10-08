@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 import type { DbExecutor } from '@/lib/db/executor'
 import {
   conversationRestrictedFolders,
@@ -191,6 +191,32 @@ export async function listRestrictingSourceProjects(
     .orderBy(conversationSourceProjects.projectId)
     .limit(RECORDED_PROJECTS_LIMIT)
   return rows.map((row) => String(row.projectId))
+}
+
+/**
+ * The names of these projects, by id; a project that is deleted or gone is
+ * absent. Bounded by the caller's list, which comes from a conversation's record.
+ */
+export async function listProjectNames(
+  executor: DbExecutor,
+  organizationId: string,
+  projectIds: readonly string[],
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>()
+  if (projectIds.length === 0) return names
+  const rows = await executor
+    .select({ id: projects.id, name: projects.name })
+    .from(projects)
+    .where(
+      and(
+        eq(projects.organizationId, organizationId),
+        inArray(projects.id, [...projectIds]),
+        isNull(projects.deletedAt),
+      ),
+    )
+    .limit(RECORDED_PROJECTS_LIMIT)
+  for (const row of rows) names.set(String(row.id), String(row.name))
+  return names
 }
 
 /** {@link listRestrictingSourceProjects} for many conversations; absent from the map means none. */

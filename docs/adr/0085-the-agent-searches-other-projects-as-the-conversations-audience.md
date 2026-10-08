@@ -172,8 +172,13 @@ independent review found it.)
 the citation wire (`project: {id, name, status}`), so its chip names it, its
 preview resolves the document in that project by the reader's own access, and a
 closed one says so by its own status, whatever the chat's. The composer notice
-names only RUNNING other projects and what they close; a chat that drew only on
-closed projects shows none.
+names the other projects that restrict the chat NOW, as the server judges them
+when the chat is read (`restrictingOtherProjects` on the conversation detail):
+a running project, or a project whose restricted folder the chat drew on, a
+closed one's included. A chat that drew only on closed projects' open folders
+shows none. (Clarified 2026-10-08: the notice first judged from the project
+status the citations carried at answer time, so it went stale when a project
+closed or reopened.)
 
 **Bounded cost.** One search call searches at most 8 projects, 4 at a time, and
 returns the offset of the next page. A shared chat's reach asks WorkOS at most

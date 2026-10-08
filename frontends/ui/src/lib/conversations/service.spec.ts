@@ -66,6 +66,10 @@ vi.mock('./restricted-use', async (importOriginal) => ({
   peopleWhoMayRead: vi.fn(async (_organizationId: string, _conversationId: string, userIds: readonly string[]) => new Set(userIds)),
   lockedConversationIds: vi.fn(async () => new Set<string>()),
 }))
+// Which other projects restrict a chat now is judged against the record and the
+// project rows; `cross-project-use.spec.ts` covers that. Here the default is a
+// chat that drew on none, and the tests of the detail say otherwise.
+vi.mock('./cross-project-use', () => ({ restrictingOtherProjects: vi.fn(async () => []) }))
 // Discarding a chat now erases state that lives OUTSIDE Postgres before it
 // touches a row (ADR-0047 Phase 2). Mocked at the boundary so this suite can
 // state what the service does with each outcome; the erasure itself is tested
@@ -132,6 +136,7 @@ import { deleteSessionCollection, purgeSessionDocuments } from '@/lib/session-do
 import { discardConversationDrafts } from './working-directory'
 import { maskChatText } from '@/lib/upload-screening/service'
 import { resolveEngagement, resolveEngagementFor, setEngagement } from './engagement'
+import { restrictingOtherProjects } from './cross-project-use'
 import { lockedConversationIds, peopleWhoMayRead } from './restricted-use'
 import {
   deleteConversationInOrg,
@@ -238,6 +243,7 @@ beforeEach(() => {
   // Nothing the conversation recorded restricts anybody, unless a test says so.
   vi.mocked(peopleWhoMayRead).mockImplementation(async (_org, _id, userIds) => new Set(userIds))
   vi.mocked(lockedConversationIds).mockResolvedValue(new Set())
+  vi.mocked(restrictingOtherProjects).mockResolvedValue([])
   // The collaboration feature is dark-launched (spec NF-7): without an operator
   // opt-in the mention path refuses outright, so the tests that exercise it must
   // enable it. The flag-OFF behaviour has its own tests.
@@ -323,6 +329,33 @@ describe('reading a conversation — the access rules', () => {
 
     expect(conversation.myRole).toBe('owner')
     expect(conversation.shared).toBe(false)
+  })
+})
+
+describe('the other projects that restrict a chat (ADR-0085)', () => {
+  const GRAZ = { id: '22222222-0000-4000-8000-000000000002', name: 'Wohnbau Graz' }
+
+  it('puts the server’s current record on the detail, asked for this conversation in this organization', async () => {
+    stubConversation({ visibility: 'private', createdBy: 'user_me' })
+    vi.mocked(restrictingOtherProjects).mockResolvedValue([GRAZ])
+
+    const conversation = await getConversation(session, CONVERSATION_ID)
+
+    expect(conversation.restrictingOtherProjects).toEqual([GRAZ])
+    expect(restrictingOtherProjects).toHaveBeenCalledWith(CONVERSATION_ID, session.organizationId)
+  })
+
+  it('says none for a chat that drew on no other project', async () => {
+    stubConversation({ visibility: 'private', createdBy: 'user_me' })
+    expect((await getConversation(session, CONVERSATION_ID)).restrictingOtherProjects).toEqual([])
+  })
+
+  it('does not look at the record for a caller who may not read the conversation', async () => {
+    stubConversation({ visibility: 'private', createdBy: 'user_other' })
+    vi.mocked(restrictingOtherProjects).mockResolvedValue([GRAZ])
+
+    await expect(getConversation(session, CONVERSATION_ID)).rejects.toThrow(NotFoundError)
+    expect(restrictingOtherProjects).not.toHaveBeenCalled()
   })
 })
 
@@ -458,6 +491,7 @@ describe('a chat the reader may no longer read (ADR-0081)', () => {
     it('answers the typed 403 for the detail, and reads no row', async () => {
       await expect(getConversation(session, CONVERSATION_ID)).rejects.toBeInstanceOf(ResourceRightsLostError)
       expect(findConversationInOrg).not.toHaveBeenCalled()
+      expect(restrictingOtherProjects).not.toHaveBeenCalled()
     })
 
     it('answers the typed 403 for the messages, and reads none of them', async () => {
