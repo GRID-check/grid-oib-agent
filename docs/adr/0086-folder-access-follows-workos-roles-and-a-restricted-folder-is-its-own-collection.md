@@ -154,6 +154,8 @@ envelope is also refused on the envelope's own restricted collections:
   file name, so it is resolved against every project document by that name,
   restricted folders and archived rows included, and refused when any of them
   sits in a folder not every member may read; an Archiv entry is not checked.
+  The async proxy does not forward `job/{id}/documents`, so `addRunDocument` is
+  the only way a document reaches a running run.
 
 The agent does not offer what will be refused: a turn whose signed scope holds a
 restricted collection withdraws deep research and tasks for the turn, its

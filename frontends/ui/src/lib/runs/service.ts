@@ -557,7 +557,8 @@ export async function cancelRun(
  * One refusal of its own: a document from a folder not every project member
  * may read (`requirePlanDocumentsOpen`, 403 `CONVERSATION_CONFINED`), because
  * the run's stream and report are read by the whole project. Refused before
- * the backend hears of it.
+ * the backend hears of it. This is the only door a document reaches a running
+ * run by; the async proxy refuses `job/{id}/documents`.
  */
 export async function addRunDocument(
   session: AuthorizedSession,
